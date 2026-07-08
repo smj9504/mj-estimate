@@ -37,6 +37,7 @@ import {
   SendOutlined,
   MailOutlined,
   DownloadOutlined,
+  CameraOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -104,10 +105,12 @@ const ELECTRICAL_ITEM_OPTIONS = [
   { label: '🔔 Smoke detector', value: 'Smoke detector' },
   { label: '🔔 CO detector', value: 'CO detector' },
   { label: '🌡️ Thermostat', value: 'Thermostat' },
+  { label: '🔊 Ceiling speaker', value: 'Ceiling speaker' },
 ];
 
 type PromptItem = { name: string; qty: number };
-type PromptAffectedArea = { area: string; items: PromptItem[] };
+type PromptAreaPhoto = { id: string; caption: string };
+type PromptAffectedArea = { area: string; items: PromptItem[]; photos?: PromptAreaPhoto[] };
 type PromptPhotoDesc = { description: string };
 type PromptInputsType = {
   affected_items: PromptAffectedArea[];
@@ -615,7 +618,7 @@ const ElectricianReportCreation: React.FC = () => {
     });
   };
 
-  const handlePhotoFiles = async (files: File[]) => {
+  const handlePhotoFiles = async (files: File[], areaName?: string) => {
     for (const file of files) {
       const dataUrl = await compressImage(file);
       const newPhoto: PhotoRecord = {
@@ -623,9 +626,53 @@ const ElectricianReportCreation: React.FC = () => {
         url: dataUrl,
         category: 'damage',
         caption: file.name.replace(/\.[^/.]+$/, ''),
+        location: areaName || '',
       };
       setPhotos((prev) => [...prev, newPhoto]);
     }
+  };
+
+  const addFilesToArea = async (areaIdx: number, files: File[]) => {
+    const area = (promptInputs.affected_items as PromptAffectedArea[])[areaIdx];
+    const itemsLabel = area.items.map(it => `${it.qty} ${it.name}`).join(', ');
+    const photoCaption = area.area + (itemsLabel ? ` — ${itemsLabel}` : '');
+    const newAreaPhotos: PromptAreaPhoto[] = [];
+    for (const file of files) {
+      const dataUrl = await compressImage(file);
+      const photoId = `photo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      newAreaPhotos.push({ id: photoId, caption: file.name.replace(/\.[^/.]+$/, '') });
+      setPhotos((prev) => [...prev, {
+        id: photoId, url: dataUrl,
+        category: 'other' as const,
+        caption: photoCaption,
+        location: area.area,
+      }]);
+    }
+    const updated = [...promptInputs.affected_items] as PromptAffectedArea[];
+    updated[areaIdx] = {
+      ...updated[areaIdx],
+      photos: [...(updated[areaIdx].photos || []), ...newAreaPhotos],
+    };
+    setPromptInputs((prev: PromptInputsType) => ({ ...prev, affected_items: updated }));
+  };
+
+  const handleAreaPhotoUpload = (areaIdx: number) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.multiple = true;
+    input.onchange = (e: any) => {
+      const files = Array.from(e.target.files || []) as File[];
+      if (files.length) addFilesToArea(areaIdx, files);
+    };
+    input.click();
+  };
+
+  const handleAreaDrop = (areaIdx: number, e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    if (files.length) addFilesToArea(areaIdx, files);
   };
 
   // Drag and drop sensors and handlers
@@ -864,106 +911,35 @@ const ElectricianReportCreation: React.FC = () => {
       setIsDownloadingPdf(true);
       message.loading({ content: 'Generating PDF...', key: 'pdf-download', duration: 0 });
 
-      // Strip photos from request to keep payload small
-      const reportWithoutPhotos = { ...previewReportData, photos: [] };
-      const pdfBlob = await electricianReportService.previewPDF(reportWithoutPhotos, {
-        include_photos: false,
+      // Send photos metadata when withPhotos is true
+      // Rebuild caption as "Area — items" using current prompt data
+      const areas = promptInputs.affected_items as PromptAffectedArea[];
+      const reportForPdf = withPhotos
+        ? {
+            ...previewReportData,
+            photos: (previewReportData.photos || []).map((p: any) => {
+              const area = areas.find(a =>
+                (a.photos || []).some((ap: PromptAreaPhoto) => ap.id === p.id)
+              ) || areas.find(a => a.area && a.area === p.location);
+              const areaName = area?.area || p.location || '';
+              const itemsStr = (area?.items || [])
+                .map((it: PromptItem) => `${it.qty} ${it.name}`).join(', ');
+              const caption = areaName + (itemsStr ? ` — ${itemsStr}` : '');
+              return {
+                id: p.id, url: p.url, file_id: p.file_id,
+                category: p.category, location: areaName,
+                caption,
+              };
+            }),
+          }
+        : { ...previewReportData, photos: [] };
+
+      const pdfBlob = await electricianReportService.previewPDF(reportForPdf, {
+        include_photos: withPhotos,
         include_financial: true,
       });
 
-      let finalBlob = pdfBlob;
-
-      // Append photo pages client-side using pdf-lib
-      if (withPhotos && previewReportData.photos?.length) {
-        const { PDFDocument } = await import('pdf-lib');
-        const pdfDoc = await PDFDocument.load(await pdfBlob.arrayBuffer());
-
-        const catLabels: Record<string, string> = {
-          damage: 'Water Damage', panel: 'Electrical Panel',
-          fixture: 'Light Fixture', wiring: 'Wiring / Junction Box',
-          outlet: 'Outlet / Switch', moisture: 'Moisture / Staining',
-          before: 'Before', during: 'During',
-          after: 'After Repair', other: 'Other',
-        };
-
-        const photoList = previewReportData.photos;
-        for (let i = 0; i < photoList.length; i += 2) {
-          const page = pdfDoc.addPage([612, 792]); // letter size
-          const { width: pw, height: ph } = page.getSize();
-          const margin = 36;
-
-          // Title on first photo page
-          if (i === 0) {
-            const { rgb } = await import('pdf-lib');
-            page.drawText('Photo Documentation', {
-              x: margin, y: ph - margin - 14, size: 14,
-              color: rgb(0, 0, 0),
-            });
-          }
-          const yStart = i === 0 ? ph - margin - 32 : ph - margin;
-          const slotH = (yStart - margin) / 2 - 10;
-
-          for (let j = 0; j < 2 && i + j < photoList.length; j++) {
-            const photo = photoList[i + j];
-            const url = photo.url;
-            if (!url.startsWith('data:')) continue;
-
-            try {
-              // Compress photo
-              const imgBytes = await new Promise<Uint8Array>((resolve) => {
-                const img = new window.Image();
-                img.onload = () => {
-                  const canvas = document.createElement('canvas');
-                  let w = img.width, h = img.height;
-                  const max = 500;
-                  if (w > max || h > max) {
-                    if (w > h) { h = Math.round((h * max) / w); w = max; }
-                    else { w = Math.round((w * max) / h); h = max; }
-                  }
-                  canvas.width = w;
-                  canvas.height = h;
-                  canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
-                  canvas.toBlob((blob) => {
-                    blob!.arrayBuffer().then(buf => resolve(new Uint8Array(buf)));
-                  }, 'image/jpeg', 0.5);
-                };
-                img.onerror = () => resolve(new Uint8Array());
-                img.src = url;
-              });
-
-              if (!imgBytes.length) continue;
-
-              const embeddedImg = await pdfDoc.embedJpg(imgBytes);
-              const imgW = embeddedImg.width;
-              const imgH = embeddedImg.height;
-              const maxW = pw - 2 * margin;
-              const maxH = slotH - 18;
-              const scale = Math.min(maxW / imgW, maxH / imgH, 1);
-              const drawW = imgW * scale;
-              const drawH = imgH * scale;
-
-              const slotY = yStart - j * (slotH + 10);
-              const x = margin + (maxW - drawW) / 2;
-              const y = slotY - drawH;
-
-              page.drawImage(embeddedImg, { x, y, width: drawW, height: drawH });
-
-              // Caption
-              const label = catLabels[photo.category || ''] || photo.category || '';
-              const captionText = photo.caption ? `${label}: ${photo.caption}` : label;
-              const { rgb } = await import('pdf-lib');
-              page.drawText(captionText.slice(0, 80), {
-                x: margin, y: y - 12, size: 8, color: rgb(0.3, 0.3, 0.3),
-              });
-            } catch {
-              continue;
-            }
-          }
-        }
-
-        const mergedBytes = await pdfDoc.save();
-        finalBlob = new Blob([mergedBytes], { type: 'application/pdf' });
-      }
+      const finalBlob = pdfBlob;
       const url = URL.createObjectURL(finalBlob);
       const a = document.createElement('a');
       a.href = url;
@@ -1517,7 +1493,22 @@ const ElectricianReportCreation: React.FC = () => {
                     pagination={false}
                     dataSource={section.items.map((item, iIdx) => ({ ...item, key: `${sIdx}-${iIdx}`, _sIdx: sIdx, _iIdx: iIdx }))}
                     columns={[
-                      { title: 'Item', dataIndex: 'label', width: '40%' },
+                      {
+                        title: 'Item', dataIndex: 'label', width: '40%',
+                        render: (_: any, record: any) => (
+                          <Input
+                            size="small"
+                            value={record.label}
+                            variant="borderless"
+                            style={{ padding: 0 }}
+                            onChange={(e) => {
+                              const updated = [...inspectionChecklist];
+                              updated[record._sIdx].items[record._iIdx].label = e.target.value;
+                              setInspectionChecklist(updated);
+                            }}
+                          />
+                        ),
+                      },
                       {
                         title: 'Status', dataIndex: 'status', width: '120px',
                         render: (_: any, record: any) => (
@@ -1538,7 +1529,7 @@ const ElectricianReportCreation: React.FC = () => {
                         ),
                       },
                       {
-                        title: 'Notes', dataIndex: 'note', width: '35%',
+                        title: 'Notes', dataIndex: 'note',
                         render: (_: any, record: any) => (
                           <Input
                             size="small"
@@ -1552,8 +1543,37 @@ const ElectricianReportCreation: React.FC = () => {
                           />
                         ),
                       },
+                      {
+                        title: '', width: 36,
+                        render: (_: any, record: any) => (
+                          <Button
+                            type="text"
+                            size="small"
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => {
+                              const updated = [...inspectionChecklist];
+                              updated[record._sIdx].items = updated[record._sIdx].items.filter((_: any, i: number) => i !== record._iIdx);
+                              setInspectionChecklist(updated);
+                            }}
+                          />
+                        ),
+                      },
                     ]}
                   />
+                  <Button
+                    type="dashed"
+                    size="small"
+                    icon={<PlusOutlined />}
+                    style={{ marginTop: 4 }}
+                    onClick={() => {
+                      const updated = [...inspectionChecklist];
+                      updated[sIdx].items.push({ label: '', status: 'N/A', note: '' });
+                      setInspectionChecklist([...updated]);
+                    }}
+                  >
+                    Add Item
+                  </Button>
                 </div>
               ))}
               {/* Summary */}
@@ -1946,135 +1966,103 @@ const ElectricianReportCreation: React.FC = () => {
             <Card
               title={`Photo Documentation (${photos.length} photos)`}
               style={{ marginBottom: 24 }}
-              extra={
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<PlusOutlined />}
-                  onClick={() => {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = 'image/*';
-                    input.multiple = true;
-                    input.onchange = (e: any) => {
-                      const files = Array.from(e.target.files || []) as File[];
-                      if (files.length) handlePhotoFiles(files);
-                    };
-                    input.click();
+              extra={photos.length > 0 && (
+                <Popconfirm
+                  title="Delete all photos?"
+                  description={`${photos.length}장의 사진이 모두 삭제됩니다.`}
+                  onConfirm={() => {
+                    setPhotos([]);
+                    // Clear area photo thumbnails too
+                    const updated = (promptInputs.affected_items as PromptAffectedArea[]).map(
+                      (a) => ({ ...a, photos: [] })
+                    );
+                    setPromptInputs((prev: PromptInputsType) => ({ ...prev, affected_items: updated }));
                   }}
+                  okText="Delete All"
+                  cancelText="Cancel"
+                  okButtonProps={{ danger: true }}
                 >
-                  Add Photos
-                </Button>
-              }
+                  <Button size="small" danger icon={<DeleteOutlined />}>
+                    Delete All
+                  </Button>
+                </Popconfirm>
+              )}
             >
               {photos.length === 0 ? (
                 <div
                   style={{
                     border: '2px dashed #d9d9d9', borderRadius: 8, padding: '40px 20px',
-                    textAlign: 'center', color: '#999', cursor: 'pointer',
-                  }}
-                  onClick={() => {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = 'image/*';
-                    input.multiple = true;
-                    input.onchange = (e: any) => {
-                      const files = Array.from(e.target.files || []) as File[];
-                      if (files.length) handlePhotoFiles(files);
-                    };
-                    input.click();
+                    textAlign: 'center', color: '#999',
                   }}
                 >
-                  <PlusOutlined style={{ fontSize: 24, marginBottom: 8 }} />
-                  <p>Click to add photos or drag files here</p>
-                  <p style={{ fontSize: 12 }}>Supports multiple files. Recommended: 10+ photos for thorough documentation.</p>
+                  <CameraOutlined style={{ fontSize: 24, marginBottom: 8 }} />
+                  <p>No photos yet</p>
+                  <p style={{ fontSize: 12 }}>Upload photos from the Affected Areas section above using the 📷 Photo button.</p>
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                  {photos.map((photo, idx) => (
-                    <div
-                      key={photo.id}
-                      style={{
-                        width: 180, border: '1px solid #e8e8e8', borderRadius: 6,
-                        overflow: 'hidden', background: '#fafafa',
-                      }}
-                    >
-                      <div style={{ position: 'relative' }}>
-                        <img
-                          src={photo.url}
-                          alt={photo.caption || 'Photo'}
-                          style={{ width: '100%', height: 130, objectFit: 'cover' }}
-                        />
-                        <Popconfirm
-                          title="Delete this photo?"
-                          onConfirm={() => setPhotos((prev) => prev.filter((p) => p.id !== photo.id))}
-                          okText="Delete"
-                          cancelText="Cancel"
-                        >
-                          <Button
-                            size="small"
-                            danger
-                            icon={<DeleteOutlined />}
-                            style={{
-                              position: 'absolute', top: 4, right: 4,
-                              background: 'rgba(255,255,255,0.85)', border: 'none',
-                            }}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  {photos.map((photo) => {
+                    // Find area by photo ID (reliable) or fallback to location name
+                    const matchedArea = (promptInputs.affected_items as PromptAffectedArea[])
+                      .find(a => (a.photos || []).some(p => p.id === photo.id))
+                      || (promptInputs.affected_items as PromptAffectedArea[])
+                        .find(a => a.area && a.area === photo.location);
+                    const areaName = matchedArea?.area || photo.location || '';
+                    const areaItems = matchedArea?.items || [];
+                    const itemsLabel = areaItems.map(it => `${it.qty} ${it.name}`).join(', ');
+
+                    return (
+                      <div
+                        key={photo.id}
+                        style={{
+                          width: 160, border: '1px solid #e8e8e8', borderRadius: 6,
+                          overflow: 'hidden', background: '#fafafa',
+                        }}
+                      >
+                        <div style={{ position: 'relative' }}>
+                          <img
+                            src={photo.url}
+                            alt={photo.location || 'Photo'}
+                            style={{ width: '100%', height: 120, objectFit: 'cover' }}
                           />
-                        </Popconfirm>
+                          <Popconfirm
+                            title="Delete this photo?"
+                            onConfirm={() => {
+                              setPhotos((prev) => prev.filter((p) => p.id !== photo.id));
+                              // Also remove from area photos
+                              const updated = (promptInputs.affected_items as PromptAffectedArea[]).map(
+                                (a) => ({ ...a, photos: (a.photos || []).filter(p => p.id !== photo.id) })
+                              );
+                              setPromptInputs((prev: PromptInputsType) => ({ ...prev, affected_items: updated }));
+                            }}
+                            okText="Delete"
+                            cancelText="Cancel"
+                          >
+                            <Button
+                              size="small"
+                              danger
+                              icon={<DeleteOutlined />}
+                              style={{
+                                position: 'absolute', top: 4, right: 4,
+                                background: 'rgba(255,255,255,0.85)', border: 'none',
+                              }}
+                            />
+                          </Popconfirm>
+                        </div>
+                        <div style={{
+                          padding: '4px 6px', minHeight: 32,
+                          borderTop: '1px solid #f0f0f0', background: '#fff',
+                        }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: '#333' }}>
+                            {areaName || 'Unassigned'}
+                          </div>
+                          <div style={{ fontSize: 10, color: '#888', lineHeight: 1.3 }}>
+                            {itemsLabel || '—'}
+                          </div>
+                        </div>
                       </div>
-                      <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <Select
-                          size="small"
-                          value={photo.location || undefined}
-                          placeholder="Location"
-                          style={{ width: '100%' }}
-                          allowClear
-                          onChange={(val) => {
-                            const updated = [...photos];
-                            updated[idx] = { ...updated[idx], location: val || '' };
-                            setPhotos(updated);
-                          }}
-                        >
-                          {(promptInputs.affected_items as PromptAffectedArea[])
-                            .filter(a => a.area.trim())
-                            .map((a, aIdx) => (
-                              <Option key={aIdx} value={a.area}>{a.area}</Option>
-                            ))
-                          }
-                        </Select>
-                        <Select
-                          size="small"
-                          value={photo.category}
-                          style={{ width: '100%' }}
-                          onChange={(val) => {
-                            const updated = [...photos];
-                            updated[idx] = { ...updated[idx], category: val };
-                            setPhotos(updated);
-                          }}
-                        >
-                          <Option value="damage">Water Damage</Option>
-                          <Option value="panel">Electrical Panel</Option>
-                          <Option value="fixture">Light Fixture</Option>
-                          <Option value="wiring">Wiring / Junction</Option>
-                          <Option value="outlet">Outlet / Switch</Option>
-                          <Option value="moisture">Moisture / Staining</Option>
-                          <Option value="before">Before</Option>
-                          <Option value="after">After Repair</Option>
-                          <Option value="other">Other</Option>
-                        </Select>
-                        <Input
-                          size="small"
-                          value={photo.caption || ''}
-                          placeholder="Caption..."
-                          onChange={(e) => {
-                            const updated = [...photos];
-                            updated[idx] = { ...updated[idx], caption: e.target.value };
-                            setPhotos(updated);
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </Card>
@@ -2477,7 +2465,13 @@ The block below is a FORMAT/TONE reference only — its rooms and numbers are DU
               <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 6 }}>Affected Areas & Non-working Items *</label>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {(promptInputs.affected_items as PromptAffectedArea[]).map((item, idx) => (
-                  <div key={idx} style={{ background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 6, padding: '8px 10px' }}>
+                  <div
+                    key={idx}
+                    style={{ background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 6, padding: '8px 10px' }}
+                    onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = '#1677ff'; }}
+                    onDragLeave={(e) => { e.currentTarget.style.borderColor = '#f0f0f0'; }}
+                    onDrop={(e) => { e.currentTarget.style.borderColor = '#f0f0f0'; handleAreaDrop(idx, e); }}
+                  >
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
                       <Text strong style={{ fontSize: 12, minWidth: 20, textAlign: 'right' }}>{idx + 1}.</Text>
                       <Input
@@ -2563,6 +2557,73 @@ The block below is a FORMAT/TONE reference only — its rooms and numbers are DU
                           setPromptInputs((prev: PromptInputsType) => ({ ...prev, affected_items: updated }));
                         }}
                       />
+                      {/* Area photos */}
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {(item.photos || []).map((ap: PromptAreaPhoto) => {
+                          const photoData = photos.find(p => p.id === ap.id);
+                          return (
+                            <div key={ap.id} style={{ position: 'relative' }}>
+                              {photoData ? (
+                                <img
+                                  src={photoData.url}
+                                  alt={ap.caption}
+                                  style={{
+                                    width: 52, height: 52, objectFit: 'cover',
+                                    borderRadius: 4, border: '1px solid #d9d9d9',
+                                  }}
+                                />
+                              ) : (
+                                <div style={{
+                                  width: 52, height: 52, borderRadius: 4,
+                                  border: '1px solid #d9d9d9', background: '#f5f5f5',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  fontSize: 10, color: '#999',
+                                }}>
+                                  📷
+                                </div>
+                              )}
+                              <Button
+                                size="small"
+                                type="text"
+                                danger
+                                icon={<DeleteOutlined />}
+                                style={{
+                                  position: 'absolute', top: -4, right: -4,
+                                  width: 16, height: 16, minWidth: 16,
+                                  fontSize: 9, padding: 0,
+                                  background: '#fff', borderRadius: '50%',
+                                  border: '1px solid #ff4d4f',
+                                }}
+                                onClick={() => {
+                                  const updated = [...promptInputs.affected_items] as PromptAffectedArea[];
+                                  updated[idx] = {
+                                    ...updated[idx],
+                                    photos: (updated[idx].photos || []).filter((p: PromptAreaPhoto) => p.id !== ap.id),
+                                  };
+                                  setPromptInputs((prev: PromptInputsType) => ({ ...prev, affected_items: updated }));
+                                  setPhotos((prev) => prev.filter((p) => p.id !== ap.id));
+                                }}
+                              />
+                            </div>
+                          );
+                        })}
+                        <Tooltip title="Click or drag & drop photos">
+                          <Button
+                            size="small"
+                            type="dashed"
+                            icon={<CameraOutlined />}
+                            onClick={() => handleAreaPhotoUpload(idx)}
+                            style={{
+                              width: 52, height: 52,
+                              display: 'flex', flexDirection: 'column',
+                              alignItems: 'center', justifyContent: 'center',
+                              fontSize: 10, color: '#999',
+                            }}
+                          >
+                            {(item.photos || []).length ? '' : 'Photo'}
+                          </Button>
+                        </Tooltip>
+                      </div>
                     </div>
                   </div>
                 ))}

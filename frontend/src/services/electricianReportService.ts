@@ -202,6 +202,7 @@ export const DEFAULT_INSPECTION_CHECKLIST: ChecklistSection[] = [
       { label: 'Pendant / chandelier fixtures', status: 'N/A' },
       { label: 'Ceiling fan / light combo units', status: 'N/A' },
       { label: 'Under-cabinet / vanity lighting', status: 'N/A' },
+      { label: 'Ceiling-mount speakers (if present)', status: 'N/A' },
       { label: 'Exterior / porch lighting', status: 'N/A' },
     ],
   },

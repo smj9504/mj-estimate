@@ -53,6 +53,7 @@ class PhotoRecord(BaseModel):
     file_id: Optional[str] = None
     category: str = Field(..., description="before, during, after, damage, panel, wiring, other")
     caption: Optional[str] = None
+    location: Optional[str] = None
     timestamp: Optional[datetime] = None
 
 

@@ -38,9 +38,23 @@ REPORT_PROMPT_TEMPLATE = """JOB DETAILS:
    Never mark DEFICIENT unless listed as damaged.
    Do NOT invent items not in JOB DETAILS.
 
-7. QUOTE. tax_amount + line totals must equal the JOB DETAILS total. Don't pad with fake
-   items — use legitimate scope (final test/re-energization, consumables,
-   access cut & patch). Materials may be LOT lines.
+7. CONSISTENCY CHAIN — findings, checklist, and quote MUST align:
+   a) Every item in JOB DETAILS affected items → checklist status DEFICIENT + note with
+      test result → matching quote repair line. No orphans in any direction.
+   b) Items NOT in JOB DETAILS affected items → checklist status OK or N/A.
+      Do NOT mark DEFICIENT for items not listed as damaged.
+   c) electrical_findings must reference the same items/rooms as the DEFICIENT checklist
+      entries. Do not mention problems in findings that are not in the checklist, and
+      do not have DEFICIENT checklist items without corresponding findings.
+   d) quote_items must cover ALL DEFICIENT checklist items and ONLY those items.
+      Supporting scope (inspection/service call, final test/re-energization, consumables,
+      drywall access cut & patch) are allowed as additional lines.
+      Do NOT quote repairs for items marked OK or N/A.
+
+8. QUOTE MATH. tax_amount + sum of all line totals (quantity × unit_cost) must equal
+   the JOB DETAILS total. Materials may be LOT lines.
+   When ceiling speakers are in scope, quote removal + test + reinstall as a labor line
+   and speaker replacement as a material line (if non-functional).
 
 === STYLE ===
 Field electrician on a tablet. Short bullets, one fact per line, \\n between them.
@@ -52,12 +66,18 @@ Avoid: "upon arrival", "was advised/observed/found", "consistent with", passive 
 === FIXTURE NAMING ===
 "boob light" → "flush-mount ceiling fixture (dome)"; "can" → "recessed light".
 Keep standard names (wrap fixture, vanity light) as-is.
+"Ceiling speaker" → "ceiling-mount speaker". Include speaker removal, testing, and
+reinstallation in quote when speakers are listed in affected items.
 
-=== CHECKLIST — EXACT section titles & labels; status = OK / DEFICIENT / N/A ===
+=== CHECKLIST — section titles & standard labels; status = OK / DEFICIENT / N/A ===
 Notes = measured facts only (no cause words, no visual observations).
+Use these standard sections and labels as baseline. You MAY add custom items to any
+section when the affected items in JOB DETAILS include equipment not covered below
+(e.g. ceiling speakers, EV charger, security system, intercom, garage door opener).
 - "Lighting & Fixtures": Recessed lights (cans) — operational test | Surface-mount / flush
   ceiling fixtures | Pendant / chandelier fixtures | Ceiling fan / light combo units |
-  Under-cabinet / vanity lighting | Exterior / porch lighting
+  Under-cabinet / vanity lighting | Ceiling-mount speakers (if present) |
+  Exterior / porch lighting
 - "Wiring & Connections": Junction boxes — condition / accessibility | Wire connectors
   (wire nuts) — condition | Wire insulation — condition | NM cable (Romex) — condition |
   Conduit / raceway — condition | Outlet / switch boxes — condition

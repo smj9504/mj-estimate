@@ -9,7 +9,7 @@ import logging
 import os
 import re
 import sys
-from datetime import datetime, date
+from datetime import date, datetime
 from html import escape as html_escape
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -75,7 +75,8 @@ def _ensure_weasyprint():
     if WEASYPRINT_AVAILABLE is not None:
         return
     try:
-        from weasyprint import CSS as _CSS, HTML as _HTML
+        from weasyprint import CSS as _CSS
+        from weasyprint import HTML as _HTML
         HTML = _HTML
         CSS = _CSS
         WEASYPRINT_AVAILABLE = True
@@ -91,7 +92,9 @@ def _ensure_pypdf():
         return
     try:
         import io  # noqa: F811
-        from pypdf import PdfReader as _PR, PdfWriter as _PW
+
+        from pypdf import PdfReader as _PR
+        from pypdf import PdfWriter as _PW
         from pypdf.generic import RectangleObject as _RO
         from reportlab.lib.pagesizes import letter as _letter
         from reportlab.pdfgen import canvas as _canvas
@@ -474,9 +477,9 @@ class PDFService:
             css_strings: List of raw CSS strings
             output_path: Output PDF file path
         """
+        import json
         import subprocess
         import tempfile
-        import json
 
         logger = logging.getLogger(__name__)
 
@@ -1778,10 +1781,14 @@ print(os.path.getsize(output_path))
         include_photos: bool = True,
         include_financial: bool = True
     ) -> bytes:
-        """Generate PDF for Electrician Inspection Report (same pattern as plumber)"""
-        _ensure_weasyprint()
-        if not WEASYPRINT_AVAILABLE:
-            raise RuntimeError("WeasyPrint is not available")
+        """Generate PDF for Electrician Inspection Report.
+        Uses subprocess for WeasyPrint (same as invoice/estimate)
+        to avoid GLib/event-loop issues on Windows.
+        """
+        import json
+        import subprocess
+        import sys
+        import tempfile
 
         template_dir = TEMPLATE_DIR / "electrician_report" / "standard"
         env = Environment(loader=FileSystemLoader(str(template_dir)))
@@ -1825,20 +1832,32 @@ print(os.path.getsize(output_path))
                 context['company_data'] = {**context['company_data'], 'logo': None}
 
         # Extract photos — WeasyPrint renders text only, photos appended via reportlab
+        _logger = logging.getLogger(__name__)
         photos_for_append = []
         if include_photos and context.get('photos'):
             photos_for_append = context['photos']
+            _logger.info(
+                f"Electrician PDF: {len(photos_for_append)} photos to append, "
+                f"URLs: {[p.get('url', '')[:60] for p in photos_for_append[:3]]}"
+            )
+        else:
+            _logger.info(
+                f"Electrician PDF: no photos (include_photos={include_photos}, "
+                f"photos_count={len(context.get('photos', []))})"
+            )
         context['include_photos'] = False  # always exclude from WeasyPrint HTML
 
         template = env.get_template('template.html')
         html_content = template.render(**context)
         html_content = html_content.replace('<link rel="stylesheet" href="style.css">', '')
 
-        css_path = template_dir / 'style.css'
-        stylesheets = []
-        if css_path.exists():
-            with open(css_path, 'r', encoding='utf-8') as f:
-                stylesheets.append(CSS(string=f.read()))
+        # Collect CSS strings
+        css_strings = []
+
+        css_file = template_dir / 'style.css'
+        if css_file.exists():
+            with open(css_file, 'r', encoding='utf-8') as f:
+                css_strings.append(f.read())
 
         report_number = report_data.get('report_number', '')
         report_label = f"Report #{report_number}" if report_number else ''
@@ -1855,153 +1874,317 @@ print(os.path.getsize(output_path))
         page_css = f"""
         @page {{
             size: letter;
-            margin: 0.5in 0.4in 0.65in 0.4in;
+            margin: 0.5in 0.4in 0.5in 0.4in;
+
             @bottom-left {{
                 content: "{report_label}";
-                font-size: 8pt; color: #666;
-                border-top: 0.5pt solid #ccc; padding-top: 3px;
+                font-size: 8pt;
+                color: #666;
             }}
+
             @bottom-center {{
                 content: "Page " counter(page) "/" counter(pages);
-                font-size: 8pt; color: #666;
-                border-top: 0.5pt solid #ccc; padding-top: 3px;
+                font-size: 8pt;
+                color: #666;
             }}
+
             @bottom-right {{
                 content: "{property_address}";
-                font-size: 8pt; color: #666;
-                border-top: 0.5pt solid #ccc; padding-top: 3px;
+                font-size: 8pt;
+                color: #666;
             }}
         }}
+
         @page :first {{
-            margin: 0.4in 0.4in 0.3in 0.4in;
+            margin: 0.5in 0.4in 0.3in 0.4in;
             @bottom-left {{ content: none; }}
             @bottom-center {{ content: none; }}
             @bottom-right {{ content: none; }}
         }}
+
         .report-footer {{ display: none !important; }}
         """
-        stylesheets.append(CSS(string=page_css))
+        css_strings.append(page_css)
 
-        pdf_document = HTML(
-            string=html_content, base_url=str(template_dir)
-        ).write_pdf(stylesheets=stylesheets)
+        # --- Run WeasyPrint in subprocess (same as invoice/estimate) ---
+        html_tmp = tempfile.NamedTemporaryFile(
+            mode='w', suffix='.html', delete=False, encoding='utf-8'
+        )
+        html_tmp.write(html_content)
+        html_tmp.close()
+
+        css_tmp = tempfile.NamedTemporaryFile(
+            mode='w', suffix='.json', delete=False, encoding='utf-8'
+        )
+        json.dump(css_strings, css_tmp)
+        css_tmp.close()
+
+        out_tmp = tempfile.NamedTemporaryFile(
+            suffix='.pdf', delete=False
+        )
+        out_tmp.close()
+
+        script_content = """
+import sys, json, os
+os.environ['FONTCONFIG_PATH'] = os.path.join(
+    os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
+)
+os.environ.pop('FONTCONFIG_FILE', None)
+
+html_path = sys.argv[1]
+output_path = sys.argv[2]
+css_path = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] != 'None' else None
+
+from weasyprint import HTML, CSS
+
+stylesheets = []
+if css_path:
+    with open(css_path, 'r', encoding='utf-8') as f:
+        for s in json.load(f):
+            stylesheets.append(CSS(string=s))
+
+with open(html_path, 'r', encoding='utf-8') as f:
+    html = f.read()
+
+HTML(string=html).write_pdf(output_path, stylesheets=stylesheets)
+print(os.path.getsize(output_path))
+"""
+        script_tmp = tempfile.NamedTemporaryFile(
+            mode='w', suffix='.py', delete=False, encoding='utf-8'
+        )
+        script_tmp.write(script_content)
+        script_tmp.close()
+
+        try:
+            env_vars = os.environ.copy()
+            env_vars.pop('G_SLICE', None)
+            env_vars['FONTCONFIG_PATH'] = os.path.join(
+                os.path.expanduser('~'),
+                'anaconda3', 'Library', 'etc', 'fonts'
+            )
+            env_vars.pop('FONTCONFIG_FILE', None)
+
+            result = subprocess.run(
+                [sys.executable, script_tmp.name,
+                 html_tmp.name, out_tmp.name, css_tmp.name],
+                capture_output=True, text=True,
+                timeout=60, env=env_vars
+            )
+
+            out_path = Path(out_tmp.name)
+            if not out_path.exists() or out_path.stat().st_size == 0:
+                raise RuntimeError(
+                    f"PDF subprocess failed (rc={result.returncode}): "
+                    f"{result.stderr[:500]}"
+                )
+
+            pdf_document = out_path.read_bytes()
+        finally:
+            for p in [html_tmp.name, css_tmp.name,
+                       script_tmp.name, out_tmp.name]:
+                try:
+                    os.unlink(p)
+                except Exception:
+                    pass
 
         # Append photo pages using reportlab (much faster than WeasyPrint)
         if photos_for_append:
             pdf_document = PDFService._append_photo_pages(
-                pdf_document, photos_for_append
+                pdf_document, photos_for_append,
+                footer_left=report_label,
+                footer_right=property_address,
             )
 
         return pdf_document
 
     @staticmethod
+    def _download_photo(photo: dict) -> tuple:
+        """Download/decode a single photo, return (index, PIL Image or None, photo dict)."""
+        import base64 as b64
+        try:
+            from PIL import Image as PILImage
+        except ImportError:
+            return (photo, None)
+
+        url = photo.get('url', '')
+
+        # Resolve gs:// URLs to signed HTTP URLs
+        if url.startswith('gs://'):
+            try:
+                from app.domains.storage.factory import StorageFactory
+                storage = StorageFactory.get_instance()
+                url = storage.get_url(url, expires_in=3600)
+            except Exception as e:
+                logging.getLogger(__name__).warning(
+                    f"Photo gs:// resolve failed: {e}")
+                return (photo, None)
+
+        try:
+            if url.startswith('data:image'):
+                _, data = url.split(',', 1)
+                img_bytes = b64.b64decode(data)
+                img = PILImage.open(io.BytesIO(img_bytes))
+            elif url.startswith('http'):
+                import urllib.request
+                req = urllib.request.Request(
+                    url, headers={'User-Agent': 'Mozilla/5.0'}
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    img = PILImage.open(io.BytesIO(resp.read()))
+            else:
+                logging.getLogger(__name__).warning(
+                    f"Photo skipped, unsupported URL scheme: {url[:80]}")
+                return (photo, None)
+
+            img.thumbnail((600, 600), PILImage.LANCZOS)
+            if img.mode in ('RGBA', 'P'):
+                img = img.convert('RGB')
+            return (photo, img)
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                f"Photo download failed: {url[:80]} -> {e}")
+            return (photo, None)
+
+    @staticmethod
     def _append_photo_pages(
         pdf_bytes: bytes,
-        photos: list
+        photos: list,
+        footer_left: str = '',
+        footer_right: str = '',
     ) -> bytes:
         """Append photo pages to PDF using reportlab+pypdf."""
         _ensure_pypdf()
         if not PYPDF_AVAILABLE:
             return pdf_bytes
 
-        import base64 as b64
-        from reportlab.pdfgen import canvas as pdf_canvas
         from reportlab.lib.pagesizes import letter
         from reportlab.lib.units import inch
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen import canvas as pdf_canvas
 
-        try:
-            from PIL import Image as PILImage
-        except ImportError:
+        # Download all photos in parallel
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(len(photos), 8)) as pool:
+            results = list(pool.map(PDFService._download_photo, photos))
+
+        prepared = [(photo, img) for photo, img in results
+                     if img is not None]
+        if not prepared:
             return pdf_bytes
 
-        cat_labels = {
-            'damage': 'Water Damage', 'panel': 'Electrical Panel',
-            'fixture': 'Light Fixture', 'wiring': 'Wiring / Junction Box',
-            'outlet': 'Outlet / Switch', 'moisture': 'Moisture / Staining',
-            'before': 'Before', 'during': 'During',
-            'after': 'After Repair', 'other': 'Other',
-        }
-
         writer = PdfWriter()
-
-        # Add existing report pages
         main_reader = PdfReader(io.BytesIO(pdf_bytes))
         for p in main_reader.pages:
             writer.add_page(p)
 
-        # Build photo pages — 2 photos per page
-        W, H = letter
-        margin = 0.4 * inch
-        usable_w = W - 2 * margin
-        slot_h = (H - 2 * margin - 0.6 * inch) / 2  # 2 slots + title
+        # Count total pages for footer
+        existing_pages = len(main_reader.pages)
+        total_photo_pages = (len(prepared) + 3) // 4
+        total_pages = existing_pages + total_photo_pages
 
-        for i in range(0, len(photos), 2):
+        # Layout constants — 2x2 grid, compact
+        W, H = letter
+        margin = 0.5 * inch
+        footer_h = 20
+        gap_x, gap_y = 14, 20
+        title_h = 28
+        label_h = 36  # area name + items (2 lines)
+        usable_w = W - 2 * margin
+        col_w = (usable_w - gap_x) / 2
+
+        for i in range(0, len(prepared), 4):
+            page_num = existing_pages + (i // 4) + 1
             buf = io.BytesIO()
             c = pdf_canvas.Canvas(buf, pagesize=letter)
 
-            # Page title
+            # Title on first photo page
             if i == 0:
-                c.setFont("Helvetica-Bold", 14)
-                c.drawString(margin, H - margin - 14,
+                c.setFont("Helvetica-Bold", 13)
+                c.drawString(margin, H - margin - 13,
                              "Photo Documentation")
-                y_start = H - margin - 32
+                grid_top = H - margin - title_h
             else:
-                y_start = H - margin
+                grid_top = H - margin
 
-            for j, photo in enumerate(photos[i:i + 2]):
-                url = photo.get('url', '')
-                caption = photo.get('caption', '')
-                category = cat_labels.get(
-                    photo.get('category', ''), photo.get('category', '')
-                )
+            avail_h = grid_top - margin - footer_h
+            cell_h = (avail_h - gap_y) / 2
 
-                slot_y = y_start - j * (slot_h + 10)
+            batch = prepared[i:i + 4]
+            for j, (photo, photo_img) in enumerate(batch):
+                row = j // 2
+                col_idx = j % 2
+                cell_x = margin + col_idx * (col_w + gap_x)
+                cell_top = grid_top - row * (cell_h + gap_y)
+                img_pad = 8  # gap between photo and caption
+                img_area_h = cell_h - label_h - img_pad
 
                 try:
-                    if url.startswith('data:image'):
-                        _, data = url.split(',', 1)
-                        img_bytes = b64.b64decode(data)
-                        img = PILImage.open(io.BytesIO(img_bytes))
-                    elif url.startswith('http'):
-                        import urllib.request
-                        req = urllib.request.Request(
-                            url, headers={'User-Agent': 'Mozilla/5.0'}
-                        )
-                        with urllib.request.urlopen(req, timeout=15) as resp:
-                            img = PILImage.open(io.BytesIO(resp.read()))
-                    else:
-                        continue
-
-                    # Resize for PDF
-                    img.thumbnail((600, 600), PILImage.LANCZOS)
-                    if img.mode in ('RGBA', 'P'):
-                        img = img.convert('RGB')
-
-                    img_w, img_h = img.size
-                    max_img_w = usable_w
-                    max_img_h = slot_h - 20
-                    scale = min(max_img_w / img_w, max_img_h / img_h, 1)
+                    img_w, img_h = photo_img.size
+                    scale = min(col_w / img_w,
+                                img_area_h / img_h, 1)
                     draw_w = img_w * scale
-                    draw_h = img_h * scale
+                    draw_h = min(img_h * scale, img_area_h)
+                    draw_w = min(img_w * scale, col_w)
 
                     img_buf = io.BytesIO()
-                    img.save(img_buf, format='JPEG', quality=50)
+                    photo_img.save(img_buf, format='JPEG',
+                                   quality=50)
                     img_buf.seek(0)
 
-                    from reportlab.lib.utils import ImageReader
-                    x = margin + (usable_w - draw_w) / 2
-                    y = slot_y - draw_h
+                    # Place image in top portion of cell
+                    x = cell_x + (col_w - draw_w) / 2
+                    y = cell_top - draw_h
                     c.drawImage(ImageReader(img_buf),
                                 x, y, draw_w, draw_h)
 
-                    # Caption
-                    label = f"{category}: {caption}" if caption else category
-                    c.setFont("Helvetica", 8)
-                    c.drawCentredString(
-                        W / 2, y - 12, label[:100]
-                    )
+                    # Label below image at cell bottom
+                    location = photo.get('location', '')
+                    caption = photo.get('caption', '')
+                    cell_bottom = cell_top - cell_h
+                    label_y = cell_bottom + label_h - 6
+
+                    # Parse area + items from caption
+                    area_text = location
+                    items_text = ''
+                    if caption and ' — ' in caption:
+                        parsed_area, items_text = caption.split(
+                            ' — ', 1)
+                        if not area_text:
+                            area_text = parsed_area
+                    elif not area_text and caption:
+                        area_text = caption
+
+                    if area_text:
+                        c.setFont("Helvetica-Bold", 8)
+                        c.drawString(cell_x + 2, label_y,
+                                     area_text[:50])
+                    if items_text:
+                        c.setFont("Helvetica", 7)
+                        c.setFillColorRGB(0.4, 0.4, 0.4)
+                        c.drawString(
+                            cell_x + 2, label_y - 10,
+                            items_text[:65])
+                        c.setFillColorRGB(0, 0, 0)
                 except Exception:
-                    continue
+                    pass
+
+            # Footer
+            footer_y = margin
+            c.setStrokeColorRGB(0.8, 0.8, 0.8)
+            c.setLineWidth(0.5)
+            c.line(margin, footer_y + 12, W - margin,
+                   footer_y + 12)
+            c.setFont("Helvetica", 8)
+            c.setFillColorRGB(0.4, 0.4, 0.4)
+            if footer_left:
+                c.drawString(margin, footer_y, footer_left)
+            c.drawCentredString(
+                W / 2, footer_y,
+                f"Page {page_num}/{total_pages}")
+            if footer_right:
+                c.drawRightString(
+                    W - margin, footer_y, footer_right)
+            c.setFillColorRGB(0, 0, 0)
 
             c.save()
             buf.seek(0)
@@ -2133,7 +2316,7 @@ print(os.path.getsize(output_path))
 
         @page {
             size: letter;
-            margin: 0.4in 0.4in 0.5in 0.4in;
+            margin: 0.5in 0.4in 0.5in 0.4in;
         }
         """
 
