@@ -1,4 +1,5 @@
-import React, { lazy, Suspense } from 'react';
+import React, { Suspense } from 'react';
+import { lazyWithRetry } from './utils/lazyWithRetry';
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import { ConfigProvider, Spin } from 'antd';
 import enUS from 'antd/locale/en_US';
@@ -13,146 +14,146 @@ import 'antd/dist/reset.css';
 // =====================================================
 // LAZY LOADED PAGES (Code Splitting)
 // =====================================================
-// 새 페이지 추가 시: const NewPage = lazy(() => import('./pages/NewPage'));
+// 새 페이지 추가 시: const NewPage = lazyWithRetry(() => import('./pages/NewPage'));
 // 패턴만 따라하면 자동으로 코드 스플리팅 적용됩니다!
 
 // Public Pages (로그인 관련)
-const Login = lazy(() => import('./pages/Login'));
-const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
-const ResetPassword = lazy(() => import('./pages/ResetPassword'));
+const Login = lazyWithRetry(() => import('./pages/Login'));
+const ForgotPassword = lazyWithRetry(() => import('./pages/ForgotPassword'));
+const ResetPassword = lazyWithRetry(() => import('./pages/ResetPassword'));
 
 // Admin Pages
-const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
-const AdminApiUsage = lazy(() => import('./pages/AdminApiUsage'));
-const AdminConfig = lazy(() => import('./pages/AdminConfig'));
-const UserManagement = lazy(() => import('./pages/UserManagement'));
-const MaterialManagement = lazy(() => import('./pages/MaterialManagement'));
+const AdminDashboard = lazyWithRetry(() => import('./pages/AdminDashboard'));
+const AdminApiUsage = lazyWithRetry(() => import('./pages/AdminApiUsage'));
+const AdminConfig = lazyWithRetry(() => import('./pages/AdminConfig'));
+const UserManagement = lazyWithRetry(() => import('./pages/UserManagement'));
+const MaterialManagement = lazyWithRetry(() => import('./pages/MaterialManagement'));
 
 // Manager Pages
-const CompanyManagement = lazy(() => import('./pages/CompanyManagement'));
+const CompanyManagement = lazyWithRetry(() => import('./pages/CompanyManagement'));
 
 // Client Pages
-const ClientList = lazy(() => import('./pages/ClientList'));
-const ClientDetail = lazy(() => import('./pages/ClientDetail'));
+const ClientList = lazyWithRetry(() => import('./pages/ClientList'));
+const ClientDetail = lazyWithRetry(() => import('./pages/ClientDetail'));
 
 // Contract Pages
-const ContractTemplateManagement = lazy(() => import('./pages/ContractTemplateManagement'));
-const ContractSigning = lazy(() => import('./pages/ContractSigning'));
+const ContractTemplateManagement = lazyWithRetry(() => import('./pages/ContractTemplateManagement'));
+const ContractSigning = lazyWithRetry(() => import('./pages/ContractSigning'));
 
 // Dashboard Pages
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const RoleBasedDashboard = lazy(() => import('./pages/RoleBasedDashboard'));
-const Profile = lazy(() => import('./pages/Profile'));
+const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
+const RoleBasedDashboard = lazyWithRetry(() => import('./pages/RoleBasedDashboard'));
+const Profile = lazyWithRetry(() => import('./pages/Profile'));
 
 // Document Pages
-const DocumentList = lazy(() => import('./pages/DocumentList'));
+const DocumentList = lazyWithRetry(() => import('./pages/DocumentList'));
 
 // Estimate Pages
-const EstimateCreation = lazy(() => import('./pages/EstimateCreation'));
-const InsuranceEstimateCreation = lazy(() => import('./pages/InsuranceEstimateCreation'));
-const InsuranceExtraction = lazy(() => import('./pages/InsuranceExtraction'));
-const InsuranceExtractionList = lazy(() => import('./pages/InsuranceExtractionList'));
-const InsuranceExtractionDetail = lazy(() => import('./pages/InsuranceExtractionDetail'));
-const RepairTemplateList = lazy(() => import('./pages/RepairTemplateList'));
-const RepairTemplateEditor = lazy(() => import('./pages/RepairTemplateEditor'));
-const RepairEstimateWizard = lazy(() => import('./pages/RepairEstimateWizard'));
-const EstimateEditWrapper = lazy(() => import('./pages/EstimateEditWrapper'));
+const EstimateCreation = lazyWithRetry(() => import('./pages/EstimateCreation'));
+const InsuranceEstimateCreation = lazyWithRetry(() => import('./pages/InsuranceEstimateCreation'));
+const InsuranceExtraction = lazyWithRetry(() => import('./pages/InsuranceExtraction'));
+const InsuranceExtractionList = lazyWithRetry(() => import('./pages/InsuranceExtractionList'));
+const InsuranceExtractionDetail = lazyWithRetry(() => import('./pages/InsuranceExtractionDetail'));
+const RepairTemplateList = lazyWithRetry(() => import('./pages/RepairTemplateList'));
+const RepairTemplateEditor = lazyWithRetry(() => import('./pages/RepairTemplateEditor'));
+const RepairEstimateWizard = lazyWithRetry(() => import('./pages/RepairEstimateWizard'));
+const EstimateEditWrapper = lazyWithRetry(() => import('./pages/EstimateEditWrapper'));
 
 // Invoice Pages
-const InvoiceCreation = lazy(() => import('./pages/InvoiceCreation'));
+const InvoiceCreation = lazyWithRetry(() => import('./pages/InvoiceCreation'));
 
 // Work Order Pages
-const WorkOrderCreation = lazy(() => import('./pages/WorkOrderCreation'));
-const WorkOrderList = lazy(() => import('./pages/WorkOrderList'));
-const WorkOrderDetail = lazy(() => import('./pages/WorkOrderDetail'));
+const WorkOrderCreation = lazyWithRetry(() => import('./pages/WorkOrderCreation'));
+const WorkOrderList = lazyWithRetry(() => import('./pages/WorkOrderList'));
+const WorkOrderDetail = lazyWithRetry(() => import('./pages/WorkOrderDetail'));
 
 // Plumber Report Pages
-const PlumberReportCreation = lazy(() => import('./pages/PlumberReportCreation'));
+const PlumberReportCreation = lazyWithRetry(() => import('./pages/PlumberReportCreation'));
 // Electrician Report Pages
-const ElectricianReportCreation = lazy(() => import('./pages/ElectricianReportCreation'));
+const ElectricianReportCreation = lazyWithRetry(() => import('./pages/ElectricianReportCreation'));
 
 // Line Item Pages
-const LineItemManagement = lazy(() => import('./pages/LineItemManagement'));
+const LineItemManagement = lazyWithRetry(() => import('./pages/LineItemManagement'));
 
 // Water Mitigation Pages
-const WaterMitigationList = lazy(() => import('./pages/WaterMitigationList'));
-const WaterMitigationDetail = lazy(() => import('./pages/WaterMitigationDetail'));
-const WaterMitigationTemplateList = lazy(() => import('./pages/WaterMitigationTemplateList'));
-const StandardScopeItemsManagement = lazy(() => import('./pages/StandardScopeItemsManagement'));
-const ScopeItemCategoriesManagement = lazy(() => import('./pages/ScopeItemCategoriesManagement'));
+const WaterMitigationList = lazyWithRetry(() => import('./pages/WaterMitigationList'));
+const WaterMitigationDetail = lazyWithRetry(() => import('./pages/WaterMitigationDetail'));
+const WaterMitigationTemplateList = lazyWithRetry(() => import('./pages/WaterMitigationTemplateList'));
+const StandardScopeItemsManagement = lazyWithRetry(() => import('./pages/StandardScopeItemsManagement'));
+const ScopeItemCategoriesManagement = lazyWithRetry(() => import('./pages/ScopeItemCategoriesManagement'));
 
 // Cabinet Estimate Pages
-const CabinetEstimateList = lazy(() => import('./pages/CabinetEstimateList'));
-const CabinetEstimateDetail = lazy(() => import('./pages/CabinetEstimateDetail'));
+const CabinetEstimateList = lazyWithRetry(() => import('./pages/CabinetEstimateList'));
+const CabinetEstimateDetail = lazyWithRetry(() => import('./pages/CabinetEstimateDetail'));
 
 // Bathroom Estimate Pages
-const BathroomEstimateList = lazy(() => import('./pages/BathroomEstimateList'));
-const BathroomEstimateDetail = lazy(() => import('./pages/BathroomEstimateDetail'));
+const BathroomEstimateList = lazyWithRetry(() => import('./pages/BathroomEstimateList'));
+const BathroomEstimateDetail = lazyWithRetry(() => import('./pages/BathroomEstimateDetail'));
 
 // Siding Estimate Pages
-const SidingEstimateList = lazy(() => import('./pages/SidingEstimateList'));
-const SidingEstimateDetail = lazy(() => import('./pages/SidingEstimateDetail'));
+const SidingEstimateList = lazyWithRetry(() => import('./pages/SidingEstimateList'));
+const SidingEstimateDetail = lazyWithRetry(() => import('./pages/SidingEstimateDetail'));
 
 // Roofing Estimate Pages
-const RoofingEstimateList = lazy(() => import('./pages/RoofingEstimateList'));
-const RoofingEstimateDetail = lazy(() => import('./pages/RoofingEstimateDetail'));
+const RoofingEstimateList = lazyWithRetry(() => import('./pages/RoofingEstimateList'));
+const RoofingEstimateDetail = lazyWithRetry(() => import('./pages/RoofingEstimateDetail'));
 
 // Material Order Pages
-const MaterialOrderPage = lazy(() => import('./pages/MaterialOrderPage'));
-const MaterialOrderList = lazy(() => import('./pages/MaterialOrderList'));
+const MaterialOrderPage = lazyWithRetry(() => import('./pages/MaterialOrderPage'));
+const MaterialOrderList = lazyWithRetry(() => import('./pages/MaterialOrderList'));
 
 // Reconstruction Estimate Pages
-const DebrisCalculator = lazy(() => import('./pages/DebrisCalculator'));
-const MaterialDetectionPage = lazy(() => import('./pages/MaterialDetectionPage'));
-const PackCalculatorNew = lazy(() => import('./pages/PackCalculatorNew'));
-const PackCalculatorNewList = lazy(() => import('./pages/PackCalculatorNewList'));
-const PackCalculatorNewDetail = lazy(() => import('./pages/PackCalculatorNewDetail'));
+const DebrisCalculator = lazyWithRetry(() => import('./pages/DebrisCalculator'));
+const MaterialDetectionPage = lazyWithRetry(() => import('./pages/MaterialDetectionPage'));
+const PackCalculatorNew = lazyWithRetry(() => import('./pages/PackCalculatorNew'));
+const PackCalculatorNewList = lazyWithRetry(() => import('./pages/PackCalculatorNewList'));
+const PackCalculatorNewDetail = lazyWithRetry(() => import('./pages/PackCalculatorNewDetail'));
 
 // ML & Training Pages
-const MLTraining = lazy(() => import('./pages/MLTraining'));
+const MLTraining = lazyWithRetry(() => import('./pages/MLTraining'));
 
 // Test & Dev Pages
-const SketchTest = lazy(() => import('./pages/SketchTest'));
+const SketchTest = lazyWithRetry(() => import('./pages/SketchTest'));
 
 // PDF Editor Pages
-const PDFEditor = lazy(() => import('./pages/PDFEditor'));
+const PDFEditor = lazyWithRetry(() => import('./pages/PDFEditor'));
 
 // Reference Pages
-const XactimateCheatSheet = lazy(() => import('./pages/XactimateCheatSheet'));
+const XactimateCheatSheet = lazyWithRetry(() => import('./pages/XactimateCheatSheet'));
 
 // Xactimate Helper Tool
-const XactimateHelper = lazy(() => import('./pages/XactimateHelper'));
+const XactimateHelper = lazyWithRetry(() => import('./pages/XactimateHelper'));
 
 // Tools Pages
-const PhotoMetadataEditor = lazy(() => import('./pages/PhotoMetadataEditor'));
+const PhotoMetadataEditor = lazyWithRetry(() => import('./pages/PhotoMetadataEditor'));
 
 // Email Ingestion
-const EmailIngestionDashboard = lazy(() => import('./pages/EmailIngestionDashboard'));
-const EmailAccountSettings = lazy(() => import('./pages/EmailAccountSettings'));
+const EmailIngestionDashboard = lazyWithRetry(() => import('./pages/EmailIngestionDashboard'));
+const EmailAccountSettings = lazyWithRetry(() => import('./pages/EmailAccountSettings'));
 
 // Claim Follow-up
-const ClaimFollowUpDashboard = lazy(() => import('./pages/ClaimFollowUpDashboard'));
-const ClaimFollowUpEmail = lazy(() => import('./pages/ClaimFollowUpEmail'));
+const ClaimFollowUpDashboard = lazyWithRetry(() => import('./pages/ClaimFollowUpDashboard'));
+const ClaimFollowUpEmail = lazyWithRetry(() => import('./pages/ClaimFollowUpEmail'));
 
 // Estimates (Supplements + Estimate Requests)
-const SupplementManagement = lazy(() => import('./pages/SupplementManagement'));
-const SupplementDetail = lazy(() => import('./pages/SupplementDetail'));
+const SupplementManagement = lazyWithRetry(() => import('./pages/SupplementManagement'));
+const SupplementDetail = lazyWithRetry(() => import('./pages/SupplementDetail'));
 
 // Rebuild Projects
-const RebuildProjectList = lazy(() => import('./pages/RebuildProjectList'));
+const RebuildProjectList = lazyWithRetry(() => import('./pages/RebuildProjectList'));
 
 // Claims Lifecycle Dashboard
-const ClaimsLifecycleDashboard = lazy(() => import('./pages/ClaimsLifecycleDashboard'));
+const ClaimsLifecycleDashboard = lazyWithRetry(() => import('./pages/ClaimsLifecycleDashboard'));
 
 // Crew Upload (Public)
-const CrewUploadPage = lazy(() => import('./pages/CrewUploadPage'));
+const CrewUploadPage = lazyWithRetry(() => import('./pages/CrewUploadPage'));
 
 // Error Pages
-const NotFound = lazy(() => import('./pages/NotFound'));
-const Unauthorized = lazy(() => import('./pages/Unauthorized'));
+const NotFound = lazyWithRetry(() => import('./pages/NotFound'));
+const Unauthorized = lazyWithRetry(() => import('./pages/Unauthorized'));
 
 // OAuth Pages
-const OAuthCallback = lazy(() => import('./pages/OAuthCallback'));
+const OAuthCallback = lazyWithRetry(() => import('./pages/OAuthCallback'));
 
 // =====================================================
 // LOADING COMPONENT
@@ -177,7 +178,7 @@ const PageLoader = () => (
 // 🔥 새 페이지 추가하는 방법:
 // 
 // 1. 위에서 lazy load 선언:
-//    const NewPage = lazy(() => import('./pages/NewPage'));
+//    const NewPage = lazyWithRetry(() => import('./pages/NewPage'));
 //
 // 2. 라우터에 추가:
 //    {
