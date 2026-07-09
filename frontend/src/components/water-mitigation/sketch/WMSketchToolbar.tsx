@@ -2,28 +2,8 @@
  * WMSketchToolbar
  *
  * Horizontal toolbar with grouped tool buttons for the WM sketch canvas.
- *
- * Tool groups (left → right):
- *   [Select] | [Demo ▾] | [Equipment ▾] | [Containment] | [Floor Protection]
- *   --- | [Undo] [Redo] | [Save*]
- *
- * Usage:
- *   <WMSketchToolbar
- *     activeTool={activeTool}
- *     activeMaterialTypeId={activeMaterialTypeId}
- *     activeEquipmentType={activeEquipmentType}
- *     materialTypes={materialTypes}
- *     onToolChange={setTool}
- *     onMaterialTypeChange={setActiveMaterialType}
- *     onEquipmentTypeChange={setActiveEquipmentType}
- *     onSave={save}
- *     onUndo={undo}
- *     onRedo={redo}
- *     canUndo={canUndo}
- *     canRedo={canRedo}
- *     isSaving={isSaving}
- *     isDirty={isDirty}
- *   />
+ * Mobile-optimized: text labels hidden on narrow screens, buttons become
+ * icon-only with tooltips for discoverability.
  */
 
 import React from 'react';
@@ -67,6 +47,41 @@ import { EQUIPMENT_CONFIG, SHAPE_PRESETS, getEffectiveRenderMode } from '../../.
 
 // Space.Compact is available in antd v5+; aliased for readability
 const { Compact: SpaceCompact } = Space;
+
+// ============================================================================
+// Responsive CSS
+// ============================================================================
+
+const MOBILE_BP = 768;
+const TABLET_BP = 1024;
+
+const responsiveStyles = `
+  @media (max-width: ${MOBILE_BP}px) {
+    .wm-toolbar-root {
+      gap: 2px !important;
+      padding: 4px 6px !important;
+      min-height: 36px !important;
+    }
+    .wm-toolbar-root .wm-tb-label {
+      display: none !important;
+    }
+    .wm-toolbar-root .wm-tb-divider {
+      margin: 0 1px !important;
+    }
+    .wm-toolbar-root .wm-tb-hide-mobile {
+      display: none !important;
+    }
+  }
+  @media (min-width: ${MOBILE_BP + 1}px) and (max-width: ${TABLET_BP}px) {
+    .wm-toolbar-root {
+      gap: 3px !important;
+      padding: 4px 8px !important;
+    }
+    .wm-toolbar-root .wm-tb-label {
+      display: none !important;
+    }
+  }
+`;
 
 // ============================================================================
 // Props
@@ -190,9 +205,9 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
   const renderModeToTool = (mode: string): WMSketchTool => {
     switch (mode) {
       case 'line': return 'demolition_line';
-      case 'shape': return 'demolition';  // click-to-place handled in editor
-      case 'text': return 'demolition';   // click-to-place text label
-      default: return 'demolition';       // area = rectangle drag
+      case 'shape': return 'demolition';
+      case 'text': return 'demolition';
+      default: return 'demolition';
     }
   };
 
@@ -275,7 +290,6 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
     label: (
       <Space size={6}>
         {preset.id === 'door' ? (
-          /* Door icon: quarter-arc symbol */
           <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
             <line x1="0" y1="13" x2="13" y2="13" stroke={preset.stroke_color} strokeWidth="1.5" />
             <path d="M 13 13 A 13 13 0 0 0 0 0" fill="none" stroke={preset.stroke_color} strokeWidth="1" />
@@ -321,203 +335,205 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
   };
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 4,
-        padding: '6px 12px',
-        background: '#fff',
-        borderBottom: `1px solid ${token.colorBorderSecondary}`,
-        flexWrap: 'wrap',
-        minHeight: 44,
-      }}
-    >
-      {/* Group 1 — Select + Pan */}
-      <SpaceCompact>
-        <Tooltip title="Select / Move (V)">
-          <Button
-            type={toolButtonType('select')}
-            icon={<SelectOutlined />}
-            size="small"
-            onClick={() => onToolChange('select')}
-          >
-            Select
-          </Button>
-        </Tooltip>
-        <Tooltip title="Pan / Hand (H)">
-          <Button
-            type={toolButtonType('pan')}
-            icon={<HandIcon />}
-            size="small"
-            onClick={() => onToolChange('pan')}
-          />
-        </Tooltip>
-      </SpaceCompact>
+    <>
+      <style>{responsiveStyles}</style>
+      <div
+        className="wm-toolbar-root"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          padding: '6px 12px',
+          background: '#fff',
+          borderBottom: `1px solid ${token.colorBorderSecondary}`,
+          flexWrap: 'wrap',
+          minHeight: 44,
+        }}
+      >
+        {/* Group 1 — Select + Pan */}
+        <SpaceCompact>
+          <Tooltip title="Select / Move (V)">
+            <Button
+              type={toolButtonType('select')}
+              icon={<SelectOutlined />}
+              size="small"
+              onClick={() => onToolChange('select')}
+            >
+              <span className="wm-tb-label">Select</span>
+            </Button>
+          </Tooltip>
+          <Tooltip title="Pan / Hand (H)">
+            <Button
+              type={toolButtonType('pan')}
+              icon={<HandIcon />}
+              size="small"
+              onClick={() => onToolChange('pan')}
+            />
+          </Tooltip>
+        </SpaceCompact>
 
-      <Divider type="vertical" style={{ margin: '0 4px', height: 20 }} />
+        <Divider className="wm-tb-divider" type="vertical" style={{ margin: '0 4px', height: 20 }} />
 
-      {/* Group 1b — Floor Plan drawing tools */}
-      <SpaceCompact>
-        <Tooltip title="Draw wall (W)">
-          <Button
-            type={toolButtonType('wall')}
-            icon={<LineOutlined />}
-            size="small"
-            onClick={() => onToolChange('wall')}
-          >
-            Wall
-          </Button>
-        </Tooltip>
-        <Tooltip title="Detect room from enclosed walls (R)">
-          <Button
-            type={toolButtonType('room')}
-            icon={<GatewayOutlined />}
-            size="small"
-            onClick={() => onToolChange('room')}
-          >
-            Room
-          </Button>
-        </Tooltip>
-        <Tooltip title="Click on a wall to split it">
-          <Button
-            type={toolButtonType('wall_split')}
-            icon={<ScissorOutlined />}
-            size="small"
-            onClick={() => onToolChange('wall_split')}
-          >
-            Split
-          </Button>
-        </Tooltip>
-      </SpaceCompact>
+        {/* Group 1b — Floor Plan drawing tools */}
+        <SpaceCompact>
+          <Tooltip title="Draw wall (W)">
+            <Button
+              type={toolButtonType('wall')}
+              icon={<LineOutlined />}
+              size="small"
+              onClick={() => onToolChange('wall')}
+            >
+              <span className="wm-tb-label">Wall</span>
+            </Button>
+          </Tooltip>
+          <Tooltip title="Detect room from enclosed walls (R)">
+            <Button
+              type={toolButtonType('room')}
+              icon={<GatewayOutlined />}
+              size="small"
+              onClick={() => onToolChange('room')}
+            >
+              <span className="wm-tb-label">Room</span>
+            </Button>
+          </Tooltip>
+          <Tooltip title="Click on a wall to split it">
+            <Button
+              type={toolButtonType('wall_split')}
+              icon={<ScissorOutlined />}
+              size="small"
+              onClick={() => onToolChange('wall_split')}
+            >
+              <span className="wm-tb-label">Split</span>
+            </Button>
+          </Tooltip>
+        </SpaceCompact>
 
-      <Divider type="vertical" style={{ margin: '0 4px', height: 20 }} />
+        <Divider className="wm-tb-divider" type="vertical" style={{ margin: '0 4px', height: 20 }} />
 
-      {/* Group 2 — Demolition */}
-      <SpaceCompact>
-        <Tooltip title="Draw demolition zone">
+        {/* Group 2 — Demolition */}
+        <SpaceCompact>
+          <Tooltip title="Draw demolition zone">
+            <Button
+              type={toolButtonType('demolition')}
+              icon={<BorderOutlined />}
+              size="small"
+              onClick={() => {
+                if (!activeMaterialTypeId && materialTypes.length > 0) {
+                  onMaterialTypeChange(materialTypes[0].id);
+                  onToolChange('demolition');
+                } else if (activeMaterial) {
+                  const mode = getEffectiveRenderMode(activeMaterial);
+                  onToolChange(renderModeToTool(mode));
+                } else {
+                  onToolChange('demolition');
+                }
+              }}
+            >
+              {activeMaterial ? (
+                <Space size={4}>
+                  <ColorSwatch color={activeMaterial.color} />
+                  <span
+                    className="wm-tb-label"
+                    style={{
+                      maxWidth: 80,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {activeMaterial.name}
+                  </span>
+                </Space>
+              ) : (
+                <span className="wm-tb-label">Demo</span>
+              )}
+            </Button>
+          </Tooltip>
+          <Dropdown
+            menu={{ items: demoMenuItems }}
+            trigger={['click']}
+            placement="bottomLeft"
+          >
+            <Button
+              type={toolButtonType('demolition')}
+              size="small"
+              icon={<DownOutlined style={{ fontSize: 10 }} />}
+              style={{ padding: '0 6px' }}
+            />
+          </Dropdown>
+        </SpaceCompact>
+
+        {/* Group 2b — Polygon Demolition */}
+        <Tooltip title="Draw irregular polygon demolition zone">
           <Button
-            type={toolButtonType('demolition')}
-            icon={<BorderOutlined />}
+            type={activeTool === 'demolition_polygon' ? 'primary' : 'default'}
             size="small"
             onClick={() => {
-              // If no material selected yet, auto-select first one
               if (!activeMaterialTypeId && materialTypes.length > 0) {
                 onMaterialTypeChange(materialTypes[0].id);
-                onToolChange('demolition');
-              } else if (activeMaterial) {
-                // Activate the correct tool based on selected material's render mode
-                const mode = getEffectiveRenderMode(activeMaterial);
-                onToolChange(renderModeToTool(mode));
-              } else {
-                onToolChange('demolition');
               }
+              onToolChange('demolition_polygon');
             }}
+            style={{ display: 'flex', alignItems: 'center', gap: 4 }}
           >
-            {activeMaterial ? (
-              <Space size={4}>
-                <ColorSwatch color={activeMaterial.color} />
-                <span
-                  style={{
-                    maxWidth: 80,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {activeMaterial.name}
-                </span>
-              </Space>
-            ) : (
-              'Demo'
-            )}
+            <span role="img" className="anticon" style={{ display: 'inline-flex' }}>
+              <svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <polygon points="3,12 1,5 5,1 12,2 15,8 13,14 7,15" />
+              </svg>
+            </span>
+            <span className="wm-tb-label">Polygon</span>
           </Button>
         </Tooltip>
-        <Dropdown
-          menu={{ items: demoMenuItems }}
-          trigger={['click']}
-          placement="bottomLeft"
-        >
-          <Button
-            type={toolButtonType('demolition')}
-            size="small"
-            icon={<DownOutlined style={{ fontSize: 10 }} />}
-            style={{ padding: '0 6px' }}
-          />
-        </Dropdown>
-      </SpaceCompact>
 
-      {/* Group 2b — Polygon Demolition */}
-      <Tooltip title="Draw irregular polygon demolition zone (click vertices, double-click or click near start to close)">
-        <Button
-          type={activeTool === 'demolition_polygon' ? 'primary' : 'default'}
-          size="small"
-          onClick={() => {
-            if (!activeMaterialTypeId && materialTypes.length > 0) {
-              onMaterialTypeChange(materialTypes[0].id);
-            }
-            onToolChange('demolition_polygon');
-          }}
-          style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-        >
-          <span role="img" className="anticon" style={{ display: 'inline-flex' }}>
-            <svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <polygon points="3,12 1,5 5,1 12,2 15,8 13,14 7,15" />
-            </svg>
-          </span>
-          Polygon
-        </Button>
-      </Tooltip>
-
-      {/* Group 3 — Equipment */}
-      <SpaceCompact>
-        <Tooltip title="Place drying equipment">
-          <Button
-            type={toolButtonType('equipment')}
-            icon={<ToolOutlined />}
-            size="small"
-            onClick={() => {
-              if (!activeEquipmentType) {
-                onEquipmentTypeChange('air_mover');
-              }
-              onToolChange('equipment');
-            }}
+        {/* Group 3 — Equipment */}
+        <SpaceCompact>
+          <Tooltip title="Place drying equipment">
+            <Button
+              type={toolButtonType('equipment')}
+              icon={<ToolOutlined />}
+              size="small"
+              onClick={() => {
+                if (!activeEquipmentType) {
+                  onEquipmentTypeChange('air_mover');
+                }
+                onToolChange('equipment');
+              }}
+            >
+              {activeEquipConfig ? (
+                <Space size={4}>
+                  <EquipmentShapeIcon color={activeEquipConfig.color} shape={activeEquipConfig.shape} />
+                  <span
+                    className="wm-tb-label"
+                    style={{
+                      maxWidth: 80,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {activeEquipConfig.name}
+                  </span>
+                </Space>
+              ) : (
+                <span className="wm-tb-label">Equipment</span>
+              )}
+            </Button>
+          </Tooltip>
+          <Dropdown
+            menu={{ items: equipMenuItems }}
+            trigger={['click']}
+            placement="bottomLeft"
           >
-            {activeEquipConfig ? (
-              <Space size={4}>
-                <EquipmentShapeIcon color={activeEquipConfig.color} shape={activeEquipConfig.shape} />
-                <span
-                  style={{
-                    maxWidth: 80,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {activeEquipConfig.name}
-                </span>
-              </Space>
-            ) : (
-              'Equipment'
-            )}
-          </Button>
-        </Tooltip>
-        <Dropdown
-          menu={{ items: equipMenuItems }}
-          trigger={['click']}
-          placement="bottomLeft"
-        >
-          <Button
-            type={toolButtonType('equipment')}
-            size="small"
-            icon={<DownOutlined style={{ fontSize: 10 }} />}
-            style={{ padding: '0 6px' }}
-          />
-        </Dropdown>
-      </SpaceCompact>
+            <Button
+              type={toolButtonType('equipment')}
+              size="small"
+              icon={<DownOutlined style={{ fontSize: 10 }} />}
+              style={{ padding: '0 6px' }}
+            />
+          </Dropdown>
+        </SpaceCompact>
 
-      {/* Group 4 — Containment */}
-      <SpaceCompact>
+        {/* Group 4 — Containment */}
         <Tooltip title="Draw containment zone">
           <Button
             type={toolButtonType('containment')}
@@ -525,13 +541,11 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             size="small"
             onClick={() => onToolChange('containment')}
           >
-            Containment
+            <span className="wm-tb-label">Containment</span>
           </Button>
         </Tooltip>
-      </SpaceCompact>
 
-      {/* Group 5 — Floor Protection */}
-      <SpaceCompact>
+        {/* Group 5 — Floor Protection */}
         <Tooltip title="Draw floor protection strip">
           <Button
             type={toolButtonType('floor_protection')}
@@ -539,13 +553,11 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             size="small"
             onClick={() => onToolChange('floor_protection')}
           >
-            Floor Prot
+            <span className="wm-tb-label">Floor Prot</span>
           </Button>
         </Tooltip>
-      </SpaceCompact>
 
-      {/* Group 6 — Content Protection */}
-      <SpaceCompact>
+        {/* Group 6 — Content Protection */}
         <Tooltip title="Draw content protection area (vinyl cover)">
           <Button
             type={toolButtonType('content_protection')}
@@ -553,13 +565,11 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             size="small"
             onClick={() => onToolChange('content_protection')}
           >
-            Content Prot
+            <span className="wm-tb-label">Content Prot</span>
           </Button>
         </Tooltip>
-      </SpaceCompact>
 
-      {/* Group 6b — Content Manipulation */}
-      <SpaceCompact>
+        {/* Group 6b — Content Manipulation */}
         <Tooltip title="Draw content manipulation area (move out / move back)">
           <Button
             type={toolButtonType('content_manipulation')}
@@ -567,76 +577,75 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             size="small"
             onClick={() => onToolChange('content_manipulation')}
           >
-            Content Move
+            <span className="wm-tb-label">Content Move</span>
           </Button>
         </Tooltip>
-      </SpaceCompact>
 
-      {/* Group 7 — Shapes (Door, Cabinet, Fixture, etc.) */}
-      <SpaceCompact>
-        <Tooltip title="Place shape (door, cabinet, fixture)">
-          <Button
-            type={toolButtonType('shape')}
-            icon={<AppstoreOutlined />}
-            size="small"
-            onClick={() => {
-              if (!activeShapePresetId) {
-                onShapePresetChange?.(SHAPE_PRESETS[0].id);
-              }
-              onToolChange('shape');
-            }}
-          >
-            {activeShapePreset ? (
-              <Space size={4}>
-                {activeShapePreset.id === 'door' ? (
-                  <svg width="10" height="10" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
-                    <line x1="0" y1="13" x2="13" y2="13" stroke={activeShapePreset.stroke_color} strokeWidth="2" />
-                    <path d="M 13 13 A 13 13 0 0 0 0 0" fill="none" stroke={activeShapePreset.stroke_color} strokeWidth="1.5" />
-                  </svg>
-                ) : (
+        {/* Group 7 — Shapes */}
+        <SpaceCompact>
+          <Tooltip title="Place shape (door, cabinet, fixture)">
+            <Button
+              type={toolButtonType('shape')}
+              icon={<AppstoreOutlined />}
+              size="small"
+              onClick={() => {
+                if (!activeShapePresetId) {
+                  onShapePresetChange?.(SHAPE_PRESETS[0].id);
+                }
+                onToolChange('shape');
+              }}
+            >
+              {activeShapePreset ? (
+                <Space size={4}>
+                  {activeShapePreset.id === 'door' ? (
+                    <svg width="10" height="10" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+                      <line x1="0" y1="13" x2="13" y2="13" stroke={activeShapePreset.stroke_color} strokeWidth="2" />
+                      <path d="M 13 13 A 13 13 0 0 0 0 0" fill="none" stroke={activeShapePreset.stroke_color} strokeWidth="1.5" />
+                    </svg>
+                  ) : (
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        width: 10,
+                        height: 10,
+                        borderRadius: activeShapePreset.shape_type === 'circle' ? '50%' : 2,
+                        background: activeShapePreset.fill_color,
+                        border: `1px solid ${activeShapePreset.stroke_color}`,
+                      }}
+                    />
+                  )}
                   <span
+                    className="wm-tb-label"
                     style={{
-                      display: 'inline-block',
-                      width: 10,
-                      height: 10,
-                      borderRadius: activeShapePreset.shape_type === 'circle' ? '50%' : 2,
-                      background: activeShapePreset.fill_color,
-                      border: `1px solid ${activeShapePreset.stroke_color}`,
+                      maxWidth: 60,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
                     }}
-                  />
-                )}
-                <span
-                  style={{
-                    maxWidth: 60,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {activeShapePreset.name}
-                </span>
-              </Space>
-            ) : (
-              'Shape'
-            )}
-          </Button>
-        </Tooltip>
-        <Dropdown
-          menu={{ items: shapeMenuItems }}
-          trigger={['click']}
-          placement="bottomLeft"
-        >
-          <Button
-            type={toolButtonType('shape')}
-            size="small"
-            icon={<DownOutlined style={{ fontSize: 10 }} />}
-            style={{ padding: '0 6px' }}
-          />
-        </Dropdown>
-      </SpaceCompact>
+                  >
+                    {activeShapePreset.name}
+                  </span>
+                </Space>
+              ) : (
+                <span className="wm-tb-label">Shape</span>
+              )}
+            </Button>
+          </Tooltip>
+          <Dropdown
+            menu={{ items: shapeMenuItems }}
+            trigger={['click']}
+            placement="bottomLeft"
+          >
+            <Button
+              type={toolButtonType('shape')}
+              size="small"
+              icon={<DownOutlined style={{ fontSize: 10 }} />}
+              style={{ padding: '0 6px' }}
+            />
+          </Dropdown>
+        </SpaceCompact>
 
-      {/* Group 8 — Text */}
-      <SpaceCompact>
+        {/* Group 8 — Text */}
         <Tooltip title="Add text annotation (T)">
           <Button
             type={toolButtonType('text')}
@@ -644,110 +653,110 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             size="small"
             onClick={() => onToolChange('text')}
           >
-            Text
+            <span className="wm-tb-label">Text</span>
           </Button>
         </Tooltip>
-      </SpaceCompact>
 
-      {/* Spacer */}
-      <div style={{ flex: 1 }} />
+        {/* Spacer */}
+        <div style={{ flex: 1, minWidth: 4 }} />
 
-      <Divider type="vertical" style={{ margin: '0 4px', height: 20 }} />
+        <Divider className="wm-tb-divider wm-tb-hide-mobile" type="vertical" style={{ margin: '0 4px', height: 20 }} />
 
-      {/* Group 6 — History */}
-      <SpaceCompact>
-        <Tooltip title="Undo (Ctrl+Z)">
-          <Button
-            icon={<UndoOutlined />}
-            size="small"
-            disabled={!canUndo}
-            onClick={onUndo}
-          />
+        {/* Group — History */}
+        <SpaceCompact>
+          <Tooltip title="Undo (Ctrl+Z)">
+            <Button
+              icon={<UndoOutlined />}
+              size="small"
+              disabled={!canUndo}
+              onClick={onUndo}
+            />
+          </Tooltip>
+          <Tooltip title="Redo (Ctrl+Y)">
+            <Button
+              icon={<RedoOutlined />}
+              size="small"
+              disabled={!canRedo}
+              onClick={onRedo}
+            />
+          </Tooltip>
+        </SpaceCompact>
+
+        {/* Group — Save */}
+        <Tooltip title={isDirty ? 'Unsaved changes — click to save (Ctrl+S)' : 'All changes saved'}>
+          <Badge dot={isDirty} offset={[-4, 4]}>
+            <Button
+              type={isDirty ? 'primary' : 'default'}
+              icon={<SaveOutlined />}
+              size="small"
+              loading={isSaving}
+              onClick={onSave}
+            >
+              <span className="wm-tb-label">{isSaving ? 'Saving...' : 'Save'}</span>
+            </Button>
+          </Badge>
         </Tooltip>
-        <Tooltip title="Redo (Ctrl+Y)">
-          <Button
-            icon={<RedoOutlined />}
-            size="small"
-            disabled={!canRedo}
-            onClick={onRedo}
-          />
-        </Tooltip>
-      </SpaceCompact>
 
-      {/* Group 7 — Save */}
-      <Tooltip title={isDirty ? 'Unsaved changes — click to save (Ctrl+S)' : 'All changes saved'}>
-        <Badge dot={isDirty} offset={[-4, 4]}>
-          <Button
-            type={isDirty ? 'primary' : 'default'}
-            icon={<SaveOutlined />}
-            size="small"
-            loading={isSaving}
-            onClick={onSave}
-          >
-            {isSaving ? 'Saving...' : 'Save'}
-          </Button>
-        </Badge>
-      </Tooltip>
+        <Divider className="wm-tb-divider wm-tb-hide-mobile" type="vertical" style={{ margin: '0 4px', height: 20 }} />
 
-      <Divider type="vertical" style={{ margin: '0 4px', height: 20 }} />
-
-      {/* Group 8 — Help */}
-      <Popover
-        trigger="click"
-        placement="bottomRight"
-        title="Keyboard Shortcuts"
-        content={
-          <div style={{ minWidth: 200 }}>
-            {[
-              ['V', 'Select tool'],
-              ['H', 'Hand / Pan tool'],
-              ['T', 'Text tool'],
-              ['W', 'Wall tool'],
-              ['R', 'Room tool'],
-              ['Ctrl+Z', 'Undo'],
-              ['Ctrl+Y', 'Redo'],
-              ['Ctrl+S', 'Save'],
-              ['Del / Backspace', 'Remove selected'],
-              ['Scroll wheel', 'Zoom in / out'],
-              ['Space + Drag', 'Pan canvas'],
-              ['Middle mouse', 'Pan canvas'],
-            ].map(([key, desc]) => (
-              <div
-                key={key}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: 16,
-                  marginBottom: 4,
-                  fontSize: 12,
-                }}
-              >
-                <span
+        {/* Help */}
+        <Popover
+          trigger="click"
+          placement="bottomRight"
+          title="Keyboard Shortcuts"
+          content={
+            <div style={{ minWidth: 200 }}>
+              {[
+                ['V', 'Select tool'],
+                ['H', 'Hand / Pan tool'],
+                ['T', 'Text tool'],
+                ['W', 'Wall tool'],
+                ['R', 'Room tool'],
+                ['Ctrl+Z', 'Undo'],
+                ['Ctrl+Y', 'Redo'],
+                ['Ctrl+S', 'Save'],
+                ['Del / Backspace', 'Remove selected'],
+                ['Scroll wheel', 'Zoom in / out'],
+                ['Space + Drag', 'Pan canvas'],
+                ['Middle mouse', 'Pan canvas'],
+              ].map(([key, desc]) => (
+                <div
+                  key={key}
                   style={{
-                    fontFamily: 'monospace',
-                    background: '#f0f0f0',
-                    border: '1px solid #d9d9d9',
-                    borderRadius: 3,
-                    padding: '1px 6px',
-                    whiteSpace: 'nowrap',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 16,
+                    marginBottom: 4,
+                    fontSize: 12,
                   }}
                 >
-                  {key}
-                </span>
-                <span style={{ color: '#595959' }}>{desc}</span>
-              </div>
-            ))}
-          </div>
-        }
-      >
-        <Tooltip title="Keyboard shortcuts">
-          <Button
-            icon={<QuestionCircleOutlined />}
-            size="small"
-          />
-        </Tooltip>
-      </Popover>
-    </div>
+                  <span
+                    style={{
+                      fontFamily: 'monospace',
+                      background: '#f0f0f0',
+                      border: '1px solid #d9d9d9',
+                      borderRadius: 3,
+                      padding: '1px 6px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {key}
+                  </span>
+                  <span style={{ color: '#595959' }}>{desc}</span>
+                </div>
+              ))}
+            </div>
+          }
+        >
+          <Tooltip title="Keyboard shortcuts">
+            <Button
+              icon={<QuestionCircleOutlined />}
+              size="small"
+            />
+          </Tooltip>
+        </Popover>
+      </div>
+    </>
   );
 };
 

@@ -110,6 +110,7 @@ import WMSketchToolbar from './WMSketchToolbar';
 import WMSketchSidebar from './WMSketchSidebar';
 import WMScaleCalibration from './canvas/WMScaleCalibration';
 import WMLegendOverlay from './canvas/WMLegendOverlay';
+import ImageCropModal from './ImageCropModal';
 
 const { Text } = Typography;
 
@@ -2431,17 +2432,24 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   );
   const [bgImageStatus, setBgImageStatus] = useState<ImageLoadStatus>('idle');
 
+  // Crop modal state
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [cropImageUrl, setCropImageUrl] = useState<string | null>(null);
+  const [cropFileName, setCropFileName] = useState<string>('cropped-image.jpg');
+  const [cropIsNewImport, setCropIsNewImport] = useState(true);
+
   useEffect(() => {
     setImageSourceType(floorSketch.source_type);
     setBackgroundImageUrl(resolveImageUrl(floorSketch.background_image_url));
   }, [floorSketch.id, floorSketch.source_type, floorSketch.background_image_url]);
 
-  const handleImageImported = useCallback(
-    async (file: File, objectUrl: string) => {
+  /** Upload the image file and update state */
+  const uploadAndSetImage = useCallback(
+    async (file: File) => {
+      const objectUrl = URL.createObjectURL(file);
       setBackgroundImageUrl(objectUrl);
       try {
         await onImageUploaded(file);
-        // Auto-open calibration after successful upload
         setIsCalibrating(true);
       } catch {
         message.error('Failed to upload floor plan image.');
@@ -2449,6 +2457,59 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     },
     [onImageUploaded]
   );
+
+  /** Intercept image import to offer crop first */
+  const handleImageImported = useCallback(
+    (_file: File, objectUrl: string) => {
+      setCropImageUrl(objectUrl);
+      setCropFileName(_file.name || 'cropped-image.jpg');
+      setCropIsNewImport(true);
+      setCropModalOpen(true);
+    },
+    []
+  );
+
+  /** When user confirms crop */
+  const handleCropConfirm = useCallback(
+    async (croppedFile: File) => {
+      setCropModalOpen(false);
+      setCropImageUrl(null);
+      await uploadAndSetImage(croppedFile);
+    },
+    [uploadAndSetImage]
+  );
+
+  /** When user skips crop — upload original as-is */
+  const handleCropSkip = useCallback(async () => {
+    setCropModalOpen(false);
+    if (cropImageUrl) {
+      try {
+        const resp = await fetch(cropImageUrl);
+        const blob = await resp.blob();
+        const file = new File([blob], cropFileName, { type: blob.type });
+        await uploadAndSetImage(file);
+      } catch {
+        message.error('Failed to process image.');
+      }
+    }
+    setCropImageUrl(null);
+  }, [cropImageUrl, cropFileName, uploadAndSetImage]);
+
+  /** When user cancels crop — do nothing */
+  const handleCropCancel = useCallback(() => {
+    setCropModalOpen(false);
+    setCropImageUrl(null);
+  }, []);
+
+  /** Open crop modal for an already-loaded background image */
+  const handleCropExistingImage = useCallback(() => {
+    if (backgroundImageUrl) {
+      setCropImageUrl(backgroundImageUrl);
+      setCropFileName('cropped-image.jpg');
+      setCropIsNewImport(false);
+      setCropModalOpen(true);
+    }
+  }, [backgroundImageUrl]);
 
   const handleCalibrated = useCallback(
     (newScale: number) => {
@@ -2538,7 +2599,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         display: 'flex',
         flexDirection: 'column',
         height: 'calc(100vh - 340px)',
-        minHeight: 500,
+        minHeight: 300,
         background: '#fff',
         overflow: 'hidden',
       }}
@@ -2569,6 +2630,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         }}
         onImportFromMagicPlan={onImportFromMagicPlan}
         isMagicPlanImporting={isMagicPlanImporting}
+        onCropImage={backgroundImageUrl ? handleCropExistingImage : undefined}
       />
 
       {/* Toolbar */}
@@ -3033,6 +3095,17 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           onCancel={() => setIsCalibrating(false)}
         />
       )}
+
+      {/* Image crop modal */}
+      <ImageCropModal
+        open={cropModalOpen}
+        imageUrl={cropImageUrl}
+        onConfirm={handleCropConfirm}
+        onSkip={handleCropSkip}
+        onCancel={handleCropCancel}
+        fileName={cropFileName}
+        showSkip={cropIsNewImport}
+      />
     </div>
   );
 };

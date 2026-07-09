@@ -5,20 +5,13 @@
  * "Import Image" modes. When "Import Image" is selected it shows a drop-zone
  * area that accepts file-picker clicks and clipboard paste (Ctrl+V).
  *
- * Usage:
- *   <WMFloorPlanSource
- *     sourceType={floorSketch.sourceType}
- *     backgroundImageUrl={floorSketch.backgroundImageUrl ?? null}
- *     onSourceTypeChange={handleSourceTypeChange}
- *     onImageImported={handleImageImported}
- *     onImageRemoved={handleImageRemoved}
- *   />
+ * Mobile-optimized: buttons collapse to icon-only on narrow screens,
+ * controls wrap into rows, text labels hidden on small viewports.
  */
 
 import React, { useEffect } from 'react';
 import {
   Segmented,
-  Upload,
   Button,
   Space,
   Typography,
@@ -26,7 +19,6 @@ import {
   Tooltip,
   Alert,
   Slider,
-  Switch,
 } from 'antd';
 import {
   EditOutlined,
@@ -54,32 +46,53 @@ export interface WMFloorPlanSourceProps {
   onSourceTypeChange: (type: FloorPlanSourceType) => void;
   onImageImported: (file: File, objectUrl: string) => void;
   onImageRemoved: () => void;
-  /** Trigger scale calibration mode */
   onCalibrateScale?: () => void;
-  /** Whether scale has been calibrated (not default 20px/ft) */
   isCalibrated?: boolean;
-  /** Current scale value in px/ft */
   scalePixelsPerFoot?: number;
-  /** Whether a background image exists (for reference controls in sketch mode) */
   hasBackgroundImage?: boolean;
-  /** Whether to show the reference image overlay in sketch mode */
   showReferenceImage?: boolean;
   onShowReferenceImageChange?: (show: boolean) => void;
-  /** Opacity of the reference image (0.0 - 1.0) */
   referenceOpacity?: number;
   onReferenceOpacityChange?: (opacity: number) => void;
-  /** AI-based image-to-drawing conversion */
   onConvertToDrawing?: () => void;
   isConverting?: boolean;
-  /** Hide overlays to focus on floor plan editing */
   hideOverlays?: boolean;
   onHideOverlaysChange?: (hide: boolean) => void;
-  /** Clear all walls and rooms */
   onClearFloorPlan?: () => void;
-  /** Import floor plan from MagicPlan */
   onImportFromMagicPlan?: () => void;
   isMagicPlanImporting?: boolean;
+  onCropImage?: () => void;
 }
+
+// ============================================================================
+// Inline responsive styles
+// ============================================================================
+
+const MOBILE_BREAKPOINT = 768;
+
+const responsiveStyles = `
+  @media (max-width: ${MOBILE_BREAKPOINT}px) {
+    .wm-fps-root {
+      gap: 6px !important;
+      padding: 4px 8px !important;
+    }
+    .wm-fps-root .wm-fps-hide-mobile {
+      display: none !important;
+    }
+    .wm-fps-root .wm-fps-btn-label {
+      display: none !important;
+    }
+    .wm-fps-root .wm-fps-image-controls {
+      gap: 4px !important;
+    }
+    .wm-fps-root .wm-fps-image-controls .ant-space {
+      gap: 4px !important;
+    }
+    .wm-fps-root .wm-fps-divider {
+      display: none !important;
+    }
+  }
+`;
 
 // ============================================================================
 // Component
@@ -108,6 +121,7 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
   onClearFloorPlan,
   onImportFromMagicPlan,
   isMagicPlanImporting,
+  onCropImage,
 }) => {
   const {
     fileInputRef,
@@ -135,163 +149,236 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
   const hasImage = !!displayUrl;
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: '6px 12px',
-        background: '#fafafa',
-        borderBottom: '1px solid #f0f0f0',
-        flexWrap: 'wrap',
-      }}
-    >
-      {/* Mode toggle */}
-      <Segmented
-        value={sourceType}
-        onChange={(val) => onSourceTypeChange(val as FloorPlanSourceType)}
-        options={[
-          { label: <Space size={4}><EditOutlined />Draw</Space>, value: 'sketch' },
-          { label: <Space size={4}><PictureOutlined />Import Image</Space>, value: 'image' },
-        ]}
-        size="small"
-      />
+    <>
+      <style>{responsiveStyles}</style>
+      <div
+        className="wm-fps-root"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '6px 12px',
+          background: '#fafafa',
+          borderBottom: '1px solid #f0f0f0',
+          flexWrap: 'wrap',
+        }}
+      >
+        {/* Mode toggle */}
+        <Segmented
+          value={sourceType}
+          onChange={(val) => onSourceTypeChange(val as FloorPlanSourceType)}
+          options={[
+            { label: <Space size={4}><EditOutlined /><span className="wm-fps-btn-label">Draw</span></Space>, value: 'sketch' },
+            { label: <Space size={4}><PictureOutlined /><span className="wm-fps-btn-label">Import</span></Space>, value: 'image' },
+          ]}
+          size="small"
+        />
 
-      {/* Floor plan edit mode — hide overlays */}
-      {onHideOverlaysChange && (
-        <Tooltip title={hideOverlays ? 'Show all overlays' : 'Hide overlays to edit floor plan only'}>
-          <Button
-            size="small"
-            type={hideOverlays ? 'primary' : 'default'}
-            ghost={hideOverlays}
-            icon={hideOverlays ? <EyeInvisibleOutlined /> : <EyeOutlined />}
-            onClick={() => onHideOverlaysChange(!hideOverlays)}
-          >
-            {hideOverlays ? 'Floor Plan Only' : 'All Layers'}
-          </Button>
-        </Tooltip>
-      )}
-      {onClearFloorPlan && (
-        <Tooltip title="Clear all walls and rooms">
-          <Button
-            size="small"
-            icon={<ClearOutlined />}
-            danger
-            onClick={onClearFloorPlan}
-          >
-            Clear Floor Plan
-          </Button>
-        </Tooltip>
-      )}
-
-      {/* Reference image controls — shown in sketch mode when background image exists */}
-      {sourceType === 'sketch' && hasBackgroundImage && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 1, height: 20, background: '#d9d9d9' }} />
-          <Tooltip title={showReferenceImage ? 'Hide reference image' : 'Show imported image as trace reference'}>
+        {/* Floor plan edit mode — hide overlays */}
+        {onHideOverlaysChange && (
+          <Tooltip title={hideOverlays ? 'Show all overlays' : 'Hide overlays to edit floor plan only'}>
             <Button
               size="small"
-              type={showReferenceImage ? 'primary' : 'default'}
-              ghost={showReferenceImage}
-              icon={showReferenceImage ? <EyeOutlined /> : <EyeInvisibleOutlined />}
-              onClick={() => onShowReferenceImageChange?.(!showReferenceImage)}
+              type={hideOverlays ? 'primary' : 'default'}
+              ghost={hideOverlays}
+              icon={hideOverlays ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+              onClick={() => onHideOverlaysChange(!hideOverlays)}
             >
-              Reference
+              <span className="wm-fps-btn-label">{hideOverlays ? 'Floor Plan Only' : 'All Layers'}</span>
             </Button>
           </Tooltip>
-          {showReferenceImage && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Text style={{ fontSize: 11, color: '#8c8c8c', whiteSpace: 'nowrap' }}>Opacity</Text>
-              <Slider
-                min={0.05}
-                max={0.8}
-                step={0.05}
-                value={referenceOpacity}
-                onChange={(val) => onReferenceOpacityChange?.(val)}
-                style={{ width: 80, margin: 0 }}
-                tooltip={{ formatter: (val) => `${Math.round((val ?? 0) * 100)}%` }}
-              />
-            </div>
-          )}
-        </div>
-      )}
+        )}
+        {onClearFloorPlan && (
+          <Tooltip title="Clear all walls and rooms">
+            <Button
+              size="small"
+              icon={<ClearOutlined />}
+              danger
+              onClick={onClearFloorPlan}
+            >
+              <span className="wm-fps-btn-label">Clear</span>
+            </Button>
+          </Tooltip>
+        )}
 
-      {/* Image controls — shown only when in image mode */}
-      {sourceType === 'image' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
-          {hasImage ? (
-            // Thumbnail + change/remove buttons
-            <Space size={8} align="center">
-              <Image
-                src={displayUrl!}
-                width={40}
-                height={30}
-                style={{ objectFit: 'cover', borderRadius: 4, border: '1px solid #d9d9d9' }}
-                preview={{ mask: false }}
-                alt="Floor plan background"
-              />
-              <Text type="secondary" style={{ fontSize: 12 }}>Floor plan image loaded</Text>
-              <Tooltip title="Replace image">
-                <Button
-                  size="small"
-                  icon={<UploadOutlined />}
-                  onClick={openFilePicker}
-                  loading={isUploading}
-                >
-                  Change
-                </Button>
-              </Tooltip>
-              <Tooltip title="Remove image">
-                <Button
-                  size="small"
-                  icon={<DeleteOutlined />}
-                  danger
-                  onClick={() => {
-                    clearImage();
-                    onImageRemoved();
-                  }}
+        {/* Reference image controls — shown in sketch mode when background image exists */}
+        {sourceType === 'sketch' && hasBackgroundImage && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div className="wm-fps-divider" style={{ width: 1, height: 20, background: '#d9d9d9' }} />
+            <Tooltip title={showReferenceImage ? 'Hide reference image' : 'Show imported image as trace reference'}>
+              <Button
+                size="small"
+                type={showReferenceImage ? 'primary' : 'default'}
+                ghost={showReferenceImage}
+                icon={showReferenceImage ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+                onClick={() => onShowReferenceImageChange?.(!showReferenceImage)}
+              >
+                <span className="wm-fps-btn-label">Reference</span>
+              </Button>
+            </Tooltip>
+            {showReferenceImage && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Text className="wm-fps-hide-mobile" style={{ fontSize: 11, color: '#8c8c8c', whiteSpace: 'nowrap' }}>Opacity</Text>
+                <Slider
+                  min={0.05}
+                  max={0.8}
+                  step={0.05}
+                  value={referenceOpacity}
+                  onChange={(val) => onReferenceOpacityChange?.(val)}
+                  style={{ width: 80, margin: 0 }}
+                  tooltip={{ formatter: (val) => `${Math.round((val ?? 0) * 100)}%` }}
                 />
-              </Tooltip>
-              {onCalibrateScale && (
-                <>
-                  <div style={{ width: 1, height: 20, background: '#d9d9d9' }} />
-                  <Tooltip title={isCalibrated
-                    ? `Scale: ${scalePixelsPerFoot?.toFixed(1)} px/ft — click to re-calibrate`
-                    : 'Set scale by drawing a reference line on a known dimension'
-                  }>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Image controls — shown only when in image mode */}
+        {sourceType === 'image' && (
+          <div className="wm-fps-image-controls" style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, flexWrap: 'wrap' }}>
+            {hasImage ? (
+              // Thumbnail + action buttons — wraps on mobile
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <Image
+                  src={displayUrl!}
+                  width={40}
+                  height={30}
+                  style={{ objectFit: 'cover', borderRadius: 4, border: '1px solid #d9d9d9' }}
+                  preview={{ mask: false }}
+                  alt="Floor plan background"
+                />
+                <Text className="wm-fps-hide-mobile" type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                  Floor plan image loaded
+                </Text>
+
+                {/* Primary image actions */}
+                <Space.Compact size="small">
+                  <Tooltip title="Replace image">
                     <Button
-                      size="small"
-                      icon={<AimOutlined />}
-                      type={isCalibrated ? 'default' : 'primary'}
-                      ghost={!isCalibrated}
-                      onClick={onCalibrateScale}
+                      icon={<UploadOutlined />}
+                      onClick={openFilePicker}
+                      loading={isUploading}
                     >
-                      {isCalibrated ? `${scalePixelsPerFoot?.toFixed(1)} px/ft` : 'Calibrate Scale'}
+                      <span className="wm-fps-btn-label">Change</span>
                     </Button>
                   </Tooltip>
-                </>
-              )}
-              {onConvertToDrawing && (
-                <>
-                  <div style={{ width: 1, height: 20, background: '#d9d9d9' }} />
-                  <Tooltip title="AI가 이미지를 분석하여 벽과 방을 자동으로 감지합니다">
+                  {onCropImage && (
+                    <Tooltip title="Crop image">
+                      <Button icon={<ScissorOutlined />} onClick={onCropImage}>
+                        <span className="wm-fps-btn-label">Crop</span>
+                      </Button>
+                    </Tooltip>
+                  )}
+                  <Tooltip title="Remove image">
                     <Button
-                      size="small"
-                      icon={<RobotOutlined />}
-                      onClick={onConvertToDrawing}
-                      loading={isConverting}
-                      type="primary"
-                      ghost
-                    >
-                      Convert to Drawing
-                    </Button>
+                      icon={<DeleteOutlined />}
+                      danger
+                      onClick={() => {
+                        clearImage();
+                        onImageRemoved();
+                      }}
+                    />
                   </Tooltip>
-                </>
-              )}
-              {onImportFromMagicPlan && (
-                <>
-                  <div style={{ width: 1, height: 20, background: '#d9d9d9' }} />
-                  <Tooltip title="Replace with a floor plan from MagicPlan">
+                </Space.Compact>
+
+                {/* Scale calibration */}
+                {onCalibrateScale && (
+                  <>
+                    <div className="wm-fps-divider" style={{ width: 1, height: 20, background: '#d9d9d9' }} />
+                    <Tooltip title={isCalibrated
+                      ? `Scale: ${scalePixelsPerFoot?.toFixed(1)} px/ft — click to re-calibrate`
+                      : 'Set scale by drawing a reference line on a known dimension'
+                    }>
+                      <Button
+                        size="small"
+                        icon={<AimOutlined />}
+                        type={isCalibrated ? 'default' : 'primary'}
+                        ghost={!isCalibrated}
+                        onClick={onCalibrateScale}
+                      >
+                        {isCalibrated ? `${scalePixelsPerFoot?.toFixed(1)} px/ft` : <><span className="wm-fps-btn-label">Calibrate</span></>}
+                      </Button>
+                    </Tooltip>
+                  </>
+                )}
+
+                {/* AI conversion */}
+                {onConvertToDrawing && (
+                  <>
+                    <div className="wm-fps-divider" style={{ width: 1, height: 20, background: '#d9d9d9' }} />
+                    <Tooltip title="AI가 이미지를 분석하여 벽과 방을 자동으로 감지합니다">
+                      <Button
+                        size="small"
+                        icon={<RobotOutlined />}
+                        onClick={onConvertToDrawing}
+                        loading={isConverting}
+                        type="primary"
+                        ghost
+                      >
+                        <span className="wm-fps-btn-label">Convert</span>
+                      </Button>
+                    </Tooltip>
+                  </>
+                )}
+
+                {/* MagicPlan */}
+                {onImportFromMagicPlan && (
+                  <>
+                    <div className="wm-fps-divider" style={{ width: 1, height: 20, background: '#d9d9d9' }} />
+                    <Tooltip title="Replace with a floor plan from MagicPlan">
+                      <Button
+                        size="small"
+                        icon={<CloudDownloadOutlined />}
+                        onClick={onImportFromMagicPlan}
+                        loading={isMagicPlanImporting}
+                        style={{ color: '#722ed1', borderColor: '#722ed1' }}
+                      >
+                        <span className="wm-fps-btn-label">MagicPlan</span>
+                      </Button>
+                    </Tooltip>
+                  </>
+                )}
+              </div>
+            ) : (
+              // Drop zone / upload prompt
+              <>
+                <div
+                  onClick={openFilePicker}
+                  style={{
+                    flex: 1,
+                    minWidth: 160,
+                    maxWidth: 420,
+                    border: '1.5px dashed #d9d9d9',
+                    borderRadius: 6,
+                    padding: '6px 14px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: '#fff',
+                    transition: 'border-color 0.2s',
+                  }}
+                  onMouseEnter={(e) =>
+                    ((e.currentTarget as HTMLDivElement).style.borderColor = '#4096ff')
+                  }
+                  onMouseLeave={(e) =>
+                    ((e.currentTarget as HTMLDivElement).style.borderColor = '#d9d9d9')
+                  }
+                >
+                  <UploadOutlined style={{ color: '#8c8c8c', fontSize: 16 }} />
+                  <Text style={{ fontSize: 12, color: '#595959' }}>
+                    Click to upload
+                  </Text>
+                  <span className="wm-fps-hide-mobile">
+                    <Text style={{ fontSize: 11, color: '#bfbfbf' }}>or</Text>
+                  </span>
+                  <Space className="wm-fps-hide-mobile" size={4}>
+                    <ScissorOutlined style={{ color: '#8c8c8c', fontSize: 12 }} />
+                    <Text style={{ fontSize: 11, color: '#8c8c8c' }}>Paste (Ctrl+V)</Text>
+                  </Space>
+                </div>
+                {onImportFromMagicPlan && (
+                  <Tooltip title="Import floor plan from MagicPlan project">
                     <Button
                       size="small"
                       icon={<CloudDownloadOutlined />}
@@ -299,85 +386,35 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
                       loading={isMagicPlanImporting}
                       style={{ color: '#722ed1', borderColor: '#722ed1' }}
                     >
-                      MagicPlan
+                      <span className="wm-fps-btn-label">MagicPlan</span>
                     </Button>
                   </Tooltip>
-                </>
-              )}
-            </Space>
-          ) : (
-            // Drop zone / upload prompt
-            <>
-              <div
-                onClick={openFilePicker}
-                style={{
-                  flex: 1,
-                  minWidth: 200,
-                  maxWidth: 420,
-                  border: '1.5px dashed #d9d9d9',
-                  borderRadius: 6,
-                  padding: '6px 14px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  background: '#fff',
-                  transition: 'border-color 0.2s',
-                }}
-                onMouseEnter={(e) =>
-                  ((e.currentTarget as HTMLDivElement).style.borderColor = '#4096ff')
-                }
-                onMouseLeave={(e) =>
-                  ((e.currentTarget as HTMLDivElement).style.borderColor = '#d9d9d9')
-                }
-              >
-                <UploadOutlined style={{ color: '#8c8c8c', fontSize: 16 }} />
-                <Text style={{ fontSize: 12, color: '#595959' }}>
-                  Click to upload
-                </Text>
-                <Text style={{ fontSize: 11, color: '#bfbfbf' }}>or</Text>
-                <Space size={4}>
-                  <ScissorOutlined style={{ color: '#8c8c8c', fontSize: 12 }} />
-                  <Text style={{ fontSize: 11, color: '#8c8c8c' }}>Paste (Ctrl+V)</Text>
-                </Space>
-              </div>
-              {onImportFromMagicPlan && (
-                <Tooltip title="Import floor plan from MagicPlan project">
-                  <Button
-                    size="small"
-                    icon={<CloudDownloadOutlined />}
-                    onClick={onImportFromMagicPlan}
-                    loading={isMagicPlanImporting}
-                    style={{ color: '#722ed1', borderColor: '#722ed1' }}
-                  >
-                    From MagicPlan
-                  </Button>
-                </Tooltip>
-              )}
-            </>
-          )}
+                )}
+              </>
+            )}
 
-          {error && (
-            <Alert
-              message={error}
-              type="error"
-              showIcon
-              closable
-              style={{ padding: '2px 8px', fontSize: 12 }}
-            />
-          )}
-        </div>
-      )}
+            {error && (
+              <Alert
+                message={error}
+                type="error"
+                showIcon
+                closable
+                style={{ padding: '2px 8px', fontSize: 12 }}
+              />
+            )}
+          </div>
+        )}
 
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        style={{ display: 'none' }}
-        onChange={handleFileSelected}
-      />
-    </div>
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={handleFileSelected}
+        />
+      </div>
+    </>
   );
 };
 

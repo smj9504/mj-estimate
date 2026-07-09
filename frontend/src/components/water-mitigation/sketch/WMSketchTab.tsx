@@ -521,24 +521,27 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
       {/* Address header */}
       <div
         style={{
-          padding: '8px 16px',
+          padding: '6px 12px',
           borderBottom: '1px solid #f0f0f0',
           display: 'flex',
+          flexWrap: 'wrap',
           alignItems: 'center',
-          gap: 8,
+          gap: 6,
           flexShrink: 0,
         }}
       >
-        <EnvironmentOutlined style={{ color: '#8c8c8c' }} />
-        <Text strong style={{ fontSize: 13 }}>
-          {jobAddress}
-        </Text>
-        {floors.length > 0 && (
-          <Text type="secondary" style={{ fontSize: 12, marginLeft: 4 }}>
-            — {floors.length} floor{floors.length !== 1 ? 's' : ''}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: '1 1 auto', overflow: 'hidden' }}>
+          <EnvironmentOutlined style={{ color: '#8c8c8c', flexShrink: 0 }} />
+          <Text strong style={{ fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {jobAddress}
           </Text>
-        )}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {floors.length > 0 && (
+            <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
+              — {floors.length} floor{floors.length !== 1 ? 's' : ''}
+            </Text>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
           <Tooltip title={floors.length === 0 ? 'Add a floor sketch first' : 'Generate Scope of Work from sketch data'}>
             <Button
               icon={<FileTextOutlined />}
@@ -547,7 +550,7 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
               disabled={floors.length === 0}
               onClick={handleGenerateScope}
             >
-              Generate Scope
+              Scope
             </Button>
           </Tooltip>
           <Tooltip title={floors.length === 0 ? 'Add a floor sketch first' : 'Download PDF Report'}>
@@ -562,7 +565,7 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
                 onClick: ({ key }) => handleGeneratePdf(key),
               }}
             >
-              <FilePdfOutlined /> PDF Report
+              <FilePdfOutlined /> PDF
             </Dropdown.Button>
           </Tooltip>
         </div>
