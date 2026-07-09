@@ -22,12 +22,39 @@ from app.domains.plumber_report.schemas import (
     PlumberReportNumberResponse
 )
 from app.domains.plumber_report.service import PlumberReportService
+from app.domains.plumber_report.ai_service import generate_plumber_report
 from app.common.services.pdf_service import PDFService
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class AIGenerateRequest(BaseModel):
+    """Request schema for AI report generation"""
+    incident_type: str
+    location: str
+    state: str = "MD"
+    invoice_amount: str = "$3,000"
+
+
+@router.post("/generate-ai")
+async def generate_ai_report(request: AIGenerateRequest):
+    """Generate plumber report content using AI from job details"""
+    result = generate_plumber_report(
+        incident_type=request.incident_type,
+        location=request.location,
+        state=request.state,
+        invoice_amount=request.invoice_amount,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=500,
+            detail="AI report generation failed. Please try again or use manual entry."
+        )
+    return result
 
 
 @router.get("/generate-number", response_model=PlumberReportNumberResponse)

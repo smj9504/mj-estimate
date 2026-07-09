@@ -569,19 +569,20 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # Add SlowAPI middleware for rate limiting
 app.add_middleware(SlowAPIMiddleware)
 
-# Configure CORS
+# Add session middleware for SQLAdmin authentication
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SECRET_KEY,
+)
+
+# Configure CORS — MUST be added last so it's the outermost middleware.
+# This ensures CORS headers are always present, even on error responses.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
-
-# Add session middleware for SQLAdmin authentication
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.SECRET_KEY,
 )
 
 

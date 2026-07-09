@@ -100,6 +100,9 @@ const PlumberReportCreation: React.FC = () => {
   const [promptModalVisible, setPromptModalVisible] = useState(false);
   const [jsonPasteModalVisible, setJsonPasteModalVisible] = useState(false);
   const [jsonPasteValue, setJsonPasteValue] = useState('');
+  const [aiGenerateModalVisible, setAiGenerateModalVisible] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiForm] = Form.useForm();
 
   // Modal states
   const [itemModalVisible, setItemModalVisible] = useState(false);
@@ -698,6 +701,48 @@ const PlumberReportCreation: React.FC = () => {
     }
   }, [jsonPasteValue, form]);
 
+  const handleAiGenerate = useCallback(async () => {
+    try {
+      const values = await aiForm.validateFields();
+      setAiGenerating(true);
+      const data = await plumberReportService.generateAI({
+        incident_type: values.incident_type,
+        location: values.location,
+        state: values.ai_state || 'MD',
+        invoice_amount: values.invoice_amount || '$3,000',
+      });
+
+      // Apply generated data to form
+      if (data.site_findings) setSiteFindings(data.site_findings);
+      if (data.work_performed) setWorkPerformed(data.work_performed);
+
+      if (data.invoice_items && Array.isArray(data.invoice_items)) {
+        const items: InvoiceItem[] = data.invoice_items.map((item: any) => ({
+          id: crypto.randomUUID(),
+          name: item.name || '',
+          description: item.description || '',
+          quantity: item.quantity || 1,
+          unit: item.unit || 'EA',
+          unit_cost: item.unit_cost || 0,
+          total_cost: (item.quantity || 1) * (item.unit_cost || 0),
+        }));
+        setInvoiceItems(items);
+      }
+
+      if (data.tax_amount !== undefined) form.setFieldsValue({ tax_amount: data.tax_amount });
+      if (data.warranty_info) setWarrantyInfo(data.warranty_info);
+      if (data.notes) setNotes(data.notes);
+
+      setAiGenerateModalVisible(false);
+      message.success('AI report generated successfully');
+    } catch (error: any) {
+      if (error?.errorFields) return; // form validation error
+      message.error(error?.response?.data?.detail || 'AI generation failed. Please try again.');
+    } finally {
+      setAiGenerating(false);
+    }
+  }, [aiForm, form]);
+
   const totals = calculateTotals();
 
   // Show loading spinner when editing an existing report
@@ -714,6 +759,16 @@ const PlumberReportCreation: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={2} style={{ margin: 0 }}>{id ? 'Edit' : 'Create'} Plumber's Report</Title>
         <Space>
+          <Tooltip title="Generate report content with AI">
+            <Button
+              icon={<RobotOutlined />}
+              onClick={() => setAiGenerateModalVisible(true)}
+              size="small"
+              type="primary"
+            >
+              AI Generate
+            </Button>
+          </Tooltip>
           <Tooltip title="Import AI JSON Result">
             <Button
               icon={<FileTextOutlined />}
@@ -1569,6 +1624,83 @@ const PlumberReportCreation: React.FC = () => {
                 label="Notes"
               >
                 <TextArea rows={2} />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Form>
+      </Modal>
+
+      {/* AI Generate Modal */}
+      <Modal
+        title={
+          <Space>
+            <RobotOutlined />
+            <span>AI Report Generator</span>
+          </Space>
+        }
+        open={aiGenerateModalVisible}
+        onCancel={() => {
+          setAiGenerateModalVisible(false);
+          aiForm.resetFields();
+        }}
+        width={500}
+        footer={[
+          <Button key="close" onClick={() => {
+            setAiGenerateModalVisible(false);
+            aiForm.resetFields();
+          }}>
+            Cancel
+          </Button>,
+          <Button
+            key="generate"
+            type="primary"
+            icon={<RobotOutlined />}
+            loading={aiGenerating}
+            onClick={handleAiGenerate}
+          >
+            {aiGenerating ? 'Generating...' : 'Generate Report'}
+          </Button>,
+        ]}
+      >
+        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+          Enter job details and AI will automatically generate Site Findings, Work Performed, Invoice Items, and more.
+        </Typography.Text>
+        <Form form={aiForm} layout="vertical">
+          <Form.Item
+            name="incident_type"
+            label="Incident Type"
+            rules={[{ required: true, message: 'Please enter the incident type' }]}
+          >
+            <Input placeholder="e.g. burst shower valve, broken supply line, leaking water heater" />
+          </Form.Item>
+          <Form.Item
+            name="location"
+            label="Location in Home"
+            rules={[{ required: true, message: 'Please enter the location' }]}
+          >
+            <Input placeholder="e.g. master bathroom shower, kitchen sink, basement" />
+          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="ai_state"
+                label="State"
+                initialValue="MD"
+              >
+                <Select>
+                  <Select.Option value="MD">Maryland</Select.Option>
+                  <Select.Option value="VA">Virginia</Select.Option>
+                  <Select.Option value="DC">DC</Select.Option>
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="invoice_amount"
+                label="Total Invoice Amount"
+                initialValue="$3,000"
+              >
+                <Input placeholder="$X,XXX" />
               </Form.Item>
             </Col>
           </Row>

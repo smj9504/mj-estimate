@@ -272,6 +272,30 @@ class PlumberReportService {
     }
   }
 
+  // Generate plumber report content using AI
+  async generateAI(params: {
+    incident_type: string;
+    location: string;
+    state?: string;
+    invoice_amount?: string;
+  }): Promise<{
+    site_findings: string;
+    work_performed: string;
+    invoice_items: Array<{
+      name: string;
+      description: string;
+      quantity: number;
+      unit: string;
+      unit_cost: number;
+    }>;
+    tax_amount: number;
+    warranty_info: string;
+    notes: string;
+  }> {
+    const response = await api.post(`${this.baseUrl}/generate-ai`, params);
+    return response.data;
+  }
+
   // Fallback method for report number generation
   private generateReportNumberFallback(): string {
     const date = new Date();
