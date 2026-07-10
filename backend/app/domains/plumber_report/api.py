@@ -6,6 +6,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse
+import asyncio
 import json
 import io
 import logging
@@ -38,6 +39,10 @@ class AIGenerateRequest(BaseModel):
     location: str
     state: str = "MD"
     invoice_amount: str = "$3,000"
+    failed_component: str = ""
+    pipe_material: str = ""
+    wall_access_type: str = "drywall"
+    protection_installed: str = "yes"
 
 
 @router.post("/generate-ai")
@@ -48,6 +53,10 @@ async def generate_ai_report(request: AIGenerateRequest):
         location=request.location,
         state=request.state,
         invoice_amount=request.invoice_amount,
+        failed_component=request.failed_component,
+        pipe_material=request.pipe_material,
+        wall_access_type=request.wall_access_type,
+        protection_installed=request.protection_installed,
     )
     if result is None:
         raise HTTPException(
@@ -503,10 +512,12 @@ async def send_plumber_report_to_pa(
     if not request.to_addresses:
         raise HTTPException(status_code=400, detail="No recipients")
 
-    # Generate PDF
+    # Generate PDF (run in thread to avoid blocking event loop)
     try:
         report_dict = report.to_dict()
-        pdf_bytes = PDFService.generate_plumber_report_pdf(report_dict)
+        pdf_bytes = await asyncio.to_thread(
+            PDFService.generate_plumber_report_pdf, report_dict
+        )
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"PDF generation failed: {e}"
@@ -544,7 +555,10 @@ async def send_plumber_report_to_pa(
         if request.from_address:
             send_payload["from_address"] = request.from_address
 
-        email_result = email_service.send_email(send_payload)
+        # Run SMTP send in thread to avoid blocking event loop
+        email_result = await asyncio.to_thread(
+            email_service.send_email, send_payload
+        )
 
         # Update report status to 'sent'
         if report.status != 'sent':

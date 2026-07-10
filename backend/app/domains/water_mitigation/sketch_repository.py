@@ -255,6 +255,10 @@ class SketchRepository:
         }
         if overlay_data.element_order:
             snapshot["element_order"] = overlay_data.element_order
+        if overlay_data.bg_offset_x is not None:
+            snapshot["bg_offset_x"] = overlay_data.bg_offset_x
+        if overlay_data.bg_offset_y is not None:
+            snapshot["bg_offset_y"] = overlay_data.bg_offset_y
 
         sketch = self.db.execute(
             select(WMFloorSketch)

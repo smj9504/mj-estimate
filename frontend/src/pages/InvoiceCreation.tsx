@@ -1355,8 +1355,8 @@ const InvoiceCreation: React.FC = () => {
         return {
           id: item.id,
           line_item_id: item.line_item_id, // IMPORTANT: Preserve line_item_id for template creation
-          name: item.name || item.description,
-          description: item.description,
+          name: item.name || item.description || '',
+          description: item.description || item.name || '',
           quantity,
           unit: item.unit || 'EA',
           rate,
@@ -2133,7 +2133,11 @@ const InvoiceCreation: React.FC = () => {
       } : null;
 
       // Send both items (converted from sections) and sections
-      const allItems = convertSectionsToItems();
+      const allItems = convertSectionsToItems().map(item => ({
+        ...item,
+        name: item.name || item.description || '',
+        description: item.description || item.name || '',
+      }));
       invoiceData.items = allItems;
       invoiceData.sections = sections;
       invoiceData.subtotal = totals.subtotal;

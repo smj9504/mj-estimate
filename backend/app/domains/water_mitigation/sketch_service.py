@@ -157,12 +157,22 @@ class SketchService:
 
         # Upload new file via StorageProvider.upload()
         file_content = await file.read()
+        logger.info(
+            "[BG UPLOAD] sketch=%s, filename=%s, content_type=%s, "
+            "size=%d bytes, old_file_id=%s",
+            floor_sketch_id, file.filename, file.content_type,
+            len(file_content), old_file_id,
+        )
         result = storage.upload(
             file_data=io.BytesIO(file_content),
-            filename=file.filename or "background.jpg",
+            filename=file.filename or "background.png",
             context=_BACKGROUND_IMAGE_FOLDER,
             context_id=str(floor_sketch_id),
-            content_type=file.content_type or "image/jpeg",
+            content_type=file.content_type or "image/png",
+        )
+        logger.info(
+            "[BG UPLOAD] result: file_id=%s, file_url=%s",
+            result.file_id, result.file_url,
         )
 
         # Determine the storage provider name
@@ -178,9 +188,12 @@ class SketchService:
         else:
             # Use the backend proxy endpoint so the frontend doesn't need
             # direct access to cloud storage.
+            # Append timestamp to bust browser cache after crop/re-upload.
+            import time
             image_url = (
                 f"/api/water-mitigation/sketch/floors/"
                 f"{floor_sketch_id}/background-image/preview"
+                f"?v={int(time.time())}"
             )
 
         # Persist URL + storage metadata for proxy retrieval
@@ -354,6 +367,7 @@ class SketchService:
         "baseboard_quarter_round": "Baseboard+Quarter Round",
         "quarter_round": "Quarter Round",
         "toe_kick": "Toe Kick",
+        "crown_molding": "Crown Molding",
         "insulation": "Insulation",
         "window_trim_demo": "Window Trim Demo",
         "door_trim_demo": "Door Trim Demo",
@@ -446,6 +460,7 @@ class SketchService:
         "baseboard_quarter_round": "LF",
         "quarter_round": "LF",
         "toe_kick": "LF",
+        "crown_molding": "LF",
         "insulation": "SF",
         "window_trim_demo": "LF",
         "door_trim_demo": "LF",
@@ -547,6 +562,7 @@ class SketchService:
             glue_down_floor_sqft: float = 0.0
             # Baseboard/trim LF accumulated from wall drywall zones with baseboard_type
             baseboard_lf: dict[str, float] = {}  # key = baseboard_type, value = total LF
+            crown_molding_lf: float = 0.0
             for zone in _jsonb_demo_zones:
                 mt = zone.get("material_type") or "unknown"
                 st = zone.get("sub_type") or ""
@@ -578,6 +594,11 @@ class SketchService:
                 if bb_type and float(zone.get("dimension1_ft") or 0) > 0:
                     wall_lf = float(zone.get("dimension1_ft"))
                     baseboard_lf[bb_type] = baseboard_lf.get(bb_type, 0) + wall_lf
+                # Accumulate crown molding LF from wall zones
+                if zone.get("include_crown_molding"):
+                    cm_lf = float(zone.get("dimension1_ft") or 0)
+                    if cm_lf > 0:
+                        crown_molding_lf += cm_lf
 
             for (material_type, sub_type), total_qty in demo_groups.items():
                 base_name = self._MATERIAL_TYPE_NAMES.get(
@@ -770,6 +791,40 @@ class SketchService:
                 all_items.append(GeneratedScopeItemSummary(
                     name=bb_name, item_type="demolition",
                     quantity=round(total_lf, 2), unit="LF",
+                    floor_label=floor_label,
+                ))
+
+            # Crown Molding — separate line item from checkbox
+            if crown_molding_lf > 0:
+                cm_mw_id = self._resolve_material_weight_id(
+                    material_weight_map,
+                    "Crown Molding", "crown_molding", "",
+                )
+                cm_item = WMScopeItem(
+                    location_id=location.id,
+                    item_type="demolition",
+                    name="Crown Molding",
+                    quantity=Decimal(
+                        str(round(crown_molding_lf, 2))
+                    ),
+                    unit="LF",
+                    include_in_debris=True,
+                    material_weight_id=cm_mw_id,
+                    display_order=item_order,
+                )
+                if not cm_mw_id:
+                    warnings.append(
+                        "No material weight mapping found "
+                        "for 'Crown Molding'"
+                    )
+                self.db.add(cm_item)
+                items_created += 1
+                item_order += 1
+                all_items.append(GeneratedScopeItemSummary(
+                    name="Crown Molding",
+                    item_type="demolition",
+                    quantity=round(crown_molding_lf, 2),
+                    unit="LF",
                     floor_label=floor_label,
                 ))
 

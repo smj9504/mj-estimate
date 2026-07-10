@@ -39,6 +39,10 @@ const ROTATE_ANCHOR_OFFSET = 24;
 const INSULATION_OFFSET = -10;
 /** Insulation indicator color */
 const INSULATION_COLOR = '#E91E63';
+/** Crown molding line offset above the main drywall line (pixels) */
+const CROWN_MOLDING_OFFSET = -18;
+/** Crown molding indicator color */
+const CROWN_MOLDING_COLOR = '#9370DB';
 /** Baseboard line offset below the main drywall line (pixels) — tight to drywall */
 const BASEBOARD_OFFSET = 5;
 /** Baseboard/trim color by type */
@@ -68,6 +72,7 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
   const isLF = mat?.unit === 'LF';
   const isWallSF = mat?.surface === 'wall' && !isLF;
   const showInsulation = isWallSF && zone.include_insulation;
+  const showCrownMolding = isWallSF && !!zone.include_crown_molding;
   const showBaseboard = isWallSF && !!zone.baseboard_type;
   const baseboardColor = zone.baseboard_type ? BASEBOARD_COLORS[zone.baseboard_type] ?? '#DEB887' : '#DEB887';
   const baseboardLabel = zone.baseboard_type ? BASEBOARD_LABELS[zone.baseboard_type] ?? 'BB' : 'BB';
@@ -330,6 +335,36 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
         </>
       )}
 
+      {/* Crown Molding indicator line (offset above insulation line) */}
+      {showCrownMolding && (
+        <>
+          <Line
+            points={[0, CROWN_MOLDING_OFFSET, lengthPx, CROWN_MOLDING_OFFSET]}
+            stroke={CROWN_MOLDING_COLOR}
+            strokeWidth={3}
+            dash={[8, 4]}
+            lineCap="round"
+            opacity={0.85}
+            listening={false}
+          />
+          {/* Crown Molding label */}
+          {lengthPx > 60 && (
+            <Text
+              x={lengthPx / 2 - 30}
+              y={CROWN_MOLDING_OFFSET - 12}
+              width={60}
+              text={`CM ${zone.dimension1_ft.toFixed(1)} LF`}
+              fontSize={8}
+              fontFamily="'Inter', 'Segoe UI', sans-serif"
+              fill={CROWN_MOLDING_COLOR}
+              fontStyle="bold"
+              align="center"
+              listening={false}
+            />
+          )}
+        </>
+      )}
+
       {/* Baseboard indicator line (offset below the drywall line) */}
       {showBaseboard && (
         <>
@@ -364,7 +399,7 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
       <Line
         points={[0, 0, lengthPx, 0]}
         stroke="transparent"
-        strokeWidth={(showBaseboard || showInsulation) ? 28 : 16}
+        strokeWidth={(showBaseboard || showInsulation || showCrownMolding) ? 28 : 16}
       />
 
       {/* Selection highlight */}
@@ -439,10 +474,41 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
         </>
       )}
 
+      {/* Crown Molding indicator badge */}
+      {showCrownMolding && lengthPx > 50 && (() => {
+        const cmBadgeW = 24;
+        const cmBadgeX = lengthPx / 2 + (zone.include_insulation ? 86 : 54);
+        return (
+        <>
+          <Rect
+            x={cmBadgeX}
+            y={-22}
+            width={cmBadgeW}
+            height={14}
+            fill={CROWN_MOLDING_COLOR}
+            cornerRadius={3}
+            listening={false}
+          />
+          <Text
+            x={cmBadgeX}
+            y={-21}
+            width={cmBadgeW}
+            text="CM"
+            fontSize={9}
+            fontFamily="'Inter', 'Segoe UI', sans-serif"
+            fill="#ffffff"
+            fontStyle="bold"
+            align="center"
+            listening={false}
+          />
+        </>
+        );
+      })()}
+
       {/* Baseboard indicator badge */}
       {showBaseboard && lengthPx > 50 && (() => {
         const bbBadgeW = baseboardLabel.length * 7 + 6;
-        const bbBadgeX = lengthPx / 2 + (zone.include_insulation ? 86 : 54);
+        const bbBadgeX = lengthPx / 2 + (zone.include_insulation ? 86 : 54) + (showCrownMolding ? 28 : 0);
         return (
         <>
           <Rect

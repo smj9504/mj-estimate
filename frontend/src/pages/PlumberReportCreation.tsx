@@ -710,6 +710,10 @@ const PlumberReportCreation: React.FC = () => {
         location: values.location,
         state: values.ai_state || 'MD',
         invoice_amount: values.invoice_amount || '$3,000',
+        failed_component: values.failed_component || '',
+        pipe_material: values.pipe_material || '',
+        wall_access_type: values.wall_access_type || 'drywall',
+        protection_installed: values.protection_installed || 'yes',
       });
 
       // Apply generated data to form
@@ -1671,17 +1675,50 @@ const PlumberReportCreation: React.FC = () => {
             label="Incident Type"
             rules={[{ required: true, message: 'Please enter the incident type' }]}
           >
-            <Input placeholder="e.g. burst shower valve, broken supply line, leaking water heater" />
+            <Input placeholder="e.g. burst supply line, failed mixing valve, cracked flex connector" />
           </Form.Item>
+          <Form.Item
+            name="failed_component"
+            label="Failed Component"
+          >
+            <Input placeholder="e.g. rigid copper supply line, flexible grey connector, mixing valve" />
+          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="pipe_material"
+                label="Pipe Material"
+              >
+                <Select allowClear placeholder="Select pipe material">
+                  <Select.Option value="Type L copper">Type L Copper</Select.Option>
+                  <Select.Option value="PEX">PEX</Select.Option>
+                  <Select.Option value="braided stainless">Braided Stainless</Select.Option>
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="wall_access_type"
+                label="Wall / Access Type"
+                initialValue="drywall"
+              >
+                <Select>
+                  <Select.Option value="drywall">Drywall</Select.Option>
+                  <Select.Option value="tile">Tile</Select.Option>
+                  <Select.Option value="access panel">Access Panel</Select.Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
           <Form.Item
             name="location"
             label="Location in Home"
             rules={[{ required: true, message: 'Please enter the location' }]}
           >
-            <Input placeholder="e.g. master bathroom shower, kitchen sink, basement" />
+            <Input placeholder="e.g. 2nd floor master bathroom shower, kitchen sink, basement" />
           </Form.Item>
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item
                 name="ai_state"
                 label="State"
@@ -1694,13 +1731,25 @@ const PlumberReportCreation: React.FC = () => {
                 </Select>
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item
                 name="invoice_amount"
                 label="Total Invoice Amount"
                 initialValue="$3,000"
               >
                 <Input placeholder="$X,XXX" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item
+                name="protection_installed"
+                label="Protection Installed"
+                initialValue="yes"
+              >
+                <Select>
+                  <Select.Option value="yes">Yes</Select.Option>
+                  <Select.Option value="no">No</Select.Option>
+                </Select>
               </Form.Item>
             </Col>
           </Row>

@@ -278,6 +278,10 @@ class PlumberReportService {
     location: string;
     state?: string;
     invoice_amount?: string;
+    failed_component?: string;
+    pipe_material?: string;
+    wall_access_type?: string;
+    protection_installed?: string;
   }): Promise<{
     site_findings: string;
     work_performed: string;

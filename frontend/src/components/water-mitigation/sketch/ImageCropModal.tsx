@@ -78,7 +78,11 @@ function createImage(url: string): Promise<HTMLImageElement> {
     const img = new Image();
     img.addEventListener('load', () => resolve(img));
     img.addEventListener('error', (err) => reject(err));
-    img.crossOrigin = 'anonymous';
+    // Only set crossOrigin for remote URLs — blob: and data: URLs are
+    // same-origin and setting crossOrigin on them can cause load failures.
+    if (!url.startsWith('blob:') && !url.startsWith('data:')) {
+      img.crossOrigin = 'anonymous';
+    }
     img.src = url;
   });
 }
@@ -90,6 +94,7 @@ async function getCroppedImg(
   imageSrc: string,
   pixelCrop: Area,
   rotation: number = 0,
+  mimeType: string = 'image/png',
 ): Promise<Blob> {
   const image = await createImage(imageSrc);
   const canvas = document.createElement('canvas');
@@ -115,14 +120,18 @@ async function getCroppedImg(
 
   ctx.drawImage(image, 0, 0);
 
+  // Use PNG to preserve transparency, JPEG for photos
+  const outputType = mimeType.startsWith('image/') ? mimeType : 'image/png';
+  const quality = outputType === 'image/jpeg' ? 0.92 : undefined;
+
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
         if (blob) resolve(blob);
         else reject(new Error('Canvas toBlob returned null'));
       },
-      'image/jpeg',
-      0.92,
+      outputType,
+      quality,
     );
   });
 }
@@ -156,11 +165,21 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({
 
     setProcessing(true);
     try {
-      const blob = await getCroppedImg(imageUrl, croppedAreaPixels, rotation);
-      const file = new File([blob], fileName, { type: 'image/jpeg' });
+      // Detect MIME type from file extension to preserve transparency for PNGs
+      const isPng = fileName.toLowerCase().endsWith('.png');
+      const mimeType = isPng ? 'image/png' : 'image/jpeg';
+      const blob = await getCroppedImg(imageUrl, croppedAreaPixels, rotation, mimeType);
+      const file = new File([blob], fileName, { type: mimeType });
       onConfirm(file);
     } catch (err) {
       console.error('Failed to crop image:', err);
+      // Show user-facing error via antd message if available, otherwise alert
+      try {
+        const { message: antdMessage } = await import('antd');
+        antdMessage.error('Failed to crop image. Please try again.');
+      } catch {
+        alert('Failed to crop image. Please try again.');
+      }
     } finally {
       setProcessing(false);
     }
@@ -222,7 +241,7 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({
           position: 'relative',
           width: '100%',
           height: 420,
-          background: '#333',
+          background: '#f0f0f0',
         }}
       >
         <Cropper

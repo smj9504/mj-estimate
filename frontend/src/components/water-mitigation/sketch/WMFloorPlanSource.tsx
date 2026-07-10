@@ -32,6 +32,7 @@ import {
   RobotOutlined,
   ClearOutlined,
   CloudDownloadOutlined,
+  DragOutlined,
 } from '@ant-design/icons';
 import type { FloorPlanSourceType } from '../../../types/wmSketch';
 import { useImageImport } from './hooks/useImageImport';
@@ -62,6 +63,8 @@ export interface WMFloorPlanSourceProps {
   onImportFromMagicPlan?: () => void;
   isMagicPlanImporting?: boolean;
   onCropImage?: () => void;
+  bgMoveMode?: boolean;
+  onBgMoveModeChange?: (enabled: boolean) => void;
 }
 
 // ============================================================================
@@ -122,6 +125,8 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
   onImportFromMagicPlan,
   isMagicPlanImporting,
   onCropImage,
+  bgMoveMode,
+  onBgMoveModeChange,
 }) => {
   const {
     fileInputRef,
@@ -266,6 +271,17 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
                     <Tooltip title="Crop image">
                       <Button icon={<ScissorOutlined />} onClick={onCropImage}>
                         <span className="wm-fps-btn-label">Crop</span>
+                      </Button>
+                    </Tooltip>
+                  )}
+                  {onBgMoveModeChange && (
+                    <Tooltip title={bgMoveMode ? 'Stop moving image' : 'Move background image'}>
+                      <Button
+                        icon={<DragOutlined />}
+                        type={bgMoveMode ? 'primary' : 'default'}
+                        onClick={() => onBgMoveModeChange(!bgMoveMode)}
+                      >
+                        <span className="wm-fps-btn-label">Move</span>
                       </Button>
                     </Tooltip>
                   )}

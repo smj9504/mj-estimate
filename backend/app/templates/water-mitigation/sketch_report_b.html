@@ -553,6 +553,12 @@
           <span class="area-value">{{ "%.1f"|format(item.summary.containment_sqft) }} SF</span>
         </div>
         {% endif %}
+        {% if item.summary.containment_zippers|default(0) > 0 %}
+        <div class="area-item">
+          <span class="area-label" style="padding-left:12px; font-style:italic;">+ Zipper</span>
+          <span class="area-value">{{ item.summary.containment_zippers }} EA</span>
+        </div>
+        {% endif %}
         {% if item.summary.protection_sqft > 0 %}
         <div class="area-item">
           <span class="area-label">Floor Protection</span>

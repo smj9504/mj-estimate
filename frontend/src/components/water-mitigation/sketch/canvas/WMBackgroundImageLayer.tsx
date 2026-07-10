@@ -27,6 +27,14 @@ export interface WMBackgroundImageLayerProps {
   opacity?: number;
   /** Called when load status changes */
   onStatusChange?: (status: ImageLoadStatus) => void;
+  /** Extra X offset applied after fitContain centering */
+  offsetX?: number;
+  /** Extra Y offset applied after fitContain centering */
+  offsetY?: number;
+  /** When true the image can be dragged to reposition */
+  draggable?: boolean;
+  /** Called when the user finishes dragging the image */
+  onDragEnd?: (offsetX: number, offsetY: number) => void;
 }
 
 interface FittedImage {
@@ -63,6 +71,10 @@ const WMBackgroundImageLayer: React.FC<WMBackgroundImageLayerProps> = ({
   canvasHeight,
   opacity = 0.9,
   onStatusChange,
+  offsetX = 0,
+  offsetY = 0,
+  draggable = false,
+  onDragEnd,
 }) => {
   const [fitted, setFitted] = useState<FittedImage | null>(null);
   const onStatusRef = React.useRef(onStatusChange);
@@ -119,12 +131,18 @@ const WMBackgroundImageLayer: React.FC<WMBackgroundImageLayerProps> = ({
   return (
     <KonvaImage
       image={fitted.image}
-      x={fitted.x}
-      y={fitted.y}
+      x={fitted.x + offsetX}
+      y={fitted.y + offsetY}
       width={fitted.width}
       height={fitted.height}
       opacity={opacity}
-      listening={false}
+      draggable={draggable}
+      listening={draggable}
+      onDragEnd={draggable ? (e) => {
+        const newOffsetX = e.target.x() - fitted.x;
+        const newOffsetY = e.target.y() - fitted.y;
+        onDragEnd?.(newOffsetX, newOffsetY);
+      } : undefined}
     />
   );
 };

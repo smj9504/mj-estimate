@@ -352,37 +352,24 @@ class SketchPdfService:
 
         image_bytes: Optional[bytes] = None
 
-        # Cloud storage — with local disk cache
+        # Cloud storage — always download fresh (no local cache)
+        # to ensure crop/re-upload changes are reflected immediately.
         if provider != "local" and file_id:
-            cache_path = _IMAGE_CACHE_DIR / f"{file_id}"
-            if cache_path.exists():
-                try:
-                    image_bytes = cache_path.read_bytes()
-                    logger.debug("Image cache HIT for file_id=%s", file_id)
-                except Exception:
-                    image_bytes = None
-
-            if image_bytes is None:
-                try:
-                    from app.domains.storage.factory import StorageFactory
-                    storage = StorageFactory.get_instance(provider)
-                    image_bytes = storage.download(file_id)
-                    # Save to local cache for subsequent PDF generations
-                    if image_bytes:
-                        try:
-                            cache_path.parent.mkdir(parents=True, exist_ok=True)
-                            cache_path.write_bytes(image_bytes)
-                            logger.info(
-                                "Image cache MISS → saved %d bytes for file_id=%s",
-                                len(image_bytes), file_id,
-                            )
-                        except Exception as cache_exc:
-                            logger.debug("Could not write image cache: %s", cache_exc)
-                except Exception as exc:
-                    logger.warning(
-                        "Could not download background image for sketch %s "
-                        "from %s: %s", floor.id, provider, exc,
-                    )
+            try:
+                from app.domains.storage.factory import StorageFactory
+                storage = StorageFactory.get_instance(provider)
+                image_bytes = storage.download(file_id)
+                logger.info(
+                    "Downloaded background image for sketch %s: "
+                    "file_id=%s, %d bytes",
+                    floor.id, file_id,
+                    len(image_bytes) if image_bytes else 0,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Could not download background image for sketch %s "
+                    "from %s: %s", floor.id, provider, exc,
+                )
 
         # Local storage fallback
         if image_bytes is None and bg_url:
@@ -412,8 +399,55 @@ class SketchPdfService:
         if not image_bytes:
             return None
 
-        # Detect MIME type
-        mime = mimetypes.guess_type(bg_url or "image.jpg")[0] or "image/jpeg"
+        # Detect MIME type from actual image bytes (not URL, which may lack extension)
+        mime = self._detect_mime_type(image_bytes, bg_url)
+
+        # WeasyPrint does not support WebP — convert to PNG for PDF rendering
+        if mime == "image/webp":
+            try:
+                from PIL import Image as PILImage
+                pil_img = PILImage.open(io.BytesIO(image_bytes))
+                png_buf = io.BytesIO()
+                pil_img.save(png_buf, format="PNG")
+                image_bytes = png_buf.getvalue()
+                mime = "image/png"
+                logger.info(
+                    "Converted WebP → PNG for PDF rendering (%d bytes)",
+                    len(image_bytes),
+                )
+            except Exception as exc:
+                logger.warning("WebP→PNG conversion failed: %s", exc)
+
+        # SVG images (e.g. MagicPlan floor plans) must be rasterized to PNG.
+        # Nested SVG-inside-SVG via data URI causes rendering issues in
+        # WeasyPrint, and dimension detection for SVG is unreliable.
+        if mime == "image/svg+xml":
+            try:
+                import cairosvg
+                # Read SVG viewBox / width+height to preserve aspect ratio.
+                # cairosvg with only output_width may produce a square if
+                # the SVG lacks explicit dimensions.
+                svg_w, svg_h = self._get_image_dimensions(image_bytes)
+                out_w = 2400
+                if svg_w > 0 and svg_h > 0:
+                    out_h = int(out_w * svg_h / svg_w)
+                else:
+                    out_h = None  # let cairosvg decide
+                png_bytes = cairosvg.svg2png(
+                    bytestring=image_bytes,
+                    output_width=out_w,
+                    output_height=out_h,
+                )
+                image_bytes = png_bytes
+                mime = "image/png"
+                logger.info(
+                    "Converted SVG → PNG for PDF rendering "
+                    "(svg=%dx%d → png out_w=%d out_h=%s, %d bytes)",
+                    svg_w, svg_h, out_w, out_h, len(image_bytes),
+                )
+            except Exception as exc:
+                logger.warning("SVG→PNG conversion failed: %s", exc)
+
         b64 = base64.b64encode(image_bytes).decode("ascii")
 
         # Read actual image dimensions for contain-fit calculation
@@ -421,16 +455,52 @@ class SketchPdfService:
         return f"data:{mime};base64,{b64}", img_w, img_h
 
     @staticmethod
+    def _detect_mime_type(image_bytes: bytes, fallback_url: str = "") -> str:
+        """Detect MIME type from image bytes magic number."""
+        if image_bytes[:4] == b'\x89PNG':
+            return "image/png"
+        if image_bytes[:2] == b'\xff\xd8':
+            return "image/jpeg"
+        if image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
+            return "image/webp"
+        if image_bytes[:4] in (b'GIF8',):
+            return "image/gif"
+        # SVG detection (XML text starting with <?xml or <svg)
+        head = image_bytes[:200].lstrip()
+        if head.startswith(b'<?xml') or head.startswith(b'<svg') or b'<svg' in head[:500]:
+            return "image/svg+xml"
+        # Fallback: try from URL extension
+        guessed = mimetypes.guess_type(fallback_url or "image.jpg")[0]
+        return guessed or "image/jpeg"
+
+    @staticmethod
     def _get_image_dimensions(
         image_bytes: bytes,
     ) -> tuple:
-        """Read width/height from image bytes using PIL or fallback."""
+        """Read width/height from image bytes using PIL or SVG parsing."""
+        # Try PIL first (works for raster images)
         try:
             from PIL import Image as PILImage
             img = PILImage.open(io.BytesIO(image_bytes))
             return img.size  # (width, height)
         except Exception:
-            return (0, 0)
+            pass
+        # SVG fallback: parse width/height or viewBox from XML
+        try:
+            import re
+            text = image_bytes[:2000].decode("utf-8", errors="ignore")
+            # Try width="..." height="..."
+            w_match = re.search(r'<svg[^>]*\bwidth=["\']?([\d.]+)', text)
+            h_match = re.search(r'<svg[^>]*\bheight=["\']?([\d.]+)', text)
+            if w_match and h_match:
+                return (float(w_match.group(1)), float(h_match.group(1)))
+            # Try viewBox="minX minY width height"
+            vb_match = re.search(r'viewBox=["\'][\d.\s]+ [\d.\s]+ ([\d.]+) ([\d.]+)', text)
+            if vb_match:
+                return (float(vb_match.group(1)), float(vb_match.group(2)))
+        except Exception:
+            pass
+        return (0, 0)
 
     @staticmethod
     def _fit_contain(
@@ -469,33 +539,39 @@ class SketchPdfService:
 
         parts: List[str] = []
 
-        # Determine if floor plan was drawn (has walls/rooms)
         _overlay_check = getattr(floor, "overlay_data", None)
-        _has_floor_plan = (
-            isinstance(_overlay_check, dict)
-            and (len(_overlay_check.get("walls", [])) > 0
-                 or len(_overlay_check.get("rooms", [])) > 0)
-        )
 
-        # Background: show uploaded image ONLY if no floor plan was drawn
+        # Background image — always show if available.
+        # When a floor plan (walls/rooms) is drawn on top, the image serves
+        # as the underlying reference, matching the frontend behaviour.
         has_bg_image = False
-        if not _has_floor_plan:
-            try:
-                bg_result = self._load_background_image_data_uri(floor)
-            except Exception as exc:
-                logger.warning("Failed to load background image: %s", exc)
-                bg_result = None
+        try:
+            bg_result = self._load_background_image_data_uri(floor)
+        except Exception as exc:
+            logger.warning("Failed to load background image: %s", exc)
+            bg_result = None
 
-            if bg_result:
-                has_bg_image = True
-                bg_data_uri, img_w, img_h = bg_result
-                fit = self._fit_contain(img_w, img_h, canvas_w, canvas_h)
-                parts.append(
-                    f'<image href="{bg_data_uri}" '
-                    f'x="{fit["x"]:.1f}" y="{fit["y"]:.1f}" '
-                    f'width="{fit["width"]:.1f}" height="{fit["height"]:.1f}" '
-                    f'preserveAspectRatio="none"/>'
-                )
+        if bg_result:
+            has_bg_image = True
+            bg_data_uri, img_w, img_h = bg_result
+            fit = self._fit_contain(img_w, img_h, canvas_w, canvas_h)
+            # Apply user-defined background offset from overlay_data
+            bg_ox = float((_overlay_check or {}).get("bg_offset_x", 0) or 0)
+            bg_oy = float((_overlay_check or {}).get("bg_offset_y", 0) or 0)
+            logger.info(
+                "BG image for floor %s: img=%dx%d canvas=%dx%d "
+                "fit={x=%.1f y=%.1f w=%.1f h=%.1f} offset=(%.1f, %.1f)",
+                getattr(floor, "floor_label", "?"),
+                img_w, img_h, canvas_w, canvas_h,
+                fit["x"], fit["y"], fit["width"], fit["height"],
+                bg_ox, bg_oy,
+            )
+            parts.append(
+                f'<image href="{bg_data_uri}" '
+                f'x="{fit["x"] + bg_ox:.1f}" y="{fit["y"] + bg_oy:.1f}" '
+                f'width="{fit["width"]:.1f}" height="{fit["height"]:.1f}" '
+                f'preserveAspectRatio="none"/>'
+            )
 
         if not has_bg_image:
             s = self._svg
@@ -608,8 +684,8 @@ class SketchPdfService:
             f'<svg xmlns="http://www.w3.org/2000/svg" '
             f'xmlns:xlink="http://www.w3.org/1999/xlink" '
             f'viewBox="0 0 {canvas_w:.0f} {canvas_h:.0f}" '
-            f'width="{canvas_w:.0f}" height="{canvas_h:.0f}" '
-            f'style="max-width:100%;height:auto;display:block;">'
+            f'preserveAspectRatio="xMidYMid meet" '
+            f'style="width:100%;height:auto;display:block;">'
             + defs
             + "".join(parts)
             + "</svg>"
@@ -1867,9 +1943,16 @@ class SketchPdfService:
         insulation_sqft: float = 0.0
         glue_down_carpet_sqft: float = 0.0
         glue_down_floor_sqft: float = 0.0
+        # Baseboard / Crown Molding LF from wall drywall zones (JSONB-only fields)
+        baseboard_lf: Dict[str, float] = {}  # key = baseboard_type
+        crown_molding_lf: float = 0.0
         total_demo_sf: float = 0.0
         total_demo_lf: float = 0.0
         total_demo_ea: float = 0.0
+
+        # Read JSONB overlay_data for fields not in normalised DB rows
+        _overlay = floor.overlay_data if isinstance(floor.overlay_data, dict) else {}
+        _jsonb_zones = _overlay.get("demolition_zones") or []
 
         for zone in (floor.demolition_zones or []):
             mt = zone.material_type or "Unknown"
@@ -1921,11 +2004,70 @@ class SketchPdfService:
                 carpet_pad_sqft += qty
             if getattr(zone, "include_insulation", False) and qty > 0:
                 insulation_sqft += qty
+            if getattr(zone, "include_crown_molding", False):
+                wall_lf = float(zone.dimension1_ft or 0)
+                if wall_lf > 0:
+                    crown_molding_lf += wall_lf
             if getattr(zone, "glue_down", False) and qty > 0:
                 if mt == "carpet":
                     glue_down_carpet_sqft += qty
                 else:
                     glue_down_floor_sqft += qty
+
+        # Accumulate baseboard/trim LF from JSONB (baseboard_type is not in DB model)
+        for jz in _jsonb_zones:
+            bb_type = jz.get("baseboard_type")
+            if bb_type and float(jz.get("dimension1_ft") or 0) > 0:
+                wall_lf = float(jz.get("dimension1_ft"))
+                baseboard_lf[bb_type] = baseboard_lf.get(bb_type, 0) + wall_lf
+
+        # Expand baseboard_quarter_round into separate entries
+        _BB_NAMES = {
+            "baseboard": "Baseboard",
+            "quarter_round": "Quarter Round",
+            "baseboard_quarter_round": "Baseboard+Quarter Round",
+        }
+        expanded_bb: Dict[str, float] = {}
+        for bb_type, total_lf in baseboard_lf.items():
+            if total_lf <= 0:
+                continue
+            if bb_type == "baseboard_quarter_round":
+                expanded_bb["baseboard"] = expanded_bb.get("baseboard", 0) + total_lf
+                expanded_bb["quarter_round"] = expanded_bb.get("quarter_round", 0) + total_lf
+            else:
+                expanded_bb[bb_type] = expanded_bb.get(bb_type, 0) + total_lf
+
+        # Add baseboard entries to demo_by_material
+        for bb_type, total_lf in expanded_bb.items():
+            if total_lf <= 0:
+                continue
+            bb_name = _BB_NAMES.get(bb_type, bb_type.replace("_", " ").title())
+            bb_key = f"__addon_bb_{bb_type}"
+            demo_by_material[bb_key] = {
+                "material": bb_type,
+                "sub_type": "",
+                "material_name": bb_name,
+                "surface": "wall",
+                "color": "#DEB887",
+                "count": 1,
+                "total_sqft": round(total_lf, 2),
+                "unit": "LF",
+            }
+            total_demo_lf += total_lf
+
+        # Add crown molding entry
+        if crown_molding_lf > 0:
+            demo_by_material["__addon_crown_molding"] = {
+                "material": "crown_molding",
+                "sub_type": "",
+                "material_name": "Crown Molding",
+                "surface": "wall",
+                "color": "#9370DB",
+                "count": 1,
+                "total_sqft": round(crown_molding_lf, 2),
+                "unit": "LF",
+            }
+            total_demo_lf += crown_molding_lf
 
         equip_counts: Dict[str, int] = {}
         for equip in (floor.equipment_placements or []):
@@ -1935,6 +2077,10 @@ class SketchPdfService:
 
         containment_sqft = sum(
             float(z.calculated_sqft or 0)
+            for z in (floor.containment_zones or [])
+        )
+        containment_zippers = sum(
+            int(z.zipper_count or 0)
             for z in (floor.containment_zones or [])
         )
         protection_sqft = sum(
@@ -1955,6 +2101,7 @@ class SketchPdfService:
             "demo_by_material": list(demo_by_material.values()),
             "equip_counts": equip_counts,
             "containment_sqft": containment_sqft,
+            "containment_zippers": containment_zippers,
             "protection_sqft": protection_sqft,
             "content_protection_sqft": content_prot_sqft,
             "content_manipulation_hours": content_manip_hours,
@@ -1966,6 +2113,8 @@ class SketchPdfService:
             "insulation_sqft": insulation_sqft,
             "glue_down_carpet_sqft": glue_down_carpet_sqft,
             "glue_down_floor_sqft": glue_down_floor_sqft,
+            "baseboard_lf": expanded_bb,
+            "crown_molding_lf": crown_molding_lf,
         }
 
     # ──────────────────────────────────────────────────────────────────────

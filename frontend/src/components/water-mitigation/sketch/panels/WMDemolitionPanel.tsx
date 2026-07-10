@@ -605,6 +605,23 @@ const ZoneEditForm: React.FC<{
         </div>
       )}
 
+      {/* Crown Molding checkbox — for wall SF materials (top of wall trim) */}
+      {(selectedMaterial?.surface === 'wall' || selectedMaterial?.surface === 'ceiling')
+        && selectedMaterial?.unit === 'SF'
+        && zone.material_type !== 'insulation' && (
+        <Checkbox
+          checked={zone.include_crown_molding ?? false}
+          onChange={(e) => onUpdate({ include_crown_molding: e.target.checked })}
+        >
+          <span style={{ fontSize: 12 }}>Include Crown Molding</span>
+          {zone.include_crown_molding && !needsDimensions && (
+            <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
+              (+{zone.dimension1_ft.toFixed(2)} LF)
+            </Text>
+          )}
+        </Checkbox>
+      )}
+
       {/* Label */}
       <div>
         <Text style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>

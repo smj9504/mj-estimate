@@ -85,6 +85,8 @@ function ensureOverlayIds(overlay: WMOverlayData): WMOverlayData {
     walls: fix(overlay.walls ?? []),
     rooms: fix(overlay.rooms ?? []),
     element_order: overlay.element_order,
+    bg_offset_x: overlay.bg_offset_x,
+    bg_offset_y: overlay.bg_offset_y,
   };
   return patched ? result : overlay;
 }

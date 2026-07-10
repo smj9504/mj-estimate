@@ -119,21 +119,10 @@ def _merge_overlay_response(
         return obj
 
     # Use JSONB as the single source of truth for overlay_data.
-    # The JSONB snapshot preserves ALL fields including frontend-only ones
-    # (polygon_points, pixel_width, combined_from, group_id, etc.)
-    # that don't exist in the DB child tables.
-    return _to_json({
-        "demolition_zones": jsonb.get("demolition_zones", []),
-        "equipment_placements": jsonb.get("equipment_placements", []),
-        "containment_zones": jsonb.get("containment_zones", []),
-        "floor_protections": jsonb.get("floor_protections", []),
-        "content_protections": jsonb.get("content_protections", []),
-        "text_annotations": jsonb.get("text_annotations", []),
-        "shapes": jsonb.get("shapes", []),
-        "walls": jsonb.get("walls", []),
-        "rooms": jsonb.get("rooms", []),
-        "element_order": jsonb.get("element_order", []),
-    })
+    # Pass through the entire JSONB snapshot so that any new fields
+    # (bg_offset_x/y, content_manipulations, etc.) are automatically
+    # included without needing explicit enumeration here.
+    return _to_json(jsonb)
 
 
 # ---------------------------------------------------------------------------
@@ -177,19 +166,8 @@ def get_floor_sketches(
         jsonb = s.overlay_data if isinstance(
             s.overlay_data, dict
         ) else {}
-        # Use JSONB as single source of truth (preserves all frontend-only fields)
-        resp.overlay_data = _to_json({
-            "demolition_zones": jsonb.get("demolition_zones", []),
-            "equipment_placements": jsonb.get("equipment_placements", []),
-            "containment_zones": jsonb.get("containment_zones", []),
-            "floor_protections": jsonb.get("floor_protections", []),
-            "content_protections": jsonb.get("content_protections", []),
-            "text_annotations": jsonb.get("text_annotations", []),
-            "shapes": jsonb.get("shapes", []),
-            "walls": jsonb.get("walls", []),
-            "rooms": jsonb.get("rooms", []),
-            "element_order": jsonb.get("element_order", []),
-        })
+        # Use JSONB as single source of truth — pass through entirely
+        resp.overlay_data = _to_json(jsonb)
         items.append(resp)
 
     return WMFloorSketchListResponse(items=items, total=len(items))
@@ -487,6 +465,34 @@ async def preview_background_image(
             elif file_id.endswith(".svg"):
                 content_type = "image/svg+xml"
 
+            # Convert WebP/SVG to PNG for browser/canvas compatibility
+            if content_type in ("image/webp", "image/svg+xml"):
+                try:
+                    if content_type == "image/svg+xml":
+                        import cairosvg
+                        png_bytes = cairosvg.svg2png(
+                            bytestring=photo_bytes,
+                            output_width=2400,
+                        )
+                        photo_bytes = png_bytes
+                    else:
+                        from PIL import Image as PILImage
+                        pil_img = PILImage.open(io.BytesIO(photo_bytes))
+                        png_buf = io.BytesIO()
+                        pil_img.save(png_buf, format="PNG")
+                        photo_bytes = png_buf.getvalue()
+                    content_type = "image/png"
+                    logger.info(
+                        "Converted %s → PNG for proxy serve (%d bytes)",
+                        file_id.rsplit(".", 1)[-1],
+                        len(photo_bytes),
+                    )
+                except Exception as conv_exc:
+                    logger.warning(
+                        "Image conversion failed, serving original: %s",
+                        conv_exc,
+                    )
+
             logger.info(
                 "Serving background image for sketch %s: "
                 "provider=%s, file_id=%s, size=%d bytes",
@@ -501,9 +507,7 @@ async def preview_background_image(
                 media_type=content_type,
                 headers={
                     "Content-Disposition": "inline",
-                    "Cache-Control": (
-                        "public, max-age=86400"
-                    ),
+                    "Cache-Control": "no-store, must-revalidate",
                 },
             )
         except Exception as exc:
@@ -543,9 +547,7 @@ async def preview_background_image(
                 media_type="image/jpeg",
                 headers={
                     "Content-Disposition": "inline",
-                    "Cache-Control": (
-                        "public, max-age=86400"
-                    ),
+                    "Cache-Control": "no-store, must-revalidate",
                 },
             )
 

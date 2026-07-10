@@ -300,6 +300,7 @@ export const DEFAULT_DEMO_MATERIAL_TYPES: DemoMaterialType[] = [
   { id: 'baseboard_quarter_round',name: 'Baseboard+Quarter Round',   surface: 'wall',    color: '#D2B48C', unit: 'LF' },
   { id: 'quarter_round',          name: 'Quarter Round',             surface: 'wall',    color: '#C4A882', unit: 'LF' },
   { id: 'toe_kick',               name: 'Toe Kick',                  surface: 'wall',    color: '#A0522D', unit: 'LF' },
+  { id: 'crown_molding',          name: 'Crown Molding',             surface: 'wall',    color: '#9370DB', unit: 'LF' },
   { id: 'window_trim_demo',       name: 'Window Trim Demo',          surface: 'wall',    color: '#5B9BD5', unit: 'EA' },
   { id: 'door_trim_demo',         name: 'Door Trim Demo',            surface: 'wall',    color: '#E07C4F', unit: 'EA' },
   { id: 'door_demo',              name: 'Door Demo',                 surface: 'wall',    color: '#8B4513', unit: 'EA' },
@@ -378,6 +379,8 @@ export interface WMDemolitionZone {
   include_insulation?: boolean;
   /** Baseboard/trim type included along this wall drywall zone (undefined = none) */
   baseboard_type?: 'baseboard' | 'quarter_round' | 'baseboard_quarter_round';
+  /** When true, crown molding demo is included along the top of this wall zone */
+  include_crown_molding?: boolean;
   /** When true, floor is glued down to substrate — adds extra removal cost */
   glue_down?: boolean;
   /** Trim removal extent: full (all sides), half, quarter, or custom LF */
@@ -724,6 +727,10 @@ export interface WMOverlayData {
    * Absent in legacy data — built lazily on first z-order change.
    */
   element_order?: string[];
+  /** Background image X offset in canvas pixels (default 0) */
+  bg_offset_x?: number;
+  /** Background image Y offset in canvas pixels (default 0) */
+  bg_offset_y?: number;
 }
 
 /** Convenience constant for initialising a new, empty overlay */

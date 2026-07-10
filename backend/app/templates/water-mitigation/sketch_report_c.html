@@ -545,6 +545,12 @@
             <div class="cc-value">{{ "%.1f"|format(item.summary.containment_sqft) }} SF</div>
           </div>
           {% endif %}
+          {% if item.summary.containment_zippers|default(0) > 0 %}
+          <div class="compact-cell">
+            <div class="cc-label" style="font-style:italic;">+ Zipper</div>
+            <div class="cc-value">{{ item.summary.containment_zippers }} EA</div>
+          </div>
+          {% endif %}
           {% if item.summary.protection_sqft > 0 %}
           <div class="compact-cell">
             <div class="cc-label">Floor Protection</div>

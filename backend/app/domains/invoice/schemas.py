@@ -114,7 +114,7 @@ class PaymentRecord(BaseModel):
 
 class InvoiceItemBase(BaseModel):
     name: str
-    description: str  # Required - this is the actual line item name
+    description: Optional[str] = ''  # Line item description (optional, defaults to empty)
     quantity: float = 1
     unit: str = "ea"
     rate: float = 0

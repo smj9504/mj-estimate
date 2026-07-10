@@ -169,6 +169,9 @@ class WMDemolitionZone(Base, BaseModel):
     # Insulation — when True, scope generation creates an "Insulation" line item
     include_insulation = Column(Boolean, default=False, nullable=False, server_default="false")
 
+    # Crown molding — when True, scope generation creates a "Crown Molding" line item
+    include_crown_molding = Column(Boolean, default=False, nullable=False, server_default="false")
+
     # Glue down — when True, floor is glued to substrate; adds extra removal cost
     glue_down = Column(Boolean, default=False, nullable=False, server_default="false")
 

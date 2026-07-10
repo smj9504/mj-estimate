@@ -2432,10 +2432,24 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   );
   const [bgImageStatus, setBgImageStatus] = useState<ImageLoadStatus>('idle');
 
+  // Background image move mode
+  const [bgMoveMode, setBgMoveMode] = useState(false);
+
+  const handleBgDragEnd = useCallback(
+    (newOffsetX: number, newOffsetY: number) => {
+      loadOverlayData({
+        ...state.overlayData,
+        bg_offset_x: Math.round(newOffsetX),
+        bg_offset_y: Math.round(newOffsetY),
+      });
+    },
+    [state.overlayData, loadOverlayData]
+  );
+
   // Crop modal state
   const [cropModalOpen, setCropModalOpen] = useState(false);
   const [cropImageUrl, setCropImageUrl] = useState<string | null>(null);
-  const [cropFileName, setCropFileName] = useState<string>('cropped-image.jpg');
+  const [cropFileName, setCropFileName] = useState<string>('cropped-image.png');
   const [cropIsNewImport, setCropIsNewImport] = useState(true);
 
   useEffect(() => {
@@ -2462,7 +2476,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   const handleImageImported = useCallback(
     (_file: File, objectUrl: string) => {
       setCropImageUrl(objectUrl);
-      setCropFileName(_file.name || 'cropped-image.jpg');
+      setCropFileName(_file.name || 'cropped-image.png');
       setCropIsNewImport(true);
       setCropModalOpen(true);
     },
@@ -2501,15 +2515,84 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     setCropImageUrl(null);
   }, []);
 
-  /** Open crop modal for an already-loaded background image */
-  const handleCropExistingImage = useCallback(() => {
-    if (backgroundImageUrl) {
-      setCropImageUrl(backgroundImageUrl);
-      setCropFileName('cropped-image.jpg');
-      setCropIsNewImport(false);
-      setCropModalOpen(true);
+  /**
+   * Rasterise an SVG blob to a high-resolution PNG blob URL.
+   * Uses an off-screen canvas at 3× the SVG's intrinsic size for crisp output.
+   */
+  const rasteriseSvgToBlob = useCallback(async (svgBlob: Blob): Promise<string> => {
+    const svgText = await svgBlob.text();
+    // Parse intrinsic size from SVG (viewBox or width/height attributes)
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgText, 'image/svg+xml');
+    const svgEl = doc.querySelector('svg');
+    let vw = 800, vh = 600;
+    if (svgEl) {
+      const vb = svgEl.getAttribute('viewBox');
+      if (vb) {
+        const parts = vb.split(/[\s,]+/).map(Number);
+        if (parts.length >= 4) { vw = parts[2]; vh = parts[3]; }
+      } else {
+        vw = parseFloat(svgEl.getAttribute('width') || '800');
+        vh = parseFloat(svgEl.getAttribute('height') || '600');
+      }
     }
-  }, [backgroundImageUrl]);
+    // Render at 3× for high resolution
+    const scale = 3;
+    const canvas = document.createElement('canvas');
+    canvas.width = vw * scale;
+    canvas.height = vh * scale;
+    const ctx = canvas.getContext('2d')!;
+    // White background (SVG transparency → white)
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const img = new window.Image();
+    const svgDataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`;
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Failed to load SVG as image'));
+      img.src = svgDataUrl;
+    });
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const pngBlob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error('toBlob returned null'))),
+        'image/png',
+      );
+    });
+    return URL.createObjectURL(pngBlob);
+  }, []);
+
+  /** Open crop modal for an already-loaded background image.
+   *  For remote URLs (GCS/S3) we fetch-and-convert to a blob URL first.
+   *  SVG images are rasterised to high-res PNG before cropping. */
+  const handleCropExistingImage = useCallback(async () => {
+    if (!backgroundImageUrl) return;
+    // blob: / data: URLs are already local — use directly
+    if (backgroundImageUrl.startsWith('blob:') || backgroundImageUrl.startsWith('data:')) {
+      setCropImageUrl(backgroundImageUrl);
+    } else {
+      try {
+        const resp = await fetch(backgroundImageUrl);
+        const contentType = resp.headers.get('content-type') || '';
+        const blob = await resp.blob();
+        if (contentType.includes('svg')) {
+          // Rasterise SVG to high-res PNG for cropping
+          const pngUrl = await rasteriseSvgToBlob(blob);
+          setCropImageUrl(pngUrl);
+        } else {
+          const localUrl = URL.createObjectURL(blob);
+          setCropImageUrl(localUrl);
+        }
+      } catch {
+        message.error('Failed to load image for cropping.');
+        return;
+      }
+    }
+    setCropFileName('cropped-image.png');
+    setCropIsNewImport(false);
+    setCropModalOpen(true);
+  }, [backgroundImageUrl, rasteriseSvgToBlob]);
 
   const handleCalibrated = useCallback(
     (newScale: number) => {
@@ -2631,6 +2714,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         onImportFromMagicPlan={onImportFromMagicPlan}
         isMagicPlanImporting={isMagicPlanImporting}
         onCropImage={backgroundImageUrl ? handleCropExistingImage : undefined}
+        bgMoveMode={bgMoveMode}
+        onBgMoveModeChange={backgroundImageUrl ? setBgMoveMode : undefined}
       />
 
       {/* Toolbar */}
@@ -2742,24 +2827,32 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           >
             {/* Layer 1a — Background image (full opacity in image mode) */}
             {imageSourceType === 'image' && (
-              <Layer listening={false}>
+              <Layer listening={bgMoveMode}>
                 <WMBackgroundImageLayer
                   imageUrl={backgroundImageUrl}
                   canvasWidth={canvasWidth}
                   canvasHeight={canvasHeight}
                   onStatusChange={setBgImageStatus}
+                  offsetX={state.overlayData.bg_offset_x ?? 0}
+                  offsetY={state.overlayData.bg_offset_y ?? 0}
+                  draggable={bgMoveMode}
+                  onDragEnd={handleBgDragEnd}
                 />
               </Layer>
             )}
 
             {/* Layer 1b — Reference image (semi-transparent in sketch mode for tracing) */}
             {imageSourceType === 'sketch' && showReferenceImage && backgroundImageUrl && (
-              <Layer listening={false}>
+              <Layer listening={bgMoveMode}>
                 <WMBackgroundImageLayer
                   imageUrl={backgroundImageUrl}
                   canvasWidth={canvasWidth}
                   canvasHeight={canvasHeight}
                   opacity={referenceOpacity}
+                  offsetX={state.overlayData.bg_offset_x ?? 0}
+                  offsetY={state.overlayData.bg_offset_y ?? 0}
+                  draggable={bgMoveMode}
+                  onDragEnd={handleBgDragEnd}
                 />
               </Layer>
             )}

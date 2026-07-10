@@ -562,6 +562,12 @@
               <td class="text-right">{{ "%.1f"|format(item.summary.containment_sqft) }} SF</td>
             </tr>
             {% endif %}
+            {% if item.summary.containment_zippers|default(0) > 0 %}
+            <tr>
+              <td style="padding-left:16px; font-style:italic;">+ Containment Zipper</td>
+              <td class="text-right">{{ item.summary.containment_zippers }} EA</td>
+            </tr>
+            {% endif %}
             {% if item.summary.protection_sqft > 0 %}
             <tr>
               <td>Floor Protection</td>
