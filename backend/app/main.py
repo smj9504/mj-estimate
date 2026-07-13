@@ -288,6 +288,7 @@ app_logger = logging.getLogger(__name__)
 _NEEDED_COLUMNS = [
     ("wm_floor_sketches", "storage_file_id", "VARCHAR(500)"),
     ("wm_floor_sketches", "storage_provider", "VARCHAR(50)"),
+    ("contract_templates", "storage_file_id", "VARCHAR(500)"),
     ("invoices", "client_id", "UUID"),
     ("invoices", "claim_id", "UUID"),
     ("estimates", "client_id", "UUID"),

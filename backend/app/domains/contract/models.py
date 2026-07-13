@@ -47,7 +47,8 @@ class ContractTemplate(Base, BaseModel):
     file_url = Column(Text, nullable=False)       # storage path or URL
     file_name = Column(String(500))               # original filename
     file_size = Column(Integer)                    # bytes
-    storage_provider = Column(String(50))          # local | gdrive
+    storage_provider = Column(String(50))          # local | gdrive | gcs
+    storage_file_id = Column(String(500))          # provider-specific file ID (e.g. GCS object path)
 
     # Signature config
     requires_signature = Column(Boolean, default=True)

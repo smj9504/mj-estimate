@@ -545,14 +545,16 @@ export const waterMitigationService = {
       await api.delete(`${BASE_URL}/documents/${documentId}`);
     },
 
-    // Get document download URL
+    // Get document download URL (includes backend base URL for production)
     getDownloadUrl: (documentId: string): string => {
-      return `${BASE_URL}/documents/${documentId}/download`;
+      const base = api.defaults.baseURL || '';
+      return `${base}${BASE_URL}/documents/${documentId}/download`;
     },
 
-    // Get document preview URL (opens in browser)
+    // Get document preview URL (opens in browser, includes backend base URL for production)
     getPreviewUrl: (documentId: string): string => {
-      return `${BASE_URL}/documents/${documentId}/preview`;
+      const base = api.defaults.baseURL || '';
+      return `${base}${BASE_URL}/documents/${documentId}/preview`;
     },
 
     // Upload annotated PDF with annotation data for re-editing
@@ -561,13 +563,17 @@ export const waterMitigationService = {
       pdfBlob: Blob,
       filename: string,
       annotationData?: string,
-      documentId?: string
+      documentId?: string,
+      documentType?: string,
+      sourcePdfBlob?: Blob
     ): Promise<any> => {
       const formData = new FormData();
       formData.append('pdf_file', pdfBlob, filename);
       formData.append('filename', filename);
       if (annotationData) formData.append('annotation_data', annotationData);
       if (documentId) formData.append('document_id', documentId);
+      if (documentType) formData.append('document_type', documentType);
+      if (sourcePdfBlob) formData.append('source_pdf_file', sourcePdfBlob, `source_${filename}`);
 
       const response = await api.post(
         `${BASE_URL}/jobs/${jobId}/documents/upload-annotated-pdf`,
@@ -575,6 +581,12 @@ export const waterMitigationService = {
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );
       return response.data;
+    },
+
+    // Get source (unannotated) PDF URL for re-editing
+    getSourcePdfUrl: (documentId: string): string => {
+      const base = api.defaults.baseURL || '';
+      return `${base}${BASE_URL}/documents/${documentId}/source-pdf`;
     },
 
     // Generate prefilled template: returns original PDF + text annotations
