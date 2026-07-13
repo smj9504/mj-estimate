@@ -223,6 +223,14 @@ BATHTUB_EXTRAS = {
     "whirlpool_upgrade": 800,         # jets + pump + dedicated circuit
     "air_jet_upgrade": 600,
     "surround_tile_labor_per_sf": 13.00,  # surround tile install ($10-$16/SF)
+    # Drain/overflow assembly — new tub needs new drain kit
+    # Includes: drain body, overflow plate, linkage, gaskets, plumber's putty
+    # Sources: Angi 2025-2026, HomeWyse ($80-$200 installed)
+    "drain_overflow_kit": 135,        # drain + overflow assembly supply + install
+    # Mortar bed / setting material — level base for tub
+    # Acrylic/fiberglass tubs REQUIRE full support underneath (flex = crack)
+    # Sources: Angi 2025, TerryLove forum, HomeGuide ($50-$150)
+    "mortar_bed": 95,                 # mortar mix + pour + level ($75-$125)
     # Tub/shower valve replacement (when tub has surround tile / combo unit)
     # Valve body + trim kit, Moen/Delta mid-grade ($250-$450 parts + $150-$250 labor)
     "shower_valve_body_trim": 475,    # pressure-balance valve body + trim kit installed

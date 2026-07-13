@@ -510,10 +510,31 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              PLUMBING_RATES["supply_line_each"] * labor_mult, "plumbing",
              notes="Braided stainless steel | replace while disconnected")
 
-    p_trap_count = plumb.get("p_trap_count") or 0
+    # Auto-calculate P-traps from drain-bearing fixtures.
+    # Toilet does NOT have a P-trap (direct wax-ring flange connection).
+    # Each vanity sink, bathtub, and shower has 1 P-trap.
+    _auto_ptrap_count = 0
+    _ptrap_fixtures = []
+    if estimate.replace_vanity or getattr(estimate, 'detach_reset_vanity', False):
+        _pt_van_items = (estimate.vanity_spec or {}).get("items") or [estimate.vanity_spec or {}]
+        _pt_van_count = len([v for v in _pt_van_items if v and isinstance(v, dict)])
+        _auto_ptrap_count += _pt_van_count
+        _ptrap_fixtures.append(f"vanity x{_pt_van_count}")
+    if estimate.replace_tub or getattr(estimate, 'detach_reset_tub', False):
+        _auto_ptrap_count += 1
+        _ptrap_fixtures.append("bathtub")
+    if estimate.replace_shower or getattr(estimate, 'detach_reset_shower', False):
+        _auto_ptrap_count += 1
+        _ptrap_fixtures.append("shower")
+
+    # Use whichever is greater: auto-count or manual override
+    _manual_ptrap = plumb.get("p_trap_count") or 0
+    p_trap_count = max(_auto_ptrap_count, _manual_ptrap)
     if p_trap_count > 0:
+        _pt_fix_list = ", ".join(_ptrap_fixtures) if _ptrap_fixtures else "manual"
         _add(line_items, 2, "P-trap replacement", p_trap_count, "EA",
-             PLUMBING_RATES["p_trap_each"] * labor_mult, "plumbing")
+             PLUMBING_RATES["p_trap_each"] * labor_mult, "plumbing",
+             notes=f"Replace while disconnected | {_pt_fix_list}")
 
     if plumb.get("drain_modification"):
         _add(line_items, 2, "Drain line modification", 1, "EA",
@@ -1065,7 +1086,17 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         if not plumber_fixed_tub:
             tub_faucet = round(PLUMBING_RATES["tub_faucet_install"] * labor_mult, 2)
 
-        tub_combined = tub_price + tub_install + tub_faucet + tub_jetted
+        # Drain/overflow assembly — new tub needs new drain kit
+        tub_drain = round(BATHTUB_EXTRAS["drain_overflow_kit"] * labor_mult, 2)
+
+        # Mortar bed — required for acrylic/fiberglass tubs to prevent flex/cracking
+        # Cast iron tubs are self-supporting (heavy enough), skip mortar bed
+        tub_mortar = 0
+        if tub_mat not in ("cast_iron",):
+            tub_mortar = round(BATHTUB_EXTRAS["mortar_bed"] * labor_mult, 2)
+
+        tub_combined = (tub_price + tub_install + tub_faucet
+                        + tub_jetted + tub_drain + tub_mortar)
 
         tub_parts = [
             f"Unit: {tub_mat_label} ${tub_price:,.2f} allowance",
@@ -1075,6 +1106,9 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             tub_parts.append(f"Tub spout + faucet install: ${tub_faucet:,.2f}")
         else:
             tub_parts.append("Tub spout/faucet: plumber completed (excluded)")
+        tub_parts.append(f"Drain/overflow kit: ${tub_drain:,.2f}")
+        if tub_mortar:
+            tub_parts.append(f"Mortar bed: ${tub_mortar:,.2f}")
         if tub_jetted:
             tub_parts.append(f"Whirlpool upgrade: ${tub_jetted:,.2f}")
 
@@ -2372,9 +2406,14 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              trim_paint_lf, "LF",
              HIDDEN_COSTS["trim_paint_per_lf"] * labor_mult, "finish")
 
-    # Phase 7: Accessories, cleanup, permit
+    # Phase 7: Accessories, cleanup, punch list, permit
     _add(line_items, 7, "Final cleaning (move-in ready)", 1, "LS",
          HIDDEN_COSTS["final_clean"], "misc")
+
+    if hc.get("punch_list", False):
+        _add(line_items, 7, "Punch list reserve (1-2 follow-up visits)", 1, "LS",
+             HIDDEN_COSTS["punch_list"], "misc",
+             notes="Final adjustments, minor touch-ups, hardware tightening")
 
     # Mold warning
     if estimate.mold_suspected:
