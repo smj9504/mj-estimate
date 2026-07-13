@@ -739,7 +739,7 @@ class CabinetExportService:
             "<b>PAYMENT SCHEDULE</b>",
             ParagraphStyle(
                 "PayTitle",
-                parent=normal_style,
+                parent=terms_style,
                 fontSize=9,
                 spaceAfter=6,
             ),
