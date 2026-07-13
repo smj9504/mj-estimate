@@ -862,7 +862,7 @@ const WaterMitigationDetail: React.FC = () => {
                               job.check_amount ? `$${job.check_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'
                             )}
                           </Descriptions.Item>
-                          <Descriptions.Item label="Payment Status">
+                          <Descriptions.Item label="Payment Status" span={descColumn}>
                             {isEditing ? (
                               <Select
                                 value={financialForm.payment_status || undefined}

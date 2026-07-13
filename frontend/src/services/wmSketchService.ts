@@ -10,8 +10,24 @@ import type {
   WMFloorSketchUpdate,
   WMOverlayData,
 } from '../types/wmSketch';
+import { EMPTY_OVERLAY_DATA } from '../types/wmSketch';
 
 const BASE_URL = '/api/water-mitigation/sketch';
+
+/** Ensure all overlay_data array fields are defined (backend JSONB may omit empty arrays) */
+function normalizeOverlay(sketch: WMFloorSketch): WMFloorSketch {
+  const od = sketch.overlay_data;
+  if (!od || typeof od !== 'object') {
+    return { ...sketch, overlay_data: { ...EMPTY_OVERLAY_DATA } };
+  }
+  return {
+    ...sketch,
+    overlay_data: {
+      ...EMPTY_OVERLAY_DATA,
+      ...od,
+    },
+  };
+}
 
 const wmSketchService = {
   // ============================================================================
@@ -21,7 +37,7 @@ const wmSketchService = {
   /** Retrieve all floor sketches for a given WM job, ordered by floor_order */
   getFloorSketches: async (jobId: string): Promise<WMFloorSketch[]> => {
     const response = await api.get(`${BASE_URL}/jobs/${jobId}/floors`);
-    return response.data.items;
+    return (response.data.items as WMFloorSketch[]).map(normalizeOverlay);
   },
 
   /** Create a new floor sketch under a WM job */
@@ -30,13 +46,13 @@ const wmSketchService = {
     data: WMFloorSketchCreate
   ): Promise<WMFloorSketch> => {
     const response = await api.post(`${BASE_URL}/jobs/${jobId}/floors`, data);
-    return response.data;
+    return normalizeOverlay(response.data);
   },
 
   /** Retrieve a single floor sketch by its ID */
   getFloorSketch: async (floorSketchId: string): Promise<WMFloorSketch> => {
     const response = await api.get(`${BASE_URL}/floors/${floorSketchId}`);
-    return response.data;
+    return normalizeOverlay(response.data);
   },
 
   /** Update floor sketch metadata (label, order, canvas size, etc.) */
@@ -45,7 +61,7 @@ const wmSketchService = {
     data: WMFloorSketchUpdate
   ): Promise<WMFloorSketch> => {
     const response = await api.put(`${BASE_URL}/floors/${floorSketchId}`, data);
-    return response.data;
+    return normalizeOverlay(response.data);
   },
 
   /** Permanently delete a floor sketch and all its overlay data */

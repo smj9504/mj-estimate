@@ -74,10 +74,10 @@ function ensureOverlayIds(overlay: WMOverlayData): WMOverlayData {
     });
 
   const result: WMOverlayData = {
-    demolition_zones: fix(overlay.demolition_zones),
-    equipment_placements: fix(overlay.equipment_placements),
-    containment_zones: fix(overlay.containment_zones),
-    floor_protections: fix(overlay.floor_protections),
+    demolition_zones: fix(overlay.demolition_zones ?? []),
+    equipment_placements: fix(overlay.equipment_placements ?? []),
+    containment_zones: fix(overlay.containment_zones ?? []),
+    floor_protections: fix(overlay.floor_protections ?? []),
     content_protections: fix(overlay.content_protections ?? []),
     content_manipulations: fix(overlay.content_manipulations ?? []),
     text_annotations: fix(overlay.text_annotations ?? []),
@@ -146,7 +146,8 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
           setActiveFloorId(sorted[0].id);
         }
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error('[WMSketchTab] Failed to load floor sketches:', err);
         if (!cancelled) {
           setFetchError('Failed to load floor sketches. Please try refreshing.');
         }
@@ -516,7 +517,8 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100%',
+        height: 'calc(100vh - 260px)',
+        minHeight: 500,
         background: '#fff',
       }}
     >
