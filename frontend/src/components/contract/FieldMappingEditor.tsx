@@ -115,11 +115,14 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
   };
 
   const loadPdf = async () => {
-    if (!fileUrl) return;
+    if (!templateId) return;
     setLoading(true);
     try {
+      // Use the serve endpoint which handles cloud/local storage resolution
+      const baseUrl = (await import('../../services/api')).default.defaults.baseURL || '';
+      const pdfUrl = `${baseUrl}/api/contracts/templates/${templateId}/pdf`;
       const token = localStorage.getItem('auth_token');
-      const res = await fetch(fileUrl, {
+      const res = await fetch(pdfUrl, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
