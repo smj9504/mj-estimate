@@ -14,7 +14,7 @@ const { Text } = Typography;
 interface WMDocumentListProps {
   jobId: string;
   onDelete?: () => void;
-  onEditAnnotation?: (documentId: string, annotationData: string | null, previewUrl: string) => void;
+  onEditAnnotation?: (documentId: string, annotationData: string | null, previewUrl: string, hasSourcePdf: boolean, docType?: string) => void;
   onInvoiceAmountChange?: () => void;
 }
 
@@ -25,6 +25,7 @@ interface Document {
   file_size: number;
   photo_count: number;
   annotation_data?: string | null;
+  has_source_pdf?: boolean;
   invoice_amount?: number | null;
   upload_source?: string | null;
   title?: string | null;
@@ -315,7 +316,7 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
         return (
           <List.Item
             actions={[
-              ...(doc.document_type === 'annotated_pdf' && onEditAnnotation ? [
+              ...(doc.annotation_data && onEditAnnotation ? [
                 <Button
                   key="edit"
                   type="text"
@@ -323,7 +324,9 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
                   onClick={() => onEditAnnotation(
                     doc.id,
                     doc.annotation_data || null,
-                    waterMitigationService.documents.getPreviewUrl(doc.id)
+                    waterMitigationService.documents.getPreviewUrl(doc.id),
+                    doc.has_source_pdf || false,
+                    doc.document_type
                   )}
                 >
                   Edit

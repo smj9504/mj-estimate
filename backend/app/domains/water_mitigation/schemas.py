@@ -422,6 +422,7 @@ class WMDocumentResponse(WMDocumentBase):
     photo_count: Optional[int] = 0
     source_photo_ids: Optional[str] = None  # JSON string of photo IDs
     annotation_data: Optional[str] = None  # JSON string of annotation data for re-editing
+    has_source_pdf: bool = False  # Whether original PDF is available for re-editing
     invoice_amount: Optional[float] = None  # Amount for invoice documents
     upload_source: Optional[str] = 'generated'  # 'generated' or 'manual_upload'
     title: Optional[str] = None

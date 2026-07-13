@@ -15,6 +15,7 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -273,6 +274,14 @@ class WMDocument(Base, BaseModel):
 
     # Annotation data for re-editing (JSON: texts, signatures per page)
     annotation_data = Column(Text)  # JSON: PdfAnnotationData
+
+    # Original (unannotated) PDF for re-editing without duplication
+    source_pdf_path = Column(String(1000))  # Storage path to original PDF
+    source_storage_file_id = Column(String(500))  # Provider-specific file ID for original PDF
+
+    @hybrid_property
+    def has_source_pdf(self):
+        return bool(self.source_pdf_path)
 
     # Invoice-specific fields
     invoice_amount = Column(DECIMAL(10, 2))  # Amount for invoice documents

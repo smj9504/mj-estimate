@@ -520,6 +520,9 @@ class AdjusterEmailService:
             # Collect attachments based on selected documents
             attachments, failed_docs = self._collect_attachments(session, job, selected_docs)
 
+            # Compress PDF attachments if total size exceeds email limit (25MB)
+            attachments = self._compress_attachments_if_needed(attachments)
+
             # Block send if any selected document failed to attach
             if failed_docs:
                 doc_labels = {
@@ -642,6 +645,7 @@ class AdjusterEmailService:
             attachments = []
             if selected_docs:
                 attachments, _failed = self._collect_attachments(session, job, selected_docs)
+                attachments = self._compress_attachments_if_needed(attachments)
 
             # Send via claim_followup email service
             from app.domains.claim_followup.service import ClaimFollowUpService
@@ -1174,3 +1178,150 @@ class AdjusterEmailService:
             logger.info(f"Created follow-up task for WM Job {job.id} (sent to adjuster)")
         except Exception as e:
             logger.error(f"Error creating follow-up for WM Job {job.id}: {e}")
+
+    # ================================================================
+    # Attachment Compression
+    # ================================================================
+
+    # Gmail/SMTP 25MB limit; use 23MB threshold to account for
+    # base64 encoding overhead (~33% increase) in MIME messages.
+    _EMAIL_SIZE_LIMIT = 23 * 1024 * 1024
+
+    # Compression levels: try gentle first, then stronger if still over limit
+    _COMPRESSION_LEVELS = [
+        {
+            "name": "printer",
+            "settings": "/printer",   # 300 dpi — high quality print
+            "color_dpi": 300,
+            "gray_dpi": 300,
+            "mono_dpi": 600,
+        },
+        {
+            "name": "ebook",
+            "settings": "/ebook",     # 150 dpi — good quality for screen
+            "color_dpi": 150,
+            "gray_dpi": 150,
+            "mono_dpi": 300,
+        },
+    ]
+
+    def _compress_attachments_if_needed(
+        self, attachments: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Compress PDF attachments progressively until under email size limit.
+
+        Tries gentle compression (300dpi) first. If still over limit,
+        applies stronger compression (150dpi) to the largest remaining PDFs.
+        """
+        total_size = sum(len(att["data"]) for att in attachments)
+        if total_size <= self._EMAIL_SIZE_LIMIT:
+            return attachments
+
+        logger.info(
+            f"Total attachment size {total_size / 1024 / 1024:.1f}MB "
+            f"exceeds {self._EMAIL_SIZE_LIMIT / 1024 / 1024:.0f}MB limit, "
+            f"compressing PDF attachments..."
+        )
+
+        result = list(attachments)  # shallow copy
+
+        for level in self._COMPRESSION_LEVELS:
+            current_total = sum(len(a["data"]) for a in result)
+            if current_total <= self._EMAIL_SIZE_LIMIT:
+                break
+
+            logger.info(
+                f"Trying compression level '{level['name']}' "
+                f"({level['color_dpi']}dpi)..."
+            )
+
+            # Sort by size descending — compress largest PDFs first
+            indexed = sorted(
+                enumerate(result),
+                key=lambda x: len(x[1]["data"]),
+                reverse=True,
+            )
+
+            for idx, att in indexed:
+                current_total = sum(len(a["data"]) for a in result)
+                if current_total <= self._EMAIL_SIZE_LIMIT:
+                    break
+
+                mime = att.get("mime_type", "")
+                fname = att.get("filename", "")
+                if (
+                    mime != "application/pdf"
+                    and not fname.lower().endswith(".pdf")
+                ):
+                    continue
+
+                original_size = len(att["data"])
+                compressed = self._compress_pdf_gs(att["data"], level)
+                if compressed and len(compressed) < original_size:
+                    saved = original_size - len(compressed)
+                    logger.info(
+                        f"[{level['name']}] '{fname}': "
+                        f"{original_size / 1024 / 1024:.1f}MB -> "
+                        f"{len(compressed) / 1024 / 1024:.1f}MB "
+                        f"(saved {saved / 1024 / 1024:.1f}MB)"
+                    )
+                    result[idx] = {**att, "data": compressed}
+
+        final_size = sum(len(a["data"]) for a in result)
+        logger.info(
+            f"Compression complete: "
+            f"{total_size / 1024 / 1024:.1f}MB -> "
+            f"{final_size / 1024 / 1024:.1f}MB"
+        )
+        return result
+
+    @staticmethod
+    def _compress_pdf_gs(
+        pdf_bytes: bytes, level: Dict[str, Any]
+    ) -> Optional[bytes]:
+        """Compress a PDF using Ghostscript at the given quality level."""
+        import subprocess
+        import tempfile
+
+        src_path = dst_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                suffix=".pdf", delete=False
+            ) as src:
+                src.write(pdf_bytes)
+                src_path = src.name
+
+            dst_path = src_path.replace(".pdf", "_compressed.pdf")
+
+            cmd = [
+                "gswin64c", "-sDEVICE=pdfwrite",
+                "-dCompatibilityLevel=1.4",
+                f"-dPDFSETTINGS={level['settings']}",
+                "-dNOPAUSE", "-dQUIET", "-dBATCH",
+                f"-dColorImageResolution={level['color_dpi']}",
+                f"-dGrayImageResolution={level['gray_dpi']}",
+                f"-dMonoImageResolution={level['mono_dpi']}",
+                f"-sOutputFile={dst_path}",
+                src_path,
+            ]
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=120
+            )
+            if proc.returncode != 0:
+                logger.warning(
+                    f"Ghostscript compression failed: {proc.stderr}"
+                )
+                return None
+
+            compressed = Path(dst_path).read_bytes()
+            return compressed
+        except Exception as e:
+            logger.warning(f"PDF compression error: {e}")
+            return None
+        finally:
+            for p in [src_path, dst_path]:
+                if p:
+                    try:
+                        Path(p).unlink(missing_ok=True)
+                    except Exception:
+                        pass

@@ -2414,6 +2414,73 @@ def preview_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/documents/{document_id}/source-pdf")
+def get_source_pdf(
+    document_id: UUID,
+    service: WaterMitigationService = Depends(get_wm_service)
+):
+    """Get original unannotated PDF for re-editing.
+
+    Returns the clean source PDF without baked-in annotations,
+    so the annotator can overlay annotations without duplication.
+
+    If source PDF exists: returns it directly.
+    If not (legacy): loads the baked PDF and erases annotation regions
+    with white rectangles, effectively restoring a "clean" PDF.
+    """
+    try:
+        document = service.document_repo.get_by_id(str(document_id))
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        document_dict = service.document_repo._convert_to_dict(document)
+        source_path = document_dict.get('source_pdf_path')
+        source_file_id = document_dict.get('source_storage_file_id')
+        storage_provider = document_dict.get('storage_provider', 'local')
+        filename = document_dict.get('filename', 'document')
+        annotation_data_str = document_dict.get('annotation_data')
+        has_source = bool(source_path)
+
+        def _load_pdf_bytes(file_path: str, file_id: str) -> bytes:
+            """Load PDF bytes from storage."""
+            if storage_provider and storage_provider not in ('local', ''):
+                from ..storage.factory import StorageFactory
+                storage = StorageFactory.get_instance(storage_provider)
+                download_key = file_id or file_path
+                if download_key and hasattr(storage, 'download'):
+                    return storage.download(download_key)
+                raise HTTPException(status_code=404, detail="PDF not found in cloud storage")
+            local_path = Path(file_path)
+            if not local_path.exists():
+                raise HTTPException(status_code=404, detail="PDF not found on disk")
+            with open(local_path, 'rb') as f:
+                return f.read()
+
+        if has_source:
+            # Clean source PDF exists - return directly
+            pdf_bytes = _load_pdf_bytes(source_path, source_file_id)
+        else:
+            # Legacy document: return baked PDF as-is
+            # Frontend handles overlay with white background rects to cover baked annotations
+            file_path_str = document_dict.get('file_path', '')
+            main_file_id = document_dict.get('storage_file_id', '')
+            pdf_bytes = _load_pdf_bytes(file_path_str, main_file_id)
+
+        return Response(
+            content=pdf_bytes,
+            media_type='application/pdf',
+            headers={
+                'Content-Disposition': f'inline; filename="source_{filename}"'
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get source PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 @router.delete("/documents/{document_id}")
 def delete_document(
     document_id: UUID,
@@ -2752,6 +2819,8 @@ async def upload_annotated_pdf(
     filename: str = Form(...),
     annotation_data: str = Form(None),
     document_id: str = Form(None),
+    document_type: str = Form(None),
+    source_pdf_file: Optional[UploadFile] = File(None),
     service: WaterMitigationService = Depends(get_wm_service),
     db: DatabaseSession = Depends(get_db_session)
 ):
@@ -2759,6 +2828,9 @@ async def upload_annotated_pdf(
 
     If document_id is provided, updates the existing document.
     Otherwise creates a new document record.
+
+    source_pdf_file: Original unannotated PDF for clean re-editing.
+    document_type: Document type (COS, EWA, etc.). Defaults to 'annotated_pdf'.
     """
     import json
     import os
@@ -2769,6 +2841,7 @@ async def upload_annotated_pdf(
             raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
         safe_filename = filename if filename.endswith('.pdf') else f"{filename}.pdf"
+        resolved_doc_type = document_type or "annotated_pdf"
 
         # Read PDF content and upload to cloud storage
         content = await pdf_file.read()
@@ -2781,6 +2854,19 @@ async def upload_annotated_pdf(
             context_id=str(job_id),
             category="documents",
         )
+
+        # Upload original (unannotated) PDF if provided
+        source_pdf_info = None
+        if source_pdf_file:
+            source_content = await source_pdf_file.read()
+            source_filename = f"_source_{safe_filename}"
+            source_pdf_info = upload_bytes_to_storage(
+                file_bytes=source_content,
+                filename=source_filename,
+                context="water-mitigation",
+                context_id=str(job_id),
+                category="documents",
+            )
 
         if document_id:
             # Update existing document
@@ -2796,6 +2882,14 @@ async def upload_annotated_pdf(
                 "storage_file_id": storage_info["storage_file_id"],
                 "annotation_data": annotation_data,
             }
+            # Update source PDF path if provided (first time saving source for existing doc)
+            if source_pdf_info and not existing.source_pdf_path:
+                update_data["source_pdf_path"] = source_pdf_info["file_path"]
+                update_data["source_storage_file_id"] = source_pdf_info["storage_file_id"]
+            # Update document_type if provided (fix type from 'annotated_pdf' to actual type)
+            if document_type and existing.document_type == "annotated_pdf":
+                update_data["document_type"] = resolved_doc_type
+
             updated = service.document_repo.update(document_id, update_data)
             db.commit()
             return updated
@@ -2803,7 +2897,7 @@ async def upload_annotated_pdf(
             # Create new document
             document_data = {
                 "job_id": str(job_id),
-                "document_type": "annotated_pdf",
+                "document_type": resolved_doc_type,
                 "filename": safe_filename,
                 "file_path": storage_info["file_path"],
                 "file_size": storage_info["file_size"],
@@ -2815,6 +2909,10 @@ async def upload_annotated_pdf(
                 "storage_file_id": storage_info["storage_file_id"],
                 "is_active": True,
             }
+            if source_pdf_info:
+                document_data["source_pdf_path"] = source_pdf_info["file_path"]
+                document_data["source_storage_file_id"] = source_pdf_info["storage_file_id"]
+
             created = service.document_repo.create(document_data)
             db.commit()
             return created
