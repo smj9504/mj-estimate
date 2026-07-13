@@ -209,6 +209,18 @@ class CabinetEstimateService:
             countertop_sqft=getattr(
                 estimate, 'countertop_sqft', None
             ),
+            include_countertop_backsplash=(
+                getattr(
+                    estimate,
+                    'include_countertop_backsplash',
+                    False,
+                ) or False
+            ),
+            countertop_backsplash_lf=getattr(
+                estimate,
+                'countertop_backsplash_lf',
+                None,
+            ),
             island_countertop_material=getattr(
                 estimate, 'island_countertop_material',
                 None,
@@ -261,6 +273,15 @@ class CabinetEstimateService:
             delivery_floor=getattr(
                 estimate, 'delivery_floor', 1,
             ) or 1,
+            island_type=getattr(
+                estimate, 'island_type', 'custom',
+            ) or 'custom',
+            island_prefab_size=getattr(
+                estimate, 'island_prefab_size', None,
+            ),
+            island_prefab_price=getattr(
+                estimate, 'island_prefab_price', None,
+            ),
             island_end_panel_sqft=getattr(
                 estimate, 'island_end_panel_sqft', 0
             ) or 0,

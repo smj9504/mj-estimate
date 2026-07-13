@@ -22,6 +22,8 @@ from .pricing import (
     ISLAND_PANEL_PRICING,
     LAYOUT_TYPES,
     MATERIAL_MULTIPLIER,
+    PREFAB_ISLAND_INSTALL,
+    PREFAB_ISLAND_PRICING,
     SCOPE_ITEMS,
     SPECIALTY_PREMIUM,
     TALL_CABINET_TYPES,
@@ -68,6 +70,8 @@ def get_pricing_info():
         "glass_door_premiums": GLASS_DOOR_PREMIUM,
         "crown_molding_pricing": CROWN_MOLDING_PRICING,
         "island_panel_pricing": ISLAND_PANEL_PRICING,
+        "prefab_island_pricing": PREFAB_ISLAND_PRICING,
+        "prefab_island_install": PREFAB_ISLAND_INSTALL,
         "tall_cabinet_types": TALL_CABINET_TYPES,
     }
 

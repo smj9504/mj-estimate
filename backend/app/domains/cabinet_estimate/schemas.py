@@ -174,10 +174,21 @@ class CabinetEstimateBase(BaseModel):
     include_permit: bool = False
     outlet_relocation_count: int = 0
     delivery_floor: int = 1
+    island_type: str = Field(
+        "custom", description="custom or prefab",
+    )
+    island_prefab_size: Optional[str] = Field(
+        None, description="small/medium/large/xl",
+    )
+    island_prefab_price: Optional[float] = Field(
+        None, description="User-overridable prefab supply price",
+    )
     island_end_panel_sqft: float = 0
     island_back_panel_sqft: float = 0
     countertop_material: Optional[str] = None
     countertop_sqft: Optional[float] = None
+    include_countertop_backsplash: Optional[bool] = False
+    countertop_backsplash_lf: Optional[float] = None
     island_countertop_material: Optional[str] = None
     island_countertop_sqft: Optional[float] = None
     overview_text: Optional[str] = None
@@ -229,10 +240,15 @@ class CabinetEstimateUpdate(BaseModel):
     include_permit: Optional[bool] = None
     outlet_relocation_count: Optional[int] = None
     delivery_floor: Optional[int] = None
+    island_type: Optional[str] = None
+    island_prefab_size: Optional[str] = None
+    island_prefab_price: Optional[float] = None
     island_end_panel_sqft: Optional[float] = None
     island_back_panel_sqft: Optional[float] = None
     countertop_material: Optional[str] = None
     countertop_sqft: Optional[float] = None
+    include_countertop_backsplash: Optional[bool] = False
+    countertop_backsplash_lf: Optional[float] = None
     island_countertop_material: Optional[str] = None
     island_countertop_sqft: Optional[float] = None
     overview_text: Optional[str] = None
@@ -284,10 +300,15 @@ class CabinetEstimateResponse(BaseModel):
     include_permit: bool = False
     outlet_relocation_count: int = 0
     delivery_floor: int = 1
+    island_type: str = "custom"
+    island_prefab_size: Optional[str] = None
+    island_prefab_price: Optional[float] = None
     island_end_panel_sqft: float = 0
     island_back_panel_sqft: float = 0
     countertop_material: Optional[str] = None
     countertop_sqft: Optional[float] = None
+    include_countertop_backsplash: Optional[bool] = False
+    countertop_backsplash_lf: Optional[float] = None
     island_countertop_material: Optional[str] = None
     island_countertop_sqft: Optional[float] = None
     overview_text: Optional[str] = None
@@ -369,4 +390,6 @@ class PricingInfoResponse(BaseModel):
     glass_door_premiums: Dict[str, float]
     crown_molding_pricing: Dict[str, float]
     island_panel_pricing: Dict[str, Any]
+    prefab_island_pricing: Dict[str, Any]
+    prefab_island_install: Dict[str, float]
     tall_cabinet_types: Dict[str, Dict[str, float]]

@@ -104,10 +104,15 @@ export interface CabinetEstimate {
   include_permit: boolean;
   outlet_relocation_count: number;
   delivery_floor?: number;
+  island_type: string;
+  island_prefab_size?: string;
+  island_prefab_price?: number;
   island_end_panel_sqft: number;
   island_back_panel_sqft: number;
   countertop_material?: string;
   countertop_sqft?: number;
+  include_countertop_backsplash?: boolean;
+  countertop_backsplash_lf?: number;
   island_countertop_material?: string;
   island_countertop_sqft?: number;
   overview_text?: string;
@@ -169,10 +174,15 @@ export interface CabinetEstimateCreate {
   include_permit?: boolean;
   outlet_relocation_count?: number;
   delivery_floor?: number;
+  island_type?: string;
+  island_prefab_size?: string;
+  island_prefab_price?: number;
   island_end_panel_sqft?: number;
   island_back_panel_sqft?: number;
   countertop_material?: string;
   countertop_sqft?: number;
+  include_countertop_backsplash?: boolean;
+  countertop_backsplash_lf?: number;
   island_countertop_material?: string;
   island_countertop_sqft?: number;
   overview_text?: string;
@@ -221,10 +231,15 @@ export interface CabinetEstimateUpdate {
   include_permit?: boolean;
   outlet_relocation_count?: number;
   delivery_floor?: number;
+  island_type?: string;
+  island_prefab_size?: string;
+  island_prefab_price?: number;
   island_end_panel_sqft?: number;
   island_back_panel_sqft?: number;
   countertop_material?: string;
   countertop_sqft?: number;
+  include_countertop_backsplash?: boolean;
+  countertop_backsplash_lf?: number;
   island_countertop_material?: string;
   island_countertop_sqft?: number;
   overview_text?: string;
@@ -296,5 +311,7 @@ export interface PricingInfo {
   glass_door_premiums: Record<string, number>;
   crown_molding_pricing: Record<string, number>;
   island_panel_pricing: Record<string, any>;
+  prefab_island_pricing: Record<string, any>;
+  prefab_island_install: Record<string, number>;
   tall_cabinet_types: Record<string, Record<string, number>>;
 }

@@ -23,6 +23,15 @@ BASE_RATES = {
     },
 }
 
+# Wall cabinet height multiplier (applied to wall_lf rate)
+# 30"H is the baseline (1.0); shorter/taller scale proportionally
+WALL_HEIGHT_MULTIPLIER = {
+    "short": 0.55,        # 12"-27"H — above fridge/microwave
+    "standard": 1.00,     # 30"H — baseline
+    "tall": 1.15,         # 36"H — ~15% more material
+    "extra_tall": 1.25,   # 42"H — 20-30% more material
+}
+
 # Material multiplier (applied to cabinet supply cost)
 MATERIAL_MULTIPLIER = {
     "Plywood": 1.00,
@@ -40,11 +49,11 @@ FINISH_MULTIPLIER = {
 
 # Specialty cabinet premiums (flat $ per box, on top of LF pricing)
 SPECIALTY_PREMIUM = {
-    "sink_base": 0,
-    "lazy_susan": 120,
-    "blind_corner": 60,
-    "drawer_base": 85,
-    "diagonal_corner_wall": 100,
+    "sink_base": 0,           # same construction as regular base
+    "lazy_susan": {33: 100, 36: 120},  # by width_inches
+    "blind_corner": {36: 40, 39: 50, 42: 60, 45: 70},  # by width_inches
+    "drawer_base": {12: 60, 15: 65, 18: 70, 21: 75, 24: 85, 27: 90, 30: 100, 36: 120},
+    "diagonal_corner_wall": {24: 100, 27: 120},  # by width_inches
     "oven_cabinet": 0,       # priced via TALL_CABINET_TYPES
     "refrigerator_cabinet": 0,  # priced via TALL_CABINET_TYPES
 }
@@ -86,6 +95,42 @@ ISLAND_PANEL_PRICING = {
         "Custom": 48,
     },
     "install_per_sf": 8,     # labor per SF
+}
+
+# Prefab island pricing (EA, supply only — by size x tier)
+# Based on market data: Home Depot, Lowe's, Wayfair (2025-2026)
+PREFAB_ISLAND_PRICING = {
+    "small": {   # ≤40" length
+        "label": "Small (≤40\")",
+        "Stock": 600,
+        "Semi-Custom": 1200,
+        "Custom": 2500,
+    },
+    "medium": {  # 41"-54"
+        "label": "Medium (41\"-54\")",
+        "Stock": 900,
+        "Semi-Custom": 1800,
+        "Custom": 3500,
+    },
+    "large": {   # 55"-72"
+        "label": "Large (55\"-72\")",
+        "Stock": 1400,
+        "Semi-Custom": 2800,
+        "Custom": 5000,
+    },
+    "xl": {      # 73"+
+        "label": "X-Large (73\"+)",
+        "Stock": 2000,
+        "Semi-Custom": 3800,
+        "Custom": 7000,
+    },
+}
+
+PREFAB_ISLAND_INSTALL = {
+    "small": 300,
+    "medium": 350,
+    "large": 400,
+    "xl": 500,
 }
 
 # Crown molding for wall cabinets (per LF, material + install)
@@ -163,16 +208,18 @@ SCOPE_ITEMS = {
     "delivery_floor_surcharge": 75,
     # Plumbing
     "plumbing_disconnect": 225,
-    "plumbing_reconnect": 450,      # reconnect (sink, DW, disposal)
-    # Sink (supply + install, mid-range undermount SS)
-    # Single 30": Kraus KHU100-30 ($280) + install ($165)
-    "sink_single_supply_install": 445,
-    # Double 33": Kraus KHU102-33 ($420) + install ($165)
-    "sink_double_supply_install": 585,
-    # Faucet: Moen/Delta pull-down ($210) + install ($75)
-    "faucet_supply_install": 285,
-    # Garbage Disposal: InSinkErator 3/4HP ($165) + install ($110)
-    "disposal_supply_install": 275,
+    # Reconnect includes all hookups: sink drain, P-trap,
+    # disposal, DW drain/supply, faucet lines
+    "plumbing_reconnect": 450,
+    # Sink (supply only — install included in reconnect)
+    # Single 30": Kraus KHU100-30
+    "sink_single_supply": 280,
+    # Double 33": Kraus KHU102-33
+    "sink_double_supply": 420,
+    # Faucet: Moen/Delta pull-down (supply only)
+    "faucet_supply": 210,
+    # Garbage Disposal: InSinkErator 3/4HP (supply only)
+    "disposal_supply": 165,
     # Countertop reset (market $400-$600)
     "countertop_reset": 550,
     # Toe kick (runs along base cabinets, market $3-$10/LF)
@@ -271,6 +318,18 @@ COUNTERTOP_MATERIALS = {
     "Quartz": {"rate": 110, "label": "Quartz"},
     "Quartzite": {"rate": 130, "label": "Quartzite"},
     "Marble": {"rate": 160, "label": "Marble"},
+}
+
+# 4" countertop backsplash (matching piece, per LF installed)
+# Cut from same material as countertop, silicone adhesive
+COUNTERTOP_BACKSPLASH_PER_LF = {
+    "Laminate": 12,
+    "Solid Surface": 22,
+    "Butcher Block": 18,
+    "Granite": 28,
+    "Quartz": 32,
+    "Quartzite": 38,
+    "Marble": 45,
 }
 
 # Default overview text for PDF

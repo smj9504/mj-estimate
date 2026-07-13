@@ -529,21 +529,24 @@ class BathroomExportService:
 
         # ══════ PAYMENT SCHEDULE ══════
         elements.append(Paragraph("Payment Schedule", section_title_style))
-        payment_items = [
-            "10% \u2014 Upon contract signing",
-            "20% \u2014 Demo complete & rough trades inspected",
-            "25% \u2014 Substrate & waterproofing complete",
-            "25% \u2014 Tile installation complete",
-            "20% \u2014 Final walkthrough & punch list complete",
+        total = estimate.get("total", 0)
+        zip_code = estimate.get("zip_code", "") or ""
+        zip3 = zip_code[:3] if zip_code else ""
+        is_dc = zip3 in ("200", "201", "202", "203", "204", "205")
+        if is_dc:
+            dep_pct, prog_pct, fin_pct = 0.34, 0.50, 0.16
+        else:
+            dep_pct, prog_pct, fin_pct = 0.33, 0.50, 0.17
+        dep_amt = round(total * dep_pct, 2)
+        prog_amt = round(total * prog_pct, 2)
+        fin_amt = round(total - dep_amt - prog_amt, 2)
+        pay_items = [
+            f"{dep_pct*100:.0f}% (${dep_amt:,.2f}) \u2014 Upon contract signing",
+            f"{prog_pct*100:.0f}% (${prog_amt:,.2f}) \u2014 Upon material delivery / rough-in start",
+            f"{fin_pct*100:.0f}% (${fin_amt:,.2f}) \u2014 Upon final walk-through & approval",
         ]
-        for p in payment_items:
+        for p in pay_items:
             elements.append(Paragraph(f"\u2022 {p}", terms_style))
-        elements.append(Paragraph(
-            "Partial lien waiver required with each progress payment. "
-            "Final lien waiver issued upon final payment.",
-            ParagraphStyle("LienNote", fontSize=8, fontName="Helvetica-Oblique",
-                           textColor=text_grey, leading=11, spaceBefore=4)
-        ))
         elements.append(Spacer(1, 8))
 
         # ══════ TERMS ══════
@@ -569,33 +572,6 @@ class BathroomExportService:
         for t in general_terms:
             elements.append(Paragraph(f"\u2022 {t}", terms_style))
         elements.append(Spacer(1, 8))
-
-        # ══════ LIEN RIGHTS DISCLOSURE ══════
-        est_state = estimate.get("state", "")
-        if est_state in ("VA", "FL"):
-            elements.append(Paragraph(
-                "Lien Rights Disclosure", section_title_style))
-            if est_state == "VA":
-                elements.append(Paragraph(
-                    "Virginia law (VA Code \u00a7 43-3 et seq.) permits "
-                    "contractors and subcontractors to file a mechanic's "
-                    "lien on your property for unpaid work. To protect "
-                    "your property, obtain a partial lien waiver with "
-                    "each progress payment and a final unconditional "
-                    "lien waiver upon final payment.",
-                    terms_style))
-            elif est_state == "FL":
-                elements.append(Paragraph(
-                    "Under Florida law (FL Statute \u00a7 713), "
-                    "contractors and subcontractors may claim a "
-                    "construction lien on your property for unpaid work "
-                    "or materials. You are entitled to receive a "
-                    "Contractor's Final Payment Affidavit before making "
-                    "final payment. Obtain partial lien waivers with "
-                    "each progress payment and a final waiver upon "
-                    "completion.",
-                    terms_style))
-            elements.append(Spacer(1, 8))
 
         elements.append(Spacer(1, 8))
 

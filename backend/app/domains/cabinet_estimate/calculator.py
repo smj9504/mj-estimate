@@ -19,8 +19,12 @@ from .pricing import (
     GLASS_DOOR_PREMIUM,
     ISLAND_PANEL_PRICING,
     SCOPE_ITEMS,
+    COUNTERTOP_BACKSPLASH_PER_LF,
+    PREFAB_ISLAND_INSTALL,
+    PREFAB_ISLAND_PRICING,
     SPECIALTY_PREMIUM,
     TALL_CABINET_TYPES,
+    WALL_HEIGHT_MULTIPLIER,
     get_labor_multiplier,
 )
 
@@ -99,6 +103,24 @@ def _calc_location_cabinets(
     ) / 12
     tall_count = sum(b.qty for b in tall_boxes)
 
+    # Classify wall boxes by height tier
+    def _wall_height_tier(height: float) -> str:
+        if height <= 27:
+            return "short"
+        elif height <= 30:
+            return "standard"
+        elif height <= 36:
+            return "tall"
+        else:
+            return "extra_tall"
+
+    _WALL_TIER_LABELS = {
+        "short": "Short",
+        "standard": "Standard",
+        "tall": "Tall (36\"H)",
+        "extra_tall": "Extra Tall (42\"H)",
+    }
+
     # ── Cabinet supply ──
     if base_lf > 0:
         base_unit = round(rates["base_lf"] * total_mult, 2)
@@ -115,14 +137,28 @@ def _calc_location_cabinets(
             location=loc,
         ))
 
-    if wall_lf > 0:
-        wall_unit = round(rates["wall_lf"] * total_mult, 2)
-        wall_total = round(wall_lf * wall_unit, 2)
+    # Wall cabinets: split by height tier for pricing
+    wall_by_tier: dict[str, float] = {}
+    for b in wall_boxes:
+        htier = _wall_height_tier(b.height_inches)
+        wall_by_tier[htier] = wall_by_tier.get(
+            htier, 0,
+        ) + (b.width_inches * b.qty) / 12
+
+    for htier, tier_lf in wall_by_tier.items():
+        if tier_lf <= 0:
+            continue
+        h_mult = WALL_HEIGHT_MULTIPLIER.get(htier, 1.0)
+        wall_unit = round(
+            rates["wall_lf"] * total_mult * h_mult, 2,
+        )
+        wall_total = round(tier_lf * wall_unit, 2)
+        h_label = _WALL_TIER_LABELS.get(htier, htier)
         line_items.append(LineItem(
             description=(
-                f"{prefix}Wall Cabinets - {tier}"
+                f"{prefix}Wall Cabinets {h_label} - {tier}"
             ),
-            quantity=round(wall_lf, 2),
+            quantity=round(tier_lf, 2),
             unit="LF",
             unit_price=wall_unit,
             total=wall_total,
@@ -193,9 +229,14 @@ def _calc_location_cabinets(
         if b.is_specialty and b.specialty_type
     ]
     for box in specialty_boxes:
-        premium = SPECIALTY_PREMIUM.get(
+        premium_entry = SPECIALTY_PREMIUM.get(
             box.specialty_type, 0,
         )
+        # Support size-based premiums (dict keyed by width_inches)
+        if isinstance(premium_entry, dict):
+            premium = premium_entry.get(box.width_inches, max(premium_entry.values()))
+        else:
+            premium = premium_entry
         if premium > 0:
             item_total = round(premium * box.qty, 2)
             sp_type = box.specialty_type.replace(
@@ -268,16 +309,23 @@ def _calc_location_cabinets(
                 category="install",
                 location=loc,
             ))
-        if wall_lf > 0:
+        for htier, tier_lf in wall_by_tier.items():
+            if tier_lf <= 0:
+                continue
+            h_label = _WALL_TIER_LABELS.get(
+                htier, htier,
+            )
             install_wall = round(
-                wall_lf
-                * SCOPE_ITEMS["install_wall_per_lf"], 2,
+                tier_lf
+                * SCOPE_ITEMS["install_wall_per_lf"],
+                2,
             )
             line_items.append(LineItem(
                 description=(
-                    f"{prefix}Wall Cabinet Installation"
+                    f"{prefix}Wall Cabinet {h_label} "
+                    f"Installation"
                 ),
-                quantity=round(wall_lf, 2),
+                quantity=round(tier_lf, 2),
                 unit="LF",
                 unit_price=SCOPE_ITEMS[
                     "install_wall_per_lf"
@@ -312,11 +360,14 @@ def _calc_location_cabinets(
         total_openings = 0
         for b in boxes:
             if b.specialty_type == "drawer_base":
-                # All-drawer cabinet: typically 4 drawers
-                # (24"=4, 30"=4, 36"=5)
-                openings = (
-                    5 if b.width_inches >= 36 else 4
-                )
+                # All-drawer cabinet:
+                # ≤18": 3 drawers, 21"-30": 4, 36"+: 5
+                if b.width_inches <= 18:
+                    openings = 3
+                elif b.width_inches >= 36:
+                    openings = 5
+                else:
+                    openings = 4
             elif b.specialty_type == "lazy_susan":
                 # Single door
                 openings = 1
@@ -440,12 +491,13 @@ def _calc_location_cabinets(
         tk_total = round(base_lf * tk_unit, 2)
         line_items.append(LineItem(
             description=(
-                f"{prefix}Install Matching Toe Kick"
+                f"{prefix}Toe Kick — Install & Paint"
             ),
             quantity=round(base_lf, 2),
             unit="LF",
             unit_price=tk_unit,
             total=tk_total,
+            notes="Supply, install, and paint to match",
             category="install",
             location=loc,
         ))
@@ -472,6 +524,8 @@ def calculate_estimate(
     include_countertop: bool = False,
     countertop_material: Optional[str] = None,
     countertop_sqft: Optional[float] = None,
+    include_countertop_backsplash: bool = False,
+    countertop_backsplash_lf: Optional[float] = None,
     island_countertop_material: Optional[str] = None,
     island_countertop_sqft: Optional[float] = None,
     include_drywall_repair: bool = False,
@@ -486,6 +540,9 @@ def calculate_estimate(
     include_permit: bool = False,
     outlet_relocation_count: int = 0,
     delivery_floor: int = 1,
+    island_type: str = "custom",
+    island_prefab_size: Optional[str] = None,
+    island_prefab_price: Optional[float] = None,
     island_end_panel_sqft: float = 0,
     island_back_panel_sqft: float = 0,
     overhead_pct: float = DEFAULT_OVERHEAD_PCT,
@@ -531,10 +588,64 @@ def calculate_estimate(
     )
     line_items.extend(p_items)
 
-    # ── 4. Calculate island cabinets ──
+    # ── 4. Calculate island ──
     i_base_lf = i_wall_lf = 0.0
     i_tall = 0
-    if island_boxes:
+    is_prefab = island_type == "prefab"
+
+    if is_prefab and island_prefab_size:
+        # Prefab island: EA-based pricing
+        size_info = PREFAB_ISLAND_PRICING.get(
+            island_prefab_size, {},
+        )
+        # Use user-override price, or tier default
+        supply_price = (
+            island_prefab_price
+            if island_prefab_price is not None
+            else size_info.get(tier, 900)
+        )
+        size_label = size_info.get(
+            "label", island_prefab_size,
+        )
+        line_items.append(LineItem(
+            description=(
+                f"Prefab Island - {size_label} "
+                f"(Supply)"
+            ),
+            quantity=1,
+            unit="EA",
+            unit_price=round(supply_price, 2),
+            total=round(supply_price, 2),
+            category="supply",
+            location="island",
+            notes=(
+                "Prefab island supply — actual price "
+                "may vary by product selection"
+            ),
+        ))
+        if include_install:
+            inst_cost = PREFAB_ISLAND_INSTALL.get(
+                island_prefab_size, 350,
+            )
+            line_items.append(LineItem(
+                description=(
+                    "Prefab Island Installation"
+                ),
+                quantity=1,
+                unit="EA",
+                unit_price=round(inst_cost, 2),
+                total=round(inst_cost, 2),
+                category="install",
+                location="island",
+            ))
+        warnings.append(
+            "Prefab island: price is an estimate "
+            "based on size/tier. Actual cost may "
+            "vary depending on the specific product "
+            "selected."
+        )
+    elif island_boxes:
+        # Custom build: LF-based pricing
         i_items, i_base_lf, i_wall_lf, i_tall = (
             _calc_location_cabinets(
                 island_boxes, "island", tier, rates,
@@ -552,8 +663,8 @@ def calculate_estimate(
     tall_count = p_tall + i_tall
     total_lf = base_lf + wall_lf
 
-    # ── 5. Island panels (SF-based) ──
-    if island_end_panel_sqft > 0:
+    # ── 5. Island panels (SF-based, custom build only) ──
+    if not is_prefab and island_end_panel_sqft > 0:
         ep_mat = ISLAND_PANEL_PRICING[
             "end_panel_per_sf"
         ].get(tier, 20)
@@ -583,7 +694,7 @@ def calculate_estimate(
             location="island",
         ))
 
-    if island_back_panel_sqft > 0:
+    if not is_prefab and island_back_panel_sqft > 0:
         bp_mat = ISLAND_PANEL_PRICING[
             "back_panel_per_sf"
         ].get(tier, 16)
@@ -686,7 +797,7 @@ def calculate_estimate(
             category="misc",
             location="shared",
             notes=(
-                f"Base ${SCOPE_ITEMS['delivery_base']}"
+                f"${SCOPE_ITEMS['delivery_base']}"
                 f" + "
                 f"${SCOPE_ITEMS['delivery_per_lf']}/LF"
                 f"{floor_note}"
@@ -705,25 +816,25 @@ def calculate_estimate(
             (
                 "Plumbing Reconnect "
                 "(sink drain, P-trap, disposal, "
-                "DW drain/supply, faucet lines)",
+                "DW drain/supply, faucet hookup)",
                 SCOPE_ITEMS["plumbing_reconnect"],
-                None,
+                "Includes all fixture hookups",
             ),
             (
                 (
                     "Undermount SS Double Bowl "
                     "Sink 33\" (Kraus KHU102-33) "
-                    "- supply + install"
+                    "- supply only"
                     if sink_type == "double"
                     else "Undermount SS Single Bowl "
                     "Sink 30\" (Kraus KHU100-30) "
-                    "- supply + install"
+                    "- supply only"
                 ),
                 SCOPE_ITEMS.get(
-                    "sink_double_supply_install"
+                    "sink_double_supply"
                     if sink_type == "double"
-                    else "sink_single_supply_install",
-                    445,
+                    else "sink_single_supply",
+                    280,
                 ),
                 (
                     "16-gauge stainless steel, "
@@ -733,15 +844,15 @@ def calculate_estimate(
             (
                 "Pull-Down Kitchen Faucet "
                 "(Moen/Delta mid-range) "
-                "- supply + install",
-                SCOPE_ITEMS["faucet_supply_install"],
+                "- supply only",
+                SCOPE_ITEMS["faucet_supply"],
                 None,
             ),
             (
                 "Garbage Disposal 3/4 HP "
                 "(InSinkErator Badger 5XP) "
-                "- supply + install",
-                SCOPE_ITEMS["disposal_supply_install"],
+                "- supply only",
+                SCOPE_ITEMS["disposal_supply"],
                 None,
             ),
         ]
@@ -862,8 +973,8 @@ def calculate_estimate(
             location="perimeter",
         ))
 
-    # ── 8b. Countertop (island) ──
-    if include_countertop and island_countertop_sqft:
+    # ── 8b. Countertop (island, custom build only) ──
+    if include_countertop and island_countertop_sqft and not is_prefab:
         ict_mat = island_countertop_material or "Laminate"
         ict_info = COUNTERTOP_MATERIALS.get(
             ict_mat, {"rate": 35, "label": ict_mat},
@@ -883,6 +994,32 @@ def calculate_estimate(
             total=ict_total,
             category="countertop",
             location="island",
+        ))
+
+    # ── 8c. 4" Countertop Backsplash ──
+    if (include_countertop_backsplash
+            and countertop_backsplash_lf
+            and countertop_backsplash_lf > 0):
+        cb_mat = countertop_material or "Laminate"
+        cb_rate = COUNTERTOP_BACKSPLASH_PER_LF.get(
+            cb_mat, 20,
+        )
+        cb_lf = round(countertop_backsplash_lf, 2)
+        cb_total = round(cb_lf * cb_rate, 2)
+        cb_label = COUNTERTOP_MATERIALS.get(
+            cb_mat, {"label": cb_mat},
+        )["label"]
+        line_items.append(LineItem(
+            description=(
+                f"4\" Countertop Backsplash - "
+                f"{cb_label} (supply + install)"
+            ),
+            quantity=cb_lf,
+            unit="LF",
+            unit_price=cb_rate,
+            total=cb_total,
+            category="countertop",
+            location="perimeter",
         ))
 
     # ── 9. Drywall repair ──
@@ -952,6 +1089,9 @@ def calculate_estimate(
         for appl in appliance_list:
             atype = appl.get("type", "")
             aqty = appl.get("qty", 1)
+            # Skip disposal if plumbing already handles it
+            if atype == "garbage_disposal" and include_plumbing:
+                continue
             info = APPLIANCE_RR_PRICING.get(atype)
             if not info or aqty <= 0:
                 continue
@@ -984,7 +1124,7 @@ def calculate_estimate(
         line_items.append(LineItem(
             description=(
                 "Electrical Disconnect & Reconnect "
-                "(disposal, DW, under-cabinet "
+                "(DW, under-cabinet "
                 "lighting, range)"
             ),
             quantity=1,
@@ -1160,7 +1300,18 @@ def calculate_estimate(
             f"Wall {p_wall_lf:.1f} LF, "
             f"Tall {p_tall} EA"
         )
-    if island_boxes:
+    if is_prefab and island_prefab_size:
+        size_info = PREFAB_ISLAND_PRICING.get(
+            island_prefab_size, {},
+        )
+        size_label = size_info.get(
+            "label", island_prefab_size,
+        )
+        methodology_lines.append(
+            f"Island: Prefab {size_label} "
+            f"(price may vary by product)"
+        )
+    elif island_boxes:
         methodology_lines.append(
             f"Island: Base {i_base_lf:.1f} LF, "
             f"Wall {i_wall_lf:.1f} LF, "

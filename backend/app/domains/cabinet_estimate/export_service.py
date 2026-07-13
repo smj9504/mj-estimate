@@ -34,21 +34,16 @@ def _group_line_items(
     )
 
     if has_island:
-        # Perimeter → Island → Shared
-        for loc, loc_label in [
-            ("perimeter", "Perimeter"),
-            ("island", "Island"),
-        ]:
-            loc_items = [
-                li for li in line_items
-                if li.get("location", "perimeter")
-                == loc
-            ]
-            if not loc_items:
-                continue
+        # Perimeter: split by category sections
+        perim_items = [
+            li for li in line_items
+            if li.get("location", "perimeter")
+            == "perimeter"
+        ]
+        if perim_items:
             for title, cats in SECTION_ORDER:
                 items = [
-                    li for li in loc_items
+                    li for li in perim_items
                     if li.get("category") in cats
                 ]
                 if items:
@@ -58,11 +53,27 @@ def _group_line_items(
                     )
                     sections.append({
                         "title": (
-                            f"{loc_label} — {title}"
+                            f"Perimeter — {title}"
                         ),
                         "items": items,
                         "total": total,
                     })
+
+        # Island: single combined section
+        island_items = [
+            li for li in line_items
+            if li.get("location") == "island"
+        ]
+        if island_items:
+            total = sum(
+                li.get("total", 0)
+                for li in island_items
+            )
+            sections.append({
+                "title": "Island",
+                "items": island_items,
+                "total": total,
+            })
 
         shared = [
             li for li in line_items
@@ -692,17 +703,109 @@ class CabinetExportService:
             "Substitutions of equal or greater "
             "quality may be made with homeowner "
             "approval. Any upgrade requests will "
-            "be handled via Change Order.<br/><br/>"
-            "<b>Lien Rights (Virginia)</b><br/>"
-            "13. Virginia law (§ 43-1 et seq.) "
-            "permits persons who perform labor or "
-            "furnish materials for construction to "
-            "file a lien against the property if "
-            "not paid. This disclosure is provided "
-            "pursuant to Virginia Code "
-            "§ 54.1-1110.1."
+            "be handled via Change Order."
         )
         elements.append(Paragraph(terms_text, terms_style))
+
+        # ══════════════════════════════════════
+        # PAYMENT SCHEDULE
+        # ══════════════════════════════════════
+        elements.append(Spacer(1, 16))
+
+        # Determine deposit limit based on state
+        zip_code = estimate.get("zip_code", "") or ""
+        zip3 = zip_code[:3] if zip_code else ""
+        # DC zip codes: 200-205
+        is_dc = zip3 in (
+            "200", "201", "202", "203", "204", "205",
+        )
+        if is_dc:
+            deposit_pct, progress_pct, final_pct = (
+                0.34, 0.50, 0.16,
+            )
+        else:
+            # VA, MD, PA: 33% max deposit
+            deposit_pct, progress_pct, final_pct = (
+                0.33, 0.50, 0.17,
+            )
+
+        deposit_amt = round(total * deposit_pct, 2)
+        progress_amt = round(total * progress_pct, 2)
+        final_amt = round(
+            total - deposit_amt - progress_amt, 2,
+        )
+
+        pay_title = Paragraph(
+            "<b>PAYMENT SCHEDULE</b>",
+            ParagraphStyle(
+                "PayTitle",
+                parent=normal_style,
+                fontSize=9,
+                spaceAfter=6,
+            ),
+        )
+        elements.append(pay_title)
+
+        pay_data = [
+            [
+                Paragraph("<b>Phase</b>", small_grey),
+                Paragraph("<b>%</b>", small_grey),
+                Paragraph("<b>Amount</b>", small_grey),
+                Paragraph("<b>Due</b>", small_grey),
+            ],
+            [
+                "1. Deposit",
+                f"{deposit_pct*100:.0f}%",
+                f"${deposit_amt:,.2f}",
+                "Upon contract signing",
+            ],
+            [
+                "2. Progress",
+                f"{progress_pct*100:.0f}%",
+                f"${progress_amt:,.2f}",
+                "Upon cabinet delivery / "
+                "installation start",
+            ],
+            [
+                "3. Final",
+                f"{final_pct*100:.0f}%",
+                f"${final_amt:,.2f}",
+                "Upon final walk-through "
+                "& approval",
+            ],
+            [
+                Paragraph(
+                    "<b>Total</b>", small_grey,
+                ),
+                "100%",
+                f"${total:,.2f}",
+                "",
+            ],
+        ]
+
+        pay_table = Table(
+            pay_data,
+            colWidths=[120, 40, 90, 200],
+        )
+        pay_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0),
+             colors.HexColor("#f0f5ff")),
+            ("TEXTCOLOR", (0, 0), (-1, 0),
+             colors.HexColor("#333333")),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("FONTNAME", (0, 0), (-1, 0),
+             "Helvetica-Bold"),
+            ("FONTNAME", (0, -1), (-1, -1),
+             "Helvetica-Bold"),
+            ("ALIGN", (1, 0), (2, -1), "RIGHT"),
+            ("GRID", (0, 0), (-1, -1), 0.5,
+             colors.HexColor("#dddddd")),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(pay_table)
 
         # ══════════════════════════════════════
         # ACCEPTANCE / SIGNATURE

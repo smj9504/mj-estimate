@@ -101,13 +101,32 @@ class CabinetEstimate(Base, BaseModel):
         Integer, default=1,
     )  # 1, 2, 3+
 
-    # Island panels (SF = square feet)
+    # Island type: "custom" (LF-based) or "prefab" (EA-based)
+    island_type = Column(
+        String(20), default="custom", nullable=False,
+    )
+    # Prefab island fields
+    island_prefab_size = Column(
+        String(20), nullable=True,
+    )  # small / medium / large / xl
+    island_prefab_price = Column(
+        Float, nullable=True,
+    )  # user-overridable supply price
+
+    # Island panels (SF = square feet) — custom build only
     island_end_panel_sqft = Column(Float, default=0)
     island_back_panel_sqft = Column(Float, default=0)
 
     # Countertop (perimeter)
     countertop_material = Column(String(100), nullable=True)
     countertop_sqft = Column(Float, nullable=True)
+    # 4" countertop backsplash (matching piece)
+    include_countertop_backsplash = Column(
+        Boolean, default=False,
+    )
+    countertop_backsplash_lf = Column(
+        Float, nullable=True,
+    )
 
     # Island countertop
     island_countertop_material = Column(

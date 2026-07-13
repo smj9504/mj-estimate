@@ -30,11 +30,27 @@ const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number; height
   'B30': { cab_type: 'base', width: 30, height: 34.5, label: 'Base 30"' },
   'B33': { cab_type: 'base', width: 33, height: 34.5, label: 'Base 33"' },
   'B36': { cab_type: 'base', width: 36, height: 34.5, label: 'Base 36"' },
-  // Base - Specialty
+  // Base - Sink Base
+  'SB30': { cab_type: 'base', width: 30, height: 34.5, specialty: 'sink_base', label: 'Sink Base 30"' },
+  'SB33': { cab_type: 'base', width: 33, height: 34.5, specialty: 'sink_base', label: 'Sink Base 33"' },
   'SB36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'sink_base', label: 'Sink Base 36"' },
+  'SB42': { cab_type: 'base', width: 42, height: 34.5, specialty: 'sink_base', label: 'Sink Base 42"' },
+  // Base - Blind Corner
   'BBC36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'blind_corner', label: 'Blind Corner 36"' },
+  'BBC39': { cab_type: 'base', width: 39, height: 34.5, specialty: 'blind_corner', label: 'Blind Corner 39"' },
+  'BBC42': { cab_type: 'base', width: 42, height: 34.5, specialty: 'blind_corner', label: 'Blind Corner 42"' },
+  'BBC45': { cab_type: 'base', width: 45, height: 34.5, specialty: 'blind_corner', label: 'Blind Corner 45"' },
+  // Base - Drawer Base
+  'DB12': { cab_type: 'base', width: 12, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 12"' },
+  'DB15': { cab_type: 'base', width: 15, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 15"' },
+  'DB18': { cab_type: 'base', width: 18, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 18"' },
+  'DB21': { cab_type: 'base', width: 21, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 21"' },
   'DB24': { cab_type: 'base', width: 24, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 24"' },
+  'DB27': { cab_type: 'base', width: 27, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 27"' },
   'DB30': { cab_type: 'base', width: 30, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 30"' },
+  'DB36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 36"' },
+  // Base - Lazy Susan
+  'LS33': { cab_type: 'base', width: 33, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan 33"' },
   'LS36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan 36"' },
   // Wall - Standard (30"H)
   'W0930': { cab_type: 'wall', width: 9,  height: 30, label: '9"W x 30"H' },
@@ -48,25 +64,48 @@ const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number; height
   'W3030': { cab_type: 'wall', width: 30, height: 30, label: '30"W x 30"H' },
   'W3330': { cab_type: 'wall', width: 33, height: 30, label: '33"W x 30"H' },
   'W3630': { cab_type: 'wall', width: 36, height: 30, label: '36"W x 30"H' },
-  // Wall - Tall (36"H, 42"H)
-  'W1842': { cab_type: 'wall', width: 18, height: 42, label: '18"W x 42"H' },
-  'W2742': { cab_type: 'wall', width: 27, height: 42, label: '27"W x 42"H' },
+  // Wall - Tall (36"H)
+  'W0936': { cab_type: 'wall', width: 9,  height: 36, label: '9"W x 36"H' },
+  'W1236': { cab_type: 'wall', width: 12, height: 36, label: '12"W x 36"H' },
+  'W1536': { cab_type: 'wall', width: 15, height: 36, label: '15"W x 36"H' },
+  'W1836': { cab_type: 'wall', width: 18, height: 36, label: '18"W x 36"H' },
+  'W2136': { cab_type: 'wall', width: 21, height: 36, label: '21"W x 36"H' },
+  'W2436': { cab_type: 'wall', width: 24, height: 36, label: '24"W x 36"H' },
+  'W2736': { cab_type: 'wall', width: 27, height: 36, label: '27"W x 36"H' },
   'W3036': { cab_type: 'wall', width: 30, height: 36, label: '30"W x 36"H' },
+  'W3336': { cab_type: 'wall', width: 33, height: 36, label: '33"W x 36"H' },
   'W3636': { cab_type: 'wall', width: 36, height: 36, label: '36"W x 36"H' },
+  // Wall - Tall (42"H)
+  'W0942': { cab_type: 'wall', width: 9,  height: 42, label: '9"W x 42"H' },
+  'W1242': { cab_type: 'wall', width: 12, height: 42, label: '12"W x 42"H' },
+  'W1542': { cab_type: 'wall', width: 15, height: 42, label: '15"W x 42"H' },
+  'W1842': { cab_type: 'wall', width: 18, height: 42, label: '18"W x 42"H' },
+  'W2142': { cab_type: 'wall', width: 21, height: 42, label: '21"W x 42"H' },
+  'W2442': { cab_type: 'wall', width: 24, height: 42, label: '24"W x 42"H' },
+  'W2742': { cab_type: 'wall', width: 27, height: 42, label: '27"W x 42"H' },
   'W3042': { cab_type: 'wall', width: 30, height: 42, label: '30"W x 42"H' },
+  'W3342': { cab_type: 'wall', width: 33, height: 42, label: '33"W x 42"H' },
   'W3642': { cab_type: 'wall', width: 36, height: 42, label: '36"W x 42"H' },
   // Wall - Short (above microwave / fridge: 12"~27"H)
+  'W2412': { cab_type: 'wall', width: 24, height: 12, label: '24"W x 12"H' },
   'W3012': { cab_type: 'wall', width: 30, height: 12, label: '30"W x 12"H' },
+  'W3312': { cab_type: 'wall', width: 33, height: 12, label: '33"W x 12"H' },
   'W3612': { cab_type: 'wall', width: 36, height: 12, label: '36"W x 12"H' },
+  'W2415': { cab_type: 'wall', width: 24, height: 15, label: '24"W x 15"H' },
   'W3015': { cab_type: 'wall', width: 30, height: 15, label: '30"W x 15"H' },
+  'W3315': { cab_type: 'wall', width: 33, height: 15, label: '33"W x 15"H' },
   'W3615': { cab_type: 'wall', width: 36, height: 15, label: '36"W x 15"H' },
+  'W2418': { cab_type: 'wall', width: 24, height: 18, label: '24"W x 18"H' },
   'W3018': { cab_type: 'wall', width: 30, height: 18, label: '30"W x 18"H' },
   'W3618': { cab_type: 'wall', width: 36, height: 18, label: '36"W x 18"H' },
+  'W2424': { cab_type: 'wall', width: 24, height: 24, label: '24"W x 24"H' },
   'W3024': { cab_type: 'wall', width: 30, height: 24, label: '30"W x 24"H' },
+  'W3324': { cab_type: 'wall', width: 33, height: 24, label: '33"W x 24"H' },
   'W3624': { cab_type: 'wall', width: 36, height: 24, label: '36"W x 24"H' },
   'W3627': { cab_type: 'wall', width: 36, height: 27, label: '36"W x 27"H' },
   // Wall - Specialty
-  'WDC': { cab_type: 'wall', width: 24, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"' },
+  'WDC24': { cab_type: 'wall', width: 24, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"' },
+  'WDC27': { cab_type: 'wall', width: 27, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 27"' },
   // Tall - Pantry
   'T1884': { cab_type: 'tall', width: 18, height: 84, label: 'Tall 18"x84"' },
   'T2484': { cab_type: 'tall', width: 24, height: 84, label: 'Tall 24"x84"' },
@@ -150,9 +189,15 @@ function getOptionsForType(cabType: SectionType) {
         .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
     },
     {
-      label: 'Tall (36"-42"H)',
+      label: 'Tall (36"H)',
       options: entries
-        .filter(([, v]) => v.height > 30 && !v.specialty)
+        .filter(([, v]) => v.height === 36 && !v.specialty)
+        .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
+    },
+    {
+      label: 'Extra Tall (42"H)',
+      options: entries
+        .filter(([, v]) => v.height === 42 && !v.specialty)
         .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
     },
     {
@@ -443,16 +488,21 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
     );
   };
 
+  const isIsland = location === 'island';
+  const sections = isIsland
+    ? SECTION_CONFIG.filter(s => s.type === 'base')
+    : SECTION_CONFIG;
+
   return (
     <div>
       <Space style={{ marginBottom: 12 }} wrap>
         <Tag color="blue">Base: {baseLF.toFixed(1)} LF</Tag>
-        <Tag color="green">Wall: {wallLF.toFixed(1)} LF</Tag>
-        <Tag color="orange">Tall: {tallCount} EA</Tag>
+        {!isIsland && <Tag color="green">Wall: {wallLF.toFixed(1)} LF</Tag>}
+        {!isIsland && <Tag color="orange">Tall: {tallCount} EA</Tag>}
         <Tag>Total: {totalBoxes} boxes</Tag>
       </Space>
 
-      {SECTION_CONFIG.map(renderSection)}
+      {sections.map(renderSection)}
     </div>
   );
 };

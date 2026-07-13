@@ -2075,6 +2075,37 @@ def generate_report_pdf(
         story.append(Spacer(1, 3))
         story.append(Paragraph(notes, style_normal))
 
+    # ========== PAYMENT SCHEDULE ==========
+    story.append(Spacer(1, 16))
+    story.append(HRFlowable(
+        width="100%", thickness=0.5,
+        color=colors.Color(0.8, 0.8, 0.8),
+    ))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph(
+        "<b>Payment Schedule</b>", style_bold,
+    ))
+    story.append(Spacer(1, 4))
+
+    dep_pct, prog_pct, fin_pct = 0.33, 0.50, 0.17
+    dep_amt = round(grand_total * dep_pct, 2)
+    prog_amt = round(grand_total * prog_pct, 2)
+    fin_amt = round(
+        grand_total - dep_amt - prog_amt, 2,
+    )
+    pay_items = [
+        f"{dep_pct*100:.0f}% (${dep_amt:,.2f}) "
+        f"\u2014 Upon contract signing",
+        f"{prog_pct*100:.0f}% (${prog_amt:,.2f}) "
+        f"\u2014 Upon work start",
+        f"{fin_pct*100:.0f}% (${fin_amt:,.2f}) "
+        f"\u2014 Upon completion & approval",
+    ]
+    for p in pay_items:
+        story.append(Paragraph(
+            f"\u2022 {p}", style_normal,
+        ))
+
     # ========== SIGNATURE PAGE ==========
     if include_signature_page:
         story.append(PageBreak())

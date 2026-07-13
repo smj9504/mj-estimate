@@ -993,6 +993,61 @@ class RoofingExportService:
         elements.append(Paragraph(exclusions, s_clause))
 
         # ────────────────────────────────────────────────
+        #  PAYMENT SCHEDULE
+        # ────────────────────────────────────────────────
+        elements.append(Spacer(1, 12))
+        total = estimate.get("total", 0)
+        zip_code = estimate.get("zip_code", "") or ""
+        zip3 = zip_code[:3] if zip_code else ""
+        is_dc = zip3 in (
+            "200", "201", "202", "203", "204", "205",
+        )
+        if is_dc:
+            dep_pct, prog_pct, fin_pct = (
+                0.34, 0.50, 0.16,
+            )
+        else:
+            dep_pct, prog_pct, fin_pct = (
+                0.33, 0.50, 0.17,
+            )
+        dep_amt = round(total * dep_pct, 2)
+        prog_amt = round(total * prog_pct, 2)
+        fin_amt = round(
+            total - dep_amt - prog_amt, 2,
+        )
+
+        s_pay_title = ParagraphStyle(
+            "PayTitle", fontName="Helvetica-Bold",
+            fontSize=10,
+            textColor=colors.HexColor(COLOR_DARK),
+            spaceAfter=6,
+        )
+        elements.append(Paragraph(
+            "Payment Schedule", s_pay_title,
+        ))
+
+        s_pay = ParagraphStyle(
+            "PayItem", fontName="Helvetica",
+            fontSize=9,
+            textColor=colors.HexColor(COLOR_DARK),
+            leading=13, spaceBefore=2,
+        )
+        pay_items = [
+            f"{dep_pct*100:.0f}% (${dep_amt:,.2f}) "
+            f"\u2014 Upon contract signing",
+            f"{prog_pct*100:.0f}% (${prog_amt:,.2f}) "
+            f"\u2014 Upon material delivery / "
+            f"work start",
+            f"{fin_pct*100:.0f}% (${fin_amt:,.2f}) "
+            f"\u2014 Upon final walk-through "
+            f"& approval",
+        ]
+        for p in pay_items:
+            elements.append(Paragraph(
+                f"\u2022 {p}", s_pay,
+            ))
+
+        # ────────────────────────────────────────────────
         #  SIGNATURE BLOCK
         # ────────────────────────────────────────────────
         if show_signature:

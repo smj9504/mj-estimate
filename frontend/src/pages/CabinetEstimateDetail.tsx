@@ -10,6 +10,7 @@ import {
   Input,
   InputNumber,
   message,
+  Radio,
   Row,
   Select,
   Space,
@@ -213,6 +214,8 @@ const CabinetEstimateDetail: React.FC = () => {
         backsplash_height_inches: 18,
         include_toe_kick: estimate.include_toe_kick ?? true,
         include_countertop: estimate.include_countertop,
+        include_countertop_backsplash: estimate.include_countertop_backsplash ?? false,
+        countertop_backsplash_lf: estimate.countertop_backsplash_lf,
         include_drywall_repair: estimate.include_drywall_repair,
         drywall_repair_type: estimate.drywall_repair_type || 'patch',
         drywall_repair_sqft: estimate.drywall_repair_sqft,
@@ -225,6 +228,9 @@ const CabinetEstimateDetail: React.FC = () => {
         include_permit: estimate.include_permit ?? false,
         outlet_relocation_count: estimate.outlet_relocation_count ?? 0,
         delivery_floor: estimate.delivery_floor || 1,
+        island_type: estimate.island_type || 'custom',
+        island_prefab_size: estimate.island_prefab_size,
+        island_prefab_price: estimate.island_prefab_price,
         island_end_panel_sqft: estimate.island_end_panel_sqft || 0,
         island_back_panel_sqft: estimate.island_back_panel_sqft || 0,
         countertop_material: estimate.countertop_material,
@@ -253,6 +259,15 @@ const CabinetEstimateDetail: React.FC = () => {
       setIslandBoxes(allBoxes.filter((b) => b.location === 'island'));
     }
   }, [estimate, form]);
+
+  // Auto-enable plumbing when sink_base exists
+  useEffect(() => {
+    const allBoxes = [...perimeterBoxes, ...islandBoxes];
+    const hasSink = allBoxes.some((b) => b.specialty_type === 'sink_base');
+    if (hasSink && !form.getFieldValue('include_plumbing')) {
+      form.setFieldsValue({ include_plumbing: true });
+    }
+  }, [perimeterBoxes, islandBoxes, form]);
 
   // ── Mutations ──
   const saveMutation = useMutation({
@@ -555,9 +570,99 @@ const CabinetEstimateDetail: React.FC = () => {
 
                 {/* Island Cabinets + Panels + Countertop */}
                 <Card size="small" title="Island" style={{ marginBottom: 16 }}>
-                  <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Island Cabinets</Text>
-                  <CabinetBoxEditor boxes={islandBoxes} onChange={setIslandBoxes} location="island" />
+                  <Form.Item name="island_type" label="Island Type" style={{ marginBottom: 12 }}>
+                    <Radio.Group
+                      onChange={(e) => {
+                        if (e.target.value === 'prefab') {
+                          setIslandBoxes([]);
+                          form.setFieldsValue({
+                            island_end_panel_sqft: 0,
+                            island_back_panel_sqft: 0,
+                          });
+                        } else {
+                          form.setFieldsValue({
+                            island_prefab_size: undefined,
+                            island_prefab_price: undefined,
+                          });
+                        }
+                      }}
+                    >
+                      <Radio.Button value="custom">Custom Build (LF)</Radio.Button>
+                      <Radio.Button value="prefab">Prefab (EA)</Radio.Button>
+                    </Radio.Group>
+                  </Form.Item>
 
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.island_type !== cur.island_type || prev.tier !== cur.tier}>
+                    {({ getFieldValue }) => {
+                      const islandType = getFieldValue('island_type') || 'custom';
+                      const tier = getFieldValue('tier') as string;
+
+                      if (islandType === 'prefab') {
+                        const prefabPricing = pricingInfo?.prefab_island_pricing || {};
+                        return (
+                          <>
+                            <Row gutter={16}>
+                              <Col xs={24} md={8}>
+                                <Form.Item name="island_prefab_size" label="Size" style={{ marginBottom: 8 }}>
+                                  <Select
+                                    placeholder="Select size"
+                                    allowClear
+                                    onChange={(size) => {
+                                      if (size && tier && prefabPricing[size]) {
+                                        form.setFieldsValue({
+                                          island_prefab_price: prefabPricing[size][tier],
+                                        });
+                                      }
+                                    }}
+                                    options={Object.entries(prefabPricing).map(([key, val]: [string, any]) => ({
+                                      label: val.label || key,
+                                      value: key,
+                                    }))}
+                                  />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={8}>
+                                <Form.Item name="island_prefab_price" label="Supply Price ($)" style={{ marginBottom: 8 }}>
+                                  <InputNumber
+                                    min={0} max={20000} step={50}
+                                    style={{ width: '100%' }}
+                                    placeholder="Auto or enter manually"
+                                    formatter={(v) => `$ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                                    parser={(v) => Number(v!.replace(/\$\s?|(,*)/g, '')) as any}
+                                  />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={8}>
+                                <Form.Item label="Install" style={{ marginBottom: 8 }}>
+                                  <Text type="secondary">
+                                    ${pricingInfo?.prefab_island_install?.[getFieldValue('island_prefab_size')] || '—'} (auto)
+                                  </Text>
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                            <Alert
+                              type="info"
+                              showIcon
+                              style={{ marginBottom: 8 }}
+                              message="Prefab island price is an estimate based on size and tier. Actual cost may vary depending on the specific product selected."
+                            />
+                          </>
+                        );
+                      }
+
+                      return (
+                        <>
+                          <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Island Cabinets</Text>
+                          <CabinetBoxEditor boxes={islandBoxes} onChange={setIslandBoxes} location="island" />
+                        </>
+                      );
+                    }}
+                  </Form.Item>
+
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.island_type !== cur.island_type}>
+                    {({ getFieldValue: gfv }) => {
+                      if (gfv('island_type') === 'prefab' || islandBoxes.length === 0) return null;
+                      return (
                   <div style={{ borderTop: '1px solid #f0f0f0', margin: '16px 0', paddingTop: 12 }}>
                     <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Island Panels</Text>
                     <Row gutter={16}>
@@ -674,11 +779,15 @@ const CabinetEstimateDetail: React.FC = () => {
                       </div>
                     )}
                   </div>
+                      );
+                    }}
+                  </Form.Item>
 
-                  {/* Island Countertop */}
-                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_countertop !== cur.include_countertop}>
+                  {/* Island Countertop — only when custom build + has boxes */}
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_countertop !== cur.include_countertop || prev.island_type !== cur.island_type}>
                     {({ getFieldValue }) => {
                       if (!getFieldValue('include_countertop')) return null;
+                      if (getFieldValue('island_type') === 'prefab' || islandBoxes.length === 0) return null;
                       const islandBaseLf = islandBoxes
                         .filter((b) => b.cab_type === 'base')
                         .reduce((sum, b) => sum + (b.width_inches * b.qty) / 12, 0);
@@ -775,8 +884,8 @@ const CabinetEstimateDetail: React.FC = () => {
                           getFieldValue('include_plumbing') ? (
                             <Form.Item name="sink_type" label="Sink Type" preserve style={{ marginBottom: 0, marginLeft: 24 }}>
                               <Select size="small" style={{ width: 180 }} options={[
-                                { label: 'Single Bowl ($445)', value: 'single' },
-                                { label: 'Double Bowl ($585)', value: 'double' },
+                                { label: 'Single Bowl ($280)', value: 'single' },
+                                { label: 'Double Bowl ($420)', value: 'double' },
                               ]} />
                             </Form.Item>
                           ) : null
@@ -894,6 +1003,7 @@ const CabinetEstimateDetail: React.FC = () => {
                         .reduce((sum, b) => sum + (b.width_inches * b.qty) / 12, 0);
                       const suggestedSf = Math.round(perimBaseLf * 2.125 * 10) / 10;
                       return (
+                        <>
                         <Row gutter={16}>
                           <Col xs={24}>
                             <Text type="secondary" style={{ fontSize: 11, marginBottom: 4, display: 'block' }}>
@@ -937,6 +1047,51 @@ const CabinetEstimateDetail: React.FC = () => {
                             )}
                           </Col>
                         </Row>
+                        <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
+                          <Form.Item name="include_countertop_backsplash" valuePropName="checked" style={{ marginBottom: 4 }}>
+                            <Checkbox>4" Countertop Backsplash (matching material)</Checkbox>
+                          </Form.Item>
+                          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_countertop_backsplash !== cur.include_countertop_backsplash}>
+                            {({ getFieldValue: gfv2 }) => {
+                              if (!gfv2('include_countertop_backsplash')) return null;
+                              return (
+                                <Row gutter={16} style={{ marginLeft: 24 }}>
+                                  <Col xs={12}>
+                                    <Form.Item name="countertop_backsplash_lf" label="Length (LF)" preserve>
+                                      <InputNumber min={0} max={100} step={0.5} style={{ width: '100%' }} addonAfter="LF" />
+                                    </Form.Item>
+                                    {perimBaseLf > 0 && (
+                                      <Space size={4}>
+                                        <Text type="secondary" style={{ fontSize: 11 }}>
+                                          Perimeter Base =
+                                        </Text>
+                                        <Button
+                                          type="link"
+                                          size="small"
+                                          style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                          onClick={() => form.setFieldsValue({ countertop_backsplash_lf: Math.round(perimBaseLf * 10) / 10 })}
+                                        >
+                                          {perimBaseLf.toFixed(1)} LF 적용
+                                        </Button>
+                                      </Space>
+                                    )}
+                                  </Col>
+                                  <Col xs={12}>
+                                    <Form.Item label="Unit Price">
+                                      <Text type="secondary">
+                                        ${({
+                                          Laminate: 12, 'Solid Surface': 22, 'Butcher Block': 18,
+                                          Granite: 28, Quartz: 32, Quartzite: 38, Marble: 45,
+                                        } as Record<string, number>)[getFieldValue('countertop_material') || ''] || '—'}/LF
+                                      </Text>
+                                    </Form.Item>
+                                  </Col>
+                                </Row>
+                              );
+                            }}
+                          </Form.Item>
+                        </div>
+                        </>
                       );
                     }}
                   </Form.Item>
