@@ -61,16 +61,17 @@ const WMPdfToolbar: React.FC<WMPdfToolbarProps> = ({
       display: 'flex',
       flexWrap: 'wrap',
       alignItems: 'center',
-      gap: 8,
-      padding: '8px 12px',
+      gap: 6,
+      padding: '6px 8px',
       background: '#fafafa',
       borderBottom: '1px solid #e8e8e8',
       borderRadius: '8px 8px 0 0',
     }}>
-      {/* Tool Selection */}
-      <Space.Compact>
+      {/* Row 1: Tools + Page Nav + Save */}
+      <Space.Compact size="small">
         <Tooltip title="Select / Move (V)">
           <Button
+            size="small"
             type={state.tool === 'select' ? 'primary' : 'default'}
             icon={<DragOutlined />}
             onClick={() => onToolChange('select')}
@@ -78,6 +79,7 @@ const WMPdfToolbar: React.FC<WMPdfToolbarProps> = ({
         </Tooltip>
         <Tooltip title="Add Text (T)">
           <Button
+            size="small"
             type={state.tool === 'text' ? 'primary' : 'default'}
             icon={<FontSizeOutlined />}
             onClick={() => onToolChange('text')}
@@ -85,39 +87,36 @@ const WMPdfToolbar: React.FC<WMPdfToolbarProps> = ({
         </Tooltip>
         <Tooltip title="Add Signature">
           <Button
+            size="small"
             icon={<EditOutlined />}
             onClick={onOpenSignaturePad}
           />
         </Tooltip>
       </Space.Compact>
 
-      <Divider type="vertical" style={{ height: 24 }} />
+      <Divider type="vertical" style={{ height: 20, margin: '0 2px' }} />
 
       {/* Font Controls */}
-      <Space size={4}>
+      <Space size={2}>
         <Select
           value={state.fontSize}
           onChange={onFontSizeChange}
-          style={{ width: 70 }}
+          style={{ width: 60 }}
           size="small"
           options={FONT_SIZE_OPTIONS.map(s => ({ value: s, label: `${s}` }))}
         />
-        <Tooltip title="Bold">
-          <Button
-            size="small"
-            type={state.fontBold ? 'primary' : 'default'}
-            icon={<BoldOutlined />}
-            onClick={onBoldToggle}
-          />
-        </Tooltip>
-        <Tooltip title="Italic">
-          <Button
-            size="small"
-            type={state.fontItalic ? 'primary' : 'default'}
-            icon={<ItalicOutlined />}
-            onClick={onItalicToggle}
-          />
-        </Tooltip>
+        <Button
+          size="small"
+          type={state.fontBold ? 'primary' : 'default'}
+          icon={<BoldOutlined />}
+          onClick={onBoldToggle}
+        />
+        <Button
+          size="small"
+          type={state.fontItalic ? 'primary' : 'default'}
+          icon={<ItalicOutlined />}
+          onClick={onItalicToggle}
+        />
         <ColorPicker
           value={state.fontColor}
           onChange={(_, hex) => onFontColorChange(hex)}
@@ -129,33 +128,29 @@ const WMPdfToolbar: React.FC<WMPdfToolbarProps> = ({
         />
       </Space>
 
-      <Divider type="vertical" style={{ height: 24 }} />
+      <Divider type="vertical" style={{ height: 20, margin: '0 2px' }} />
 
       {/* Zoom */}
-      <Space size={4}>
-        <Tooltip title="Zoom Out">
-          <Button size="small" icon={<ZoomOutOutlined />} onClick={onZoomOut} disabled={state.scale <= 0.5} />
-        </Tooltip>
-        <Text style={{ fontSize: 12, minWidth: 36, textAlign: 'center' }}>
+      <Space size={2}>
+        <Button size="small" icon={<ZoomOutOutlined />} onClick={onZoomOut} disabled={state.scale <= 0.5} />
+        <Text style={{ fontSize: 11, minWidth: 32, textAlign: 'center' }}>
           {Math.round(state.scale * 100)}%
         </Text>
-        <Tooltip title="Zoom In">
-          <Button size="small" icon={<ZoomInOutlined />} onClick={onZoomIn} disabled={state.scale >= 3} />
-        </Tooltip>
+        <Button size="small" icon={<ZoomInOutlined />} onClick={onZoomIn} disabled={state.scale >= 3} />
       </Space>
 
-      <Divider type="vertical" style={{ height: 24 }} />
+      <Divider type="vertical" style={{ height: 20, margin: '0 2px' }} />
 
       {/* Page Navigation */}
-      <Space size={4}>
+      <Space size={2}>
         <Button
           size="small"
           icon={<LeftOutlined />}
           onClick={() => onPageChange(state.currentPage - 1)}
           disabled={state.currentPage <= 0}
         />
-        <Text style={{ fontSize: 12, minWidth: 60, textAlign: 'center' }}>
-          {state.currentPage + 1} / {state.totalPages}
+        <Text style={{ fontSize: 11, minWidth: 40, textAlign: 'center' }}>
+          {state.currentPage + 1}/{state.totalPages}
         </Text>
         <Button
           size="small"
@@ -166,19 +161,18 @@ const WMPdfToolbar: React.FC<WMPdfToolbarProps> = ({
       </Space>
 
       {/* Right side actions */}
-      <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+      <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
         {hasSelection && (
-          <Tooltip title="Delete Selected">
-            <Button
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={onDeleteSelected}
-            />
-          </Tooltip>
+          <Button
+            size="small"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={onDeleteSelected}
+          />
         )}
         <Button
           type="primary"
+          size="small"
           icon={<SaveOutlined />}
           onClick={onSave}
           loading={saving}

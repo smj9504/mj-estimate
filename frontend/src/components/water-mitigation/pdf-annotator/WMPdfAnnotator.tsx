@@ -38,7 +38,9 @@ interface WMPdfAnnotatorProps {
   existingAnnotations?: PdfAnnotationData | null;
   /** URL to source PDF (for re-editing, loaded from backend) */
   sourcePdfUrl?: string;
-  onSave: (pdfBlob: Blob, filename: string, annotationData: PdfAnnotationData) => Promise<void>;
+  /** Document type (COS, EWA, etc.) for proper categorization */
+  documentType?: string;
+  onSave: (pdfBlob: Blob, filename: string, annotationData: PdfAnnotationData, sourcePdfBlob?: Blob) => Promise<void>;
   onClose: () => void;
 }
 
@@ -56,6 +58,7 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
   documentId,
   existingAnnotations,
   sourcePdfUrl,
+  documentType,
   onSave,
   onClose,
 }) => {
@@ -78,6 +81,22 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
   const transformerRef = useRef<Konva.Transformer>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Container width for responsive scaling
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+    ro.observe(el);
+    setContainerWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+
   // Signature images cache
   const sigImagesRef = useRef<Record<string, HTMLImageElement>>({});
 
@@ -85,8 +104,14 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
   const currentPageData = renderedPages[annotatorState.currentPage];
   const currentAnnotations = annotations[annotatorState.currentPage] || { texts: [], signatures: [] };
 
-  const stageWidth = currentPageData ? currentPageData.width * annotatorState.scale : 600;
-  const stageHeight = currentPageData ? currentPageData.height * annotatorState.scale : 800;
+  // Responsive: fit PDF to container width on mobile, use manual scale on desktop
+  const availableWidth = containerWidth > 0 ? containerWidth - 32 : 600; // 32px for padding
+  const baseWidth = currentPageData ? currentPageData.width : 600;
+  const baseHeight = currentPageData ? currentPageData.height : 800;
+  const fitScale = baseWidth > 0 ? Math.min(1, availableWidth / baseWidth) : 1;
+  const effectiveScale = annotatorState.scale * fitScale;
+  const stageWidth = currentPageData ? baseWidth * effectiveScale : 600;
+  const stageHeight = currentPageData ? baseHeight * effectiveScale : 800;
 
   // Load existing annotations
   useEffect(() => {
@@ -505,7 +530,9 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
         version: 1,
       };
 
-      await onSave(blob, pdfFilename, annotationData);
+      // Pass original (unannotated) PDF as source for clean re-editing
+      const sourcePdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+      await onSave(blob, pdfFilename, annotationData, sourcePdfBlob);
       message.success('PDF saved successfully');
     } catch (err: any) {
       message.error(`Failed to save PDF: ${err.message}`);
@@ -639,7 +666,7 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
                     x={t.x * stageWidth}
                     y={t.y * stageHeight}
                     text={t.text}
-                    fontSize={t.fontSize * annotatorState.scale}
+                    fontSize={t.fontSize * effectiveScale}
                     fontFamily={t.fontFamily || 'Arial'}
                     fontStyle={`${t.bold ? 'bold' : ''} ${t.italic ? 'italic' : ''}`.trim() || 'normal'}
                     fill={t.color}

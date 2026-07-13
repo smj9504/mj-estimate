@@ -85,6 +85,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   const [editingDocumentId, setEditingDocumentId] = useState<string | undefined>(undefined);
   const [editingAnnotations, setEditingAnnotations] = useState<PdfAnnotationData | null>(null);
   const [editingSourceUrl, setEditingSourceUrl] = useState<string | undefined>(undefined);
+  const [editingDocType, setEditingDocType] = useState<string | undefined>(undefined);
   const [createSource, setCreateSource] = useState<'photos' | 'template'>('photos');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [generatingFromTemplate, setGeneratingFromTemplate] = useState(false);
@@ -268,6 +269,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
       setEditingDocumentId(undefined);
       setEditingAnnotations(annotations || null);
       setEditingSourceUrl(blobUrl);
+      // Preserve document type from template selection for proper categorization
+      setEditingDocType(selectedDocType || undefined);
       setAnnotatorOpen(true);
 
       // Close create modal
@@ -295,12 +298,26 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     setEditingDocumentId(undefined);
     setEditingAnnotations(null);
     setEditingSourceUrl(undefined);
+    setEditingDocType(undefined);
     setAnnotatorOpen(true);
   };
 
-  const handleEditAnnotatedDocument = useCallback((documentId: string, annotationDataJson: string | null, previewUrl: string) => {
+  const handleEditAnnotatedDocument = useCallback((
+    documentId: string,
+    annotationDataJson: string | null,
+    previewUrl: string,
+    hasSourcePdf: boolean,
+    docType?: string
+  ) => {
     setEditingDocumentId(documentId);
-    setEditingSourceUrl(previewUrl);
+    setEditingDocType(docType);
+
+    // source-pdf endpoint returns clean PDF:
+    // - New docs: returns stored original (unannotated) PDF
+    // - Legacy docs: dynamically erases annotation regions from baked PDF
+    setEditingSourceUrl(waterMitigationService.documents.getSourcePdfUrl(documentId));
+
+    // Always restore annotations as overlays (source-pdf is always clean)
     if (annotationDataJson) {
       try {
         setEditingAnnotations(JSON.parse(annotationDataJson));
@@ -313,13 +330,15 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     setAnnotatorOpen(true);
   }, []);
 
-  const handleAnnotatorSave = async (pdfBlob: Blob, filename: string, annotationData: PdfAnnotationData) => {
+  const handleAnnotatorSave = async (pdfBlob: Blob, filename: string, annotationData: PdfAnnotationData, sourcePdfBlob?: Blob) => {
     await waterMitigationService.documents.uploadAnnotatedPdf(
       jobId,
       pdfBlob,
       filename,
       JSON.stringify(annotationData),
-      editingDocumentId
+      editingDocumentId,
+      editingDocType,
+      sourcePdfBlob
     );
     setAnnotatorOpen(false);
     documentListRef.current?.refresh();
@@ -791,8 +810,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
         onCancel={() => setAnnotatorOpen(false)}
         footer={null}
         width="95vw"
-        style={{ top: 20 }}
-        styles={{ body: { height: 'calc(100vh - 120px)', padding: 0, overflow: 'hidden' } }}
+        style={{ top: 10, maxWidth: '100vw' }}
+        styles={{ body: { height: 'calc(100vh - 100px)', padding: 0, overflow: 'hidden' } }}
         destroyOnClose
       >
         <WMPdfAnnotator
@@ -800,6 +819,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
           documentId={editingDocumentId}
           existingAnnotations={editingAnnotations}
           sourcePdfUrl={editingSourceUrl}
+          documentType={editingDocType}
           onSave={handleAnnotatorSave}
           onClose={() => setAnnotatorOpen(false)}
         />
