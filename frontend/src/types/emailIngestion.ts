@@ -16,6 +16,7 @@ export interface EmailAccount {
   company_name?: string;
   sender_name?: string;
   sender_phone?: string;
+  can_send?: boolean;
   is_active: boolean;
   auto_schedule?: string;
   last_synced_at?: string;
@@ -42,6 +43,7 @@ export interface EmailAccountCreate {
   company_id?: string;
   sender_name?: string;
   sender_phone?: string;
+  can_send?: boolean;
   is_active?: boolean;
   auto_schedule?: string;
 }
@@ -58,6 +60,7 @@ export interface EmailAccountUpdate {
   company_id?: string;
   sender_name?: string;
   sender_phone?: string;
+  can_send?: boolean;
   is_active?: boolean;
   auto_schedule?: string;
 }
