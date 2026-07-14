@@ -25,6 +25,34 @@ def _get_service():
     return ContractInstanceService(get_database())
 
 
+def _find_company_email_account(company_id):
+    """Find an active, sendable email account for the company."""
+    if not company_id:
+        return None
+    try:
+        from app.core.database_factory import get_database
+        from sqlalchemy import text
+        db = get_database()
+        session = db.get_readonly_session()
+        try:
+            result = session.execute(
+                text(
+                    "SELECT id FROM email_accounts "
+                    "WHERE company_id = :cid AND is_active = true "
+                    "AND (can_send = true OR can_send IS NULL) "
+                    "LIMIT 1"
+                ),
+                {"cid": str(company_id)},
+            )
+            row = result.fetchone()
+            return str(row[0]) if row else None
+        finally:
+            session.close()
+    except Exception as e:
+        logger.debug(f"Could not find company email account: {e}")
+        return None
+
+
 @router.get("/{token}")
 async def get_contract_for_signing(token: str, request: Request):
     """
@@ -422,24 +450,37 @@ async def send_signed_copy(token: str, data: dict):
         from app.core.config import settings
 
         smtp = SmtpService()
-        smtp_user = getattr(settings, 'SMTP_USER', '')
-        if not smtp_user:
-            raise HTTPException(status_code=500, detail="Email service not configured")
-
         company_email = contract.get('company_email', '')
-        reply_to = company_email or getattr(settings, 'SMTP_FROM_EMAIL', '') or smtp_user
+        company_id = contract.get('company_id')
+        account_id = _find_company_email_account(company_id)
 
-        smtp.send(
-            account_id=None,
-            from_address=smtp_user,
-            to_addresses=emails,
-            subject=subject,
-            body_html=body_html,
-            reply_to=reply_to,
-            skip_signature=True,
-            display_name_override=company,
-            attachments=[pdf_attachment],
-        )
+        if account_id:
+            # Use company email account
+            smtp.send(
+                account_id=account_id,
+                from_address=company_email or '',
+                to_addresses=emails,
+                subject=subject,
+                body_html=body_html,
+                skip_signature=True,
+                attachments=[pdf_attachment],
+            )
+        else:
+            # Fallback to system SMTP
+            smtp_user = getattr(settings, 'SMTP_USER', '')
+            if not smtp_user:
+                raise HTTPException(status_code=500, detail="Email service not configured")
+            smtp.send(
+                account_id=None,
+                from_address=smtp_user,
+                to_addresses=emails,
+                subject=subject,
+                body_html=body_html,
+                reply_to=company_email or smtp_user,
+                skip_signature=True,
+                display_name_override=company,
+                attachments=[pdf_attachment],
+            )
 
         return {"message": f"Signed copy sent to {len(emails)} recipient(s)", "emails": emails}
 
@@ -653,24 +694,35 @@ def _send_signed_notification(service, token: str, signer_name: str):
         from app.core.config import settings
 
         smtp = SmtpService()
-        smtp_user = getattr(settings, 'SMTP_USER', '')
-        if not smtp_user:
-            logger.warning("[SignedNotification] SMTP not configured, skipping")
-            return
+        company_id = contract.get('company_id')
+        account_id = _find_company_email_account(company_id)
 
-        reply_to = company_email or getattr(settings, 'SMTP_FROM_EMAIL', '') or smtp_user
-
-        smtp.send(
-            account_id=None,
-            from_address=smtp_user,
-            to_addresses=list(recipients),
-            subject=subject,
-            body_html=body_html,
-            reply_to=reply_to,
-            skip_signature=True,
-            display_name_override=company,
-            attachments=[pdf_attachment] if pdf_attachment else [],
-        )
+        if account_id:
+            smtp.send(
+                account_id=account_id,
+                from_address=company_email or '',
+                to_addresses=list(recipients),
+                subject=subject,
+                body_html=body_html,
+                skip_signature=True,
+                attachments=[pdf_attachment] if pdf_attachment else [],
+            )
+        else:
+            smtp_user = getattr(settings, 'SMTP_USER', '')
+            if not smtp_user:
+                logger.warning("[SignedNotification] SMTP not configured, skipping")
+                return
+            smtp.send(
+                account_id=None,
+                from_address=smtp_user,
+                to_addresses=list(recipients),
+                subject=subject,
+                body_html=body_html,
+                reply_to=company_email or smtp_user,
+                skip_signature=True,
+                display_name_override=company,
+                attachments=[pdf_attachment] if pdf_attachment else [],
+            )
         logger.info(
             f"[SignedNotification] Signed PDF sent to {list(recipients)} "
             f"for contract {contract.get('id')}"
