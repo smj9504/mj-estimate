@@ -79,8 +79,8 @@ class ContractInstance(Base, BaseModel):
     )
 
     template_id = Column(UUIDType(), ForeignKey("contract_templates.id"), nullable=False)
-    claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="CASCADE"), nullable=False)
-    client_id = Column(UUIDType(), ForeignKey("clients.id"), nullable=False)
+    claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="CASCADE"), nullable=True)
+    client_id = Column(UUIDType(), ForeignKey("clients.id"), nullable=True)
     company_id = Column(UUIDType(), ForeignKey("companies.id"), nullable=False)
 
     # Contract metadata

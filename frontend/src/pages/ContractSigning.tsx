@@ -6,7 +6,7 @@
  * positions defined in the template's field mappings.
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import {
@@ -32,19 +32,14 @@ import {
   MailOutlined,
   SendOutlined,
 } from '@ant-design/icons';
-import * as pdfjs from 'pdfjs-dist';
 import { signingService } from '../services/contractService';
-import api from '../services/api';
+import { publicApi } from '../services/api';
 import type { ContractViewData, SignatureFieldPlacement } from '../types/contract';
 import WMSignaturePad from '../components/water-mitigation/pdf-annotator/WMSignaturePad';
+import ContractSignatureOverlay from '../components/contract/ContractSignatureOverlay';
+import { usePdfRenderer } from '../components/contract/usePdfRenderer';
 
 const { Title, Text, Paragraph } = Typography;
-
-// Setup pdfjs worker
-if (typeof window !== 'undefined' && pdfjs.GlobalWorkerOptions) {
-  pdfjs.GlobalWorkerOptions.workerSrc =
-    `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
-}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -56,12 +51,6 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   lien_waiver: 'Lien Waiver',
   change_order: 'Change Order',
   other: 'Other',
-};
-
-const FIELD_TYPE_LABELS: Record<string, string> = {
-  signature: 'Sign Here',
-  initial: 'Initial Here',
-  date_signed: 'Date',
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -81,12 +70,6 @@ function formatDate(dateStr?: string) {
     year: 'numeric', month: 'long', day: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });
-}
-
-interface RenderedPage {
-  dataUrl: string;
-  width: number;
-  height: number;
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -171,71 +154,6 @@ const SendCopyCard: React.FC<{ token: string; clientEmail?: string }> = ({ token
   );
 };
 
-// ── Signature Field Overlay ───────────────────────────────────────────────────
-
-interface SignatureOverlayProps {
-  field: SignatureFieldPlacement;
-  containerWidth: number;
-  containerHeight: number;
-  capturedImage?: string;
-  onClick: () => void;
-  disabled?: boolean;
-}
-
-const SignatureFieldOverlay: React.FC<SignatureOverlayProps> = ({
-  field, containerWidth, containerHeight, capturedImage, onClick, disabled,
-}) => {
-  const left = field.x * containerWidth;
-  const top = field.y * containerHeight;
-  const width = field.width * containerWidth;
-  const height = field.height * containerHeight;
-
-  const isSig = field.fieldType === 'signature' || field.fieldType === 'initial';
-  const label = FIELD_TYPE_LABELS[field.fieldType] || field.label;
-
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        left, top, width, height,
-        border: capturedImage
-          ? '2px solid #52c41a'
-          : '2px dashed #f5222d',
-        borderRadius: 4,
-        background: capturedImage
-          ? 'rgba(82, 196, 26, 0.05)'
-          : 'rgba(245, 34, 34, 0.06)',
-        cursor: disabled ? 'default' : 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden',
-        transition: 'all 0.2s',
-      }}
-      onClick={disabled ? undefined : onClick}
-    >
-      {capturedImage ? (
-        <img
-          src={capturedImage}
-          alt="Signature"
-          style={{
-            maxWidth: '95%',
-            maxHeight: '90%',
-            objectFit: 'contain',
-          }}
-        />
-      ) : (
-        <div style={{ textAlign: 'center', padding: 4 }}>
-          {isSig && <EditOutlined style={{ fontSize: 16, color: '#f5222d', display: 'block', marginBottom: 2 }} />}
-          <span style={{ fontSize: 11, color: '#f5222d', fontWeight: 500 }}>
-            {label}
-          </span>
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const ContractSigning: React.FC = () => {
@@ -253,8 +171,7 @@ const ContractSigning: React.FC = () => {
   const [consentChecked, setConsentChecked] = useState(false);
 
   // PDF rendering
-  const [renderedPages, setRenderedPages] = useState<RenderedPage[]>([]);
-  const [pdfLoading, setPdfLoading] = useState(false);
+  const { pages: renderedPages, loading: pdfLoading, render: renderPdf } = usePdfRenderer();
   const containerRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [containerWidths, setContainerWidths] = useState<number[]>([]);
 
@@ -276,46 +193,10 @@ const ContractSigning: React.FC = () => {
 
   // ── Load PDF pages ─────────────────────────────────────────────────────────
 
-  const renderPdf = useCallback(async (pdfUrl: string) => {
-    setPdfLoading(true);
-    try {
-      const res = await fetch(pdfUrl);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const buffer = await res.arrayBuffer();
-      const pdf = await pdfjs.getDocument({ data: buffer }).promise;
-      const pages: RenderedPage[] = [];
-      const RENDER_SCALE = 2;
-
-      for (let i = 0; i < pdf.numPages; i++) {
-        const page = await pdf.getPage(i + 1);
-        const viewport = page.getViewport({ scale: RENDER_SCALE });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d')!;
-        await page.render({ canvasContext: ctx, viewport }).promise;
-        pages.push({
-          dataUrl: canvas.toDataURL('image/png'),
-          width: viewport.width / RENDER_SCALE,
-          height: viewport.height / RENDER_SCALE,
-        });
-      }
-      setRenderedPages(pages);
-    } catch (err) {
-      console.error('Failed to render PDF:', err);
-    } finally {
-      setPdfLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     if (!contract || !hasPositionedFields) return;
     const pdfUrl = contract.filled_pdf_url || contract.file_url;
-    if (pdfUrl) {
-      const baseURL = api.defaults.baseURL || '';
-      const fullUrl = pdfUrl.startsWith('http') ? pdfUrl : `${baseURL}${pdfUrl}`;
-      renderPdf(fullUrl);
-    }
+    if (pdfUrl) renderPdf(pdfUrl);
   }, [contract, hasPositionedFields, renderPdf]);
 
   // Measure container widths for responsive overlay positioning
@@ -618,7 +499,7 @@ const ContractSigning: React.FC = () => {
                 />
                 {/* Signature field overlays */}
                 {!isAlreadySigned && fieldsOnPage.map(field => (
-                  <SignatureFieldOverlay
+                  <ContractSignatureOverlay
                     key={field.id}
                     field={field}
                     containerWidth={containerWidth}
@@ -669,7 +550,7 @@ const ContractSigning: React.FC = () => {
         /* Fallback: iframe for contracts without positioned signature fields */
         (contract.filled_pdf_url || contract.file_url) && (() => {
           const pdfSrc = contract.filled_pdf_url || contract.file_url || '';
-          const baseURL = api.defaults.baseURL || '';
+          const baseURL = publicApi.defaults.baseURL || '';
           const fullSrc = pdfSrc.startsWith('http') ? pdfSrc : `${baseURL}${pdfSrc}`;
           return (
             <Card

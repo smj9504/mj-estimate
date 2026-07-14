@@ -62,4 +62,14 @@ api.interceptors.response.use(
   }
 );
 
+// Public API instance - NO auth token, NO 401 redirect.
+// Used by public-facing pages (field-sign, contract signing) that must
+// work independently of user sessions and server auth state.
+export const publicApi = axios.create({
+  baseURL: baseURL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
 export default api;

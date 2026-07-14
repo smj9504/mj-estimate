@@ -39,6 +39,7 @@ const ClientDetail = lazyWithRetry(() => import('./pages/ClientDetail'));
 // Contract Pages
 const ContractTemplateManagement = lazyWithRetry(() => import('./pages/ContractTemplateManagement'));
 const ContractSigning = lazyWithRetry(() => import('./pages/ContractSigning'));
+const FieldContractSigning = lazyWithRetry(() => import('./pages/FieldContractSigning'));
 
 // Dashboard Pages
 const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
@@ -380,6 +381,15 @@ const router = createBrowserRouter([
     element: (
       <Suspense fallback={<PageLoader />}>
         <ContractSigning />
+      </Suspense>
+    )
+  },
+  // Public field contract signing page (NO auth required, iPad optimized)
+  {
+    path: "/field-sign",
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <FieldContractSigning />
       </Suspense>
     )
   },

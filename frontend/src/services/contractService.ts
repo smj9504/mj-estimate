@@ -2,12 +2,14 @@
  * Contract, Template, ClaimCompany, and Signing API service
  */
 
-import api from './api';
+import api, { publicApi } from './api';
 import type {
   ContractTemplate,
   ContractInstance,
   ClaimCompany,
   ContractViewData,
+  ContractFieldViewData,
+  FieldSignCompany,
   FieldMappingItem,
   FieldMappingResponse,
   PrefillPreviewData,
@@ -180,7 +182,7 @@ export const claimCompanyService = {
 
 export const signingService = {
   async getContract(token: string) {
-    const { data } = await api.get(`/api/sign/${token}`);
+    const { data } = await publicApi.get(`/api/sign/${token}`);
     return data as ContractViewData;
   },
 
@@ -194,12 +196,58 @@ export const signingService = {
     consent_agreed?: boolean;
     consent_text?: string;
   }) {
-    const { data } = await api.post(`/api/sign/${token}`, payload);
+    const { data } = await publicApi.post(`/api/sign/${token}`, payload);
     return data;
   },
 
   async sendSignedCopy(token: string, emails: string[]) {
-    const { data } = await api.post(`/api/sign/${token}/send-copy`, { emails });
+    const { data } = await publicApi.post(`/api/sign/${token}/send-copy`, { emails });
+    return data as { message: string; emails: string[] };
+  },
+};
+
+// ============================================================
+// Field Signing API (public, no auth - iPad field flow)
+// ============================================================
+
+export const fieldSigningService = {
+  async getCompanies() {
+    const { data } = await publicApi.get('/api/field-sign/companies');
+    return data as { companies: FieldSignCompany[] };
+  },
+
+  async getCompanyContracts(companyId: string) {
+    const { data } = await publicApi.get(`/api/field-sign/companies/${companyId}/contracts`);
+    return data as { contracts: ContractInstance[] };
+  },
+
+  async getCompanyTemplates(companyId: string) {
+    const { data } = await publicApi.get(`/api/field-sign/companies/${companyId}/templates`);
+    return data as { templates: ContractTemplate[] };
+  },
+
+  async createContract(payload: {
+    template_id: string;
+    company_id: string;
+    title?: string;
+    token_expires_days?: number;
+  }) {
+    const { data } = await publicApi.post('/api/field-sign/create', payload);
+    return data as ContractInstance;
+  },
+
+  async getContractView(token: string) {
+    const { data } = await publicApi.get(`/api/field-sign/${token}/view`);
+    return data as ContractFieldViewData;
+  },
+
+  async updatePrefill(token: string, prefillData: Record<string, Record<string, string | null>>) {
+    const { data } = await publicApi.put(`/api/field-sign/${token}/prefill`, { prefill_data: prefillData });
+    return data as { message: string; contract_id: string };
+  },
+
+  async sendEmail(token: string, emails: string[]) {
+    const { data } = await publicApi.post(`/api/field-sign/${token}/send-email`, { emails });
     return data as { message: string; emails: string[] };
   },
 };

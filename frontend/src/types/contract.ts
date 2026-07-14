@@ -109,6 +109,7 @@ export interface ContractInstance {
   requires_signature?: boolean;
   signature_count: number;
   signatures?: ContractSignature[];
+  prefill_data?: string | Record<string, Record<string, string | null>>;
   created_at?: string;
   updated_at?: string;
 }
@@ -162,6 +163,21 @@ export interface ContractViewData {
   signature_roles?: string;
   signature_fields?: SignatureFieldPlacement[];
   existing_signatures: { signer_name: string; signer_role: string; signed_at: string }[];
+}
+
+// ============================================================
+// Field Signing (iPad field flow)
+// ============================================================
+
+export interface FieldSignCompany {
+  id: string;
+  name: string;
+  template_count: number;
+}
+
+export interface ContractFieldViewData extends ContractViewData {
+  prefill_data: Record<string, Record<string, string | null>>;
+  field_mappings: FieldMappingItem[];
 }
 
 // ============================================================

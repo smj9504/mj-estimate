@@ -166,6 +166,32 @@ class ContractInstanceRepository(SQLAlchemyRepository):
             raise
 
 
+    def get_contracts_by_company_for_field(
+        self, company_id: str, limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Get contract instances for field signing: not voided, token not expired."""
+        try:
+            instances = (
+                self.db_session.query(ContractInstance)
+                .filter(
+                    ContractInstance.company_id == company_id,
+                    ContractInstance.status != 'voided',
+                    ContractInstance.signing_token.isnot(None),
+                    (
+                        (ContractInstance.token_expires_at.is_(None))
+                        | (ContractInstance.token_expires_at > datetime.utcnow())
+                    ),
+                )
+                .order_by(ContractInstance.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return [self._enrich(i) for i in instances]
+        except Exception as e:
+            logger.error(f"Error getting contracts by company for field: {e}")
+            raise
+
+
 class ContractSignatureRepository(SQLAlchemyRepository):
     def __init__(self, session: DatabaseSession):
         super().__init__(session, ContractSignature)

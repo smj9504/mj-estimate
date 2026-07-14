@@ -724,6 +724,137 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
             logger.error(f"Error getting dashboard: {e}")
             raise
 
+    def get_contracts_by_company_for_field(self, company_id: str) -> List[Dict[str, Any]]:
+        """Get contract instances for field signing by company"""
+        try:
+            session = self.database.get_readonly_session()
+            try:
+                repo = self._get_repository_instance(session)
+                return repo.get_contracts_by_company_for_field(company_id)
+            finally:
+                session.close()
+        except Exception as e:
+            logger.error(f"Error getting contracts for field: {e}")
+            raise
+
+    def create_field_contract(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a contract instance for field signing (no claim/client required)."""
+        try:
+            expires_days = data.pop('token_expires_days', 30)
+
+            session = self.database.get_session()
+            try:
+                # Build company prefill only
+                prefill = {}
+                from app.domains.company.models import Company
+                company_id = data.get('company_id')
+                if company_id:
+                    company = session.query(Company).filter(Company.id == company_id).first()
+                    if company:
+                        prefill['company'] = {
+                            'name': getattr(company, 'name', None),
+                            'address': getattr(company, 'address', None),
+                            'phone': getattr(company, 'phone', None),
+                            'email': getattr(company, 'email', None),
+                            'license_number': getattr(company, 'license_number', None),
+                        }
+
+                prefill['meta'] = {
+                    'current_date': datetime.utcnow().strftime('%m/%d/%Y'),
+                    'contract_number': '(auto)',
+                }
+
+                data['prefill_data'] = json.dumps(prefill)
+
+                # Set title from template if not provided
+                from app.domains.contract.models import ContractTemplate
+                tmpl = session.query(ContractTemplate).filter(
+                    ContractTemplate.id == data.get('template_id')
+                ).first()
+                if not tmpl:
+                    raise ValueError("Template not found")
+                if not data.get('title'):
+                    data['title'] = tmpl.name
+
+                repo = self._get_repository_instance(session)
+                result = repo.create_with_token(data, expires_days)
+
+                # Update contract_number in prefill meta
+                prefill['meta']['contract_number'] = result.get('contract_number', '')
+                repo.update(str(result['id']), {'prefill_data': json.dumps(prefill)})
+                session.commit()
+
+                return result
+            finally:
+                session.close()
+        except Exception as e:
+            logger.error(f"Error creating field contract: {e}")
+            raise
+
+    def update_prefill_and_regenerate(self, token: str, new_prefill_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update prefill data on a contract and regenerate the filled PDF."""
+        try:
+            session = self.database.get_session()
+            try:
+                repo = self._get_repository_instance(session)
+                contract = repo.get_by_token(token)
+                if not contract:
+                    raise ValueError("Contract not found")
+                if contract.get('status') in ('signed', 'voided'):
+                    raise ValueError("Cannot update a signed or voided contract")
+
+                instance_id = str(contract['id'])
+
+                # Parse existing prefill
+                existing_raw = contract.get('prefill_data')
+                existing = {}
+                if existing_raw:
+                    if isinstance(existing_raw, str):
+                        existing = json.loads(existing_raw)
+                    elif isinstance(existing_raw, dict):
+                        existing = existing_raw
+
+                # Deep merge: new values override existing per category
+                for category, fields in new_prefill_data.items():
+                    if isinstance(fields, dict):
+                        if category in existing and isinstance(existing[category], dict):
+                            existing[category].update(fields)
+                        else:
+                            existing[category] = fields
+
+                # Ensure meta fields
+                existing.setdefault('meta', {})
+                existing['meta']['current_date'] = datetime.utcnow().strftime('%m/%d/%Y')
+                existing['meta']['contract_number'] = contract.get('contract_number', '')
+
+                # Save updated prefill
+                repo.update(instance_id, {
+                    'prefill_data': json.dumps(existing),
+                })
+                session.commit()
+
+                # Regenerate filled PDF
+                template_file_url = contract.get('file_url')
+                raw_mappings = contract.get('field_mappings')
+                if template_file_url and raw_mappings:
+                    mappings = raw_mappings
+                    if isinstance(raw_mappings, str):
+                        mappings = json.loads(raw_mappings)
+                    if mappings:
+                        filled_url = self._generate_filled_pdf(
+                            template_file_url, mappings, existing
+                        )
+                        if filled_url:
+                            repo.update(instance_id, {'filled_pdf_url': filled_url})
+                            session.commit()
+
+                return repo.get_by_id_enriched(instance_id)
+            finally:
+                session.close()
+        except Exception as e:
+            logger.error(f"Error updating prefill: {e}")
+            raise
+
     def get_by_token(self, token: str) -> Optional[Dict[str, Any]]:
         """Get contract by signing token (public, no auth)"""
         try:
