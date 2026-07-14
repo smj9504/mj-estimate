@@ -31,6 +31,7 @@ import {
 } from '@ant-design/icons';
 import * as pdfjs from 'pdfjs-dist';
 import { signingService } from '../services/contractService';
+import api from '../services/api';
 import type { ContractViewData, SignatureFieldPlacement } from '../types/contract';
 import WMSignaturePad from '../components/water-mitigation/pdf-annotator/WMSignaturePad';
 
@@ -241,7 +242,11 @@ const ContractSigning: React.FC = () => {
   useEffect(() => {
     if (!contract || !hasPositionedFields) return;
     const pdfUrl = contract.filled_pdf_url || contract.file_url;
-    if (pdfUrl) renderPdf(pdfUrl);
+    if (pdfUrl) {
+      const baseURL = api.defaults.baseURL || '';
+      const fullUrl = pdfUrl.startsWith('http') ? pdfUrl : `${baseURL}${pdfUrl}`;
+      renderPdf(fullUrl);
+    }
   }, [contract, hasPositionedFields, renderPdf]);
 
   // Measure container widths for responsive overlay positioning
@@ -585,18 +590,23 @@ const ContractSigning: React.FC = () => {
         </div>
       ) : (
         /* Fallback: iframe for contracts without positioned signature fields */
-        (contract.filled_pdf_url || contract.file_url) && (
-          <Card
-            style={{ marginBottom: 24, borderRadius: 12, overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}
-            styles={{ body: { padding: 0 } }}
-          >
-            <iframe
-              src={`${contract.filled_pdf_url || contract.file_url}#toolbar=0&navpanes=0`}
-              title="Contract Document"
-              style={{ width: '100%', height: 520, border: 'none', display: 'block' }}
-            />
-          </Card>
-        )
+        (contract.filled_pdf_url || contract.file_url) && (() => {
+          const pdfSrc = contract.filled_pdf_url || contract.file_url || '';
+          const baseURL = api.defaults.baseURL || '';
+          const fullSrc = pdfSrc.startsWith('http') ? pdfSrc : `${baseURL}${pdfSrc}`;
+          return (
+            <Card
+              style={{ marginBottom: 24, borderRadius: 12, overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}
+              styles={{ body: { padding: 0 } }}
+            >
+              <iframe
+                src={`${fullSrc}#toolbar=0&navpanes=0`}
+                title="Contract Document"
+                style={{ width: '100%', height: 520, border: 'none', display: 'block' }}
+              />
+            </Card>
+          );
+        })()
       )}
 
       {/* ── Submit Button (positioned fields mode) ── */}
