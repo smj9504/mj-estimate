@@ -247,12 +247,19 @@ class SQLAlchemyRepository(BaseRepository[T, ID]):
                     prepared[key] = value
             # Handle JSON strings that were converted from dict/list by _prepare_data
             # Convert them back to dict/list for SQLAlchemy JSONB columns
+            # BUT skip Text columns that store JSON as strings (e.g. prefill_data, field_mappings)
             elif isinstance(value, str) and value.startswith(('{', '[')):
-                try:
-                    parsed = json.loads(value)
-                    prepared[key] = parsed
-                except (json.JSONDecodeError, TypeError):
+                # Check if the column is a Text type — if so, keep as string
+                from sqlalchemy import Text as SAText
+                col = self.model_class.__table__.columns.get(key) if hasattr(self.model_class, '__table__') else None
+                if col is not None and isinstance(col.type, SAText):
                     prepared[key] = value
+                else:
+                    try:
+                        parsed = json.loads(value)
+                        prepared[key] = parsed
+                    except (json.JSONDecodeError, TypeError):
+                        prepared[key] = value
             # Handle lists (keep as-is for SQLAlchemy JSON fields)
             elif isinstance(value, list):
                 prepared[key] = value

@@ -172,7 +172,14 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
       onSuccess();
     },
     onError: (err: any) => {
-      message.error(err?.response?.data?.detail || 'Failed to generate contract.');
+      const detail = err?.response?.data?.detail;
+      let errorMsg = 'Failed to generate contract.';
+      if (typeof detail === 'string') {
+        errorMsg = detail;
+      } else if (Array.isArray(detail)) {
+        errorMsg = detail.map((d: any) => d?.msg || JSON.stringify(d)).join('; ');
+      }
+      message.error(errorMsg);
     },
   });
 
@@ -339,32 +346,48 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
       <Spin />
       <div style={{ marginTop: 8, color: '#8c8c8c' }}>Loading data...</div>
     </div>
-  ) : prefillData ? (
-    <div style={{ maxHeight: 400, overflow: 'auto' }}>
-      {['client', 'claim', 'company', 'meta'].map((category) => {
-        const catData = (prefillData as any)[category] as Record<string, string | null> | undefined;
-        if (!catData || Object.keys(catData).length === 0) return null;
+  ) : prefillData ? (() => {
+    const isSigKey = (k: string) =>
+      k.startsWith('signature.') || k.startsWith('initial.') || k.startsWith('date_signed.');
 
-        return (
-          <div key={category} style={{ marginBottom: 16 }}>
+    const textMappings = prefillData.field_mappings.filter((m) => !isSigKey(m.fieldKey || ''));
+    const sigMappings = prefillData.field_mappings.filter((m) => isSigKey(m.fieldKey || ''));
+
+    // Resolve value for a mapped text field
+    const resolveValue = (fieldKey: string): string => {
+      const parts = fieldKey.split('.', 2);
+      if (parts.length !== 2) return '';
+      const [cat, key] = parts;
+      const override = prefillOverrides[cat]?.[key];
+      if (override !== undefined) return override || '';
+      const catData = (prefillData as any)[cat] as Record<string, string | null> | undefined;
+      return catData?.[key] || '';
+    };
+
+    return (
+      <div style={{ maxHeight: 400, overflow: 'auto' }}>
+        {/* Mapped text fields with resolved values */}
+        {textMappings.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
             <Text strong style={{ fontSize: 13, color: '#1677ff' }}>
-              {CATEGORY_LABELS[category] || category}
+              Auto-Fill Fields ({textMappings.length})
             </Text>
             <Divider style={{ margin: '4px 0 8px' }} />
             <Descriptions column={1} size="small" bordered>
-              {Object.entries(catData).map(([key, value]) => {
-                const overrideValue = prefillOverrides[category]?.[key];
-                const displayValue = overrideValue !== undefined ? overrideValue : value;
-
+              {textMappings.map((m) => {
+                const val = resolveValue(m.fieldKey);
+                const parts = m.fieldKey.split('.', 2);
                 return (
                   <Descriptions.Item
-                    key={key}
-                    label={<Text style={{ fontSize: 12 }}>{key.replace(/_/g, ' ')}</Text>}
+                    key={m.id}
+                    label={<Text style={{ fontSize: 12 }}>{m.label || m.fieldKey}</Text>}
                   >
                     <Input
                       size="small"
-                      value={displayValue || ''}
-                      onChange={(e) => handlePrefillEdit(category, key, e.target.value)}
+                      value={val}
+                      onChange={(e) => {
+                        if (parts.length === 2) handlePrefillEdit(parts[0], parts[1], e.target.value);
+                      }}
                       style={{ fontSize: 12 }}
                       variant="borderless"
                       placeholder="(empty)"
@@ -374,17 +397,39 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
               })}
             </Descriptions>
           </div>
-        );
-      })}
-      {prefillData.field_mappings.length > 0 && (
-        <Alert
-          type="info"
-          message={`This template has ${prefillData.field_mappings.length} mapped field(s) that will be auto-filled in the PDF.`}
-          style={{ marginTop: 8 }}
-        />
-      )}
-    </div>
-  ) : (
+        )}
+
+        {/* Signature / Initial fields */}
+        {sigMappings.length > 0 ? (
+          <Alert
+            type="success"
+            style={{ marginBottom: 8 }}
+            message={
+              <span>
+                <Text strong style={{ fontSize: 13 }}>Signature Fields ({sigMappings.length})</Text>
+                <div style={{ marginTop: 6 }}>
+                  {sigMappings.map((f, i) => (
+                    <Tag key={i} color="red" style={{ fontSize: 11, marginBottom: 4 }}>
+                      {f.label || f.fieldKey}
+                    </Tag>
+                  ))}
+                </div>
+              </span>
+            }
+          />
+        ) : (
+          <Alert
+            type="warning"
+            message="No signature fields mapped. The signer will use a generic signature form."
+          />
+        )}
+
+        {textMappings.length === 0 && sigMappings.length === 0 && (
+          <Alert type="info" message="No fields are mapped in this template." />
+        )}
+      </div>
+    );
+  })() : (
     <Alert type="warning" message="No prefill data available." />
   );
 
@@ -477,8 +522,8 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
         </Space>
       }
       open={open}
-      onCancel={currentStep === 4 ? onClose : undefined}
-      closable={currentStep === 4 || !createMutation.isPending}
+      onCancel={onClose}
+      closable={!createMutation.isPending}
       footer={footer}
       destroyOnClose
       width={600}
@@ -496,9 +541,9 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
         layout="vertical"
         initialValues={{ token_expires_days: 30 }}
       >
-        {currentStep === 0 && StepCompany}
-        {currentStep === 1 && StepTemplate}
-        {currentStep === 3 && StepFinalize}
+        <div style={{ display: currentStep === 0 ? undefined : 'none' }}>{StepCompany}</div>
+        <div style={{ display: currentStep === 1 ? undefined : 'none' }}>{StepTemplate}</div>
+        <div style={{ display: currentStep === 3 ? undefined : 'none' }}>{StepFinalize}</div>
       </Form>
 
       {currentStep === 2 && StepPrefillPreview}

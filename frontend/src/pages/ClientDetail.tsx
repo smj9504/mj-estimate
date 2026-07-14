@@ -1484,7 +1484,7 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
           </div>
         </Card>
       ) : (
-        <Collapse accordion>
+        <Collapse accordion defaultActiveKey={claims.length === 1 ? [claims[0].id] : undefined}>
           {claims.map((claim) => {
             const statusCfg = CLAIM_STATUS_CONFIG[claim.status];
             return (
@@ -1620,41 +1620,12 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                 {/* Negotiation table */}
                 <NegotiationHistory clientId={client.id} claim={claim} />
 
-                {/* Payment Tracking */}
-                <Divider style={{ margin: '16px 0 12px' }} />
-                <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
-                  <DollarOutlined style={{ marginRight: 6 }} />
-                  Payment Tracking
-                </Text>
-                <PaymentTracker
-                  clientId={client.id}
-                  claimId={claim.id}
-                  claimNumber={claim.claim_number}
-                  insuranceCompany={claim.insurance_company}
-                  onClaimUpdate={() => {
-                    queryClient.invalidateQueries({ queryKey: ['claims', client.id] });
-                  }}
-                />
-
-                {/* Profitability Tracker */}
-                <Divider style={{ margin: '16px 0 12px' }} />
-                <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
-                  <DollarOutlined style={{ marginRight: 6 }} />
-                  Profitability
-                </Text>
-                <ProfitabilityTracker
-                  clientId={client.id}
-                  claimId={claim.id}
-                  onUpdate={() => {
-                    queryClient.invalidateQueries({ queryKey: ['claims', client.id] });
-                  }}
-                />
-
                 {/* Contract Dashboard */}
                 <Divider style={{ margin: '16px 0 12px' }} />
                 <ClaimContractDashboard
                   claimId={claim.id}
                   clientId={client.id}
+                  clientEmail={client.email || undefined}
                 />
 
                 {/* Email */}
@@ -2037,6 +2008,102 @@ const PackingEstimatesCard: React.FC<{ clientId: string }> = ({ clientId }) => {
 };
 
 // ─────────────────────────────────────────────
+// Financials Tab (Payment Tracking + Profitability per Claim)
+// ─────────────────────────────────────────────
+
+interface FinancialsTabProps {
+  client: Client;
+}
+
+const FinancialsTab: React.FC<FinancialsTabProps> = ({ client }) => {
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['claims', client.id],
+    queryFn: () => claimService.listByClient(client.id),
+    refetchOnMount: 'always',
+  });
+
+  const claims = data?.claims ?? [];
+
+  if (isLoading) {
+    return <div style={{ textAlign: 'center', padding: 32 }}><Spin /></div>;
+  }
+
+  if (claims.length === 0) {
+    return (
+      <Card style={{ textAlign: 'center', padding: '40px 0' }}>
+        <DollarOutlined style={{ fontSize: 48, color: '#d9d9d9', marginBottom: 16 }} />
+        <div>
+          <Text type="secondary">No claims yet. Add a claim first to track payments and profitability.</Text>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <div>
+      <Collapse
+        accordion={false}
+        defaultActiveKey={claims.length === 1 ? [claims[0].id] : claims.map(c => c.id)}
+      >
+        {claims.map((claim) => {
+          const statusCfg = CLAIM_STATUS_CONFIG[claim.status];
+          return (
+            <Panel
+              key={claim.id}
+              header={
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                  <Text strong>{claim.claim_number || 'No Claim #'}</Text>
+                  {claim.insurance_company && (
+                    <Text type="secondary" style={{ fontSize: 13 }}>{claim.insurance_company}</Text>
+                  )}
+                  <Tag color={statusCfg.color} style={{ margin: 0 }}>{statusCfg.label}</Tag>
+                  {(claim.current_acv > 0 || claim.current_rcv > 0) && (
+                    <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                      ACV {formatCurrency(claim.current_acv)} / RCV {formatCurrency(claim.current_rcv)}
+                    </Text>
+                  )}
+                </div>
+              }
+            >
+              {/* Payment Tracking */}
+              <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+                <DollarOutlined style={{ marginRight: 6 }} />
+                Payment Tracking
+              </Text>
+              <PaymentTracker
+                clientId={client.id}
+                claimId={claim.id}
+                claimNumber={claim.claim_number}
+                insuranceCompany={claim.insurance_company}
+                onClaimUpdate={() => {
+                  queryClient.invalidateQueries({ queryKey: ['claims', client.id] });
+                }}
+              />
+
+              {/* Profitability Tracker */}
+              <Divider style={{ margin: '16px 0 12px' }} />
+              <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+                <DollarOutlined style={{ marginRight: 6 }} />
+                Profitability
+              </Text>
+              <ProfitabilityTracker
+                clientId={client.id}
+                claimId={claim.id}
+                onUpdate={() => {
+                  queryClient.invalidateQueries({ queryKey: ['claims', client.id] });
+                }}
+              />
+            </Panel>
+          );
+        })}
+      </Collapse>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────
 // ClientDetail Page
 // ─────────────────────────────────────────────
 
@@ -2114,6 +2181,16 @@ const ClientDetail: React.FC = () => {
         </Space>
       ),
       children: <ClaimsTab client={client} />,
+    },
+    {
+      key: 'financials',
+      label: (
+        <Space>
+          <DollarOutlined />
+          Financials
+        </Space>
+      ),
+      children: <FinancialsTab client={client} />,
     },
     {
       key: 'document-hub',

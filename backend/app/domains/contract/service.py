@@ -66,6 +66,15 @@ AVAILABLE_FIELDS = [
     # Meta fields
     {"key": "meta.current_date", "label": "Current Date", "category": "Meta"},
     {"key": "meta.contract_number", "label": "Contract Number", "category": "Meta"},
+    # Signature fields
+    {"key": "signature.homeowner", "label": "Homeowner Signature", "category": "Signature"},
+    {"key": "signature.company_rep", "label": "Company Rep Signature", "category": "Signature"},
+    {"key": "signature.witness", "label": "Witness Signature", "category": "Signature"},
+    {"key": "initial.homeowner", "label": "Homeowner Initials", "category": "Signature"},
+    {"key": "initial.company_rep", "label": "Company Rep Initials", "category": "Signature"},
+    {"key": "initial.witness", "label": "Witness Initials", "category": "Signature"},
+    {"key": "date_signed.homeowner", "label": "Date Signed (Homeowner)", "category": "Signature"},
+    {"key": "date_signed.company_rep", "label": "Date Signed (Company)", "category": "Signature"},
 ]
 
 
@@ -746,8 +755,14 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
             logger.error(f"Error sending contract: {e}")
             raise
 
-    def sign_contract(self, token: str, sig_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Add signature to contract via public token"""
+    def sign_contract(
+        self, token: str, sig_data: Dict[str, Any],
+        signature_fields: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Add signature to contract via public token.
+        If signature_fields is provided, generate a signed PDF
+        with signatures overlaid at mapped positions.
+        """
         try:
             session = self.database.get_session()
             try:
@@ -758,21 +773,180 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                 if contract['status'] == 'voided':
                     raise ValueError("Contract has been voided")
 
-                # Check token expiry
+                # Check token expiry (timezone-safe)
                 expires = contract.get('token_expires_at')
                 if expires:
                     if isinstance(expires, str):
                         expires = datetime.fromisoformat(expires)
+                    if hasattr(expires, 'tzinfo') and expires.tzinfo:
+                        expires = expires.replace(tzinfo=None)
                     if datetime.utcnow() > expires:
                         raise ValueError("Signing link has expired")
 
                 instance_id = str(contract['id'])
-                return repo.add_signature(instance_id, sig_data)
+                result = repo.add_signature(instance_id, sig_data)
+
+                # Generate signed PDF with overlaid signatures
+                if signature_fields:
+                    try:
+                        signed_url = self._generate_signed_pdf(
+                            session, contract, signature_fields
+                        )
+                        if signed_url:
+                            repo.update(instance_id, {
+                                'signed_pdf_url': signed_url,
+                                'filled_pdf_url': signed_url,
+                            })
+                            session.commit()
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to generate signed PDF: {e}"
+                        )
+
+                return result
             finally:
                 session.close()
         except Exception as e:
             logger.error(f"Error signing contract: {e}")
             raise
+
+    def _generate_signed_pdf(
+        self, session, contract: Dict[str, Any],
+        signature_fields: Dict[str, str],
+    ) -> Optional[str]:
+        """Overlay signature images onto the PDF at mapped
+        field positions and upload the result."""
+        import base64
+        from io import BytesIO
+        from pathlib import Path
+
+        from pypdf import PdfReader, PdfWriter
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen import canvas as rl_canvas
+
+        # Get field mappings from template
+        raw_mappings = contract.get('field_mappings')
+        if not raw_mappings:
+            return None
+        mappings = raw_mappings
+        if isinstance(raw_mappings, str):
+            mappings = json.loads(raw_mappings)
+
+        # Build lookup: field_id -> mapping
+        field_map = {m.get('id'): m for m in mappings}
+
+        # Resolve source PDF (prefer filled, fallback to template)
+        pdf_url = (
+            contract.get('filled_pdf_url')
+            or contract.get('file_url')
+        )
+        if not pdf_url:
+            return None
+
+        # Download the PDF
+        try:
+            from app.domains.storage.factory import StorageFactory
+            storage = StorageFactory.get_instance()
+            pdf_bytes = storage.download(pdf_url)
+        except Exception:
+            # Fallback to local
+            backend_dir = Path(__file__).resolve().parents[3]
+            if pdf_url.startswith('/uploads/'):
+                local = backend_dir / pdf_url.lstrip('/')
+            else:
+                local = Path(pdf_url)
+            if not local.exists():
+                return None
+            pdf_bytes = local.read_bytes()
+
+        reader = PdfReader(BytesIO(pdf_bytes))
+        writer = PdfWriter()
+
+        # Group signature fields by page
+        page_sigs: Dict[int, list] = {}
+        for field_id, img_data in signature_fields.items():
+            mapping = field_map.get(field_id)
+            if not mapping:
+                continue
+            pg = mapping.get('pageIndex', 0)
+            if pg not in page_sigs:
+                page_sigs[pg] = []
+            page_sigs[pg].append((mapping, img_data))
+
+        for page_num in range(len(reader.pages)):
+            page = reader.pages[page_num]
+            page_box = page.mediabox
+            pw = float(page_box.width)
+            ph = float(page_box.height)
+
+            sigs_on_page = page_sigs.get(page_num, [])
+            if sigs_on_page:
+                overlay_buf = BytesIO()
+                c = rl_canvas.Canvas(overlay_buf, pagesize=(pw, ph))
+
+                for mapping, img_data in sigs_on_page:
+                    fx = mapping.get('x', 0) * pw
+                    fy_top = mapping.get('y', 0) * ph
+                    fw = mapping.get('width', 0.2) * pw
+                    fh = mapping.get('height', 0.06) * ph
+                    # PDF coords: origin bottom-left
+                    fy = ph - fy_top - fh
+
+                    fk = mapping.get('fieldKey', '')
+                    is_date = fk.startswith('date_signed.')
+
+                    if is_date:
+                        # Render date text
+                        font_size = min(fh * 0.7, 14)
+                        c.setFont("Helvetica", font_size)
+                        c.setFillColorRGB(0, 0, 0)
+                        text_y = fy + (fh - font_size) / 2
+                        c.drawString(fx + 2, text_y, img_data)
+                    else:
+                        # Render signature/initial image
+                        try:
+                            if img_data.startswith('data:'):
+                                img_data = img_data.split(',', 1)[1]
+                            img_bytes = base64.b64decode(img_data)
+                            img_reader = ImageReader(
+                                BytesIO(img_bytes)
+                            )
+                            c.drawImage(
+                                img_reader, fx, fy, fw, fh,
+                                mask='auto',
+                                preserveAspectRatio=True,
+                                anchor='c',
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to overlay signature "
+                                f"image: {e}"
+                            )
+
+                c.save()
+                overlay_buf.seek(0)
+                overlay_reader = PdfReader(overlay_buf)
+                if overlay_reader.pages:
+                    page.merge_page(overlay_reader.pages[0])
+
+            writer.add_page(page)
+
+        # Write and upload
+        out_buf = BytesIO()
+        writer.write(out_buf)
+        signed_bytes = out_buf.getvalue()
+
+        from app.common.utils.storage_helpers import (
+            upload_bytes_to_storage,
+        )
+        storage_info = upload_bytes_to_storage(
+            file_bytes=signed_bytes,
+            filename=f"signed_{uuid.uuid4()}.pdf",
+            context="contracts",
+            context_id=str(contract.get('id', uuid.uuid4())),
+            category="signed",
+        )
+        return storage_info["file_path"]
 
     def void_contract(self, instance_id: str) -> Optional[Dict[str, Any]]:
         try:

@@ -55,6 +55,14 @@ export const AVAILABLE_FIELDS: AvailableField[] = [
   // Meta
   { key: 'meta.current_date', label: 'Current Date', category: 'Meta' },
   { key: 'meta.contract_number', label: 'Contract Number', category: 'Meta' },
+  // Signature Fields
+  { key: 'signature.homeowner', label: 'Homeowner Signature', category: 'Signature' },
+  { key: 'signature.company_rep', label: 'Company Rep Signature', category: 'Signature' },
+  { key: 'signature.witness', label: 'Witness Signature', category: 'Signature' },
+  { key: 'initial.homeowner', label: 'Homeowner Initials', category: 'Signature' },
+  { key: 'initial.company_rep', label: 'Company Rep Initials', category: 'Signature' },
+  { key: 'date_signed.homeowner', label: 'Date Signed (Homeowner)', category: 'Signature' },
+  { key: 'date_signed.company_rep', label: 'Date Signed (Company)', category: 'Signature' },
 ];
 
 /** Color options for field mapping labels */
@@ -64,7 +72,23 @@ export const FIELD_COLORS = [
   { label: 'Company', color: '#722ed1' },
   { label: 'WM Job', color: '#13c2c2' },
   { label: 'Meta', color: '#fa8c16' },
+  { label: 'Signature', color: '#f5222d' },
 ];
+
+/** Determine fieldType and signerRole from a fieldKey like 'signature.homeowner' */
+export const parseSignatureFieldKey = (fieldKey: string): { fieldType: 'signature' | 'initial' | 'date_signed'; signerRole: string } | null => {
+  const parts = fieldKey.split('.');
+  if (parts.length !== 2) return null;
+  const [type, role] = parts;
+  if (type === 'signature' || type === 'initial' || type === 'date_signed') {
+    return { fieldType: type, signerRole: role };
+  }
+  return null;
+};
+
+export const isSignatureField = (fieldKey: string): boolean => {
+  return fieldKey.startsWith('signature.') || fieldKey.startsWith('initial.') || fieldKey.startsWith('date_signed.');
+};
 
 export const getCategoryColor = (category: string): string => {
   const found = FIELD_COLORS.find(c => c.label === category);

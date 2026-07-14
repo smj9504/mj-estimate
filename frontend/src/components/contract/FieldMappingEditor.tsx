@@ -11,15 +11,16 @@ import {
 import Konva from 'konva';
 import {
   Modal, Button, Select, InputNumber, Space, Spin, Typography,
-  message, Divider, List, Tag, Popconfirm, Empty, Tooltip,
+  message, Divider, List, Tag, Popconfirm, Empty, Tooltip, Dropdown,
 } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, SaveOutlined,
   ZoomInOutlined, ZoomOutOutlined, LeftOutlined, RightOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import * as pdfjs from 'pdfjs-dist';
 import { contractTemplateService } from '../../services/contractService';
-import { AVAILABLE_FIELDS, getCategoryColor } from './fieldMappingConstants';
+import { AVAILABLE_FIELDS, getCategoryColor, parseSignatureFieldKey, isSignatureField } from './fieldMappingConstants';
 import type { FieldMappingItem, AvailableField } from '../../types/contract';
 
 const { Text } = Typography;
@@ -192,6 +193,60 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
     setSelectedFieldId(newField.id);
   };
 
+  const handleAddSignatureField = (type: 'signature' | 'initial' | 'date_signed', role: string) => {
+    const labels: Record<string, string> = {
+      'signature.homeowner': 'Homeowner Signature',
+      'signature.company_rep': 'Company Rep Signature',
+      'signature.witness': 'Witness Signature',
+      'initial.homeowner': 'Homeowner Initials',
+      'initial.company_rep': 'Company Rep Initials',
+      'initial.witness': 'Witness Initials',
+      'date_signed.homeowner': 'Date Signed (Homeowner)',
+      'date_signed.company_rep': 'Date Signed (Company)',
+    };
+    const fieldKey = `${type}.${role}`;
+    const sizes: Record<string, { w: number; h: number }> = {
+      signature: { w: 0.22, h: 0.06 },
+      initial: { w: 0.08, h: 0.04 },
+      date_signed: { w: 0.15, h: 0.03 },
+    };
+    const { w, h } = sizes[type] || sizes.signature;
+
+    const newField: FieldMappingItem = {
+      id: genId(),
+      pageIndex: currentPage,
+      x: 0.1,
+      y: 0.5,
+      width: w,
+      height: h,
+      fieldKey,
+      label: labels[fieldKey] || fieldKey,
+      fontSize: 12,
+      fontColor: '#000000',
+      fieldType: type,
+      signerRole: role,
+    };
+    setFields(prev => [...prev, newField]);
+    setSelectedFieldId(newField.id);
+  };
+
+  const signatureMenuItems = [
+    { type: 'group' as const, label: 'Signature', children: [
+      { key: 'sig-ho', label: 'Homeowner Signature', onClick: () => handleAddSignatureField('signature', 'homeowner') },
+      { key: 'sig-co', label: 'Company Rep Signature', onClick: () => handleAddSignatureField('signature', 'company_rep') },
+      { key: 'sig-wi', label: 'Witness Signature', onClick: () => handleAddSignatureField('signature', 'witness') },
+    ]},
+    { type: 'group' as const, label: 'Initial', children: [
+      { key: 'ini-ho', label: 'Homeowner Initials', onClick: () => handleAddSignatureField('initial', 'homeowner') },
+      { key: 'ini-co', label: 'Company Rep Initials', onClick: () => handleAddSignatureField('initial', 'company_rep') },
+      { key: 'ini-wi', label: 'Witness Initials', onClick: () => handleAddSignatureField('initial', 'witness') },
+    ]},
+    { type: 'group' as const, label: 'Date', children: [
+      { key: 'dt-ho', label: 'Date Signed (Homeowner)', onClick: () => handleAddSignatureField('date_signed', 'homeowner') },
+      { key: 'dt-co', label: 'Date Signed (Company)', onClick: () => handleAddSignatureField('date_signed', 'company_rep') },
+    ]},
+  ];
+
   const handleFieldDragEnd = (id: string, e: Konva.KonvaEventObject<DragEvent>) => {
     const x = Math.max(0, Math.min(1, e.target.x() / stageWidth));
     const y = Math.max(0, Math.min(1, e.target.y() / stageHeight));
@@ -200,11 +255,31 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
 
   const handleFieldKeyChange = (fieldId: string, fieldKey: string) => {
     const fieldDef = availableFields.find(f => f.key === fieldKey);
-    setFields(prev => prev.map(f =>
-      f.id === fieldId
-        ? { ...f, fieldKey, label: fieldDef?.label || fieldKey }
-        : f
-    ));
+    const sigInfo = parseSignatureFieldKey(fieldKey);
+    setFields(prev => prev.map(f => {
+      if (f.id !== fieldId) return f;
+      const updated: FieldMappingItem = {
+        ...f,
+        fieldKey,
+        label: fieldDef?.label || fieldKey,
+      };
+      if (sigInfo) {
+        updated.fieldType = sigInfo.fieldType;
+        updated.signerRole = sigInfo.signerRole;
+        // Auto-resize for signature fields
+        if (sigInfo.fieldType === 'signature') {
+          updated.width = Math.max(f.width, 0.2);
+          updated.height = Math.max(f.height, 0.06);
+        } else if (sigInfo.fieldType === 'initial') {
+          updated.width = Math.max(f.width, 0.08);
+          updated.height = Math.max(f.height, 0.04);
+        }
+      } else {
+        updated.fieldType = 'text';
+        updated.signerRole = undefined;
+      }
+      return updated;
+    }));
   };
 
   const handleDeleteField = (fieldId: string) => {
@@ -290,13 +365,22 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
               zIndex: 10,
             }}>
               <Button
-                type="primary"
                 size="small"
                 icon={<PlusOutlined />}
                 onClick={handleAddField}
               >
-                Add Field
+                Add Text Field
               </Button>
+              <Dropdown menu={{ items: signatureMenuItems }} trigger={['click']}>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<EditOutlined />}
+                  danger
+                >
+                  Add Signature / Initial
+                </Button>
+              </Dropdown>
               <Divider type="vertical" />
               <Button
                 size="small"
@@ -393,7 +477,9 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
                               }}
                             />
                             <KonvaText
-                              text={field.label}
+                              text={isSignatureField(field.fieldKey)
+                                ? `✍ ${field.label}`
+                                : field.label}
                               fontSize={10 * scale}
                               fill={catColor}
                               x={4}

@@ -20,6 +20,8 @@ interface WMSignaturePadProps {
   onSave: (imageData: string, signatureType?: 'drawn' | 'typed', typedName?: string) => void;
   /** Pre-fill typed name (e.g., from signer name input) */
   defaultName?: string;
+  /** Pre-load existing signature image (base64 data URL) onto canvas */
+  initialImage?: string;
 }
 
 const CANVAS_WIDTH = 500;
@@ -44,7 +46,7 @@ const loadSignatureFonts = () => {
 };
 
 const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
-  open, onClose, onSave, defaultName,
+  open, onClose, onSave, defaultName, initialImage,
 }) => {
   // Draw mode state
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -63,13 +65,37 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
     loadSignatureFonts();
   }, []);
 
-  // Reset state when opened
+  // Reset state when opened — load initial image if provided
   useEffect(() => {
     if (open) {
       setTypedName(defaultName || '');
-      setTimeout(() => clearCanvas(), 50);
+      setTimeout(() => {
+        clearCanvas();
+        if (initialImage) {
+          const ctx = getCtx();
+          const canvas = canvasRef.current;
+          if (ctx && canvas) {
+            const img = new window.Image();
+            img.onload = () => {
+              // Center the image on canvas
+              const scale = Math.min(
+                canvas.width / img.width,
+                canvas.height / img.height,
+                1,
+              );
+              const w = img.width * scale;
+              const h = img.height * scale;
+              const x = (canvas.width - w) / 2;
+              const y = (canvas.height - h) / 2;
+              ctx.drawImage(img, x, y, w, h);
+              setHasDrawn(true);
+            };
+            img.src = initialImage;
+          }
+        }
+      }, 50);
     }
-  }, [open, defaultName]);
+  }, [open, defaultName, initialImage]);
 
   const getCtx = useCallback(() => {
     const canvas = canvasRef.current;
@@ -132,7 +158,7 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
   };
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
+    if ('cancelable' in e && e.cancelable) e.preventDefault();
     const ctx = getCtx();
     if (!ctx) return;
     saveSnapshot();
@@ -148,7 +174,7 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
   };
 
   const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
+    if ('cancelable' in e && e.cancelable) e.preventDefault();
     if (!isDrawing) return;
     const ctx = getCtx();
     if (!ctx) return;
@@ -158,9 +184,32 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
   };
 
   const stopDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
+    if ('cancelable' in e && e.cancelable) e.preventDefault();
     setIsDrawing(false);
   };
+
+  // Register non-passive touch listeners directly on canvas
+  // to allow preventDefault() for touch drawing
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleTouchStart = (e: TouchEvent) => { e.preventDefault(); };
+    const handleTouchMove = (e: TouchEvent) => { e.preventDefault(); };
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+    };
+
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+    canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+
+    return () => {
+      canvas.removeEventListener('touchstart', handleTouchStart);
+      canvas.removeEventListener('touchmove', handleTouchMove);
+      canvas.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [open]);
 
   const cropAndExport = (canvas: HTMLCanvasElement): string | null => {
     const ctx = canvas.getContext('2d');

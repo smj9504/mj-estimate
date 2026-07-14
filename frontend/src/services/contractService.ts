@@ -100,9 +100,30 @@ export const contractInstanceService = {
     return data as { contract: ContractInstance; signing_url: string; signing_token: string };
   },
 
+  async sendEmail(claimId: string, contractId: string, payload: {
+    emails: string[];
+    cc?: string[];
+    bcc?: string[];
+    message?: string;
+    template_key?: string;
+  }) {
+    const { data } = await api.post(
+      `/api/contracts/claims/${claimId}/contracts/${contractId}/send-email`,
+      payload,
+    );
+    return data as { message: string; emails: string[]; signing_url: string };
+  },
+
   async void(claimId: string, contractId: string) {
     const { data } = await api.post(
       `/api/contracts/claims/${claimId}/contracts/${contractId}/void`
+    );
+    return data;
+  },
+
+  async delete(claimId: string, contractId: string) {
+    const { data } = await api.delete(
+      `/api/contracts/claims/${claimId}/contracts/${contractId}`
     );
     return data;
   },
@@ -122,6 +143,11 @@ export const contractInstanceService = {
   async getDashboard(claimId: string) {
     const { data } = await api.get(`/api/contracts/claims/${claimId}/dashboard`);
     return data as ClaimContractDashboardData;
+  },
+
+  async getSigningBaseUrl() {
+    const { data } = await api.get('/api/contracts/signing-base-url');
+    return data as { base_url: string };
   },
 };
 
@@ -167,6 +193,7 @@ export const signingService = {
     signature_image: string;
     signature_type?: 'drawn' | 'typed';
     typed_name?: string;
+    signature_fields?: Record<string, string>;
   }) {
     const { data } = await api.post(`/api/sign/${token}`, payload);
     return data;

@@ -107,11 +107,15 @@ class ContractInstanceRepository(SQLAlchemyRepository):
             d['signature_roles'] = (
                 instance.template.signature_roles
             )
+            d['storage_provider'] = instance.template.storage_provider
+            d['field_mappings'] = instance.template.field_mappings
         # Prefer filled PDF over template PDF
         if instance.filled_pdf_url:
             d['filled_pdf_url'] = instance.filled_pdf_url
         if instance.company:
             d['company_name'] = instance.company.name
+            d['company_email'] = instance.company.email
+            d['company_phone'] = instance.company.phone
         if instance.client:
             d['client_name'] = instance.client.display_name
         # Signatures

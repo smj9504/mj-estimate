@@ -39,6 +39,7 @@ class SmtpService:
         attachments: List[Dict[str, Any]] = None,
         reply_to: Optional[str] = None,
         skip_signature: bool = False,
+        display_name_override: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Send an email via SMTP.
@@ -62,7 +63,7 @@ class SmtpService:
             body_html=body_html,
             attachments=attachments,
             reply_to=reply_to,
-            display_name=smtp_config.get("display_name", ""),
+            display_name=display_name_override or smtp_config.get("display_name", ""),
             sender_name="" if skip_signature else smtp_config.get("sender_name", ""),
             sender_phone=smtp_config.get("sender_phone", ""),
             email_address=smtp_config.get("email_address", from_address),

@@ -39,6 +39,8 @@ export interface ContractTemplate {
 // Field Mapping
 // ============================================================
 
+export type FieldType = 'text' | 'signature' | 'initial' | 'date_signed';
+
 export interface FieldMappingItem {
   id: string;
   pageIndex: number;
@@ -50,6 +52,8 @@ export interface FieldMappingItem {
   label: string;
   fontSize: number;
   fontColor: string;
+  fieldType?: FieldType;       // default 'text'
+  signerRole?: string;         // for signature/initial: 'homeowner' | 'company_rep' | 'witness'
 }
 
 export interface AvailableField {
@@ -131,6 +135,18 @@ export interface ClaimCompany {
 // Signing (public page)
 // ============================================================
 
+export interface SignatureFieldPlacement {
+  id: string;
+  pageIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fieldType: 'signature' | 'initial' | 'date_signed';
+  signerRole: string;
+  label: string;
+}
+
 export interface ContractViewData {
   contract_id: string;
   title?: string;
@@ -143,6 +159,7 @@ export interface ContractViewData {
   status: string;
   requires_signature: boolean;
   signature_roles?: string;
+  signature_fields?: SignatureFieldPlacement[];
   existing_signatures: { signer_name: string; signer_role: string; signed_at: string }[];
 }
 

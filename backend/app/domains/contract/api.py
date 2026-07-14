@@ -237,6 +237,16 @@ async def create_contract(
         contract_data = data.dict()
         contract_data['claim_id'] = claim_id
         result = service.create_contract(contract_data)
+        # Add full signing URL
+        from app.core.config import settings
+        base = (
+            getattr(settings, 'SIGNING_BASE_URL', '')
+            or getattr(settings, 'FRONTEND_URL', '')
+            or 'http://localhost:3000'
+        )
+        token = result.get('signing_token')
+        if token:
+            result['signing_url'] = f"{base}/sign/{token}"
         return result
     except Exception as e:
         logger.error(f"Error creating contract: {e}")
@@ -270,11 +280,20 @@ async def send_contract(
     try:
         result = service.send_for_signing(contract_id)
         if not result:
-            raise HTTPException(status_code=404, detail="Contract not found")
+            raise HTTPException(
+                status_code=404, detail="Contract not found"
+            )
+        from app.core.config import settings
+        base = (
+            getattr(settings, 'SIGNING_BASE_URL', '')
+            or getattr(settings, 'FRONTEND_URL', '')
+            or 'http://localhost:3000'
+        )
+        token = result.get('signing_token')
         return {
             "contract": result,
-            "signing_url": f"/sign/{result.get('signing_token')}",
-            "signing_token": result.get('signing_token'),
+            "signing_url": f"{base}/sign/{token}",
+            "signing_token": token,
             "expires_at": result.get('token_expires_at'),
         }
     except HTTPException:
@@ -283,17 +302,509 @@ async def send_contract(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================
+# Email Templates by Document Type
+# ============================================================
+
+EMAIL_TEMPLATES = {
+    # --- Authorization (EWA) ---
+    'authorization': {
+        'heading': 'Authorization Required',
+        'subject': (
+            'Action Required: Please Sign Authorization'
+            ' — {company}'
+        ),
+        'body': (
+            'We need your written authorization before '
+            'we can begin work on your property. Please '
+            'review and sign the <strong>Emergency Work '
+            'Authorization (EWA)</strong> document from '
+            '<strong>{company}</strong>.'
+        ),
+        'button_text': 'Review & Authorize',
+    },
+    # --- COS: Water Mitigation ---
+    'cos_water_mitigation': {
+        'heading': 'Water Mitigation — Certificate of '
+                   'Satisfaction',
+        'subject': (
+            'Water Mitigation Complete — Please Confirm'
+            ' Satisfaction — {company}'
+        ),
+        'body': (
+            'The water mitigation work on your property '
+            'has been completed, including water '
+            'extraction, drying, and moisture monitoring.'
+            ' Please review and sign the <strong>'
+            'Certificate of Satisfaction (COS)</strong> '
+            'to confirm the mitigation work has been '
+            'finished to your satisfaction.'
+        ),
+        'button_text': 'Review & Confirm',
+    },
+    # --- COS: Rebuild / Restoration ---
+    'cos_rebuild': {
+        'heading': 'Rebuild/Restoration — Certificate '
+                   'of Satisfaction',
+        'subject': (
+            'Restoration Complete — Please Confirm'
+            ' Satisfaction — {company}'
+        ),
+        'body': (
+            'The rebuild and restoration work on your '
+            'property has been completed. Please review '
+            'and sign the <strong>Certificate of '
+            'Satisfaction (COS)</strong> to confirm that '
+            'all reconstruction work has been finished '
+            'to your satisfaction.'
+        ),
+        'button_text': 'Review & Confirm',
+    },
+    # --- COS: General (fallback) ---
+    'certificate_of_satisfaction': {
+        'heading': 'Certificate of Satisfaction',
+        'subject': (
+            'Please Confirm Satisfaction — {company}'
+        ),
+        'body': (
+            'The work on your property has been '
+            'completed. Please review and sign the '
+            '<strong>Certificate of Satisfaction (COS)'
+            '</strong> to confirm that all work has '
+            'been finished to your satisfaction.'
+        ),
+        'button_text': 'Review & Confirm',
+    },
+    # --- Certificate of Completion ---
+    'certificate_of_completion': {
+        'heading': 'Certificate of Completion',
+        'subject': (
+            'Work Complete — Please Sign Certificate'
+            ' — {company}'
+        ),
+        'body': (
+            'We are pleased to inform you that the work '
+            'on your property has been completed. Please '
+            'review and sign the <strong>Certificate of '
+            'Completion</strong> to acknowledge the '
+            'finished work.'
+        ),
+        'button_text': 'Review & Sign',
+    },
+    # --- Scope of Work ---
+    'scope_of_work': {
+        'heading': 'Scope of Work for Review',
+        'subject': (
+            'Scope of Work Ready for Approval'
+            ' — {company}'
+        ),
+        'body': (
+            'The scope of work for your project has '
+            'been prepared. Please review the details '
+            'and sign to approve the planned work from '
+            '<strong>{company}</strong>.'
+        ),
+        'button_text': 'Review & Approve',
+    },
+    # --- Lien Waiver ---
+    'lien_waiver': {
+        'heading': 'Lien Waiver',
+        'subject': (
+            'Lien Waiver — Signature Required'
+            ' — {company}'
+        ),
+        'body': (
+            'A lien waiver document has been prepared '
+            'for your records. Please review and sign '
+            'the document from '
+            '<strong>{company}</strong>.'
+        ),
+        'button_text': 'Review & Sign',
+    },
+    # --- Change Order ---
+    'change_order': {
+        'heading': 'Change Order Approval',
+        'subject': (
+            'Change Order — Your Approval Needed'
+            ' — {company}'
+        ),
+        'body': (
+            'A change order has been submitted for your '
+            'project. Please review the updated scope '
+            'and cost, and sign to approve the changes '
+            'from <strong>{company}</strong>.'
+        ),
+        'button_text': 'Review & Approve',
+    },
+    # --- Other (default) ---
+    'other': {
+        'heading': 'Document Ready for Signature',
+        'subject': (
+            'Signature Required: {title} — {company}'
+        ),
+        'body': (
+            'You have a document that requires your '
+            'signature from <strong>{company}</strong>.'
+            '<br/><strong>Document:</strong> {title}'
+        ),
+        'button_text': 'Review & Sign',
+    },
+}
+
+
+def _get_email_template(doc_type: str) -> dict:
+    return EMAIL_TEMPLATES.get(
+        doc_type, EMAIL_TEMPLATES['other']
+    )
+
+
+def _build_email_html(
+    heading: str,
+    body_intro: str,
+    custom_msg: str,
+    signing_url: str,
+    button_text: str,
+    company: str,
+    expires: str,
+    company_email: str = '',
+    company_phone: str = '',
+    company_address: str = '',
+) -> str:
+    custom_block = (
+        f'<p style="margin-top:16px;padding:12px 16px;'
+        f'background:#f6f6f6;border-radius:6px;'
+        f'border-left:3px solid #1677ff;">'
+        f'{custom_msg}</p>'
+        if custom_msg else ''
+    )
+
+    # Company contact footer (anti-spam: real contact info)
+    contact_parts = []
+    if company_email:
+        contact_parts.append(company_email)
+    if company_phone:
+        contact_parts.append(company_phone)
+    if company_address:
+        contact_parts.append(company_address)
+    contact_line = ' | '.join(contact_parts)
+
+    return f"""
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;background:#f5f5f5;">
+<table width="100%" cellpadding="0" cellspacing="0"
+       style="background:#f5f5f5;padding:24px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0"
+       style="background:#ffffff;border-radius:8px;
+              overflow:hidden;
+              box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+  <!-- Header -->
+  <tr>
+    <td style="background:#1677ff;padding:20px 32px;">
+      <h1 style="margin:0;color:#ffffff;font-family:
+          Arial,sans-serif;font-size:20px;">
+        {company}
+      </h1>
+    </td>
+  </tr>
+  <!-- Body -->
+  <tr>
+    <td style="padding:32px;font-family:Arial,sans-serif;
+               font-size:15px;line-height:1.6;color:#333;">
+      <h2 style="margin:0 0 16px;color:#262626;
+                 font-size:22px;">{heading}</h2>
+      <p style="margin:0 0 16px;">{body_intro}</p>
+      {custom_block}
+      <div style="margin:28px 0;text-align:center;">
+        <a href="{signing_url}"
+           style="background:#1677ff;color:#ffffff;
+                  padding:14px 40px;border-radius:6px;
+                  text-decoration:none;font-size:16px;
+                  font-weight:600;display:inline-block;">
+          {button_text}
+        </a>
+      </div>
+      <p style="color:#8c8c8c;font-size:13px;
+                word-break:break-all;">
+        If the button doesn't work, copy and paste
+        this link into your browser:<br/>
+        <a href="{signing_url}"
+           style="color:#1677ff;">{signing_url}</a>
+      </p>
+    </td>
+  </tr>
+  <!-- Footer -->
+  <tr>
+    <td style="padding:20px 32px;background:#fafafa;
+               border-top:1px solid #e8e8e8;
+               font-family:Arial,sans-serif;">
+      <p style="margin:0 0 8px;color:#8c8c8c;
+                font-size:12px;">
+        This link will expire on {expires}.
+      </p>
+      <p style="margin:0;color:#8c8c8c;font-size:12px;">
+        <strong>{company}</strong>
+        {f'<br/>{contact_line}' if contact_line else ''}
+      </p>
+      <p style="margin:8px 0 0;color:#bfbfbf;
+                font-size:11px;">
+        You received this email because a document
+        requires your signature. This is a one-time
+        notification and not a subscription.
+      </p>
+    </td>
+  </tr>
+</table>
+</td></tr></table>
+</body>
+</html>"""
+
+
+# Also expose templates to frontend
+@router.get("/signing-base-url")
+async def get_signing_base_url():
+    """Return the base URL for signing links"""
+    from app.core.config import settings
+    base = (
+        getattr(settings, 'SIGNING_BASE_URL', '')
+        or getattr(settings, 'FRONTEND_URL', '')
+        or 'http://localhost:3000'
+    )
+    return {"base_url": base}
+
+
+@router.get("/email-templates")
+async def get_email_templates():
+    """Return available email templates for the UI"""
+    return {
+        k: {
+            'heading': v['heading'],
+            'subject': v['subject'],
+            'button_text': v['button_text'],
+            'body_preview': v['body'][:120] + '...'
+            if len(v['body']) > 120 else v['body'],
+        }
+        for k, v in EMAIL_TEMPLATES.items()
+    }
+
+
+@router.post(
+    "/claims/{claim_id}/contracts/{contract_id}/send-email"
+)
+async def send_contract_email(
+    claim_id: str,
+    contract_id: str,
+    data: dict,
+    service: ContractInstanceService = Depends(
+        _get_instance_service
+    ),
+):
+    """Send signing link via email to multiple recipients.
+    Body: { emails: string[], message?: string }
+    """
+    try:
+        emails = data.get('emails', [])
+        if not emails:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one email is required"
+            )
+
+        # Get contract with enriched data
+        session = service.database.get_readonly_session()
+        try:
+            from app.domains.contract.repository import (
+                get_instance_repository,
+            )
+            repo = get_instance_repository(session)
+            contract = repo.get_by_id_enriched(contract_id)
+        finally:
+            session.close()
+
+        if not contract:
+            raise HTTPException(
+                status_code=404, detail="Contract not found"
+            )
+
+        token = contract.get('signing_token')
+        if not token:
+            raise HTTPException(
+                status_code=400,
+                detail="Contract has no signing token"
+            )
+
+        # Mark as sent if still draft
+        if contract.get('status') == 'draft':
+            service.send_for_signing(contract_id)
+
+        # Build signing URL
+        # SIGNING_BASE_URL takes priority over
+        # FRONTEND_URL for contract signing emails
+        from app.core.config import settings
+        signing_base = (
+            getattr(settings, 'SIGNING_BASE_URL', '')
+            or getattr(settings, 'FRONTEND_URL', '')
+            or 'http://localhost:3000'
+        )
+        signing_url = f"{signing_base}/sign/{token}"
+
+        # Build email from template
+        company = contract.get(
+            'company_name', 'Our Company'
+        )
+        title = (
+            contract.get('title')
+            or contract.get('template_name')
+            or 'Contract Document'
+        )
+        client_name = contract.get(
+            'client_name', ''
+        )
+        doc_type = contract.get(
+            'document_type', 'other'
+        )
+        custom_msg = data.get('message', '')
+
+        # Allow frontend to override template key
+        template_key = data.get(
+            'template_key', doc_type
+        )
+        tpl = _get_email_template(template_key)
+        subject = tpl['subject'].format(
+            company=company, title=title,
+            client_name=client_name,
+        )
+        body_intro = tpl['body'].format(
+            company=company, title=title,
+            client_name=client_name,
+        )
+
+        company_email = contract.get(
+            'company_email', ''
+        )
+        company_phone = contract.get(
+            'company_phone', ''
+        )
+
+        body_html = _build_email_html(
+            heading=tpl['heading'],
+            body_intro=body_intro,
+            custom_msg=custom_msg,
+            signing_url=signing_url,
+            button_text=tpl['button_text'],
+            company=company,
+            expires=contract.get(
+                'token_expires_at', 'N/A'
+            ),
+            company_email=company_email or '',
+            company_phone=company_phone or '',
+        )
+
+        # Send via SMTP
+        # From: authenticated SMTP user (for deliverability)
+        # Reply-To: company email (so replies go to the
+        #           company, not the SMTP relay account)
+        from app.domains.claim_followup.smtp_service import (
+            SmtpService,
+        )
+        smtp = SmtpService()
+
+        smtp_user = getattr(settings, 'SMTP_USER', '')
+        if not smtp_user:
+            raise HTTPException(
+                status_code=500,
+                detail="SMTP not configured."
+            )
+
+        # Use company email as Reply-To if available
+        company_email = contract.get('company_email', '')
+        reply_to = (
+            company_email
+            or getattr(settings, 'SMTP_FROM_EMAIL', '')
+            or smtp_user
+        )
+        # Display name: company name
+        from_display = (
+            f"{company} <{smtp_user}>"
+        )
+
+        cc = data.get('cc', []) or []
+        bcc = data.get('bcc', []) or []
+
+        result = smtp.send(
+            account_id=None,
+            from_address=smtp_user,
+            to_addresses=emails,
+            subject=subject,
+            body_html=body_html,
+            cc_addresses=cc,
+            bcc_addresses=bcc,
+            reply_to=reply_to,
+            skip_signature=True,
+            display_name_override=company,
+        )
+
+        return {
+            "message": f"Email sent to {len(emails)} "
+                       f"recipient(s)",
+            "emails": emails,
+            "signing_url": signing_url,
+            "smtp_result": result,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Error sending contract email: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send email: {str(e)}"
+        )
+
+
 @router.post("/claims/{claim_id}/contracts/{contract_id}/void")
 async def void_contract(
     claim_id: str,
     contract_id: str,
-    service: ContractInstanceService = Depends(_get_instance_service),
+    service: ContractInstanceService = Depends(
+        _get_instance_service
+    ),
 ):
     try:
         result = service.void_contract(contract_id)
         if not result:
-            raise HTTPException(status_code=404, detail="Contract not found")
+            raise HTTPException(
+                status_code=404, detail="Contract not found"
+            )
         return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete(
+    "/claims/{claim_id}/contracts/{contract_id}"
+)
+async def delete_contract(
+    claim_id: str,
+    contract_id: str,
+    service: ContractInstanceService = Depends(
+        _get_instance_service
+    ),
+):
+    """Delete a contract instance"""
+    try:
+        success = service.delete(contract_id)
+        if not success:
+            raise HTTPException(
+                status_code=404, detail="Contract not found"
+            )
+        return {"message": "Contract deleted"}
     except HTTPException:
         raise
     except Exception as e:
@@ -633,18 +1144,27 @@ async def serve_contract_pdf(
     from starlette.responses import Response
 
     try:
-        contract = service.get_by_id(contract_id)
+        # Use enriched query to get template file_url as fallback
+        session = service.database.get_readonly_session()
+        try:
+            from app.domains.contract.repository import get_instance_repository
+            repo = get_instance_repository(session)
+            contract = repo.get_by_id_enriched(contract_id)
+        finally:
+            session.close()
+
         if not contract:
             raise HTTPException(status_code=404, detail="Contract not found")
 
-        filled_url = contract.get('filled_pdf_url') if isinstance(contract, dict) else getattr(contract, 'filled_pdf_url', '')
-        file_url = contract.get('file_url', '') if isinstance(contract, dict) else getattr(contract, 'file_url', '')
+        filled_url = contract.get('filled_pdf_url', '')
+        file_url = contract.get('file_url', '')
         pdf_url = filled_url or file_url
 
         if not pdf_url:
             raise HTTPException(status_code=404, detail="No PDF available")
 
-        pdf_bytes = _resolve_contract_pdf(pdf_url)
+        storage_provider = contract.get('storage_provider')
+        pdf_bytes = _resolve_contract_pdf(pdf_url, storage_provider)
         if not pdf_bytes:
             raise HTTPException(status_code=404, detail="Contract PDF not found")
 

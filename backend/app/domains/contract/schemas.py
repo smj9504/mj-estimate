@@ -76,10 +76,16 @@ class FieldMappingItem(BaseModel):
     y: float = Field(..., ge=0, le=1, description="Y position as ratio (0-1)")
     width: float = Field(..., gt=0, le=1, description="Width as ratio (0-1)")
     height: float = Field(..., gt=0, le=1, description="Height as ratio (0-1)")
-    fieldKey: str = Field(..., description="Data source key, e.g. client.owners[0].name")
+    fieldKey: str = Field(..., description="Data source key, e.g. client.display_name or signature.homeowner")
     label: str = Field(..., description="Display label for the field")
     fontSize: int = Field(12, ge=6, le=72)
     fontColor: str = Field("#000000")
+    fieldType: Optional[str] = Field(
+        None, description="text | signature | initial | date_signed"
+    )
+    signerRole: Optional[str] = Field(
+        None, description="homeowner | company_rep | witness"
+    )
 
 
 class FieldMappingUpdate(BaseModel):
@@ -152,11 +158,23 @@ class ContractInstanceResponse(BaseModel):
 
 class SigningRequest(BaseModel):
     """Public signing endpoint request"""
-    signer_name: str = Field(..., min_length=1, max_length=255)
+    signer_name: str = Field(
+        "", max_length=255
+    )
     signer_role: str = Field("homeowner")
-    signature_image: str = Field(..., description="Base64 PNG signature image")
-    signature_type: str = Field("drawn", description="drawn | typed")
-    typed_name: Optional[str] = Field(None, description="Name text for typed signatures")
+    signature_image: str = Field(
+        ..., description="Base64 PNG signature image"
+    )
+    signature_type: str = Field(
+        "drawn", description="drawn | typed"
+    )
+    typed_name: Optional[str] = Field(
+        None, description="Name text for typed signatures"
+    )
+    signature_fields: Optional[Dict[str, str]] = Field(
+        None,
+        description="Map of field ID -> base64 image or date"
+    )
 
     @validator('signer_role')
     def validate_role(cls, v):
@@ -181,6 +199,19 @@ class SigningResponse(BaseModel):
     message: str = "Contract signed successfully"
 
 
+class SignatureFieldPlacement(BaseModel):
+    """Signature/initial field position on the PDF"""
+    id: str
+    pageIndex: int
+    x: float
+    y: float
+    width: float
+    height: float
+    fieldType: str  # signature | initial | date_signed
+    signerRole: str
+    label: str
+
+
 class ContractViewResponse(BaseModel):
     """Public contract view (for signing page)"""
     contract_id: UUID
@@ -194,6 +225,7 @@ class ContractViewResponse(BaseModel):
     status: str
     requires_signature: bool = True
     signature_roles: Optional[str] = None
+    signature_fields: List[SignatureFieldPlacement] = []
     existing_signatures: List[dict] = []
 
 

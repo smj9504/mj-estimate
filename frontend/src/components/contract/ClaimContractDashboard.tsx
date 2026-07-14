@@ -18,7 +18,11 @@ import {
   Card,
   Collapse,
   Empty,
+  Input,
   List,
+  Modal,
+  Popconfirm,
+  Select,
   Space,
   Spin,
   Tag,
@@ -30,10 +34,12 @@ import {
   CheckCircleFilled,
   ClockCircleOutlined,
   CopyOutlined,
+  DeleteOutlined,
   EditOutlined,
   EyeOutlined,
   FilePdfOutlined,
   FileTextOutlined,
+  MailOutlined,
   PlusOutlined,
   SendOutlined,
   StopOutlined,
@@ -71,6 +77,7 @@ const ROLE_COLORS: Record<string, string> = {
 interface ClaimContractDashboardProps {
   claimId: string;
   clientId: string;
+  clientEmail?: string;
   onContractCreated?: () => void;
 }
 
@@ -79,10 +86,18 @@ interface ClaimContractDashboardProps {
 const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
   claimId,
   clientId,
+  clientEmail,
   onContractCreated,
 }) => {
   const queryClient = useQueryClient();
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [emailModalContract, setEmailModalContract] = useState<ContractInstance | null>(null);
+  const [emailAddresses, setEmailAddresses] = useState('');
+  const [emailCc, setEmailCc] = useState('');
+  const [emailBcc, setEmailBcc] = useState('');
+  const [emailMessage, setEmailMessage] = useState('');
+  const [emailTemplateKey, setEmailTemplateKey] = useState('');
+  const [emailSending, setEmailSending] = useState(false);
 
   const { data: dashboard, isLoading } = useQuery({
     queryKey: ['contract-dashboard', claimId],
@@ -90,8 +105,15 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
     enabled: !!claimId,
   });
 
+  const { data: signingBaseData } = useQuery({
+    queryKey: ['signing-base-url'],
+    queryFn: () => contractInstanceService.getSigningBaseUrl(),
+    staleTime: Infinity,
+  });
+  const signingBaseUrl = signingBaseData?.base_url || window.location.origin;
+
   const handleCopyLink = async (token: string) => {
-    const url = `${window.location.origin}/sign/${token}`;
+    const url = `${signingBaseUrl}/sign/${token}`;
     try {
       await navigator.clipboard.writeText(url);
       message.success('Signing link copied.');
@@ -107,6 +129,60 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
       queryClient.invalidateQueries({ queryKey: ['contract-dashboard', claimId] });
     } catch {
       message.error('Failed to send contract.');
+    }
+  };
+
+  const handleDelete = async (contract: ContractInstance) => {
+    try {
+      await contractInstanceService.delete(claimId, contract.id);
+      message.success('Contract deleted.');
+      queryClient.invalidateQueries({ queryKey: ['contract-dashboard', claimId] });
+    } catch {
+      message.error('Failed to delete contract.');
+    }
+  };
+
+  const parseEmails = (str: string) =>
+    str.split(/[,;\n]+/).map(e => e.trim()).filter(e => e && e.includes('@'));
+
+  const handleOpenEmailModal = (contract: ContractInstance) => {
+    setEmailModalContract(contract);
+    setEmailAddresses(clientEmail || '');
+    setEmailCc('');
+    setEmailBcc('');
+    setEmailMessage('');
+    setEmailTemplateKey(contract.document_type || 'other');
+  };
+
+  const handleSendEmail = async () => {
+    if (!emailModalContract) return;
+    const emails = parseEmails(emailAddresses);
+    if (emails.length === 0) {
+      message.warning('Please enter at least one valid email address.');
+      return;
+    }
+    const cc = parseEmails(emailCc);
+    const bcc = parseEmails(emailBcc);
+    setEmailSending(true);
+    try {
+      const result = await contractInstanceService.sendEmail(
+        claimId, emailModalContract.id,
+        {
+          emails,
+          cc: cc.length > 0 ? cc : undefined,
+          bcc: bcc.length > 0 ? bcc : undefined,
+          message: emailMessage || undefined,
+          template_key: emailTemplateKey || undefined,
+        },
+      );
+      message.success(result.message || `Email sent to ${emails.length} recipient(s).`);
+      setEmailModalContract(null);
+      queryClient.invalidateQueries({ queryKey: ['contract-dashboard', claimId] });
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      message.error(typeof detail === 'string' ? detail : 'Failed to send email.');
+    } finally {
+      setEmailSending(false);
     }
   };
 
@@ -231,16 +307,36 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
                             />
                           </Tooltip>
                         ),
-                        // Resend
-                        contract.status === 'draft' && (
-                          <Tooltip title="Send" key="send">
+                        // Send email
+                        contract.signing_token && contract.status !== 'voided' && contract.status !== 'signed' && (
+                          <Tooltip title="Send via Email" key="email">
                             <Button
                               type="text"
                               size="small"
-                              icon={<SendOutlined />}
-                              onClick={() => handleResend(contract)}
+                              icon={<MailOutlined />}
+                              onClick={() => handleOpenEmailModal(contract)}
                             />
                           </Tooltip>
+                        ),
+                        // Delete
+                        contract.status !== 'signed' && (
+                          <Popconfirm
+                            key="delete"
+                            title="Delete this contract?"
+                            description="This action cannot be undone."
+                            onConfirm={() => handleDelete(contract)}
+                            okText="Delete"
+                            okButtonProps={{ danger: true }}
+                          >
+                            <Tooltip title="Delete">
+                              <Button
+                                type="text"
+                                size="small"
+                                danger
+                                icon={<DeleteOutlined />}
+                              />
+                            </Tooltip>
+                          </Popconfirm>
                         ),
                       ].filter(Boolean)}
                     >
@@ -295,6 +391,116 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
         clientId={clientId}
         onSuccess={handleSuccess}
       />
+
+      {/* Send Email Modal */}
+      <Modal
+        title={
+          <Space>
+            <MailOutlined style={{ color: '#1677ff' }} />
+            Send Signing Link via Email
+          </Space>
+        }
+        open={!!emailModalContract}
+        onCancel={() => setEmailModalContract(null)}
+        onOk={handleSendEmail}
+        okText="Send Email"
+        okButtonProps={{ loading: emailSending, icon: <SendOutlined /> }}
+        cancelButtonProps={{ disabled: emailSending }}
+        destroyOnClose
+        width={520}
+      >
+        {/* Document info */}
+        <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f6f8fa', borderRadius: 6 }}>
+          <Text strong style={{ fontSize: 13 }}>
+            {emailModalContract?.title || emailModalContract?.template_name || 'Contract'}
+          </Text>
+          {emailModalContract?.document_type && (
+            <Tag color="blue" style={{ marginLeft: 8, fontSize: 11 }}>
+              {emailModalContract.document_type.replace(/_/g, ' ')}
+            </Tag>
+          )}
+          {emailModalContract?.contract_number && (
+            <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+              {emailModalContract.contract_number}
+            </Text>
+          )}
+        </div>
+
+        {/* Email Template */}
+        <div style={{ marginBottom: 12 }}>
+          <Text strong style={{ display: 'block', marginBottom: 4, fontSize: 12 }}>Email Template</Text>
+          <Select
+            style={{ width: '100%' }}
+            value={emailTemplateKey || 'other'}
+            onChange={(val) => setEmailTemplateKey(val)}
+            popupMatchSelectWidth={true}
+          >
+            <Select.OptGroup label="Authorization">
+              <Select.Option value="authorization">EWA — Authorization to Work</Select.Option>
+            </Select.OptGroup>
+            <Select.OptGroup label="Certificate of Satisfaction">
+              <Select.Option value="cos_water_mitigation">COS — Water Mitigation</Select.Option>
+              <Select.Option value="cos_rebuild">COS — Rebuild / Restoration</Select.Option>
+              <Select.Option value="certificate_of_satisfaction">COS — General</Select.Option>
+            </Select.OptGroup>
+            <Select.OptGroup label="Other Documents">
+              <Select.Option value="certificate_of_completion">Certificate of Completion</Select.Option>
+              <Select.Option value="scope_of_work">Scope of Work</Select.Option>
+              <Select.Option value="lien_waiver">Lien Waiver</Select.Option>
+              <Select.Option value="change_order">Change Order</Select.Option>
+              <Select.Option value="other">Other</Select.Option>
+            </Select.OptGroup>
+          </Select>
+        </div>
+
+        {/* To */}
+        <div style={{ marginBottom: 12 }}>
+          <Text strong style={{ display: 'block', marginBottom: 4, fontSize: 12 }}>To</Text>
+          <Input.TextArea
+            rows={2}
+            placeholder="Enter email addresses (comma or line separated)"
+            value={emailAddresses}
+            onChange={(e) => setEmailAddresses(e.target.value)}
+          />
+          <Text type="secondary" style={{ fontSize: 11, marginTop: 2, display: 'block' }}>
+            All recipients share the same link. Once signed, others see the signed document.
+          </Text>
+        </div>
+
+        {/* CC */}
+        <div style={{ marginBottom: 12 }}>
+          <Text strong style={{ display: 'block', marginBottom: 4, fontSize: 12 }}>CC (optional)</Text>
+          <Input
+            placeholder="cc@example.com"
+            value={emailCc}
+            onChange={(e) => setEmailCc(e.target.value)}
+          />
+        </div>
+
+        {/* BCC */}
+        <div style={{ marginBottom: 12 }}>
+          <Text strong style={{ display: 'block', marginBottom: 4, fontSize: 12 }}>BCC (optional)</Text>
+          <Input
+            placeholder="bcc@example.com"
+            value={emailBcc}
+            onChange={(e) => setEmailBcc(e.target.value)}
+          />
+        </div>
+
+        {/* Custom message */}
+        <div>
+          <Text strong style={{ display: 'block', marginBottom: 4, fontSize: 12 }}>
+            Additional Message (optional)
+          </Text>
+          <Input.TextArea
+            rows={2}
+            placeholder="Add a personal note to the email..."
+            value={emailMessage}
+            onChange={(e) => setEmailMessage(e.target.value)}
+            maxLength={500}
+          />
+        </div>
+      </Modal>
     </div>
   );
 };
