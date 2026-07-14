@@ -175,6 +175,12 @@ class SigningRequest(BaseModel):
         None,
         description="Map of field ID -> base64 image or date"
     )
+    consent_agreed: bool = Field(
+        False, description="E-sign consent acknowledged"
+    )
+    consent_text: Optional[str] = Field(
+        None, description="Consent clause text shown"
+    )
 
     @validator('signer_role')
     def validate_role(cls, v):

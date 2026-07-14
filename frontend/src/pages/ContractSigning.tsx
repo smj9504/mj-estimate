@@ -13,6 +13,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Divider,
   Form,
   Input,
@@ -182,6 +183,7 @@ const ContractSigning: React.FC = () => {
   // Remember last drawn signature/initial for reuse
   const [lastSignatureImage, setLastSignatureImage] = useState<string | null>(null);
   const [lastInitialImage, setLastInitialImage] = useState<string | null>(null);
+  const [consentChecked, setConsentChecked] = useState(false);
 
   // PDF rendering
   const [renderedPages, setRenderedPages] = useState<RenderedPage[]>([]);
@@ -277,6 +279,8 @@ const ContractSigning: React.FC = () => {
         signature_type: payload.signatureType || 'drawn',
         typed_name: payload.typedName,
         signature_fields: payload.signatureFields,
+        consent_agreed: true,
+        consent_text: 'I have reviewed the document and agree to sign it electronically. I understand that my electronic signature has the same legal effect as a handwritten signature.',
       }),
     onSuccess: () => setSigSuccess(true),
   });
@@ -629,13 +633,24 @@ const ContractSigning: React.FC = () => {
           {signMutation.isError && (
             <Alert type="error" message="Signing failed. Please try again." style={{ marginBottom: 16, borderRadius: 8 }} closable />
           )}
+          <div style={{ marginBottom: 16, padding: '12px 16px', background: '#fafafa', borderRadius: 8, border: '1px solid #e8e8e8' }}>
+            <Checkbox
+              checked={consentChecked}
+              onChange={(e) => setConsentChecked(e.target.checked)}
+            >
+              <Text style={{ fontSize: 13 }}>
+                I have reviewed the document and agree to sign it electronically.
+                I understand that my electronic signature has the same legal effect as a handwritten signature.
+              </Text>
+            </Checkbox>
+          </div>
           <Button
             type="primary"
             size="large"
             icon={<EditOutlined />}
             onClick={handleSubmitAll}
             loading={signMutation.isPending}
-            disabled={completedCount < requiredSigFields.length}
+            disabled={completedCount < requiredSigFields.length || !consentChecked}
             block
             style={{ height: 52, borderRadius: 8, fontSize: 16, fontWeight: 600 }}
           >
@@ -655,12 +670,24 @@ const ContractSigning: React.FC = () => {
           {signMutation.isError && (
             <Alert type="error" message="Signing failed. Please try again." style={{ marginBottom: 16, borderRadius: 8 }} closable />
           )}
+          <div style={{ marginBottom: 16, padding: '12px 16px', background: '#fafafa', borderRadius: 8, border: '1px solid #e8e8e8' }}>
+            <Checkbox
+              checked={consentChecked}
+              onChange={(e) => setConsentChecked(e.target.checked)}
+            >
+              <Text style={{ fontSize: 13 }}>
+                I have reviewed the document and agree to sign it electronically.
+                I understand that my electronic signature has the same legal effect as a handwritten signature.
+              </Text>
+            </Checkbox>
+          </div>
           <Button
             type="primary"
             size="large"
             icon={<EditOutlined />}
             onClick={handleLegacySignClick}
             loading={signMutation.isPending}
+            disabled={!consentChecked}
             block
             style={{ height: 52, borderRadius: 8, fontSize: 16, fontWeight: 600, marginTop: 8 }}
           >

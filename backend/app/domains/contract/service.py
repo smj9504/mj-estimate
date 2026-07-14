@@ -793,10 +793,28 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                             session, contract, signature_fields
                         )
                         if signed_url:
+                            # Compute document hash
+                            doc_hash = self._compute_pdf_hash(
+                                signed_url
+                            )
                             repo.update(instance_id, {
                                 'signed_pdf_url': signed_url,
                                 'filled_pdf_url': signed_url,
                             })
+                            # Store hash on the signature
+                            if doc_hash:
+                                sig_id = result.get('id')
+                                if sig_id:
+                                    from app.domains.contract.models import (
+                                        ContractSignature,
+                                    )
+                                    sig = session.query(
+                                        ContractSignature
+                                    ).filter(
+                                        ContractSignature.id == sig_id
+                                    ).first()
+                                    if sig:
+                                        sig.document_hash = doc_hash
                             session.commit()
                     except Exception as e:
                         logger.warning(
@@ -947,6 +965,22 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
             category="signed",
         )
         return storage_info["file_path"]
+
+    def _compute_pdf_hash(self, pdf_url: str) -> Optional[str]:
+        """Compute SHA-256 hash of a PDF for integrity."""
+        import hashlib
+        try:
+            from app.domains.storage.factory import (
+                StorageFactory,
+            )
+            storage = StorageFactory.get_instance()
+            pdf_bytes = storage.download(pdf_url)
+            return hashlib.sha256(pdf_bytes).hexdigest()
+        except Exception as e:
+            logger.warning(
+                f"Failed to compute PDF hash: {e}"
+            )
+            return None
 
     def void_contract(self, instance_id: str) -> Optional[Dict[str, Any]]:
         try:

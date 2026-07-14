@@ -191,6 +191,8 @@ export const signingService = {
     signature_type?: 'drawn' | 'typed';
     typed_name?: string;
     signature_fields?: Record<string, string>;
+    consent_agreed?: boolean;
+    consent_text?: string;
   }) {
     const { data } = await api.post(`/api/sign/${token}`, payload);
     return data;

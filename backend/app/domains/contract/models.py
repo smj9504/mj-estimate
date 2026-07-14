@@ -111,6 +111,10 @@ class ContractInstance(Base, BaseModel):
     # Email tracking: JSON list of emails the signing link was sent to
     sent_to_emails = Column(Text)  # JSON: ["client@example.com"]
 
+    # Audit trail: JSON array of events
+    # [{action, timestamp, ip, user_agent, detail}, ...]
+    audit_log = Column(Text)  # JSON
+
     # Relationships
     template = relationship("ContractTemplate", back_populates="instances")
     claim = relationship("Claim", foreign_keys=[claim_id], lazy='select')
@@ -161,6 +165,13 @@ class ContractSignature(Base, BaseModel):
     signed_at = Column(DateTime(timezone=True), default=func.now())
     ip_address = Column(String(100))
     user_agent = Column(Text)
+
+    # E-sign consent
+    consent_agreed = Column(Boolean, default=False)
+    consent_text = Column(Text)
+
+    # Document integrity
+    document_hash = Column(String(128))
 
     # Relationship
     contract_instance = relationship("ContractInstance", back_populates="signatures")

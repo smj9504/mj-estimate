@@ -26,7 +26,7 @@ def _get_service():
 
 
 @router.get("/{token}")
-async def get_contract_for_signing(token: str):
+async def get_contract_for_signing(token: str, request: Request):
     """
     Public endpoint: Get contract details for the signing page.
     No authentication required - token is the auth.
@@ -57,6 +57,14 @@ async def get_contract_for_signing(token: str):
                 'status': 'viewed',
                 'viewed_at': datetime.utcnow(),
             })
+
+        # Audit: log document viewed
+        _append_audit(
+            service, str(contract['id']),
+            action='viewed',
+            ip=request.client.host if request.client else None,
+            user_agent=request.headers.get('user-agent', ''),
+        )
 
         # Use public token-based PDF URL (no auth needed)
         cid = contract['id']
@@ -98,6 +106,41 @@ async def get_contract_for_signing(token: str):
     except Exception as e:
         logger.error(f"Error getting contract for signing: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to load contract")
+
+
+def _append_audit(
+    service, contract_id: str,
+    action: str, ip: str = None,
+    user_agent: str = None,
+    detail: dict = None,
+):
+    """Append an event to the contract's audit_log."""
+    try:
+        contract = service.get_by_id(contract_id)
+        if not contract:
+            return
+
+        raw = contract.get('audit_log')
+        log = []
+        if raw:
+            if isinstance(raw, str):
+                log = json.loads(raw)
+            elif isinstance(raw, list):
+                log = raw
+
+        log.append({
+            'action': action,
+            'timestamp': datetime.utcnow().isoformat(),
+            'ip': ip,
+            'user_agent': (user_agent or '')[:200],
+            'detail': detail,
+        })
+
+        service.update(contract_id, {
+            'audit_log': json.dumps(log),
+        })
+    except Exception as e:
+        logger.warning(f"Failed to append audit log: {e}")
 
 
 def _extract_signature_fields(contract: dict):
@@ -163,12 +206,29 @@ async def sign_contract(token: str, data: SigningRequest, request: Request):
             'user_agent': request.headers.get(
                 'user-agent', ''
             ),
+            'consent_agreed': data.consent_agreed,
+            'consent_text': data.consent_text,
         }
 
         result = service.sign_contract(
             token, sig_data,
             signature_fields=data.signature_fields,
         )
+
+        # Audit: log document signed
+        contract_for_audit = service.get_by_token(token)
+        if contract_for_audit:
+            _append_audit(
+                service, str(contract_for_audit['id']),
+                action='signed',
+                ip=request.client.host if request.client else None,
+                user_agent=request.headers.get('user-agent', ''),
+                detail={
+                    'signer_name': data.signer_name,
+                    'signer_role': data.signer_role,
+                    'consent_agreed': data.consent_agreed,
+                },
+            )
 
         # Send signed PDF notification emails (async, don't block response)
         try:
