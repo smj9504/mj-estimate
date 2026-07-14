@@ -58,6 +58,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { claimFollowUpService } from '../services/claimFollowUpService';
 import { supplementService } from '../services/supplementService';
+import { SUPPLEMENT_STATUS_COLORS } from '../types/supplement';
 import { fileService } from '../services/fileService';
 import { EmailComposer, CommunicationTimeline } from '../components/claim-followup';
 import type {
@@ -283,6 +284,7 @@ const formatCurrency = (val?: number) => {
 
 const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
   const [estimates, setEstimates] = useState<any[]>([]);
+  const [supplements, setSupplements] = useState<any[]>([]);
   const [bidItems, setBidItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -296,6 +298,7 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
         supplementService.getByClaim(claimId).catch(() => []),
       ]);
       setEstimates(estData);
+      setSupplements(supData);
       const allBidItems = supData.flatMap((s: any) => (s.bid_items || []).map((b: any) => ({
         ...b, supplement_title: s.title,
       })));
@@ -418,6 +421,7 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
   if (loading) return <div style={{ textAlign: 'center', padding: 16 }}><Text type="secondary">Loading...</Text></div>;
 
   const hasEstimates = estimates.length > 0;
+  const hasSupplements = supplements.length > 0;
   const hasBidItems = bidItems.filter((b: any) => b.custom_document_file_id).length > 0;
 
   // Check for WM data on claim but no WM negotiation record
@@ -426,7 +430,7 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
   const claimWmAmount = hasEstimates ? (estimates[0] as any).claim_wm_estimate_amount : 0;
   const showWmFallback = !hasWmNegotiation && claimWmStatus === 'separate_estimate' && claimWmAmount > 0;
 
-  if (!hasEstimates && !hasBidItems && !showWmFallback) {
+  if (!hasEstimates && !hasSupplements && !hasBidItems && !showWmFallback) {
     return <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: 16 }}>No estimate documents uploaded yet.</Text>;
   }
 
@@ -782,38 +786,96 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
         </div>
       )}
 
-      {/* Bid Item Estimate PDFs */}
-      {hasBidItems && (
-        <div>
-          <Text strong style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>Bid Item Estimates</Text>
-          {bidItems.filter((b: any) => b.custom_document_file_id).map((item: any) => (
-            <div
-              key={item.id}
-              style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '4px 8px', marginBottom: 2, background: '#fafafa', borderRadius: 4,
-              }}
-            >
-              <Space size={6}>
-                <Tag style={{ margin: 0, fontSize: 10 }}>{item.estimate_type?.toUpperCase()}</Tag>
-                <Text style={{ fontSize: 12 }}>{item.title || item.estimate_type}</Text>
-                {item.custom_amount != null && (
-                  <Text type="secondary" style={{ fontSize: 11 }}>{formatCurrency(item.custom_amount)}</Text>
-                )}
-              </Space>
-              <a
-                href={`${fileService.getDownloadUrl(item.custom_document_file_id)}?inline=true`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Button type="text" size="small" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />} style={{ fontSize: 11 }}>
-                  PDF
-                </Button>
-              </a>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Supplement Estimates — grouped by status, identified/in_progress first */}
+      {hasSupplements && (() => {
+        const STATUS_ORDER: string[] = ['identified', 'in_progress', 'submitted', 'under_review', 'approved', 'denied', 'withdrawn'];
+        const STATUS_LABELS: Record<string, string> = {
+          identified: 'Identified', in_progress: 'In Progress', submitted: 'Submitted',
+          under_review: 'Under Review', approved: 'Approved', denied: 'Denied', withdrawn: 'Withdrawn',
+        };
+        const grouped: Record<string, any[]> = {};
+        supplements.forEach((sup: any) => {
+          const st = sup.status || 'identified';
+          if (!grouped[st]) grouped[st] = [];
+          grouped[st].push(sup);
+        });
+        const orderedStatuses = STATUS_ORDER.filter(st => grouped[st]?.length > 0);
+
+        return (
+          <div style={{ marginBottom: 8 }}>
+            <Text strong style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>Supplement Estimates</Text>
+            {orderedStatuses.map(status => (
+              <div key={status} style={{ marginBottom: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <Tag color={(SUPPLEMENT_STATUS_COLORS as any)[status] || 'default'} style={{ margin: 0, fontSize: 11 }}>
+                    {STATUS_LABELS[status] || status}
+                  </Tag>
+                  <Text type="secondary" style={{ fontSize: 11 }}>({grouped[status].length})</Text>
+                </div>
+                {grouped[status].map((sup: any) => {
+                  const supBidItems = (sup.bid_items || []).filter((b: any) => b.custom_document_file_id);
+                  const totalAmount = sup.supplement_amount || sup.our_estimate_amount || 0;
+                  return (
+                    <div
+                      key={sup.id}
+                      style={{
+                        padding: '6px 10px', marginBottom: 4, borderRadius: 6,
+                        border: '1px solid #f0f0f0', background: '#fafafa',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                          <Text strong style={{ fontSize: 12 }}>{sup.title}</Text>
+                          {sup.request_type === 'estimate_request' && (
+                            <Tag color="geekblue" style={{ margin: 0, fontSize: 10 }}>Est. Request</Tag>
+                          )}
+                        </div>
+                        {totalAmount > 0 && (
+                          <Text strong style={{ fontSize: 12, flexShrink: 0 }}>{formatCurrency(totalAmount)}</Text>
+                        )}
+                      </div>
+                      {sup.reason && (
+                        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>{sup.reason}</Text>
+                      )}
+                      {/* Bid item PDFs under this supplement */}
+                      {supBidItems.length > 0 && (
+                        <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px dashed #e8e8e8' }}>
+                          {supBidItems.map((item: any) => (
+                            <div
+                              key={item.id}
+                              style={{
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                padding: '2px 6px', marginBottom: 2, background: '#fff', borderRadius: 4,
+                              }}
+                            >
+                              <Space size={6}>
+                                <Tag style={{ margin: 0, fontSize: 10 }}>{item.estimate_type?.toUpperCase()}</Tag>
+                                <Text style={{ fontSize: 11 }}>{item.title || item.estimate_type}</Text>
+                                {item.custom_amount != null && (
+                                  <Text type="secondary" style={{ fontSize: 11 }}>{formatCurrency(item.custom_amount)}</Text>
+                                )}
+                              </Space>
+                              <a
+                                href={`${fileService.getDownloadUrl(item.custom_document_file_id)}?inline=true`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <Button type="text" size="small" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />} style={{ fontSize: 11 }}>
+                                  PDF
+                                </Button>
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 };
