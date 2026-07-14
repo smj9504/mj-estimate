@@ -513,7 +513,7 @@ const ContractSigning: React.FC = () => {
       )}
 
       {/* ── PDF with Signature Field Overlays ── */}
-      {hasPositionedFields && !pdfLoading && renderedPages.length > 0 ? (
+      {pdfLoading ? null : hasPositionedFields && renderedPages.length > 0 ? (
         <div style={{ marginBottom: 24 }}>
           {renderedPages.map((page, pageIdx) => {
             const fieldsOnPage = sigFields.filter(f => f.pageIndex === pageIdx);

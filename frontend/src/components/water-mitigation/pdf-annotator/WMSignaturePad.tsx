@@ -307,10 +307,7 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
             Undo
           </Button>,
         ] : []),
-        <Button key="cancel" onClick={onClose}>
-          Cancel
-        </Button>,
-        <Button key="save" type="primary" icon={<CheckOutlined />} onClick={handleSave} disabled={!canSave}>
+        <Button key="save" type="primary" icon={<CheckOutlined />} onClick={handleSave} disabled={!canSave} block>
           Apply Signature
         </Button>,
       ]}
