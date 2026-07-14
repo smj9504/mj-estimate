@@ -651,10 +651,23 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     logger.error(f"[{request_id[:8]}] Validation error on {request.url}: {exc.errors()}")
     logger.error(f"[{request_id[:8]}] Request body: {exc.body}")
 
+    # Sanitize errors: convert non-serializable ctx values
+    errors = []
+    for err in exc.errors():
+        clean = {**err}
+        if 'ctx' in clean and isinstance(clean['ctx'], dict):
+            clean['ctx'] = {
+                k: str(v) if not isinstance(
+                    v, (str, int, float, bool, type(None))
+                ) else v
+                for k, v in clean['ctx'].items()
+            }
+        errors.append(clean)
+
     return JSONResponse(
         status_code=422,
         content={
-            "detail": exc.errors(),
+            "detail": errors,
             "body": str(exc.body),
             "message": "Request validation failed",
             "timestamp": datetime.utcnow().isoformat(),

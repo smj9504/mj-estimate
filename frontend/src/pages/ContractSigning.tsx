@@ -272,7 +272,7 @@ const ContractSigning: React.FC = () => {
     }) =>
       signingService.sign(token!, {
         signer_name: signerName.trim(),
-        signer_role: 'client',
+        signer_role: 'homeowner',
         signature_image: payload.signatureImage,
         signature_type: payload.signatureType || 'drawn',
         typed_name: payload.typedName,
