@@ -152,6 +152,7 @@ export interface ContractViewData {
   title?: string;
   company_name?: string;
   client_name?: string;
+  client_email?: string;
   template_name?: string;
   document_type?: string;
   file_url?: string;

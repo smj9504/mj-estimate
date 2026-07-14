@@ -118,6 +118,7 @@ class ContractInstanceRepository(SQLAlchemyRepository):
             d['company_phone'] = instance.company.phone
         if instance.client:
             d['client_name'] = instance.client.display_name
+            d['client_email'] = instance.client.email
         # Signatures
         sigs = self.db_session.query(ContractSignature).filter(
             ContractSignature.contract_instance_id == instance.id

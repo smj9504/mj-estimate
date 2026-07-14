@@ -224,6 +224,7 @@ class ContractViewResponse(BaseModel):
     title: Optional[str] = None
     company_name: Optional[str] = None
     client_name: Optional[str] = None
+    client_email: Optional[str] = None
     template_name: Optional[str] = None
     document_type: Optional[str] = None
     file_url: Optional[str] = None

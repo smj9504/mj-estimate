@@ -78,6 +78,7 @@ async def get_contract_for_signing(token: str, request: Request):
             title=contract.get('title'),
             company_name=contract.get('company_name'),
             client_name=contract.get('client_name'),
+            client_email=contract.get('client_email'),
             template_name=contract.get('template_name'),
             document_type=contract.get('document_type'),
             file_url=proxy_pdf_url,
@@ -345,6 +346,108 @@ async def get_contract_pdf_public(token: str):
         raise HTTPException(
             status_code=500, detail="Failed to load PDF"
         )
+
+
+@router.post("/{token}/send-copy")
+async def send_signed_copy(token: str, data: dict):
+    """
+    Public endpoint: Send signed PDF copy to specified email(s).
+    Body: { emails: string[] }
+    """
+    try:
+        emails = data.get('emails', [])
+        if not emails:
+            raise HTTPException(status_code=400, detail="At least one email is required")
+
+        # Validate emails
+        emails = [e.strip() for e in emails if e.strip() and '@' in e.strip()]
+        if not emails:
+            raise HTTPException(status_code=400, detail="No valid email addresses provided")
+
+        service = _get_service()
+        contract = service.get_by_token(token)
+        if not contract:
+            raise HTTPException(status_code=404, detail="Contract not found")
+
+        if contract.get('status') != 'signed':
+            raise HTTPException(status_code=400, detail="Contract has not been signed yet")
+
+        # Get signed PDF
+        signed_url = contract.get('signed_pdf_url') or contract.get('filled_pdf_url')
+        pdf_attachment = None
+        if signed_url:
+            from app.domains.contract.api import _resolve_contract_pdf
+            pdf_bytes = _resolve_contract_pdf(signed_url, contract.get('storage_provider'))
+            if pdf_bytes:
+                title_safe = (contract.get('title') or 'Contract').replace(' ', '_')
+                pdf_attachment = {
+                    'data': pdf_bytes,
+                    'filename': f"{title_safe}_Signed.pdf",
+                    'mime_type': 'application/pdf',
+                }
+
+        if not pdf_attachment:
+            raise HTTPException(status_code=404, detail="Signed PDF not available")
+
+        # Build email
+        company = contract.get('company_name', 'Our Company')
+        title = contract.get('title') or contract.get('template_name') or 'Contract'
+        client_name = contract.get('client_name', '')
+
+        subject = f"Signed Copy: {title} — {company}"
+        body_html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: #f0f7ff; border-radius: 8px; padding: 24px; margin-bottom: 20px; text-align: center;">
+                <div style="font-size: 32px; margin-bottom: 8px;">📄</div>
+                <h2 style="margin: 0; color: #1a1a1a;">{title}</h2>
+                <p style="color: #666; margin: 8px 0 0;">Signed Document Copy</p>
+            </div>
+            <p style="color: #333; line-height: 1.6;">
+                {f'Dear {client_name},' if client_name else 'Hello,'}
+            </p>
+            <p style="color: #333; line-height: 1.6;">
+                Please find attached a signed copy of <strong>{title}</strong>
+                from <strong>{company}</strong>.
+            </p>
+            <p style="color: #333; line-height: 1.6;">
+                Please keep this document for your records.
+            </p>
+            <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #eee; color: #999; font-size: 12px;">
+                <p>This email was sent from {company}.</p>
+            </div>
+        </div>
+        """
+
+        from app.domains.claim_followup.smtp_service import SmtpService
+        from app.core.config import settings
+
+        smtp = SmtpService()
+        smtp_user = getattr(settings, 'SMTP_USER', '')
+        if not smtp_user:
+            raise HTTPException(status_code=500, detail="Email service not configured")
+
+        company_email = contract.get('company_email', '')
+        reply_to = company_email or getattr(settings, 'SMTP_FROM_EMAIL', '') or smtp_user
+
+        smtp.send(
+            account_id=None,
+            from_address=smtp_user,
+            to_addresses=emails,
+            subject=subject,
+            body_html=body_html,
+            reply_to=reply_to,
+            skip_signature=True,
+            display_name_override=company,
+            attachments=[pdf_attachment],
+        )
+
+        return {"message": f"Signed copy sent to {len(emails)} recipient(s)", "emails": emails}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending signed copy: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to send email")
 
 
 def _generate_filled_pdf_bytes(

@@ -197,6 +197,11 @@ export const signingService = {
     const { data } = await api.post(`/api/sign/${token}`, payload);
     return data;
   },
+
+  async sendSignedCopy(token: string, emails: string[]) {
+    const { data } = await api.post(`/api/sign/${token}/send-copy`, { emails });
+    return data as { message: string; emails: string[] };
+  },
 };
 
 // ============================================================

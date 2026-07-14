@@ -29,6 +29,8 @@ import {
   EditOutlined,
   FileProtectOutlined,
   FormOutlined,
+  MailOutlined,
+  SendOutlined,
 } from '@ant-design/icons';
 import * as pdfjs from 'pdfjs-dist';
 import { signingService } from '../services/contractService';
@@ -103,6 +105,71 @@ const PageShell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     <div style={{ width: '100%', maxWidth: 780 }}>{children}</div>
   </div>
 );
+
+// ── Send Signed Copy Card ────────────────────────────────────────────────────
+
+const SendCopyCard: React.FC<{ token: string; clientEmail?: string }> = ({ token, clientEmail }) => {
+  const [email, setEmail] = useState(clientEmail || '');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const handleSend = async () => {
+    const emails = email.split(/[,;\n]+/).map(e => e.trim()).filter(e => e && e.includes('@'));
+    if (emails.length === 0) {
+      message.warning('Please enter a valid email address.');
+      return;
+    }
+    setSending(true);
+    try {
+      await signingService.sendSignedCopy(token, emails);
+      message.success(`Signed copy sent to ${emails.join(', ')}`);
+      setSent(true);
+    } catch {
+      message.error('Failed to send email. Please try again.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Card
+      size="small"
+      style={{ marginTop: 24, borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <MailOutlined style={{ color: '#1677ff' }} />
+        <Text strong>Send a signed copy via email</Text>
+      </div>
+      {sent ? (
+        <Alert type="success" message={`Signed copy sent to ${email}`} showIcon />
+      ) : (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Input
+            placeholder="Enter email address"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            onPressEnter={handleSend}
+            disabled={sending}
+            style={{ flex: 1 }}
+          />
+          <Button
+            type="primary"
+            icon={<SendOutlined />}
+            onClick={handleSend}
+            loading={sending}
+          >
+            Send
+          </Button>
+        </div>
+      )}
+      {!sent && (
+        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
+          Separate multiple emails with commas.
+        </Text>
+      )}
+    </Card>
+  );
+};
 
 // ── Signature Field Overlay ───────────────────────────────────────────────────
 
@@ -436,6 +503,7 @@ const ContractSigning: React.FC = () => {
               A copy will be retained by <strong>{contract.company_name}</strong>.
             </Paragraph>
           )}
+          <SendCopyCard token={token!} clientEmail={contract.client_email} />
         </div>
       </PageShell>
     );
@@ -501,6 +569,11 @@ const ContractSigning: React.FC = () => {
           }
           style={{ marginBottom: 24, borderRadius: 8 }}
         />
+      )}
+
+      {/* Send signed copy (for already signed contracts) */}
+      {isAlreadySigned && !sigSuccess && (
+        <SendCopyCard token={token!} clientEmail={contract.client_email} />
       )}
 
       {/* Name input removed from here — moved into submit section */}
