@@ -985,6 +985,7 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
         field_map = {m.get('id'): m for m in mappings}
 
         # Resolve source PDF (prefer filled, fallback to template)
+        has_filled = bool(contract.get('filled_pdf_url'))
         pdf_url = (
             contract.get('filled_pdf_url')
             or contract.get('file_url')
@@ -1008,6 +1009,33 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                 return None
             pdf_bytes = local.read_bytes()
 
+        # If no filled PDF, also overlay text fields from prefill_data
+        prefill = {}
+        if not has_filled:
+            raw_prefill = contract.get('prefill_data')
+            if raw_prefill:
+                if isinstance(raw_prefill, str):
+                    try:
+                        prefill = json.loads(raw_prefill)
+                    except Exception:
+                        pass
+                elif isinstance(raw_prefill, dict):
+                    prefill = raw_prefill
+
+        # Group text fields by page (only when no filled PDF)
+        page_texts: Dict[int, list] = {}
+        if not has_filled and prefill:
+            sig_prefixes = ('signature.', 'initial.', 'date_signed.')
+            for m in mappings:
+                fk = m.get('fieldKey', '')
+                if any(fk.startswith(p) for p in sig_prefixes):
+                    continue
+                value = self._resolve_field_value(prefill, fk)
+                if not value:
+                    continue
+                pg = m.get('pageIndex', 0)
+                page_texts.setdefault(pg, []).append((m, value))
+
         reader = PdfReader(BytesIO(pdf_bytes))
         writer = PdfWriter()
 
@@ -1028,10 +1056,37 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
             pw = float(page_box.width)
             ph = float(page_box.height)
 
+            texts_on_page = page_texts.get(page_num, [])
             sigs_on_page = page_sigs.get(page_num, [])
-            if sigs_on_page:
+            if texts_on_page or sigs_on_page:
                 overlay_buf = BytesIO()
                 c = rl_canvas.Canvas(overlay_buf, pagesize=(pw, ph))
+
+                # Overlay text fields first
+                from reportlab.pdfbase.pdfmetrics import stringWidth
+                for m, value in texts_on_page:
+                    fx = m.get('x', 0) * pw
+                    fw = m.get('width', 0.25) * pw
+                    fh = m.get('height', 0.03) * ph
+                    fy = ph - (m.get('y', 0) * ph) - fh
+                    fs = m.get('fontSize', 12)
+                    fc = m.get('fontColor', '#000000')
+                    try:
+                        r = int(fc[1:3], 16) / 255
+                        g = int(fc[3:5], 16) / 255
+                        b = int(fc[5:7], 16) / 255
+                        c.setFillColorRGB(r, g, b)
+                    except Exception:
+                        c.setFillColorRGB(0, 0, 0)
+                    usable = fw - 4
+                    sz = fs
+                    while sz > 5:
+                        if stringWidth(value, "Helvetica", sz) <= usable:
+                            break
+                        sz -= 0.5
+                    c.setFont("Helvetica", sz)
+                    ty = fy + (fh - sz) / 2
+                    c.drawString(fx + 2, ty, value)
 
                 for mapping, img_data in sigs_on_page:
                     fx = mapping.get('x', 0) * pw
