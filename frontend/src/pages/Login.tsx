@@ -66,7 +66,7 @@ const Login: React.FC = () => {
                 <path d="M40 44H44V52H40V44Z" fill="white" opacity="0.7"/>
               </svg>
             </div>
-            <Title level={2} style={{ marginTop: 0 }}>BuildWorks</Title>
+            <Title level={2} style={{ marginTop: 0 }}>SimpleWorks</Title>
             <Text type="secondary">Sign in to your account</Text>
           </div>
 

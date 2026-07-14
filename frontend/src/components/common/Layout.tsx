@@ -468,7 +468,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           padding: collapsed ? '0' : '0 16px',
           fontSize: collapsed ? '16px' : '20px',
         }}>
-          {collapsed ? 'BW' : 'BuildWorks'}
+          {collapsed ? 'SW' : 'SimpleWorks'}
           {!collapsed && (
             <Button
               type="text"
