@@ -335,36 +335,24 @@ class BathroomEstimateService:
         if not estimate:
             return
 
+        # O&P is already absorbed into line item pricing by the calculator.
+        # This method just re-sums from current line items.
         subtotal = sum(li.total for li in estimate.line_items)
-        include_op = getattr(estimate, 'include_overhead_profit', False) or False
-        overhead_pct = estimate.overhead_pct if estimate.overhead_pct is not None else 0.10
-        profit_pct = estimate.profit_pct if estimate.profit_pct is not None else 0.10
 
-        if include_op:
-            overhead = round(subtotal * overhead_pct, 2)
-            profit = round(subtotal * profit_pct, 2)
-        else:
-            overhead = 0
-            profit = 0
-
-        total = round((subtotal + overhead + profit) / 10) * 10
+        total = round(subtotal / 10) * 10
         # Absorb rounding difference into largest line item
-        _raw = subtotal + overhead + profit
-        _diff = round(total - _raw, 2)
+        _diff = round(total - subtotal, 2)
         if _diff != 0 and estimate.line_items:
             _lg = max(estimate.line_items, key=lambda x: x.total)
             _lg.total = round(_lg.total + _diff, 2)
             if _lg.quantity:
                 _lg.unit_price = round(_lg.total / _lg.quantity, 2)
             subtotal = sum(li.total for li in estimate.line_items)
-            if include_op:
-                overhead = round(subtotal * overhead_pct, 2)
-                profit = round(subtotal * profit_pct, 2)
-            total = round(subtotal + overhead + profit, 2)
+            total = round(subtotal, 2)
         self.estimate_repo.update(estimate_id, {
             "subtotal": subtotal,
-            "overhead": overhead,
-            "profit": profit,
+            "overhead_amount": 0,
+            "profit_amount": 0,
             "total": total,
         })
         self.session.flush()

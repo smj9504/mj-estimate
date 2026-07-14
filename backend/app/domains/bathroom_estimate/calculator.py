@@ -362,6 +362,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             demo_total += cost
             demo_parts.append(f"Cement board {cb_repair_sf:.0f}SF ${cost:,.2f}")
 
+    has_tile_demo = demo_floor or demo_walls or demo_ceiling
+
     if demo_total > 0:
         has_fixture_replace = (estimate.replace_tub or estimate.replace_shower
                                or estimate.replace_vanity or estimate.replace_toilet
@@ -394,7 +396,6 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     #   - D&R fixtures: ~0.2 CY each (packaging, old hardware, sealant)
     hc = estimate.hidden_costs or {}
 
-    has_tile_demo = demo_floor or demo_walls or demo_ceiling
     has_fixture_replace = (estimate.replace_tub or estimate.replace_shower
                            or estimate.replace_vanity or estimate.replace_toilet)
     has_demo = has_tile_demo or has_fixture_replace
@@ -1912,14 +1913,14 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         _add(line_items, 2, "Electrical inspection fee", 1, "EA",
              ELECTRICAL_RATES["electrical_inspection_fee"], "electrical")
 
-    if elec.get("megohmmeter_check", True):
+    if elec.get("megohmmeter_check", False):
         _add(line_items, 2,
              "Megohmmeter check - electrical circuits",
              1, "EA",
              ELECTRICAL_RATES["megohmmeter_check"],
              "electrical",
-             notes="Insulation resistance test on all "
-                   "circuits in water-damaged area")
+             notes="Insulation resistance test on circuits "
+                   "serving water-damaged area")
 
     # ────────────────────────────────────────
     # Phase 6: Finish (Paint, Trim, Caulk)
@@ -2567,19 +2568,29 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     # ────────────────────────────────────────
     # Totals
     # ────────────────────────────────────────
-    subtotal = sum(li["total"] for li in line_items)
 
     # O&P (optional per user request)
+    # When enabled, O&P is absorbed into each line item's unit_price
+    # so it does NOT appear as a separate line on the PDF.
     include_op = getattr(estimate, "include_overhead_profit", False) or False
     overhead_pct = estimate.overhead_pct if estimate.overhead_pct is not None else 0.10
     profit_pct = estimate.profit_pct if estimate.profit_pct is not None else 0.10
 
     if include_op:
-        overhead_amount = round(subtotal * overhead_pct, 2)
-        profit_amount = round(subtotal * profit_pct, 2)
-    else:
-        overhead_amount = 0
-        profit_amount = 0
+        op_multiplier = 1 + overhead_pct + profit_pct
+        for item in line_items:
+            item["unit_price"] = round(item["unit_price"] * op_multiplier, 2)
+            item["total"] = round(item["quantity"] * item["unit_price"], 2)
+            if item.get("notes"):
+                item["notes"] = _scale_dollar_amounts(
+                    item["notes"], op_multiplier
+                )
+
+    subtotal = sum(li["total"] for li in line_items)
+
+    # O&P is already absorbed into line items — display amounts are 0
+    overhead_amount = 0
+    profit_amount = 0
 
     # Sales tax on material portion (~50% of subtotal is material)
     state = estimate.state or "MD"
@@ -2587,7 +2598,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     material_portion = subtotal * 0.50  # rough split
     tax_amount = round(material_portion * tax_rate, 2)
 
-    total = round(subtotal + overhead_amount + profit_amount + tax_amount, 2)
+    total = round(subtotal + tax_amount, 2)
 
     # ────────────────────────────────────────
     # Round total to nearest $10 for clean pricing
@@ -2603,14 +2614,9 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 _lg["total"] / _lg["quantity"], 2
             )
         subtotal = sum(item["total"] for item in line_items)
-        if include_op:
-            overhead_amount = round(subtotal * overhead_pct, 2)
-            profit_amount = round(subtotal * profit_pct, 2)
         material_portion = subtotal * 0.50
         tax_amount = round(material_portion * tax_rate, 2)
-        total = round(
-            subtotal + overhead_amount + profit_amount + tax_amount, 2
-        )
+        total = round(subtotal + tax_amount, 2)
 
     # ────────────────────────────────────────
     # Target total adjustment (reverse pricing)
@@ -2632,12 +2638,9 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
         # Recalculate totals with adjusted line items
         subtotal = sum(item["total"] for item in line_items)
-        if include_op:
-            overhead_amount = round(subtotal * overhead_pct, 2)
-            profit_amount = round(subtotal * profit_pct, 2)
         material_portion = subtotal * 0.50
         tax_amount = round(material_portion * tax_rate, 2)
-        total = round(subtotal + overhead_amount + profit_amount + tax_amount, 2)
+        total = round(subtotal + tax_amount, 2)
 
         # Fix rounding drift: adjust largest line item to hit target exactly
         rounding_diff = round(target_total - total, 2)
@@ -2656,12 +2659,9 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                     largest["notes"], _sec_factor
                 )
             subtotal = sum(item["total"] for item in line_items)
-            if include_op:
-                overhead_amount = round(subtotal * overhead_pct, 2)
-                profit_amount = round(subtotal * profit_pct, 2)
             material_portion = subtotal * 0.50
             tax_amount = round(material_portion * tax_rate, 2)
-            total = round(subtotal + overhead_amount + profit_amount + tax_amount, 2)
+            total = round(subtotal + tax_amount, 2)
 
     # Methodology notes
     method_parts = [
@@ -2669,7 +2669,10 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         f"Sales tax: {tax_rate*100:.1f}% on estimated material portion",
     ]
     if include_op:
-        method_parts.append(f"O&P: {overhead_pct*100:.0f}% overhead + {profit_pct*100:.0f}% profit")
+        method_parts.append(
+            f"O&P: {overhead_pct*100:.0f}% + {profit_pct*100:.0f}% "
+            f"(included in line item pricing)"
+        )
     else:
         method_parts.append("O&P: Not included (contractor direct pricing)")
     if adjustment_factor:

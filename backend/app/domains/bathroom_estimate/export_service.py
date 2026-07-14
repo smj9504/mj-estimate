@@ -353,13 +353,7 @@ class BathroomExportService:
         subtotal = estimate.get("subtotal", 0)
         summary_data.append(["", "Subtotal", f"${subtotal:,.2f}"])
 
-        if estimate.get("include_overhead_profit"):
-            oh = estimate.get("overhead_amount", 0)
-            pr = estimate.get("profit_amount", 0)
-            oh_pct = estimate.get("overhead_pct", 0.10)
-            pr_pct = estimate.get("profit_pct", 0.10)
-            summary_data.append(["", f"Overhead ({oh_pct*100:.0f}%)", f"${oh:,.2f}"])
-            summary_data.append(["", f"Profit ({pr_pct*100:.0f}%)", f"${pr:,.2f}"])
+        # O&P is absorbed into line item pricing — not shown separately on PDF
 
         tax = estimate.get("tax_amount", 0)
         if tax > 0:

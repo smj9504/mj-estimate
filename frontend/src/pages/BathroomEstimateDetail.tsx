@@ -218,7 +218,7 @@ const BathroomEstimateDetail: React.FC = () => {
       estimate.plumbing_spec = estimate.plumbing_spec || {};
       estimate.electrical_spec = {
         ...(estimate.electrical_spec || {}),
-        megohmmeter_check: (estimate.electrical_spec || {}).megohmmeter_check ?? true,
+        megohmmeter_check: (estimate.electrical_spec || {}).megohmmeter_check ?? false,
       };
       estimate.substrate_spec = estimate.substrate_spec || {};
       estimate.walls_spec = {
@@ -2542,16 +2542,11 @@ const BathroomEstimateDetail: React.FC = () => {
                         <Col><Text strong>${(estimate?.subtotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text></Col>
                       </Row>
                       {estimate?.include_overhead_profit && (
-                        <>
-                          <Row justify="space-between">
-                            <Col><Text>Overhead ({((estimate?.overhead_pct || 0) * 100).toFixed(0)}%)</Text></Col>
-                            <Col><Text>${(estimate?.overhead_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text></Col>
-                          </Row>
-                          <Row justify="space-between">
-                            <Col><Text>Profit ({((estimate?.profit_pct || 0) * 100).toFixed(0)}%)</Text></Col>
-                            <Col><Text>${(estimate?.profit_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text></Col>
-                          </Row>
-                        </>
+                        <Row justify="space-between">
+                          <Col><Text type="secondary" style={{ fontSize: 12 }}>
+                            O&P {((estimate?.overhead_pct || 0) * 100).toFixed(0)}% + {((estimate?.profit_pct || 0) * 100).toFixed(0)}% (included in line items)
+                          </Text></Col>
+                        </Row>
                       )}
                       <Row justify="space-between">
                         <Col><Text>Sales Tax (material)</Text></Col>

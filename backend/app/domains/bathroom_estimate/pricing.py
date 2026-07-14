@@ -21,11 +21,11 @@ DEMO_RATES = {
     "ceiling_per_sf": 2.00,           # ceiling demo
 
     # Per-fixture demo (labor, disconnect + remove + haul)
-    "bathtub_standard": 125,          # standard acrylic/fiberglass
+    "bathtub_standard": 200,          # standard acrylic/fiberglass ($200-$500, HomeGuide 2026)
     "bathtub_cast_iron": 325,         # cast iron (heavy, needs crew)
     "shower_surround": 150,           # prefab surround removal
     "shower_custom_tile": 250,        # custom tile shower tear-out
-    "vanity": 85,                     # vanity + top removal
+    "vanity": 150,                    # vanity + top removal + haul ($150-$500, Angi 2026)
     "pedestal_sink": 55,              # pedestal sink disconnect + remove
     "wall_mount_sink": 50,            # wall-mount sink disconnect + remove
     "toilet": 60,                     # toilet disconnect + remove
@@ -51,15 +51,15 @@ DEMO_RATES = {
 # For like-for-like replacement, much less than full rough-in
 PLUMBING_RATES = {
     # Per-unit costs (material + labor)
-    "shutoff_valve_each": 135,        # quarter-turn ball valve replacement ($80-$200, Angi)
+    "shutoff_valve_each": 185,        # quarter-turn ball valve replacement ($150-$335, HomeWyse 2026)
     "supply_line_each": 65,           # braided stainless flex line
-    "p_trap_each": 95,                # P-trap replacement
+    "p_trap_each": 175,               # P-trap replacement ($200-$325, HomeAdvisor 2026; on-site discount)
     "drain_modification": 350,        # drain line modification
     "pressure_balance_valve": 425,    # code-required shower valve ($300-$550)
     "rough_inspection_fee": 150,      # county inspection fee
 
     # Fixture connection labor (licensed plumber, per fixture)
-    "toilet_set": 295,                # toilet install (set, wax ring, bolt, connect, test; $225-$375 Angi 2026)
+    "toilet_set": 350,                # toilet install (set, wax ring, bolt, connect, test; $275-$530 HomeWyse 2026)
     "vanity_faucet_install": 225,     # faucet install ($200-$250; simplest plumbing task)
     "tub_faucet_install": 400,        # tub faucet/valve install (access panel, connect, test)
     "shower_valve_trim": 325,         # shower trim kit install (existing valve)
@@ -213,10 +213,10 @@ BATHTUB_PRICES = {
 }
 
 BATHTUB_INSTALL = {
-    "alcove": 575,                    # standard install (set, level, seal, connect)
-    "drop_in": 850,                   # deck mount, more plumber time + framing
-    "freestanding": 975,              # floor mount, filler, drain alignment
-    "walk_in": 1500,                  # complex install + electrical + ADA compliance
+    "alcove": 675,                    # standard install (set, level, seal, connect; $500-$1,500 HomeGuide 2026)
+    "drop_in": 950,                   # deck mount, more plumber time + framing
+    "freestanding": 1100,             # floor mount, filler, drain alignment
+    "walk_in": 1650,                  # complex install + electrical + ADA compliance
 }
 
 BATHTUB_EXTRAS = {
@@ -253,9 +253,9 @@ SHOWER_DOOR_PRICES = {
     "semi_frameless_sliding": {
         48: 450, 60: 550, 72: 650,
     },
-    # Frameless sliding ($800-$1,600 installed)
+    # Frameless sliding ($1,000-$2,500 installed, Angi 2026)
     "frameless_sliding": {
-        48: 700, 60: 850, 72: 1000,
+        48: 900, 60: 1050, 72: 1250,
     },
     # Framed pivot ($400-$1,100 installed)
     "framed_pivot": {
@@ -265,9 +265,9 @@ SHOWER_DOOR_PRICES = {
     "semi_frameless_pivot": {
         28: 400, 32: 475, 36: 550,
     },
-    # Frameless pivot ($600-$1,900 installed)
+    # Frameless pivot ($1,000-$3,500 installed, Angi 2026)
     "frameless_pivot": {
-        28: 650, 32: 800, 36: 950,
+        28: 900, 32: 1100, 36: 1350,
     },
     # Fixed panel / half wall glass
     "fixed_panel": {
@@ -345,10 +345,10 @@ NEO_ANGLE_DOOR_PRICES = {
         32: 550, 36: 650, 38: 750,
         42: 900, 48: 1100,
     },
-    # Frameless ($800-$2,500+ installed)
+    # Frameless ($1,200-$3,500+ installed, Angi 2026)
     "frameless_neo_angle": {
-        32: 800, 36: 950, 38: 1100,
-        42: 1350, 48: 1650,
+        32: 1050, 36: 1250, 38: 1450,
+        42: 1750, 48: 2100,
     },
 }
 
@@ -443,7 +443,7 @@ VANITY_TOP_PRICES = {
     "laminate": 5,
 }
 
-VANITY_INSTALL = 350                  # labor to install vanity (set, level, secure, cutouts)
+VANITY_INSTALL = 475                  # labor to install vanity (set, level, secure, cutouts; $400-$870 HomeWyse 2026)
 
 VANITY_EXTRAS = {
     "wall_mount_blocking": 225,       # wood blocking for floating vanity (framing work)
@@ -503,10 +503,10 @@ TOILET_EXTRAS = {
 # ──────────────────────────────────────────────
 # Sources: Fixr painter $2-$7/SF, HomeGuide baseboard $1-$3.50/LF
 PAINT_RATES = {
-    "seal_prime_per_sf": 1.50,        # seal & prime repaired drywall only (PVA primer, 1 coat)
-    "wall_per_sf": 3.25,              # paint walls (prep + 2 coats, sub-contractor rate on remodel)
-    "ceiling_per_sf": 3.50,           # ceiling paint (overhead premium)
-    "trim_per_lf": 3.75,             # baseboard/trim paint ($2.30-$4.88/LF, HomeWyse)
+    "seal_prime_per_sf": 1.50,        # seal & prime repaired drywall only
+    "wall_per_sf": 4.50,              # paint walls (prep + 2 coats; $4-$9/SF HomeWyse 2026)
+    "ceiling_per_sf": 4.75,           # ceiling paint (overhead premium)
+    "trim_per_lf": 3.75,              # baseboard/trim paint ($2.30-$4.88/LF)
 }
 
 PAINT_PREP = {
