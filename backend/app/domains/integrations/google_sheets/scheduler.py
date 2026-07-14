@@ -6,6 +6,8 @@ Google Sheets 자동 동기화 스케줄러
 - 그 외 시간 (비근무 시간): 6시간마다 동기화
 """
 
+import asyncio
+
 from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime
 import logging
@@ -31,79 +33,66 @@ def is_business_hours() -> bool:
     return 9 <= us_time.hour < 18
 
 
+def _sync_sheets_blocking() -> dict:
+    """Run the Google Sheets sync in a thread pool (blocking I/O + DB)."""
+    is_business = is_business_hours()
+    us_time = datetime.now(US_EASTERN_TZ)
+    schedule_type = "business hours (1hr)" if is_business else "off-hours (6hr)"
+    sheet_names = settings.water_mitigation_sheet_names
+    am_pm = "PM" if us_time.hour >= 12 else "AM"
+    logger.info(
+        f"Starting scheduled Google Sheets sync [{schedule_type}] - "
+        f"US Time: {us_time.strftime('%I:%M')} {am_pm}, "
+        f"Sheets: {sheet_names}"
+    )
+
+    database = get_database()
+    db = database.get_session()
+    try:
+        sync_service = GoogleSheetsSyncService(
+            db,
+            settings.GOOGLE_SHEETS_WATER_MITIGATION_ID
+        )
+        # sync_multiple_sheets is async, run it in a new event loop inside this thread
+        stats = asyncio.run(sync_service.sync_multiple_sheets(
+            sheet_names=sheet_names,
+            skip_header=True
+        ))
+        logger.info(
+            f"Scheduled sync completed [{schedule_type}]: "
+            f"sheets={len(sheet_names)}, "
+            f"processed={stats['processed']}, "
+            f"created={stats['created']}, "
+            f"updated={stats['updated']}, "
+            f"failed={stats['failed']}"
+        )
+        return stats
+    finally:
+        db.close()
+
+
 async def sync_google_sheets_job():
     """
-    정기 동기화 작업 (백그라운드 실행)
+    정기 동기화 작업 (스레드풀에서 실행하여 이벤트 루프 블로킹 방지)
     - 근무 시간 (9am-6pm ET): 1시간마다
     - 비근무 시간: 6시간마다
-
-    Note: asyncio.create_task()로 백그라운드 실행하여 API 블로킹 방지
     """
     if not settings.GOOGLE_SHEETS_WATER_MITIGATION_ID:
         logger.warning("Google Sheets ID not configured, skipping sync")
         return
 
     is_business = is_business_hours()
-
-    # 백그라운드 태스크로 실행 (블로킹 방지)
-    import asyncio
-    asyncio.create_task(_run_sync_in_background(is_business))
-
     schedule_type = "business hours (60min)" if is_business else "off-hours (360min)"
-    logger.info(f"Google Sheets sync task started in background [{schedule_type}]")
+    logger.info(f"Google Sheets sync task started [{schedule_type}]")
+
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _sync_sheets_blocking)
+    except Exception as e:
+        logger.error(f"Background sync failed: {e}", exc_info=True)
 
     # 다음 실행 스케줄 조정 (동적 변경)
     _update_schedule_if_needed()
-
-
-async def _run_sync_in_background(is_business: bool):
-    """
-    백그라운드에서 실제 동기화 실행 (다중 시트 지원)
-
-    Args:
-        is_business: 근무 시간 여부
-    """
-    try:
-        us_time = datetime.now(US_EASTERN_TZ)
-        schedule_type = "business hours (1hr)" if is_business else "off-hours (6hr)"
-        sheet_names = settings.water_mitigation_sheet_names
-        am_pm = "PM" if us_time.hour >= 12 else "AM"
-        logger.info(
-            f"Starting scheduled Google Sheets sync [{schedule_type}] - "
-            f"US Time: {us_time.strftime('%I:%M')} {am_pm}, "
-            f"Sheets: {sheet_names}"
-        )
-
-        # 데이터베이스 세션 생성
-        database = get_database()
-        db = database.get_session()
-
-        try:
-            # 동기화 서비스 생성
-            sync_service = GoogleSheetsSyncService(
-                db,
-                settings.GOOGLE_SHEETS_WATER_MITIGATION_ID
-            )
-
-            # 다중 시트 동기화 실행
-            stats = await sync_service.sync_multiple_sheets(
-                sheet_names=sheet_names,
-                skip_header=True
-            )
-
-            logger.info(
-                f"Scheduled sync completed [{schedule_type}]: "
-                f"sheets={len(sheet_names)}, "
-                f"processed={stats['processed']}, "
-                f"created={stats['created']}, "
-                f"updated={stats['updated']}, "
-                f"failed={stats['failed']}"
-            )
-        finally:
-            db.close()
-
-    except Exception as e:
-        logger.error(f"Background sync failed: {e}", exc_info=True)
 
 
 def _update_schedule_if_needed():

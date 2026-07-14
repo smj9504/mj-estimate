@@ -3,9 +3,11 @@ Public signing API - NO authentication required.
 Accessed via signing token URL.
 """
 
+import asyncio
 import json
 import logging
 from datetime import datetime
+from functools import partial
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -259,9 +261,13 @@ async def sign_contract(token: str, data: SigningRequest, request: Request):
                 },
             )
 
-        # Send signed PDF notification emails (async, don't block response)
+        # Send signed PDF notification emails in thread pool (don't block response)
         try:
-            _send_signed_notification(service, token, data.signer_name)
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(
+                None,
+                partial(_send_signed_notification, service, token, data.signer_name),
+            )
         except Exception as e:
             logger.warning(f"Post-signing email notification failed: {e}")
 

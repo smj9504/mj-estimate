@@ -25,12 +25,15 @@ def _is_business_hours() -> bool:
     return 9 <= us_time.hour < 18
 
 
+def _sync_check_replies() -> dict:
+    """Run the synchronous IMAP reply check (called in thread pool)."""
+    from app.domains.claim_followup.reply_tracker import ReplyTracker
+    tracker = ReplyTracker()
+    return tracker.check_replies()
+
+
 async def check_replies_job():
     """Periodic job to check for email replies."""
-    asyncio.create_task(_run_check_in_background())
-
-
-async def _run_check_in_background():
     try:
         us_time = datetime.now(US_EASTERN_TZ)
 
@@ -45,9 +48,8 @@ async def _run_check_in_background():
             f"{us_time.strftime('%Y-%m-%d %I:%M %p')} ET"
         )
 
-        from app.domains.claim_followup.reply_tracker import ReplyTracker
-        tracker = ReplyTracker()
-        result = tracker.check_replies()
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, _sync_check_replies)
 
         logger.info(
             f"Reply check completed: "
