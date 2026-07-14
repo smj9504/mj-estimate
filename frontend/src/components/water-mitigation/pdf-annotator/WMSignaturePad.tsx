@@ -6,7 +6,7 @@
  */
 
 import React, { useRef, useState, useCallback, useEffect } from 'react';
-import { Modal, Button, Slider, Typography, Tabs, Input } from 'antd';
+import { Modal, Button, Typography, Tabs, Input } from 'antd';
 import {
   ClearOutlined, CheckOutlined, UndoOutlined,
   EditOutlined, FontSizeOutlined,
@@ -51,7 +51,6 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
   // Draw mode state
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [penWidth, setPenWidth] = useState(2);
   const [hasDrawn, setHasDrawn] = useState(false);
   const [history, setHistory] = useState<ImageData[]>([]);
 
@@ -165,7 +164,7 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
     const { x, y } = getPos(e);
     ctx.beginPath();
     ctx.moveTo(x, y);
-    ctx.lineWidth = penWidth;
+    ctx.lineWidth = 2;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.strokeStyle = '#000000';
@@ -294,146 +293,148 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
 
   return (
     <Modal
-      title="Signature"
+      title={null}
       open={open}
       onCancel={onClose}
-      width={580}
-      footer={[
-        ...(activeTab === 'draw' ? [
-          <Button key="clear" icon={<ClearOutlined />} onClick={clearCanvas}>
-            Clear
-          </Button>,
-          <Button key="undo" icon={<UndoOutlined />} onClick={undo} disabled={history.length === 0}>
-            Undo
-          </Button>,
-        ] : []),
-        <Button key="save" type="primary" icon={<CheckOutlined />} onClick={handleSave} disabled={!canSave} block>
-          Apply Signature
-        </Button>,
-      ]}
+      width={540}
+      footer={null}
+      styles={{ body: { padding: 0 } }}
     >
-      <Tabs
-        activeKey={activeTab}
-        onChange={(key) => setActiveTab(key as 'draw' | 'type')}
-        items={[
-          {
-            key: 'draw',
-            label: (
-              <span><EditOutlined /> Draw</span>
-            ),
-            children: (
-              <div style={{ textAlign: 'center' }}>
-                <canvas
-                  ref={canvasRef}
-                  width={CANVAS_WIDTH}
-                  height={CANVAS_HEIGHT}
-                  style={{
-                    border: '1px solid #d9d9d9',
-                    borderRadius: 8,
-                    cursor: 'crosshair',
-                    touchAction: 'none',
-                    width: '100%',
-                    maxWidth: CANVAS_WIDTH,
-                    background: '#fff',
-                  }}
-                  onMouseDown={startDrawing}
-                  onMouseMove={draw}
-                  onMouseUp={stopDrawing}
-                  onMouseLeave={stopDrawing}
-                  onTouchStart={startDrawing}
-                  onTouchMove={draw}
-                  onTouchEnd={stopDrawing}
-                />
-                <div style={{
-                  marginTop: 12,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  justifyContent: 'center',
-                }}>
-                  <Text style={{ whiteSpace: 'nowrap' }}>Pen Width:</Text>
-                  <Slider
-                    min={1}
-                    max={6}
-                    value={penWidth}
-                    onChange={setPenWidth}
-                    style={{ width: 150 }}
-                  />
-                  <Text type="secondary">{penWidth}px</Text>
-                </div>
-              </div>
-            ),
-          },
-          {
-            key: 'type',
-            label: (
-              <span><FontSizeOutlined /> Type</span>
-            ),
-            children: (
-              <div>
-                <Input
-                  placeholder="Type your name..."
-                  value={typedName}
-                  onChange={(e) => setTypedName(e.target.value)}
-                  style={{ marginBottom: 16 }}
-                  size="large"
-                  autoFocus={activeTab === 'type'}
-                />
+      {/* Header */}
+      <div style={{ padding: '16px 24px 0', borderBottom: '1px solid #f0f0f0' }}>
+        <Tabs
+          activeKey={activeTab}
+          onChange={(key) => setActiveTab(key as 'draw' | 'type')}
+          style={{ marginBottom: 0 }}
+          items={[
+            { key: 'draw', label: <span><EditOutlined /> Draw</span> },
+            { key: 'type', label: <span><FontSizeOutlined /> Type</span> },
+          ]}
+        />
+      </div>
 
-                {/* Font Selection */}
-                <div style={{
-                  display: 'flex',
-                  gap: 8,
-                  marginBottom: 16,
-                  flexWrap: 'wrap',
-                }}>
-                  {SIGNATURE_FONTS.map((font) => (
-                    <Button
-                      key={font.label}
-                      type={selectedFont === font.value ? 'primary' : 'default'}
-                      onClick={() => setSelectedFont(font.value)}
-                      style={{
-                        fontFamily: font.value,
-                        fontSize: 16,
-                        height: 'auto',
-                        padding: '4px 12px',
-                      }}
-                    >
-                      {font.label}
-                    </Button>
-                  ))}
-                </div>
-
-                {/* Preview */}
-                <div style={{
-                  border: '1px solid #d9d9d9',
-                  borderRadius: 8,
-                  padding: '24px 20px',
-                  minHeight: 80,
-                  display: 'flex',
-                  alignItems: 'center',
+      {/* Content */}
+      <div style={{ padding: '20px 24px' }}>
+        {activeTab === 'draw' ? (
+          <div>
+            {/* Canvas */}
+            <div style={{
+              border: '2px solid #e8e8e8',
+              borderRadius: 10,
+              overflow: 'hidden',
+              background: '#fff',
+            }}>
+              <canvas
+                ref={canvasRef}
+                width={CANVAS_WIDTH}
+                height={CANVAS_HEIGHT}
+                style={{
+                  cursor: 'crosshair',
+                  touchAction: 'none',
+                  width: '100%',
+                  display: 'block',
                   background: '#fff',
-                }}>
-                  {typedName.trim() ? (
-                    <span style={{
-                      fontFamily: selectedFont,
-                      fontSize: 48,
-                      color: '#000',
-                      lineHeight: 1,
-                    }}>
-                      {typedName}
-                    </span>
-                  ) : (
-                    <Text type="secondary">
-                      Your signature will appear here
-                    </Text>
-                  )}
-                </div>
-              </div>
-            ),
-          },
-        ]}
-      />
+                }}
+                onMouseDown={startDrawing}
+                onMouseMove={draw}
+                onMouseUp={stopDrawing}
+                onMouseLeave={stopDrawing}
+                onTouchStart={startDrawing}
+                onTouchMove={draw}
+                onTouchEnd={stopDrawing}
+              />
+            </div>
+
+            {/* Toolbar below canvas */}
+            <div style={{
+              marginTop: 10,
+              display: 'flex',
+              gap: 6,
+            }}>
+              <Button
+                size="small"
+                icon={<UndoOutlined />}
+                onClick={undo}
+                disabled={history.length === 0}
+              >
+                Undo
+              </Button>
+              <Button
+                size="small"
+                icon={<ClearOutlined />}
+                onClick={clearCanvas}
+                disabled={!hasDrawn}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <Input
+              placeholder="Type your name..."
+              value={typedName}
+              onChange={(e) => setTypedName(e.target.value)}
+              size="large"
+              autoFocus
+              style={{ marginBottom: 12 }}
+            />
+
+            {/* Font Selection */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+              {SIGNATURE_FONTS.map((font) => (
+                <Button
+                  key={font.label}
+                  type={selectedFont === font.value ? 'primary' : 'default'}
+                  size="small"
+                  onClick={() => setSelectedFont(font.value)}
+                  style={{ fontFamily: font.value, fontSize: 15 }}
+                >
+                  {font.label}
+                </Button>
+              ))}
+            </div>
+
+            {/* Preview */}
+            <div style={{
+              border: '2px solid #e8e8e8',
+              borderRadius: 10,
+              padding: '20px 16px',
+              minHeight: 80,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: '#fff',
+            }}>
+              {typedName.trim() ? (
+                <span style={{ fontFamily: selectedFont, fontSize: 44, color: '#000', lineHeight: 1 }}>
+                  {typedName}
+                </span>
+              ) : (
+                <Text type="secondary">Your signature will appear here</Text>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div style={{
+        padding: '12px 24px 16px',
+        borderTop: '1px solid #f0f0f0',
+      }}>
+        <Button
+          type="primary"
+          icon={<CheckOutlined />}
+          onClick={handleSave}
+          disabled={!canSave}
+          block
+          size="large"
+          style={{ borderRadius: 8, fontWeight: 600 }}
+        >
+          Apply Signature
+        </Button>
+      </div>
     </Modal>
   );
 };
