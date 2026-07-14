@@ -681,10 +681,26 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
                 mode="tags"
                 placeholder="Select contacts or type email..."
                 tokenSeparators={[',', ';', ' ']}
-                style={{ width: '100%' }}
+                style={{ width: '100%', minHeight: 38 }}
                 optionFilterProp="searchText"
                 options={contactOptions}
-                maxTagCount="responsive"
+                tagRender={({ label, value, closable, onClose }) => {
+                  const contact = contacts.find(c => c.email === value);
+                  const preset = wmJobInfo?.preset_emails?.find(p => p.email === value);
+                  const role = contact?.role || preset?.role || '';
+                  const name = contact?.name || preset?.name || '';
+                  const color = ROLE_COLORS[role] || 'default';
+                  return (
+                    <Tag
+                      color={color}
+                      closable={closable}
+                      onClose={onClose}
+                      style={{ margin: '2px 4px 2px 0', maxWidth: '100%' }}
+                    >
+                      {name ? `${name} (${value})` : value}
+                    </Tag>
+                  );
+                }}
               />
             </Form.Item>
           </Col>
@@ -694,10 +710,9 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
                 mode="tags"
                 placeholder="CC..."
                 tokenSeparators={[',', ';', ' ']}
-                style={{ width: '100%' }}
+                style={{ width: '100%', minHeight: 38 }}
                 optionFilterProp="searchText"
                 options={contactOptions}
-                maxTagCount="responsive"
               />
             </Form.Item>
           </Col>

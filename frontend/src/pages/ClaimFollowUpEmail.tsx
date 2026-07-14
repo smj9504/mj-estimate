@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Card, Typography, Spin, Button, Space, Descriptions, Tag, Row, Col } from 'antd';
-import { ArrowLeftOutlined } from '@ant-design/icons';
+import { Card, Typography, Spin, Button, Space, Descriptions, Tag, Row, Col, Tooltip } from 'antd';
+import { ArrowLeftOutlined, MailOutlined, PhoneOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { claimFollowUpService } from '../services/claimFollowUpService';
+import { adjusterEmailService } from '../services/waterMitigationService';
 import { EmailComposer, CommunicationTimeline } from '../components/claim-followup';
 
 const { Title, Text } = Typography;
@@ -29,6 +30,14 @@ const ClaimFollowUpEmail: React.FC = () => {
     queryKey: ['followup-task', taskId],
     queryFn: () => claimFollowUpService.getTask(taskId!),
     enabled: !!taskId,
+  });
+
+  // Load WM job adjuster info for the header
+  const isWmTask = task?.task_type === 'wm_docs_sent';
+  const { data: wmJobInfo } = useQuery({
+    queryKey: ['wm-job-email-info', task?.wm_job_id],
+    queryFn: () => adjusterEmailService.getInfo(task!.wm_job_id!),
+    enabled: isWmTask && !!task?.wm_job_id,
   });
 
   if (isLoading) {
@@ -71,12 +80,31 @@ const ClaimFollowUpEmail: React.FC = () => {
             </Tag>
           </Descriptions.Item>
           <Descriptions.Item label="Assigned To">
-            {task.assigned_to_name || '-'} ({task.assigned_to_role})
+            {wmJobInfo?.adjuster?.name || task.assigned_to_name || '-'} ({task.assigned_to_role})
           </Descriptions.Item>
-          <Descriptions.Item label="Email">{task.assigned_to_email || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Email">
+            {(() => {
+              // WM task: show adjuster email from WM job info
+              const adjEmail = wmJobInfo?.adjuster?.email;
+              if (adjEmail) {
+                return (
+                  <Tag icon={<MailOutlined />} color="orange" style={{ margin: 0, fontSize: 11 }}>
+                    {adjEmail}
+                  </Tag>
+                );
+              }
+              return task.assigned_to_email || '-';
+            })()}
+          </Descriptions.Item>
           <Descriptions.Item label="Due">
             {task.due_date ? dayjs(task.due_date).format('MM/DD/YYYY') : '-'}
           </Descriptions.Item>
+          {wmJobInfo?.adjuster?.phone && (
+            <Descriptions.Item label="Phone">
+              <PhoneOutlined style={{ marginRight: 4 }} />
+              {wmJobInfo.adjuster.phone}
+            </Descriptions.Item>
+          )}
           {!isMobile && (
             <>
               <Descriptions.Item label="Contacts Made">{task.contact_count}</Descriptions.Item>
