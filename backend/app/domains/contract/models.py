@@ -108,6 +108,9 @@ class ContractInstance(Base, BaseModel):
     # Signed PDF (generated after all signatures collected)
     signed_pdf_url = Column(Text)
 
+    # Email tracking: JSON list of emails the signing link was sent to
+    sent_to_emails = Column(Text)  # JSON: ["client@example.com"]
+
     # Relationships
     template = relationship("ContractTemplate", back_populates="instances")
     claim = relationship("Claim", foreign_keys=[claim_id], lazy='select')

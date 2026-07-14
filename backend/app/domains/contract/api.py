@@ -610,6 +610,18 @@ async def send_contract_email(
         if contract.get('status') == 'draft':
             service.send_for_signing(contract_id)
 
+        # Save sent_to_emails for post-signing notification
+        import json as _json
+        existing = []
+        raw = contract.get('sent_to_emails')
+        if raw:
+            try:
+                existing = _json.loads(raw) if isinstance(raw, str) else raw
+            except Exception:
+                existing = []
+        merged = list(set(existing + emails))
+        service.update(contract_id, {'sent_to_emails': _json.dumps(merged)})
+
         # Build signing URL from frontend origin
         origin = data.get('origin_url', '').rstrip('/')
         if not origin:

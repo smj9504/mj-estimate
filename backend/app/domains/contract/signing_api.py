@@ -170,6 +170,12 @@ async def sign_contract(token: str, data: SigningRequest, request: Request):
             signature_fields=data.signature_fields,
         )
 
+        # Send signed PDF notification emails (async, don't block response)
+        try:
+            _send_signed_notification(service, token, data.signer_name)
+        except Exception as e:
+            logger.warning(f"Post-signing email notification failed: {e}")
+
         return SigningResponse(
             contract_id=result.get('contract_instance_id', ''),
             signer_name=data.signer_name,
@@ -399,3 +405,112 @@ def _generate_filled_pdf_bytes(
     out = BytesIO()
     writer.write(out)
     return out.getvalue()
+
+
+def _send_signed_notification(service, token: str, signer_name: str):
+    """Send signed PDF to company email + original recipients after signing."""
+    import json as _json
+
+    contract = service.get_by_token(token)
+    if not contract:
+        return
+
+    # Collect recipients: company email + original sent_to_emails
+    recipients = set()
+    company_email = contract.get('company_email', '')
+    if company_email:
+        recipients.add(company_email)
+
+    raw_sent = contract.get('sent_to_emails')
+    if raw_sent:
+        try:
+            sent_list = _json.loads(raw_sent) if isinstance(raw_sent, str) else raw_sent
+            for e in sent_list:
+                if e and '@' in e:
+                    recipients.add(e)
+        except Exception:
+            pass
+
+    if not recipients:
+        logger.info("[SignedNotification] No recipients for signed PDF notification")
+        return
+
+    # Get signed PDF bytes
+    signed_url = contract.get('signed_pdf_url') or contract.get('filled_pdf_url')
+    pdf_attachment = None
+    if signed_url:
+        try:
+            from app.domains.contract.api import _resolve_contract_pdf
+            pdf_bytes = _resolve_contract_pdf(signed_url, contract.get('storage_provider'))
+            if pdf_bytes:
+                title_safe = (contract.get('title') or 'Contract').replace(' ', '_')
+                pdf_attachment = {
+                    'data': pdf_bytes,
+                    'filename': f"{title_safe}_Signed.pdf",
+                    'mime_type': 'application/pdf',
+                }
+        except Exception as e:
+            logger.warning(f"[SignedNotification] Could not load signed PDF: {e}")
+
+    # Build email
+    company = contract.get('company_name', 'Our Company')
+    title = contract.get('title') or contract.get('template_name') or 'Contract'
+    signed_at = contract.get('signed_at')
+    signed_date = ''
+    if signed_at:
+        try:
+            if isinstance(signed_at, str):
+                signed_at = datetime.fromisoformat(signed_at)
+            signed_date = signed_at.strftime('%B %d, %Y at %I:%M %p')
+        except Exception:
+            signed_date = str(signed_at)
+
+    subject = f"Signed: {title} — {company}"
+    body_html = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: #f0f7ff; border-radius: 8px; padding: 24px; margin-bottom: 20px; text-align: center;">
+            <div style="font-size: 32px; margin-bottom: 8px;">✅</div>
+            <h2 style="margin: 0; color: #1a1a1a;">{title}</h2>
+            <p style="color: #666; margin: 8px 0 0;">Signed by <strong>{signer_name}</strong></p>
+            {f'<p style="color: #999; margin: 4px 0 0; font-size: 13px;">{signed_date}</p>' if signed_date else ''}
+        </div>
+        <p style="color: #333; line-height: 1.6;">
+            The document <strong>{title}</strong> has been signed by <strong>{signer_name}</strong>.
+            {' A copy of the signed document is attached to this email.' if pdf_attachment else ''}
+        </p>
+        <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #eee; color: #999; font-size: 12px;">
+            <p>This is an automated notification from {company}.</p>
+        </div>
+    </div>
+    """
+
+    # Send
+    try:
+        from app.domains.claim_followup.smtp_service import SmtpService
+        from app.core.config import settings
+
+        smtp = SmtpService()
+        smtp_user = getattr(settings, 'SMTP_USER', '')
+        if not smtp_user:
+            logger.warning("[SignedNotification] SMTP not configured, skipping")
+            return
+
+        reply_to = company_email or getattr(settings, 'SMTP_FROM_EMAIL', '') or smtp_user
+
+        smtp.send(
+            account_id=None,
+            from_address=smtp_user,
+            to_addresses=list(recipients),
+            subject=subject,
+            body_html=body_html,
+            reply_to=reply_to,
+            skip_signature=True,
+            display_name_override=company,
+            attachments=[pdf_attachment] if pdf_attachment else [],
+        )
+        logger.info(
+            f"[SignedNotification] Signed PDF sent to {list(recipients)} "
+            f"for contract {contract.get('id')}"
+        )
+    except Exception as e:
+        logger.error(f"[SignedNotification] Failed to send: {e}")
