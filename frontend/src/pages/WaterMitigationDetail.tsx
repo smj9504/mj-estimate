@@ -758,6 +758,45 @@ const WaterMitigationDetail: React.FC = () => {
                       )}
                     </EditableSection>
 
+                    <Card
+                      title="Adjuster Contact Info"
+                      style={{ marginBottom: 16 }}
+                      styles={{ body: { padding: isMobile ? '12px' : undefined } }}
+                    >
+                      <Descriptions bordered column={descColumn} size={isMobile ? 'small' : 'default'}>
+                        <Descriptions.Item label="Adjuster Name">
+                          {job.adjuster_name || '-'}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Phone">
+                          {job.adjuster_phone ? (
+                            <a href={`tel:${job.adjuster_phone}`}>{job.adjuster_phone}</a>
+                          ) : '-'}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Email" span={descColumn}>
+                          {job.adjuster_email ? (
+                            <a href={`mailto:${job.adjuster_email}`}>{job.adjuster_email}</a>
+                          ) : '-'}
+                        </Descriptions.Item>
+                        {job.adjuster_emails && job.adjuster_emails.length > 0 && (
+                          <Descriptions.Item label="Additional Contacts" span={descColumn}>
+                            <div>
+                              {job.adjuster_emails.map((contact, idx) => (
+                                <div key={idx} style={{ marginBottom: idx < job.adjuster_emails!.length - 1 ? 4 : 0 }}>
+                                  <span style={{ fontWeight: 500 }}>{contact.name}</span>
+                                  {contact.role && (
+                                    <Tag color="blue" style={{ marginLeft: 8, fontSize: 11 }}>{contact.role}</Tag>
+                                  )}
+                                  <span style={{ marginLeft: 8 }}>
+                                    <a href={`mailto:${contact.email}`}>{contact.email}</a>
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </Descriptions.Item>
+                        )}
+                      </Descriptions>
+                    </Card>
+
                     <EditableSection
                       title="Financial Information"
                       onSave={handleSaveFinancial}
