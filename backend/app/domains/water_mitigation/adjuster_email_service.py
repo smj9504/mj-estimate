@@ -266,6 +266,59 @@ class AdjusterEmailService:
                         if contact.company:
                             pa_info["company"] = contact.company.name or ""
 
+            # Build preset_emails: all known email contacts
+            # for pre-populating the To field
+            preset_emails = []
+            seen_emails = set()
+
+            # 1. Primary adjuster email
+            if adjuster_info["email"]:
+                email_lower = adjuster_info["email"].lower()
+                seen_emails.add(email_lower)
+                preset_emails.append({
+                    "name": adjuster_info["name"],
+                    "email": adjuster_info["email"],
+                    "role": "adjuster",
+                })
+
+            # 2. Additional emails from adjuster_emails JSON
+            extra_emails = getattr(job, 'adjuster_emails', None)
+            if extra_emails and isinstance(extra_emails, list):
+                for entry in extra_emails:
+                    em = (entry.get("email") or "").strip()
+                    if em and em.lower() not in seen_emails:
+                        seen_emails.add(em.lower())
+                        preset_emails.append({
+                            "name": entry.get("name", ""),
+                            "email": em,
+                            "role": entry.get(
+                                "role", "adjuster"
+                            ),
+                        })
+
+            # 3. Claim adjuster email (if different)
+            if job.claim_id:
+                from app.domains.client.models import (
+                    Claim as ClaimModel,
+                )
+                claim_rec = session.query(ClaimModel).filter(
+                    ClaimModel.id == job.claim_id
+                ).first()
+                if claim_rec:
+                    ce = getattr(
+                        claim_rec, 'adjuster_email', ''
+                    ) or ""
+                    if ce and ce.lower() not in seen_emails:
+                        seen_emails.add(ce.lower())
+                        cn = getattr(
+                            claim_rec, 'adjuster_name', ''
+                        ) or ""
+                        preset_emails.append({
+                            "name": cn,
+                            "email": ce,
+                            "role": "adjuster",
+                        })
+
             # Job context info
             job_info = {
                 "property_address": job.property_address or "",
@@ -286,6 +339,7 @@ class AdjusterEmailService:
                 "pa": pa_info,
                 "job": job_info,
                 "email_accounts": email_accounts,
+                "preset_emails": preset_emails,
             }
         finally:
             session.close()
@@ -595,7 +649,7 @@ class AdjusterEmailService:
                 session.add(activity)
 
             # Auto-create follow-up task
-            self._create_followup_task(session, job, to_addresses[0])
+            self._create_followup_task(session, job)
 
             session.commit()
 
@@ -1131,7 +1185,7 @@ class AdjusterEmailService:
     # Follow-up Task
     # ================================================================
 
-    def _create_followup_task(self, session, job, adjuster_email: str):
+    def _create_followup_task(self, session, job):
         """Create a follow-up task after sending documents (skip if one already exists)."""
         try:
             if not job.claim_id:
@@ -1150,6 +1204,21 @@ class AdjusterEmailService:
             if existing:
                 logger.info(f"Follow-up task already exists for WM Job {job.id}, skipping")
                 return
+
+            # Use adjuster email from WM job (not from send payload)
+            adjuster_email = job.adjuster_email or ""
+            # Fallback to claim adjuster email
+            if not adjuster_email and job.claim_id:
+                from app.domains.client.models import (
+                    Claim as ClaimModel,
+                )
+                claim = session.query(ClaimModel).filter(
+                    ClaimModel.id == job.claim_id
+                ).first()
+                if claim:
+                    adjuster_email = getattr(
+                        claim, 'adjuster_email', ''
+                    ) or ""
 
             sheet_name = job.google_sheet_name or ""
             pa_info = f" | PA: {sheet_name}" if sheet_name else ""

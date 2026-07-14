@@ -72,6 +72,7 @@ export interface WaterMitigationJob {
   adjuster_name?: string;
   adjuster_phone?: string;
   adjuster_email?: string;
+  adjuster_emails?: { name: string; email: string; role: string }[];
 
   // Inspection Information
   inspection_date?: string;

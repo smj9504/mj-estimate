@@ -63,6 +63,8 @@ class StaffResponse(BaseModel):
     is_verified: Optional[bool] = None
     can_login: bool
     email_verified: bool
+    phone: Optional[str] = None
+    mobile_phone: Optional[str] = None
     created_at: datetime
 
     class Config:

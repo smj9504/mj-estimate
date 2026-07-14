@@ -258,13 +258,21 @@ const Profile: React.FC = () => {
     setError(null);
 
     try {
-      await authService.updateCurrentUser({
+      const updatedUser = await authService.updateCurrentUser({
         email: values.email,
         first_name: values.first_name,
         last_name: values.last_name,
         phone: values.phone,
         mobile_phone: values.mobile_phone,
       });
+
+      // Update localStorage so AuthContext picks up changes on reload
+      const storedUser = localStorage.getItem('auth_user');
+      if (storedUser) {
+        const parsed = JSON.parse(storedUser);
+        const merged = { ...parsed, ...updatedUser };
+        localStorage.setItem('auth_user', JSON.stringify(merged));
+      }
 
       message.success('Profile updated successfully');
       window.location.reload();

@@ -109,6 +109,27 @@ async def get_companies(
         raise HTTPException(status_code=500, detail=f"Database error occurred: {str(e)}")
 
 
+@router.get("/insurance-emails")
+async def get_insurance_company_emails(
+    service: CompanyService = Depends(get_company_service)
+):
+    """Get email lookup map for all insurance-type companies.
+
+    Returns a dict of {company_name: email} for companies with
+    company_type='insurance' that have an email set.
+    """
+    try:
+        companies = service.get_all(filters={"company_type": "insurance", "is_active": True})
+        return {
+            c["name"]: c["email"]
+            for c in companies
+            if c.get("name") and c.get("email")
+        }
+    except Exception as e:
+        logger.error(f"Error fetching insurance emails: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/test")
 async def test_companies():
     """Test endpoint to verify database connection - NO response_model to avoid serialization issues"""

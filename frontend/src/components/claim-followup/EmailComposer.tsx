@@ -96,6 +96,7 @@ function getFollowupStage(contactCount: number): string {
 
 const ROLE_COLORS: Record<string, string> = {
   adjuster: 'orange',
+  insurance: 'green',
   pa: 'purple',
   client: 'blue',
   owner: 'cyan',
@@ -167,10 +168,20 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
   const wmFollowupStage = isWmFollowUp ? getFollowupStage(contactCount) : null;
   const stageConfig = wmFollowupStage ? WM_STAGE_CONFIG[wmFollowupStage] : null;
 
-  // Build contact options for To/CC select
+  // Load WM job info (documents + preset emails) when this is a WM follow-up
+  const { data: wmJobInfo, isLoading: wmDocsLoading } = useQuery({
+    queryKey: ['wm-job-email-info', wmJobId],
+    queryFn: async () => {
+      return adjusterEmailService.getInfo(wmJobId!);
+    },
+    enabled: isWmFollowUp,
+  });
+  const wmDocReadiness = wmJobInfo?.documents;
+
+  // Build contact options for To/CC select (includes WM preset emails)
   const contactOptions = useMemo(() => {
     const seen = new Set<string>();
-    return contacts
+    const options = contacts
       .filter(c => {
         if (!c.email || seen.has(c.email.toLowerCase())) return false;
         seen.add(c.email.toLowerCase());
@@ -189,17 +200,31 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
         ),
         searchText: `${c.name} ${c.email} ${c.role} ${c.label || ''}`.toLowerCase(),
       }));
-  }, [contacts]);
 
-  // Load WM document readiness when this is a WM follow-up
-  const { data: wmDocReadiness, isLoading: wmDocsLoading } = useQuery({
-    queryKey: ['wm-doc-readiness', wmJobId],
-    queryFn: async () => {
-      const info = await adjusterEmailService.getInfo(wmJobId!);
-      return info.documents;
-    },
-    enabled: isWmFollowUp,
-  });
+    // Add WM job preset emails (adjuster/insurance contacts)
+    if (wmJobInfo?.preset_emails) {
+      for (const p of wmJobInfo.preset_emails) {
+        if (!p.email || seen.has(p.email.toLowerCase())) continue;
+        seen.add(p.email.toLowerCase());
+        const roleLabel = p.role === 'insurance' ? 'Insurance' : p.role === 'adjuster' ? 'Adjuster' : p.role;
+        options.push({
+          value: p.email,
+          label: (
+            <Space size={4}>
+              <Tag color={ROLE_COLORS[p.role] || 'orange'} style={{ margin: 0, fontSize: 11 }}>
+                {roleLabel}
+              </Tag>
+              <span>{p.name || p.email}</span>
+              {p.name && <Text type="secondary" style={{ fontSize: 12 }}>({p.email})</Text>}
+            </Space>
+          ),
+          searchText: `${p.name} ${p.email} ${p.role}`.toLowerCase(),
+        });
+      }
+    }
+
+    return options;
+  }, [contacts, wmJobInfo]);
 
   // Auto-select all ready documents when readiness data loads
   useEffect(() => {
@@ -211,6 +236,14 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
       setSelectedWmDocs(readyDocs);
     }
   }, [wmDocReadiness]);
+
+  // Override To addresses with WM job preset emails (adjuster emails from job, not from follow-up task)
+  useEffect(() => {
+    if (wmJobInfo?.preset_emails && wmJobInfo.preset_emails.length > 0) {
+      const presetAddrs = wmJobInfo.preset_emails.map(p => p.email);
+      form.setFieldValue('to_addresses', presetAddrs);
+    }
+  }, [wmJobInfo, form]);
 
   // Load email accounts (from addresses)
   const { data: accounts = [] } = useQuery({

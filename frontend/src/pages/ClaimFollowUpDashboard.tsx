@@ -58,6 +58,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { claimFollowUpService } from '../services/claimFollowUpService';
 import { supplementService } from '../services/supplementService';
+import { companyService } from '../services/companyService';
 import { SUPPLEMENT_STATUS_COLORS } from '../types/supplement';
 import { fileService } from '../services/fileService';
 import { EmailComposer, CommunicationTimeline } from '../components/claim-followup';
@@ -933,6 +934,13 @@ const ClaimFollowUpDashboard: React.FC = () => {
       sort_by: 'next_followup_date',
       sort_order: 'asc',
     }),
+  });
+
+  // Insurance company email lookup
+  const { data: insuranceEmails = {} } = useQuery({
+    queryKey: ['insurance-emails'],
+    queryFn: () => companyService.getInsuranceEmails(),
+    staleTime: 5 * 60 * 1000, // cache 5 min
   });
 
   // Group tasks by claim
@@ -1859,9 +1867,18 @@ const ClaimFollowUpDashboard: React.FC = () => {
                     </div>
                     {!isMobile && (
                       <>
-                        <Tag style={{ fontSize: 11, margin: 0, flexShrink: 0 }}>
-                          {group.insurance_company || 'N/A'}
-                        </Tag>
+                        {(() => {
+                          const insEmail = insuranceEmails[group.insurance_company];
+                          const tag = (
+                            <Tag style={{ fontSize: 11, margin: 0, flexShrink: 0 }}>
+                              {group.insurance_company || 'N/A'}
+                              {insEmail && <MailOutlined style={{ marginLeft: 4, fontSize: 10, color: '#1890ff' }} />}
+                            </Tag>
+                          );
+                          return insEmail
+                            ? <Tooltip title={insEmail}>{tag}</Tooltip>
+                            : tag;
+                        })()}
                         <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>
                           #{group.claim_number}
                         </Text>
@@ -1904,9 +1921,18 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 {/* Row 2: Mobile meta info */}
                 {isMobile && (
                   <div style={{ marginTop: 2, display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <Tag style={{ fontSize: 10, margin: 0 }}>
-                      {group.insurance_company || 'N/A'}
-                    </Tag>
+                    {(() => {
+                      const insEmail = insuranceEmails[group.insurance_company];
+                      const tag = (
+                        <Tag style={{ fontSize: 10, margin: 0 }}>
+                          {group.insurance_company || 'N/A'}
+                          {insEmail && <MailOutlined style={{ marginLeft: 3, fontSize: 9, color: '#1890ff' }} />}
+                        </Tag>
+                      );
+                      return insEmail
+                        ? <Tooltip title={insEmail}>{tag}</Tooltip>
+                        : tag;
+                    })()}
                     <Text type="secondary" style={{ fontSize: 10 }}>
                       #{group.claim_number}
                     </Text>
@@ -2822,6 +2848,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
             <Text strong style={{ fontSize: isMobile ? 14 : 16 }}>{selectedClaimGroup?.property_address || 'Claim Detail'}</Text>
             <Text type="secondary" style={{ fontSize: 12 }}>
               #{selectedClaimGroup?.claim_number} — {selectedClaimGroup?.insurance_company}
+              {selectedClaimGroup?.insurance_company && insuranceEmails[selectedClaimGroup.insurance_company] && (
+                <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
+                  <MailOutlined style={{ marginRight: 3 }} />
+                  {insuranceEmails[selectedClaimGroup.insurance_company]}
+                </Text>
+              )}
             </Text>
           </Space>
         }

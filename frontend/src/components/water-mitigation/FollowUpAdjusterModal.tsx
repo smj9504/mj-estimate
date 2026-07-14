@@ -81,7 +81,13 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
       });
       setEmailContent({ subject: followup.subject, body_html: followup.body_html });
 
-      if (data.adjuster.email) setToEmails([data.adjuster.email]);
+      // Pre-fill To with all preset emails
+      const presetEmails = data.preset_emails || [];
+      if (presetEmails.length > 0) {
+        setToEmails(presetEmails.map(p => p.email));
+      } else if (data.adjuster.email) {
+        setToEmails([data.adjuster.email]);
+      }
       if (data.pa.email) setBccEmails([data.pa.email]);
       if (data.email_accounts.length > 0) setSelectedAccountId(data.email_accounts[0].id);
     } catch (err) {
@@ -218,17 +224,33 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
             }
           />
 
-          {/* Adjuster Info Banner */}
-          {info.adjuster.name && (
+          {/* Adjuster/Recipients Info Banner */}
+          {(info.preset_emails?.length || info.adjuster.name) && (
             <div style={{
               background: '#f6ffed', border: '1px solid #b7eb8f',
               borderRadius: 6, padding: '8px 12px', marginBottom: 12,
-              display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
             }}>
-              <Text style={{ fontSize: 12, color: '#555' }}>Adjuster:</Text>
-              <Text strong style={{ fontSize: 13 }}>{info.adjuster.name}</Text>
-              {info.adjuster.email && (
-                <Text style={{ fontSize: 12, color: '#1890ff' }}>{info.adjuster.email}</Text>
+              {(info.preset_emails && info.preset_emails.length > 1) ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <Text style={{ fontSize: 12, color: '#555' }}>Recipients ({info.preset_emails.length}):</Text>
+                  {info.preset_emails.map((p, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
+                      <Text strong style={{ fontSize: 13 }}>{p.name || p.email}</Text>
+                      {p.name && <Text style={{ fontSize: 12, color: '#1890ff' }}>{p.email}</Text>}
+                      {p.role !== 'adjuster' && (
+                        <Tag color="blue" style={{ fontSize: 10 }}>{p.role}</Tag>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <Text style={{ fontSize: 12, color: '#555' }}>Adjuster:</Text>
+                  <Text strong style={{ fontSize: 13 }}>{info.adjuster.name}</Text>
+                  {info.adjuster.email && (
+                    <Text style={{ fontSize: 12, color: '#1890ff' }}>{info.adjuster.email}</Text>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -288,12 +310,23 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
               value={toEmails}
               onChange={setToEmails}
               tokenSeparators={[',', ';']}
-              options={info.adjuster.email ? [{
-                value: info.adjuster.email,
-                label: info.adjuster.name
-                  ? `${info.adjuster.name} (${info.adjuster.email})`
-                  : info.adjuster.email,
-              }] : []}
+              options={(() => {
+                const presets = info.preset_emails || [];
+                if (presets.length > 0) {
+                  return presets.map(p => ({
+                    value: p.email,
+                    label: p.name
+                      ? `${p.name} (${p.email})${p.role !== 'adjuster' ? ` [${p.role}]` : ''}`
+                      : p.email,
+                  }));
+                }
+                return info.adjuster.email ? [{
+                  value: info.adjuster.email,
+                  label: info.adjuster.name
+                    ? `${info.adjuster.name} (${info.adjuster.email})`
+                    : info.adjuster.email,
+                }] : [];
+              })()}
             />
           </div>
 

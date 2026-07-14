@@ -170,4 +170,10 @@ export const companyService = {
   ): Promise<void> => {
     await apiClient.patch(`/api/claims/${claimId}`, { pa_contact_id: contactId });
   },
+
+  // Get insurance company email lookup map: { companyName: email }
+  getInsuranceEmails: async (): Promise<Record<string, string>> => {
+    const response = await apiClient.get('/api/companies/insurance-emails');
+    return response.data;
+  },
 };

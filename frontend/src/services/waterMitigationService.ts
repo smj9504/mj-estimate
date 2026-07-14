@@ -1391,6 +1391,12 @@ export interface DocumentReadiness {
   all_ready: boolean;
 }
 
+export interface PresetEmail {
+  name: string;
+  email: string;
+  role: string; // 'adjuster' | 'insurance' | 'other'
+}
+
 export interface AdjusterEmailInfo {
   adjuster: { name: string; email: string; phone: string };
   pa: { name: string; email: string; company: string };
@@ -1404,6 +1410,7 @@ export interface AdjusterEmailInfo {
   };
   email_accounts: { id: string; email_address: string; display_name: string }[];
   documents: DocumentReadiness;
+  preset_emails?: PresetEmail[];
 }
 
 export interface SendToAdjusterPayload {

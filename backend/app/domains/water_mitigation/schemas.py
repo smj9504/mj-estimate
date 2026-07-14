@@ -56,6 +56,10 @@ class JobBase(BaseModel):
     adjuster_name: Optional[str] = Field(None, max_length=255)
     adjuster_phone: Optional[str] = Field(None, max_length=100)
     adjuster_email: Optional[str] = Field(None, max_length=255)
+    adjuster_emails: Optional[List[Dict[str, str]]] = Field(
+        None,
+        description="Additional email contacts [{name, email, role}]"
+    )
 
     inspection_date: Optional[Union[datetime, date]] = None
     inspection_time: Optional[str] = Field(None, max_length=20)
@@ -120,6 +124,10 @@ class JobUpdate(BaseModel):
     adjuster_name: Optional[str] = Field(None, max_length=255)
     adjuster_phone: Optional[str] = Field(None, max_length=100)
     adjuster_email: Optional[str] = Field(None, max_length=255)
+    adjuster_emails: Optional[List[Dict[str, str]]] = Field(
+        None,
+        description="Additional email contacts [{name, email, role}]"
+    )
 
     inspection_date: Optional[Union[datetime, date]] = None
     inspection_time: Optional[str] = Field(None, max_length=20)

@@ -3,7 +3,8 @@
  */
 
 import React, { useEffect } from 'react';
-import { Modal, Form, Input, DatePicker, Switch, Select, message } from 'antd';
+import { Modal, Form, Input, DatePicker, Switch, Select, Button, Space, message } from 'antd';
+import { PlusOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import AddressAutocomplete from '../common/AddressAutocomplete';
 import type { WaterMitigationJob, JobCreateRequest } from '../../types/waterMitigation';
@@ -63,6 +64,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
           adjuster_name: job.adjuster_name,
           adjuster_phone: job.adjuster_phone,
           adjuster_email: job.adjuster_email,
+          adjuster_emails: job.adjuster_emails || [],
           inspection_date: job.inspection_date ? dayjs(job.inspection_date) : null,
           inspection_time: job.inspection_time,
           plumbers_report: job.plumbers_report,
@@ -308,6 +310,51 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
         >
           <Input placeholder="jane.smith@insurance.com" />
         </Form.Item>
+
+        {/* Additional Email Contacts */}
+        <Form.List name="adjuster_emails">
+          {(fields, { add, remove }) => (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 13, color: '#666' }}>Additional Email Contacts</span>
+                <Button
+                  type="dashed"
+                  size="small"
+                  onClick={() => add({ name: '', email: '', role: 'adjuster' })}
+                  icon={<PlusOutlined />}
+                >
+                  Add
+                </Button>
+              </div>
+              {fields.map(({ key, name, ...restField }) => (
+                <Space key={key} style={{ display: 'flex', marginBottom: 4 }} align="baseline">
+                  <Form.Item {...restField} name={[name, 'name']} style={{ marginBottom: 4 }}>
+                    <Input placeholder="Name" style={{ width: 140 }} />
+                  </Form.Item>
+                  <Form.Item
+                    {...restField}
+                    name={[name, 'email']}
+                    style={{ marginBottom: 4 }}
+                    rules={[{ type: 'email', message: 'Invalid email' }]}
+                  >
+                    <Input placeholder="email@example.com" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item {...restField} name={[name, 'role']} style={{ marginBottom: 4 }}>
+                    <Select style={{ width: 120 }} placeholder="Role">
+                      <Option value="adjuster">Adjuster</Option>
+                      <Option value="insurance">Insurance Co.</Option>
+                      <Option value="other">Other</Option>
+                    </Select>
+                  </Form.Item>
+                  <MinusCircleOutlined
+                    onClick={() => remove(name)}
+                    style={{ color: '#ff4d4f', cursor: 'pointer' }}
+                  />
+                </Space>
+              ))}
+            </>
+          )}
+        </Form.List>
 
         {/* Inspection Information */}
         <h4 style={{ marginTop: 16, marginBottom: 8 }}>Inspection Information</h4>

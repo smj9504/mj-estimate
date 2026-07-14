@@ -84,6 +84,10 @@ class WaterMitigationJob(Base, BaseModel):
     adjuster_name = Column(String(255))
     adjuster_phone = Column(String(100))
     adjuster_email = Column(String(255))
+    adjuster_emails = Column(
+        JSONB, default=list,
+        comment="Additional adjuster/insurance emails [{name, email, role}]"
+    )
 
     inspection_date = Column(DateTime(timezone=True))
     inspection_time = Column(String(20))
