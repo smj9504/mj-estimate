@@ -237,16 +237,6 @@ async def create_contract(
         contract_data = data.dict()
         contract_data['claim_id'] = claim_id
         result = service.create_contract(contract_data)
-        # Add full signing URL
-        from app.core.config import settings
-        base = (
-            getattr(settings, 'SIGNING_BASE_URL', '')
-            or getattr(settings, 'FRONTEND_URL', '')
-            or 'http://localhost:3000'
-        )
-        token = result.get('signing_token')
-        if token:
-            result['signing_url'] = f"{base}/sign/{token}"
         return result
     except Exception as e:
         logger.error(f"Error creating contract: {e}")
@@ -283,16 +273,10 @@ async def send_contract(
             raise HTTPException(
                 status_code=404, detail="Contract not found"
             )
-        from app.core.config import settings
-        base = (
-            getattr(settings, 'SIGNING_BASE_URL', '')
-            or getattr(settings, 'FRONTEND_URL', '')
-            or 'http://localhost:3000'
-        )
         token = result.get('signing_token')
         return {
             "contract": result,
-            "signing_url": f"{base}/sign/{token}",
+            "signing_url": f"/sign/{token}",
             "signing_token": token,
             "expires_at": result.get('token_expires_at'),
         }
@@ -562,19 +546,6 @@ def _build_email_html(
 </html>"""
 
 
-# Also expose templates to frontend
-@router.get("/signing-base-url")
-async def get_signing_base_url():
-    """Return the base URL for signing links"""
-    from app.core.config import settings
-    base = (
-        getattr(settings, 'SIGNING_BASE_URL', '')
-        or getattr(settings, 'FRONTEND_URL', '')
-        or 'http://localhost:3000'
-    )
-    return {"base_url": base}
-
-
 @router.get("/email-templates")
 async def get_email_templates():
     """Return available email templates for the UI"""
@@ -639,16 +610,14 @@ async def send_contract_email(
         if contract.get('status') == 'draft':
             service.send_for_signing(contract_id)
 
-        # Build signing URL
-        # SIGNING_BASE_URL takes priority over
-        # FRONTEND_URL for contract signing emails
-        from app.core.config import settings
-        signing_base = (
-            getattr(settings, 'SIGNING_BASE_URL', '')
-            or getattr(settings, 'FRONTEND_URL', '')
-            or 'http://localhost:3000'
-        )
-        signing_url = f"{signing_base}/sign/{token}"
+        # Build signing URL from frontend origin
+        origin = data.get('origin_url', '').rstrip('/')
+        if not origin:
+            from app.core.config import settings
+            origin = getattr(
+                settings, 'FRONTEND_URL', ''
+            ) or 'http://localhost:3000'
+        signing_url = f"{origin}/sign/{token}"
 
         # Build email from template
         company = contract.get(

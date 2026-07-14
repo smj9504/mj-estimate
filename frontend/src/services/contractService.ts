@@ -106,6 +106,7 @@ export const contractInstanceService = {
     bcc?: string[];
     message?: string;
     template_key?: string;
+    origin_url?: string;
   }) {
     const { data } = await api.post(
       `/api/contracts/claims/${claimId}/contracts/${contractId}/send-email`,
@@ -145,10 +146,6 @@ export const contractInstanceService = {
     return data as ClaimContractDashboardData;
   },
 
-  async getSigningBaseUrl() {
-    const { data } = await api.get('/api/contracts/signing-base-url');
-    return data as { base_url: string };
-  },
 };
 
 // ============================================================

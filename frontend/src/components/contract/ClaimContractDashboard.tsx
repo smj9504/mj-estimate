@@ -105,15 +105,8 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
     enabled: !!claimId,
   });
 
-  const { data: signingBaseData } = useQuery({
-    queryKey: ['signing-base-url'],
-    queryFn: () => contractInstanceService.getSigningBaseUrl(),
-    staleTime: Infinity,
-  });
-  const signingBaseUrl = signingBaseData?.base_url || window.location.origin;
-
   const handleCopyLink = async (token: string) => {
-    const url = `${signingBaseUrl}/sign/${token}`;
+    const url = `${window.location.origin}/sign/${token}`;
     try {
       await navigator.clipboard.writeText(url);
       message.success('Signing link copied.');
@@ -173,6 +166,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
           bcc: bcc.length > 0 ? bcc : undefined,
           message: emailMessage || undefined,
           template_key: emailTemplateKey || undefined,
+          origin_url: window.location.origin,
         },
       );
       message.success(result.message || `Email sent to ${emails.length} recipient(s).`);

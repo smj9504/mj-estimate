@@ -158,10 +158,6 @@ class Settings(BaseSettings):
     # Frontend URL (for generating links in notifications)
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
-    # Email signing link base URL (overrides FRONTEND_URL for contract signing emails)
-    # Set this to your deployed frontend URL so signing links work in production
-    SIGNING_BASE_URL: str = os.getenv("SIGNING_BASE_URL", "")
-
     # Email Settings (for password reset, notifications, etc.)
     SMTP_HOST: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
     SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
