@@ -1151,6 +1151,69 @@ const ClaimFollowUpDashboard: React.FC = () => {
       ['pending', 'awaiting_response'].includes(task.status);
   };
 
+  // Helper: open resolve modal for a given task
+  const openResolveForTask = async (task: FollowUpTask) => {
+    setSelectedTask(task);
+    resolveForm.resetFields();
+    setResolveOutcome(undefined);
+    setParsedSections(null);
+    setResolveFile(undefined);
+    setResolveWmFile(undefined);
+    setParsedWmAmount(undefined);
+    setExistingPdfName(undefined);
+    setExistingPdfId(undefined);
+    setExistingWmPdfName(undefined);
+    setExistingWmPdfId(undefined);
+    setResolveModalOpen(true);
+    if (task.resolution_notes) {
+      resolveForm.setFieldsValue({ resolution_notes: task.resolution_notes });
+    }
+    if (task.claim_id) {
+      try {
+        const estimates = await supplementService.listInsuranceEstimates(task.claim_id);
+        if (estimates.length > 0) {
+          const combined = estimates.find((e: any) => e.estimate_category === 'combined');
+          const recon = estimates.find((e: any) => e.estimate_category === 'reconstruction');
+          const wm = estimates.find((e: any) => e.estimate_category === 'water_mitigation');
+          const main = combined || recon
+            || estimates.find((e: any) => (e.rcv_amount || 0) > 0)
+            || estimates[0];
+          const formValues: any = {
+            outcome: 'estimate_received',
+            rcv_amount: main.rcv_amount || 0,
+            acv_amount: main.acv_amount || 0,
+            depreciation_amount: main.depreciation_amount || 0,
+            deductible: main.deductible || 0,
+          };
+          if (combined) {
+            formValues.wm_cost_status = 'included_in_rebuild';
+          } else if (wm && wm.document_url && wm.document_url !== main.document_url) {
+            formValues.wm_cost_status = 'separate_estimate';
+          }
+          resolveForm.setFieldsValue(formValues);
+          setResolveOutcome('estimate_received');
+          if (main.sections_data?.length) setParsedSections(main.sections_data);
+          if (main.document_name) {
+            setExistingPdfName(main.document_name);
+            setExistingPdfId(main.file_download_id || main.document_url);
+          }
+          if (wm && wm.document_url && wm.document_url !== main.document_url) {
+            if (wm.document_name) {
+              setExistingWmPdfName(wm.document_name);
+              setExistingWmPdfId(wm.file_download_id || wm.document_url);
+            }
+            if (wm.rcv_amount) {
+              setParsedWmAmount(wm.rcv_amount);
+              resolveForm.setFieldsValue({ wm_estimate_amount: wm.rcv_amount });
+            }
+          }
+        }
+      } catch {
+        // Ignore - just open empty modal
+      }
+    }
+  };
+
   // Columns for expanded task table (aggregated by stage)
   const taskColumns: ColumnsType<StageAggregated> = [
     {
@@ -1178,11 +1241,16 @@ const ClaimFollowUpDashboard: React.FC = () => {
       dataIndex: 'priority',
       key: 'priority',
       width: 90,
-      render: (priority: string) => (
-        <Tag color={PRIORITY_TAG_COLORS[priority] || 'default'}>
-          {priority.toUpperCase()}
-        </Tag>
-      ),
+      render: (priority: string, record: StageAggregated) => {
+        if (record.status === 'resolved' || record.status === 'cancelled') {
+          return <Tag color="default">-</Tag>;
+        }
+        return (
+          <Tag color={PRIORITY_TAG_COLORS[priority] || 'default'}>
+            {priority.toUpperCase()}
+          </Tag>
+        );
+      },
     },
     {
       title: 'Next Follow-up',
@@ -1263,67 +1331,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   icon: <CheckCircleOutlined />,
                   label: 'Resolve',
                   disabled: record.status === 'resolved',
-                  onClick: async () => {
-                    setSelectedTask(task);
-                    resolveForm.resetFields();
-                    setResolveOutcome(undefined);
-                    setParsedSections(null);
-                    setResolveFile(undefined);
-                    setResolveWmFile(undefined);
-                    setParsedWmAmount(undefined);
-                    setExistingPdfName(undefined);
-                    setExistingPdfId(undefined);
-                    setExistingWmPdfName(undefined);
-                    setExistingWmPdfId(undefined);
-                    setResolveModalOpen(true);
-                    if (task.resolution_notes) {
-                      resolveForm.setFieldsValue({ resolution_notes: task.resolution_notes });
-                    }
-                    if (task.claim_id) {
-                      try {
-                        const estimates = await supplementService.listInsuranceEstimates(task.claim_id);
-                        if (estimates.length > 0) {
-                          const combined = estimates.find((e: any) => e.estimate_category === 'combined');
-                          const recon = estimates.find((e: any) => e.estimate_category === 'reconstruction');
-                          const wm = estimates.find((e: any) => e.estimate_category === 'water_mitigation');
-                          const main = combined || recon
-                            || estimates.find((e: any) => (e.rcv_amount || 0) > 0)
-                            || estimates[0];
-                          const formValues: any = {
-                            outcome: 'estimate_received',
-                            rcv_amount: main.rcv_amount || 0,
-                            acv_amount: main.acv_amount || 0,
-                            depreciation_amount: main.depreciation_amount || 0,
-                            deductible: main.deductible || 0,
-                          };
-                          if (combined) {
-                            formValues.wm_cost_status = 'included_in_rebuild';
-                          } else if (wm && wm.document_url && wm.document_url !== main.document_url) {
-                            formValues.wm_cost_status = 'separate_estimate';
-                          }
-                          resolveForm.setFieldsValue(formValues);
-                          setResolveOutcome('estimate_received');
-                          if (main.sections_data?.length) setParsedSections(main.sections_data);
-                          if (main.document_name) {
-                            setExistingPdfName(main.document_name);
-                            setExistingPdfId(main.file_download_id || main.document_url);
-                          }
-                          if (wm && wm.document_url && wm.document_url !== main.document_url) {
-                            if (wm.document_name) {
-                              setExistingWmPdfName(wm.document_name);
-                              setExistingWmPdfId(wm.file_download_id || wm.document_url);
-                            }
-                            if (wm.rcv_amount) {
-                              setParsedWmAmount(wm.rcv_amount);
-                              resolveForm.setFieldsValue({ wm_estimate_amount: wm.rcv_amount });
-                            }
-                          }
-                        }
-                      } catch {
-                        // Ignore - just open empty modal
-                      }
-                    }
-                  },
+                  onClick: () => openResolveForTask(task),
                 },
                 {
                   key: 'reopen',
@@ -1639,6 +1647,22 @@ const ClaimFollowUpDashboard: React.FC = () => {
         ? <CheckCircleOutlined style={{ marginRight: 3, fontSize: isPastStage ? 9 : 10 }} />
         : null;
 
+      // Click handler: active → resolve, resolved → reopen
+      const isClickable = !!(stageTask || resolvedTask);
+      const handleStageClick = isClickable ? (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (stageTask && !['resolved', 'cancelled'].includes(stageTask.status)) {
+          openResolveForTask(stageTask);
+        } else if (resolvedTask && resolvedTask.status === 'resolved') {
+          Modal.confirm({
+            title: 'Reopen Task',
+            content: `Reopen "${resolvedTask.title || STAGE_LABELS[stage]}"?`,
+            okText: 'Reopen',
+            onOk: () => reopenMutation.mutate(resolvedTask.id),
+          });
+        }
+      } : undefined;
+
       const tagEl = (
         <Tag
           style={{
@@ -1650,16 +1674,22 @@ const ClaimFollowUpDashboard: React.FC = () => {
             whiteSpace: 'nowrap',
             lineHeight: '20px',
             opacity: isPastStage ? 0.7 : 1,
+            cursor: isClickable ? 'pointer' : 'default',
           }}
+          onClick={handleStageClick}
         >
           {icon}{label}
         </Tag>
       );
 
+      const tooltipFull = isClickable
+        ? (tooltipText ? `${tooltipText} (Click to ${resolved ? 'reopen' : 'resolve'})` : `Click to ${resolved ? 'reopen' : 'resolve'}`)
+        : tooltipText;
+
       tags.push(
         <React.Fragment key={stage}>
           {idx > 0 && <RightOutlined style={{ fontSize: 10, color: '#d9d9d9' }} />}
-          {tooltipText ? <Tooltip title={tooltipText}>{tagEl}</Tooltip> : tagEl}
+          {tooltipFull ? <Tooltip title={tooltipFull}>{tagEl}</Tooltip> : tagEl}
         </React.Fragment>
       );
 
@@ -3127,18 +3157,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   icon={<CheckCircleOutlined />}
                   onClick={() => {
                     setTaskDetailOpen(false);
-                    setSelectedTask(detailTask);
-                    resolveForm.resetFields();
-                    setResolveOutcome(undefined);
-                    setParsedSections(null);
-                    setResolveFile(undefined);
-                    setResolveWmFile(undefined);
-                    setParsedWmAmount(undefined);
-                    setExistingPdfName(undefined);
-                    setExistingPdfId(undefined);
-                    setExistingWmPdfName(undefined);
-                    setExistingWmPdfId(undefined);
-                    setResolveModalOpen(true);
+                    openResolveForTask(detailTask);
                   }}
                 >
                   Resolve
