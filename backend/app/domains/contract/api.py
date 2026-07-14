@@ -683,49 +683,51 @@ async def send_contract_email(
             company_phone=company_phone or '',
         )
 
-        # Send via SMTP
-        # From: authenticated SMTP user (for deliverability)
-        # Reply-To: company email (so replies go to the
-        #           company, not the SMTP relay account)
+        # Send via SMTP — prefer company email account
         from app.domains.claim_followup.smtp_service import (
             SmtpService,
         )
+        from app.domains.contract.signing_api import (
+            _find_company_email_account,
+        )
         smtp = SmtpService()
-
-        smtp_user = getattr(settings, 'SMTP_USER', '')
-        if not smtp_user:
-            raise HTTPException(
-                status_code=500,
-                detail="SMTP not configured."
-            )
-
-        # Use company email as Reply-To if available
         company_email = contract.get('company_email', '')
-        reply_to = (
-            company_email
-            or getattr(settings, 'SMTP_FROM_EMAIL', '')
-            or smtp_user
-        )
-        # Display name: company name
-        from_display = (
-            f"{company} <{smtp_user}>"
-        )
+        company_id = contract.get('company_id')
+        account_id = _find_company_email_account(company_id)
 
         cc = data.get('cc', []) or []
         bcc = data.get('bcc', []) or []
 
-        result = smtp.send(
-            account_id=None,
-            from_address=smtp_user,
-            to_addresses=emails,
-            subject=subject,
-            body_html=body_html,
-            cc_addresses=cc,
-            bcc_addresses=bcc,
-            reply_to=reply_to,
-            skip_signature=True,
-            display_name_override=company,
-        )
+        if account_id:
+            result = smtp.send(
+                account_id=account_id,
+                from_address=company_email or '',
+                to_addresses=emails,
+                subject=subject,
+                body_html=body_html,
+                cc_addresses=cc,
+                bcc_addresses=bcc,
+                skip_signature=True,
+            )
+        else:
+            smtp_user = getattr(settings, 'SMTP_USER', '')
+            if not smtp_user:
+                raise HTTPException(
+                    status_code=500,
+                    detail="SMTP not configured."
+                )
+            result = smtp.send(
+                account_id=None,
+                from_address=smtp_user,
+                to_addresses=emails,
+                subject=subject,
+                body_html=body_html,
+                cc_addresses=cc,
+                bcc_addresses=bcc,
+                reply_to=company_email or smtp_user,
+                skip_signature=True,
+                display_name_override=company,
+            )
 
         return {
             "message": f"Email sent to {len(emails)} "
