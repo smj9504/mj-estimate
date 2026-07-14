@@ -32,6 +32,7 @@ class EmailAccountBase(BaseModel):
     company_id: Optional[UUID] = None
     sender_name: Optional[str] = None
     sender_phone: Optional[str] = None
+    can_send: bool = True
     is_active: bool = True
     auto_schedule: Optional[str] = None
 
@@ -52,6 +53,7 @@ class EmailAccountUpdate(BaseModel):
     company_id: Optional[UUID] = None
     sender_name: Optional[str] = None
     sender_phone: Optional[str] = None
+    can_send: Optional[bool] = None
     is_active: Optional[bool] = None
     auto_schedule: Optional[str] = None
 
@@ -70,6 +72,7 @@ class EmailAccountResponse(BaseModel):
     company_name: Optional[str] = None
     sender_name: Optional[str] = None
     sender_phone: Optional[str] = None
+    can_send: bool = True
     is_active: bool
     auto_schedule: Optional[str] = None
     last_synced_at: Optional[datetime] = None

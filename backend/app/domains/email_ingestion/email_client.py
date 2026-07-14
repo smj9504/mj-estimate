@@ -145,6 +145,9 @@ def _extract_attachments(msg: email.message.Message, max_size_mb: int = 50) -> L
 class IMAPClient:
     """IMAP client for fetching emails from a mailbox"""
 
+    # Connection timeout in seconds (prevents hanging on slow IMAP servers)
+    DEFAULT_TIMEOUT = 30
+
     def __init__(
         self,
         server: str,
@@ -153,6 +156,7 @@ class IMAPClient:
         password: str,
         use_ssl: bool = True,
         oauth_access_token: Optional[str] = None,
+        timeout: int = DEFAULT_TIMEOUT,
     ):
         self.server = server
         self.port = port
@@ -160,14 +164,19 @@ class IMAPClient:
         self.password = password
         self.use_ssl = use_ssl
         self.oauth_access_token = oauth_access_token
+        self.timeout = timeout
         self._connection: Optional[imaplib.IMAP4] = None
 
     def connect(self) -> None:
         """Establish IMAP connection and login"""
         if self.use_ssl:
-            self._connection = imaplib.IMAP4_SSL(self.server, self.port)
+            self._connection = imaplib.IMAP4_SSL(
+                self.server, self.port, timeout=self.timeout
+            )
         else:
-            self._connection = imaplib.IMAP4(self.server, self.port)
+            self._connection = imaplib.IMAP4(
+                self.server, self.port, timeout=self.timeout
+            )
 
         if self.oauth_access_token:
             import base64
@@ -302,6 +311,83 @@ class IMAPClient:
             references=references,
         )
 
+    def _fetch_headers_only(self, msg_id: bytes) -> Optional[FetchedEmail]:
+        """Fetch only headers + text body (no attachments) for reply tracking.
+
+        Uses BODY.PEEK[HEADER] + BODY.PEEK[TEXT] instead of full RFC822,
+        significantly faster for emails with large attachments.
+        """
+        try:
+            # Fetch headers only first
+            status, data = self._connection.fetch(
+                msg_id, "(BODY.PEEK[HEADER] BODY.PEEK[TEXT])"
+            )
+            if status != "OK" or not data:
+                return None
+
+            headers_raw = None
+            text_raw = None
+            for item in data:
+                if isinstance(item, tuple) and len(item) == 2:
+                    desc = item[0].decode() if isinstance(item[0], bytes) else str(item[0])
+                    if "HEADER" in desc:
+                        headers_raw = item[1]
+                    elif "TEXT" in desc:
+                        text_raw = item[1]
+
+            if not headers_raw:
+                return None
+
+            msg = email.message_from_bytes(headers_raw)
+            message_id = msg.get("Message-ID", "").strip()
+            if not message_id:
+                fallback = f"{msg.get('Date', '')}-{msg.get('Subject', '')}"
+                message_id = f"<{hashlib.md5(fallback.encode()).hexdigest()}@fallback>"
+
+            subject = _decode_header_value(msg.get("Subject", ""))
+            sender = _decode_header_value(msg.get("From", ""))
+
+            received_at = None
+            date_str = msg.get("Date")
+            if date_str:
+                try:
+                    received_at = parsedate_to_datetime(date_str)
+                except Exception:
+                    pass
+
+            in_reply_to = msg.get("In-Reply-To", "").strip()
+            references = msg.get("References", "").strip()
+
+            # Parse text body
+            body_text = ""
+            body_html = ""
+            if text_raw:
+                try:
+                    charset = msg.get_content_charset() or "utf-8"
+                    content_type = msg.get_content_type() or "text/plain"
+                    decoded = text_raw.decode(charset, errors="replace")
+                    if content_type == "text/html":
+                        body_html = decoded
+                    else:
+                        body_text = decoded
+                except Exception:
+                    body_text = text_raw.decode("utf-8", errors="replace")
+
+            return FetchedEmail(
+                message_id=message_id,
+                subject=subject,
+                sender=sender,
+                received_at=received_at,
+                body_text=body_text,
+                body_html=body_html,
+                attachments=[],
+                in_reply_to=in_reply_to,
+                references=references,
+            )
+        except Exception as e:
+            logger.debug(f"Header-only fetch failed for {msg_id}: {e}")
+            return None
+
     def fetch_replies(
         self,
         original_message_ids: List[str],
@@ -311,56 +397,45 @@ class IMAPClient:
         """
         Search IMAP INBOX for replies to the given Message-IDs.
 
-        Uses server-side IMAP HEADER search per message-id for efficiency,
-        then falls back to a broad scan if no results are found.
-        Returns FetchedEmail objects for each detected reply.
+        Batches searches to reduce IMAP round-trips and uses header-only
+        fetch for speed. Falls back to a broad scan if no results are found.
         """
         if not original_message_ids:
             return []
 
         results: List[FetchedEmail] = []
-        seen_msg_ids: set = set()
+        seen_msg_nums: set = set()
 
         try:
             self.connect()
             self._connection.select("INBOX", readonly=True)
 
-            # Strategy 1: Server-side HEADER search (fast, exact)
-            for orig_id in original_message_ids:
-                try:
-                    # Search for In-Reply-To header matching our Message-ID
-                    status, data = self._connection.search(
-                        None, f'(HEADER "In-Reply-To" "{orig_id}")'
-                    )
-                    if status == "OK" and data[0]:
-                        for msg_num in data[0].split():
-                            if msg_num in seen_msg_ids:
-                                continue
-                            seen_msg_ids.add(msg_num)
-                            fetched = self._fetch_single(msg_num)
-                            if fetched:
-                                results.append(fetched)
+            # Batch HEADER searches in groups to reduce round-trips
+            batch_size = 5
+            for i in range(0, len(original_message_ids), batch_size):
+                batch = original_message_ids[i:i + batch_size]
+                for orig_id in batch:
+                    try:
+                        for header_name in ("In-Reply-To", "References"):
+                            status, data = self._connection.search(
+                                None,
+                                f'(HEADER "{header_name}" "{orig_id}")',
+                            )
+                            if status == "OK" and data[0]:
+                                for msg_num in data[0].split():
+                                    if msg_num in seen_msg_nums:
+                                        continue
+                                    seen_msg_nums.add(msg_num)
+                                    fetched = self._fetch_headers_only(msg_num)
+                                    if fetched:
+                                        results.append(fetched)
+                    except Exception as e:
+                        logger.debug(
+                            f"HEADER search failed for {orig_id}: {e}"
+                        )
+                        continue
 
-                    # Also search References header
-                    status, data = self._connection.search(
-                        None, f'(HEADER "References" "{orig_id}")'
-                    )
-                    if status == "OK" and data[0]:
-                        for msg_num in data[0].split():
-                            if msg_num in seen_msg_ids:
-                                continue
-                            seen_msg_ids.add(msg_num)
-                            fetched = self._fetch_single(msg_num)
-                            if fetched:
-                                results.append(fetched)
-                except Exception as e:
-                    logger.debug(
-                        f"HEADER search failed for {orig_id}: {e}"
-                    )
-                    continue
-
-            # Strategy 2: If server-side search found nothing,
-            # do a limited scan of recent emails (fallback)
+            # Fallback: limited scan of recent "Re:" emails
             if not results:
                 results = self._fallback_scan(
                     original_message_ids, since_date, limit
@@ -388,7 +463,6 @@ class IMAPClient:
         if since_date:
             date_str = since_date.strftime("%d-%b-%Y")
             criteria.append(f"SINCE {date_str}")
-        # Only look at emails that are likely replies
         criteria.append('SUBJECT "Re:"')
 
         search_query = f'({" ".join(criteria)})'
@@ -398,15 +472,14 @@ class IMAPClient:
             return results
 
         ids = message_nums[0].split()
-        ids = ids[-limit:]  # most recent first
+        ids = ids[-limit:]
 
         for msg_id in ids:
             try:
-                fetched = self._fetch_single(msg_id)
+                fetched = self._fetch_headers_only(msg_id)
                 if not fetched:
                     continue
 
-                # Check if this reply references any of our sent emails
                 matched = False
                 if fetched.in_reply_to:
                     matched = fetched.in_reply_to in message_id_set
@@ -433,7 +506,7 @@ class IMAPClient:
     ) -> List[FetchedEmail]:
         """Search INBOX for reply emails matching subjects.
 
-        Looks for emails with 'Re:' prefix matching the original subjects.
+        Uses header-only fetch for speed.
         Used as a fallback when smtp_message_id is not available.
         """
         if not subjects:
@@ -451,11 +524,9 @@ class IMAPClient:
                 date_str = since_date.strftime("%d-%b-%Y")
                 date_criteria = f' SINCE {date_str}'
 
-            # Search for "Re: <subject>" for each original subject
-            for subj in subjects[:50]:  # Limit to avoid too many searches
+            for subj in subjects[:30]:  # Reduced from 50 to limit searches
                 try:
-                    # IMAP SUBJECT search is case-insensitive substring
-                    search_subj = subj[:100]  # Truncate long subjects
+                    search_subj = subj[:100]
                     criteria = f'(SUBJECT "Re: {search_subj}"{date_criteria})'
                     status, data = self._connection.search(
                         None, criteria
@@ -465,7 +536,7 @@ class IMAPClient:
                             if msg_num in seen_msg_nums:
                                 continue
                             seen_msg_nums.add(msg_num)
-                            fetched = self._fetch_single(msg_num)
+                            fetched = self._fetch_headers_only(msg_num)
                             if fetched:
                                 results.append(fetched)
                 except Exception as e:

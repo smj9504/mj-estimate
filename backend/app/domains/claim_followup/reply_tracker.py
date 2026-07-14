@@ -162,7 +162,7 @@ class ReplyTracker:
             if not msg_id_map and not subject_map:
                 return 0
 
-            # Connect to IMAP and search for replies
+            # Connect to IMAP and search for replies (single connection)
             auth_method = account.get("auth_method", "password")
             oauth_token = None
             password = ""
@@ -185,6 +185,7 @@ class ReplyTracker:
                 password=password,
                 use_ssl=account["use_ssl"],
                 oauth_access_token=oauth_token,
+                timeout=30,
             )
 
             # Search within last 30 days
@@ -193,17 +194,20 @@ class ReplyTracker:
             found = 0
 
             try:
+                # Use a single IMAP connection for both strategies
+                imap.connect()
+                imap._connection.select("INBOX", readonly=True)
+
                 # Strategy 1: Header-based matching (smtp_message_id)
                 if msg_id_map:
-                    replies = imap.fetch_replies(
-                        original_message_ids=list(msg_id_map.keys()),
-                        since_date=since,
+                    header_results = self._search_by_headers(
+                        imap, list(msg_id_map.keys()), since
                     )
                     logger.info(
                         f"[ReplyTracker] Header search returned "
-                        f"{len(replies)} candidate replies"
+                        f"{len(header_results)} candidate replies"
                     )
-                    for reply in replies:
+                    for reply in header_results:
                         matched = self._match_reply_to_sent(
                             reply, msg_id_map
                         )
@@ -211,18 +215,16 @@ class ReplyTracker:
                             self._process_reply(session, matched, reply)
                             found += 1
 
-                # Strategy 2: Subject-based matching for emails without
-                # smtp_message_id (older emails or failed tracking)
+                # Strategy 2: Subject-based matching (reuse same connection)
                 if subject_map:
-                    subject_replies = imap.fetch_replies_by_subject(
-                        subjects=list(subject_map.keys()),
-                        since_date=since,
+                    subject_results = self._search_by_subject(
+                        imap, list(subject_map.keys()), since
                     )
                     logger.info(
                         f"[ReplyTracker] Subject search returned "
-                        f"{len(subject_replies)} candidate replies"
+                        f"{len(subject_results)} candidate replies"
                     )
-                    for reply in subject_replies:
+                    for reply in subject_results:
                         matched = self._match_reply_by_subject(
                             reply, subject_map, unreplied
                         )
@@ -246,6 +248,8 @@ class ReplyTracker:
                     session.commit()
                     return 0
                 raise
+            finally:
+                imap.disconnect()
 
             session.commit()
             logger.info(
@@ -325,6 +329,52 @@ class ReplyTracker:
                 "from_address": row.from_address,
                 "sent_at": row.sent_at,
             })
+        return results
+
+    def _search_by_headers(self, imap, message_ids, since_date):
+        """Search for replies by In-Reply-To/References headers (connection already open)."""
+        results = []
+        seen = set()
+        for orig_id in message_ids:
+            try:
+                for header in ("In-Reply-To", "References"):
+                    status, data = imap._connection.search(
+                        None, f'(HEADER "{header}" "{orig_id}")'
+                    )
+                    if status == "OK" and data[0]:
+                        for msg_num in data[0].split():
+                            if msg_num in seen:
+                                continue
+                            seen.add(msg_num)
+                            fetched = imap._fetch_headers_only(msg_num)
+                            if fetched:
+                                results.append(fetched)
+            except Exception as e:
+                logger.debug(f"Header search failed for {orig_id}: {e}")
+        return results
+
+    def _search_by_subject(self, imap, subjects, since_date):
+        """Search for replies by subject (connection already open)."""
+        results = []
+        seen = set()
+        date_criteria = ""
+        if since_date:
+            date_criteria = f' SINCE {since_date.strftime("%d-%b-%Y")}'
+        for subj in subjects[:30]:
+            try:
+                search_subj = subj[:100]
+                criteria = f'(SUBJECT "Re: {search_subj}"{date_criteria})'
+                status, data = imap._connection.search(None, criteria)
+                if status == "OK" and data[0]:
+                    for msg_num in data[0].split()[-50:]:
+                        if msg_num in seen:
+                            continue
+                        seen.add(msg_num)
+                        fetched = imap._fetch_headers_only(msg_num)
+                        if fetched:
+                            results.append(fetched)
+            except Exception as e:
+                logger.debug(f"Subject search failed for '{subj[:50]}': {e}")
         return results
 
     def _match_reply_to_sent(

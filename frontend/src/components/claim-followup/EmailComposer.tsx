@@ -255,7 +255,7 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
 
     if (targetCompanyId) {
       const matched = accounts.find(
-        a => a.is_active && a.company_id === targetCompanyId
+        a => a.is_active && a.can_send !== false && a.company_id === targetCompanyId
       );
       if (matched) {
         setSelectedAccountId(matched.id);
@@ -263,9 +263,9 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
       }
     }
 
-    // Fallback: first active account
+    // Fallback: first active sendable account
     if (!selectedAccountId) {
-      const first = accounts.find(a => a.is_active);
+      const first = accounts.find(a => a.is_active && a.can_send !== false);
       if (first) setSelectedAccountId(first.id);
     }
   }, [accounts, claimCompanies, taskType, selectedAccountId]);
@@ -447,7 +447,7 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
             onChange={setSelectedAccountId}
             style={{ width: '100%' }}
             placeholder="Select sending account"
-            options={accounts.filter(a => a.is_active).map(a => ({
+            options={accounts.filter(a => a.is_active && a.can_send !== false).map(a => ({
               value: a.id,
               label: (
                 <Space>

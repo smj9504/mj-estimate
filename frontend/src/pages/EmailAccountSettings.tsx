@@ -196,6 +196,7 @@ const EmailAccountSettings: React.FC = () => {
       company_id: account.company_id || undefined,
       sender_name: account.sender_name || undefined,
       sender_phone: account.sender_phone || undefined,
+      can_send: account.can_send !== false,
       is_active: account.is_active,
       auto_schedule: account.auto_schedule,
     });
@@ -432,6 +433,11 @@ const EmailAccountSettings: React.FC = () => {
           </Form.Item>
 
           <Form.Item name="is_active" label="Active" valuePropName="checked" initialValue={true}>
+            <Switch />
+          </Form.Item>
+
+          <Form.Item name="can_send" label="Can Send (show in From)" valuePropName="checked" initialValue={true}
+            tooltip="Disable for ingestion-only accounts (e.g. mjestimate1@gmail). They won't appear in the From selector.">
             <Switch />
           </Form.Item>
 

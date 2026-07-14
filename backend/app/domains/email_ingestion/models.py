@@ -57,6 +57,9 @@ class EmailAccount(Base, BaseModel):
     oauth_refresh_token = Column(Text, nullable=True, comment="Encrypted OAuth refresh token")
     oauth_token_expiry = Column(DateTime(timezone=True), nullable=True)
 
+    # Capabilities
+    can_send = Column(Boolean, nullable=False, default=True, comment="Show in From selector for outbound emails")
+
     # State
     is_active = Column(Boolean, nullable=False, default=True)
     last_synced_at = Column(DateTime(timezone=True), nullable=True)
