@@ -148,6 +148,19 @@ export const contractInstanceService = {
     return data as ClaimContractDashboardData;
   },
 
+  async sendReminder(claimId: string, contractId: string, payload: {
+    emails: string[];
+    message?: string;
+    template_key?: string;
+    origin_url?: string;
+  }) {
+    const { data } = await api.post(
+      `/api/contracts/claims/${claimId}/contracts/${contractId}/send-reminder`,
+      payload,
+    );
+    return data as { message: string; emails: string[] };
+  },
+
 };
 
 // ============================================================

@@ -729,6 +729,20 @@ async def send_contract_email(
                 display_name_override=company,
             )
 
+        # Audit: document emailed for signature
+        try:
+            service.append_audit_log(
+                contract_id,
+                action='emailed',
+                detail={
+                    'recipients': emails,
+                    'cc': cc if cc else None,
+                    'template_key': template_key,
+                },
+            )
+        except Exception:
+            pass
+
         return {
             "message": f"Email sent to {len(emails)} "
                        f"recipient(s)",
@@ -792,6 +806,206 @@ async def delete_contract(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Send Reminder
+# ============================================================
+
+@router.post(
+    "/claims/{claim_id}/contracts/{contract_id}"
+    "/send-reminder"
+)
+async def send_reminder(
+    claim_id: str,
+    contract_id: str,
+    data: dict,
+    service: ContractInstanceService = Depends(
+        _get_instance_service
+    ),
+):
+    """Resend signing link as a reminder email.
+    Body: { emails: string[], message?: string }
+    """
+    try:
+        emails = data.get('emails', [])
+        if not emails:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one email is required"
+            )
+
+        session = service.database.get_readonly_session()
+        try:
+            from app.domains.contract.repository import (
+                get_instance_repository,
+            )
+            repo = get_instance_repository(session)
+            contract = repo.get_by_id_enriched(contract_id)
+        finally:
+            session.close()
+
+        if not contract:
+            raise HTTPException(
+                status_code=404,
+                detail="Contract not found",
+            )
+
+        token = contract.get('signing_token')
+        if not token:
+            raise HTTPException(
+                status_code=400,
+                detail="Contract has no signing token",
+            )
+
+        status = contract.get('status', 'draft')
+        if status in ('signed', 'voided'):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot send reminder for "
+                       f"{status} contract",
+            )
+
+        # Build signing URL
+        origin = data.get(
+            'origin_url', ''
+        ).rstrip('/')
+        if not origin:
+            from app.core.config import settings
+            origin = getattr(
+                settings, 'FRONTEND_URL', ''
+            ) or 'http://localhost:3000'
+        signing_url = f"{origin}/sign/{token}"
+
+        # Build reminder email
+        company = contract.get(
+            'company_name', 'Our Company'
+        )
+        title = (
+            contract.get('title')
+            or contract.get('template_name')
+            or 'Contract Document'
+        )
+        custom_msg = data.get('message', '')
+        doc_type = contract.get(
+            'document_type', 'other'
+        )
+        template_key = data.get(
+            'template_key', doc_type
+        )
+        tpl = _get_email_template(template_key)
+
+        subject = (
+            f"Reminder: {tpl['subject']}".format(
+                company=company, title=title,
+                client_name=contract.get(
+                    'client_name', ''
+                ),
+            )
+        )
+        body_intro = (
+            '<strong>This is a friendly reminder'
+            '</strong> that the following document '
+            'still requires your signature.<br/><br/>'
+            + tpl['body'].format(
+                company=company, title=title,
+                client_name=contract.get(
+                    'client_name', ''
+                ),
+            )
+        )
+
+        company_email = contract.get(
+            'company_email', ''
+        )
+        company_phone = contract.get(
+            'company_phone', ''
+        )
+
+        body_html = _build_email_html(
+            heading=f"Reminder: {tpl['heading']}",
+            body_intro=body_intro,
+            custom_msg=custom_msg,
+            signing_url=signing_url,
+            button_text=tpl['button_text'],
+            company=company,
+            expires=contract.get(
+                'token_expires_at', 'N/A'
+            ),
+            company_email=company_email or '',
+            company_phone=company_phone or '',
+        )
+
+        # Send via SMTP
+        from app.domains.claim_followup.smtp_service import (
+            SmtpService,
+        )
+        from app.domains.contract.signing_api import (
+            _find_company_email_account,
+        )
+        smtp = SmtpService()
+        company_id = contract.get('company_id')
+        account_id = _find_company_email_account(
+            company_id
+        )
+
+        if account_id:
+            smtp.send(
+                account_id=account_id,
+                from_address=company_email or '',
+                to_addresses=emails,
+                subject=subject,
+                body_html=body_html,
+                skip_signature=True,
+            )
+        else:
+            from app.core.config import settings
+            smtp_user = getattr(
+                settings, 'SMTP_USER', ''
+            )
+            if not smtp_user:
+                raise HTTPException(
+                    status_code=500,
+                    detail="SMTP not configured.",
+                )
+            smtp.send(
+                account_id=None,
+                from_address=smtp_user,
+                to_addresses=emails,
+                subject=subject,
+                body_html=body_html,
+                reply_to=company_email or smtp_user,
+                skip_signature=True,
+                display_name_override=company,
+            )
+
+        # Audit: reminder sent
+        try:
+            service.append_audit_log(
+                contract_id,
+                action='reminder_sent',
+                detail={'recipients': emails},
+            )
+        except Exception:
+            pass
+
+        return {
+            "message": f"Reminder sent to "
+                       f"{len(emails)} recipient(s)",
+            "emails": emails,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Error sending reminder: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send reminder: "
+                   f"{str(e)}",
+        )
 
 
 # ============================================================

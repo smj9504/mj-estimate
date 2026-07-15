@@ -81,20 +81,28 @@ async def get_contract_for_signing(token: str, request: Request):
         if contract.get('status') == 'voided':
             raise HTTPException(status_code=410, detail="This contract has been voided")
 
-        # Mark as viewed if first time
-        if contract.get('status') == 'sent':
+        # Skip status change & audit for OG/link-preview bots
+        ua = request.headers.get('user-agent', '')
+        is_og_bot = 'SimpleWorks-OG' in ua
+
+        # Mark as viewed if first time (skip for bots)
+        if not is_og_bot and contract.get('status') == 'sent':
             service.update(str(contract['id']), {
                 'status': 'viewed',
                 'viewed_at': datetime.utcnow(),
             })
 
-        # Audit: log document viewed
-        _append_audit(
-            service, str(contract['id']),
-            action='viewed',
-            ip=request.client.host if request.client else None,
-            user_agent=request.headers.get('user-agent', ''),
-        )
+        # Audit: log document viewed (skip for bots)
+        if not is_og_bot:
+            service.append_audit_log(
+                str(contract['id']),
+                action='viewed',
+                ip=(
+                    request.client.host
+                    if request.client else None
+                ),
+                user_agent=ua,
+            )
 
         # Use public token-based PDF URL (no auth needed)
         cid = contract['id']
@@ -137,41 +145,6 @@ async def get_contract_for_signing(token: str, request: Request):
     except Exception as e:
         logger.error(f"Error getting contract for signing: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to load contract")
-
-
-def _append_audit(
-    service, contract_id: str,
-    action: str, ip: str = None,
-    user_agent: str = None,
-    detail: dict = None,
-):
-    """Append an event to the contract's audit_log."""
-    try:
-        contract = service.get_by_id(contract_id)
-        if not contract:
-            return
-
-        raw = contract.get('audit_log')
-        log = []
-        if raw:
-            if isinstance(raw, str):
-                log = json.loads(raw)
-            elif isinstance(raw, list):
-                log = raw
-
-        log.append({
-            'action': action,
-            'timestamp': datetime.utcnow().isoformat(),
-            'ip': ip,
-            'user_agent': (user_agent or '')[:200],
-            'detail': detail,
-        })
-
-        service.update(contract_id, {
-            'audit_log': json.dumps(log),
-        })
-    except Exception as e:
-        logger.warning(f"Failed to append audit log: {e}")
 
 
 def _extract_signature_fields(contract: dict):
@@ -246,19 +219,55 @@ async def sign_contract(token: str, data: SigningRequest, request: Request):
             signature_fields=data.signature_fields,
         )
 
-        # Audit: log document signed
+        # Audit: log signer name entered + signed + completed
         contract_for_audit = service.get_by_token(token)
         if contract_for_audit:
-            _append_audit(
-                service, str(contract_for_audit['id']),
-                action='signed',
-                ip=request.client.host if request.client else None,
-                user_agent=request.headers.get('user-agent', ''),
+            cid = str(contract_for_audit['id'])
+            client_ip = (
+                request.client.host
+                if request.client else None
+            )
+            ua = request.headers.get('user-agent', '')
+
+            # Signer entered name
+            service.append_audit_log(
+                cid,
+                action='signer_name_entered',
+                ip=client_ip,
+                user_agent=ua,
                 detail={
                     'signer_name': data.signer_name,
                     'signer_role': data.signer_role,
+                },
+                actor_email=contract_for_audit.get(
+                    'client_email'
+                ),
+            )
+
+            # Document e-signed
+            service.append_audit_log(
+                cid,
+                action='signed',
+                ip=client_ip,
+                user_agent=ua,
+                detail={
+                    'signer_name': data.signer_name,
+                    'signer_role': data.signer_role,
+                    'signature_type': data.signature_type,
                     'consent_agreed': data.consent_agreed,
                 },
+                actor_name=data.signer_name,
+                actor_email=contract_for_audit.get(
+                    'client_email'
+                ),
+            )
+
+            # Agreement completed
+            service.append_audit_log(
+                cid,
+                action='agreement_completed',
+                ip=client_ip,
+                user_agent=ua,
             )
 
         # Send signed PDF notification emails in thread pool (don't block response)
@@ -488,13 +497,33 @@ async def send_signed_copy(token: str, data: dict):
                 attachments=[pdf_attachment],
             )
 
-        return {"message": f"Signed copy sent to {len(emails)} recipient(s)", "emails": emails}
+        # Audit: signed copy sent
+        try:
+            service.append_audit_log(
+                str(contract['id']),
+                action='sent_copy',
+                detail={'recipients': emails},
+            )
+        except Exception:
+            pass
+
+        return {
+            "message": f"Signed copy sent to "
+                       f"{len(emails)} recipient(s)",
+            "emails": emails,
+        }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error sending signed copy: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to send email")
+        logger.error(
+            f"Error sending signed copy: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to send email",
+        )
 
 
 def _generate_filled_pdf_bytes(

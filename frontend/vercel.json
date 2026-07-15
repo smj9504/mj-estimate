@@ -1,6 +1,17 @@
 {
   "rewrites": [
     {
+      "source": "/sign/:token",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": "(?i).*(bot|crawl|spider|preview|kakao|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|Discordbot|WhatsApp|TelegramBot|Applebot|curl|wget).*"
+        }
+      ],
+      "destination": "/api/sign/:token"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

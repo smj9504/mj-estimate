@@ -117,7 +117,7 @@ const SendCopyCard: React.FC<{ token: string; clientEmail?: string }> = ({ token
   return (
     <Card
       size="small"
-      style={{ marginTop: 24, borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
+      style={{ marginTop: 24, marginBottom: 32, borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <MailOutlined style={{ color: '#1677ff' }} />

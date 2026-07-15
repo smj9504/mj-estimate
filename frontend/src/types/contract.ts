@@ -83,6 +83,16 @@ export interface ContractSignature {
   typed_name?: string;
 }
 
+export interface ContractAuditEntry {
+  action: string; // created | emailed | viewed | signer_name_entered | signed | agreement_completed | reminder_sent | voided | sent_copy
+  timestamp: string;
+  ip?: string | null;
+  user_agent?: string | null;
+  detail?: Record<string, any> | null;
+  actor_email?: string | null;
+  actor_name?: string | null;
+}
+
 export interface ContractInstance {
   id: string;
   template_id: string;
@@ -104,11 +114,14 @@ export interface ContractInstance {
   template_name?: string;
   company_name?: string;
   client_name?: string;
+  client_email?: string;
   file_url?: string;
   document_type?: string;
   requires_signature?: boolean;
   signature_count: number;
   signatures?: ContractSignature[];
+  audit_log?: string | ContractAuditEntry[];
+  sent_to_emails?: string;
   prefill_data?: string | Record<string, Record<string, string | null>>;
   created_at?: string;
   updated_at?: string;

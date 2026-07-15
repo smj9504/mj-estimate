@@ -207,6 +207,60 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
         from app.domains.contract.repository import get_instance_repository
         return get_instance_repository(session)
 
+    def append_audit_log(
+        self,
+        contract_id: str,
+        action: str,
+        ip: str = None,
+        user_agent: str = None,
+        detail: dict = None,
+        actor_email: str = None,
+        actor_name: str = None,
+    ):
+        """Append an event to the contract's audit_log JSON array.
+        Actions: created, emailed, reminder_sent, viewed, email_viewed,
+                 signer_name_entered, signed, agreement_completed, voided,
+                 sent_copy
+        """
+        try:
+            session = self.database.get_session()
+            try:
+                repo = self._get_repository_instance(session)
+                contract = repo.get_by_id_enriched(contract_id)
+                if not contract:
+                    return
+
+                raw = contract.get('audit_log')
+                log = []
+                if raw:
+                    if isinstance(raw, str):
+                        log = json.loads(raw)
+                    elif isinstance(raw, list):
+                        log = raw
+
+                entry = {
+                    'action': action,
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'ip': ip,
+                    'user_agent': (user_agent or '')[:200] if user_agent else None,
+                    'detail': detail,
+                }
+                if actor_email:
+                    entry['actor_email'] = actor_email
+                if actor_name:
+                    entry['actor_name'] = actor_name
+
+                log.append(entry)
+
+                repo.update(contract_id, {
+                    'audit_log': json.dumps(log),
+                })
+                session.commit()
+            finally:
+                session.close()
+        except Exception as e:
+            logger.warning(f"Failed to append audit log: {e}")
+
     def get_by_claim(self, claim_id: str) -> List[Dict[str, Any]]:
         try:
             session = self.database.get_readonly_session()
@@ -274,6 +328,23 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                                 result['filled_pdf_url'] = filled_url
                     except Exception as e:
                         logger.warning(f"Failed to generate filled PDF: {e}")
+
+                # Audit: document created
+                try:
+                    company_name = result.get('company_name', '')
+                    company_email = result.get('company_email', '')
+                    self.append_audit_log(
+                        str(result['id']),
+                        action='created',
+                        actor_email=company_email,
+                        actor_name=company_name,
+                        detail={
+                            'title': result.get('title', ''),
+                            'template_name': result.get('template_name', ''),
+                        },
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to log contract creation: {e}")
 
                 return result
             finally:
@@ -784,6 +855,25 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                 repo.update(str(result['id']), {'prefill_data': json.dumps(prefill)})
                 session.commit()
 
+                # Audit: field contract created
+                try:
+                    company_name = result.get('company_name', '')
+                    company_email = result.get('company_email', '')
+                    self.append_audit_log(
+                        str(result['id']),
+                        action='created',
+                        actor_email=company_email,
+                        actor_name=company_name,
+                        detail={
+                            'title': result.get('title', ''),
+                            'source': 'field_signing',
+                        },
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to log field contract creation: {e}"
+                    )
+
                 return result
             finally:
                 session.close()
@@ -1170,10 +1260,20 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
 
     def void_contract(self, instance_id: str) -> Optional[Dict[str, Any]]:
         try:
-            return self.update(instance_id, {
+            result = self.update(instance_id, {
                 'status': 'voided',
                 'voided_at': datetime.utcnow(),
             })
+            # Audit: contract voided
+            try:
+                self.append_audit_log(
+                    instance_id,
+                    action='voided',
+                    detail={'reason': 'Voided by admin'},
+                )
+            except Exception:
+                pass
+            return result
         except Exception as e:
             logger.error(f"Error voiding contract: {e}")
             raise

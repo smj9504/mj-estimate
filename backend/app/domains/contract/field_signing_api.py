@@ -190,6 +190,30 @@ async def get_contract_for_field(token: str, request: Request):
         if contract.get('status') == 'voided':
             raise HTTPException(status_code=410, detail="Contract has been voided")
 
+        # Mark as viewed if first time (sent → viewed)
+        if contract.get('status') == 'sent':
+            service.update(str(contract['id']), {
+                'status': 'viewed',
+                'viewed_at': datetime.utcnow(),
+            })
+
+        # Audit: document viewed
+        try:
+            service.append_audit_log(
+                str(contract['id']),
+                action='viewed',
+                ip=(
+                    request.client.host
+                    if request.client else None
+                ),
+                user_agent=request.headers.get(
+                    'user-agent', ''
+                ),
+                detail={'source': 'field_signing'},
+            )
+        except Exception:
+            pass
+
         # Parse prefill_data
         prefill_data = {}
         raw_prefill = contract.get('prefill_data')
@@ -353,13 +377,36 @@ async def send_email_with_template(token: str, data: SendEmailRequest):
                 attachments=[pdf_attachment],
             )
 
-        return {"message": f"Signed contract sent to {len(emails)} recipient(s)", "emails": emails}
+        # Audit: signed copy sent via field-sign
+        try:
+            service.append_audit_log(
+                str(contract['id']),
+                action='sent_copy',
+                detail={
+                    'recipients': emails,
+                    'source': 'field_signing',
+                },
+            )
+        except Exception:
+            pass
+
+        return {
+            "message": f"Signed contract sent to "
+                       f"{len(emails)} recipient(s)",
+            "emails": emails,
+        }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error sending email: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to send email")
+        logger.error(
+            f"Error sending email: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to send email",
+        )
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
