@@ -1,14 +1,14 @@
 """fix client_id FK ondelete for contract_instances and pack_calculations
 
 Revision ID: cli20260715fk01
-Revises: sup20260715_add_active_supplement_unique_index
+Revises: sup20260715uq01
 Create Date: 2026-07-15
 """
 from alembic import op
 
 # revision identifiers
 revision = 'cli20260715fk01'
-down_revision = 'sup20260715_add_active_supplement_unique_index'
+down_revision = 'sup20260715uq01'
 branch_labels = None
 depends_on = None
 
