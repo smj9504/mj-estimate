@@ -6,7 +6,8 @@
 
 import React, { useState, useRef, useCallback, useMemo } from 'react';
 import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox, Grid, Radio, Table, Tag, Empty } from 'antd';
-import { FilePdfOutlined, PlusOutlined, UploadOutlined, RotateRightOutlined, CloseOutlined, FileTextOutlined, DollarOutlined, EditOutlined, FormOutlined } from '@ant-design/icons';
+import { FilePdfOutlined, PlusOutlined, UploadOutlined, RotateRightOutlined, CloseOutlined, FileTextOutlined, DollarOutlined, EditOutlined, FormOutlined, ScissorOutlined } from '@ant-design/icons';
+import PerspectiveCropModal from './PerspectiveCropModal';
 import { useQuery } from '@tanstack/react-query';
 import { contractTemplateService } from '../../services/contractService';
 import FileGallery from '../common/FileGallery/FileGallery';
@@ -80,12 +81,17 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   const [photoRotations, setPhotoRotations] = useState<Record<string, number>>({});  // {photoId: degrees}
   const [customFilename, setCustomFilename] = useState<string>('');
   const [compressPdf, setCompressPdf] = useState<boolean>(false);  // Compress PDF option
+  const [scanEffect, setScanEffect] = useState<string | undefined>(undefined);
   const [creatingPdf, setCreatingPdf] = useState(false);
   const [annotatorOpen, setAnnotatorOpen] = useState(false);
   const [editingDocumentId, setEditingDocumentId] = useState<string | undefined>(undefined);
   const [editingAnnotations, setEditingAnnotations] = useState<PdfAnnotationData | null>(null);
   const [editingSourceUrl, setEditingSourceUrl] = useState<string | undefined>(undefined);
   const [editingDocType, setEditingDocType] = useState<string | undefined>(undefined);
+  const [editingFilename, setEditingFilename] = useState<string | undefined>(undefined);
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [cropPhotoId, setCropPhotoId] = useState<string>('');
+  const [cropPhotoUrl, setCropPhotoUrl] = useState<string>('');
   const [createSource, setCreateSource] = useState<'photos' | 'template'>('photos');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [generatingFromTemplate, setGeneratingFromTemplate] = useState(false);
@@ -128,6 +134,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     setPhotoRotations({});
     setCustomFilename('');
     setCompressPdf(false);
+    setScanEffect(undefined);
     setSelectedTemplateId(null);
   };
 
@@ -162,6 +169,10 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
 
   const getPhotoThumbnail = (photoId: string) => {
     return photoThumbnailMap.get(photoId) || `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photoId}/preview?size=thumbnail`;
+  };
+
+  const getPhotoFullUrl = (photoId: string) => {
+    return `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photoId}/preview?size=web`;
   };
 
   const handlePhotoSelection = (fileIds: string[]) => {
@@ -228,19 +239,27 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
         mitigationStartDate,  // Pass mitigation start date for EWA documents
         Object.keys(rotations).length > 0 ? rotations : undefined,
         selectedDocType === 'Custom' ? customFilename.trim() : undefined,
-        compressPdf  // Pass compress option
+        compressPdf,  // Pass compress option
+        scanEffect  // Pass scan effect option
       );
 
-      message.success(`PDF generated successfully: ${result.filename}`);
+      // Open generated PDF in annotator for editing before finalizing
+      const sourceUrl = waterMitigationService.documents.getSourcePdfUrl(result.id);
+      setEditingDocumentId(result.id);
+      setEditingAnnotations(null);
+      setEditingSourceUrl(sourceUrl);
+      setEditingDocType(selectedDocType || undefined);
+      setEditingFilename(result.filename);
+      setAnnotatorOpen(true);
+
+      message.success('PDF generated. You can now annotate it.');
       setCreateModalVisible(false);
       setSelectedPhotoIds([]);
       setSelectedDocType(null);
       setPhotoRotations({});
       setCustomFilename('');
       setCompressPdf(false);
-
-      // Refresh document list to show newly created document
-      documentListRef.current?.refresh();
+      setScanEffect(undefined);
     } catch (error: any) {
       console.error('Failed to generate PDF:', error);
       const errorMessage = error?.response?.data?.detail || 'Failed to generate PDF';
@@ -411,6 +430,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
           setPhotoRotations({});
           setCustomFilename('');
           setCompressPdf(false);
+          setScanEffect(undefined);
           setSelectedTemplateId(null);
         }}
         width={isMobile ? '95vw' : 1000}
@@ -424,6 +444,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
               setPhotoRotations({});
               setCustomFilename('');
               setCompressPdf(false);
+              setScanEffect(undefined);
               setSelectedTemplateId(null);
             }}
           >
@@ -590,19 +611,37 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
             </div>
           )}
 
-          {/* Compress PDF Option */}
+          {/* Compress PDF & Scan Effect Options */}
           {createSource === 'photos' && (
-            <div>
-              <Checkbox
-                checked={compressPdf}
-                onChange={(e) => setCompressPdf(e.target.checked)}
-              >
-                <Text>Compress PDF</Text>
-              </Checkbox>
-              <Text type="secondary" style={{ display: 'block', fontSize: 12, marginLeft: 24 }}>
-                Reduce file size by compressing images (lower quality)
-              </Text>
-            </div>
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              <div>
+                <Checkbox
+                  checked={compressPdf}
+                  onChange={(e) => setCompressPdf(e.target.checked)}
+                >
+                  <Text>Compress PDF</Text>
+                </Checkbox>
+                <Text type="secondary" style={{ display: 'block', fontSize: 12, marginLeft: 24 }}>
+                  Reduce file size by compressing images (lower quality)
+                </Text>
+              </div>
+              <div>
+                <Text style={{ marginRight: 8 }}>Scan Effect:</Text>
+                <Select
+                  value={scanEffect || 'none'}
+                  onChange={(val) => setScanEffect(val === 'none' ? undefined : val)}
+                  style={{ width: 150 }}
+                  size="small"
+                >
+                  <Select.Option value="none">None</Select.Option>
+                  <Select.Option value="color_scan">Color Scan</Select.Option>
+                  <Select.Option value="bw_scan">B&W Scan</Select.Option>
+                </Select>
+                <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
+                  Make photos look like scanned documents
+                </Text>
+              </div>
+            </Space>
           )}
 
           {/* Photo Selection */}
@@ -773,6 +812,19 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                             style={{ color: '#1890ff' }}
                           />
                         </Tooltip>
+                        <Tooltip title="Perspective Crop">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<ScissorOutlined />}
+                            onClick={() => {
+                              setCropPhotoId(photoId);
+                              setCropPhotoUrl(getPhotoFullUrl(photoId));
+                              setCropModalOpen(true);
+                            }}
+                            style={{ color: '#722ed1' }}
+                          />
+                        </Tooltip>
                         <Tooltip title="Remove">
                           <Button
                             type="text"
@@ -820,10 +872,26 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
           existingAnnotations={editingAnnotations}
           sourcePdfUrl={editingSourceUrl}
           documentType={editingDocType}
+          defaultFilename={editingFilename}
           onSave={handleAnnotatorSave}
           onClose={() => setAnnotatorOpen(false)}
         />
       </Modal>
+
+      {/* Perspective Crop Modal */}
+      <PerspectiveCropModal
+        open={cropModalOpen}
+        photoId={cropPhotoId}
+        photoUrl={cropPhotoUrl}
+        onClose={() => setCropModalOpen(false)}
+        onCropped={(newPhoto) => {
+          // Replace the original photo with the cropped one in selection
+          setSelectedPhotoIds(prev =>
+            prev.map(id => id === cropPhotoId ? newPhoto.id : id)
+          );
+          setCropModalOpen(false);
+        }}
+      />
     </div>
   );
 };

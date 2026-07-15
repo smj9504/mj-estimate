@@ -2492,10 +2492,94 @@ print(os.path.getsize(output_path))
             return str(date_str)
 
 
+def perspective_crop(img, points: list[dict]) -> "Image.Image":
+    """Apply perspective transform to crop a quadrilateral region from an image.
+
+    Args:
+        img: PIL Image object
+        points: List of 4 corner points [{"x": float, "y": float}, ...] in order:
+                top-left, top-right, bottom-right, bottom-left.
+                Coordinates are in ratio (0.0-1.0) relative to image dimensions.
+
+    Returns:
+        Cropped and perspective-corrected PIL Image
+    """
+    import cv2
+    import numpy as np
+    from PIL import Image
+
+    img_array = np.array(img.convert('RGB'))
+    h, w = img_array.shape[:2]
+
+    # Convert ratio coordinates to pixel coordinates
+    src_pts = np.float32([
+        [points[0]["x"] * w, points[0]["y"] * h],  # top-left
+        [points[1]["x"] * w, points[1]["y"] * h],  # top-right
+        [points[2]["x"] * w, points[2]["y"] * h],  # bottom-right
+        [points[3]["x"] * w, points[3]["y"] * h],  # bottom-left
+    ])
+
+    # Calculate output dimensions from the quadrilateral
+    width_top = np.linalg.norm(src_pts[1] - src_pts[0])
+    width_bottom = np.linalg.norm(src_pts[2] - src_pts[3])
+    out_w = int(max(width_top, width_bottom))
+
+    height_left = np.linalg.norm(src_pts[3] - src_pts[0])
+    height_right = np.linalg.norm(src_pts[2] - src_pts[1])
+    out_h = int(max(height_left, height_right))
+
+    # Ensure minimum dimensions
+    out_w = max(out_w, 100)
+    out_h = max(out_h, 100)
+
+    dst_pts = np.float32([
+        [0, 0],
+        [out_w - 1, 0],
+        [out_w - 1, out_h - 1],
+        [0, out_h - 1],
+    ])
+
+    matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
+    warped = cv2.warpPerspective(img_array, matrix, (out_w, out_h))
+
+    return Image.fromarray(warped)
+
+
+def apply_scan_effect(img, mode: str = "color_scan"):
+    """Apply document scanner effect to a photo.
+
+    Args:
+        img: PIL Image object
+        mode: 'color_scan' (enhanced color) or 'bw_scan' (black & white)
+
+    Returns:
+        Processed PIL Image
+    """
+    from PIL import ImageEnhance, ImageOps
+
+    if mode == "bw_scan":
+        img = img.convert('L')
+        img = ImageOps.autocontrast(img, cutoff=1)
+        img = ImageEnhance.Contrast(img).enhance(1.8)
+        img = ImageEnhance.Sharpness(img).enhance(2.0)
+        img = img.convert('RGB')
+    elif mode == "color_scan":
+        if img.mode == 'RGBA':
+            img = img.convert('RGB')
+        img = ImageOps.autocontrast(img, cutoff=0.5)
+        img = ImageEnhance.Color(img).enhance(0.8)
+        img = ImageEnhance.Contrast(img).enhance(1.5)
+        img = ImageEnhance.Brightness(img).enhance(1.1)
+        img = ImageEnhance.Sharpness(img).enhance(1.5)
+
+    return img
+
+
 def generate_images_pdf(
     image_paths: list[str],
     output_path: str,
-    rotations: dict[str, int] | None = None
+    rotations: dict[str, int] | None = None,
+    scan_effect: str | None = None
 ) -> str:
     """
     Generate PDF from images with each image taking up one full page.
@@ -2520,7 +2604,7 @@ def generate_images_pdf(
     from PIL import Image
 
     logger = logging.getLogger(__name__)
-    logger.info(f"Starting PDF generation with {len(image_paths)} images using reportlab")
+    logger.info(f"Starting PDF generation with {len(image_paths)} images using reportlab (scan_effect={scan_effect})")
 
     # Create PDF writer
     writer = PdfWriter()
@@ -2542,6 +2626,12 @@ def generate_images_pdf(
             img = Image.open(img_path)
             # Apply EXIF orientation (smartphones store images sideways with EXIF rotation tag)
             img = ImageOps.exif_transpose(img)
+
+            # Apply scan effect if requested
+            if scan_effect:
+                logger.info(f"Applying scan effect '{scan_effect}' to image: {img_path}")
+                img = apply_scan_effect(img, mode=scan_effect)
+                logger.info(f"Scan effect applied successfully")
 
             # Resize large images
             max_width = 2550
@@ -3731,7 +3821,8 @@ def generate_ewa_pdf(
     output_path: str,
     rotation: int = 0,
     company_code: Optional[str] = None,
-    compress: bool = False
+    compress: bool = False,
+    scan_effect: str | None = None
 ) -> str:
     """
     Generate EWA (Emergency Work Agreement & Authorization) PDF
@@ -3863,6 +3954,11 @@ def generate_ewa_pdf(
     img = Image.open(photo_path)
     # Apply EXIF orientation (smartphones store images sideways with EXIF rotation tag)
     img = ImageOps.exif_transpose(img)
+
+    # Apply scan effect if requested
+    if scan_effect:
+        logger.info(f"Applying scan effect '{scan_effect}' to EWA photo")
+        img = apply_scan_effect(img, mode=scan_effect)
 
     # Compression settings - balanced quality and file size
     if compress:

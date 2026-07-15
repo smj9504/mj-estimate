@@ -491,6 +491,19 @@ export const waterMitigationService = {
       }
       return { applied, failed };
     },
+
+    // Apply perspective crop to a photo (returns new cropped photo)
+    perspectiveCrop: async (
+      photoId: string,
+      points: { x: number; y: number }[],
+      scanEffect?: string
+    ): Promise<any> => {
+      const response = await api.post(`${BASE_URL}/photos/${photoId}/perspective-crop`, {
+        points,
+        scan_effect: scanEffect || null
+      });
+      return response.data;
+    },
   },
 
   // Document Management
@@ -505,7 +518,8 @@ export const waterMitigationService = {
       mitigationStartDate?: string,  // Used for EWA document
       rotations?: Record<string, number>,  // {photoId: degrees (0, 90, 180, 270)}
       customFilename?: string,  // Custom filename for Custom document type
-      compress?: boolean  // Compress PDF to reduce file size
+      compress?: boolean,  // Compress PDF to reduce file size
+      scanEffect?: string  // Scan effect: 'color_scan', 'bw_scan', or undefined
     ): Promise<{ id: string; filename: string; file_path: string; document_type: string }> => {
       const response = await api.post(`${BASE_URL}/jobs/${jobId}/documents/generate-pdf`, {
         photo_ids: photoIds,
@@ -515,7 +529,8 @@ export const waterMitigationService = {
         mitigation_start_date: mitigationStartDate,
         rotations: rotations,
         custom_filename: customFilename,
-        compress: compress || false
+        compress: compress || false,
+        scan_effect: scanEffect || null
       });
       return response.data;
     },

@@ -40,6 +40,8 @@ interface WMPdfAnnotatorProps {
   sourcePdfUrl?: string;
   /** Document type (COS, EWA, etc.) for proper categorization */
   documentType?: string;
+  /** Default filename when no annotation data exists */
+  defaultFilename?: string;
   onSave: (pdfBlob: Blob, filename: string, annotationData: PdfAnnotationData, sourcePdfBlob?: Blob) => Promise<void>;
   onClose: () => void;
 }
@@ -59,13 +61,14 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
   existingAnnotations,
   sourcePdfUrl,
   documentType,
+  defaultFilename,
   onSave,
   onClose,
 }) => {
   // State
   const [annotatorState, setAnnotatorState] = useState<AnnotatorState>(DEFAULT_ANNOTATOR_STATE);
   const [pdfBytes, setPdfBytes] = useState<ArrayBuffer | null>(null);
-  const [pdfFilename, setPdfFilename] = useState('document.pdf');
+  const [pdfFilename, setPdfFilename] = useState(defaultFilename || 'document.pdf');
   const [renderedPages, setRenderedPages] = useState<RenderedPage[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);

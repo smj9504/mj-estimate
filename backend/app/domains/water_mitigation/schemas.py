@@ -443,6 +443,21 @@ class WMDocumentResponse(WMDocumentBase):
         from_attributes = True
 
 
+class PerspectiveCropPoint(BaseModel):
+    """A point in ratio coordinates (0.0-1.0)"""
+    x: float = Field(..., ge=0.0, le=1.0)
+    y: float = Field(..., ge=0.0, le=1.0)
+
+
+class PerspectiveCropRequest(BaseModel):
+    """Request to apply perspective crop to a photo"""
+    points: List[PerspectiveCropPoint] = Field(
+        ..., min_items=4, max_items=4,
+        description="4 corner points in order: top-left, top-right, bottom-right, bottom-left"
+    )
+    scan_effect: Optional[str] = Field(None, description="Apply scan effect after crop: 'color_scan', 'bw_scan'")
+
+
 class GenerateDocumentRequest(BaseModel):
     """Request to generate document PDF"""
     photo_ids: List[str] = Field(..., description="List of photo IDs to include (EWA requires exactly 1 photo)")
@@ -457,6 +472,7 @@ class GenerateDocumentRequest(BaseModel):
         description="Custom filename for Custom document type (without .pdf extension)"
     )
     compress: bool = Field(False, description="Compress PDF to reduce file size")
+    scan_effect: Optional[str] = Field(None, description="Scan effect: 'color_scan', 'bw_scan', or None")
 
     @validator('photo_ids')
     def validate_photo_ids(cls, v, values):

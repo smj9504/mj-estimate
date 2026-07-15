@@ -36,6 +36,7 @@ from .schemas import (
     CategoryResponse,
     GenerateDocumentRequest,
     GenerateReportRequest,
+    PerspectiveCropRequest,
     GenerateReportResponse,
     JobCreate,
     JobFilters,
@@ -1207,6 +1208,112 @@ async def download_photo(
     )
 
 
+@router.post("/photos/{photo_id}/perspective-crop")
+async def perspective_crop_photo(
+    photo_id: UUID,
+    request: PerspectiveCropRequest,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """Apply perspective crop to a photo and save as a new photo.
+
+    Takes 4 corner points (in ratio 0-1) and applies perspective transform
+    to create a cropped, corrected version of the photo.
+    Returns the new photo data.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from app.common.services.pdf_service import apply_scan_effect, perspective_crop
+    from app.core.config import settings
+    from PIL import Image, ImageOps
+
+    photo = service.photo_repo.get_by_id(str(photo_id))
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    photo_dict = service.photo_repo._convert_to_dict(photo)
+    file_path_str = photo_dict.get('file_path', '')
+    storage_provider = settings.STORAGE_PROVIDER
+
+    # Load image bytes
+    img_bytes = None
+    local_path = Path(file_path_str)
+    if local_path.exists():
+        img_bytes = local_path.read_bytes()
+    elif storage_provider and storage_provider.lower() != 'local':
+        from app.domains.storage.factory import StorageFactory
+        storage = StorageFactory.get_instance(storage_provider)
+        img_bytes = storage.download(file_path_str)
+
+    if not img_bytes:
+        raise HTTPException(status_code=404, detail="Photo file not found")
+
+    # Open image and apply perspective crop
+    import io
+    img = Image.open(io.BytesIO(img_bytes))
+    img = ImageOps.exif_transpose(img)
+
+    points = [{"x": p.x, "y": p.y} for p in request.points]
+    cropped = perspective_crop(img, points)
+
+    # Apply scan effect if requested
+    if request.scan_effect:
+        cropped = apply_scan_effect(cropped, mode=request.scan_effect)
+
+    # Save to temp file
+    temp_fd, temp_path = tempfile.mkstemp(suffix='.jpg')
+    import os
+    os.close(temp_fd)
+    cropped.save(temp_path, format='JPEG', quality=95)
+
+    # Upload to storage
+    from app.common.utils.storage_helpers import upload_bytes_to_storage
+    cropped_bytes = Path(temp_path).read_bytes()
+    job_id = photo_dict.get('job_id', '')
+    original_name = photo_dict.get('original_name', 'cropped.jpg')
+    cropped_filename = f"cropped_{original_name}"
+
+    storage_info = upload_bytes_to_storage(
+        file_bytes=cropped_bytes,
+        filename=cropped_filename,
+        context="water-mitigation",
+        context_id=str(job_id),
+        category="photos",
+    )
+
+    # Clean up temp
+    try:
+        Path(temp_path).unlink()
+    except Exception:
+        pass
+
+    # Create new photo record
+    new_photo_data = {
+        "job_id": str(job_id),
+        "file_path": storage_info["file_path"],
+        "original_name": cropped_filename,
+        "mime_type": "image/jpeg",
+        "file_size": storage_info["file_size"],
+        "source": "cropped",
+        "category": photo_dict.get('category', 'documentation'),
+        "title": f"Cropped - {photo_dict.get('title', original_name)}",
+        "storage_provider": storage_info.get("storage_provider"),
+        "storage_file_id": storage_info.get("storage_file_id"),
+    }
+    new_photo = service.photo_repo.create(new_photo_data)
+    db.commit()
+
+    new_photo_dict = service.photo_repo._convert_to_dict(new_photo)
+
+    # Return preview URL
+    base_url = "/api/water-mitigation"
+    new_photo_dict['preview_url'] = f"{base_url}/photos/{new_photo_dict['id']}/preview?size=web"
+    new_photo_dict['thumbnail_url'] = f"{base_url}/photos/{new_photo_dict['id']}/preview?size=thumbnail"
+
+    return new_photo_dict
+
+
 @router.patch("/photos/{photo_id}/category")
 def update_photo_category(
     photo_id: UUID,
@@ -2218,11 +2325,12 @@ async def generate_document_pdf(
                 output_path=temp_output,
                 rotation=ewa_rotation,
                 company_code=company_code,
-                compress=request.compress
+                compress=request.compress,
+                scan_effect=request.scan_effect
             )
         else:
             # COS: Images only (multiple photos)
-            generate_images_pdf(photo_paths, temp_output, rotations=rotations)
+            generate_images_pdf(photo_paths, temp_output, rotations=rotations, scan_effect=request.scan_effect)
 
         pdf_bytes = Path(temp_output).read_bytes()
         try:
