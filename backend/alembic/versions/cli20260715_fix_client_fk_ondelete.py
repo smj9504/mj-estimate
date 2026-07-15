@@ -47,9 +47,8 @@ def _column_exists(conn, table, column):
 def _fix_fk(conn, table, column, ref_table, fk_name, ondelete):
     """Add column if missing, then fix FK constraint."""
     if not _column_exists(conn, table, column):
-        op.add_column(table, sa.Column(
-            column, sa.dialects.postgresql.UUID(as_uuid=True),
-            nullable=True,
+        conn.execute(text(
+            f"ALTER TABLE {table} ADD COLUMN {column} UUID"
         ))
 
     fk = _find_fk_name(conn, table, column, ref_table)
