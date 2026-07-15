@@ -134,6 +134,7 @@ const EmailAccountSettings = lazyWithRetry(() => import('./pages/EmailAccountSet
 
 // Claim Follow-up
 const ClaimFollowUpDashboard = lazyWithRetry(() => import('./pages/ClaimFollowUpDashboard'));
+const ClaimFollowUpDetail = lazyWithRetry(() => import('./pages/ClaimFollowUpDetail'));
 const ClaimFollowUpEmail = lazyWithRetry(() => import('./pages/ClaimFollowUpEmail'));
 
 // Estimates (Supplements + Estimate Requests)
@@ -148,6 +149,9 @@ const ClaimsLifecycleDashboard = lazyWithRetry(() => import('./pages/ClaimsLifec
 
 // Crew Upload (Public)
 const CrewUploadPage = lazyWithRetry(() => import('./pages/CrewUploadPage'));
+
+// Contractor Payment Portal (Public)
+const ContractorPaymentPortal = lazyWithRetry(() => import('./pages/ContractorPaymentPortal'));
 
 // Error Pages
 const NotFound = lazyWithRetry(() => import('./pages/NotFound'));
@@ -238,6 +242,26 @@ const router = createBrowserRouter([
       <Suspense fallback={<PageLoader />}>
         <CrewUploadPage />
       </Suspense>
+    )
+  },
+  // Contractor Payment Portal (토큰 기반 - 인증 불필요)
+  {
+    path: "/contractor-portal/:token",
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <ContractorPaymentPortal />
+      </Suspense>
+    )
+  },
+  // Contractor Payment Portal (로그인 기반 - contractor role)
+  {
+    path: "/contractor-portal",
+    element: (
+      <ProtectedRoute>
+        <Suspense fallback={<PageLoader />}>
+          <ContractorPaymentPortal />
+        </Suspense>
+      </ProtectedRoute>
     )
   },
   // Protected routes
@@ -927,6 +951,18 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <ClaimFollowUpDashboard />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/claim-followup/claim/:claimId",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <ClaimFollowUpDetail />
           </Suspense>
         </Layout>
       </ProtectedRoute>

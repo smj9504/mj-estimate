@@ -30,10 +30,9 @@ class FollowUpTaskBase(BaseModel):
 
     @validator('task_type')
     def validate_task_type(cls, v):
-        allowed = ['wm_docs_sent', 'supplement_sent', 'depreciation_recovery', 'estimate_request', 'payment_check', 'wm_payment_check', 'docs_sent', 'general', 'dispute', 'appraisal', 'attorney_referral']
-        if v not in allowed:
-            raise ValueError(f"task_type must be one of {allowed}")
-        return v
+        if not v or not v.strip():
+            raise ValueError("task_type is required")
+        return v.strip()
 
     @validator('priority')
     def validate_priority(cls, v):

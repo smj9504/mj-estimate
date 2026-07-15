@@ -330,6 +330,45 @@ async def upload_insurance_estimate(claim_id: str, data: dict):
                         related_entity_id=result.get('id'),
                     ))
 
+                    # Auto-create payment follow-up tasks if missing
+                    from app.domains.claim_followup.service import ClaimFollowUpService
+                    followup_service = ClaimFollowUpService()
+                    # Use existing task info as source (for assigned_to fields)
+                    from app.domains.claim_followup.models import FollowUpTask as FollowUpTaskModel
+                    existing_task = (
+                        session.query(FollowUpTaskModel)
+                        .filter(FollowUpTaskModel.claim_id == claim_id)
+                        .order_by(FollowUpTaskModel.created_at.desc())
+                        .first()
+                    )
+                    source_info = {}
+                    if existing_task:
+                        source_info = {
+                            'assigned_to_name': existing_task.assigned_to_name,
+                            'assigned_to_email': existing_task.assigned_to_email,
+                            'assigned_to_phone': existing_task.assigned_to_phone,
+                            'assigned_to_role': existing_task.assigned_to_role,
+                        }
+
+                    followup_service._auto_create_payment_task(
+                        session, claim_id, source_info, 'payment_check',
+                        title='Rebuild Payment',
+                        description='Insurance estimate received. Follow up for rebuild payment check.',
+                    )
+                    if claim.wm_cost_status == 'separate_estimate':
+                        followup_service._auto_create_payment_task(
+                            session, claim_id, source_info, 'wm_payment_check',
+                            title='WM Payment',
+                            description='Water mitigation estimate received separately. Follow up for WM payment check.',
+                        )
+
+                    # Auto-create supplement for review
+                    estimate_data = {
+                        'rcv_amount': rcv,
+                        'acv_amount': acv,
+                    }
+                    followup_service._auto_create_supplement(session, claim, estimate_data)
+
                     # Auto-create SupplementFollowUp for all supplements on this claim
                     from app.domains.supplement.models import SupplementRequest, SupplementFollowUp
                     supplements = (

@@ -925,6 +925,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
   const [drawerEmailTaskId, setDrawerEmailTaskId] = useState<string | undefined>();
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
   const [detailTask, setDetailTask] = useState<FollowUpTask | null>(null);
+  const [expandedClaims, setExpandedClaims] = useState<string[]>([]);
   const [createForm] = Form.useForm();
   const [editForm] = Form.useForm();
   const [editEstimateForm] = Form.useForm();
@@ -1310,16 +1311,6 @@ const ClaimFollowUpDashboard: React.FC = () => {
       },
     },
     {
-      title: 'Contacts',
-      dataIndex: 'contact_count',
-      key: 'contact_count',
-      width: 80,
-      align: 'center',
-      render: (count: number) => (
-        <Badge count={count} showZero style={{ backgroundColor: count > 0 ? '#52c41a' : '#d9d9d9' }} />
-      ),
-    },
-    {
       title: 'Title',
       dataIndex: 'title',
       key: 'title',
@@ -1645,7 +1636,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
           label = 'Supp: Denied';
           bgColor = '#fff1f0'; txtColor = '#cf1322'; border = '1px solid #ffa39e';
         } else if (suppSubmitted > 0) {
-          label = isPastStage ? 'Supp: Under Review' : 'Supplement: Under Review';
+          label = isPastStage ? 'Supp: Submitted' : 'Supplement: Submitted';
           bgColor = '#1890ff'; txtColor = '#fff'; border = 'none';
         } else if (bidSent > 0) {
           label = isPastStage
@@ -1845,7 +1836,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
       {/* Claim Groups */}
       <Collapse
-        defaultActiveKey={claimGroups.filter(g => g.hasOverdue).map(g => g.claim_id)}
+        activeKey={expandedClaims}
+        onChange={(keys) => setExpandedClaims(keys as string[])}
         style={{ background: 'transparent', border: 'none' }}
         items={claimGroups.map((group) => {
           const activeTasks = group.tasks.filter(t => !['resolved', 'cancelled'].includes(t.status));
@@ -1870,11 +1862,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                       style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', minWidth: 0 }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedClaimGroup(group);
-                        setDrawerEmailTaskId(
-                          group.tasks.find(t => !['resolved', 'cancelled'].includes(t.status))?.id
-                        );
-                        setClaimDrawerOpen(true);
+                        navigate(`/claim-followup/claim/${group.claim_id}`);
                       }}
                     >
                       <EnvironmentOutlined style={{ color: group.hasOverdue ? '#ff4d4f' : '#1890ff', fontSize: 14, flexShrink: 0 }} />
@@ -1970,81 +1958,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 )}
                 {/* Row 3: Stage pipeline + Supplement status */}
                 <div style={{ marginTop: 4, overflow: 'hidden' }}>
-                  <Space size={4} wrap>
-                    {renderStagePipeline(group)}
-                    {(() => {
-                      const ss = group.supplementStatuses;
-                      const hasSupp = Object.keys(ss).length > 0;
-                      const hasResolved = group.tasks.some(t => t.status === 'resolved' && t.task_type === 'estimate_request');
-
-                      // Determine supplement display status
-                      let suppLabel = '';
-                      let suppColor = 'default';
-                      let suppTooltip = '';
-
-                      if (hasSupp) {
-                        if (ss['identified']) {
-                          suppLabel = 'Supplement: Review Needed';
-                          suppColor = 'orange';
-                          suppTooltip = 'Insurance estimate received. Supplement review needed.';
-                        } else if (ss['in_progress']) {
-                          suppLabel = 'Supplement: In Progress';
-                          suppColor = 'processing';
-                          suppTooltip = 'Supplement estimate is being prepared.';
-                        } else if (ss['submitted']) {
-                          suppLabel = 'Supplement: Submitted';
-                          suppColor = 'blue';
-                          suppTooltip = 'Supplement sent to PA/Insurance.';
-                        } else if (ss['under_review']) {
-                          suppLabel = 'Supplement: Under Review';
-                          suppColor = 'geekblue';
-                          suppTooltip = 'Supplement is under review by insurance.';
-                        } else if (ss['approved']) {
-                          suppLabel = 'Supplement: Approved';
-                          suppColor = 'green';
-                        } else if (ss['denied']) {
-                          suppLabel = 'Supplement: Denied';
-                          suppColor = 'red';
-                        }
-                      } else if (hasResolved) {
-                        suppLabel = 'Supplement: Pending';
-                        suppColor = 'warning';
-                        suppTooltip = 'Insurance estimate received. Supplement needs to be created.';
-                      }
-
-                      return (
-                        <>
-                          {suppLabel && (
-                            <Tooltip title={suppTooltip}>
-                              <Tag
-                                color={suppColor}
-                                style={{ fontSize: 10, margin: 0, cursor: 'pointer' }}
-                                onClick={(e) => { e.stopPropagation(); navigate('/supplements'); }}
-                              >
-                                {suppLabel}
-                              </Tag>
-                            </Tooltip>
-                          )}
-                          {group.pendingInfoRequests > 0 && (
-                            <Tooltip title={`${group.pendingInfoRequests} pending info request(s) - waiting for response from PA or contractor`}>
-                              <Tag
-                                color="volcano"
-                                style={{ fontSize: 10, margin: 0, cursor: 'pointer' }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  // Navigate to first in_progress supplement
-                                  const suppId = group.tasks.find(t => t.supplement_statuses)?.claim_id;
-                                  navigate('/supplements');
-                                }}
-                              >
-                                Info Waiting ({group.pendingInfoRequests})
-                              </Tag>
-                            </Tooltip>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </Space>
+                  {renderStagePipeline(group)}
                 </div>
               </div>
             ),

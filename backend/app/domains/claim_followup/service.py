@@ -789,11 +789,53 @@ class ClaimFollowUpService:
                 related_entity_id=supplement.id,
             ))
 
+            # Auto-create supplement_sent follow-up task
+            self._auto_create_supplement_task(session, claim_id, address)
+
             logger.info(f"Auto-created supplement for claim {claim_id}")
         except IntegrityError:
             logger.info(f"Duplicate supplement prevented by DB constraint for claim {claim_id}")
         except Exception as e:
             logger.error(f"Error auto-creating supplement: {e}")
+
+    def _auto_create_supplement_task(self, session, claim_id: str, address: str = ''):
+        """Auto-create a supplement_sent follow-up task if one doesn't exist."""
+        try:
+            from app.domains.claim_followup.models import FollowUpTask as FollowUpTaskModel
+
+            existing = session.query(FollowUpTaskModel).filter(
+                FollowUpTaskModel.claim_id == claim_id,
+                FollowUpTaskModel.task_type == 'supplement_sent',
+                FollowUpTaskModel.status.notin_(['cancelled']),
+            ).first()
+            if existing:
+                return
+
+            # Get assigned_to from existing tasks on this claim
+            source = session.query(FollowUpTaskModel).filter(
+                FollowUpTaskModel.claim_id == claim_id,
+            ).order_by(FollowUpTaskModel.created_at.desc()).first()
+
+            task = FollowUpTaskModel(
+                claim_id=claim_id,
+                task_type='supplement_sent',
+                title=f'Supplement - {address}' if address else 'Supplement Follow-up',
+                description='Insurance estimate received. Prepare supplement estimate and send to PA.',
+                status='pending',
+                priority='high',
+                next_followup_date=datetime.now(timezone.utc) + timedelta(days=5),
+                assigned_to_name=source.assigned_to_name if source else None,
+                assigned_to_email=source.assigned_to_email if source else None,
+                assigned_to_phone=source.assigned_to_phone if source else None,
+                assigned_to_role=source.assigned_to_role if source else 'adjuster',
+                auto_followup_enabled=True,
+                followup_interval_days=7,
+                max_followup_count=10,
+            )
+            session.add(task)
+            logger.info(f"Auto-created supplement_sent task for claim {claim_id}")
+        except Exception as e:
+            logger.error(f"Error auto-creating supplement task: {e}")
 
     def _auto_create_estimate_request(
         self, session, claim, task: Dict[str, Any],
