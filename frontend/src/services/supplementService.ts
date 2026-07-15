@@ -275,4 +275,14 @@ export const supplementService = {
     });
     return data;
   },
+
+  async extractBidItemTotal(file: File): Promise<{ total_amount: number | null; source: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await api.post(`${BASE_URL}/bid-items/extract-total`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    });
+    return data;
+  },
 };

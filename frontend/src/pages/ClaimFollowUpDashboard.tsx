@@ -70,6 +70,7 @@ import type {
   TaskStatus,
   TaskPriority,
 } from '../types/claimFollowUp';
+import { KNOWN_TASK_TYPES } from '../types/claimFollowUp';
 import type { ColumnsType } from 'antd/es/table';
 
 dayjs.extend(relativeTime);
@@ -100,9 +101,10 @@ const TASK_TYPE_OPTIONS: { value: TaskType; label: string }[] = [
   { value: 'dispute', label: 'Dispute (Denied)' },
   { value: 'appraisal', label: 'Appraisal (Denied)' },
   { value: 'attorney_referral', label: 'Attorney Referral (Denied)' },
+  { value: '__custom__', label: '+ Custom Stage...' },
 ];
 
-const TASK_TYPE_ICONS: Record<TaskType, React.ReactNode> = {
+const TASK_TYPE_ICONS: Record<string, React.ReactNode> = {
   wm_docs_sent: <SendOutlined />,
   supplement_sent: <FileTextOutlined />,
   depreciation_recovery: <DollarOutlined />,
@@ -131,7 +133,7 @@ const STAGE_ORDER: TaskType[] = [
   'general',
 ];
 
-const STAGE_LABELS: Record<TaskType, string> = {
+const STAGE_LABELS: Record<string, string> = {
   wm_docs_sent: 'WM Docs',
   estimate_request: 'Est. Request',
   supplement_sent: 'Supplement',
@@ -144,6 +146,10 @@ const STAGE_LABELS: Record<TaskType, string> = {
   appraisal: 'Appraisal',
   attorney_referral: 'Attorney',
 };
+
+/** Convert a custom task_type key (e.g. "check_with_pa") to a display label */
+const getStageLabel = (stage: string): string =>
+  STAGE_LABELS[stage] || stage.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
 // ── Estimate Category Configuration ──
 // Add new estimate types here. Everything else adapts automatically.
@@ -217,9 +223,14 @@ const aggregateByStage = (
     stageMap.get(task.task_type)!.push(task);
   });
 
-  return STAGE_ORDER
-    .filter(stage => stageMap.has(stage))
-    .map(stage => {
+  // Include known stages in order, then append any custom stages
+  const knownSet = new Set<string>(STAGE_ORDER);
+  const orderedStages: TaskType[] = [
+    ...STAGE_ORDER.filter(stage => stageMap.has(stage)),
+    ...Array.from(stageMap.keys()).filter(k => !knownSet.has(k)),
+  ];
+
+  return orderedStages.map(stage => {
       const stageTasks = stageMap.get(stage)!;
 
       // Worst (most urgent) status across all tasks in this stage
@@ -1423,6 +1434,16 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
   const handleCreateSubmit = () => {
     createForm.validateFields().then(values => {
+      // If custom stage selected, use the custom_task_type value as task_type
+      if (values.task_type === '__custom__') {
+        const customType = (values.custom_task_type || '').trim().toLowerCase().replace(/\s+/g, '_');
+        if (!customType) {
+          message.warning('Please enter a custom stage name');
+          return;
+        }
+        values.task_type = customType;
+      }
+      delete values.custom_task_type;
       const payload: FollowUpTaskCreate = {
         ...values,
         next_followup_date: values.next_followup_date?.toISOString() || undefined,
@@ -1497,6 +1518,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
       stage => resolvedTypes.has(stage) || activeTypes.has(stage)
         || virtualResolved.has(stage) || virtualPending.has(stage)
     );
+    // Append custom stages (not in STAGE_ORDER) at the end
+    const knownSet = new Set<string>(STAGE_ORDER);
+    const allTaskTypes = new Set(group.tasks.map(t => t.task_type));
+    allTaskTypes.forEach(tt => {
+      if (!knownSet.has(tt)) relevantStages.push(tt);
+    });
 
     if (relevantStages.length === 0) return null;
 
@@ -1594,7 +1621,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
       }
 
       // Build label
-      let label = STAGE_LABELS[stage];
+      let label = getStageLabel(stage);
       const SHORT_LABELS: Record<string, string> = {
         wm_docs_sent: 'Docs',
         payment_check: 'Rebuild $',
@@ -1607,7 +1634,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
         const statusLabel = PAYMENT_STATUS_LABELS[paymentStatus] || paymentStatus;
         label = isPastStage
           ? `${SHORT_LABELS[stage] || label}: ${statusLabel}`
-          : `${STAGE_LABELS[stage]}: ${statusLabel}`;
+          : `${getStageLabel(stage)}: ${statusLabel}`;
       }
 
       // Supplement stage: show detailed status (tasks or virtual)
@@ -1637,7 +1664,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
       const paymentNote = anyTask?.payment_note;
       let tooltipText = paymentNote
-        || (isPastStage ? `${STAGE_LABELS[stage]} - Done` : '');
+        || (isPastStage ? `${getStageLabel(stage)} - Done` : '');
       // Supplement tooltip with bid item detail
       if (stage === 'supplement_sent' && !tooltipText) {
         if (bidSent > 0) tooltipText = `${bidSent} bid item(s) sent to PA`;
@@ -1664,7 +1691,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
         } else if (resolvedTask && resolvedTask.status === 'resolved') {
           Modal.confirm({
             title: 'Reopen Task',
-            content: `Reopen "${resolvedTask.title || STAGE_LABELS[stage]}"?`,
+            content: `Reopen "${resolvedTask.title || getStageLabel(stage)}"?`,
             okText: 'Reopen',
             onOk: () => reopenMutation.mutate(resolvedTask.id),
           });
@@ -2068,7 +2095,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
           <Row gutter={16}>
             <Col xs={24} sm={12}>
               <Form.Item name="task_type" label="Task Type" rules={[{ required: true }]}>
-                <Select options={TASK_TYPE_OPTIONS} placeholder="Select type" />
+                <Select options={TASK_TYPE_OPTIONS} placeholder="Select type"
+                  onChange={() => createForm.setFieldValue('custom_task_type', undefined)} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -2082,6 +2110,14 @@ const ClaimFollowUpDashboard: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.task_type !== cur.task_type}>
+            {({ getFieldValue }) => getFieldValue('task_type') === '__custom__' && (
+              <Form.Item name="custom_task_type" label="Custom Stage Name"
+                rules={[{ required: true, message: 'Enter a custom stage name' }]}>
+                <Input placeholder="e.g., Check with PA, Talk to homeowner, Waiting for approval" />
+              </Form.Item>
+            )}
+          </Form.Item>
           <Form.Item name="title" label="Title" rules={[{ required: true }]}>
             <Input placeholder="e.g., Follow up on documents sent to adjuster" />
           </Form.Item>
@@ -2989,7 +3025,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   columns={[
                     {
                       title: 'Stage', dataIndex: 'task_type', width: 140,
-                      render: (t: TaskType) => STAGE_LABELS[t] || t,
+                      render: (t: TaskType) => getStageLabel(t),
                     },
                     {
                       title: 'Status', dataIndex: 'status', width: 130,
@@ -3099,7 +3135,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
           <>
             {/* Status & Priority row */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-              <Tag color="blue">{STAGE_LABELS[detailTask.task_type] || detailTask.task_type}</Tag>
+              <Tag color="blue">{getStageLabel(detailTask.task_type)}</Tag>
               <Tag color={STATUS_COLORS[isOverdue(detailTask) ? 'overdue' : detailTask.status] || 'default'}>
                 {(isOverdue(detailTask) ? 'OVERDUE' : detailTask.status).replace('_', ' ').toUpperCase()}
               </Tag>

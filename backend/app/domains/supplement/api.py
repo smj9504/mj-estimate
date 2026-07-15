@@ -2,10 +2,11 @@
 Supplement domain API endpoints.
 """
 
+import asyncio
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 
 from app.domains.supplement.schemas import (
     BidItemEstimateCreate,
@@ -302,8 +303,7 @@ async def upload_insurance_estimate(claim_id: str, data: dict):
         # Update claim's supplement-related info + auto-create follow-up
         try:
             database = get_database()
-            session = database.get_session()
-            try:
+            with database.get_session() as session:
                 from app.domains.client.models import Claim, ClaimActivity
                 from datetime import datetime, timezone
                 claim = session.query(Claim).filter(Claim.id == claim_id).first()
@@ -313,7 +313,6 @@ async def upload_insurance_estimate(claim_id: str, data: dict):
                         claim.insurance_estimate_received_date = datetime.now(timezone.utc)
 
                     # Amounts for activity log and follow-up summary
-                    # (claim.current_* already updated by ClaimNegotiationService.add_negotiation)
                     rcv = float(neg_data.get('rcv_amount', 0))
                     acv = float(neg_data.get('acv_amount', 0))
                     depreciation = float(neg_data.get('depreciation_amount', 0))
@@ -363,8 +362,6 @@ async def upload_insurance_estimate(claim_id: str, data: dict):
                         session.add(followup)
 
                     session.commit()
-            finally:
-                session.close()
         except Exception as e:
             logger.warning(f"Error updating claim after estimate upload: {e}")
 
@@ -1094,3 +1091,136 @@ async def polish_description_for_email(data: dict):
     except Exception as e:
         logger.error(f"Error polishing description for email: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _extract_total_regex(text: str) -> float | None:
+    """Try to extract total amount from PDF text using regex patterns."""
+    import re
+
+    # Patterns ordered by specificity (most specific first)
+    patterns = [
+        r"(?:grand\s+total|total\s+estimate|estimate\s+total|project\s+total|contract\s+(?:amount|total)|total\s+(?:cost|price|amount|due)|balance\s+due|amount\s+due|net\s+claim|total\s+rcv|replacement\s+cost\s+value)\s*[:\s]*\$?\s*([\d,]+\.?\d*)",
+        r"(?:^|\n)\s*total\s*[:\s]*\$?\s*([\d,]+\.\d{2})\s*(?:\n|$)",
+    ]
+
+    best = None
+    for pattern in patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE | re.MULTILINE)
+        for m in matches:
+            try:
+                val = float(m.replace(",", ""))
+                if val > 0 and (best is None or val > best):
+                    best = val
+            except ValueError:
+                continue
+    return best
+
+
+def _extract_total_ai(text: str) -> float | None:
+    """Use Claude API to extract total amount from PDF text."""
+    from app.core.config import settings
+
+    if not settings.ANTHROPIC_API_KEY:
+        return None
+
+    # Truncate text: first 10K + last 5K chars (totals usually at end)
+    if len(text) > 15000:
+        text = text[:10000] + "\n...\n" + text[-5000:]
+
+    system_prompt = (
+        "You extract the TOTAL dollar amount from estimate/quote documents.\n"
+        "Find the final total the customer pays. Look for labels like: "
+        "Total, Grand Total, Total Amount, Total Cost, Estimate Total, "
+        "Balance Due, Amount Due, Total Price, Project Total, Contract Amount, "
+        "Total RCV, Net Claim, Replacement Cost Value.\n"
+        "If multiple totals exist, return the largest/final one.\n"
+        "Return ONLY valid JSON: {\"total_amount\": 12345.67}\n"
+        "If no total found: {\"total_amount\": null}"
+    )
+
+    try:
+        import anthropic
+        import json
+
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=256,
+            system=system_prompt,
+            messages=[{"role": "user", "content": f"Extract the total amount:\n\n{text}"}],
+        )
+        raw = response.content[0].text.strip()
+        # Extract JSON from response
+        import re
+        json_match = re.search(r'\{[^}]+\}', raw)
+        if json_match:
+            parsed = json.loads(json_match.group())
+            val = parsed.get("total_amount")
+            if val is not None:
+                return float(val)
+    except Exception as e:
+        logger.warning(f"AI total extraction failed: {e}")
+    return None
+
+
+@router.post("/supplements/bid-items/extract-total")
+async def extract_bid_item_total(file: UploadFile = File(...)):
+    """Extract total amount from any estimate/quote PDF.
+
+    Uses regex first, falls back to Claude AI if regex fails.
+    Returns { total_amount: float | null, source: "regex" | "ai" | "none" }
+    """
+    import os
+    import tempfile
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    tmp_path = None
+    try:
+        file_content = await file.read()
+
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+        try:
+            with os.fdopen(tmp_fd, "wb") as tmp_f:
+                tmp_f.write(file_content)
+        except Exception:
+            try:
+                os.close(tmp_fd)
+            except OSError:
+                pass
+            raise
+
+        # Extract text from PDF
+        from app.domains.insurance_extraction.extractors.pdf_text_extractor import PdfTextExtractor
+        extractor = PdfTextExtractor()
+        pages = extractor.extract_pages(tmp_path)
+        full_text = "\n".join(pages)
+
+        if not full_text.strip():
+            return {"total_amount": None, "source": "none"}
+
+        # Strategy 1: Regex
+        regex_total = _extract_total_regex(full_text)
+        if regex_total and regex_total > 0:
+            return {"total_amount": round(regex_total, 2), "source": "regex"}
+
+        # Strategy 2: AI fallback
+        ai_total = await asyncio.get_event_loop().run_in_executor(
+            None, _extract_total_ai, full_text
+        )
+        if ai_total and ai_total > 0:
+            return {"total_amount": round(ai_total, 2), "source": "ai"}
+
+        return {"total_amount": None, "source": "none"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error extracting bid item total: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if tmp_path and os.path.isfile(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass

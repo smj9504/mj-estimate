@@ -2,7 +2,13 @@
  * Claim Follow-up types
  */
 
-export type TaskType = 'wm_docs_sent' | 'supplement_sent' | 'depreciation_recovery' | 'estimate_request' | 'payment_check' | 'wm_payment_check' | 'docs_sent' | 'general' | 'dispute' | 'appraisal' | 'attorney_referral';
+export type TaskType = 'wm_docs_sent' | 'supplement_sent' | 'depreciation_recovery' | 'estimate_request' | 'payment_check' | 'wm_payment_check' | 'docs_sent' | 'general' | 'dispute' | 'appraisal' | 'attorney_referral' | (string & {});
+
+export const KNOWN_TASK_TYPES = [
+  'wm_docs_sent', 'supplement_sent', 'depreciation_recovery', 'estimate_request',
+  'payment_check', 'wm_payment_check', 'docs_sent', 'general',
+  'dispute', 'appraisal', 'attorney_referral',
+] as const;
 export type TaskStatus = 'pending' | 'awaiting_response' | 'responded' | 'resolved' | 'overdue' | 'cancelled';
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type AssignedRole = 'adjuster' | 'public_adjuster' | 'contractor';
@@ -229,7 +235,7 @@ export interface FollowUpDashboardStats {
 }
 
 // UI helper types
-export const TASK_TYPE_LABELS: Record<TaskType, string> = {
+export const TASK_TYPE_LABELS: Record<string, string> = {
   wm_docs_sent: 'WM Docs Sent',
   supplement_sent: 'Supplement Sent',
   depreciation_recovery: 'Depreciation Recovery',

@@ -1159,10 +1159,19 @@ const SupplementDetail: React.FC = () => {
                                 try {
                                   const uploaded = await fileService.uploadFiles([file], 'supplement_bid_item', item.id, 'estimate_pdf');
                                   if (uploaded.length > 0) {
+                                    const mutData: any = { custom_document_file_id: uploaded[0].id, custom_document_file_name: file.name };
+                                    // Auto-extract total amount from PDF
+                                    try {
+                                      const result = await supplementService.extractBidItemTotal(file as unknown as File);
+                                      if (result?.total_amount && result.total_amount > 0) {
+                                        mutData.custom_amount = result.total_amount;
+                                        message.success(`Extracted total: ${formatCurrency(result.total_amount)}`);
+                                      }
+                                    } catch { /* silent */ }
                                     updateBidItemMutation.mutate({
                                       supplementId: supplement.id,
                                       itemId: item.id,
-                                      data: { custom_document_file_id: uploaded[0].id, custom_document_file_name: file.name },
+                                      data: mutData,
                                     });
                                   }
                                 } catch { message.error('Upload failed'); }
@@ -1184,12 +1193,24 @@ const SupplementDetail: React.FC = () => {
                               try {
                                 const uploaded = await fileService.uploadFiles([file], 'supplement_bid_item', item.id, 'estimate_pdf');
                                 if (uploaded.length > 0) {
+                                  const mutData: any = { custom_document_file_id: uploaded[0].id, custom_document_file_name: file.name };
+                                  // Auto-extract total amount from PDF
+                                  try {
+                                    const result = await supplementService.extractBidItemTotal(file as unknown as File);
+                                    if (result?.total_amount && result.total_amount > 0) {
+                                      mutData.custom_amount = result.total_amount;
+                                      message.success(`Extracted total: ${formatCurrency(result.total_amount)}`);
+                                    } else {
+                                      message.success('PDF uploaded');
+                                    }
+                                  } catch {
+                                    message.success('PDF uploaded');
+                                  }
                                   updateBidItemMutation.mutate({
                                     supplementId: supplement.id,
                                     itemId: item.id,
-                                    data: { custom_document_file_id: uploaded[0].id, custom_document_file_name: file.name },
+                                    data: mutData,
                                   });
-                                  message.success('PDF uploaded');
                                 }
                               } catch { message.error('Upload failed'); }
                               return false;
@@ -2297,6 +2318,17 @@ const SupplementDetail: React.FC = () => {
                           }
                         } catch {
                           message.warning('Could not auto-parse amounts from PDF');
+                        }
+                      } else {
+                        // Generic PDF: extract total amount using AI
+                        try {
+                          const result = await supplementService.extractBidItemTotal(file as unknown as File);
+                          if (result?.total_amount && result.total_amount > 0) {
+                            bidItemForm.setFieldsValue({ custom_amount: result.total_amount });
+                            message.success(`Extracted total: ${formatCurrency(result.total_amount)}`);
+                          }
+                        } catch {
+                          // Silent fail - user can manually enter amount
                         }
                       }
                     }

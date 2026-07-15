@@ -54,7 +54,7 @@ const SupplementManagement: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string>('supplement');
-  const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [statusFilter, setStatusFilter] = useState<string | undefined>('identified');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createForm] = Form.useForm();
   const [claimPaInfo, setClaimPaInfo] = useState<{ pa_name: string; pa_email: string } | null>(null);
@@ -265,7 +265,24 @@ const SupplementManagement: React.FC = () => {
           { key: 'supplement', label: 'Supplements' },
           { key: 'estimate_request', label: 'Estimate Requests' },
         ]}
+        style={{ marginBottom: 0 }}
+      />
+
+      {/* Status Sub-tabs */}
+      <Tabs
+        activeKey={statusFilter || 'all'}
+        onChange={(key) => setStatusFilter(key === 'all' ? undefined : key)}
+        size="small"
         style={{ marginBottom: 16 }}
+        items={[
+          { key: 'all', label: `All${stats ? ` (${stats.total || 0})` : ''}` },
+          { key: 'identified', label: <span style={{ color: '#1890ff' }}>Identified{stats ? ` (${stats.identified || 0})` : ''}</span> },
+          { key: 'in_progress', label: <span style={{ color: '#722ed1' }}>In Progress{stats ? ` (${stats.in_progress || 0})` : ''}</span> },
+          { key: 'submitted', label: <span style={{ color: '#fa8c16' }}>Submitted{stats ? ` (${stats.submitted || 0})` : ''}</span> },
+          { key: 'under_review', label: <span style={{ color: '#2f54eb' }}>Under Review{stats ? ` (${stats.under_review || 0})` : ''}</span> },
+          { key: 'approved', label: <span style={{ color: '#52c41a' }}>Approved{stats ? ` (${stats.approved || 0})` : ''}</span> },
+          { key: 'denied', label: <span style={{ color: '#cf1322' }}>Denied{stats ? ` (${stats.denied || 0})` : ''}</span> },
+        ]}
       />
 
       {/* Pending Review Alert */}
@@ -297,32 +314,6 @@ const SupplementManagement: React.FC = () => {
           }
         />
       )}
-
-      {/* Stats */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        {[
-          { title: 'Identified', value: stats?.identified, color: '#1890ff' },
-          { title: 'In Progress', value: stats?.in_progress, color: '#722ed1' },
-          { title: 'Submitted', value: stats?.submitted, color: '#fa8c16' },
-          { title: 'Approved', value: stats?.approved, color: '#52c41a' },
-        ].map(s => (
-          <Col xs={12} sm={6} key={s.title}>
-            <Card size="small">
-              <Statistic title={s.title} value={s.value || 0} loading={statsLoading}
-                valueStyle={{ color: s.color, fontSize: 20 }} />
-            </Card>
-          </Col>
-        ))}
-      </Row>
-
-      {/* Filter + Table */}
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Select placeholder="Filter by status" allowClear style={{ width: 180 }}
-          value={statusFilter} onChange={setStatusFilter}
-          options={['identified','in_progress','submitted','under_review','approved','denied'].map(s => ({
-            value: s, label: s.replace('_', ' ').toUpperCase(),
-          }))} />
-      </Card>
 
       <Card>
         <Table dataSource={supplements} columns={columns} rowKey="id" loading={isLoading}

@@ -467,15 +467,15 @@ async def add_negotiation(
         neg_dict['claim_id'] = claim_id
         result = service.add_negotiation(neg_dict)
 
-        # Auto-create supplement for review
+        # Auto-create supplement for review (single session to prevent race conditions)
         try:
             from app.domains.claim_followup.service import ClaimFollowUpService
-            followup_service = ClaimFollowUpService()
+            from app.domains.client.models import Claim
             from app.core.database_factory import get_database
+
+            followup_service = ClaimFollowUpService()
             db = get_database()
-            session = db.get_session()
-            try:
-                from app.domains.client.models import Claim
+            with db.get_session() as session:
                 claim = session.query(Claim).filter(Claim.id == claim_id).first()
                 if claim:
                     estimate_data = {
@@ -484,8 +484,6 @@ async def add_negotiation(
                     }
                     followup_service._auto_create_supplement(session, claim, estimate_data)
                     session.commit()
-            finally:
-                session.close()
         except Exception as e:
             logger.warning(f"Auto supplement creation failed: {e}")
 

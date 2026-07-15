@@ -725,18 +725,28 @@ class ClaimFollowUpService:
     def _auto_create_supplement(
         self, session, claim, estimate_data: Optional[Dict[str, Any]]
     ):
-        """Auto-create a Supplement Request when insurance estimate is received for review"""
+        """Auto-create a Supplement Request when insurance estimate is received for review.
+
+        Uses SELECT ... FOR UPDATE to prevent race conditions when multiple
+        insurance estimate uploads happen concurrently for the same claim.
+        """
         try:
             from app.domains.supplement.models import SupplementRequest
             from app.domains.client.models import ClaimActivity, Client
+            from sqlalchemy.exc import IntegrityError
 
             claim_id = str(claim.id)
 
-            # Check if any active supplement already exists for this claim
-            existing = session.query(SupplementRequest).filter(
-                SupplementRequest.claim_id == claim_id,
-                SupplementRequest.status.notin_(['approved', 'denied', 'withdrawn']),
-            ).first()
+            # Lock the row to prevent concurrent duplicate creation
+            existing = (
+                session.query(SupplementRequest)
+                .filter(
+                    SupplementRequest.claim_id == claim_id,
+                    SupplementRequest.status.notin_(['approved', 'denied', 'withdrawn']),
+                )
+                .with_for_update(skip_locked=False)
+                .first()
+            )
             if existing:
                 logger.info(f"Active supplement already exists for claim {claim_id} (status={existing.status})")
                 return
@@ -758,7 +768,13 @@ class ClaimFollowUpService:
                 priority='high',
             )
             session.add(supplement)
-            session.flush()
+
+            try:
+                session.flush()
+            except IntegrityError:
+                session.rollback()
+                logger.info(f"Duplicate supplement prevented by DB constraint for claim {claim_id}")
+                return
 
             # Update claim
             claim.needs_supplement = True
@@ -774,6 +790,8 @@ class ClaimFollowUpService:
             ))
 
             logger.info(f"Auto-created supplement for claim {claim_id}")
+        except IntegrityError:
+            logger.info(f"Duplicate supplement prevented by DB constraint for claim {claim_id}")
         except Exception as e:
             logger.error(f"Error auto-creating supplement: {e}")
 
