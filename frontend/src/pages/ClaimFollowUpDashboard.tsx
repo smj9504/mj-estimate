@@ -2049,6 +2049,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
               </div>
             ),
             children: (
+              <>
               <Table<StageAggregated>
                 dataSource={aggregateByStage(group.tasks, isOverdue)}
                 columns={taskColumns}
@@ -2067,6 +2068,20 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   style: { cursor: 'pointer' },
                 })}
               />
+              <Button
+                type="dashed"
+                size="small"
+                icon={<PlusOutlined />}
+                style={{ marginTop: 8 }}
+                onClick={() => {
+                  createForm.resetFields();
+                  createForm.setFieldsValue({ claim_id: group.claim_id });
+                  setCreateModalOpen(true);
+                }}
+              >
+                Add Stage
+              </Button>
+              </>
             ),
           };
         })}
