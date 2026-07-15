@@ -52,6 +52,8 @@ import {
   UserOutlined,
   PhoneOutlined,
   ExclamationCircleOutlined,
+  EyeInvisibleOutlined,
+  EyeOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -898,6 +900,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
   const isMobile = useIsMobile();
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
+  const [hideResolved, setHideResolved] = useState(true);
+  const [supplementFilter, setSupplementFilter] = useState<string | undefined>(undefined);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [resolveModalOpen, setResolveModalOpen] = useState(false);
   const [resolveOutcome, setResolveOutcome] = useState<string | undefined>();
@@ -1059,6 +1063,36 @@ const ClaimFollowUpDashboard: React.FC = () => {
       return dayjs(a.nextFollowupDate).unix() - dayjs(b.nextFollowupDate).unix();
     });
   }, [tasks]);
+
+  // Filter claim groups: hide resolved, supplement filter
+  const filteredClaimGroups = useMemo(() => {
+    let filtered = claimGroups;
+
+    // Hide resolved: only show claims with at least one active task
+    // Skip when status filter explicitly selects resolved
+    if (hideResolved && statusFilter !== 'resolved') {
+      filtered = filtered.filter(group =>
+        group.tasks.some(t => !['resolved', 'cancelled'].includes(t.status))
+      );
+    }
+
+    // Supplement filter
+    if (supplementFilter === 'needs_writing') {
+      // Supplements identified or in progress (not yet submitted)
+      filtered = filtered.filter(group =>
+        (group.supplementStatuses['identified'] || 0) > 0
+        || (group.supplementStatuses['in_progress'] || 0) > 0
+      );
+    } else if (supplementFilter === 'submitted') {
+      // Supplements submitted or under review (waiting for response)
+      filtered = filtered.filter(group =>
+        (group.supplementStatuses['submitted'] || 0) > 0
+        || (group.supplementStatuses['under_review'] || 0) > 0
+      );
+    }
+
+    return filtered;
+  }, [claimGroups, hideResolved, supplementFilter]);
 
   // Mutations
   const createMutation = useMutation({
@@ -1826,9 +1860,35 @@ const ClaimFollowUpDashboard: React.FC = () => {
               options={TASK_TYPE_OPTIONS}
             />
           </Col>
-          <Col xs={24} sm={8}>
+          <Col xs={12} sm={8} md={5}>
+            <Select
+              placeholder="Supplement"
+              allowClear
+              style={{ width: '100%' }}
+              value={supplementFilter}
+              onChange={setSupplementFilter}
+              options={[
+                { value: 'needs_writing', label: 'Needs Writing (Not Submitted)' },
+                { value: 'submitted', label: 'Submitted / Under Review' },
+              ]}
+            />
+          </Col>
+          <Col xs={12} sm={4} md={3}>
+            <Tooltip title={hideResolved ? 'Showing active only' : 'Showing all including resolved'}>
+              <Button
+                size="small"
+                type={hideResolved ? 'primary' : 'default'}
+                icon={hideResolved ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+                onClick={() => setHideResolved(!hideResolved)}
+                style={{ width: '100%' }}
+              >
+                {hideResolved ? 'Active Only' : 'Show All'}
+              </Button>
+            </Tooltip>
+          </Col>
+          <Col xs={12} sm={4}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              {claimGroups.length} claims, {tasks.length} tasks
+              {filteredClaimGroups.length} claims, {tasks.length} tasks
             </Text>
           </Col>
         </Row>
@@ -1839,7 +1899,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
         activeKey={expandedClaims}
         onChange={(keys) => setExpandedClaims(keys as string[])}
         style={{ background: 'transparent', border: 'none' }}
-        items={claimGroups.map((group) => {
+        items={filteredClaimGroups.map((group) => {
           const activeTasks = group.tasks.filter(t => !['resolved', 'cancelled'].includes(t.status));
           const resolvedTasks = group.tasks.filter(t => t.status === 'resolved');
           const totalTasks = group.tasks.length;
@@ -2001,7 +2061,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
         })}
       />
 
-      {claimGroups.length === 0 && !tasksLoading && (
+      {filteredClaimGroups.length === 0 && !tasksLoading && (
         <Card style={{ textAlign: 'center', padding: 40 }}>
           <Text type="secondary">No follow-up tasks found</Text>
         </Card>

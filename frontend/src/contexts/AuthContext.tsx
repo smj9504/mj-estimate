@@ -76,9 +76,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setUser(userData);
           localStorage.setItem('auth_user', JSON.stringify(userData));
         })
-        .catch(() => {
-          // Token is invalid, clear auth
-          logout(false);
+        .catch((err) => {
+          // Only logout on auth errors (401/403), not network errors
+          const status = err?.response?.status;
+          if (status === 401 || status === 403) {
+            logout(false);
+          }
+          // Network errors (server down) → keep stored session
         })
         .finally(() => {
           setLoading(false);
