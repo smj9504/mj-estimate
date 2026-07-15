@@ -125,13 +125,10 @@ const UserManagement: React.FC = () => {
       title: 'Username',
       dataIndex: 'username',
       key: 'username',
-      render: (text: string, record: User) => (
+      render: (text: string) => (
         <Space>
           <UserOutlined />
           {text}
-          {!record.email_verified && (
-            <Tag color="warning">Unverified</Tag>
-          )}
         </Space>
       ),
     },

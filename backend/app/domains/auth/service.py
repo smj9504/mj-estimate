@@ -23,7 +23,7 @@ from .password_reset_models import PasswordResetToken
 class AuthService:
     SECRET_KEY = settings.SECRET_KEY
     ALGORITHM = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
+    ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 90  # 90 days
     
     @staticmethod
     def hash_password(password: str) -> str:

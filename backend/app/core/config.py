@@ -164,7 +164,7 @@ class Settings(BaseSettings):
     SMTP_USER: str = os.getenv("SMTP_USER", "")
     SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
     SMTP_FROM_EMAIL: str = os.getenv("SMTP_FROM_EMAIL", "noreply@mjestimate.com")
-    SMTP_FROM_NAME: str = os.getenv("SMTP_FROM_NAME", "MJ Estimate")
+    SMTP_FROM_NAME: str = os.getenv("SMTP_FROM_NAME", "SimpleWorks")
     EMAIL_ENABLED: bool = os.getenv("EMAIL_ENABLED", "false").lower() == "true"
 
     # Google Sheets Integration

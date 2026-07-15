@@ -1105,7 +1105,7 @@ class SupplementService:
                     f"(Claim #{claim_number}) and need the following information to proceed:</p>"
                     f"<ul>{items_html}</ul>"
                     f"<p>Could you please provide this information at your earliest convenience?</p>"
-                    f"<p>Thank you,<br/>MJ Estimate Team</p>"
+                    f"<p>Thank you,<br/>SimpleWorks Team</p>"
                 )
 
             # Send email
@@ -1219,7 +1219,7 @@ class SupplementService:
                 f"<ul>{items_html}</ul>"
                 f"{additional_html}"
                 f"<p>Please let me know if you need any clarification.</p>"
-                f"<p>Thank you,<br/>MJ Estimate Team</p>"
+                f"<p>Thank you,<br/>SimpleWorks Team</p>"
             )
 
             # Send email

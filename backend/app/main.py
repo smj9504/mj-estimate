@@ -426,6 +426,7 @@ def _auto_add_columns_with_conn(conn):
         print("[MIGRATION] Renamed pack_calculations.mode → estimate_mode")
 
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -484,6 +485,18 @@ async def lifespan(app: FastAPI):
                     from sqlalchemy import text, inspect
                     from app.domains.material_order.models import MaterialOrder, MaterialOrderItem
                     from app.core.database_factory import Base
+
+                    # Add enum values outside transaction (PG requirement)
+                    try:
+                        with _db.engine.connect().execution_options(
+                            isolation_level="AUTOCOMMIT"
+                        ) as enum_conn:
+                            enum_conn.execute(text(
+                                "ALTER TYPE staffrole ADD VALUE IF NOT EXISTS 'contractor'"
+                            ))
+                            print("[MIGRATION] Ensured 'contractor' in staffrole enum")
+                    except Exception as e:
+                        print(f"[MIGRATION] staffrole enum: {e}")
 
                     with _db.engine.begin() as conn:
                         existing = set(inspect(conn).get_table_names())

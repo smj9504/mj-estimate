@@ -63,8 +63,8 @@ const ContractorPaymentPortal: React.FC = () => {
   const { token } = useParams<{ token: string }>();
   const { user } = useAuth();
 
-  // Determine mode: token-based or auth-based
-  const isAuthMode = useMemo(() => !token && user?.role === 'contractor', [token, user]);
+  // Determine mode: token-based or auth-based (any logged-in user can access)
+  const isAuthMode = useMemo(() => !token && !!user, [token, user]);
   const companyId = useMemo(() => user?.company_id || null, [user]);
 
   const [step, setStep] = useState<Step>('loading');
@@ -83,10 +83,10 @@ const ContractorPaymentPortal: React.FC = () => {
   useEffect(() => {
     (async () => {
       try {
-        if (isAuthMode && companyId) {
-          // Auth mode: use company_id from logged-in user
+        if (isAuthMode) {
+          // Auth mode: show all claims (or filtered by company_id if set)
           setContactName(user?.full_name || user?.first_name || 'Contractor');
-          const claimList = await contractorPortalService.getClaimsByCompany(companyId);
+          const claimList = await contractorPortalService.getClaimsByCompany(companyId || undefined);
           setClaims(claimList);
           setStep('claims');
         } else if (token) {
@@ -130,7 +130,7 @@ const ContractorPaymentPortal: React.FC = () => {
         : await contractorPortalService.getPayments(token!, selectedClaim.claim_id);
       setPaymentData(data);
       const claimList = isAuthMode
-        ? await contractorPortalService.getClaimsByCompany(companyId!)
+        ? await contractorPortalService.getClaimsByCompany(companyId || undefined)
         : await contractorPortalService.getClaims(token!);
       setClaims(claimList);
     } catch { /* silent */ }

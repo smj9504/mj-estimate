@@ -134,8 +134,8 @@ async def upload_check_photo(token: str, file: UploadFile = File(...)):
 # For contractors who log in with staff credentials
 
 @public_router.get("/auth/claims")
-async def list_claims_by_company(company_id: str = Query(...)):
-    """List claims for a company (used by logged-in contractors)."""
+async def list_claims_by_company(company_id: str = Query(None)):
+    """List claims for a company, or all claims if no company_id."""
     service = _get_service()
     return service.get_claims_for_company(company_id)
 

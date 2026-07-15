@@ -98,8 +98,10 @@ export const contractorPortalService = {
   },
 
   // Auth-based endpoints (for logged-in contractors)
-  async getClaimsByCompany(companyId: string): Promise<ClaimListItem[]> {
-    const { data } = await api.get(`${BASE_URL}/auth/claims`, { params: { company_id: companyId } });
+  async getClaimsByCompany(companyId?: string): Promise<ClaimListItem[]> {
+    const params: Record<string, string> = {};
+    if (companyId) params.company_id = companyId;
+    const { data } = await api.get(`${BASE_URL}/auth/claims`, { params });
     return data;
   },
 

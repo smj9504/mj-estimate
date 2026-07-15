@@ -278,22 +278,22 @@ class ContractorPortalService:
 
     # ── Auth-based methods (for logged-in contractors) ──
 
-    def get_claims_for_company(self, company_id: str) -> List[Dict[str, Any]]:
-        """Get all claims assigned to a specific company."""
+    def get_claims_for_company(self, company_id: str = None) -> List[Dict[str, Any]]:
+        """Get claims assigned to a company, or all claims if no company_id."""
         from app.domains.client.models import Claim, ClaimPayment, Client
         from app.domains.company.models import Company
         from app.domains.contract.models import ClaimCompany
 
         with self.database.get_session() as session:
-            claim_companies = (
+            query = (
                 session.query(ClaimCompany, Claim, Client, Company)
                 .join(Claim, ClaimCompany.claim_id == Claim.id)
                 .join(Client, Claim.client_id == Client.id)
                 .join(Company, ClaimCompany.company_id == Company.id)
-                .filter(ClaimCompany.company_id == company_id)
-                .order_by(Claim.created_at.desc())
-                .all()
             )
+            if company_id:
+                query = query.filter(ClaimCompany.company_id == company_id)
+            claim_companies = query.order_by(Claim.created_at.desc()).all()
 
             payment_totals = {}
             if claim_companies:

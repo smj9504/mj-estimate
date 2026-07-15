@@ -102,7 +102,7 @@ class EmailService:
         """
         reset_link = f"{settings.FRONTEND_URL}/reset-password?token={token}"
 
-        subject = "Reset Your Password - MJ Estimate"
+        subject = "Reset Your Password - SimpleWorks"
 
         html_content = f"""
         <!DOCTYPE html>
@@ -157,7 +157,7 @@ class EmailService:
                 </div>
                 <div class="content">
                     <p>Hello,</p>
-                    <p>We received a request to reset your password for your MJ Estimate account.</p>
+                    <p>We received a request to reset your password for your SimpleWorks account.</p>
                     <p>Click the button below to reset your password:</p>
                     <p style="text-align: center;">
                         <a href="{reset_link}" class="button">Reset Password</a>
@@ -169,7 +169,7 @@ class EmailService:
                     <p><strong>This link will expire in 1 hour.</strong></p>
                     <p>If you didn't request a password reset, you can safely ignore this email.</p>
                     <div class="footer">
-                        <p>This is an automated message from MJ Estimate. Please do not reply to this email.</p>
+                        <p>This is an automated message from SimpleWorks. Please do not reply to this email.</p>
                     </div>
                 </div>
             </div>
@@ -182,7 +182,7 @@ class EmailService:
 
         Hello,
 
-        We received a request to reset your password for your MJ Estimate account.
+        We received a request to reset your password for your SimpleWorks account.
 
         Click the link below to reset your password:
         {reset_link}
@@ -192,7 +192,7 @@ class EmailService:
         If you didn't request a password reset, you can safely ignore this email.
 
         ---
-        This is an automated message from MJ Estimate. Please do not reply to this email.
+        This is an automated message from SimpleWorks. Please do not reply to this email.
         """
 
         return EmailService.send_email(
@@ -214,7 +214,7 @@ class EmailService:
         Returns:
             bool: True if email sent successfully
         """
-        subject = "Welcome to MJ Estimate"
+        subject = "Welcome to SimpleWorks"
 
         html_content = f"""
         <!DOCTYPE html>
@@ -258,11 +258,11 @@ class EmailService:
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>Welcome to MJ Estimate!</h1>
+                    <h1>Welcome to SimpleWorks!</h1>
                 </div>
                 <div class="content">
                     <p>Hi {username},</p>
-                    <p>Your account has been successfully created. You can now log in and start using MJ Estimate.</p>
+                    <p>Your account has been successfully created. You can now log in and start using SimpleWorks.</p>
                     <p style="text-align: center;">
                         <a href="{settings.FRONTEND_URL}/login" class="button">Go to Login</a>
                     </p>
@@ -274,11 +274,11 @@ class EmailService:
         """
 
         text_content = f"""
-        Welcome to MJ Estimate!
+        Welcome to SimpleWorks!
 
         Hi {username},
 
-        Your account has been successfully created. You can now log in and start using MJ Estimate.
+        Your account has been successfully created. You can now log in and start using SimpleWorks.
 
         Login at: {settings.FRONTEND_URL}/login
 
