@@ -24,10 +24,12 @@ import {
   DeleteOutlined,
   ExclamationCircleOutlined,
   StarFilled,
+  LinkOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { Company, CompanyFormData, CompanyFilter, CompanyContact } from '../types';
 import { companyService } from '../services/companyService';
+import { contractorPortalService } from '../services/contractorPortalService';
 import CompanyTable from '../components/company/CompanyTable';
 import CompanyForm from '../components/company/CompanyForm';
 
@@ -223,9 +225,21 @@ const CompanyManagement: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 90,
+      width: 130,
       render: (_, record) => (
         <Space size="small">
+          <Tooltip title="Generate Portal Link">
+            <Button type="text" icon={<LinkOutlined />} size="small" onClick={async () => {
+              try {
+                const result = await contractorPortalService.createToken(record.id);
+                const portalUrl = `${window.location.origin}/contractor-portal/${result.token}`;
+                await navigator.clipboard.writeText(portalUrl);
+                message.success('Portal link copied to clipboard!');
+              } catch {
+                message.error('Failed to generate portal link');
+              }
+            }} />
+          </Tooltip>
           <Tooltip title="Edit">
             <Button type="text" icon={<EditOutlined />} size="small" onClick={() => handleEditContact(record)} />
           </Tooltip>

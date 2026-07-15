@@ -114,7 +114,7 @@ async def login(
             "sub": str(staff.id),
             "username": staff.username,
             "role": staff.role,
-            "company_id": None  # Staff model doesn't have company association
+            "company_id": str(staff.company_id) if staff.company_id else None,
         }
     )
 
@@ -144,7 +144,8 @@ async def login(
             if staff.email_verified is not None
             else False
         ),
-        "created_at": staff.created_at
+        "created_at": staff.created_at,
+        "company_id": str(staff.company_id) if staff.company_id else None,
     }
 
     return {

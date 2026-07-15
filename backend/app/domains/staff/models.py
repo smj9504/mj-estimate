@@ -23,6 +23,7 @@ class StaffRole(str, enum.Enum):
     customer_service = "customer_service"
     accountant = "accountant"
     viewer = "viewer"
+    contractor = "contractor"
 
 
 class PermissionLevel(str, enum.Enum):
@@ -44,8 +45,9 @@ class Staff(Base):
     # Staff Information
     staff_number = Column(String(50), unique=True, nullable=False, index=True)
     
-    # Relationships removed - Staff doesn't need company association
-    
+    # Company association (for contractor role)
+    company_id = Column(UUIDType(), nullable=True)
+
     # Personal Information
     first_name = Column(String(100), nullable=False)
     last_name = Column(String(100), nullable=False)

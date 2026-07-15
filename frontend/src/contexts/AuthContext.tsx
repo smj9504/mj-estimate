@@ -12,7 +12,8 @@ export interface User {
   last_name?: string;
   phone?: string;
   mobile_phone?: string;
-  role: 'super_admin' | 'admin' | 'manager' | 'supervisor' | 'technician' | 'staff' | 'sales' | 'customer_service' | 'accountant' | 'viewer';
+  role: 'super_admin' | 'admin' | 'manager' | 'supervisor' | 'technician' | 'staff' | 'sales' | 'customer_service' | 'accountant' | 'viewer' | 'contractor';
+  company_id?: string | null;
   staff_number?: string;
   is_active: boolean;
   is_verified?: boolean;

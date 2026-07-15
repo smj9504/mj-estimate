@@ -223,6 +223,11 @@ from app.domains.supplement.models import (
     SupplementRequest, BidItemEstimate, SupplementFollowUp
 )
 from app.domains.supplement.api import router as supplement_router
+from app.domains.contractor_portal.models import ContractorPortalToken  # noqa: F401
+from app.domains.contractor_portal.api import (
+    public_router as contractor_portal_public_router,
+    admin_router as contractor_portal_admin_router,
+)
 
 # Rebuild system models
 from app.domains.rebuild.models import (
@@ -375,6 +380,16 @@ _NEEDED_COLUMNS = [
     ("email_accounts", "oauth_token_expiry", "TIMESTAMPTZ"),
     # MagicPlan metadata for WM photos
     ("wm_photos", "magicplan_metadata", "JSONB"),
+    # Staff contractor company link
+    ("staff", "company_id", "UUID"),
+    # Contractor payment portal fields
+    ("claim_payments", "payment_category", "VARCHAR(50)"),
+    ("claim_payments", "check_photo_file_id", "VARCHAR(255)"),
+    ("claim_payments", "pa_fee_deducted", "BOOLEAN DEFAULT TRUE"),
+    ("claim_payments", "pa_fee_amount", "DECIMAL(15,2)"),
+    ("claim_payments", "gross_amount", "DECIMAL(15,2)"),
+    ("claim_payments", "source", "VARCHAR(50) DEFAULT 'admin'"),
+    ("claim_payments", "contractor_company_id", "UUID"),
 ]
 
 
@@ -884,6 +899,8 @@ app.include_router(lifecycle_router, prefix="/api/claims", tags=["Claims Lifecyc
 
 # Supplement endpoints
 app.include_router(supplement_router, prefix="/api", tags=["Supplements"])
+app.include_router(contractor_portal_public_router, prefix="/api/contractor-portal", tags=["Contractor Portal"])
+app.include_router(contractor_portal_admin_router, prefix="/api/contractor-portal/admin", tags=["Contractor Portal Admin"])
 
 # Rebuild endpoints
 app.include_router(rebuild_router, prefix="/api", tags=["Rebuild Projects"])

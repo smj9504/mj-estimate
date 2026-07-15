@@ -355,11 +355,11 @@ async def upload_insurance_estimate(claim_id: str, data: dict):
                         title='Rebuild Payment',
                         description='Insurance estimate received. Follow up for rebuild payment check.',
                     )
-                    if claim.wm_cost_status == 'separate_estimate':
+                    if claim.wm_cost_status in ('separate_estimate', 'not_received'):
                         followup_service._auto_create_payment_task(
                             session, claim_id, source_info, 'wm_payment_check',
                             title='WM Payment',
-                            description='Water mitigation estimate received separately. Follow up for WM payment check.',
+                            description='Water mitigation costs not included in rebuild estimate. Follow up for WM payment.',
                         )
 
                     # Auto-create supplement for review

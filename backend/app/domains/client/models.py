@@ -306,6 +306,27 @@ class ClaimPayment(Base, BaseModel):
 
     notes = Column(Text)
 
+    # Payment category (trade type)
+    payment_category = Column(
+        String(50),
+        comment="water_mitigation | pack_in_out | rebuild_interior | roofing | siding | other"
+    )
+
+    # Check photo
+    check_photo_file_id = Column(String(255))
+
+    # PA fee tracking (contractor receives PA-fee-deducted amount by default)
+    pa_fee_deducted = Column(Boolean, default=True, comment="PA fee already deducted from check amount")
+    pa_fee_amount = Column(DECIMAL(15, 2), comment="PA fee amount that was deducted")
+    gross_amount = Column(DECIMAL(15, 2), comment="Original amount before PA fee deduction")
+
+    # Source tracking
+    source = Column(
+        String(50), default="admin",
+        comment="admin | contractor_portal"
+    )
+    contractor_company_id = Column(UUIDType(), ForeignKey("companies.id"), nullable=True)
+
     # Audit
     created_by_id = Column(UUIDType(), ForeignKey("staff.id"))
 

@@ -19,6 +19,7 @@ import { claimFollowUpService } from '../services/claimFollowUpService';
 import { supplementService } from '../services/supplementService';
 import { companyService } from '../services/companyService';
 import { EmailComposer, CommunicationTimeline } from '../components/claim-followup';
+import { ClaimEstimatesPanel } from './ClaimFollowUpDashboard';
 import type {
   FollowUpTask, FollowUpTaskCreate, FollowUpTaskUpdate, TaskType,
 } from '../types/claimFollowUp';
@@ -365,7 +366,13 @@ const ClaimFollowUpDetail: React.FC = () => {
             },
             {
               title: 'Next Follow-up', dataIndex: 'next_followup_date', width: 120,
-              render: (d?: string) => d ? dayjs(d).format('MM/DD HH:mm') : '-',
+              render: (d?: string, record?: FollowUpTask) => {
+                if (record?.status === 'resolved') return <Text type="success">Resolved</Text>;
+                if (!d) return <Text type="secondary">-</Text>;
+                const dt = dayjs(d);
+                const overdue = dt.isBefore(dayjs());
+                return <Tooltip title={dt.format('YYYY-MM-DD HH:mm')}><Text type={overdue ? 'danger' : undefined}>{dt.fromNow()}</Text></Tooltip>;
+              },
             },
             {
               title: 'Assigned', dataIndex: 'assigned_to_name', width: 120, ellipsis: true,
@@ -431,7 +438,7 @@ const ClaimFollowUpDetail: React.FC = () => {
             {
               key: 'estimates',
               label: <span><FilePdfOutlined /> Estimates</span>,
-              children: claimId ? <ClaimEstimatesPanelSimple claimId={claimId} /> : null,
+              children: claimId ? <ClaimEstimatesPanel claimId={claimId} /> : null,
             },
             {
               key: 'email',
@@ -618,36 +625,6 @@ const ClaimFollowUpDetail: React.FC = () => {
         </Form>
       </Modal>
     </div>
-  );
-};
-
-/** Simple estimates panel for the detail page */
-const ClaimEstimatesPanelSimple: React.FC<{ claimId: string }> = ({ claimId }) => {
-  const [estimates, setEstimates] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  React.useEffect(() => {
-    supplementService.listInsuranceEstimates(claimId).then(setEstimates).catch(() => {}).finally(() => setLoading(false));
-  }, [claimId]);
-
-  if (loading) return <div style={{ padding: 16, textAlign: 'center' }}><Text type="secondary">Loading...</Text></div>;
-  if (!estimates.length) return <div style={{ padding: 16, textAlign: 'center' }}><Text type="secondary">No insurance estimates uploaded yet.</Text></div>;
-
-  const formatCurrency = (val?: number) => val != null ? `$${val.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '-';
-
-  return (
-    <Table size="small" dataSource={estimates} rowKey="id" pagination={false}
-      columns={[
-        { title: 'Rev #', dataIndex: 'revision_number', width: 60 },
-        { title: 'Type', dataIndex: 'revision_type', width: 100,
-          render: (t: string) => <Tag>{(t || '').replace('_', ' ').toUpperCase()}</Tag> },
-        { title: 'RCV', dataIndex: 'rcv_amount', width: 110, align: 'right', render: formatCurrency },
-        { title: 'ACV', dataIndex: 'acv_amount', width: 110, align: 'right', render: formatCurrency },
-        { title: 'Depreciation', dataIndex: 'depreciation_amount', width: 110, align: 'right', render: formatCurrency },
-        { title: 'Date', dataIndex: 'date_received', width: 100,
-          render: (d?: string) => d ? dayjs(d).format('MM/DD/YYYY') : '-' },
-      ]}
-    />
   );
 };
 

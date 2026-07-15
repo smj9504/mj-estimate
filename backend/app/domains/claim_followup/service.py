@@ -181,12 +181,12 @@ class ClaimFollowUpService:
             if wm_est_amount:
                 claim.wm_estimate_amount = wm_est_amount
 
-            # Auto-create wm_payment_check task when status changes to separate_estimate
-            if wm_cost_status == 'separate_estimate':
+            # Auto-create wm_payment_check task when WM costs are separate or not yet received
+            if wm_cost_status in ('separate_estimate', 'not_received'):
                 self._auto_create_payment_task(
                     session, str(claim_id), task, 'wm_payment_check',
                     title='WM Payment',
-                    description='Water mitigation estimate received separately. Follow up for WM payment check.',
+                    description='Water mitigation costs not included in rebuild estimate. Follow up for WM payment.',
                 )
 
             # Create/update ClaimNegotiation
@@ -481,12 +481,12 @@ class ClaimFollowUpService:
                 description='Insurance estimate received. Follow up for rebuild payment check.',
             )
 
-            if wm_cost_status == 'separate_estimate':
-                # WM costs are separate → need independent WM payment tracking
+            if wm_cost_status in ('separate_estimate', 'not_received'):
+                # WM costs not included in rebuild → need independent WM payment tracking
                 self._auto_create_payment_task(
                     session, claim_id, task, 'wm_payment_check',
                     title='WM Payment',
-                    description='Water mitigation estimate received separately. Follow up for WM payment check.',
+                    description='Water mitigation costs not included in rebuild estimate. Follow up for WM payment.',
                 )
             elif wm_cost_status == 'not_received':
                 # WM costs not included → follow up to request coverage

@@ -18,9 +18,18 @@ const Login: React.FC = () => {
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
     setError(null);
-    
+
     try {
       await login(values.username, values.password);
+      // Check if user is contractor - redirect to contractor portal
+      const storedUser = localStorage.getItem('auth_user');
+      if (storedUser) {
+        const userData = JSON.parse(storedUser);
+        if (userData.role === 'contractor') {
+          navigate('/contractor-portal', { replace: true });
+          return;
+        }
+      }
       navigate(from, { replace: true });
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Login failed.');

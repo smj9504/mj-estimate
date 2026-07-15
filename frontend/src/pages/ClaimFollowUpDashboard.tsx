@@ -294,7 +294,7 @@ const formatCurrency = (val?: number) => {
   return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
-const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
+export const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
   const [estimates, setEstimates] = useState<any[]>([]);
   const [supplements, setSupplements] = useState<any[]>([]);
   const [bidItems, setBidItems] = useState<any[]>([]);

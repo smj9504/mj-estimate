@@ -173,6 +173,7 @@ const UserManagement: React.FC = () => {
           supervisor: 'cyan',
           technician: 'green',
           staff: 'default',
+          contractor: 'orange',
         };
         return <Tag color={colors[role] || 'default'}>{role.toUpperCase()}</Tag>;
       },
@@ -350,6 +351,7 @@ const UserManagement: React.FC = () => {
               <Option value="staff">Staff</Option>
               <Option value="sales">Sales</Option>
               <Option value="customer_service">Customer Service</Option>
+              <Option value="contractor">Contractor</Option>
             </Select>
           </Form.Item>
 
