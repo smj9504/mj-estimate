@@ -393,7 +393,7 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
       ...editValues,
       sections_data: sections,
       rcv_amount: Math.round(totalRcv * 100) / 100,
-      acv_amount: Math.round((totalRcv - totalDep - ded) * 100) / 100,
+      acv_amount: Math.round((totalRcv - totalDep) * 100) / 100,
       depreciation_amount: Math.round(totalDep * 100) / 100,
     });
   };
@@ -406,7 +406,7 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
       const dep = field === 'depreciation' ? (value || 0) : (sections[idx].depreciation || 0);
       sections[idx].net_acv = rcv - dep;
     }
-    // Recalc totals: ACV = RCV - DEP - DED
+    // Recalc totals: ACV = RCV - DEP (deductible is separate, not subtracted from ACV)
     const totalRcv = sections.reduce((s: number, sec: any) => s + (sec.rcv || 0), 0);
     const totalDep = sections.reduce((s: number, sec: any) => s + (sec.depreciation || 0), 0);
     const ded = editValues.deductible || 0;
@@ -414,7 +414,7 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
       ...editValues,
       sections_data: sections,
       rcv_amount: Math.round(totalRcv * 100) / 100,
-      acv_amount: Math.round((totalRcv - totalDep - ded) * 100) / 100,
+      acv_amount: Math.round((totalRcv - totalDep) * 100) / 100,
       depreciation_amount: Math.round(totalDep * 100) / 100,
     });
   };
@@ -579,7 +579,7 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                               const ded = v || 0;
                               const rcv = editValues.rcv_amount || 0;
                               const dep = editValues.depreciation_amount || 0;
-                              setEditValues({ ...editValues, deductible: ded, acv_amount: Math.round((rcv - dep - ded) * 100) / 100 });
+                              setEditValues({ ...editValues, deductible: ded, acv_amount: Math.round((rcv - dep) * 100) / 100 });
                             }} />
                         </Col>
                       </Row>
@@ -606,7 +606,7 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                                         ...prev,
                                         sections_data: sections,
                                         rcv_amount: Math.round(totalRcv * 100) / 100,
-                                        acv_amount: Math.round((totalRcv - totalDep - ded) * 100) / 100,
+                                        acv_amount: Math.round((totalRcv - totalDep) * 100) / 100,
                                         depreciation_amount: Math.round(totalDep * 100) / 100,
                                         deductible: ded,
                                       };
@@ -1156,7 +1156,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
     const totalRcv = sections.reduce((sum, s) => sum + (s.rcv || 0), 0);
     const totalDep = sections.reduce((sum, s) => sum + (s.depreciation || 0), 0);
     const ded = resolveForm.getFieldValue('deductible') || 0;
-    const totalAcv = totalRcv - totalDep - ded;
+    const totalAcv = totalRcv - totalDep;
     resolveForm.setFieldsValue({
       rcv_amount: Math.round(totalRcv * 100) / 100,
       acv_amount: Math.round(totalAcv * 100) / 100,
@@ -2693,7 +2693,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                         editEstimateForm.setFieldsValue({
                           rcv_amount: Math.round(totalRcv * 100) / 100,
                           depreciation_amount: Math.round(totalDep * 100) / 100,
-                          acv_amount: Math.round((totalRcv - totalDep - ded) * 100) / 100,
+                          acv_amount: Math.round((totalRcv - totalDep) * 100) / 100,
                           deductible: ded,
                         });
                         message.success(`Parsed ${result.sections.length} sections from PDF`);

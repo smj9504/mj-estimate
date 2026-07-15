@@ -181,6 +181,14 @@ class ClaimFollowUpService:
             if wm_est_amount:
                 claim.wm_estimate_amount = wm_est_amount
 
+            # Auto-create wm_payment_check task when status changes to separate_estimate
+            if wm_cost_status == 'separate_estimate':
+                self._auto_create_payment_task(
+                    session, str(claim_id), task, 'wm_payment_check',
+                    title='WM Payment',
+                    description='Water mitigation estimate received separately. Follow up for WM payment check.',
+                )
+
             # Create/update ClaimNegotiation
             self._create_negotiation_from_estimate(
                 session, str(claim_id), estimate_data
