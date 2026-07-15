@@ -94,7 +94,7 @@ class PackCalculation(Base, BaseModel):
     notes = Column(Text)
 
     # Client & Company linkage
-    client_id = Column(UUIDType(), ForeignKey("clients.id"), nullable=True)
+    client_id = Column(UUIDType(), ForeignKey("clients.id", ondelete="SET NULL"), nullable=True)
     company_id = Column(UUIDType(), ForeignKey("companies.id"), nullable=True)
     claim_id = Column(UUIDType(), ForeignKey("claims.id"), nullable=True)
 

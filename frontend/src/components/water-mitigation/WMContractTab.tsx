@@ -41,6 +41,7 @@ import {
   wmContractService,
   contractInstanceService,
 } from '../../services/contractService';
+import api from '../../services/api';
 // Note: wmContractService.getPrefillPreview is used for WM-specific prefill (includes WM job fields)
 import type { ContractInstance, ContractTemplate, ContractStatus, PrefillPreviewData } from '../../types/contract';
 import dayjs from 'dayjs';
@@ -518,7 +519,7 @@ const WMContractTab: React.FC<WMContractTabProps> = ({
                 size="small"
                 type="text"
                 icon={<FileTextOutlined />}
-                href={`/api/contracts/contracts/${record.id}/pdf`}
+                href={`${api.defaults.baseURL || ''}/api/contracts/contracts/${record.id}/pdf`}
                 target="_blank"
               />
             </Tooltip>

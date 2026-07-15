@@ -1,6 +1,6 @@
 /**
  * ClaimContractDashboard - Displays all contracts for a claim, grouped by company.
- * Shows status summaries, contract lists, and quick actions per company.
+ * Shows status summaries, contract lists, quick actions, activity history and reminders.
  *
  * Usage:
  *   <ClaimContractDashboard
@@ -10,13 +10,13 @@
  *   />
  */
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Badge,
   Button,
-  Card,
   Collapse,
+  Drawer,
   Empty,
   Input,
   List,
@@ -26,11 +26,13 @@ import {
   Space,
   Spin,
   Tag,
+  Timeline,
   Tooltip,
   Typography,
   message,
 } from 'antd';
 import {
+  BellOutlined,
   CheckCircleFilled,
   ClockCircleOutlined,
   CopyOutlined,
@@ -39,14 +41,18 @@ import {
   EyeOutlined,
   FilePdfOutlined,
   FileTextOutlined,
+  HistoryOutlined,
   MailOutlined,
   PlusOutlined,
   SendOutlined,
   StopOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { contractInstanceService } from '../../services/contractService';
+import api from '../../services/api';
 import type {
   CompanyContractSummary,
+  ContractAuditEntry,
   ContractInstance,
   ContractStatus,
 } from '../../types/contract';
@@ -71,6 +77,132 @@ const ROLE_COLORS: Record<string, string> = {
   moving: 'orange',
   other: 'default',
 };
+
+// ── Audit log display ─────────────────────────────────────────────────────────
+
+const AUDIT_ACTION_CONFIG: Record<string, {
+  label: string;
+  color: string;
+  icon: React.ReactNode;
+}> = {
+  created: {
+    label: 'Document created',
+    color: 'blue',
+    icon: <FileTextOutlined />,
+  },
+  emailed: {
+    label: 'Document emailed for signature',
+    color: 'blue',
+    icon: <MailOutlined />,
+  },
+  reminder_sent: {
+    label: 'Reminder sent',
+    color: 'orange',
+    icon: <BellOutlined />,
+  },
+  viewed: {
+    label: 'Document viewed',
+    color: 'gray',
+    icon: <EyeOutlined />,
+  },
+  signer_name_entered: {
+    label: 'Signer entered name at signing',
+    color: 'gray',
+    icon: <UserOutlined />,
+  },
+  signed: {
+    label: 'Document e-signed',
+    color: 'green',
+    icon: <CheckCircleFilled />,
+  },
+  agreement_completed: {
+    label: 'Agreement completed',
+    color: 'green',
+    icon: <CheckCircleFilled />,
+  },
+  voided: {
+    label: 'Document voided',
+    color: 'red',
+    icon: <StopOutlined />,
+  },
+  sent_copy: {
+    label: 'Signed copy sent',
+    color: 'blue',
+    icon: <SendOutlined />,
+  },
+};
+
+function parseAuditLog(raw: string | ContractAuditEntry[] | undefined): ContractAuditEntry[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+function formatAuditTimestamp(ts: string): string {
+  try {
+    const d = new Date(ts + (ts.endsWith('Z') ? '' : 'Z'));
+    return d.toLocaleString('en-US', {
+      month: 'short',
+      day: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return ts;
+  }
+}
+
+function getAuditDescription(entry: ContractAuditEntry): string {
+  const cfg = AUDIT_ACTION_CONFIG[entry.action];
+  let desc = cfg?.label || entry.action;
+  const detail = entry.detail;
+
+  switch (entry.action) {
+    case 'created':
+      if (entry.actor_name) desc += ` by ${entry.actor_name}`;
+      if (entry.actor_email) desc += ` (${entry.actor_email})`;
+      break;
+    case 'emailed':
+      if (detail?.recipients) {
+        const r = Array.isArray(detail.recipients) ? detail.recipients : [detail.recipients];
+        desc += ` to ${r.join(', ')}`;
+      }
+      break;
+    case 'reminder_sent':
+      if (detail?.recipients) {
+        const r = Array.isArray(detail.recipients) ? detail.recipients : [detail.recipients];
+        desc += ` to ${r.join(', ')}`;
+      }
+      break;
+    case 'viewed':
+      if (entry.actor_email) desc += ` by ${entry.actor_email}`;
+      break;
+    case 'signer_name_entered':
+      if (detail?.signer_name) desc += ` as ${detail.signer_name}`;
+      if (entry.actor_email) desc = `Signer ${entry.actor_email} entered name at signing as ${detail?.signer_name || ''}`;
+      break;
+    case 'signed':
+      if (detail?.signer_name) {
+        desc = `Document e-signed by ${detail.signer_name}`;
+        if (entry.actor_email) desc += ` (${entry.actor_email})`;
+      }
+      break;
+    case 'voided':
+      if (detail?.reason) desc += ` — ${detail.reason}`;
+      break;
+    default:
+      break;
+  }
+
+  return desc;
+}
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -98,6 +230,12 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
   const [emailMessage, setEmailMessage] = useState('');
   const [emailTemplateKey, setEmailTemplateKey] = useState('');
   const [emailSending, setEmailSending] = useState(false);
+  // Activity drawer
+  const [activityContract, setActivityContract] = useState<ContractInstance | null>(null);
+  // Reminder
+  const [reminderContract, setReminderContract] = useState<ContractInstance | null>(null);
+  const [reminderMessage, setReminderMessage] = useState('');
+  const [reminderSending, setReminderSending] = useState(false);
 
   const { data: dashboard, isLoading } = useQuery({
     queryKey: ['contract-dashboard', claimId],
@@ -112,16 +250,6 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
       message.success('Signing link copied.');
     } catch {
       message.error('Failed to copy link.');
-    }
-  };
-
-  const handleResend = async (contract: ContractInstance) => {
-    try {
-      await contractInstanceService.send(claimId, contract.id);
-      message.success('Contract marked as sent.');
-      queryClient.invalidateQueries({ queryKey: ['contract-dashboard', claimId] });
-    } catch {
-      message.error('Failed to send contract.');
     }
   };
 
@@ -180,10 +308,56 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
     }
   };
 
+  const handleSendReminder = async () => {
+    if (!reminderContract) return;
+    // Get recipients from sent_to_emails or clientEmail
+    let emails: string[] = [];
+    if (reminderContract.sent_to_emails) {
+      try {
+        const parsed = typeof reminderContract.sent_to_emails === 'string'
+          ? JSON.parse(reminderContract.sent_to_emails)
+          : reminderContract.sent_to_emails;
+        if (Array.isArray(parsed)) emails = parsed;
+      } catch { /* ignore */ }
+    }
+    if (emails.length === 0 && clientEmail) emails = [clientEmail];
+    if (emails.length === 0) {
+      message.warning('No recipient email found for reminder.');
+      return;
+    }
+
+    setReminderSending(true);
+    try {
+      const result = await contractInstanceService.sendReminder(
+        claimId, reminderContract.id,
+        {
+          emails,
+          message: reminderMessage || undefined,
+          origin_url: window.location.origin,
+        },
+      );
+      message.success(result.message || 'Reminder sent.');
+      setReminderContract(null);
+      setReminderMessage('');
+      queryClient.invalidateQueries({ queryKey: ['contract-dashboard', claimId] });
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      message.error(typeof detail === 'string' ? detail : 'Failed to send reminder.');
+    } finally {
+      setReminderSending(false);
+    }
+  };
+
   const handleSuccess = () => {
     queryClient.invalidateQueries({ queryKey: ['contract-dashboard', claimId] });
     onContractCreated?.();
   };
+
+  // Parse audit log for activity drawer
+  const auditEntries = useMemo(() => {
+    if (!activityContract) return [];
+    return parseAuditLog(activityContract.audit_log);
+  }, [activityContract]);
 
   if (isLoading) {
     return (
@@ -285,7 +459,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
                               type="text"
                               size="small"
                               icon={<FilePdfOutlined />}
-                              href={`/api/contracts/contracts/${contract.id}/pdf`}
+                              href={`${api.defaults.baseURL || ''}/api/contracts/contracts/${contract.id}/pdf`}
                               target="_blank"
                             />
                           </Tooltip>
@@ -312,6 +486,29 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
                             />
                           </Tooltip>
                         ),
+                        // Send Reminder
+                        contract.signing_token && (contract.status === 'sent' || contract.status === 'viewed') && (
+                          <Tooltip title="Send Reminder" key="reminder">
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<BellOutlined style={{ color: '#fa8c16' }} />}
+                              onClick={() => {
+                                setReminderContract(contract);
+                                setReminderMessage('');
+                              }}
+                            />
+                          </Tooltip>
+                        ),
+                        // Activity History
+                        <Tooltip title="Activity History" key="history">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<HistoryOutlined />}
+                            onClick={() => setActivityContract(contract)}
+                          />
+                        </Tooltip>,
                         // Delete
                         contract.status !== 'signed' && (
                           <Popconfirm
@@ -495,6 +692,151 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
           />
         </div>
       </Modal>
+
+      {/* Send Reminder Modal */}
+      <Modal
+        title={
+          <Space>
+            <BellOutlined style={{ color: '#fa8c16' }} />
+            Send Reminder
+          </Space>
+        }
+        open={!!reminderContract}
+        onCancel={() => setReminderContract(null)}
+        onOk={handleSendReminder}
+        okText="Send Reminder"
+        okButtonProps={{ loading: reminderSending, icon: <BellOutlined /> }}
+        cancelButtonProps={{ disabled: reminderSending }}
+        destroyOnClose
+        width={480}
+      >
+        <div style={{ marginBottom: 16, padding: '8px 12px', background: '#fff7e6', borderRadius: 6, borderLeft: '3px solid #fa8c16' }}>
+          <Text strong style={{ fontSize: 13 }}>
+            {reminderContract?.title || reminderContract?.template_name || 'Contract'}
+          </Text>
+          {reminderContract?.status && (
+            <Tag
+              color={STATUS_CONFIG[reminderContract.status]?.color || 'default'}
+              style={{ marginLeft: 8, fontSize: 11 }}
+            >
+              {STATUS_CONFIG[reminderContract.status]?.label || reminderContract.status}
+            </Tag>
+          )}
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            A reminder email will be sent to the original recipients with the signing link.
+          </Text>
+          {(() => {
+            let emails: string[] = [];
+            try {
+              const raw = reminderContract?.sent_to_emails;
+              if (raw) {
+                const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                if (Array.isArray(parsed)) emails = parsed;
+              }
+            } catch { /* ignore */ }
+            if (emails.length === 0 && clientEmail) emails = [clientEmail];
+            return emails.length > 0 ? (
+              <div style={{ marginTop: 8 }}>
+                <Text strong style={{ fontSize: 12 }}>Recipients: </Text>
+                <Text style={{ fontSize: 12 }}>{emails.join(', ')}</Text>
+              </div>
+            ) : null;
+          })()}
+        </div>
+        <div>
+          <Text strong style={{ display: 'block', marginBottom: 4, fontSize: 12 }}>
+            Additional Message (optional)
+          </Text>
+          <Input.TextArea
+            rows={2}
+            placeholder="Add a note to the reminder email..."
+            value={reminderMessage}
+            onChange={(e) => setReminderMessage(e.target.value)}
+            maxLength={500}
+          />
+        </div>
+      </Modal>
+
+      {/* Activity History Drawer */}
+      <Drawer
+        title={
+          <Space>
+            <HistoryOutlined style={{ color: '#1677ff' }} />
+            <span>Activity</span>
+          </Space>
+        }
+        placement="right"
+        width={420}
+        open={!!activityContract}
+        onClose={() => setActivityContract(null)}
+        destroyOnClose
+      >
+        {activityContract && (
+          <div>
+            {/* Document header */}
+            <div style={{ marginBottom: 20, padding: '12px 16px', background: '#f6f8fa', borderRadius: 8 }}>
+              <Text strong style={{ fontSize: 14, display: 'block' }}>
+                {activityContract.title || activityContract.template_name || 'Contract'}
+              </Text>
+              {activityContract.contract_number && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {activityContract.contract_number}
+                </Text>
+              )}
+              <div style={{ marginTop: 6 }}>
+                <Tag
+                  color={STATUS_CONFIG[activityContract.status]?.color || 'default'}
+                  icon={STATUS_CONFIG[activityContract.status]?.icon}
+                  style={{ fontSize: 11 }}
+                >
+                  Status: {STATUS_CONFIG[activityContract.status]?.label || activityContract.status}
+                </Tag>
+              </div>
+            </div>
+
+            {/* Timeline */}
+            {auditEntries.length === 0 ? (
+              <Empty
+                description="No activity recorded yet"
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                style={{ marginTop: 40 }}
+              />
+            ) : (
+              <Timeline
+                items={[...auditEntries].reverse().map((entry, idx) => {
+                  const cfg = AUDIT_ACTION_CONFIG[entry.action] || {
+                    label: entry.action,
+                    color: 'gray',
+                    icon: <ClockCircleOutlined />,
+                  };
+                  return {
+                    key: idx,
+                    color: cfg.color,
+                    dot: cfg.icon,
+                    children: (
+                      <div>
+                        <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+                          {getAuditDescription(entry)}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2 }}>
+                          {formatAuditTimestamp(entry.timestamp)}
+                          {entry.ip && (
+                            <span style={{ marginLeft: 8 }}>
+                              IP: {entry.ip}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ),
+                  };
+                })}
+              />
+            )}
+          </div>
+        )}
+      </Drawer>
     </div>
   );
 };
