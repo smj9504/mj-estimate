@@ -2559,18 +2559,19 @@ def apply_scan_effect(img, mode: str = "color_scan"):
 
     if mode == "bw_scan":
         img = img.convert('L')
-        img = ImageOps.autocontrast(img, cutoff=1)
-        img = ImageEnhance.Contrast(img).enhance(1.8)
-        img = ImageEnhance.Sharpness(img).enhance(2.0)
+        img = ImageOps.autocontrast(img, cutoff=2)
+        img = ImageEnhance.Brightness(img).enhance(1.15)
+        img = ImageEnhance.Contrast(img).enhance(1.4)
+        img = ImageEnhance.Sharpness(img).enhance(1.5)
         img = img.convert('RGB')
     elif mode == "color_scan":
         if img.mode == 'RGBA':
             img = img.convert('RGB')
-        img = ImageOps.autocontrast(img, cutoff=0.5)
-        img = ImageEnhance.Color(img).enhance(0.8)
-        img = ImageEnhance.Contrast(img).enhance(1.5)
-        img = ImageEnhance.Brightness(img).enhance(1.1)
-        img = ImageEnhance.Sharpness(img).enhance(1.5)
+        img = ImageOps.autocontrast(img, cutoff=2)
+        img = ImageEnhance.Color(img).enhance(0.85)
+        img = ImageEnhance.Brightness(img).enhance(1.15)
+        img = ImageEnhance.Contrast(img).enhance(1.2)
+        img = ImageEnhance.Sharpness(img).enhance(1.3)
 
     return img
 

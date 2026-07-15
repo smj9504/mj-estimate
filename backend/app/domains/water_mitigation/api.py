@@ -1292,7 +1292,7 @@ async def perspective_crop_photo(
     new_photo_data = {
         "job_id": str(job_id),
         "file_path": storage_info["file_path"],
-        "original_name": cropped_filename,
+        "file_name": cropped_filename,
         "mime_type": "image/jpeg",
         "file_size": storage_info["file_size"],
         "source": "cropped",
