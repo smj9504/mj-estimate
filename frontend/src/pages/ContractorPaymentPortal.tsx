@@ -239,7 +239,7 @@ const ContractorPaymentPortal: React.FC = () => {
                     </Text>
                     <div style={{ marginTop: 4 }}>
                       <Text type="secondary" style={{ fontSize: 14 }}>
-                        {claim.company_name} {claim.role ? `(${claim.role})` : ''}
+                        {claim.company_name} {claim.role ? `(${claim.role.replace(/reconstruction/g, 'Rebuild').replace(/water_mitigation/g, 'WM').replace(/plumber/g, 'Plumber').replace(/moving/g, 'Moving')})` : ''}
                       </Text>
                     </div>
                     {(claim.insurance_company || claim.claim_number) && (

@@ -279,32 +279,82 @@ class ContractorPortalService:
     # ── Auth-based methods (for logged-in contractors) ──
 
     def get_claims_for_company(self, company_id: str = None) -> List[Dict[str, Any]]:
-        """Get claims assigned to a company, or all claims if no company_id."""
+        """Get claims from ClaimCompany + WaterMitigationJob.
+        If company_id is set, filter to that company only.
+        """
         from app.domains.client.models import Claim, ClaimPayment, Client
         from app.domains.company.models import Company
         from app.domains.contract.models import ClaimCompany
+        from app.domains.water_mitigation.models import WaterMitigationJob
 
         with self.database.get_session() as session:
-            query = (
+            # Track unique claim_ids to avoid duplicates
+            seen_claims = {}  # claim_id -> result dict
+
+            # 1) ClaimCompany (reconstruction, moving, etc.)
+            cc_query = (
                 session.query(ClaimCompany, Claim, Client, Company)
                 .join(Claim, ClaimCompany.claim_id == Claim.id)
                 .join(Client, Claim.client_id == Client.id)
                 .join(Company, ClaimCompany.company_id == Company.id)
             )
             if company_id:
-                query = query.filter(ClaimCompany.company_id == company_id)
-            claim_companies = query.order_by(Claim.created_at.desc()).all()
+                cc_query = cc_query.filter(
+                    ClaimCompany.company_id == company_id
+                )
+            for cc, claim, client, company in cc_query.all():
+                cid = str(claim.id)
+                if cid in seen_claims:
+                    roles = set(seen_claims[cid]["role"].split(", "))
+                    roles.add(cc.role or "reconstruction")
+                    seen_claims[cid]["role"] = ", ".join(sorted(roles))
+                else:
+                    seen_claims[cid] = {
+                        "claim": claim,
+                        "client": client,
+                        "company_name": company.name,
+                        "role": cc.role or "reconstruction",
+                    }
 
+            # 2) WaterMitigationJob (WM companies linked via job)
+            wm_query = (
+                session.query(WaterMitigationJob, Claim, Client, Company)
+                .join(Claim, WaterMitigationJob.claim_id == Claim.id)
+                .join(Client, Claim.client_id == Client.id)
+                .join(
+                    Company,
+                    WaterMitigationJob.company_id == Company.id,
+                )
+                .filter(WaterMitigationJob.claim_id.isnot(None))
+            )
+            if company_id:
+                wm_query = wm_query.filter(
+                    WaterMitigationJob.company_id == company_id
+                )
+            for wm, claim, client, company in wm_query.all():
+                cid = str(claim.id)
+                if cid in seen_claims:
+                    roles = set(seen_claims[cid]["role"].split(", "))
+                    roles.add("water_mitigation")
+                    seen_claims[cid]["role"] = ", ".join(sorted(roles))
+                else:
+                    seen_claims[cid] = {
+                        "claim": claim,
+                        "client": client,
+                        "company_name": company.name,
+                        "role": "water_mitigation",
+                    }
+
+            # Gather payment totals
+            all_claim_ids = list(seen_claims.keys())
             payment_totals = {}
-            if claim_companies:
+            if all_claim_ids:
                 totals = (
                     session.query(
                         ClaimPayment.claim_id,
                         func.sum(ClaimPayment.amount),
                     )
-                    .filter(ClaimPayment.claim_id.in_(
-                        [cc.claim_id for cc, _, _, _ in claim_companies]
-                    ))
+                    .filter(ClaimPayment.claim_id.in_(all_claim_ids))
                     .group_by(ClaimPayment.claim_id)
                     .all()
                 )
@@ -312,35 +362,72 @@ class ContractorPortalService:
                     str(t[0]): float(t[1] or 0) for t in totals
                 }
 
-            results = []
-            for cc, claim, client, company in claim_companies:
-                expected = float(claim.current_rcv or 0)
-                received = payment_totals.get(str(claim.id), 0)
-                address_parts = []
-                if client.address:
-                    address_parts.append(client.address)
-                if client.city:
-                    address_parts.append(client.city)
-                if client.state:
-                    address_parts.append(client.state)
+            # Build results grouped by address (avoid duplicate addresses)
+            address_groups: dict = {}  # address -> merged result
+            for cid, info in seen_claims.items():
+                claim = info["claim"]
+                client = info["client"]
+                rcv = float(claim.current_rcv or 0)
+                ded = (
+                    float(claim.insurance_deductible or 0)
+                    if hasattr(claim, 'insurance_deductible')
+                    else 0
+                )
+                expected = rcv - ded
+                received = payment_totals.get(cid, 0)
 
-                results.append({
-                    "claim_id": str(claim.id),
-                    "claim_number": claim.claim_number,
-                    "insurance_company": claim.insurance_company,
-                    "client_name": client.display_name,
-                    "address": ", ".join(address_parts) if address_parts else None,
-                    "city": client.city,
-                    "company_name": company.name,
-                    "role": cc.role,
-                    "date_of_loss": (
-                        claim.date_of_loss.isoformat()
-                        if claim.date_of_loss else None
-                    ),
-                    "expected_amount": expected,
-                    "received_total": received,
-                    "remaining": max(0, expected - received),
-                })
+                addr_key = str(client.id)
+                if addr_key in address_groups:
+                    # Same address: accumulate amounts, merge roles
+                    grp = address_groups[addr_key]
+                    grp["expected_amount"] += expected
+                    grp["received_total"] += received
+                    grp["remaining"] = max(
+                        0, grp["expected_amount"] - grp["received_total"]
+                    )
+                    grp["_claim_ids"].append(cid)
+                    # Merge role
+                    existing_roles = set(grp["role"].split(", "))
+                    existing_roles.add(info["role"])
+                    grp["role"] = ", ".join(sorted(existing_roles))
+                else:
+                    address_parts = []
+                    if client.address:
+                        address_parts.append(client.address)
+                    if client.city:
+                        address_parts.append(client.city)
+                    if client.state:
+                        address_parts.append(client.state)
+
+                    address_groups[addr_key] = {
+                        "claim_id": cid,
+                        "claim_number": claim.claim_number,
+                        "insurance_company": claim.insurance_company,
+                        "client_name": client.display_name,
+                        "address": (
+                            ", ".join(address_parts)
+                            if address_parts else None
+                        ),
+                        "city": client.city,
+                        "company_name": info["company_name"],
+                        "role": info["role"],
+                        "date_of_loss": (
+                            claim.date_of_loss.isoformat()
+                            if claim.date_of_loss else None
+                        ),
+                        "expected_amount": expected,
+                        "received_total": received,
+                        "remaining": max(0, expected - received),
+                        "_claim_ids": [cid],
+                    }
+
+            results = list(address_groups.values())
+            # Remove internal field
+            for r in results:
+                r.pop("_claim_ids", None)
+            results.sort(
+                key=lambda r: r.get("date_of_loss") or "", reverse=True
+            )
             return results
 
     def get_payments_by_claim(self, claim_id: str) -> Dict[str, Any]:
