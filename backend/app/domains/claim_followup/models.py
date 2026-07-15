@@ -41,6 +41,7 @@ class FollowUpTask(Base, BaseModel):
         Index('ix_followup_tasks_due', 'due_date', 'status'),
         Index('ix_followup_tasks_type_status', 'task_type', 'status'),
         Index('ix_followup_tasks_assigned', 'assigned_to_email'),
+        Index('ix_followup_tasks_dep_phase', 'task_type', 'depreciation_phase'),
         {'extend_existing': True}
     )
 
@@ -104,6 +105,13 @@ class FollowUpTask(Base, BaseModel):
     # Payment tracking (for payment_check / wm_payment_check tasks)
     payment_status = Column(String(50), comment="pending | issued | homeowner_holding | lost | reissued | received | partial")
     payment_note = Column(Text)
+
+    # Depreciation recovery phase tracking
+    depreciation_phase = Column(
+        String(50),
+        nullable=True,
+        comment="in_construction | construction_done | preparing_docs | docs_sent_pa | docs_sent_insurance | following_up | payment_received"
+    )
 
     # Audit
     created_by_id = Column(UUIDType(), ForeignKey("staff.id"))

@@ -18,7 +18,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import { claimFollowUpService } from '../services/claimFollowUpService';
 import { supplementService } from '../services/supplementService';
 import { companyService } from '../services/companyService';
-import { EmailComposer, CommunicationTimeline } from '../components/claim-followup';
+import { EmailComposer, CommunicationTimeline, DepreciationPhaseTracker } from '../components/claim-followup';
 import { ClaimEstimatesPanel } from './ClaimFollowUpDashboard';
 import type {
   FollowUpTask, FollowUpTaskCreate, FollowUpTaskUpdate, TaskType,
@@ -336,6 +336,13 @@ const ClaimFollowUpDetail: React.FC = () => {
           </Col>
         </Row>
       </Card>
+
+      {/* Depreciation Recovery Phase Tracker */}
+      {tasks.filter(t => t.task_type === 'depreciation_recovery' && t.status !== 'cancelled').map(depTask => (
+        <Card key={depTask.id} size="small" title={`Depreciation Recovery: ${depTask.title}`} style={{ marginBottom: 16 }}>
+          <DepreciationPhaseTracker task={depTask} onUpdated={() => refetch()} />
+        </Card>
+      ))}
 
       {/* Tasks Table */}
       <Card size="small" title="Tasks" style={{ marginBottom: 16 }}>

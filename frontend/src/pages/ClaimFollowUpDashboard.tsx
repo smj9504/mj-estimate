@@ -63,7 +63,7 @@ import { supplementService } from '../services/supplementService';
 import { companyService } from '../services/companyService';
 import { SUPPLEMENT_STATUS_COLORS } from '../types/supplement';
 import { fileService } from '../services/fileService';
-import { EmailComposer, CommunicationTimeline } from '../components/claim-followup';
+import { EmailComposer, CommunicationTimeline, DepreciationPhaseTracker } from '../components/claim-followup';
 import type {
   FollowUpTask,
   FollowUpTaskCreate,
@@ -72,7 +72,7 @@ import type {
   TaskStatus,
   TaskPriority,
 } from '../types/claimFollowUp';
-import { KNOWN_TASK_TYPES } from '../types/claimFollowUp';
+import { KNOWN_TASK_TYPES, DEPRECIATION_PHASE_LABELS } from '../types/claimFollowUp';
 import type { ColumnsType } from 'antd/es/table';
 
 dayjs.extend(relativeTime);
@@ -1473,6 +1473,10 @@ const ClaimFollowUpDashboard: React.FC = () => {
         ...values,
         next_followup_date: values.next_followup_date?.toISOString() || undefined,
       };
+      // Default depreciation phase for new depreciation_recovery tasks
+      if (values.task_type === 'depreciation_recovery') {
+        (payload as any).depreciation_phase = 'in_construction';
+      }
       createMutation.mutate(payload);
     });
   };
@@ -1685,6 +1689,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
         } else if (isVirtualPending && group.hasInsuranceEstimate) {
           label = 'Need Supplement';
         }
+      }
+
+      // Depreciation recovery stage: show current phase
+      if (stage === 'depreciation_recovery' && anyTask?.depreciation_phase) {
+        const phaseLabel = DEPRECIATION_PHASE_LABELS[anyTask.depreciation_phase as keyof typeof DEPRECIATION_PHASE_LABELS] || anyTask.depreciation_phase;
+        label = isPastStage ? `Dep: ${phaseLabel}` : `Depreciation: ${phaseLabel}`;
       }
 
       const paymentNote = anyTask?.payment_note;
@@ -3132,6 +3142,20 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 {detailTask.priority.toUpperCase()}
               </Tag>
             </div>
+
+            {/* Depreciation Phase Tracker */}
+            {detailTask.task_type === 'depreciation_recovery' && (
+              <Card size="small" style={{ marginBottom: 12 }}>
+                <DepreciationPhaseTracker
+                  task={detailTask}
+                  onUpdated={() => {
+                    refetchTasks();
+                    // Refresh detail task
+                    claimFollowUpService.getTask(detailTask.id).then(t => setDetailTask(t)).catch(() => {});
+                  }}
+                />
+              </Card>
+            )}
 
             {/* Task Info Card */}
             <Card size="small" style={{ marginBottom: 12 }}>

@@ -15,6 +15,40 @@ export type AssignedRole = 'adjuster' | 'public_adjuster' | 'contractor';
 export type CommunicationType = 'email' | 'phone' | 'text' | 'in_person' | 'other';
 export type EmailStatus = 'draft' | 'queued' | 'sending' | 'sent' | 'failed' | 'bounced';
 
+export type DepreciationPhase =
+  | 'in_construction'
+  | 'construction_done'
+  | 'preparing_docs'
+  | 'docs_sent_pa'
+  | 'docs_sent_insurance'
+  | 'following_up'
+  | 'payment_received';
+
+export const DEPRECIATION_PHASE_ORDER: DepreciationPhase[] = [
+  'in_construction', 'construction_done', 'preparing_docs',
+  'docs_sent_pa', 'docs_sent_insurance', 'following_up', 'payment_received',
+];
+
+export const DEPRECIATION_PHASE_LABELS: Record<DepreciationPhase, string> = {
+  in_construction: 'In Construction',
+  construction_done: 'Construction Complete',
+  preparing_docs: 'Preparing Docs',
+  docs_sent_pa: 'Sent to PA',
+  docs_sent_insurance: 'Sent to Insurance',
+  following_up: 'Following Up',
+  payment_received: 'Payment Received',
+};
+
+export const DEPRECIATION_PHASE_COLORS: Record<DepreciationPhase, string> = {
+  in_construction: 'processing',
+  construction_done: 'purple',
+  preparing_docs: 'orange',
+  docs_sent_pa: 'blue',
+  docs_sent_insurance: 'blue',
+  following_up: 'volcano',
+  payment_received: 'green',
+};
+
 export interface FollowUpTask {
   id: string;
   claim_id: string;
@@ -39,6 +73,7 @@ export interface FollowUpTask {
   resolution_notes?: string;
   payment_status?: string;
   payment_note?: string;
+  depreciation_phase?: DepreciationPhase;
   created_at?: string;
   updated_at?: string;
   // Enriched fields
@@ -57,6 +92,10 @@ export interface FollowUpTask {
   wm_cost_status?: string;
   has_insurance_estimate?: boolean;
   bid_estimate_summary?: Record<string, number>;
+  // Depreciation recovery enrichment
+  depreciation_amount?: number;
+  has_pending_supplements?: boolean;
+  has_appraisal_task?: boolean;
 }
 
 export interface FollowUpTaskCreate {

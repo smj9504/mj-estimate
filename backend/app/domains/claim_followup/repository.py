@@ -34,6 +34,7 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
         claim_id: Optional[str] = None,
         assigned_to_email: Optional[str] = None,
         overdue_only: bool = False,
+        depreciation_phase: Optional[str] = None,
         page: int = 1,
         page_size: int = 20,
         sort_by: str = "due_date",
@@ -59,6 +60,10 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                     FollowUpTask.next_followup_date < now,
                     FollowUpTask.status.in_(['pending', 'awaiting_response'])
                 )
+            )
+        if depreciation_phase:
+            query = query.filter(
+                FollowUpTask.depreciation_phase == depreciation_phase
             )
 
         total = query.count()
@@ -190,6 +195,32 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                     d['bid_estimate_summary'] = bid_summary_map.get(
                         str(t.claim_id), {}
                     )
+                    # Depreciation recovery enrichment
+                    if t.task_type == 'depreciation_recovery':
+                        d['depreciation_amount'] = float(
+                            t.claim.current_depreciation or 0
+                        )
+                        # Check pending supplements
+                        supp_statuses = supplement_map.get(
+                            str(t.claim_id), {}
+                        )
+                        pending_supp = sum(
+                            cnt for st, cnt in supp_statuses.items()
+                            if st not in ('resolved', 'cancelled')
+                        )
+                        d['has_pending_supplements'] = pending_supp > 0
+                        # Check appraisal/attorney tasks
+                        appraisal_exists = self.db_session.query(
+                            FollowUpTask.id
+                        ).filter(
+                            FollowUpTask.claim_id == t.claim_id,
+                            FollowUpTask.task_type.in_(
+                                ['appraisal', 'attorney_referral']
+                            ),
+                            FollowUpTask.status != 'cancelled',
+                            FollowUpTask.id != t.id,
+                        ).first()
+                        d['has_appraisal_task'] = appraisal_exists is not None
                     # Address is on the Client model
                     if hasattr(t.claim, 'client') and t.claim.client:
                         client = t.claim.client

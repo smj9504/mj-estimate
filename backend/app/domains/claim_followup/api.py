@@ -156,6 +156,7 @@ async def list_tasks(
     claim_id: Optional[str] = Query(None),
     assigned_to_email: Optional[str] = Query(None),
     overdue_only: bool = Query(False),
+    depreciation_phase: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     sort_by: str = Query("due_date"),
@@ -170,6 +171,7 @@ async def list_tasks(
         "claim_id": claim_id,
         "assigned_to_email": assigned_to_email,
         "overdue_only": overdue_only,
+        "depreciation_phase": depreciation_phase,
         "page": page,
         "page_size": page_size,
         "sort_by": sort_by,
@@ -724,6 +726,29 @@ async def reopen_task(task_id: str):
     result = service.reopen_task(task_id)
     if not result:
         raise HTTPException(status_code=404, detail="Task not found")
+    return result
+
+
+@router.post("/tasks/{task_id}/advance-depreciation")
+async def advance_depreciation_phase(
+    task_id: str,
+    new_phase: str = Form(...),
+    sent_to: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+):
+    """Advance a depreciation_recovery task to the next phase."""
+    service = _get_service()
+    try:
+        result = service.advance_depreciation_phase(
+            task_id, new_phase, sent_to, notes,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail="Task not found or not a depreciation_recovery task",
+        )
     return result
 
 

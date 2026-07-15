@@ -13,6 +13,12 @@ from pydantic import BaseModel, Field, validator
 # FollowUpTask schemas
 # ============================================================
 
+DEPRECIATION_PHASES = [
+    'in_construction', 'construction_done', 'preparing_docs',
+    'docs_sent_pa', 'docs_sent_insurance', 'following_up', 'payment_received',
+]
+
+
 class FollowUpTaskBase(BaseModel):
     task_type: str = Field(..., description="docs_sent | payment_check | estimate_request | supplement_sent | depreciation_recovery | general")
     title: str
@@ -27,6 +33,7 @@ class FollowUpTaskBase(BaseModel):
     auto_followup_enabled: bool = False
     followup_interval_days: int = 3
     max_followup_count: int = 5
+    depreciation_phase: Optional[str] = Field(None, description="in_construction | construction_done | preparing_docs | docs_sent_pa | docs_sent_insurance | following_up | payment_received")
 
     @validator('task_type')
     def validate_task_type(cls, v):
@@ -39,6 +46,12 @@ class FollowUpTaskBase(BaseModel):
         allowed = ['low', 'normal', 'high', 'urgent']
         if v not in allowed:
             raise ValueError(f"priority must be one of {allowed}")
+        return v
+
+    @validator('depreciation_phase')
+    def validate_depreciation_phase(cls, v):
+        if v is not None and v not in DEPRECIATION_PHASES:
+            raise ValueError(f"depreciation_phase must be one of {DEPRECIATION_PHASES}")
         return v
 
 
@@ -63,6 +76,7 @@ class FollowUpTaskUpdate(BaseModel):
     resolution_notes: Optional[str] = None
     payment_status: Optional[str] = None
     payment_note: Optional[str] = None
+    depreciation_phase: Optional[str] = None
 
     @validator('status')
     def validate_status(cls, v):
@@ -70,6 +84,12 @@ class FollowUpTaskUpdate(BaseModel):
             allowed = ['pending', 'awaiting_response', 'responded', 'resolved', 'overdue', 'cancelled']
             if v not in allowed:
                 raise ValueError(f"status must be one of {allowed}")
+        return v
+
+    @validator('depreciation_phase')
+    def validate_depreciation_phase(cls, v):
+        if v is not None and v not in DEPRECIATION_PHASES:
+            raise ValueError(f"depreciation_phase must be one of {DEPRECIATION_PHASES}")
         return v
 
 
@@ -139,6 +159,11 @@ class FollowUpTaskResponse(FollowUpTaskBase):
     wm_cost_status: Optional[str] = None
     has_insurance_estimate: Optional[bool] = None
     bid_estimate_summary: Optional[Dict[str, Any]] = None
+
+    # Depreciation recovery enrichment
+    depreciation_amount: Optional[float] = None
+    has_pending_supplements: Optional[bool] = None
+    has_appraisal_task: Optional[bool] = None
 
     class Config:
         from_attributes = True
@@ -346,6 +371,7 @@ class FollowUpTaskListParams(BaseModel):
     claim_id: Optional[UUID] = None
     assigned_to_email: Optional[str] = None
     overdue_only: bool = False
+    depreciation_phase: Optional[str] = None
     page: int = 1
     page_size: int = 20
     sort_by: str = "due_date"

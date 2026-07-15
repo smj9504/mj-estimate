@@ -291,6 +291,115 @@ class ClaimFollowUpService:
         finally:
             session.close()
 
+    def advance_depreciation_phase(
+        self,
+        task_id: str,
+        new_phase: str,
+        sent_to: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Advance a depreciation_recovery task to a new phase.
+
+        Handles supplement blocking: docs_sent requires all supplements
+        to be resolved (unless appraisal/attorney task exists for claim).
+        """
+        from app.domains.claim_followup.schemas import DEPRECIATION_PHASES
+
+        if new_phase not in DEPRECIATION_PHASES:
+            raise ValueError(f"Invalid phase: {new_phase}")
+
+        session = self._get_session()
+        try:
+            from app.domains.claim_followup.repository import get_followup_task_repository
+            from app.domains.claim_followup.models import FollowUpTask as FollowUpTaskModel
+            from app.domains.client.models import ClaimActivity
+
+            repo = get_followup_task_repository(session)
+            task = repo.get_by_id(task_id)
+            if not task or task.get('task_type') != 'depreciation_recovery':
+                return None
+
+            claim_id = task.get('claim_id')
+
+            # Supplement blocking for docs_sent transitions
+            if new_phase in ('docs_sent_pa', 'docs_sent_insurance'):
+                # Check for appraisal/attorney exception
+                appraisal_exists = session.query(FollowUpTaskModel.id).filter(
+                    FollowUpTaskModel.claim_id == claim_id,
+                    FollowUpTaskModel.task_type.in_(['appraisal', 'attorney_referral']),
+                    FollowUpTaskModel.status != 'cancelled',
+                    FollowUpTaskModel.id != task_id,
+                ).first()
+
+                if not appraisal_exists:
+                    try:
+                        from app.domains.supplement.models import SupplementRequest
+                        pending_supps = session.query(SupplementRequest.id).filter(
+                            SupplementRequest.claim_id == claim_id,
+                            SupplementRequest.status.notin_(['resolved', 'cancelled']),
+                        ).first()
+                        if pending_supps:
+                            raise ValueError(
+                                "Supplement negotiations must be completed before sending documents"
+                            )
+                    except ImportError:
+                        pass
+
+            update_data: Dict[str, Any] = {'depreciation_phase': new_phase}
+
+            # Phase-specific side effects
+            if new_phase in ('docs_sent_pa', 'docs_sent_insurance'):
+                update_data['status'] = 'awaiting_response'
+                update_data['last_contacted_at'] = datetime.now(timezone.utc)
+                update_data['contact_count'] = (task.get('contact_count') or 0) + 1
+                if sent_to == 'pa':
+                    update_data['assigned_to_role'] = 'public_adjuster'
+                else:
+                    update_data['assigned_to_role'] = 'adjuster'
+            elif new_phase == 'following_up':
+                update_data['status'] = 'awaiting_response'
+            elif new_phase == 'payment_received':
+                update_data['status'] = 'resolved'
+                update_data['resolved_at'] = datetime.now(timezone.utc)
+                update_data['payment_status'] = 'received'
+
+            if notes:
+                update_data['resolution_notes'] = notes
+
+            result = repo.update(task_id, update_data)
+
+            # Log activity
+            PHASE_LABELS = {
+                'in_construction': 'Construction In Progress',
+                'construction_done': 'Construction Completed',
+                'preparing_docs': 'Preparing Documents',
+                'docs_sent_pa': 'Documents Sent to PA',
+                'docs_sent_insurance': 'Documents Sent to Insurance',
+                'following_up': 'Following Up',
+                'payment_received': 'Depreciation Payment Received',
+            }
+            if claim_id:
+                session.add(ClaimActivity(
+                    claim_id=claim_id,
+                    activity_type='depreciation_phase_changed',
+                    title=f'Depreciation: {PHASE_LABELS.get(new_phase, new_phase)}',
+                    description=notes or f'Depreciation recovery phase: {PHASE_LABELS.get(new_phase, new_phase)}',
+                    related_entity_type='followup_task',
+                    related_entity_id=str(task.get('id')),
+                ))
+
+            session.commit()
+            return result
+        except ValueError:
+            session.rollback()
+            raise
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error advancing depreciation phase: {e}")
+            raise
+        finally:
+            session.close()
+
     def _handle_denied_continue(
         self, session, repo, task_id: str,
         denied_action: str,

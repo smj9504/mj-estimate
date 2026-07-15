@@ -159,6 +159,24 @@ export const claimFollowUpService = {
     return data;
   },
 
+  async advanceDepreciationPhase(
+    taskId: string,
+    newPhase: string,
+    sentTo?: string,
+    notes?: string,
+  ): Promise<FollowUpTask> {
+    const formData = new FormData();
+    formData.append('new_phase', newPhase);
+    if (sentTo) formData.append('sent_to', sentTo);
+    if (notes) formData.append('notes', notes);
+    const { data } = await api.post(
+      `${BASE_URL}/tasks/${taskId}/advance-depreciation`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+    return data;
+  },
+
   async deleteTask(taskId: string): Promise<void> {
     await api.delete(`${BASE_URL}/tasks/${taskId}`);
   },
