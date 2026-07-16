@@ -66,6 +66,17 @@ AVAILABLE_FIELDS = [
     # Meta fields
     {"key": "meta.current_date", "label": "Current Date", "category": "Meta"},
     {"key": "meta.contract_number", "label": "Contract Number", "category": "Meta"},
+    # Custom fields (user-defined input fields)
+    {"key": "custom.field_1", "label": "Custom Field 1", "category": "Custom"},
+    {"key": "custom.field_2", "label": "Custom Field 2", "category": "Custom"},
+    {"key": "custom.field_3", "label": "Custom Field 3", "category": "Custom"},
+    {"key": "custom.field_4", "label": "Custom Field 4", "category": "Custom"},
+    {"key": "custom.field_5", "label": "Custom Field 5", "category": "Custom"},
+    {"key": "custom.field_6", "label": "Custom Field 6", "category": "Custom"},
+    {"key": "custom.field_7", "label": "Custom Field 7", "category": "Custom"},
+    {"key": "custom.field_8", "label": "Custom Field 8", "category": "Custom"},
+    {"key": "custom.field_9", "label": "Custom Field 9", "category": "Custom"},
+    {"key": "custom.field_10", "label": "Custom Field 10", "category": "Custom"},
     # Signature fields
     {"key": "signature.homeowner", "label": "Homeowner Signature", "category": "Signature"},
     {"key": "signature.company_rep", "label": "Company Rep Signature", "category": "Signature"},
@@ -285,6 +296,10 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                 prefill = self._build_prefill(session, data)
                 data.pop('wm_job_id', None)
 
+                # Add meta fields early (current_date, contract_number updated after creation)
+                prefill['meta'] = prefill.get('meta', {})
+                prefill['meta']['current_date'] = datetime.utcnow().strftime('%m/%d/%Y')
+
                 # Merge user overrides
                 if prefill_overrides:
                     for category, fields in prefill_overrides.items():
@@ -309,16 +324,16 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                 repo = self._get_repository_instance(session)
                 result = repo.create_with_token(data, expires_days)
 
+                # Update meta with contract_number and persist
+                prefill['meta']['contract_number'] = result.get('contract_number', '')
+                repo.update(str(result['id']), {'prefill_data': json.dumps(prefill)})
+                session.commit()
+
                 # Generate filled PDF if template has field mappings
                 if tmpl and tmpl.field_mappings:
                     try:
                         mappings = json.loads(tmpl.field_mappings)
                         if mappings:
-                            # Add meta fields to prefill
-                            prefill['meta'] = {
-                                'current_date': datetime.utcnow().strftime('%m/%d/%Y'),
-                                'contract_number': result.get('contract_number', ''),
-                            }
                             filled_url = self._generate_filled_pdf(
                                 tmpl.file_url, mappings, prefill
                             )
@@ -617,6 +632,9 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                     c = rl_canvas.Canvas(overlay_buffer, pagesize=(page_width, page_height))
 
                     for field in fields_on_page:
+                        # Skip signer-editable fields — they remain blank for signer to fill
+                        if field.get('inputMode') == 'signer':
+                            continue
                         value = self._resolve_field_value(prefill, field.get('fieldKey', ''))
                         if not value:
                             continue

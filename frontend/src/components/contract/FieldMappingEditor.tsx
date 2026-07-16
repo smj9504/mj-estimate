@@ -10,7 +10,7 @@ import {
 } from 'react-konva';
 import Konva from 'konva';
 import {
-  Modal, Button, Select, InputNumber, Space, Spin, Typography,
+  Modal, Button, Select, Input, InputNumber, Space, Spin, Typography,
   message, Divider, List, Tag, Popconfirm, Empty, Tooltip, Dropdown,
 } from 'antd';
 import {
@@ -293,6 +293,18 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
     ));
   };
 
+  const handleInputModeChange = (fieldId: string, inputMode: string) => {
+    setFields(prev => prev.map(f =>
+      f.id === fieldId ? { ...f, inputMode: inputMode as any } : f
+    ));
+  };
+
+  const handleLabelChange = (fieldId: string, label: string) => {
+    setFields(prev => prev.map(f =>
+      f.id === fieldId ? { ...f, label } : f
+    ));
+  };
+
   const handleSave = async () => {
     // Validate all fields have a fieldKey assigned
     const unmapped = fields.filter(f => !f.fieldKey);
@@ -545,6 +557,36 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
                     size="small"
                   />
                 </div>
+                {/* Custom label editor (for custom fields) */}
+                {selectedField.fieldKey.startsWith('custom.') && (
+                  <div style={{ marginTop: 12 }}>
+                    <Text style={{ fontSize: 12 }}>Label:</Text>
+                    <Input
+                      style={{ width: '100%', marginTop: 4 }}
+                      value={selectedField.label}
+                      onChange={(e) => handleLabelChange(selectedField.id, e.target.value)}
+                      placeholder="Enter field label"
+                      size="small"
+                    />
+                  </div>
+                )}
+                {/* Input mode: who fills this field */}
+                {selectedField.fieldType !== 'signature' && selectedField.fieldType !== 'initial' && selectedField.fieldType !== 'date_signed' && (
+                  <div style={{ marginTop: 12 }}>
+                    <Text style={{ fontSize: 12 }}>Filled By:</Text>
+                    <Select
+                      style={{ width: '100%', marginTop: 4 }}
+                      value={selectedField.inputMode || 'prefilled'}
+                      onChange={(val) => handleInputModeChange(selectedField.id, val)}
+                      size="small"
+                      options={[
+                        { label: 'Auto (from data)', value: 'prefilled' },
+                        { label: 'Contract Creator', value: 'creator' },
+                        { label: 'Signer (at signing)', value: 'signer' },
+                      ]}
+                    />
+                  </div>
+                )}
                 <div style={{ marginTop: 12 }}>
                   <Text style={{ fontSize: 12 }}>Font Size:</Text>
                   <InputNumber

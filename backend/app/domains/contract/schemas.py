@@ -86,6 +86,9 @@ class FieldMappingItem(BaseModel):
     signerRole: Optional[str] = Field(
         None, description="homeowner | company_rep | witness"
     )
+    inputMode: Optional[str] = Field(
+        None, description="prefilled (auto from data) | creator (filled at generation) | signer (filled at signing)"
+    )
 
 
 class FieldMappingUpdate(BaseModel):
@@ -175,6 +178,11 @@ class SigningRequest(BaseModel):
         None,
         description="Map of field ID -> base64 image or date"
     )
+    signer_field_values: Optional[Dict[str, str]] = Field(
+        None,
+        description="Map of fieldKey -> text value for "
+        "signer-editable fields"
+    )
     consent_agreed: bool = Field(
         False, description="E-sign consent acknowledged"
     )
@@ -218,6 +226,21 @@ class SignatureFieldPlacement(BaseModel):
     label: str
 
 
+class SignerEditableField(BaseModel):
+    """Text field that the signer can fill in at signing time"""
+    id: str
+    fieldKey: str
+    label: str
+    pageIndex: int
+    x: float
+    y: float
+    width: float
+    height: float
+    fontSize: int = 12
+    fontColor: str = "#000000"
+    currentValue: Optional[str] = None
+
+
 class ContractViewResponse(BaseModel):
     """Public contract view (for signing page)"""
     contract_id: UUID
@@ -233,6 +256,7 @@ class ContractViewResponse(BaseModel):
     requires_signature: bool = True
     signature_roles: Optional[str] = None
     signature_fields: List[SignatureFieldPlacement] = []
+    signer_editable_fields: List[SignerEditableField] = []
     existing_signatures: List[dict] = []
 
 

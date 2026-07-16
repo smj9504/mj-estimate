@@ -353,6 +353,11 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
     const textMappings = prefillData.field_mappings.filter((m) => !isSigKey(m.fieldKey || ''));
     const sigMappings = prefillData.field_mappings.filter((m) => isSigKey(m.fieldKey || ''));
 
+    // Separate by inputMode
+    const autoFields = textMappings.filter((m) => !m.inputMode || m.inputMode === 'prefilled');
+    const creatorFields = textMappings.filter((m) => m.inputMode === 'creator');
+    const signerFields = textMappings.filter((m) => m.inputMode === 'signer');
+
     // Resolve value for a mapped text field
     const resolveValue = (fieldKey: string): string => {
       const parts = fieldKey.split('.', 2);
@@ -364,39 +369,83 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
       return catData?.[key] || '';
     };
 
+    const renderFieldTable = (fields: typeof textMappings, editable: boolean) => (
+      <Descriptions column={1} size="small" bordered>
+        {fields.map((m) => {
+          const val = resolveValue(m.fieldKey);
+          const parts = m.fieldKey.split('.', 2);
+          return (
+            <Descriptions.Item
+              key={m.id}
+              label={<Text style={{ fontSize: 12 }}>{m.label || m.fieldKey}</Text>}
+            >
+              {editable ? (
+                <Input
+                  size="small"
+                  value={val}
+                  onChange={(e) => {
+                    if (parts.length === 2) handlePrefillEdit(parts[0], parts[1], e.target.value);
+                  }}
+                  style={{ fontSize: 12 }}
+                  variant="borderless"
+                  placeholder="(empty)"
+                />
+              ) : (
+                <Text style={{ fontSize: 12 }} type="secondary">
+                  {val || '(empty)'}
+                </Text>
+              )}
+            </Descriptions.Item>
+          );
+        })}
+      </Descriptions>
+    );
+
     return (
       <div style={{ maxHeight: 400, overflow: 'auto' }}>
-        {/* Mapped text fields with resolved values */}
-        {textMappings.length > 0 && (
+        {/* Creator-editable fields (custom inputs filled by contract creator) */}
+        {creatorFields.length > 0 && (
           <div style={{ marginBottom: 16 }}>
-            <Text strong style={{ fontSize: 13, color: '#1677ff' }}>
-              Auto-Fill Fields ({textMappings.length})
+            <Text strong style={{ fontSize: 13, color: '#eb2f96' }}>
+              Input Fields — Fill Now ({creatorFields.length})
             </Text>
             <Divider style={{ margin: '4px 0 8px' }} />
-            <Descriptions column={1} size="small" bordered>
-              {textMappings.map((m) => {
-                const val = resolveValue(m.fieldKey);
-                const parts = m.fieldKey.split('.', 2);
-                return (
-                  <Descriptions.Item
-                    key={m.id}
-                    label={<Text style={{ fontSize: 12 }}>{m.label || m.fieldKey}</Text>}
-                  >
-                    <Input
-                      size="small"
-                      value={val}
-                      onChange={(e) => {
-                        if (parts.length === 2) handlePrefillEdit(parts[0], parts[1], e.target.value);
-                      }}
-                      style={{ fontSize: 12 }}
-                      variant="borderless"
-                      placeholder="(empty)"
-                    />
-                  </Descriptions.Item>
-                );
-              })}
-            </Descriptions>
+            {renderFieldTable(creatorFields, true)}
           </div>
+        )}
+
+        {/* Auto-filled fields */}
+        {autoFields.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <Text strong style={{ fontSize: 13, color: '#1677ff' }}>
+              Auto-Fill Fields ({autoFields.length})
+            </Text>
+            <Divider style={{ margin: '4px 0 8px' }} />
+            {renderFieldTable(autoFields, true)}
+          </div>
+        )}
+
+        {/* Signer-editable fields (shown as info, filled at signing time) */}
+        {signerFields.length > 0 && (
+          <Alert
+            type="info"
+            style={{ marginBottom: 8 }}
+            message={
+              <span>
+                <Text strong style={{ fontSize: 13 }}>Signer Input Fields ({signerFields.length})</Text>
+                <Text style={{ fontSize: 12, display: 'block', color: '#8c8c8c', marginTop: 4 }}>
+                  These fields will be filled in by the signer at signing time.
+                </Text>
+                <div style={{ marginTop: 6 }}>
+                  {signerFields.map((f, i) => (
+                    <Tag key={i} color="purple" style={{ fontSize: 11, marginBottom: 4 }}>
+                      {f.label || f.fieldKey}
+                    </Tag>
+                  ))}
+                </div>
+              </span>
+            }
+          />
         )}
 
         {/* Signature / Initial fields */}

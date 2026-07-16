@@ -55,6 +55,17 @@ export const AVAILABLE_FIELDS: AvailableField[] = [
   // Meta
   { key: 'meta.current_date', label: 'Current Date', category: 'Meta' },
   { key: 'meta.contract_number', label: 'Contract Number', category: 'Meta' },
+  // Custom Fields (user-defined input fields)
+  { key: 'custom.field_1', label: 'Custom Field 1', category: 'Custom' },
+  { key: 'custom.field_2', label: 'Custom Field 2', category: 'Custom' },
+  { key: 'custom.field_3', label: 'Custom Field 3', category: 'Custom' },
+  { key: 'custom.field_4', label: 'Custom Field 4', category: 'Custom' },
+  { key: 'custom.field_5', label: 'Custom Field 5', category: 'Custom' },
+  { key: 'custom.field_6', label: 'Custom Field 6', category: 'Custom' },
+  { key: 'custom.field_7', label: 'Custom Field 7', category: 'Custom' },
+  { key: 'custom.field_8', label: 'Custom Field 8', category: 'Custom' },
+  { key: 'custom.field_9', label: 'Custom Field 9', category: 'Custom' },
+  { key: 'custom.field_10', label: 'Custom Field 10', category: 'Custom' },
   // Signature Fields
   { key: 'signature.homeowner', label: 'Homeowner Signature', category: 'Signature' },
   { key: 'signature.company_rep', label: 'Company Rep Signature', category: 'Signature' },
@@ -72,6 +83,7 @@ export const FIELD_COLORS = [
   { label: 'Company', color: '#722ed1' },
   { label: 'WM Job', color: '#13c2c2' },
   { label: 'Meta', color: '#fa8c16' },
+  { label: 'Custom', color: '#eb2f96' },
   { label: 'Signature', color: '#f5222d' },
 ];
 

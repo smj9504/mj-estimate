@@ -41,6 +41,9 @@ export interface ContractTemplate {
 
 export type FieldType = 'text' | 'signature' | 'initial' | 'date_signed';
 
+/** Who fills in this field's value */
+export type InputMode = 'prefilled' | 'creator' | 'signer';
+
 export interface FieldMappingItem {
   id: string;
   pageIndex: number;
@@ -54,6 +57,7 @@ export interface FieldMappingItem {
   fontColor: string;
   fieldType?: FieldType;       // default 'text'
   signerRole?: string;         // for signature/initial: 'homeowner' | 'company_rep' | 'witness'
+  inputMode?: InputMode;       // who fills this field: prefilled (auto), creator (at generation), signer (at signing)
 }
 
 export interface AvailableField {
@@ -161,6 +165,20 @@ export interface SignatureFieldPlacement {
   label: string;
 }
 
+export interface SignerEditableField {
+  id: string;
+  fieldKey: string;
+  label: string;
+  pageIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fontSize: number;
+  fontColor: string;
+  currentValue?: string | null;
+}
+
 export interface ContractViewData {
   contract_id: string;
   title?: string;
@@ -175,6 +193,7 @@ export interface ContractViewData {
   requires_signature: boolean;
   signature_roles?: string;
   signature_fields?: SignatureFieldPlacement[];
+  signer_editable_fields?: SignerEditableField[];
   existing_signatures: { signer_name: string; signer_role: string; signed_at: string }[];
 }
 

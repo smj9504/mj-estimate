@@ -34,7 +34,7 @@ import {
 } from '@ant-design/icons';
 import { signingService } from '../services/contractService';
 import { publicApi } from '../services/api';
-import type { ContractViewData, SignatureFieldPlacement } from '../types/contract';
+import type { ContractViewData, SignatureFieldPlacement, SignerEditableField } from '../types/contract';
 import WMSignaturePad from '../components/water-mitigation/pdf-annotator/WMSignaturePad';
 import ContractSignatureOverlay from '../components/contract/ContractSignatureOverlay';
 import { usePdfRenderer } from '../components/contract/usePdfRenderer';
@@ -169,6 +169,8 @@ const ContractSigning: React.FC = () => {
   const [lastSignatureImage, setLastSignatureImage] = useState<string | null>(null);
   const [lastInitialImage, setLastInitialImage] = useState<string | null>(null);
   const [consentChecked, setConsentChecked] = useState(false);
+  // Signer-editable field values
+  const [signerFieldValues, setSignerFieldValues] = useState<Record<string, string>>({});
 
   // PDF rendering
   const { pages: renderedPages, loading: pdfLoading, render: renderPdf } = usePdfRenderer();
@@ -189,7 +191,18 @@ const ContractSigning: React.FC = () => {
   });
 
   const sigFields = contract?.signature_fields || [];
+  const signerEditableFields = contract?.signer_editable_fields || [];
   const hasPositionedFields = sigFields.length > 0;
+
+  // Initialize signer field values from contract data
+  useEffect(() => {
+    if (!contract?.signer_editable_fields?.length) return;
+    const vals: Record<string, string> = {};
+    contract.signer_editable_fields.forEach(f => {
+      vals[f.fieldKey] = f.currentValue || '';
+    });
+    setSignerFieldValues(vals);
+  }, [contract]);
 
   // ── Load PDF pages ─────────────────────────────────────────────────────────
 
@@ -219,17 +232,21 @@ const ContractSigning: React.FC = () => {
       signatureType?: 'drawn' | 'typed';
       typedName?: string;
       signatureFields?: Record<string, string>;
-    }) =>
-      signingService.sign(token!, {
+    }) => {
+      // Include signer field values if any were filled
+      const hasSignerFields = Object.values(signerFieldValues).some(v => v);
+      return signingService.sign(token!, {
         signer_name: signerName.trim(),
         signer_role: 'homeowner',
         signature_image: payload.signatureImage,
         signature_type: payload.signatureType || 'drawn',
         typed_name: payload.typedName,
         signature_fields: payload.signatureFields,
+        signer_field_values: hasSignerFields ? signerFieldValues : undefined,
         consent_agreed: true,
         consent_text: 'I have reviewed the document and agree to sign it electronically. I understand that my electronic signature has the same legal effect as a handwritten signature.',
-      }),
+      });
+    },
     onSuccess: () => setSigSuccess(true),
   });
 
@@ -457,7 +474,29 @@ const ContractSigning: React.FC = () => {
         <SendCopyCard token={token!} clientEmail={contract.client_email} />
       )}
 
-      {/* Name input removed from here — moved into submit section */}
+      {/* ── Signer-Editable Fields ── */}
+      {!isAlreadySigned && signerEditableFields.length > 0 && (
+        <Card style={{ marginBottom: 24, borderRadius: 12, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+          <Title level={5} style={{ marginTop: 0 }}>
+            <FormOutlined style={{ marginRight: 8 }} />
+            Please Fill In
+          </Title>
+          <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+            Complete these fields before signing the document.
+          </Paragraph>
+          {signerEditableFields.map(f => (
+            <div key={f.id} style={{ marginBottom: 12 }}>
+              <Text style={{ fontSize: 14, display: 'block', marginBottom: 4 }}>{f.label}</Text>
+              <Input
+                value={signerFieldValues[f.fieldKey] || ''}
+                onChange={e => setSignerFieldValues(prev => ({ ...prev, [f.fieldKey]: e.target.value }))}
+                placeholder={f.label}
+                style={{ height: 44, fontSize: 16, borderRadius: 6 }}
+              />
+            </div>
+          ))}
+        </Card>
+      )}
 
       {/* ── PDF Loading ── */}
       {hasPositionedFields && pdfLoading && (

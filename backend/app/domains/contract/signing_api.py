@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Request
 from app.domains.contract.schemas import (
     SigningRequest, SigningResponse,
     ContractViewResponse, SignatureFieldPlacement,
+    SignerEditableField,
 )
 from app.domains.contract.service import ContractInstanceService
 
@@ -110,6 +111,9 @@ async def get_contract_for_signing(token: str, request: Request):
 
         # Extract signature field placements from template
         sig_fields = _extract_signature_fields(contract)
+        signer_fields = _extract_signer_editable_fields(
+            contract
+        )
 
         return ContractViewResponse(
             contract_id=cid,
@@ -130,6 +134,7 @@ async def get_contract_for_signing(token: str, request: Request):
             ),
             signature_roles=contract.get('signature_roles'),
             signature_fields=sig_fields,
+            signer_editable_fields=signer_fields,
             existing_signatures=[
                 {
                     'signer_name': s.get('signer_name'),
@@ -187,6 +192,70 @@ def _extract_signature_fields(contract: dict):
     return result
 
 
+def _extract_signer_editable_fields(contract: dict):
+    """Extract text fields with inputMode='signer' from
+    the template's field_mappings JSON."""
+    result = []
+    sig_types = ('signature', 'initial', 'date_signed')
+
+    raw = contract.get('field_mappings')
+    if not raw:
+        return result
+
+    mappings = raw
+    if isinstance(raw, str):
+        try:
+            mappings = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return result
+
+    if not isinstance(mappings, list):
+        return result
+
+    # Get current prefill data for default values
+    prefill = {}
+    raw_prefill = contract.get('prefill_data')
+    if raw_prefill:
+        if isinstance(raw_prefill, str):
+            try:
+                prefill = json.loads(raw_prefill)
+            except Exception:
+                pass
+        elif isinstance(raw_prefill, dict):
+            prefill = raw_prefill
+
+    for m in mappings:
+        if m.get('inputMode') != 'signer':
+            continue
+        fk = m.get('fieldKey', '')
+        parts = fk.split('.', 1)
+        if len(parts) == 2 and parts[0] in sig_types:
+            continue  # skip signature fields
+
+        # Resolve current value
+        current_val = None
+        if len(parts) == 2:
+            cat_data = prefill.get(parts[0], {})
+            if isinstance(cat_data, dict):
+                current_val = cat_data.get(parts[1])
+
+        result.append(SignerEditableField(
+            id=m.get('id', ''),
+            fieldKey=fk,
+            label=m.get('label', fk),
+            pageIndex=m.get('pageIndex', 0),
+            x=m.get('x', 0),
+            y=m.get('y', 0),
+            width=m.get('width', 0.2),
+            height=m.get('height', 0.03),
+            fontSize=m.get('fontSize', 12),
+            fontColor=m.get('fontColor', '#000000'),
+            currentValue=current_val,
+        ))
+
+    return result
+
+
 @router.post("/{token}")
 async def sign_contract(token: str, data: SigningRequest, request: Request):
     """
@@ -195,6 +264,26 @@ async def sign_contract(token: str, data: SigningRequest, request: Request):
     """
     try:
         service = _get_service()
+
+        # Update signer-editable field values before signing
+        if data.signer_field_values:
+            try:
+                prefill_update = {}
+                for fk, val in data.signer_field_values.items():
+                    parts = fk.split('.', 1)
+                    if len(parts) == 2:
+                        cat, key = parts
+                        if cat not in prefill_update:
+                            prefill_update[cat] = {}
+                        prefill_update[cat][key] = val
+                if prefill_update:
+                    service.update_prefill_and_regenerate(
+                        token, prefill_update
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to update signer fields: {e}"
+                )
 
         sig_data = {
             'signer_name': data.signer_name,

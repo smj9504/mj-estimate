@@ -206,6 +206,7 @@ export const signingService = {
     signature_type?: 'drawn' | 'typed';
     typed_name?: string;
     signature_fields?: Record<string, string>;
+    signer_field_values?: Record<string, string>;
     consent_agreed?: boolean;
     consent_text?: string;
   }) {
