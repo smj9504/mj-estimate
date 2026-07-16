@@ -72,6 +72,7 @@ interface BackendEstimateResponse {
     showSubtotal: boolean;
     order: number;
   }>;
+  payment_schedule?: PaymentScheduleItem[];
 }
 
 /**
@@ -138,6 +139,14 @@ export interface EstimateSection {
   sort_order?: number;
 }
 
+export interface PaymentScheduleItem {
+  label: string;        // e.g. 'Deposit', 'Upon Start', 'Upon Completion'
+  type: 'percentage' | 'fixed';  // percentage of total or fixed dollar amount
+  value: number;        // percentage (0-100) or fixed dollar amount
+  due_label?: string;   // e.g. 'Due upon signing', 'Net 30'
+  sort_order: number;
+}
+
 export interface EstimateCreate {
   estimate_number?: string;
   estimate_type?: string;  // 'standard' or 'insurance'
@@ -170,6 +179,7 @@ export interface EstimateCreate {
   tax_method?: 'percentage' | 'specific'; // Tax calculation method
   tax_rate?: number;
   tax_amount?: number;
+  payment_schedule?: PaymentScheduleItem[];
 }
 
 export interface EstimateResponse {
@@ -236,6 +246,9 @@ export interface EstimateResponse {
   status?: string;
   created_at?: string;
   updated_at?: string;
+
+  // Payment schedule
+  payment_schedule?: PaymentScheduleItem[];
 }
 
 class EstimateService {
@@ -410,7 +423,9 @@ class EstimateService {
         title: section.title,
         showSubtotal: section.showSubtotal,
         order: index,
-      })) : undefined
+      })) : undefined,
+      // Payment schedule
+      payment_schedule: estimate.payment_schedule || undefined,
     };
   }
 
@@ -465,6 +480,8 @@ class EstimateService {
         backendData.sections_data,
         (backendData.items || []).map((item) => this.transformItemFromBackend(item))
       ),
+      // Payment schedule
+      payment_schedule: backendData.payment_schedule,
     };
   }
 
@@ -646,6 +663,7 @@ class EstimateService {
       },
       notes: estimate.notes,
       terms: estimate.terms,
+      payment_schedule: estimate.payment_schedule,
       template_type: templateType // Add template type selection
     };
 
@@ -753,6 +771,7 @@ class EstimateService {
       },
       notes: estimate.notes,
       terms: estimate.terms,
+      payment_schedule: estimate.payment_schedule,
       template_type: templateType // Add template type selection
     };
 

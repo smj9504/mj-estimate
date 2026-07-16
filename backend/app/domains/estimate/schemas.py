@@ -6,10 +6,25 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 # Import Adjustment from invoice schemas (shared)
 from app.domains.invoice.schemas import Adjustment
+
+
+class PaymentScheduleItem(BaseModel):
+    """A single payment milestone in the schedule"""
+    label: str = Field(..., description="e.g. 'Deposit', 'Upon Start', 'Upon Completion'")
+    type: str = Field("percentage", description="'percentage' or 'fixed'")
+    value: float = Field(..., description="Percentage (0-100) or fixed dollar amount")
+    due_label: Optional[str] = Field(None, description="e.g. 'Due upon signing', 'Net 30'")
+    sort_order: int = Field(0)
+
+    @validator('type')
+    def validate_type(cls, v):
+        if v not in ('percentage', 'fixed'):
+            raise ValueError("type must be 'percentage' or 'fixed'")
+        return v
 
 
 class EstimateItemBase(BaseModel):
@@ -135,6 +150,9 @@ class EstimateBase(BaseModel):
     # Sections data - preserves section structure across save/load
     sections_data: Optional[List[Dict[str, Any]]] = None
 
+    # Payment schedule
+    payment_schedule: Optional[List[PaymentScheduleItem]] = None
+
 
 class EstimateCreate(EstimateBase):
     """Schema for creating estimates"""
@@ -199,6 +217,9 @@ class EstimateUpdate(BaseModel):
 
     # Sections data - preserves section structure across save/load
     sections_data: Optional[List[Dict[str, Any]]] = None
+
+    # Payment schedule
+    payment_schedule: Optional[List[PaymentScheduleItem]] = None
 
     # Items
     items: Optional[List[EstimateItemCreate]] = None
@@ -283,6 +304,7 @@ class EstimateResponse(BaseModel):
     terms: Optional[str] = None
     room_data: Optional[Dict[str, Any]] = None
     sections_data: Optional[List[Dict[str, Any]]] = None
+    payment_schedule: Optional[List[PaymentScheduleItem]] = None
 
     # Relationships
     items: List[EstimateItemResponse] = []
@@ -349,6 +371,9 @@ class EstimatePDFRequest(BaseModel):
 
     notes: Optional[str] = None
     terms: Optional[str] = None
+
+    # Payment schedule
+    payment_schedule: Optional[List[PaymentScheduleItem]] = None
 
     # Template selection
     template_type: Optional[str] = "estimate"  # "estimate" or "invoice"

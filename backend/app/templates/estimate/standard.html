@@ -686,6 +686,35 @@
             </div>
         </div>
 
+        <!-- Payment Schedule -->
+        {% if payment_schedule and payment_schedule|length > 0 %}
+        <div style="margin-bottom: 32px;">
+            <div class="section-heading">Payment Schedule</div>
+            <div style="display: flex; justify-content: flex-end;">
+                <div style="width: 380px;">
+                    {% for item in payment_schedule %}
+                    <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 6px 4px; {% if not loop.last %}border-bottom: 1px solid #F3F4F6;{% endif %}">
+                        <div style="flex: 1;">
+                            <span style="font-size: 13px; color: #111827; font-weight: 500;">{{ item.label or 'Payment ' ~ loop.index }}</span>
+                            {% if item.due_label %}
+                            <span style="font-size: 11px; color: #9CA3AF; margin-left: 6px;">{{ item.due_label }}</span>
+                            {% endif %}
+                        </div>
+                        <div style="text-align: right; font-size: 13px; font-weight: 500; color: #111827; white-space: nowrap;">
+                            {% if item.type == 'percentage' %}
+                                {{ format_amount(total * item.value / 100) }}
+                                <span style="font-size: 11px; color: #9CA3AF; font-weight: 400;">({{ item.value }}%)</span>
+                            {% else %}
+                                {{ format_amount(item.value) }}
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Terms & Conditions -->
         {% if terms %}
         <div class="terms-section">

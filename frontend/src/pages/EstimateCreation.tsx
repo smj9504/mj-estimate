@@ -27,6 +27,7 @@ import {
   EyeOutlined,
   EditOutlined,
   HolderOutlined,
+  DollarOutlined,
 } from '@ant-design/icons';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import SortableSection from '../components/common/SortableSection';
@@ -54,7 +55,7 @@ import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import RichTextEditor from '../components/editor/RichTextEditor';
 import dayjs from 'dayjs';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { estimateService, EstimateLineItem, EstimateResponse, EstimateSection } from '../services/estimateService';
+import { estimateService, EstimateLineItem, EstimateResponse, EstimateSection, PaymentScheduleItem } from '../services/estimateService';
 import { companyService } from '../services/companyService';
 import lineItemService from '../services/lineItemService';
 import { LineItemType } from '../types/lineItem';
@@ -139,6 +140,9 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
   // PDF Template selection state
   const [pdfTemplateType, setPdfTemplateType] = useState<'estimate' | 'invoice'>('estimate');
+
+  // Payment schedule state
+  const [paymentSchedule, setPaymentSchedule] = useState<PaymentScheduleItem[]>([]);
 
 
   const statusOptions = [
@@ -248,6 +252,13 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       if (estimate.tax_rate) {
         setTaxRate(estimate.tax_rate);
         form.setFieldValue('tax_rate', estimate.tax_rate);
+      }
+
+      // Set payment schedule if available
+      if (estimate.payment_schedule && estimate.payment_schedule.length > 0) {
+        setPaymentSchedule(estimate.payment_schedule);
+      } else {
+        setPaymentSchedule([]);
       }
       
       // Set company
@@ -1207,6 +1218,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       tax_amount: grandTotal.taxAmount,
       total_amount: grandTotal.total,
       notes: cleanNotesFromOPInfo(values.notes),
+      payment_schedule: paymentSchedule,
     };
   };
 
@@ -1281,6 +1293,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       company_phone: selectedCompany?.phone || '',
       company_email: selectedCompany?.email || '',
       company_logo: selectedCompany?.logo || '',
+      payment_schedule: paymentSchedule,
     };
 
     return previewData;
@@ -2000,6 +2013,155 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                   </div>
                 </Col>
               </Row>
+            </Card>
+          </Col>
+
+          {/* Payment Schedule */}
+          <Col xs={24}>
+            <Card
+              title={
+                <Space>
+                  <DollarOutlined />
+                  Payment Schedule
+                </Space>
+              }
+              style={{ marginBottom: 24 }}
+              extra={
+                <Button
+                  type="dashed"
+                  size="small"
+                  icon={<PlusOutlined />}
+                  onClick={() => {
+                    setPaymentSchedule(prev => [
+                      ...prev,
+                      {
+                        label: '',
+                        type: 'percentage',
+                        value: 0,
+                        due_label: '',
+                        sort_order: prev.length,
+                      },
+                    ]);
+                  }}
+                >
+                  Add Payment
+                </Button>
+              }
+            >
+              {paymentSchedule.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '16px 0', color: '#8c8c8c' }}>
+                  No payment schedule defined. Click "Add Payment" to create milestones.
+                </div>
+              ) : (
+                <>
+                  {paymentSchedule.map((item, index) => {
+                    const computedAmount = item.type === 'percentage'
+                      ? (calculateGrandTotal.total * item.value / 100)
+                      : item.value;
+                    return (
+                      <Row key={index} gutter={12} align="middle" style={{ marginBottom: 12 }}>
+                        <Col xs={24} sm={6}>
+                          <Input
+                            placeholder="Label (e.g. Deposit)"
+                            value={item.label}
+                            onChange={e => {
+                              const updated = [...paymentSchedule];
+                              updated[index] = { ...updated[index], label: e.target.value };
+                              setPaymentSchedule(updated);
+                            }}
+                            size="small"
+                          />
+                        </Col>
+                        <Col xs={10} sm={4}>
+                          <Select
+                            value={item.type}
+                            onChange={val => {
+                              const updated = [...paymentSchedule];
+                              updated[index] = { ...updated[index], type: val as 'percentage' | 'fixed' };
+                              setPaymentSchedule(updated);
+                            }}
+                            size="small"
+                            style={{ width: '100%' }}
+                            options={[
+                              { label: '%', value: 'percentage' },
+                              { label: '$', value: 'fixed' },
+                            ]}
+                          />
+                        </Col>
+                        <Col xs={14} sm={4}>
+                          <InputNumber
+                            value={item.value}
+                            onChange={val => {
+                              const updated = [...paymentSchedule];
+                              updated[index] = { ...updated[index], value: val || 0 };
+                              setPaymentSchedule(updated);
+                            }}
+                            size="small"
+                            style={{ width: '100%' }}
+                            min={0}
+                            max={item.type === 'percentage' ? 100 : undefined}
+                            precision={2}
+                            addonAfter={item.type === 'percentage' ? '%' : '$'}
+                          />
+                        </Col>
+                        <Col xs={18} sm={6}>
+                          <Input
+                            placeholder="Due (e.g. Upon signing)"
+                            value={item.due_label || ''}
+                            onChange={e => {
+                              const updated = [...paymentSchedule];
+                              updated[index] = { ...updated[index], due_label: e.target.value };
+                              setPaymentSchedule(updated);
+                            }}
+                            size="small"
+                          />
+                        </Col>
+                        <Col xs={4} sm={3} style={{ textAlign: 'right' }}>
+                          <Space size={4}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: '#1890ff' }}>
+                              {formatCurrency(computedAmount)}
+                            </span>
+                            <Button
+                              type="text"
+                              danger
+                              size="small"
+                              icon={<DeleteOutlined />}
+                              onClick={() => {
+                                setPaymentSchedule(prev =>
+                                  prev.filter((_, i) => i !== index).map((p, i) => ({ ...p, sort_order: i }))
+                                );
+                              }}
+                            />
+                          </Space>
+                        </Col>
+                      </Row>
+                    );
+                  })}
+                  {/* Summary */}
+                  {(() => {
+                    const scheduleTotal = paymentSchedule.reduce((sum, item) => {
+                      return sum + (item.type === 'percentage'
+                        ? calculateGrandTotal.total * item.value / 100
+                        : item.value);
+                    }, 0);
+                    const diff = calculateGrandTotal.total - scheduleTotal;
+                    return (
+                      <div style={{ marginTop: 8, padding: '8px 12px', background: '#fafafa', borderRadius: 6 }}>
+                        <Row justify="space-between">
+                          <span>Schedule Total:</span>
+                          <strong>{formatCurrency(scheduleTotal)}</strong>
+                        </Row>
+                        {Math.abs(diff) > 0.01 && (
+                          <Row justify="space-between" style={{ color: diff > 0 ? '#faad14' : '#ff4d4f' }}>
+                            <span>{diff > 0 ? 'Remaining:' : 'Over:'}</span>
+                            <strong>{formatCurrency(Math.abs(diff))}</strong>
+                          </Row>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
             </Card>
           </Col>
 

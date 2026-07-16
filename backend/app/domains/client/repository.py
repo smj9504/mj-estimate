@@ -215,10 +215,10 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                 latest_claim_activity.c.latest_activity,
             )
 
-            # Order by latest claim activity (desc), fallback to client created_at
+            # Order by client updated_at (desc), fallback to created_at
             query = query.order_by(
                 func.coalesce(
-                    latest_claim_activity.c.latest_activity,
+                    Client.updated_at,
                     Client.created_at
                 ).desc()
             )

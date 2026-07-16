@@ -82,6 +82,10 @@ class Estimate(Base, BaseModel):
 
     # Sections data - stores section structure (title, order, showSubtotal) as JSON
     sections_data = Column(JSON)
+
+    # Payment schedule - stores payment milestones as JSON array
+    # Each entry: {label, type: 'percentage'|'fixed', value, due_label, sort_order}
+    payment_schedule = Column(JSON)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

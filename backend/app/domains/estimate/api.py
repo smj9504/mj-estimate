@@ -259,6 +259,7 @@ async def get_estimate(estimate_id: str, db=Depends(get_db)):
         terms=estimate.get('terms'),
         room_data=estimate.get('room_data'),
         sections_data=estimate.get('sections_data'),
+        payment_schedule=estimate.get('payment_schedule'),
         created_at=estimate.get('created_at'),
         updated_at=estimate.get('updated_at'),
         items=[
@@ -451,6 +452,7 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
         terms=created_estimate.get('terms'),
         room_data=created_estimate.get('room_data'),
         sections_data=created_estimate.get('sections_data'),
+        payment_schedule=created_estimate.get('payment_schedule'),
         created_at=created_estimate.get('created_at'),
         updated_at=created_estimate.get('updated_at'),
         items=[
@@ -590,6 +592,7 @@ async def update_estimate(
         terms=updated_estimate.get('terms'),
         room_data=updated_estimate.get('room_data'),
         sections_data=updated_estimate.get('sections_data'),
+        payment_schedule=updated_estimate.get('payment_schedule'),
         created_at=updated_estimate.get('created_at'),
         updated_at=updated_estimate.get('updated_at'),
         items=[
@@ -1028,9 +1031,10 @@ async def preview_estimate_html(data: EstimatePDFRequest):
             logger.info(f"Generated {len(sections_data)} sections for HTML preview")
 
         # Use the same PDF service but get HTML instead of PDF
-        if not pdf_service:
+        svc = get_pdf_service()
+        if not svc:
             raise HTTPException(status_code=500, detail="PDF service not available")
-        html_content = get_pdf_service().generate_estimate_html(html_data, template_type=template_type)
+        html_content = svc.generate_estimate_html(html_data, template_type=template_type)
 
         logger.info(f"HTML content length: {len(html_content)} characters")
 
