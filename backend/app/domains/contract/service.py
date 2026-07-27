@@ -15,6 +15,86 @@ from app.core.interfaces import DatabaseProvider
 
 logger = logging.getLogger(__name__)
 
+
+def _draw_text_wrapped(canvas_obj, text: str, fx: float, fy: float,
+                       fw: float, fh: float, font_size: float):
+    """Draw text in a PDF field, wrapping to multiple lines if needed.
+
+    Instead of shrinking font size when text overflows, this function
+    wraps text into multiple lines within the field boundaries.
+    """
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    usable_w = fw - 4  # 2pt padding each side
+    font_name = "Helvetica"
+    sz = font_size
+
+    # Check if text fits in single line
+    if stringWidth(text, font_name, sz) <= usable_w:
+        # Single line - vertically center
+        canvas_obj.setFont(font_name, sz)
+        ty = fy + (fh - sz) / 2
+        canvas_obj.drawString(fx + 2, ty, text)
+        return
+
+    # Text doesn't fit - wrap into multiple lines
+    # Break text into words and build lines
+    words = text.split()
+    lines = []
+    current_line = ""
+
+    for word in words:
+        test_line = f"{current_line} {word}".strip() if current_line else word
+        if stringWidth(test_line, font_name, sz) <= usable_w:
+            current_line = test_line
+        else:
+            if current_line:
+                lines.append(current_line)
+            # If a single word is too long, it gets its own line
+            current_line = word
+    if current_line:
+        lines.append(current_line)
+
+    if not lines:
+        return
+
+    # Calculate line height and starting position
+    line_height = sz * 1.2
+    total_text_height = len(lines) * line_height
+
+    # If wrapped text exceeds field height, reduce font size minimally
+    if total_text_height > fh and len(lines) > 1:
+        # Try smaller font until it fits or we hit minimum
+        while sz > 6 and len(lines) * sz * 1.2 > fh:
+            sz -= 0.5
+            # Re-wrap with new font size
+            lines = []
+            current_line = ""
+            for word in words:
+                test_line = f"{current_line} {word}".strip() if current_line else word
+                if stringWidth(test_line, font_name, sz) <= usable_w:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = word
+            if current_line:
+                lines.append(current_line)
+            line_height = sz * 1.2
+            total_text_height = len(lines) * line_height
+
+    canvas_obj.setFont(font_name, sz)
+
+    # Vertically center the block of lines within the field
+    start_y = fy + fh - (fh - total_text_height) / 2 - sz
+
+    for i, line in enumerate(lines):
+        ty = start_y - i * line_height
+        if ty < fy:
+            break  # Don't draw below the field
+        canvas_obj.drawString(fx + 2, ty, line)
+
+
 # Available fields for template field mapping
 AVAILABLE_FIELDS = [
     # Client fields
@@ -657,20 +737,8 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                         except (ValueError, IndexError):
                             c.setFillColorRGB(0, 0, 0)
 
-                        # Auto-shrink font to fit within field width
-                        from reportlab.pdfbase.pdfmetrics import stringWidth
-                        usable_w = fw - 4  # 2pt padding each side
-                        actual_size = font_size
-                        while actual_size > 5:
-                            tw = stringWidth(value, "Helvetica", actual_size)
-                            if tw <= usable_w:
-                                break
-                            actual_size -= 0.5
-
-                        c.setFont("Helvetica", actual_size)
-                        # Vertically center text within field
-                        text_y = fy + (fh - actual_size) / 2
-                        c.drawString(fx + 2, text_y, value)
+                        # Draw text with word-wrap support
+                        _draw_text_wrapped(c, value, fx, fy, fw, fh, font_size)
 
                     c.save()
                     overlay_buffer.seek(0)
@@ -1171,7 +1239,6 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                 c = rl_canvas.Canvas(overlay_buf, pagesize=(pw, ph))
 
                 # Overlay text fields first
-                from reportlab.pdfbase.pdfmetrics import stringWidth
                 for m, value in texts_on_page:
                     fx = m.get('x', 0) * pw
                     fw = m.get('width', 0.25) * pw
@@ -1186,15 +1253,7 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                         c.setFillColorRGB(r, g, b)
                     except Exception:
                         c.setFillColorRGB(0, 0, 0)
-                    usable = fw - 4
-                    sz = fs
-                    while sz > 5:
-                        if stringWidth(value, "Helvetica", sz) <= usable:
-                            break
-                        sz -= 0.5
-                    c.setFont("Helvetica", sz)
-                    ty = fy + (fh - sz) / 2
-                    c.drawString(fx + 2, ty, value)
+                    _draw_text_wrapped(c, value, fx, fy, fw, fh, fs)
 
                 for mapping, img_data in sigs_on_page:
                     fx = mapping.get('x', 0) * pw

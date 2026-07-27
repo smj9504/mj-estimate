@@ -16,7 +16,7 @@ from app.domains.contract.schemas import (
     ContractViewResponse, SignatureFieldPlacement,
     SignerEditableField,
 )
-from app.domains.contract.service import ContractInstanceService
+from app.domains.contract.service import ContractInstanceService, _draw_text_wrapped
 
 logger = logging.getLogger(__name__)
 
@@ -625,8 +625,6 @@ def _generate_filled_pdf_bytes(
     from io import BytesIO
     from pypdf import PdfReader, PdfWriter
     from reportlab.pdfgen import canvas as rl_canvas
-    from reportlab.pdfbase.pdfmetrics import stringWidth
-
     # Parse mappings and prefill
     mappings = field_mappings_raw
     if isinstance(mappings, str):
@@ -710,17 +708,8 @@ def _generate_filled_pdf_bytes(
                 except Exception:
                     c.setFillColorRGB(0, 0, 0)
 
-                # Auto-shrink
-                usable = fw - 4
-                sz = fs
-                while sz > 5:
-                    if stringWidth(val, "Helvetica", sz) <= usable:
-                        break
-                    sz -= 0.5
-
-                c.setFont("Helvetica", sz)
-                ty = fy + (fh - sz) / 2
-                c.drawString(fx + 2, ty, val)
+                # Draw text with word-wrap support
+                _draw_text_wrapped(c, val, fx, fy, fw, fh, fs)
 
             c.save()
             buf.seek(0)

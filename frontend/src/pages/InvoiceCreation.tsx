@@ -96,6 +96,8 @@ import type { UploadFile } from 'antd/es/upload/interface';
 import { receiptService } from '../services/receiptService';
 import type { ReceiptTemplate } from '../types/receipt';
 import { useCompanies } from '../hooks/useCompanyQueries';
+import { clientService } from '../services/clientService';
+import type { ClientListItem } from '../types/client';
 import { useInvoice, useCreateInvoice, useUpdateInvoice } from '../hooks/useInvoiceQueries';
 import { useReceiptTemplates, useReceiptByNumber } from '../hooks/useReceiptQueries';
 
@@ -781,8 +783,11 @@ const InvoiceCreation: React.FC = () => {
   const [paymentForm] = Form.useForm();
   const [editingPayment, setEditingPayment] = useState<PaymentRecord | null>(null);
   const [editingPaymentIndex, setEditingPaymentIndex] = useState<number | null>(null);
-  const [useCustomClient, setUseCustomClient] = useState(true); // Default to manual input
+  const [clientInputMode, setClientInputMode] = useState<'manual' | 'company' | 'client'>('manual');
   const [selectedClient, setSelectedClient] = useState<Company | null>(null);
+  const [selectedClientRecord, setSelectedClientRecord] = useState<ClientListItem | null>(null);
+  const [clientSearchResults, setClientSearchResults] = useState<ClientListItem[]>([]);
+  const [clientSearchLoading, setClientSearchLoading] = useState(false);
   const [opPercent, setOpPercent] = useState(0); // DEPRECATED: Use adjustments instead
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
 
@@ -1422,12 +1427,21 @@ const InvoiceCreation: React.FC = () => {
       setShowInsurance(true);
     }
 
-    // Check if client is a registered company
-    if (data.client_company_id && companies.length > 0) {
+    // Check if client is from Client management system
+    if (data.client_id) {
+      clientService.getById(data.client_id).then(client => {
+        if (client) {
+          setSelectedClientRecord(client as unknown as ClientListItem);
+          setClientInputMode('client');
+          form.setFieldValue('client_record_selection', data.client_id);
+        }
+      }).catch(() => {});
+    } else if (data.client_company_id && companies.length > 0) {
+      // Check if client is a registered company
       const clientCompany = companies.find(c => c.id === data.client_company_id);
       if (clientCompany) {
         setSelectedClient(clientCompany);
-        setUseCustomClient(false);
+        setClientInputMode('company');
         // Set client company selection in form
         form.setFieldValue('client_company_selection', clientCompany.id);
       }
@@ -1497,6 +1511,10 @@ const InvoiceCreation: React.FC = () => {
       setSpecificTaxAmount(0);
       setOpPercent(0);
       setSelectedCompany(null);
+      setSelectedClient(null);
+      setSelectedClientRecord(null);
+      setClientInputMode('manual');
+      setClientSearchResults([]);
       setIsSaving(false);
 
       // Reset form
@@ -1629,6 +1647,39 @@ const InvoiceCreation: React.FC = () => {
       setCompanySelectionValue(undefined);
     }
   };
+
+  const handleClientSearch = useCallback(async (searchText: string) => {
+    if (!searchText || searchText.length < 2) {
+      setClientSearchResults([]);
+      return;
+    }
+    setClientSearchLoading(true);
+    try {
+      const result = await clientService.search(searchText, 20);
+      setClientSearchResults(result.clients);
+    } catch (error) {
+      console.error('Client search failed:', error);
+    } finally {
+      setClientSearchLoading(false);
+    }
+  }, []);
+
+  const handleClientSelect = useCallback((clientId: string) => {
+    const client = clientSearchResults.find(c => c.id === clientId);
+    if (client) {
+      setSelectedClientRecord(client);
+      const primaryOwner = client.owners?.find(o => o.is_primary) || client.owners?.[0];
+      form.setFieldsValue({
+        client_name: client.display_name,
+        client_email: client.email || primaryOwner?.email || '',
+        client_phone: client.phone || primaryOwner?.phone || '',
+        client_address: client.address || '',
+        client_city: client.city || '',
+        client_state: client.state || '',
+        client_zipcode: client.zipcode || '',
+      });
+    }
+  }, [clientSearchResults, form]);
 
   const handleAddItem = () => {
     setEditingItem(null);
@@ -1805,6 +1856,11 @@ const InvoiceCreation: React.FC = () => {
         }
       }
 
+      // Process note: keep if it has actual text content (strip HTML tags to check)
+      const rawNote = values.note || '';
+      const noteTextContent = rawNote.replace(/<[^>]*>/g, '').trim();
+      const processedNote = noteTextContent ? rawNote : undefined;
+
       const newItem: InvoiceItem = {
         ...values,
         // Preserve existing ID when editing, generate new one for new items
@@ -1812,7 +1868,7 @@ const InvoiceCreation: React.FC = () => {
         line_item_id: lineItemId, // Set line_item_id from created library item or preserved from editing
         name: values.name.toString().trim(),
         description: values.description ? values.description.toString().trim() : '',
-        note: values.note?.replace(/<[^>]*>/g, '').trim() ? values.note : undefined,
+        note: processedNote,
         quantity: Number(values.quantity),
         rate: Number(values.rate),
         amount: Number(values.quantity) * Number(values.rate),
@@ -1821,7 +1877,7 @@ const InvoiceCreation: React.FC = () => {
         images: itemImages.length > 0 ? itemImages : undefined,
       };
 
-      console.log('Created invoice item with line_item_id:', newItem.line_item_id);
+      console.log('Created invoice item:', { line_item_id: newItem.line_item_id, note: newItem.note });
 
       const newSections = [...sections];
 
@@ -2094,9 +2150,22 @@ const InvoiceCreation: React.FC = () => {
         company_id: companyId, // Use company_id from form or selectedCompany
       };
 
-      // Add client info
-      // If using company selection mode and a client company is selected, use that
-      if (!useCustomClient && selectedClient) {
+      // Add client info based on input mode
+      if (clientInputMode === 'client' && selectedClientRecord) {
+        // Client management system selection
+        const primaryOwner = selectedClientRecord.owners?.find(o => o.is_primary) || selectedClientRecord.owners?.[0];
+        invoiceData.client = {
+          name: selectedClientRecord.display_name,
+          address: selectedClientRecord.address || '',
+          city: selectedClientRecord.city || '',
+          state: selectedClientRecord.state || '',
+          zipcode: selectedClientRecord.zipcode || '',
+          phone: selectedClientRecord.phone || (primaryOwner?.phone || ''),
+          email: selectedClientRecord.email || (primaryOwner?.email || ''),
+        };
+        invoiceData.client_id = selectedClientRecord.id;
+      } else if (clientInputMode === 'company' && selectedClient) {
+        // Company selection mode
         invoiceData.client = {
           name: selectedClient.name,
           address: selectedClient.address || '',
@@ -2106,6 +2175,7 @@ const InvoiceCreation: React.FC = () => {
           phone: selectedClient.phone || '',
           email: selectedClient.email || '',
         };
+        invoiceData.client_company_id = selectedClient.id;
       } else {
         // Manual input mode - get from form fields
         invoiceData.client = {
@@ -2117,11 +2187,6 @@ const InvoiceCreation: React.FC = () => {
           phone: values.client_phone,
           email: values.client_email,
         };
-      }
-
-      // Optionally store client_company_id if client was selected from registered companies
-      if (!useCustomClient && selectedClient) {
-        invoiceData.client_company_id = selectedClient.id;
       }
 
       invoiceData.show_insurance = showInsurance;
@@ -2199,7 +2264,11 @@ const InvoiceCreation: React.FC = () => {
       }
 
       if (!skipNavigation) {
-        navigate(`/documents/invoice`);
+        if (isEditMode) {
+          // Stay on edit page — React Query cache invalidation triggers refetch
+        } else {
+          navigate(`/documents/invoice`);
+        }
       }
 
       return response;
@@ -2240,7 +2309,23 @@ const InvoiceCreation: React.FC = () => {
           email: selectedCompany.email || '',
           logo: selectedCompany.logo || '',
         },
-        client: {
+        client: clientInputMode === 'client' && selectedClientRecord ? {
+          name: selectedClientRecord.display_name,
+          address: selectedClientRecord.address || '',
+          city: selectedClientRecord.city || '',
+          state: selectedClientRecord.state || '',
+          zipcode: selectedClientRecord.zipcode || '',
+          phone: selectedClientRecord.phone || (selectedClientRecord.owners?.find(o => o.is_primary)?.phone || selectedClientRecord.owners?.[0]?.phone || ''),
+          email: selectedClientRecord.email || (selectedClientRecord.owners?.find(o => o.is_primary)?.email || selectedClientRecord.owners?.[0]?.email || ''),
+        } : clientInputMode === 'company' && selectedClient ? {
+          name: selectedClient.name,
+          address: selectedClient.address || '',
+          city: selectedClient.city || '',
+          state: selectedClient.state || '',
+          zipcode: selectedClient.zipcode || '',
+          phone: selectedClient.phone || '',
+          email: selectedClient.email || '',
+        } : {
           name: values.client_name,
           address: values.client_address,
           city: values.client_city,
@@ -2688,7 +2773,7 @@ const InvoiceCreation: React.FC = () => {
       // 1. Client info
       if (parsed.client) {
         const c = parsed.client;
-        setUseCustomClient(true);
+        setClientInputMode('manual');
         form.setFieldsValue({
           client_name: c.name || '',
           client_address: c.address || '',
@@ -2964,18 +3049,16 @@ const InvoiceCreation: React.FC = () => {
     <div style={{ padding: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={2} style={{ margin: 0 }}>{isEditMode ? 'Edit Invoice' : 'Create Invoice'}</Title>
-        {!isEditMode && (
-          <Button
-            type="primary"
-            ghost
-            size="large"
-            icon={<SnippetsOutlined />}
-            onClick={() => { setJsonPasteVisible(true); setJsonPasteError(null); }}
-            data-testid="json-paste-button"
-          >
-            Import JSON
-          </Button>
-        )}
+        <Button
+          type="primary"
+          ghost
+          size="large"
+          icon={<SnippetsOutlined />}
+          onClick={() => { setJsonPasteVisible(true); setJsonPasteError(null); }}
+          data-testid="json-paste-button"
+        >
+          {isEditMode ? 'Override with JSON' : 'Import JSON'}
+        </Button>
       </div>
       
       <Form
@@ -3078,35 +3161,37 @@ const InvoiceCreation: React.FC = () => {
               title={
                 <Space>
                   <span>Client Information</span>
-                  <Switch
+                  <Select
                     size="small"
-                    checked={useCustomClient}
-                    onChange={(checked) => {
-                      setUseCustomClient(checked);
-                      if (!checked) {
-                        // Clear manual input fields when switching to company selection
-                        form.setFieldsValue({
-                          client_name: '',
-                          client_email: '',
-                          client_phone: '',
-                          client_address: '',
-                          client_city: '',
-                          client_state: '',
-                          client_zipcode: '',
-                        });
-                      } else {
-                        // Clear selected client
-                        setSelectedClient(null);
-                      }
+                    value={clientInputMode}
+                    onChange={(mode) => {
+                      setClientInputMode(mode);
+                      // Clear fields when switching modes
+                      form.setFieldsValue({
+                        client_name: '',
+                        client_email: '',
+                        client_phone: '',
+                        client_address: '',
+                        client_city: '',
+                        client_state: '',
+                        client_zipcode: '',
+                      });
+                      setSelectedClient(null);
+                      setSelectedClientRecord(null);
+                      setClientSearchResults([]);
                     }}
-                    checkedChildren="Manual Input"
-                    unCheckedChildren="Select Company"
+                    style={{ width: 160 }}
+                    options={[
+                      { label: 'Manual Input', value: 'manual' },
+                      { label: 'Select Company', value: 'company' },
+                      { label: 'Select Client', value: 'client' },
+                    ]}
                   />
                 </Space>
               }
               style={{ marginBottom: 24 }}
             >
-              {!useCustomClient ? (
+              {clientInputMode === 'company' ? (
                 // Company Selection Mode
                 <Row gutter={16}>
                   <Col xs={24}>
@@ -3185,6 +3270,85 @@ const InvoiceCreation: React.FC = () => {
                                 {selectedClient.city && `, ${selectedClient.city}`}
                                 {selectedClient.state && `, ${selectedClient.state}`}
                                 {selectedClient.zipcode && ` ${selectedClient.zipcode}`}
+                              </span>
+                            </Col>
+                          )}
+                        </Row>
+                      </div>
+                    </Col>
+                  )}
+                </Row>
+              ) : clientInputMode === 'client' ? (
+                // Client Selection Mode
+                <Row gutter={16}>
+                  <Col xs={24}>
+                    <Form.Item
+                      label="Search Client"
+                      name="client_record_selection"
+                      rules={[{ required: true, message: 'Please select a client' }]}
+                    >
+                      <Select
+                        showSearch
+                        placeholder="Search by client name..."
+                        filterOption={false}
+                        onSearch={handleClientSearch}
+                        onChange={handleClientSelect}
+                        loading={clientSearchLoading}
+                        notFoundContent={clientSearchLoading ? <Spin size="small" /> : 'Type to search clients'}
+                        value={selectedClientRecord?.id}
+                      >
+                        {clientSearchResults.map(client => (
+                          <Select.Option key={client.id} value={client.id}>
+                            <div>
+                              <strong>{client.display_name}</strong>
+                              {client.address && (
+                                <span style={{ color: '#999', marginLeft: 8, fontSize: '12px' }}>
+                                  {client.address}{client.city ? `, ${client.city}` : ''}
+                                </span>
+                              )}
+                            </div>
+                          </Select.Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+                  </Col>
+                  {/* Display selected client info */}
+                  {selectedClientRecord && (
+                    <Col xs={24}>
+                      <div style={{
+                        padding: '16px',
+                        background: '#f5f5f5',
+                        borderRadius: '4px',
+                        marginBottom: '16px'
+                      }}>
+                        <Row gutter={[16, 8]}>
+                          <Col xs={24}>
+                            <strong>{selectedClientRecord.display_name}</strong>
+                          </Col>
+                          {selectedClientRecord.email && (
+                            <Col xs={24} md={12}>
+                              <span style={{ color: '#666' }}>Email: {selectedClientRecord.email}</span>
+                            </Col>
+                          )}
+                          {selectedClientRecord.phone && (
+                            <Col xs={24} md={12}>
+                              <span style={{ color: '#666' }}>Phone: {selectedClientRecord.phone}</span>
+                            </Col>
+                          )}
+                          {selectedClientRecord.address && (
+                            <Col xs={24}>
+                              <span style={{ color: '#666' }}>
+                                {selectedClientRecord.address}
+                                {selectedClientRecord.city && `, ${selectedClientRecord.city}`}
+                                {selectedClientRecord.state && `, ${selectedClientRecord.state}`}
+                                {selectedClientRecord.zipcode && ` ${selectedClientRecord.zipcode}`}
+                              </span>
+                            </Col>
+                          )}
+                          {selectedClientRecord.owners && selectedClientRecord.owners.length > 0 && (
+                            <Col xs={24}>
+                              <span style={{ color: '#666' }}>
+                                Owners: {selectedClientRecord.owners.map(o => o.name).join(', ')}
                               </span>
                             </Col>
                           )}
@@ -4328,7 +4492,7 @@ const InvoiceCreation: React.FC = () => {
 
       {/* JSON Import Modal */}
       <Modal
-        title={<span><SnippetsOutlined style={{ marginRight: 8 }} />Import JSON to Fill Invoice</span>}
+        title={<span><SnippetsOutlined style={{ marginRight: 8 }} />{isEditMode ? 'Override Invoice with JSON' : 'Import JSON to Fill Invoice'}</span>}
         open={jsonPasteVisible}
         onOk={handleJsonPaste}
         onCancel={() => { setJsonPasteVisible(false); setJsonPasteValue(''); setJsonPasteError(null); }}

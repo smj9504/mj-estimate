@@ -172,6 +172,7 @@ class InvoiceBase(BaseModel):
     company_id: Optional[UUID] = None  # For saved companies
     company: Optional[CompanyInfo] = None  # For custom companies
     client: ClientInfo
+    client_id: Optional[UUID] = None  # Reference to Client management system
     client_company_id: Optional[UUID] = None  # Optional reference to registered company as client
     show_insurance: Optional[bool] = False
     insurance: Optional[InsuranceInfo] = None
@@ -279,6 +280,7 @@ class InvoiceUpdate(BaseModel):
     
     company: Optional[CompanyInfo] = None
     client: Optional[ClientInfo] = None
+    client_id: Optional[UUID] = None  # Reference to Client management system
     client_company_id: Optional[UUID] = None  # Optional reference to registered company as client
     show_insurance: Optional[bool] = None
     insurance: Optional[InsuranceInfo] = None
@@ -358,6 +360,7 @@ class InvoiceResponse(BaseModel):
     company_logo: Optional[str]
     
     # Client info
+    client_id: Optional[UUID] = None  # Reference to Client management system
     client_name: Optional[str] = None
     client_company_id: Optional[UUID] = None  # Optional reference to registered company
     client_address: Optional[str]

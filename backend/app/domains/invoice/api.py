@@ -232,6 +232,27 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
             # Generate a simple temp code for now
             company_code = f"TEMP-{company_name[:3].upper()}"
     
+    # Handle client information - fetch from Client model if client_id is provided
+    if invoice_data.client_id and (not invoice_data.client or not invoice_data.client.name):
+        try:
+            from app.domains.client.models import Client as ClientModel
+            client_record = db.query(ClientModel).filter(ClientModel.id == str(invoice_data.client_id)).first()
+            if client_record:
+                # Get primary owner's contact info if available
+                owners = client_record.owners or []
+                primary_owner = next((o for o in owners if o.get('is_primary')), owners[0] if owners else None)
+                invoice_data.client = ClientInfo(
+                    name=client_record.display_name,
+                    address=client_record.address,
+                    city=client_record.city,
+                    state=client_record.state,
+                    zipcode=client_record.zipcode,
+                    phone=client_record.phone or (primary_owner.get('phone') if primary_owner else None),
+                    email=client_record.email or (primary_owner.get('email') if primary_owner else None),
+                )
+        except Exception as e:
+            logger.error(f"Error fetching client: {e}")
+
     # Handle client information - fetch from company if client_company_id is provided
     if invoice_data.client_company_id and (not invoice_data.client or not invoice_data.client.name):
         try:
@@ -329,6 +350,7 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         'company_id': str(invoice_data.company_id) if invoice_data.company_id else None,
 
         # Client information - directly on Invoice model
+        'client_id': str(invoice_data.client_id) if invoice_data.client_id else None,
         'client_name': invoice_data.client.name if invoice_data.client else '',
         'client_company_id': str(invoice_data.client_company_id) if invoice_data.client_company_id else None,
         'client_address': invoice_data.client.address if invoice_data.client else '',
@@ -370,21 +392,22 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
     items_data = [
         {
             'name': item.name,
-            'description': item.description if hasattr(item, 'description') else '',
+            'description': item.description or '',
             'quantity': item.quantity,
-            'unit': item.unit if hasattr(item, 'unit') else 'ea',
+            'unit': item.unit or 'ea',
             'rate': item.rate,
             'amount': item.quantity * item.rate,
-            'taxable': item.taxable if hasattr(item, 'taxable') else True,
-            'note': item.note if hasattr(item, 'note') else None,
+            'taxable': item.taxable if item.taxable is not None else True,
+            'note': item.note,
             'images': [img.dict() for img in item.images] if item.images else [],
             # Section/Group fields — must be preserved so sections survive a round-trip
-            'primary_group': item.primary_group if hasattr(item, 'primary_group') else None,
-            'secondary_group': item.secondary_group if hasattr(item, 'secondary_group') else None,
-            'sort_order': item.sort_order if hasattr(item, 'sort_order') else 0,
+            'primary_group': item.primary_group,
+            'secondary_group': item.secondary_group,
+            'sort_order': item.sort_order or 0,
         }
         for item in invoice_data.items
     ]
+    logger.info(f"Items with notes: {[(i.get('name'), bool(i.get('note'))) for i in items_data]}")
     
     # Add items to the invoice_dict for the repository
     invoice_dict['items'] = items_data
@@ -427,6 +450,7 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         company_phone=company_phone,
         company_email=company_email,
         company_logo=company_logo,
+        client_id=created_invoice.get('client_id'),
         client_name=created_invoice.get('client_name', ''),
         client_address=created_invoice.get('client_address'),
         client_city=created_invoice.get('client_city'),
@@ -556,6 +580,29 @@ async def update_invoice(
         except Exception as e:
             logger.error(f"Error generating new invoice number: {e}")
             # Don't fail the update if invoice number generation fails
+
+    # Handle client information - fetch from Client model if client_id is provided
+    client_id_value = update_dict.get('client_id')
+    if client_id_value and (not invoice_data.client or not invoice_data.client.name):
+        try:
+            from app.domains.client.models import Client as ClientModel
+            client_record = db.query(ClientModel).filter(ClientModel.id == str(client_id_value)).first()
+            if client_record:
+                owners = client_record.owners or []
+                primary_owner = next((o for o in owners if o.get('is_primary')), owners[0] if owners else None)
+                if 'client' not in update_dict:
+                    update_dict['client'] = {}
+                update_dict['client'].update({
+                    'name': client_record.display_name,
+                    'address': client_record.address,
+                    'city': client_record.city,
+                    'state': client_record.state,
+                    'zipcode': client_record.zipcode,
+                    'phone': client_record.phone or (primary_owner.get('phone') if primary_owner else None),
+                    'email': client_record.email or (primary_owner.get('email') if primary_owner else None),
+                })
+        except Exception as e:
+            logger.error(f"Error fetching client: {e}")
 
     # Handle client information - fetch from company if client_company_id is provided
     client_company_id = update_dict.get('client_company_id') or getattr(invoice_data, 'client_company_id', None)
@@ -826,6 +873,7 @@ async def update_invoice(
         company_phone=company_phone,
         company_email=company_email,
         company_logo=company_logo,
+        client_id=updated_invoice.get('client_id'),
         client_name=updated_invoice.get('client_name') or '',
         client_address=updated_invoice.get('client_address'),
         client_city=updated_invoice.get('client_city'),
@@ -1349,6 +1397,7 @@ async def duplicate_invoice(invoice_id: str, db=Depends(get_db)):
         company_phone=duplicated.get('company_phone'),
         company_email=duplicated.get('company_email'),
         company_logo=duplicated.get('company_logo'),
+        client_id=duplicated.get('client_id'),
         client_name=duplicated.get('client_name', ''),
         client_address=duplicated.get('client_address'),
         client_city=duplicated.get('client_city'),
@@ -1430,6 +1479,7 @@ async def add_payment(
         company_phone=updated_invoice.get('company_phone'),
         company_email=updated_invoice.get('company_email'),
         company_logo=updated_invoice.get('company_logo'),
+        client_id=updated_invoice.get('client_id'),
         client_name=updated_invoice.get('client_name', ''),
         client_address=updated_invoice.get('client_address'),
         client_city=updated_invoice.get('client_city'),
@@ -1512,6 +1562,7 @@ async def remove_payment(
         company_phone=updated_invoice.get('company_phone'),
         company_email=updated_invoice.get('company_email'),
         company_logo=updated_invoice.get('company_logo'),
+        client_id=updated_invoice.get('client_id'),
         client_name=updated_invoice.get('client_name', ''),
         client_address=updated_invoice.get('client_address'),
         client_city=updated_invoice.get('client_city'),
@@ -1591,6 +1642,7 @@ async def get_invoice(invoice_id: str, service: InvoiceService = Depends(get_inv
             company_phone=invoice.get('company_phone'),
             company_email=invoice.get('company_email'),
             company_logo=invoice.get('company_logo'),
+            client_id=invoice.get('client_id'),
             client_name=invoice.get('client_name', ''),
             client_address=invoice.get('client_address'),
             client_city=invoice.get('client_city'),

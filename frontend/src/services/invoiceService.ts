@@ -90,6 +90,7 @@ export interface InvoiceData {
   company_id?: string;
   company?: CompanyInfo;
   client: ClientInfo;
+  client_id?: string;
   client_company_id?: string;
   show_insurance?: boolean;
   insurance?: InsuranceInfo | null;
