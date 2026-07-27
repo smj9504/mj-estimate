@@ -303,28 +303,12 @@ class GoogleSheetsSyncService:
         # This matches the exact row that was previously synced, regardless of active status
         existing_job = self._find_job_by_row_number(row_number, sheet_name)
 
-        # Step 2: If not found by row number, try address matching (fallback for new rows)
-        if not existing_job:
-            # Extract street, city, state from row data
-            street = row_data.get("property_street") or None
-            city = row_data.get("property_city") or None
-            state = row_data.get("property_state") or None
-
-            # If street is not provided, try to extract from full address
-            if not street and address:
-                # Try to parse street from full address (assume first part before comma)
-                parts = [p.strip() for p in address.split(',')]
-                if parts:
-                    street = parts[0]
-
-            # Find existing job by street address (fuzzy match, active_only=True)
-            # This prevents duplicate leads when the same address is created from different sources
-            existing_job = self._find_job_by_street_address(
-                street=street,
-                city=city,
-                state=state,
-                full_address=address
-            )
+        # Step 2: If not found by row number, create new job
+        # NOTE: We intentionally do NOT fall back to address matching here.
+        # The same address can have multiple WM jobs (different claims/incidents),
+        # so each unique sheet row should create its own job.
+        # The Client sync (sync_client_from_wm_job) will correctly match the
+        # same Client by homeowner_name/address and create a new Claim if needed.
 
         # Step 3: Update existing job or create new one
         if existing_job:
