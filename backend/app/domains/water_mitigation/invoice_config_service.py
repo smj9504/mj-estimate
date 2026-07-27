@@ -60,6 +60,7 @@ _SCOPE_STANDARD_ALIASES: Dict[str, str] = {
     "containment": "containment barrier",
     "containment zipper": "containment zipper",
     "stair tread demo": "stair tread removal",
+    "floor protection (stairs)": "floor protection (stairs)",
 }
 
 # =====================================================
@@ -138,6 +139,11 @@ _SCOPE_LINE_ITEM_ALIASES: Dict[str, Tuple[List[str], List[str]]] = {
     "containment zipper": (
         ["zipper"],
         ["containment barrier"],
+    ),
+    # --- Floor Protection (Stairs) ---
+    "floor protection (stairs)": (
+        ["floor", "protection", "stair"],
+        [],
     ),
 }
 

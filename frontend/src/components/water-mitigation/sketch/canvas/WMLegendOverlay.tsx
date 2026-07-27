@@ -101,11 +101,20 @@ function buildRows(
     });
   }
 
-  if (overlayData.floor_protections.length > 0) {
+  const regularFP = overlayData.floor_protections.filter((fp) => !fp.is_stair);
+  const stairFP = overlayData.floor_protections.filter((fp) => fp.is_stair);
+  if (regularFP.length > 0) {
     rows.push({
       kind: 'floor_protection',
       color: '#FFD700',
-      label: `Floor Protection (${overlayData.floor_protections.length})`,
+      label: `Floor Protection (${regularFP.length})`,
+    });
+  }
+  if (stairFP.length > 0) {
+    rows.push({
+      kind: 'floor_protection',
+      color: '#FF8C00',
+      label: `Floor Prot - Stairs (${stairFP.length})`,
     });
   }
 

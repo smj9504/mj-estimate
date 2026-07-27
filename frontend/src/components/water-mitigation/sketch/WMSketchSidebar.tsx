@@ -318,8 +318,8 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
           <ColumnWidthOutlined style={{ color: '#D4A000', fontSize: 13 }} />
           <Text style={{ fontSize: 13, fontWeight: 500 }}>Floor Protection</Text>
           <div style={{ flex: 1 }} />
-          {summary.floor_protection.total_sqft > 0 ? (
-            <AreaBadge sqft={summary.floor_protection.total_sqft} />
+          {(summary.floor_protection.total_sqft + summary.stair_floor_protection.total_sqft) > 0 ? (
+            <AreaBadge sqft={summary.floor_protection.total_sqft + summary.stair_floor_protection.total_sqft} />
           ) : (
             <CountBadge count={protCount} color="#D4A000" />
           )}

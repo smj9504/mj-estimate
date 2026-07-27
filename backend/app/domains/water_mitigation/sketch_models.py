@@ -312,6 +312,9 @@ class WMFloorProtection(Base, BaseModel):
     calculated_sqft = Column(DECIMAL(12, 2), nullable=False)
     color = Column(String(7), default="#FFD700", nullable=False)
 
+    # Stair flag — floor protection on stairs requires more labor
+    is_stair = Column(Boolean, default=False, nullable=False, server_default="false")
+
     # Relationships
     floor_sketch = relationship("WMFloorSketch", back_populates="floor_protections")
 

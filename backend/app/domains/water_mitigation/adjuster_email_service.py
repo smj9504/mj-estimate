@@ -787,8 +787,24 @@ class AdjusterEmailService:
                 if att:
                     attachments.append(att)
                 else:
+                    logger.warning(
+                        f"Photo report doc exists (id={doc.id}, type={doc.document_type}, "
+                        f"path={doc.file_path}, storage_id={getattr(doc, 'storage_file_id', None)}) "
+                        f"but file download failed"
+                    )
                     failed_docs.append("photo_report")
             else:
+                # Log all documents for this job to help diagnose
+                all_docs = (
+                    session.query(WMDocument.id, WMDocument.document_type, WMDocument.is_active, WMDocument.filename)
+                    .filter(WMDocument.job_id == str(job.id))
+                    .all()
+                )
+                logger.warning(
+                    f"Photo report WMDocument not found for job {job.id}. "
+                    f"Please generate the photo report first. "
+                    f"Existing documents: {[(str(d.id)[:8], d.document_type, d.is_active, d.filename) for d in all_docs]}"
+                )
                 failed_docs.append("photo_report")
 
         # 2. Invoice

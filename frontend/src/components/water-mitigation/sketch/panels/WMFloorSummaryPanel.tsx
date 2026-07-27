@@ -69,12 +69,13 @@ const WMFloorSummaryPanel: React.FC<WMFloorSummaryProps> = ({ summary }) => {
   const hasDemolition = summary.demolition_by_type.length > 0;
   const hasContainment = summary.containment.count > 0;
   const hasFloorProtection = summary.floor_protection.count > 0;
+  const hasStairFloorProtection = summary.stair_floor_protection.count > 0;
   const hasContentProtection = summary.content_protection.count > 0;
   const hasContentManipulation = summary.content_manipulation.count > 0;
   const equipmentTypes = Object.entries(summary.equipment_counts) as [EquipmentType, number][];
   const hasEquipment = equipmentTypes.some(([, count]) => count > 0);
 
-  const isEmpty = !hasDemolition && !hasContainment && !hasFloorProtection && !hasContentProtection && !hasEquipment;
+  const isEmpty = !hasDemolition && !hasContainment && !hasFloorProtection && !hasStairFloorProtection && !hasContentProtection && !hasEquipment;
 
   if (isEmpty) {
     return (
@@ -175,10 +176,29 @@ const WMFloorSummaryPanel: React.FC<WMFloorSummaryProps> = ({ summary }) => {
           </>
         )}
 
+        {/* Stair Floor Protection section */}
+        {hasStairFloorProtection && (
+          <>
+            {(hasDemolition || hasContainment || hasFloorProtection) && <Divider style={{ margin: '6px 0' }} />}
+            <SummaryRow
+              label={
+                <Text style={{ fontSize: 12, color: '#FF8C00', fontWeight: 600 }}>
+                  Floor Prot (Stairs)
+                  <Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>
+                    {summary.stair_floor_protection.count}x
+                  </Text>
+                </Text>
+              }
+              value={`${summary.stair_floor_protection.total_sqft.toFixed(0)} SF`}
+              secondary={`${summary.stair_floor_protection.total_sqft.toFixed(2)} SF`}
+            />
+          </>
+        )}
+
         {/* Content Protection section */}
         {hasContentProtection && (
           <>
-            {(hasDemolition || hasContainment || hasFloorProtection) && <Divider style={{ margin: '6px 0' }} />}
+            {(hasDemolition || hasContainment || hasFloorProtection || hasStairFloorProtection) && <Divider style={{ margin: '6px 0' }} />}
             <SummaryRow
               label={
                 <Text style={{ fontSize: 12 }}>
@@ -214,7 +234,7 @@ const WMFloorSummaryPanel: React.FC<WMFloorSummaryProps> = ({ summary }) => {
         {/* Equipment section */}
         {hasEquipment && (
           <>
-            {(hasDemolition || hasContainment || hasFloorProtection || hasContentProtection || hasContentManipulation) && (
+            {(hasDemolition || hasContainment || hasFloorProtection || hasStairFloorProtection || hasContentProtection || hasContentManipulation) && (
               <Divider style={{ margin: '6px 0' }} />
             )}
             <Text

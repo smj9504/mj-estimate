@@ -34,6 +34,9 @@ export const DEFAULT_PAPER_WIDTH_FT = 3;
 /** Default fill/stroke color for floor protection overlays */
 export const DEFAULT_FLOOR_PROTECTION_COLOR = '#FFD700';
 
+/** Default fill/stroke color for stair floor protection overlays (orange) */
+export const DEFAULT_STAIR_FLOOR_PROTECTION_COLOR = '#FF8C00';
+
 // ============================================================================
 // Content Protection Defaults
 // ============================================================================

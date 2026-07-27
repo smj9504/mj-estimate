@@ -104,6 +104,10 @@ export interface WMSketchToolbarProps {
   canRedo: boolean;
   isSaving: boolean;
   isDirty: boolean;
+  /** Whether new floor protection strips are stair type */
+  isStairFloorProtection?: boolean;
+  /** Toggle stair floor protection mode */
+  onStairFloorProtectionChange?: (isStair: boolean) => void;
 }
 
 // ============================================================================
@@ -185,6 +189,8 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
   canRedo,
   isSaving,
   isDirty,
+  isStairFloorProtection = false,
+  onStairFloorProtectionChange,
 }) => {
   const { token } = theme.useToken();
 
@@ -545,17 +551,37 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
           </Button>
         </Tooltip>
 
-        {/* Group 5 — Floor Protection */}
-        <Tooltip title="Draw floor protection strip">
-          <Button
-            type={toolButtonType('floor_protection')}
-            icon={<ColumnWidthOutlined />}
-            size="small"
-            onClick={() => onToolChange('floor_protection')}
-          >
-            <span className="wm-tb-label">Floor Prot</span>
-          </Button>
-        </Tooltip>
+        {/* Group 5 — Floor Protection (with stair toggle) */}
+        <SpaceCompact size="small">
+          <Tooltip title={isStairFloorProtection ? 'Draw stair floor protection (higher cost)' : 'Draw floor protection strip'}>
+            <Button
+              type={toolButtonType('floor_protection')}
+              icon={<ColumnWidthOutlined />}
+              size="small"
+              onClick={() => onToolChange('floor_protection')}
+            >
+              <span className="wm-tb-label">{isStairFloorProtection ? 'Stair Prot' : 'Floor Prot'}</span>
+            </Button>
+          </Tooltip>
+          <Tooltip title={isStairFloorProtection ? 'Stair mode ON (click to switch to regular)' : 'Switch to stair floor protection'}>
+            <Button
+              type={isStairFloorProtection ? 'primary' : 'default'}
+              size="small"
+              onClick={() => {
+                onStairFloorProtectionChange?.(!isStairFloorProtection);
+                onToolChange('floor_protection');
+              }}
+              style={{
+                padding: '0 6px',
+                fontSize: 11,
+                fontWeight: isStairFloorProtection ? 600 : 400,
+                ...(isStairFloorProtection ? { backgroundColor: '#FF8C00', borderColor: '#FF8C00' } : {}),
+              }}
+            >
+              STR
+            </Button>
+          </Tooltip>
+        </SpaceCompact>
 
         {/* Group 6 — Content Protection */}
         <Tooltip title="Draw content protection area (vinyl cover)">

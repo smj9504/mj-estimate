@@ -1450,21 +1450,39 @@ class SketchPdfService:
         return parts
 
     def _render_floor_protection_from_dict(self, p: Dict[str, Any], scale: float) -> List[str]:
-        """SVG for a floor protection strip from JSONB dict."""
+        """SVG for a floor protection strip from JSONB dict.
+        Stair floor protection uses a step pattern and different stroke."""
         prot_w = float(p.get("paper_width_ft", 0)) * scale
         prot_h = float(p.get("length_ft", 0)) * scale
         if prot_w <= 0 or prot_h <= 0:
             return []
-        color = p.get("color", "#FFD700")
+        is_stair = p.get("is_stair", False)
+        color = p.get("color", "#FF8C00" if is_stair else "#FFD700")
         rotation = float(p.get("rotation", 0))
         x, y = float(p.get("x", 0)), float(p.get("y", 0))
         rot_part = f" rotate({rotation:.1f})" if abs(rotation) > 0.0001 else ""
-        return [
-            f'<g transform="translate({x:.1f},{y:.1f}){rot_part}">'
+        sw = "2" if is_stair else "1.5"
+        parts = [
+            f'<g transform="translate({x:.1f},{y:.1f}){rot_part}">',
             f'<rect x="0" y="0" width="{prot_w:.1f}" height="{prot_h:.1f}" '
-            f'fill="{color}" fill-opacity="0.45" stroke="{color}" stroke-width="1.5" rx="1"/>'
-            f'</g>'
+            f'fill="{color}" fill-opacity="0.45" stroke="{color}" stroke-width="{sw}" rx="1"/>',
         ]
+        if is_stair and prot_h > 10:
+            step_h = max(8, prot_h * 0.08)
+            indent = prot_w * 0.15
+            step_idx = 0
+            y_pos = step_h
+            while y_pos < prot_h:
+                x_off = 0.0 if step_idx % 2 == 0 else indent
+                parts.append(
+                    f'<line x1="{x_off:.1f}" y1="{y_pos:.1f}" '
+                    f'x2="{prot_w - indent + x_off:.1f}" y2="{y_pos:.1f}" '
+                    f'stroke="{color}" stroke-width="1" stroke-opacity="0.6"/>'
+                )
+                y_pos += step_h
+                step_idx += 1
+        parts.append("</g>")
+        return parts
 
     def _render_content_protection_from_dict(self, cp: Dict[str, Any], scale: float) -> List[str]:
         """SVG for a content protection area from JSONB dict."""
@@ -2086,6 +2104,12 @@ class SketchPdfService:
         protection_sqft = sum(
             float(p.calculated_sqft or 0)
             for p in (floor.floor_protections or [])
+            if not getattr(p, 'is_stair', False)
+        )
+        stair_protection_sqft = sum(
+            float(p.calculated_sqft or 0)
+            for p in (floor.floor_protections or [])
+            if getattr(p, 'is_stair', False)
         )
         content_prot_sqft = sum(
             float(cp.calculated_sqft or 0)
@@ -2103,6 +2127,7 @@ class SketchPdfService:
             "containment_sqft": containment_sqft,
             "containment_zippers": containment_zippers,
             "protection_sqft": protection_sqft,
+            "stair_protection_sqft": stair_protection_sqft,
             "content_protection_sqft": content_prot_sqft,
             "content_manipulation_hours": content_manip_hours,
             "total_demo_sqft": total_demo_sf,

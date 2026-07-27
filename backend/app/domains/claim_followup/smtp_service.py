@@ -70,6 +70,23 @@ class SmtpService:
             company_name=smtp_config.get("company_name", ""),
         )
 
+        # Check message size before sending (Gmail limit: 25MB)
+        MAX_EMAIL_SIZE_MB = 25
+        msg_size = len(msg.as_bytes())
+        msg_size_mb = msg_size / (1024 * 1024)
+        if msg_size_mb > MAX_EMAIL_SIZE_MB:
+            attachment_details = []
+            for att in attachments:
+                name = att.get("filename", "unknown")
+                raw = att.get("data")
+                size_info = f"{len(raw) / (1024*1024):.1f}MB" if raw and isinstance(raw, bytes) else "file_id"
+                attachment_details.append(f"{name}({size_info})")
+            details = ", ".join(attachment_details) if attachment_details else "no details"
+            raise ValueError(
+                f"Email size ({msg_size_mb:.1f}MB) exceeds Gmail's {MAX_EMAIL_SIZE_MB}MB limit. "
+                f"Attachments: {details}. Please reduce the number or size of attachments."
+            )
+
         # Send
         message_id = msg["Message-ID"]
         all_recipients = to_addresses + cc_addresses + bcc_addresses

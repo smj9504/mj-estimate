@@ -101,6 +101,7 @@ import {
   DEFAULT_CONTAINMENT_COLOR,
   DEFAULT_CONTAINMENT_HEIGHT_FT,
   DEFAULT_FLOOR_PROTECTION_COLOR,
+  DEFAULT_STAIR_FLOOR_PROTECTION_COLOR,
   DEFAULT_CONTENT_PROTECTION_COLOR,
   DEFAULT_CONTENT_MANIPULATION_COLOR,
   DEFAULT_PAPER_WIDTH_FT,
@@ -305,7 +306,10 @@ const StatusBar: React.FC<{ overlayData: WMOverlayData; materialTypes: DemoMater
   const contentProtections = overlayData.content_protections ?? [];
   const contentManipulations = overlayData.content_manipulations ?? [];
   const containTotal = containment_zones.reduce((s, c) => s + c.calculated_sqft, 0);
-  const protTotal = floor_protections.reduce((s, p) => s + p.calculated_sqft, 0);
+  const regularProts = floor_protections.filter((p) => !p.is_stair);
+  const stairProts = floor_protections.filter((p) => p.is_stair);
+  const protTotal = regularProts.reduce((s, p) => s + p.calculated_sqft, 0);
+  const stairProtTotal = stairProts.reduce((s, p) => s + p.calculated_sqft, 0);
   const contentProtTotal = contentProtections.reduce((s, cp) => s + cp.calculated_sqft, 0);
   const contentManipTotal = contentManipulations.reduce((s, cm) => s + (cm.hours ?? 0), 0);
   const eqCount = equipment_placements.length;
@@ -359,9 +363,14 @@ const StatusBar: React.FC<{ overlayData: WMOverlayData; materialTypes: DemoMater
           Containment: {containTotal.toFixed(1)} SF
         </Tag>
       )}
-      {floor_protections.length > 0 && (
+      {regularProts.length > 0 && (
         <Tag color="#FFD700" style={{ fontSize: 11, lineHeight: '18px', margin: 0 }}>
           Floor Prot: {protTotal.toFixed(1)} SF
+        </Tag>
+      )}
+      {stairProts.length > 0 && (
+        <Tag color="#FF8C00" style={{ fontSize: 11, lineHeight: '18px', margin: 0, fontWeight: 600 }}>
+          Stair Prot: {stairProtTotal.toFixed(1)} SF
         </Tag>
       )}
       {contentProtections.length > 0 && (
@@ -481,6 +490,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // ------------------------------------------------------------------
   const [isCalibrating, setIsCalibrating] = useState(false);
   const [activeShapePresetId, setActiveShapePresetId] = useState<string | null>(null);
+  /** When true, new floor protection strips are created as stair type (higher labor cost) */
+  const [isStairFloorProtection, setIsStairFloorProtection] = useState(false);
 
   // ------------------------------------------------------------------
   // State management
@@ -2000,7 +2011,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           length_ft: lengthFt,
           rotation,
           calculated_sqft: calcFloorProtectionSqft(paperWidth, lengthFt),
-          color: DEFAULT_FLOOR_PROTECTION_COLOR,
+          color: isStairFloorProtection ? DEFAULT_STAIR_FLOOR_PROTECTION_COLOR : DEFAULT_FLOOR_PROTECTION_COLOR,
+          is_stair: isStairFloorProtection,
         };
         addFloorProtection(prot);
         selectNewElement(protId, 'floor_protection');
@@ -2649,7 +2661,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // ------------------------------------------------------------------
   const activeMaterialColor = React.useMemo(() => {
     if (state.activeTool === 'containment') return DEFAULT_CONTAINMENT_COLOR;
-    if (state.activeTool === 'floor_protection') return DEFAULT_FLOOR_PROTECTION_COLOR;
+    if (state.activeTool === 'floor_protection') return isStairFloorProtection ? DEFAULT_STAIR_FLOOR_PROTECTION_COLOR : DEFAULT_FLOOR_PROTECTION_COLOR;
     if (state.activeTool === 'content_protection') return DEFAULT_CONTENT_PROTECTION_COLOR;
     if (state.activeTool === 'content_manipulation') return DEFAULT_CONTENT_MANIPULATION_COLOR;
     const mat =
@@ -2745,6 +2757,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         canRedo={canRedo}
         isSaving={isSaving}
         isDirty={state.isDirty}
+        isStairFloorProtection={isStairFloorProtection}
+        onStairFloorProtectionChange={setIsStairFloorProtection}
       />
 
       {/* Main content: canvas + sidebar */}

@@ -492,6 +492,8 @@ export interface WMFloorProtection {
   /** Computed: paper_width_ft * length_ft */
   calculated_sqft: number;
   color: string;
+  /** When true, this floor protection is on stairs (higher labor cost) */
+  is_stair?: boolean;
 }
 
 /**
@@ -838,6 +840,11 @@ export interface WMFloorSummary {
     total_sqft: number;
   };
   floor_protection: {
+    count: number;
+    total_sqft: number;
+  };
+  /** Floor protection on stairs (higher labor cost) */
+  stair_floor_protection: {
     count: number;
     total_sqft: number;
   };

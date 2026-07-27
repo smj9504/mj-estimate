@@ -444,6 +444,12 @@
         <span>Floor Protection</span>
       </div>
       {% endif %}
+      {% if item.summary.get('stair_protection_sqft', 0) > 0 %}
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#FF8C00;opacity:0.5;"></div>
+        <span>Floor Protection (Stairs)</span>
+      </div>
+      {% endif %}
       {% if item.summary.content_protection_sqft > 0 %}
       <div class="legend-item">
         <div class="legend-swatch" style="background:#8B5CF6;opacity:0.5;"></div>
@@ -530,12 +536,13 @@
       </div>
 
       <!-- ── Additional Areas: progress bars ── -->
-      {% if item.summary.containment_sqft > 0 or item.summary.protection_sqft > 0 or item.summary.content_protection_sqft > 0 or item.summary.content_manipulation_hours > 0 %}
+      {% if item.summary.containment_sqft > 0 or item.summary.protection_sqft > 0 or item.summary.get('stair_protection_sqft', 0) > 0 or item.summary.content_protection_sqft > 0 or item.summary.content_manipulation_hours > 0 %}
       <div>
         <div class="dash-section-title">Additional Areas</div>
         {% set _area_count = [0] %}
           {% if item.summary.containment_sqft > 0 %}{% set _ = _area_count.append(1) %}{% endif %}
           {% if item.summary.protection_sqft > 0 %}{% set _ = _area_count.append(1) %}{% endif %}
+          {% if item.summary.get('stair_protection_sqft', 0) > 0 %}{% set _ = _area_count.append(1) %}{% endif %}
           {% if item.summary.content_protection_sqft > 0 %}{% set _ = _area_count.append(1) %}{% endif %}
           {% if item.summary.content_manipulation_hours > 0 %}{% set _ = _area_count.append(1) %}{% endif %}
         <div class="compact-grid {% if _area_count|length - 1 > 2 %}cols-4{% else %}cols-2{% endif %}">
@@ -555,6 +562,12 @@
           <div class="compact-cell">
             <div class="cc-label">Floor Protection</div>
             <div class="cc-value">{{ "%.1f"|format(item.summary.protection_sqft) }} SF</div>
+          </div>
+          {% endif %}
+          {% if item.summary.get('stair_protection_sqft', 0) > 0 %}
+          <div class="compact-cell">
+            <div class="cc-label" style="color:#FF8C00;font-weight:600;">Floor Prot (Stairs)</div>
+            <div class="cc-value" style="color:#FF8C00;">{{ "%.1f"|format(item.summary.stair_protection_sqft) }} SF</div>
           </div>
           {% endif %}
           {% if item.summary.content_protection_sqft > 0 %}

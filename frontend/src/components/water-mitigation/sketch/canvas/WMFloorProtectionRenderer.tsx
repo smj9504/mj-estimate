@@ -31,6 +31,12 @@ export interface WMFloorProtectionRendererProps {
 /** Spacing between diagonal hatch lines in pixels */
 const HATCH_SPACING = 10;
 
+/** Default color for stair floor protection (orange) */
+const STAIR_FLOOR_PROTECTION_COLOR = '#FF8C00';
+
+/** Spacing between stair-step lines in pixels */
+const STAIR_STEP_SPACING = 12;
+
 const WMFloorProtectionRenderer: React.FC<WMFloorProtectionRendererProps> = ({
   protection,
   isSelected,
@@ -45,8 +51,14 @@ const WMFloorProtectionRenderer: React.FC<WMFloorProtectionRendererProps> = ({
 
   const widthPx = protection.paper_width_ft * scalePixelsPerFoot;
   const lengthPx = protection.length_ft * scalePixelsPerFoot;
+  const isStair = protection.is_stair ?? false;
+  const effectiveColor = isStair
+    ? (protection.color !== '#FFD700' ? protection.color : STAIR_FLOOR_PROTECTION_COLOR)
+    : (protection.color || '#FFD700');
 
-  const labelText = `${protection.calculated_sqft > 0 ? `${protection.calculated_sqft.toFixed(2)} SF` : `${protection.length_ft.toFixed(2)}'`}`;
+  const labelText = isStair
+    ? `STR ${protection.calculated_sqft > 0 ? `${protection.calculated_sqft.toFixed(2)} SF` : `${protection.length_ft.toFixed(2)}'`}`
+    : `${protection.calculated_sqft > 0 ? `${protection.calculated_sqft.toFixed(2)} SF` : `${protection.length_ft.toFixed(2)}'`}`;
 
   // Reset Konva node transform state when dimensions change from props
   useEffect(() => {
@@ -159,35 +171,61 @@ const WMFloorProtectionRenderer: React.FC<WMFloorProtectionRendererProps> = ({
         ref={rectRef}
         width={widthPx}
         height={lengthPx}
-        fill={protection.color || '#FFD700'}
+        fill={effectiveColor}
         opacity={0.3}
-        stroke={protection.color || '#FFD700'}
-        strokeWidth={2}
+        stroke={effectiveColor}
+        strokeWidth={isStair ? 2.5 : 2}
         cornerRadius={2}
       />
 
-      {/* Diagonal hatch pattern */}
+      {/* Hatch pattern: diagonal for regular, stair-step for stairs */}
       <Shape
         width={widthPx}
         height={lengthPx}
         sceneFunc={(ctx, shape) => {
           ctx.save();
-          // Clip to the rectangle bounds
           ctx.beginPath();
           ctx.rect(0, 0, widthPx, lengthPx);
           ctx.clip();
 
-          ctx.strokeStyle = protection.color || '#FFD700';
+          ctx.strokeStyle = effectiveColor;
           ctx.globalAlpha = 0.45;
           ctx.lineWidth = 1;
 
-          // Draw diagonal lines from top-left to bottom-right
-          const totalDiag = widthPx + lengthPx;
-          for (let d = -lengthPx; d < totalDiag; d += HATCH_SPACING) {
-            ctx.beginPath();
-            ctx.moveTo(d, 0);
-            ctx.lineTo(d + lengthPx, lengthPx);
-            ctx.stroke();
+          if (isStair) {
+            // Stair-step pattern: horizontal lines with alternating indents
+            const stepH = STAIR_STEP_SPACING;
+            const indent = widthPx * 0.15;
+            ctx.lineWidth = 1.5;
+            for (let yPos = stepH; yPos < lengthPx; yPos += stepH) {
+              const stepIndex = Math.floor(yPos / stepH);
+              const xOffset = (stepIndex % 2 === 0) ? 0 : indent;
+              ctx.beginPath();
+              ctx.moveTo(xOffset, yPos);
+              ctx.lineTo(widthPx - indent + xOffset, yPos);
+              ctx.stroke();
+              // Vertical risers
+              if (yPos + stepH < lengthPx) {
+                const nextOffset = ((stepIndex + 1) % 2 === 0) ? 0 : indent;
+                ctx.beginPath();
+                ctx.moveTo(widthPx - indent + xOffset, yPos);
+                ctx.lineTo(widthPx - indent + nextOffset, yPos);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(xOffset, yPos);
+                ctx.lineTo(nextOffset, yPos + stepH);
+                ctx.stroke();
+              }
+            }
+          } else {
+            // Regular diagonal hatch
+            const totalDiag = widthPx + lengthPx;
+            for (let d = -lengthPx; d < totalDiag; d += HATCH_SPACING) {
+              ctx.beginPath();
+              ctx.moveTo(d, 0);
+              ctx.lineTo(d + lengthPx, lengthPx);
+              ctx.stroke();
+            }
           }
 
           ctx.restore();
@@ -230,7 +268,7 @@ const WMFloorProtectionRenderer: React.FC<WMFloorProtectionRendererProps> = ({
             text={labelText}
             fontSize={11}
             fontFamily="'Inter', 'Segoe UI', sans-serif"
-            fill="#7a6000"
+            fill={isStair ? '#8B4500' : '#7a6000'}
             align="center"
             listening={false}
             wrap="none"

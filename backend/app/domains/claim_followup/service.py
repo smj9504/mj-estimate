@@ -1534,6 +1534,8 @@ class ClaimFollowUpService:
                             f"Attached {len(wm_attachments)} WM documents "
                             f"from job {wm_job_id} for follow-up email"
                         )
+                        # Compress if total size exceeds email limit
+                        raw_attachments = wm_service._compress_attachments_if_needed(raw_attachments)
                 except Exception as e:
                     logger.error(f"Error collecting WM attachments: {e}")
 

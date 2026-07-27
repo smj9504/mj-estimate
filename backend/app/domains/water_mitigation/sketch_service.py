@@ -904,10 +904,15 @@ class SketchService:
                     floor_label=floor_label,
                 ))
 
-            # --- Floor protection: total SF ---
+            # --- Floor protection: total SF (split regular vs stair) ---
             total_floor_prot = 0.0
+            total_stair_prot = 0.0
             for fp in (sketch.floor_protections or []):
-                total_floor_prot += float(fp.calculated_sqft or 0)
+                sqft = float(fp.calculated_sqft or 0)
+                if getattr(fp, 'is_stair', False):
+                    total_stair_prot += sqft
+                else:
+                    total_floor_prot += sqft
 
             if total_floor_prot > 0:
                 item = WMScopeItem(
@@ -925,6 +930,25 @@ class SketchService:
                 all_items.append(GeneratedScopeItemSummary(
                     name="Floor Protection", item_type="standard",
                     quantity=round(total_floor_prot, 2), unit="SF",
+                    floor_label=floor_label,
+                ))
+
+            if total_stair_prot > 0:
+                item = WMScopeItem(
+                    location_id=location.id,
+                    item_type="standard",
+                    name="Floor Protection (Stairs)",
+                    quantity=Decimal(str(round(total_stair_prot, 2))),
+                    unit="SF",
+                    include_in_debris=False,
+                    display_order=item_order,
+                )
+                self.db.add(item)
+                items_created += 1
+                item_order += 1
+                all_items.append(GeneratedScopeItemSummary(
+                    name="Floor Protection (Stairs)", item_type="standard",
+                    quantity=round(total_stair_prot, 2), unit="SF",
                     floor_label=floor_label,
                 ))
 

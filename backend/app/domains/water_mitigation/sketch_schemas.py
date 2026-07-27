@@ -143,6 +143,7 @@ class WMFloorProtectionBase(PydanticBaseModel):
     rotation: float = 0.0
     calculated_sqft: Decimal = Field(..., ge=0)
     color: str = Field("#FFD700", max_length=7)
+    is_stair: bool = False
 
 
 class WMFloorProtectionCreate(WMFloorProtectionBase):

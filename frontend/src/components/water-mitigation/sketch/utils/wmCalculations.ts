@@ -307,9 +307,15 @@ export function calcFloorTotals(overlayData: WMOverlayData): WMFloorSummary {
   );
 
   // ------------------------------------------------------------------
-  // Floor protection totals
+  // Floor protection totals (split regular vs stair)
   // ------------------------------------------------------------------
-  const floorProtectionTotalSqft = overlayData.floor_protections.reduce(
+  const regularProtections = overlayData.floor_protections.filter((fp) => !fp.is_stair);
+  const stairProtections = overlayData.floor_protections.filter((fp) => fp.is_stair);
+  const floorProtectionTotalSqft = regularProtections.reduce(
+    (sum, fp) => Math.round((sum + fp.calculated_sqft) * 100) / 100,
+    0
+  );
+  const stairFloorProtectionTotalSqft = stairProtections.reduce(
     (sum, fp) => Math.round((sum + fp.calculated_sqft) * 100) / 100,
     0
   );
@@ -339,8 +345,12 @@ export function calcFloorTotals(overlayData: WMOverlayData): WMFloorSummary {
       total_sqft: containmentTotalSqft,
     },
     floor_protection: {
-      count: overlayData.floor_protections.length,
+      count: regularProtections.length,
       total_sqft: floorProtectionTotalSqft,
+    },
+    stair_floor_protection: {
+      count: stairProtections.length,
+      total_sqft: stairFloorProtectionTotalSqft,
     },
     content_protection: {
       count: contentProtections.length,
