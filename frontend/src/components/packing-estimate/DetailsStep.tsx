@@ -50,6 +50,7 @@ const DetailsStep: React.FC<DetailsStepProps> = ({
   const [clients, setClients] = useState<any[]>([]);
   const [claims, setClaims] = useState<any[]>([]);
   const [clientSearch, setClientSearch] = useState('');
+  const [selectedClient, setSelectedClient] = useState<any>(null);
 
   useEffect(() => {
     companyService.getCompanies().then(setCompanies).catch(() => {});
@@ -57,30 +58,39 @@ const DetailsStep: React.FC<DetailsStepProps> = ({
 
   useEffect(() => {
     if (selectedClientId) {
-      // Load claims for selected client
       clientService.getById(selectedClientId).then((client: any) => {
         setClaims(client.claims || []);
+        setSelectedClient(client);
+        if (!clientSearch) {
+          setClientSearch(client.display_name || '');
+        }
       }).catch(() => {});
     } else {
       setClaims([]);
       setSelectedClaimId(null);
+      setSelectedClient(null);
     }
   }, [selectedClientId, setSelectedClaimId]);
 
   const handleClientSearch = useCallback(async (value: string) => {
     setClientSearch(value);
+    if (!value) {
+      setSelectedClientId(null);
+      setSelectedClient(null);
+    }
     if (value.length >= 2) {
       try {
         const result = await clientService.search(value, 20);
         setClients(result.clients || []);
       } catch { setClients([]); }
     }
-  }, []);
+  }, [setSelectedClientId]);
 
   const handleClientSelect = useCallback((clientId: string) => {
     const client = clients.find((c: any) => c.id === clientId);
     if (client) {
       setSelectedClientId(clientId);
+      setSelectedClient(client);
       if (client.address) {
         setProjectAddress(
           [client.address, client.city, client.state, client.zipcode]
@@ -147,11 +157,39 @@ const DetailsStep: React.FC<DetailsStepProps> = ({
                     value: c.id,
                     label: `${c.display_name} — ${c.address || ''}`,
                   }))}
+                  allowClear
+                  onClear={() => {
+                    setSelectedClientId(null);
+                    setSelectedClient(null);
+                    setClientSearch('');
+                  }}
                 />
               </Form.Item>
             </Form>
           </Col>
         </Row>
+
+        {selectedClient && (
+          <div style={{
+            padding: '8px 12px', marginBottom: 12,
+            background: '#fafafa', borderRadius: 6, fontSize: 13,
+          }}>
+            <Row gutter={16}>
+              <Col span={8}>
+                <Text type="secondary">Name: </Text>
+                <Text strong>{selectedClient.display_name}</Text>
+              </Col>
+              <Col span={8}>
+                <Text type="secondary">Phone: </Text>
+                <Text>{selectedClient.phone || '-'}</Text>
+              </Col>
+              <Col span={8}>
+                <Text type="secondary">Email: </Text>
+                <Text>{selectedClient.email || '-'}</Text>
+              </Col>
+            </Row>
+          </div>
+        )}
 
         {claims.length > 0 && (
           <Row gutter={16}>
