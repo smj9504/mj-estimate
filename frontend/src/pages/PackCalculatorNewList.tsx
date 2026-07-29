@@ -7,15 +7,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Table, Button, Space, Card, message, Popconfirm, Tag,
-  Typography, Row, Col, Statistic, Tooltip, Empty, Modal,
+  Typography, Row, Col, Tooltip, Empty, Modal,
   Grid, List, Dropdown,
 } from 'antd';
 import {
   PlusOutlined, EyeOutlined, DeleteOutlined,
-  ReloadOutlined, ThunderboltOutlined, TeamOutlined,
-  FileTextOutlined, DollarOutlined, UserOutlined,
-  CameraOutlined, AppstoreOutlined, CloseOutlined,
-  MoreOutlined,
+  ReloadOutlined, ThunderboltOutlined, UserOutlined,
+  CameraOutlined, CloseOutlined, MoreOutlined,
 } from '@ant-design/icons';
 import * as packingService from '../services/packingEstimateService';
 import type { PackEstimateSummary } from '../types/packing-estimate';
@@ -30,7 +28,6 @@ const PackCalculatorNewList: React.FC = () => {
   const isMobile = !screens.lg;
   const [estimates, setEstimates] = useState<PackEstimateSummary[]>([]);
   const [loading, setLoading] = useState(false);
-  const [total, setTotal] = useState(0);
   const [modeModalOpen, setModeModalOpen] = useState(false);
 
   useEffect(() => { fetchEstimates(); }, []);
@@ -40,7 +37,6 @@ const PackCalculatorNewList: React.FC = () => {
     try {
       const data = await packingService.listEstimates({ limit: 100 });
       setEstimates(data.items);
-      setTotal(data.total);
     } catch {
       message.error('Failed to load estimates');
     } finally {
@@ -77,7 +73,7 @@ const PackCalculatorNewList: React.FC = () => {
       render: (text: string, record: PackEstimateSummary) => (
         <Space direction="vertical" size={0}>
           <Text strong>
-            <FileTextOutlined /> {text || 'Untitled'}
+            {text || 'Untitled'}
           </Text>
           {record.project_address && (
             <Text type="secondary" style={{ fontSize: 12 }}>
@@ -86,7 +82,6 @@ const PackCalculatorNewList: React.FC = () => {
           )}
         </Space>
       ),
-      width: 200,
       ellipsis: true,
     },
     {
@@ -100,35 +95,8 @@ const PackCalculatorNewList: React.FC = () => {
           </Space>
         ) : <Text type="secondary">-</Text>
       ),
-      width: 150,
+      width: 180,
       ellipsis: true,
-    },
-    {
-      title: 'Rooms',
-      dataIndex: 'total_rooms',
-      key: 'rooms',
-      align: 'center' as const,
-      width: 70,
-    },
-    {
-      title: 'Hours',
-      dataIndex: 'total_hours',
-      key: 'hours',
-      align: 'center' as const,
-      render: (v: number | null) => v?.toFixed(1) || '-',
-      width: 70,
-    },
-    {
-      title: 'Total',
-      dataIndex: 'grand_total',
-      key: 'total',
-      align: 'right' as const,
-      render: (v: number | null) => v
-        ? <Text strong style={{ color: '#1890ff', whiteSpace: 'nowrap' }}>
-            ${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-          </Text>
-        : '-',
-      width: 110,
     },
     {
       title: 'Mode',
@@ -162,7 +130,7 @@ const PackCalculatorNewList: React.FC = () => {
       dataIndex: 'created_at',
       key: 'created_at',
       render: (v: string | null) => v ? <span style={{ whiteSpace: 'nowrap' }}>{formatDate(v)}</span> : '-',
-      width: 110,
+      width: 150,
     },
     {
       title: 'Actions',
@@ -190,8 +158,6 @@ const PackCalculatorNewList: React.FC = () => {
       width: 100,
     },
   ];
-
-  const totalGrand = estimates.reduce((s, e) => s + (e.grand_total || 0), 0);
 
   const renderMobileItem = (record: PackEstimateSummary) => (
     <List.Item
@@ -256,24 +222,11 @@ const PackCalculatorNewList: React.FC = () => {
             </Text>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 12, marginTop: 2, flexWrap: 'wrap' }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {record.total_rooms} rooms
+        {record.created_at && (
+          <Text type="secondary" style={{ fontSize: 11, marginTop: 2, display: 'block' }}>
+            {formatDate(record.created_at)}
           </Text>
-          {record.total_hours != null && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {record.total_hours.toFixed(1)} hrs
-            </Text>
-          )}
-          {record.grand_total ? (
-            <Text style={{ fontSize: 12, fontWeight: 600, color: '#1890ff' }}>
-              ${record.grand_total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-            </Text>
-          ) : null}
-          {record.created_at && (
-            <Text type="secondary" style={{ fontSize: 12 }}>{formatDate(record.created_at)}</Text>
-          )}
-        </div>
+        )}
       </div>
     </List.Item>
   );
@@ -312,35 +265,6 @@ const PackCalculatorNewList: React.FC = () => {
           </Row>
         </Card>
 
-        {estimates.length > 0 && (
-          <Card styles={{ body: { padding: isMobile ? '12px' : '24px' } }}>
-            <Row gutter={[16, isMobile ? 12 : 16]}>
-              <Col span={isMobile ? 12 : 6}>
-                <Statistic title="Estimates" value={total} prefix={<FileTextOutlined />} />
-              </Col>
-              <Col span={isMobile ? 12 : 6}>
-                <Statistic title="Rooms" value={estimates.reduce((s, e) => s + e.total_rooms, 0)} />
-              </Col>
-              <Col span={isMobile ? 12 : 6}>
-                <Statistic
-                  title="Hours"
-                  value={estimates.reduce((s, e) => s + (e.total_hours || 0), 0).toFixed(1)}
-                  prefix={<TeamOutlined />}
-                />
-              </Col>
-              <Col span={isMobile ? 12 : 6}>
-                <Statistic
-                  title="Value"
-                  value={totalGrand}
-                  prefix={<DollarOutlined />}
-                  precision={2}
-                  valueStyle={{ color: '#1890ff' }}
-                />
-              </Col>
-            </Row>
-          </Card>
-        )}
-
         <Card styles={{ body: { padding: isMobile ? '12px' : '24px' } }}>
           {isMobile ? (
             <List
@@ -367,7 +291,7 @@ const PackCalculatorNewList: React.FC = () => {
               dataSource={estimates}
               rowKey="id"
               loading={loading}
-              scroll={{ x: 980 }}
+              scroll={{ x: 700 }}
               pagination={{ pageSize: 10, showTotal: t => `${t} estimates` }}
               locale={{
                 emptyText: (
