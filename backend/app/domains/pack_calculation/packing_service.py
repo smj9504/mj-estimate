@@ -376,17 +376,10 @@ UNIT_HINT_MATERIAL_MAP = {
     # Category hints — per-unit = one closet section / dresser / appliance set.
     # Values are calibrated for a "large" room (MAT_SCALE=80).
     # Room-size scaling is applied in calculate_materials for these hints.
-    "clothing_hanging": {"box_wardrobe": 2},                  # closet section ≈ 48 garments → 2 wardrobe boxes
-    "clothing_folded":  {"box_medium": 2, "box_large": 1},    # dresser load ≈ 2 medium + 1 large
+    "clothing_hanging": {"box_wardrobe": 1},
+    "clothing_folded":  {"box_medium": 1},
     "appliances_large": {"blanket": 2, "shrink_wrap": 1},
-    "appliances_small": {"box_medium": 2, "bubble_12": 1},    # kitchen counter set ≈ 2 medium + 1 bubble roll
-}
-
-# Category-type unit hints that should scale with room size.
-# These represent collections (not individual items), so per-unit values
-# should be adjusted by room size ratio (room_scale / 80).
-CATEGORY_UNIT_HINTS = {
-    "clothing_hanging", "clothing_folded", "appliances_small",
+    "appliances_small": {"box_medium": 1, "bubble_12": 1},
 }
 
 HINT_MATERIAL_MAP = {
@@ -621,48 +614,66 @@ class EstimateCalculator:
         },
     ]
 
-    def evaluate_supplements(self, rooms, subtotal, overrides=None) -> List[SupplementItem]:
-        """Evaluate conditional supplements based on room conditions.
+    def evaluate_supplements(
+        self,
+        rooms,
+        subtotal,
+        overrides=None,
+        context=None,
+    ) -> List[SupplementItem]:
+        """Evaluate all supplement conditions and return triggered items.
 
         Supplements use fixed amounts — not percentages or per-item rates —
         so they stay reasonable regardless of estimate size.
         Users can toggle each supplement and edit the amount in the frontend.
         """
         overrides = overrides or {}
+        ctx = context or {}
 
-        has_contamination = any(
-            getattr(r, "contamination", "clean") not in ("clean", "Clean")
-            for r in rooms
-        )
-        # Count unique item LINES, not quantity
-        hv_count = 0
-        for r in rooms:
-            for item in getattr(r, "items", []):
-                if getattr(item, "is_high_value", False):
-                    hv_count += 1
-        has_upper_floor = any(
-            str(getattr(r, "floor", "1st")) in {"3rd", "4th+"}
-            for r in rooms
-        )
-        has_heavy_density = any(
-            str(getattr(r, "density", "normal")) in {"heavy", "extreme"}
-            for r in rooms
-        )
+        # Build context from rooms
+        if "has_contamination" not in ctx:
+            ctx["has_contamination"] = any(
+                getattr(r, "contamination", "clean")
+                not in ("clean", "Clean")
+                for r in rooms
+            )
+        if "high_value_count" not in ctx:
+            hv = 0
+            for r in rooms:
+                for item in getattr(r, "items", []):
+                    if getattr(item, "is_high_value", False):
+                        hv += 1
+            ctx["high_value_count"] = hv
+        if "has_upper_floor" not in ctx:
+            upper = {"3rd", "4th+"}
+            ctx["has_upper_floor"] = any(
+                str(getattr(r, "floor", "1st")) in upper
+                for r in rooms
+            )
+        if "has_heavy_density" not in ctx:
+            heavy = {"heavy", "extreme"}
+            ctx["has_heavy_density"] = any(
+                str(getattr(r, "density", "normal")) in heavy
+                for r in rooms
+            )
 
-        supplements: List[SupplementItem] = []
+        supplements = []
 
         for defn in self.SUPPLEMENT_DEFINITIONS:
             key = defn["key"]
             triggered = False
 
             if defn["trigger"] == "contamination":
-                triggered = has_contamination
+                triggered = ctx["has_contamination"]
             elif defn["trigger"] == "high_value":
-                triggered = hv_count >= defn.get("min_items", 3)
+                triggered = (
+                    ctx["high_value_count"]
+                    >= defn.get("min_items", 3)
+                )
             elif defn["trigger"] == "upper_floor":
-                triggered = has_upper_floor
+                triggered = ctx["has_upper_floor"]
             elif defn["trigger"] == "heavy_density":
-                triggered = has_heavy_density
+                triggered = ctx["has_heavy_density"]
 
             if not triggered:
                 continue
@@ -673,7 +684,7 @@ class EstimateCalculator:
                 key=key,
                 name=defn["name"],
                 description=defn["description"],
-                amount=amount,
+                amount=round(amount, 2),
                 triggered=True,
                 enabled=enabled,
             ))
@@ -882,11 +893,6 @@ class EstimateCalculator:
                 mat_key = f"mattress_{preset.mattress}"
                 mattresses[mat_key] = mattresses.get(mat_key, 0) + 1
 
-            # Base materials per room — misc drawer/shelf/decor contents
-            base_mats = BASE_ROOM_MATERIALS.get(preset.size, BASE_ROOM_MATERIALS["large"])
-            for mat_key, base_qty in base_mats.items():
-                mat_floats[mat_key] = mat_floats.get(mat_key, 0.0) + base_qty * density_mult
-
             # Accumulate hint-based materials as floats across all rooms
             hints = room.hints or preset.default_hints or []
             hint_volume = room.hint_volume if hasattr(room, 'hint_volume') and room.hint_volume else {}
@@ -896,14 +902,8 @@ class EstimateCalculator:
                 # Unit-based hint: qty × per-piece materials (no volume scaling)
                 if hint_str in UNIT_HINT_MATERIAL_MAP:
                     qty = hint_qty.get(hint_str, 1)
-                    # Category hints scale with room size (calibrated for large=80)
-                    if hint_str in CATEGORY_UNIT_HINTS:
-                        size_ratio = MAT_SCALE_PER_SIZE.get(preset.size, 80) / 80.0
-                        for mat_key, per_unit in UNIT_HINT_MATERIAL_MAP[hint_str].items():
-                            mat_floats[mat_key] = mat_floats.get(mat_key, 0.0) + qty * per_unit * size_ratio * density_mult
-                    else:
-                        for mat_key, per_unit in UNIT_HINT_MATERIAL_MAP[hint_str].items():
-                            mat_floats[mat_key] = mat_floats.get(mat_key, 0.0) + qty * per_unit
+                    for mat_key, per_unit in UNIT_HINT_MATERIAL_MAP[hint_str].items():
+                        mat_floats[mat_key] = mat_floats.get(mat_key, 0.0) + qty * per_unit
                     continue
                 # Volume-based hint: vol_scale × factor
                 vol_level_idx = hint_volume.get(hint_str, 1)
@@ -914,33 +914,26 @@ class EstimateCalculator:
                     mat_floats[mat_key] = mat_floats.get(mat_key, 0.0) + vol_scale * factor
 
         # Convert accumulated floats to integers (ceil once per material, not per room).
-        # Skip materials below 0.5 — avoids inflating near-zero fractions to 1
+        # Skip materials below threshold — avoids inflating near-zero fractions to 1
         # (e.g. sofa_cover in a bedroom where there is no sofa).
+        # Threshold 0.25 balances filtering noise vs including legitimate materials
+        # for small rooms or single-room estimates.
         materials: Dict[str, int] = dict(mattresses)
         for mat_key, raw in mat_floats.items():
             if mat_key == "packing_paper":
-                continue  # handled separately below
-            if raw < 0.5:
+                continue  # handled separately below (bundle conversion)
+            if raw < 0.25:
                 continue  # too small to warrant inclusion
             materials[mat_key] = materials.get(mat_key, 0) + math.ceil(raw)
 
-        # Count total boxes for packing paper and tape calculation
-        box_keys = {k for k in materials if k.startswith("box_")}
-        total_boxes = sum(materials.get(k, 0) for k in box_keys)
-
-        # Packing paper: 1 bundle per ~15 boxes (50-lb bundle covers wrapping
-        # and void fill for ~15 packed boxes), minimum 1 per 3 rooms.
+        # Convert accumulated packing paper to bundles (50-lb bundle ≈ ~150 items worth)
+        packing_paper_raw = mat_floats.get("packing_paper", 0.0)
         num_rooms = len(rooms)
-        paper_from_hints = mat_floats.get("packing_paper", 0.0)
-        paper_from_boxes = total_boxes / 15.0
-        paper_from_rooms = num_rooms / 3.0
-        materials["packing_paper"] = max(1, math.ceil(
-            max(paper_from_hints, paper_from_boxes, paper_from_rooms)
-        ))
-
-        # Packing tape: 1 roll per ~10 boxes (each box needs ~4ft of tape,
-        # standard roll is 55yd/165ft), minimum 1 per job.
-        materials["packing_tape"] = max(1, math.ceil(total_boxes / 10.0))
+        if packing_paper_raw > 0:
+            materials["packing_paper"] = max(1, math.ceil(packing_paper_raw))
+        elif materials and num_rooms > 0:
+            # Other materials found — add a small default for void-fill / misc wrapping.
+            materials["packing_paper"] = max(1, math.ceil(num_rooms / 3))
 
         return materials
 
@@ -1845,12 +1838,8 @@ class EstimateCalculator:
         # --- Materials: aggregate from per-item required_materials ---
         materials = self.aggregate_item_materials(request.rooms)
 
-        # Fallback: if only packing_paper was produced (no actual item materials),
-        # use hint-based calculation which considers room presets and content types.
-        has_real_materials = any(
-            k != "packing_paper" for k in materials
-        )
-        if not has_real_materials:
+        # Fallback: if no required_materials at all, use hint-based calculation
+        if not materials:
             hint_rooms = []
             for room in request.rooms:
                 preset_key = room.preset_id or "living_standard"
@@ -2017,8 +2006,7 @@ class EstimateCalculator:
             sections["On-Site Relocation"] = round(on_site_moving_fee, 2)
         else:
             sections["Transport Out"] = round((truck_rate + loading_cost) * truck_trips, 2)
-            if storage_cost > 0:
-                sections["Storage"] = round(storage_cost, 2)
+            sections["Storage"] = round(storage_cost, 2)
 
         sections["Debris Hauling"] = round(debris_cost, 2)
 
@@ -2057,21 +2045,25 @@ class EstimateCalculator:
         subtotal = sum(sections.values())
         op_amount = subtotal * (request.op_rate / 100) if request.include_op else 0
 
-        # Evaluate conditional supplements
+        # Evaluate conditional supplements with item-level context
+        hv_count = sum(
+            item.quantity for room in request.rooms
+            for item in room.items
+            if getattr(item, "is_high_value", False)
+        )
         supplements = self.evaluate_supplements(
             request.rooms, subtotal,
             overrides=getattr(request, 'supplement_overrides', None),
+            context={"high_value_count": hv_count},
         )
         supplements_total = sum(s.amount for s in supplements if s.enabled)
 
-        # Legacy contingency (backwards compat, defaults off)
+        # Legacy contingency support
         contingency_amount = subtotal * (request.contingency_rate / 100) if request.include_contingency else 0
         grand_total = subtotal + op_amount + supplements_total + contingency_amount
 
-        # total_hours = elapsed time the crew actually spends on site.
-        # Supervisor & inventory work concurrently with packing crew,
-        # so they do NOT add to elapsed time — only debris hauling is sequential.
-        total_hours_calc = total_labor_hours + debris_hours
+        # total_hours = elapsed time (what the crew actually spends on site)
+        total_hours_calc = total_labor_hours + supervisor_hours + inventory_hours + debris_hours
 
         # Build material_details for export/line-item rendering
         mat_detail_strs = self.build_material_detail_strings(request.rooms, materials)

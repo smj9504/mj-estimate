@@ -27,7 +27,7 @@ const { useBreakpoint } = Grid;
 const PackCalculatorNewList: React.FC = () => {
   const navigate = useNavigate();
   const screens = useBreakpoint();
-  const isMobile = !screens.md;
+  const isMobile = !screens.lg;
   const [estimates, setEstimates] = useState<PackEstimateSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -86,27 +86,29 @@ const PackCalculatorNewList: React.FC = () => {
           )}
         </Space>
       ),
-      width: '25%',
+      width: 200,
+      ellipsis: true,
     },
     {
       title: 'Client',
       key: 'client',
       render: (_: any, record: PackEstimateSummary) => (
         record.client_name ? (
-          <Space size={4}>
+          <Space size={4} style={{ whiteSpace: 'nowrap' }}>
             <UserOutlined />
-            <Text>{record.client_name}</Text>
+            <Text ellipsis={{ tooltip: record.client_name }}>{record.client_name}</Text>
           </Space>
         ) : <Text type="secondary">-</Text>
       ),
-      width: '15%',
+      width: 150,
+      ellipsis: true,
     },
     {
       title: 'Rooms',
       dataIndex: 'total_rooms',
       key: 'rooms',
       align: 'center' as const,
-      width: '8%',
+      width: 70,
     },
     {
       title: 'Hours',
@@ -114,7 +116,7 @@ const PackCalculatorNewList: React.FC = () => {
       key: 'hours',
       align: 'center' as const,
       render: (v: number | null) => v?.toFixed(1) || '-',
-      width: '8%',
+      width: 70,
     },
     {
       title: 'Total',
@@ -122,11 +124,11 @@ const PackCalculatorNewList: React.FC = () => {
       key: 'total',
       align: 'right' as const,
       render: (v: number | null) => v
-        ? <Text strong style={{ color: '#1890ff' }}>
+        ? <Text strong style={{ color: '#1890ff', whiteSpace: 'nowrap' }}>
             ${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </Text>
         : '-',
-      width: '12%',
+      width: 110,
     },
     {
       title: 'Mode',
@@ -138,7 +140,7 @@ const PackCalculatorNewList: React.FC = () => {
           {mode === 'photo_ai' ? 'Photo AI' : 'Quick'}
         </Tag>
       ),
-      width: '8%',
+      width: 90,
     },
     {
       title: 'Status',
@@ -153,19 +155,20 @@ const PackCalculatorNewList: React.FC = () => {
           {status || 'draft'}
         </Tag>;
       },
-      width: '8%',
+      width: 80,
     },
     {
       title: 'Created',
       dataIndex: 'created_at',
       key: 'created_at',
-      render: (v: string | null) => v ? formatDate(v) : '-',
-      width: '10%',
+      render: (v: string | null) => v ? <span style={{ whiteSpace: 'nowrap' }}>{formatDate(v)}</span> : '-',
+      width: 110,
     },
     {
       title: 'Actions',
       key: 'actions',
       align: 'center' as const,
+      fixed: 'right' as const,
       render: (_: any, record: PackEstimateSummary) => (
         <Space size="small">
           <Tooltip title="View">
@@ -184,7 +187,7 @@ const PackCalculatorNewList: React.FC = () => {
           </Popconfirm>
         </Space>
       ),
-      width: '10%',
+      width: 100,
     },
   ];
 
@@ -364,6 +367,7 @@ const PackCalculatorNewList: React.FC = () => {
               dataSource={estimates}
               rowKey="id"
               loading={loading}
+              scroll={{ x: 980 }}
               pagination={{ pageSize: 10, showTotal: t => `${t} estimates` }}
               locale={{
                 emptyText: (

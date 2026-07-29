@@ -91,7 +91,7 @@ export const DEFAULT_SETTINGS = {
   storage_months: 1,
   staging_type: 'off_site' as const,
   include_packback: true,
-  include_op: true,
+  include_op: false,
   op_rate: 20,
   region: 'mid_atlantic' as const,
   special_items: [] as string[],
