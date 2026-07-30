@@ -268,7 +268,7 @@ class PackItem(Base, BaseModel):
     special_notes = Column(Text)
 
     # Packing method details (from AI analysis)
-    packing_method = Column(String(100))
+    packing_method = Column(Text)
     required_materials = Column(JSONB)  # ["wardrobe_box", "bubble_wrap_12"]
     base_labor_hours = Column(Float)
     per_unit_labor_hours = Column(Float)

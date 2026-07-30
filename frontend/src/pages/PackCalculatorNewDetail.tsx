@@ -29,6 +29,27 @@ import { formatDate } from '../utils/formatters';
 const { Title, Text } = Typography;
 const { Option } = Select;
 
+interface DetectedItem {
+  name: string;
+  category: string;
+  quantity: number;
+  is_fragile: boolean;
+  is_high_value: boolean;
+  needs_disassembly: boolean;
+  packing_method?: string;
+  estimated_labor_hours?: number;
+  estimator_flags?: string[];
+  special_instructions?: string;
+}
+
+interface RoomDetail {
+  room_name: string;
+  floor: string | null;
+  density: string | null;
+  contamination: string | null;
+  items: DetectedItem[];
+}
+
 /** Extended detail response from GET /api/packing-estimate/{id} */
 interface EstimateDetail extends EstimateResponse {
   calculation_name: string | null;
@@ -46,6 +67,7 @@ interface EstimateDetail extends EstimateResponse {
   special_items: string[];
   custom_special_items: any[];
   claim_id: string | null;
+  rooms?: RoomDetail[];
 }
 
 const PackCalculatorNewDetail: React.FC = () => {
@@ -547,10 +569,87 @@ const PackCalculatorNewDetail: React.FC = () => {
               </Space>
             </Tabs.TabPane>
 
-            {/* Room Summaries */}
+            {/* Room Summaries + Detected Items */}
             <Tabs.TabPane tab="Rooms" key="rooms">
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                {estimate.room_summaries && estimate.room_summaries.length > 0 ? (
+                {/* Photo AI rooms with detected items */}
+                {estimate.rooms && estimate.rooms.length > 0 ? (
+                  estimate.rooms.map((room, i) => (
+                    <Card
+                      key={`room-detail-${i}`}
+                      size="small"
+                      title={
+                        <Space>
+                          <BoxPlotOutlined />
+                          <Text strong>{room.room_name}</Text>
+                          <Tag>{room.items.length} items</Tag>
+                          {room.floor && <Tag color="cyan">{room.floor}</Tag>}
+                          {room.density && room.density !== 'normal' && (
+                            <Tag color="orange">{room.density}</Tag>
+                          )}
+                        </Space>
+                      }
+                    >
+                      {room.items.length > 0 ? (
+                        <Table
+                          dataSource={room.items}
+                          rowKey={(_, idx) => `item-${i}-${idx}`}
+                          pagination={false}
+                          size="small"
+                          columns={[
+                            {
+                              title: 'Item',
+                              dataIndex: 'name',
+                              key: 'name',
+                              render: (name: string, record: DetectedItem) => (
+                                <Space size={4}>
+                                  <Text>{name}</Text>
+                                  {record.is_fragile && <Tag color="red" style={{ fontSize: 10 }}>Fragile</Tag>}
+                                  {record.is_high_value && <Tag color="gold" style={{ fontSize: 10 }}>High Value</Tag>}
+                                  {record.needs_disassembly && <Tag color="volcano" style={{ fontSize: 10 }}>Disassembly</Tag>}
+                                </Space>
+                              ),
+                            },
+                            {
+                              title: 'Category',
+                              dataIndex: 'category',
+                              key: 'category',
+                              width: 120,
+                              render: (v: string) => <Tag color="geekblue">{v}</Tag>,
+                            },
+                            {
+                              title: 'Qty',
+                              dataIndex: 'quantity',
+                              key: 'quantity',
+                              width: 60,
+                              align: 'center' as const,
+                            },
+                            {
+                              title: 'Labor (hrs)',
+                              dataIndex: 'estimated_labor_hours',
+                              key: 'labor',
+                              width: 90,
+                              align: 'right' as const,
+                              render: (v: number | null) => v ? v.toFixed(2) : '-',
+                            },
+                            {
+                              title: 'Packing Method',
+                              dataIndex: 'packing_method',
+                              key: 'method',
+                              ellipsis: true,
+                              render: (v: string | null) => (
+                                v ? <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text> : '-'
+                              ),
+                            },
+                          ]}
+                        />
+                      ) : (
+                        <Text type="secondary">No items detected</Text>
+                      )}
+                    </Card>
+                  ))
+                ) : estimate.room_summaries && estimate.room_summaries.length > 0 ? (
+                  /* Fallback: Quick Estimate room summaries */
                   estimate.room_summaries.map((room, i) => (
                     <Card
                       key={`room-${i}`}

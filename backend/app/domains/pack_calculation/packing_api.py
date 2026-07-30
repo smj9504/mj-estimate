@@ -29,7 +29,7 @@ from .packing_schemas import (
     SubmitCorrectionsResponse,
 )
 from .models import (
-    PackCalculation,
+    PackCalculation, PackRoom, PackItem,
     PackEstimateMode, PackEstimateStatus,
     PackingPrice,
 )
@@ -375,7 +375,7 @@ def get_estimate(
     ).first()
     if not calc:
         raise HTTPException(404, "Estimate not found")
-    return _calc_to_detail(calc)
+    return _calc_to_detail(calc, db)
 
 
 @router.put("/{calc_id}")
@@ -505,6 +505,25 @@ def export_estimate_pdf(
 
 # ── Helpers ───────────────────────────────────
 
+# Maps request floor strings to DB enum values
+_FLOOR_DB = {
+    "basement": "BASEMENT",
+    "1st": "MAIN_LEVEL",
+    "2nd": "SECOND_FLOOR",
+    "3rd": "THIRD_FLOOR",
+    "4th+": "FOURTH_FLOOR",
+}
+# Density/Contamination DB enums are lowercase
+_DENSITY_DB = {
+    "light": "light", "normal": "normal", "dense": "dense",
+    "heavy": "heavy", "extreme": "extreme",
+}
+_CONTAMINATION_DB = {
+    "clean": "clean", "gray_water": "gray_water",
+    "black_water": "black_water",
+}
+
+
 def _save_calculation(
     db: Session,
     request,
@@ -582,6 +601,66 @@ def _save_calculation(
     db.add(calc)
     db.commit()
     db.refresh(calc)
+
+    # Save rooms and items for Photo AI mode
+    if mode == PackEstimateMode.PHOTO_AI and hasattr(request, 'rooms'):
+        try:
+            for room_input in request.rooms:
+                floor_str = (
+                    room_input.floor.value
+                    if hasattr(room_input.floor, 'value')
+                    else str(room_input.floor)
+                )
+                density_str = (
+                    room_input.density.value
+                    if hasattr(room_input.density, 'value')
+                    else str(room_input.density)
+                )
+                contam_str = (
+                    room_input.contamination.value
+                    if hasattr(room_input.contamination, 'value')
+                    else str(room_input.contamination)
+                )
+                pack_room = PackRoom(
+                    calculation_id=calc.id,
+                    room_name=getattr(room_input, 'room_name', 'Room'),
+                    floor_level=_FLOOR_DB.get(floor_str, 'MAIN_LEVEL'),
+                    preset_key=getattr(room_input, 'preset_id', None),
+                    density=_DENSITY_DB.get(density_str, 'normal'),
+                    contamination=_CONTAMINATION_DB.get(contam_str, 'clean'),
+                    input_method='IMAGE',
+                )
+                db.add(pack_room)
+                db.flush()
+
+                for item in getattr(room_input, 'items', []):
+                    pack_item = PackItem(
+                        room_id=pack_room.id,
+                        item_name=item.name,
+                        item_category=item.category,
+                        quantity=item.quantity,
+                        detected_by='AI_VISION',
+                        fragile=item.is_fragile,
+                        is_high_value=item.is_high_value,
+                        requires_disassembly=getattr(item, 'needs_disassembly', False),
+                        packing_method=getattr(item, 'packing_method', None),
+                        required_materials=getattr(item, 'required_materials', None),
+                        base_labor_hours=getattr(item, 'base_labor_hours', None),
+                        per_unit_labor_hours=getattr(item, 'per_unit_labor_hours', None),
+                        estimated_labor_hours=getattr(item, 'estimated_labor_hours', None),
+                        estimator_flags=getattr(item, 'estimator_flags', None),
+                        special_notes=getattr(item, 'special_instructions', None),
+                    )
+                    db.add(pack_item)
+
+            db.commit()
+        except Exception as e:
+            logger.error(f"Failed to save rooms/items: {e}", exc_info=True)
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
     return calc
 
 
@@ -627,7 +706,7 @@ def _calc_to_summary(calc: PackCalculation) -> dict:
     }
 
 
-def _calc_to_detail(calc: PackCalculation) -> dict:
+def _calc_to_detail(calc: PackCalculation, db=None) -> dict:
     """Convert calculation to detail dict."""
     base = _calc_to_summary(calc)
     base.update({
@@ -659,4 +738,63 @@ def _calc_to_detail(calc: PackCalculation) -> dict:
             if calc.claim_id else None
         ),
     })
+
+    # Include rooms with detected items (Photo AI)
+    if db:
+        try:
+            from sqlalchemy import text
+            calc_id_str = str(calc.id)
+            room_rows = db.execute(text(
+                "SELECT id, room_name, floor_level, density, "
+                "contamination, preset_key "
+                "FROM pack_rooms WHERE calculation_id = :cid "
+                "ORDER BY created_at"
+            ), {"cid": calc_id_str}).fetchall()
+
+            if room_rows:
+                rooms_data = []
+                for rr in room_rows:
+                    room_id = str(rr[0])
+                    item_rows = db.execute(text(
+                        "SELECT item_name, item_category, "
+                        "quantity, fragile, is_high_value, "
+                        "requires_disassembly, packing_method, "
+                        "required_materials, base_labor_hours, "
+                        "per_unit_labor_hours, "
+                        "estimated_labor_hours, "
+                        "estimator_flags, special_notes "
+                        "FROM pack_items "
+                        "WHERE room_id = :rid "
+                        "ORDER BY created_at"
+                    ), {"rid": room_id}).fetchall()
+
+                    items_data = []
+                    for ir in item_rows:
+                        items_data.append({
+                            "name": ir[0],
+                            "category": ir[1],
+                            "quantity": ir[2] or 1,
+                            "is_fragile": ir[3] or False,
+                            "is_high_value": ir[4] or False,
+                            "needs_disassembly": ir[5] or False,
+                            "packing_method": ir[6],
+                            "required_materials": ir[7],
+                            "base_labor_hours": ir[8],
+                            "per_unit_labor_hours": ir[9],
+                            "estimated_labor_hours": ir[10],
+                            "estimator_flags": ir[11],
+                            "special_instructions": ir[12],
+                        })
+                    rooms_data.append({
+                        "room_name": rr[1],
+                        "floor": rr[2],
+                        "density": rr[3],
+                        "contamination": rr[4],
+                        "preset_key": rr[5],
+                        "items": items_data,
+                    })
+                base["rooms"] = rooms_data
+        except Exception as e:
+            logger.warning(f"Failed to load rooms: {e}")
+
     return base
