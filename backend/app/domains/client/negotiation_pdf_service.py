@@ -92,6 +92,12 @@ SUMMARY_KEYWORDS = [
     "less depreciation",
     "total amount of claim",
     "maximum additional amounts",
+    # Travelers Insurance summary keywords
+    "actual cash value",
+    "net claim",
+    "loss recap summary",
+    "total depreciation",
+    "total recoverable depreciation",
     # Erie Insurance / non-Xactimate summary keywords
     "estimate subtotal",
     "estimate total",
@@ -161,6 +167,11 @@ _FIELD_MAP = {
     # Total if incurred
     "total amount of claim if incurred": "total_if_incurred",
     "net claim if depreciation is recovered": "total_if_incurred",
+    # Travelers Insurance format
+    "actual cash value": "net_acv",
+    "comm repr/remod tax": "material_sales_tax",
+    "electrical consumption": "electrical_consumption",
+    "total depreciation": "depreciation",
     # Erie Insurance / non-Xactimate format
     "estimate subtotal": "rcv",
     "estimate total on coverage dwelling": "rcv",
@@ -171,10 +182,14 @@ _FIELD_MAP = {
 }
 
 # Summary section header pattern
+# Handles both single-line "Summary for Dwelling" and multi-line "Summary for\nDwelling"
 _SECTION_HEADER = re.compile(
-    r"Summary\s+for\s+(.+?)(?:\n|$)",
+    r"Summary\s+for\s*\n?\s*(.+?)(?:\n|$)",
     re.IGNORECASE,
 )
+
+# Sub-headers that should NOT be treated as section names
+_IGNORE_SECTION_NAMES = {"all items", "all coverages"}
 
 
 def _parse_number(s: str) -> float:
@@ -187,6 +202,59 @@ def _parse_number(s: str) -> float:
         return abs(val)  # Depreciation/deductible always stored positive
     except ValueError:
         return 0.0
+
+
+def _extract_loss_recap_sections(page_text: str) -> List[Dict[str, Any]]:
+    """
+    Parse Travelers 'Loss Recap Summary' table format.
+    Table format: Coverage | Replacement Cost - RCV | Recoverable Depreciation | Prior Payments | Deductible | Net Claim
+    """
+    if "loss recap summary" not in page_text.lower():
+        return []
+
+    sections = []
+    # Match rows like: "Dwelling $9,683.69 $615.56 $0.00 $1,500.00 7,568.13"
+    # or "Dwelling - Water Mitigation $2,117.43 $0.00 $0.00 $0.00 2,117.43"
+    # Skip header rows and "Structural" / "TOTAL" aggregate rows
+    _SKIP_LABELS = {"structural", "total", "coverage"}
+    _RECAP_ROW = re.compile(
+        r"^\s*(?P<label>[A-Za-z][A-Za-z \-]+?)\s{2,}"
+        r"\$?(?P<rcv>[\d,]+\.\d{2})\s+"
+        r"\$?(?P<dep>[\d,]+\.\d{2})\s+"
+        r"\$?(?P<prior>[\d,]+\.\d{2})\s+"
+        r"\$?(?P<ded>[\d,]+\.\d{2})\s+"
+        r"(?P<net>[\d,]+\.\d{2})\s*$",
+        re.MULTILINE,
+    )
+
+    for m in _RECAP_ROW.finditer(page_text):
+        label = m.group("label").strip()
+        if label.lower() in _SKIP_LABELS:
+            continue
+        rcv = _parse_number(m.group("rcv"))
+        dep = _parse_number(m.group("dep"))
+        ded = _parse_number(m.group("ded"))
+        net = _parse_number(m.group("net"))
+        if rcv <= 0 and net <= 0:
+            continue
+
+        sections.append({
+            "section_name": label,
+            "line_item_total": 0,
+            "material_sales_tax": 0,
+            "subtotal": 0,
+            "overhead_amount": 0,
+            "profit_amount": 0,
+            "rcv": rcv,
+            "depreciation": dep,
+            "deductible": ded,
+            "net_acv": net,
+            "recoverable_depreciation": dep,
+            "non_recoverable_depreciation": 0,
+            "total_if_incurred": 0,
+        })
+
+    return sections
 
 
 def _extract_sections_from_text(page_text: str) -> List[Dict[str, Any]]:
@@ -202,6 +270,11 @@ def _extract_sections_from_text(page_text: str) -> List[Dict[str, Any]]:
     # parts[0] = text before first header (skip)
     # parts[1] = first section name, parts[2] = first section body, etc.
     if len(parts) < 3:
+        # Try Loss Recap Summary table format (Travelers)
+        recap_sections = _extract_loss_recap_sections(page_text)
+        if recap_sections:
+            return recap_sections
+
         # No "Summary for" header found — try parsing the whole page as one section
         # Detect section name from ESTIMATE header if present
         est_m = re.search(
@@ -214,12 +287,42 @@ def _extract_sections_from_text(page_text: str) -> List[Dict[str, Any]]:
             sections.append(section)
         return sections
 
+    # Track current parent section name for merging "All Items" sub-headers
+    current_parent = None
+    current_parent_name = None
     for i in range(1, len(parts), 2):
         section_name = parts[i].strip()
         body = parts[i + 1] if i + 1 < len(parts) else ""
+
+        # Skip sub-headers like "All Items" — merge their body into the parent
+        if section_name.lower() in _IGNORE_SECTION_NAMES:
+            # Parse the body using the parent's name
+            parent_name = current_parent_name or "Dwelling"
+            sub = _parse_section_body(body, parent_name)
+            if sub:
+                if current_parent is not None:
+                    # Merge into existing parent
+                    for key, val in sub.items():
+                        if key == "section_name":
+                            continue
+                        if (current_parent.get(key, 0) or 0) == 0 and (val or 0) > 0:
+                            current_parent[key] = val
+                else:
+                    # Parent had empty body — use this as the section
+                    sections.append(sub)
+                    current_parent = sub
+            continue
+
+        # Remember current section name even before parsing body
+        current_parent_name = section_name
         section = _parse_section_body(body, section_name)
         if section:
             sections.append(section)
+            current_parent = section
+        else:
+            # Empty body (e.g., Travelers multi-line header) — reset parent
+            # so the next "All Items" sub-header can create it
+            current_parent = None
 
     return sections
 

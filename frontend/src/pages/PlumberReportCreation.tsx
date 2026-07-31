@@ -102,6 +102,7 @@ const PlumberReportCreation: React.FC = () => {
   const [jsonPasteValue, setJsonPasteValue] = useState('');
   const [aiGenerateModalVisible, setAiGenerateModalVisible] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiStep, setAiStep] = useState<string>('');
   const [aiForm] = Form.useForm();
 
   // Modal states
@@ -705,6 +706,8 @@ const PlumberReportCreation: React.FC = () => {
     try {
       const values = await aiForm.validateFields();
       setAiGenerating(true);
+      setAiStep('Step 1/2: Analyzing scope & writing assessment...');
+
       const data = await plumberReportService.generateAI({
         incident_type: values.incident_type,
         location: values.location,
@@ -715,6 +718,9 @@ const PlumberReportCreation: React.FC = () => {
         wall_access_type: values.wall_access_type || 'drywall',
         protection_installed: values.protection_installed || 'yes',
       });
+
+      // The backend runs both steps — update UI to reflect completion
+      setAiStep('Applying results...');
 
       // Apply generated data to form
       if (data.site_findings) setSiteFindings(data.site_findings);
@@ -738,12 +744,13 @@ const PlumberReportCreation: React.FC = () => {
       if (data.notes) setNotes(data.notes);
 
       setAiGenerateModalVisible(false);
-      message.success('AI report generated successfully');
+      message.success('AI report generated (2-step: scope → invoice)');
     } catch (error: any) {
       if (error?.errorFields) return; // form validation error
       message.error(error?.response?.data?.detail || 'AI generation failed. Please try again.');
     } finally {
       setAiGenerating(false);
+      setAiStep('');
     }
   }, [aiForm, form]);
 
@@ -1666,8 +1673,13 @@ const PlumberReportCreation: React.FC = () => {
           </Button>,
         ]}
       >
+        {aiGenerating && aiStep && (
+          <div style={{ marginBottom: 16, padding: '8px 12px', background: '#e6f4ff', borderRadius: 6, fontSize: 13 }}>
+            <Spin size="small" style={{ marginRight: 8 }} />{aiStep}
+          </div>
+        )}
         <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-          Enter job details and AI will automatically generate Site Findings, Work Performed, Invoice Items, and more.
+          AI will analyze the job in 2 steps: (1) assess scope &amp; write findings, then (2) build invoice from the work performed.
         </Typography.Text>
         <Form form={aiForm} layout="vertical">
           <Form.Item

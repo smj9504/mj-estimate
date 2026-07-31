@@ -406,7 +406,7 @@ export const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) 
     if (field === 'rcv' || field === 'depreciation') {
       const rcv = field === 'rcv' ? (value || 0) : (sections[idx].rcv || 0);
       const dep = field === 'depreciation' ? (value || 0) : (sections[idx].depreciation || 0);
-      sections[idx].net_acv = rcv - dep;
+      sections[idx].net_acv = Math.round((rcv - dep) * 100) / 100;
     }
     // Recalc totals: ACV = RCV - DEP (deductible is separate, not subtracted from ACV)
     const totalRcv = sections.reduce((s: number, sec: any) => s + (sec.rcv || 0), 0);
@@ -2363,7 +2363,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                                 const updated = [...(parsedSections || [])];
                                 const rcv = v || 0;
                                 const dep = updated[idx].depreciation || 0;
-                                updated[idx] = { ...updated[idx], rcv, net_acv: rcv - dep };
+                                updated[idx] = { ...updated[idx], rcv, net_acv: Math.round((rcv - dep) * 100) / 100 };
                                 setParsedSections(updated);
                                 recalcTotals(updated);
                               }} />
@@ -2375,7 +2375,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                                 const updated = [...(parsedSections || [])];
                                 const dep = v || 0;
                                 const rcv = updated[idx].rcv || 0;
-                                updated[idx] = { ...updated[idx], depreciation: dep, net_acv: rcv - dep };
+                                updated[idx] = { ...updated[idx], depreciation: dep, net_acv: Math.round((rcv - dep) * 100) / 100 };
                                 setParsedSections(updated);
                                 recalcTotals(updated);
                               }} />
