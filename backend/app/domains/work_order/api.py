@@ -9,8 +9,8 @@ from datetime import datetime
 import logging
 
 from .schemas import (
-    WorkOrder, WorkOrderCreate, WorkOrderUpdate, WorkOrderResponse, 
-    WorkOrdersResponse, WorkOrderFilter
+    WorkOrder, WorkOrderCreate, WorkOrderUpdate, WorkOrderResponse,
+    WorkOrdersResponse, WorkOrderFilter, CompletionReportRequest
 )
 from .service import WorkOrderService
 from .models import WorkOrderStatus
@@ -595,3 +595,246 @@ async def debug_work_order(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Debug error: {str(e)}")
+
+
+@router.post("/{work_order_id}/completion-report/generate")
+async def generate_completion_report(
+    work_order_id: UUID,
+    request: CompletionReportRequest,
+    service: WorkOrderService = Depends(get_work_order_service),
+):
+    """Generate Completion Photo Report PDF from claim photos.
+
+    Fetches work order, company, client, and claim data, downloads selected
+    photos from storage, generates a PDF report, uploads it to storage,
+    and returns the PDF as a downloadable response.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from fastapi.responses import Response
+
+    try:
+        # 1. Get work order
+        work_order = service.get_by_id(str(work_order_id))
+        if not work_order:
+            raise HTTPException(status_code=404, detail="Work order not found")
+
+        # 2. Get company data
+        company_data = None
+        if work_order.get('company_id'):
+            try:
+                from app.domains.company.service import CompanyService
+                company_svc = CompanyService(get_database())
+                company = company_svc.get_by_id(str(work_order['company_id']))
+                if company:
+                    # Handle logo: if base64, save to temp file for PDF rendering
+                    logo_path = None
+                    if company.get('logo'):
+                        import base64
+                        try:
+                            logo_data_str = company['logo']
+                            if ',' in logo_data_str:
+                                logo_data_str = logo_data_str.split(',', 1)[1]
+                            logo_bytes = base64.b64decode(logo_data_str)
+                            logo_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+                            logo_temp.write(logo_bytes)
+                            logo_temp.close()
+                            logo_path = logo_temp.name
+                        except Exception as logo_err:
+                            logger.warning(f"Failed to process company logo: {logo_err}")
+
+                    company_data = {
+                        'name': company.get('name', ''),
+                        'logo': logo_path,
+                        'address': company.get('address', ''),
+                        'city': company.get('city', ''),
+                        'state': company.get('state', ''),
+                        'zipcode': company.get('zipcode', ''),
+                        'phone': company.get('phone', ''),
+                        'email': company.get('email', ''),
+                    }
+            except Exception as e:
+                logger.warning(f"Failed to fetch company data: {e}")
+
+        # 3. Get claim data
+        claim_data = None
+        if work_order.get('claim_id'):
+            try:
+                from app.domains.client.service import ClaimService
+                claim_svc = ClaimService(get_database())
+                claim = claim_svc.get_by_id(str(work_order['claim_id']))
+                if claim:
+                    claim_data = {
+                        'claim_number': claim.get('claim_number', ''),
+                        'insurance_company': claim.get('insurance_company', ''),
+                        'policy_number': claim.get('policy_number', ''),
+                        'insurance_deductible': claim.get('insurance_deductible'),
+                        'date_of_loss': claim.get('date_of_loss', ''),
+                        'adjuster_name': claim.get('adjuster_name', ''),
+                        'adjuster_phone': claim.get('adjuster_phone', ''),
+                        'adjuster_email': claim.get('adjuster_email', ''),
+                    }
+            except Exception as e:
+                logger.warning(f"Failed to fetch claim data: {e}")
+
+        # 4. Get client data
+        client_data = None
+        if work_order.get('client_id'):
+            try:
+                from app.domains.client.service import ClientService
+                client_svc = ClientService(get_database())
+                client = client_svc.get_by_id(str(work_order['client_id']))
+                if client:
+                    client_data = {
+                        'display_name': client.get('display_name', ''),
+                        'address': client.get('address', ''),
+                        'city': client.get('city', ''),
+                        'state': client.get('state', ''),
+                        'zipcode': client.get('zipcode', ''),
+                        'phone': client.get('phone', ''),
+                        'email': client.get('email', ''),
+                    }
+            except Exception as e:
+                logger.warning(f"Failed to fetch client data: {e}")
+
+        # 5. Download photos from storage
+        from app.domains.file.service import FileService, get_storage_provider
+        file_service = FileService(service.db)
+        storage = get_storage_provider()
+
+        photo_items = []
+        temp_photo_files = []
+
+        for file_id in request.photo_ids:
+            try:
+                file_record = file_service.repository.get_by_id(file_id)
+                if not file_record or not file_record.get('is_active', True):
+                    logger.warning(f"File not found or inactive: {file_id}")
+                    continue
+
+                file_url = file_record.get('url', '')
+                photo_path = None
+
+                # Download from storage
+                if file_url.startswith('gs://') or file_url.startswith('https://') or file_url.startswith('http://'):
+                    photo_data = storage.download(file_url)
+                    if photo_data:
+                        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+                        temp_file.write(photo_data)
+                        temp_file.close()
+                        photo_path = temp_file.name
+                        temp_photo_files.append(temp_file.name)
+                else:
+                    # Local file
+                    local_path = Path(file_url)
+                    if local_path.exists():
+                        photo_path = str(local_path)
+                    else:
+                        # Try relative path from uploads dir
+                        from app.core.config import settings
+                        upload_path = Path(settings.STORAGE_BASE_DIR or 'uploads') / file_url
+                        if upload_path.exists():
+                            photo_path = str(upload_path)
+
+                if photo_path:
+                    photo_items.append({
+                        'file_path': photo_path,
+                        'filename': file_record.get('original_name', ''),
+                        'caption': file_record.get('description', ''),
+                        'category': file_record.get('category', ''),
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to download photo {file_id}: {e}")
+                continue
+
+        if not photo_items:
+            raise HTTPException(status_code=400, detail="No valid photos found for the report")
+
+        # 6. Generate PDF
+        from app.common.services.pdf_service import generate_completion_report_pdf
+
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+            temp_output = tmp.name
+
+        generate_completion_report_pdf(
+            work_order_data=work_order,
+            photos=photo_items,
+            output_path=temp_output,
+            company_data=company_data,
+            client_data=client_data,
+            claim_data=claim_data,
+            title=request.title,
+            description=request.description,
+            report_date=request.report_date,
+            compress=request.compress,
+        )
+
+        pdf_bytes = Path(temp_output).read_bytes()
+        try:
+            Path(temp_output).unlink()
+        except Exception:
+            pass
+
+        logger.info(f"Completion report generated: {len(pdf_bytes)} bytes, {len(photo_items)} photos")
+
+        # 7. Upload to storage
+        job_site = work_order.get('job_site_address', 'Property')
+        filename = f"{job_site} - Completion Photo Report.pdf"
+
+        from app.common.utils.storage_helpers import upload_bytes_to_storage
+        storage_info = upload_bytes_to_storage(
+            file_bytes=pdf_bytes,
+            filename=filename,
+            content_type="application/pdf",
+            context="work-order",
+            context_id=str(work_order_id),
+            category="reports",
+        )
+
+        # 8. Create file record
+        file_record_data = {
+            'context': 'work-order',
+            'context_id': str(work_order_id),
+            'category': 'reports',
+            'filename': storage_info.get('filename', filename),
+            'original_name': filename,
+            'content_type': 'application/pdf',
+            'size': len(pdf_bytes),
+            'url': storage_info.get('file_path', ''),
+            'is_active': True,
+        }
+        created_file = file_service.repository.create(file_record_data)
+        file_service.repository.session.commit()
+
+        # Cleanup temp photo files
+        for temp_path in temp_photo_files:
+            try:
+                Path(temp_path).unlink()
+            except Exception:
+                pass
+        # Cleanup logo temp file
+        if company_data and company_data.get('logo'):
+            try:
+                Path(company_data['logo']).unlink()
+            except Exception:
+                pass
+
+        # 9. Return PDF as response
+        file_id = created_file.get('id', '') if isinstance(created_file, dict) else str(getattr(created_file, 'id', ''))
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "X-File-Id": file_id,
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate completion report: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))

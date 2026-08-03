@@ -29,7 +29,7 @@
   border: 2px dashed #d9d9d9;
   border-radius: 8px;
   background: #fafafa;
-  transition: all 0.3s ease;
+  transition: border-color 0.3s ease, background-color 0.3s ease;
 }
 
 .file-upload-zone .ant-upload-drag:hover {
@@ -64,7 +64,7 @@
   background: #fafafa;
   padding: 12px 16px;
   border-radius: 6px;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease;
 }
 
 .date-group-header:hover {
@@ -97,7 +97,7 @@
   margin: 2px 4px;
   border-radius: 12px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .category-manager .ant-tag:hover {
@@ -142,7 +142,7 @@
 }
 
 .file-grid-item {
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
   border-radius: 8px;
   overflow: hidden;
   position: relative;
@@ -197,7 +197,7 @@
   background: #fafafa;
   border: 1px dashed #d9d9d9;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .file-document-icon:hover {
@@ -214,7 +214,7 @@
 }
 
 .file-list .ant-list-item {
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease;
   cursor: pointer;
   border-bottom: 1px solid #f5f5f5;
 }
@@ -242,7 +242,7 @@
 
 .file-card {
   width: 280px;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .file-card:hover {

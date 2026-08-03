@@ -718,7 +718,7 @@ const SupplementDetail: React.FC = () => {
 
                           {/* Date / Notes */}
                           {(ver.date_received || ver.received_from || ver.notes) && (
-                            <div style={{ fontSize: 11, marginBottom: 4, color: '#888' }}>
+                            <div style={{ fontSize: 11, marginBottom: 4, color: '#8c8c8c' }}>
                               {ver.date_received && <span>Received: {dayjs(ver.date_received).format('MM/DD/YYYY')}</span>}
                               {ver.received_from && <span>{ver.date_received ? ' · ' : ''}From: {ver.received_from}</span>}
                               {ver.notes && <span style={{ display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ver.notes}</span>}
@@ -1070,7 +1070,7 @@ const SupplementDetail: React.FC = () => {
                         defaultValue={v || 0}
                         style={{
                           width: '100%',
-                          ...(item.included_in_xactimate ? { textDecoration: 'line-through', color: '#999' } : {}),
+                          ...(item.included_in_xactimate ? { textDecoration: 'line-through', color: '#8c8c8c' } : {}),
                         }}
                         formatter={val => `${val}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                         parser={val => val?.replace(/[,$]/g, '') as any}
@@ -1257,7 +1257,7 @@ const SupplementDetail: React.FC = () => {
                     <Text>{formatCurrency(xactOriginal)}</Text>
                   </div>
                   {inXactItems.map(i => (
-                    <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', color: '#999' }}>
+                    <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', color: '#8c8c8c' }}>
                       <Text type="secondary" style={{ fontSize: 12, paddingLeft: 12 }}>
                         − {BID_TYPE_LABELS[i.estimate_type] || i.estimate_type}: {i.title}
                       </Text>
@@ -1465,7 +1465,7 @@ const SupplementDetail: React.FC = () => {
               </div>
 
               {infoRequests.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 12, color: '#999' }}>
+                <div style={{ textAlign: 'center', padding: 12, color: '#8c8c8c' }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>No info requests yet. Click "Request Info" when you need information from PA or contractor.</Text>
                 </div>
               ) : (

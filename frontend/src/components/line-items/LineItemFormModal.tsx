@@ -148,7 +148,7 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({ id, note, onDelete,
             <HolderOutlined
               {...attributes}
               {...listeners}
-              style={{ cursor: 'grab', color: '#999', fontSize: 16 }}
+              style={{ cursor: 'grab', color: '#8c8c8c', fontSize: 16 }}
             />
             <div>
               {note.title && <Text strong>{note.title}</Text>}

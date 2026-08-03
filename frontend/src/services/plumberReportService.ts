@@ -282,6 +282,7 @@ class PlumberReportService {
     pipe_material?: string;
     wall_access_type?: string;
     protection_installed?: string;
+    hours_on_site?: string;
   }): Promise<{
     site_findings: string;
     work_performed: string;
@@ -292,7 +293,9 @@ class PlumberReportService {
       unit: string;
       unit_cost: number;
     }>;
+    subtotal: number;
     tax_amount: number;
+    total: number;
     warranty_info: string;
     notes: string;
   }> {

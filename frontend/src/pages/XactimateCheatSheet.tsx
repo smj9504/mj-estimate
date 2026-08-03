@@ -597,7 +597,7 @@ const XactimateCheatSheet: React.FC = () => {
           <Input
             size={isMobile ? 'middle' : 'large'}
             placeholder={isMobile ? 'Search codes...' : 'Search items, codes, descriptions...'}
-            prefix={<SearchOutlined style={{ color: '#aaa' }} />}
+            prefix={<SearchOutlined style={{ color: '#8c8c8c' }} />}
             suffix={searchText && <Text type="secondary" style={{ fontSize: 12 }}>{matchCount} items</Text>}
             value={searchText}
             onChange={e => setSearchText(e.target.value)}
@@ -744,7 +744,7 @@ const XactimateCheatSheet: React.FC = () => {
                             </Text>
                           </div>
                           <a onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(record.desc || ''); message.success('복사됨'); }}
-                            style={{ flexShrink: 0, fontSize: 16, color: '#999', padding: 4 }} title="Copy to clipboard">
+                            style={{ flexShrink: 0, fontSize: 16, color: '#8c8c8c', padding: 4 }} title="Copy to clipboard">
                             <CopyOutlined />
                           </a>
                         </div>

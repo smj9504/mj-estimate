@@ -94,7 +94,7 @@ const SortableSection: React.FC<SortableSectionProps> = ({
               e.currentTarget.style.backgroundColor = 'transparent';
             }}
           >
-            <HolderOutlined style={{ color: '#999', fontSize: '14px' }} />
+            <HolderOutlined style={{ color: '#8c8c8c', fontSize: '14px' }} />
           </div>
           <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{section.title}</strong>
           <Badge count={section.items.length} style={{ marginLeft: 4, flexShrink: 0 }} />
@@ -175,7 +175,7 @@ const SortableSection: React.FC<SortableSectionProps> = ({
                   e.currentTarget.style.backgroundColor = 'transparent';
                 }}
               >
-                <HolderOutlined style={{ color: '#999', fontSize: '14px' }} />
+                <HolderOutlined style={{ color: '#8c8c8c', fontSize: '14px' }} />
               </div>
               <strong>{section.title}</strong>
               <Badge count={section.items.length} style={{ marginLeft: 8 }} />

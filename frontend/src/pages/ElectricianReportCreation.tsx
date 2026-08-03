@@ -1429,7 +1429,7 @@ const ElectricianReportCreation: React.FC = () => {
                       value={overallAssessment}
                       onChange={(val) => setOverallAssessment(val)}
                     >
-                      <Option value="pending"><span style={{ color: '#999' }}>Pending</span></Option>
+                      <Option value="pending"><span style={{ color: '#8c8c8c' }}>Pending</span></Option>
                       <Option value="satisfactory"><span style={{ color: '#1a7a1a', fontWeight: 600 }}>Satisfactory</span></Option>
                       <Option value="unsatisfactory"><span style={{ color: '#c00', fontWeight: 600 }}>Unsatisfactory</span></Option>
                     </Select>
@@ -1884,7 +1884,7 @@ const ElectricianReportCreation: React.FC = () => {
                         gap: '8px',
                       }}
                     >
-                      <HolderOutlined style={{ color: '#999', fontSize: '12px' }} />
+                      <HolderOutlined style={{ color: '#8c8c8c', fontSize: '12px' }} />
                       <span style={{ fontWeight: '500' }}>
                         {(() => {
                           const index = parseInt(activeItemId.split('-')[1]);
@@ -1992,7 +1992,7 @@ const ElectricianReportCreation: React.FC = () => {
                 <div
                   style={{
                     border: '2px dashed #d9d9d9', borderRadius: 8, padding: '40px 20px',
-                    textAlign: 'center', color: '#999',
+                    textAlign: 'center', color: '#8c8c8c',
                   }}
                 >
                   <CameraOutlined style={{ fontSize: 24, marginBottom: 8 }} />
@@ -2056,7 +2056,7 @@ const ElectricianReportCreation: React.FC = () => {
                           <div style={{ fontSize: 11, fontWeight: 600, color: '#333' }}>
                             {areaName || 'Unassigned'}
                           </div>
-                          <div style={{ fontSize: 10, color: '#888', lineHeight: 1.3 }}>
+                          <div style={{ fontSize: 10, color: '#8c8c8c', lineHeight: 1.3 }}>
                             {itemsLabel || '—'}
                           </div>
                         </div>
@@ -2577,7 +2577,7 @@ The block below is a FORMAT/TONE reference only — its rooms and numbers are DU
                                   width: 52, height: 52, borderRadius: 4,
                                   border: '1px solid #d9d9d9', background: '#f5f5f5',
                                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                  fontSize: 10, color: '#999',
+                                  fontSize: 10, color: '#8c8c8c',
                                 }}>
                                   📷
                                 </div>
@@ -2617,7 +2617,7 @@ The block below is a FORMAT/TONE reference only — its rooms and numbers are DU
                               width: 52, height: 52,
                               display: 'flex', flexDirection: 'column',
                               alignItems: 'center', justifyContent: 'center',
-                              fontSize: 10, color: '#999',
+                              fontSize: 10, color: '#8c8c8c',
                             }}
                           >
                             {(item.photos || []).length ? '' : 'Photo'}

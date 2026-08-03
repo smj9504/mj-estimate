@@ -598,7 +598,7 @@ const WaterMitigationDetail: React.FC = () => {
                                   )}
                                 </span>
                               ) : (
-                                <span style={{ color: '#999' }}>Not assigned</span>
+                                <span style={{ color: '#8c8c8c' }}>Not assigned</span>
                               )
                             )}
                           </Descriptions.Item>
@@ -976,7 +976,7 @@ const WaterMitigationDetail: React.FC = () => {
                               <p style={{ margin: 0, fontWeight: 'bold' }}>
                                 {history.new_status}
                               </p>
-                              <p style={{ margin: 0, fontSize: '12px', color: '#999' }}>
+                              <p style={{ margin: 0, fontSize: '12px', color: '#8c8c8c' }}>
                                 {new Date(history.changed_at).toLocaleString()}
                               </p>
                               {history.notes && (

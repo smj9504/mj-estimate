@@ -325,7 +325,7 @@ const QuickEstimateRooms: React.FC<{
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         {Object.entries(presets).map(([category, items]) => (
           <div key={category} style={{ marginBottom: 8 }}>
-            <Text strong style={{ fontSize: 12, color: '#888' }}>{category}</Text>
+            <Text strong style={{ fontSize: 12, color: '#8c8c8c' }}>{category}</Text>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
               {items.map((p: any) => (
                 <Button
@@ -450,7 +450,7 @@ const EstimateReview: React.FC<{
             <thead>
               <tr style={{ borderBottom: '1px solid #f0f0f0' }}>
                 <th style={{ textAlign: 'left', padding: '4px 8px' }}>Item</th>
-                <th style={{ textAlign: 'left', padding: '4px 8px', color: '#888', fontSize: 12 }}>Detail</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px', color: '#8c8c8c', fontSize: 12 }}>Detail</th>
                 <th style={{ textAlign: 'right', padding: '4px 8px' }}>Qty</th>
                 <th style={{ textAlign: 'right', padding: '4px 8px' }}>Rate</th>
                 <th style={{ textAlign: 'right', padding: '4px 8px' }}>Amount</th>
@@ -460,7 +460,7 @@ const EstimateReview: React.FC<{
               {detail.lines.map((line, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid #fafafa' }}>
                   <td style={{ padding: '4px 8px' }}>{line.name}</td>
-                  <td style={{ padding: '4px 8px', color: '#888', fontSize: 12 }}>{line.detail}</td>
+                  <td style={{ padding: '4px 8px', color: '#8c8c8c', fontSize: 12 }}>{line.detail}</td>
                   <td style={{ textAlign: 'right', padding: '4px 8px' }}>{line.qty} {line.unit}</td>
                   <td style={{ textAlign: 'right', padding: '4px 8px' }}>${line.rate?.toFixed(2)}</td>
                   <td style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 500 }}>${line.amount?.toFixed(2)}</td>

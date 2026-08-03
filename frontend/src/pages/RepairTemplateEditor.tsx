@@ -496,7 +496,7 @@ const RepairTemplateEditor: React.FC = () => {
         }
       >
         {selectedConditions.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '32px 16px', color: '#999' }}>
+          <div style={{ textAlign: 'center', padding: '32px 16px', color: '#8c8c8c' }}>
             <Text type="secondary">
               No conditions added yet. Click "Add Condition" to start building your template.
             </Text>

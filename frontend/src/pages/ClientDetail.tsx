@@ -53,6 +53,7 @@ import {
   LoadingOutlined,
   FormOutlined,
   CheckSquareOutlined,
+  CameraOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -62,6 +63,7 @@ import { fileService } from '../services/fileService';
 import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
 import ClientDocumentHub from '../components/client/ClientDocumentHub';
 import ClaimNotes from '../components/client/ClaimNotes';
+import ClaimPhotosSection from '../components/client/ClaimPhotosSection';
 import ClaimTodos from '../components/client/ClaimTodos';
 import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory } from '../components/claim-followup';
 import type { ClaimContact } from '../components/claim-followup/EmailComposer';
@@ -1661,6 +1663,22 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                   Notes
                 </Text>
                 <ClaimNotes clientId={client.id} claimId={claim.id} />
+
+                {/* Completion Photos */}
+                <Divider style={{ margin: '16px 0 12px' }} />
+                <Collapse ghost size="small">
+                  <Collapse.Panel
+                    header={
+                      <Text strong style={{ fontSize: 14 }}>
+                        <CameraOutlined style={{ marginRight: 6 }} />
+                        Completion Photos
+                      </Text>
+                    }
+                    key="photos"
+                  >
+                    <ClaimPhotosSection claimId={claim.id} />
+                  </Collapse.Panel>
+                </Collapse>
 
                 {/* Claim Activity Timeline */}
                 <Divider style={{ margin: '16px 0 12px' }} />

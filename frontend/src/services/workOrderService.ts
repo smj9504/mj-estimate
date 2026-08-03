@@ -196,6 +196,22 @@ export const workOrderService = {
     return response.data;
   },
 
+  // Completion Report
+  async generateCompletionReport(workOrderId: string, data: {
+    photo_ids: string[];
+    title?: string;
+    description?: string;
+    report_date?: string;
+    compress?: boolean;
+  }): Promise<Blob> {
+    const response = await api.post(
+      `/api/work-orders/${workOrderId}/completion-report/generate`,
+      data,
+      { responseType: 'blob' }
+    );
+    return response.data;
+  },
+
 };
 
 export default workOrderService;

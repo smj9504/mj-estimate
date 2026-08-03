@@ -2246,19 +2246,19 @@ const ClaimFollowUpDashboard: React.FC = () => {
               <Select placeholder="What would you like to do?" onChange={(v) => setResolveDeniedAction(v)}>
                 <Select.Option value="complete">
                   <span>Complete</span>
-                  <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>Close the claim</span>
+                  <span style={{ color: '#8c8c8c', fontSize: 12, marginLeft: 8 }}>Close the claim</span>
                 </Select.Option>
                 <Select.Option value="dispute">
                   <span>Dispute</span>
-                  <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>Create estimate & dispute with insurance</span>
+                  <span style={{ color: '#8c8c8c', fontSize: 12, marginLeft: 8 }}>Create estimate & dispute with insurance</span>
                 </Select.Option>
                 <Select.Option value="appraisal">
                   <span>Appraisal</span>
-                  <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>Proceed to appraisal process</span>
+                  <span style={{ color: '#8c8c8c', fontSize: 12, marginLeft: 8 }}>Proceed to appraisal process</span>
                 </Select.Option>
                 <Select.Option value="attorney">
                   <span>Attorney</span>
-                  <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>Refer to attorney</span>
+                  <span style={{ color: '#8c8c8c', fontSize: 12, marginLeft: 8 }}>Refer to attorney</span>
                 </Select.Option>
               </Select>
             </Form.Item>
@@ -2717,7 +2717,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   }}>
                     {est.file_download_id
                       ? <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 14 }} />
-                      : <FileTextOutlined style={{ color: '#999', fontSize: 14 }} />
+                      : <FileTextOutlined style={{ color: '#8c8c8c', fontSize: 14 }} />
                     }
                     <div style={{ flex: 1, minWidth: 0 }}>
                       {est.file_download_id ? (

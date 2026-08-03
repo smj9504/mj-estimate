@@ -447,7 +447,7 @@ const WorkOrderCreation: React.FC = () => {
                             </span>
                           )}
                           {trade.code && (
-                            <span style={{ color: '#999', fontSize: '10px' }}>
+                            <span style={{ color: '#8c8c8c', fontSize: '10px' }}>
                               [{trade.code}]
                             </span>
                           )}

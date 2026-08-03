@@ -16,6 +16,15 @@ interface WorkOrderDetailTabsProps {
 }
 
 const WorkOrderDetailTabs: React.FC<WorkOrderDetailTabsProps> = ({ workOrderId }) => {
+  // Fetch work order to get claim_id
+  const { data: workOrderData } = useQuery({
+    queryKey: ['work-order', workOrderId],
+    queryFn: () => workOrderService.getWorkOrder(workOrderId),
+    enabled: !!workOrderId,
+  });
+
+  const claimId = workOrderData?.claim_id;
+
   // Fetch file counts for tab badges
   const { data: imageCount = 0 } = useQuery({
     queryKey: ['work-order-images-count', workOrderId],
@@ -62,7 +71,7 @@ const WorkOrderDetailTabs: React.FC<WorkOrderDetailTabsProps> = ({ workOrderId }
           <span>Documents {documentCount > 0 && `(${documentCount})`}</span>
         </span>
       ),
-      children: <WorkOrderDocumentsTab workOrderId={workOrderId} />
+      children: <WorkOrderDocumentsTab workOrderId={workOrderId} claimId={claimId} />
     }
   ];
 

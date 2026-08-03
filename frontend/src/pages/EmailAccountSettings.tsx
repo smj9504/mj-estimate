@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card,
@@ -110,6 +110,14 @@ const EmailAccountSettings: React.FC = () => {
   });
 
   const [oauthLoading, setOauthLoading] = useState(false);
+  const oauthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cleanup popup poll timer on unmount
+  useEffect(() => {
+    return () => {
+      if (oauthPollRef.current) clearInterval(oauthPollRef.current);
+    };
+  }, []);
 
   const handleGoogleConnect = async () => {
     setOauthLoading(true);
@@ -150,10 +158,12 @@ const EmailAccountSettings: React.FC = () => {
       };
       window.addEventListener('message', handler);
 
-      // Fallback: if popup closed without completing
-      const checkClosed = setInterval(() => {
+      // Fallback: if popup closed without completing (ref-tracked for unmount cleanup)
+      if (oauthPollRef.current) clearInterval(oauthPollRef.current);
+      oauthPollRef.current = setInterval(() => {
         if (popup?.closed) {
-          clearInterval(checkClosed);
+          if (oauthPollRef.current) clearInterval(oauthPollRef.current);
+          oauthPollRef.current = null;
           setOauthLoading(false);
           window.removeEventListener('message', handler);
         }

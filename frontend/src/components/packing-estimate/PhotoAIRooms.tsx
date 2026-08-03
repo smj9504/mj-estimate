@@ -543,7 +543,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
           style={{
             width: 72, height: 72, border: '1px dashed #d9d9d9', borderRadius: 4,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', color: '#999',
+            cursor: 'pointer', color: '#8c8c8c',
           }}
         >
           <PlusOutlined />

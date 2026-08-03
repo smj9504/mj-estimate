@@ -281,9 +281,9 @@ const FolderImportModal: React.FC<FolderImportModalProps> = ({
               (e.currentTarget as HTMLDivElement).style.background = '';
             }}
           >
-            <FolderOpenOutlined style={{ fontSize: 32, color: '#999', display: 'block', marginBottom: 8 }} />
+            <FolderOpenOutlined style={{ fontSize: 32, color: '#8c8c8c', display: 'block', marginBottom: 8 }} />
             <div style={{ fontSize: 14, fontWeight: 600 }}>Select Folder from Computer</div>
-            <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+            <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 4 }}>
               Choose a folder with subfolders named by room
             </div>
           </div>
@@ -316,7 +316,7 @@ const FolderImportModal: React.FC<FolderImportModalProps> = ({
                   checked={room.selected}
                   onChange={() => toggleRoom(room.name)}
                 />
-                <FolderOpenOutlined style={{ fontSize: 16, color: '#999', flexShrink: 0 }} />
+                <FolderOpenOutlined style={{ fontSize: 16, color: '#8c8c8c', flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
                     fontSize: 13, fontWeight: 600,
@@ -325,7 +325,7 @@ const FolderImportModal: React.FC<FolderImportModalProps> = ({
                     {room.name}
                   </div>
                 </div>
-                <span style={{ fontSize: 12, color: '#999', flexShrink: 0 }}>
+                <span style={{ fontSize: 12, color: '#8c8c8c', flexShrink: 0 }}>
                   {room.files.length} photo{room.files.length !== 1 ? 's' : ''}
                 </span>
                 {room.files.length > MAX_PHOTOS_PER_ROOM && (
@@ -336,7 +336,7 @@ const FolderImportModal: React.FC<FolderImportModalProps> = ({
               </div>
             ))}
             {folderRooms.length === 0 && (
-              <div style={{ padding: '24px 16px', textAlign: 'center', color: '#999', fontSize: 13 }}>
+              <div style={{ padding: '24px 16px', textAlign: 'center', color: '#8c8c8c', fontSize: 13 }}>
                 No subfolders with images found.
               </div>
             )}
@@ -377,7 +377,7 @@ const FolderImportModal: React.FC<FolderImportModalProps> = ({
           )}
 
           <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
-            <Button type="link" size="small" onClick={handleReset} style={{ fontSize: 12, color: '#999', padding: 0 }}>
+            <Button type="link" size="small" onClick={handleReset} style={{ fontSize: 12, color: '#8c8c8c', padding: 0 }}>
               Choose different folder
             </Button>
           </div>

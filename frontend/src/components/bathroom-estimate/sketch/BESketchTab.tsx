@@ -812,7 +812,7 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
           fontSize: 10,
           display: 'flex',
           gap: 12,
-          color: '#888',
+          color: '#8c8c8c',
           flexShrink: 0,
         }}
       >

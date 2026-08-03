@@ -92,7 +92,7 @@ const SortableItem: React.FC<SortableItemProps> = ({ id, index, item, onRemove, 
             <HolderOutlined
               {...attributes}
               {...listeners}
-              style={{ cursor: 'grab', color: '#999', fontSize: 16 }}
+              style={{ cursor: 'grab', color: '#8c8c8c', fontSize: 16 }}
             />
             <div>
               <Text strong>{item.description || item.name}</Text>

@@ -3,6 +3,8 @@ import { lazyWithRetry } from './utils/lazyWithRetry';
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import { ConfigProvider, Spin } from 'antd';
 import enUS from 'antd/locale/en_US';
+import { antTheme } from './styles/antTheme';
+import './styles/tokens.css';
 import { QueryProvider } from './contexts/QueryProvider';
 import { AuthProvider } from './contexts/AuthContext';
 import { TemplateBuilderProvider } from './contexts/TemplateBuilderContext';
@@ -173,7 +175,7 @@ const PageLoader = () => (
     width: '100%'
   }}>
     <Spin size="large" />
-    <div style={{ marginTop: 16, color: '#999' }}>Loading...</div>
+    <div style={{ marginTop: 16, color: '#8c8c8c' }}>Loading...</div>
   </div>
 );
 
@@ -1192,7 +1194,7 @@ function App() {
   return (
     <ErrorBoundary>
       <QueryProvider>
-        <ConfigProvider locale={enUS}>
+        <ConfigProvider theme={antTheme} locale={enUS}>
           <AuthProvider>
             <TemplateBuilderProvider>
               <RouterProvider router={router} />

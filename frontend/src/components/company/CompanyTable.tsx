@@ -104,7 +104,7 @@ const CompanyTable: React.FC<CompanyTableProps> = ({
           <Avatar
             icon={<BuildOutlined />}
             size={40}
-            style={{ backgroundColor: '#f0f0f0', color: '#999' }}
+            style={{ backgroundColor: '#f0f0f0', color: '#8c8c8c' }}
           />
         );
       }
@@ -113,7 +113,7 @@ const CompanyTable: React.FC<CompanyTableProps> = ({
       <Avatar
         icon={<BuildOutlined />}
         size={40}
-        style={{ backgroundColor: '#f0f0f0', color: '#999' }}
+        style={{ backgroundColor: '#f0f0f0', color: '#8c8c8c' }}
       />
     );
   };
@@ -158,7 +158,7 @@ const CompanyTable: React.FC<CompanyTableProps> = ({
           {code}
         </Tag>
       ) : (
-        <span style={{ color: '#ccc' }}>-</span>
+        <span style={{ color: '#8c8c8c' }}>-</span>
       ),
     },
     {
@@ -171,7 +171,7 @@ const CompanyTable: React.FC<CompanyTableProps> = ({
           {phone}
         </Tag>
       ) : (
-        <span style={{ color: '#ccc' }}>-</span>
+        <span style={{ color: '#8c8c8c' }}>-</span>
       ),
     },
     {

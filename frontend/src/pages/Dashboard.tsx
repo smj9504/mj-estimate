@@ -290,7 +290,7 @@ const Dashboard: React.FC = () => {
                     <span>{doc.document_number}</span>
                     <span>${(doc.total_amount || 0).toLocaleString()}</span>
                   </Space>
-                  <span style={{ color: '#999', fontSize: '12px' }}>{doc.client_name}</span>
+                  <span style={{ color: '#8c8c8c', fontSize: '12px' }}>{doc.client_name}</span>
                 </Space>
               </Card.Grid>
             ))}
@@ -308,7 +308,7 @@ const Dashboard: React.FC = () => {
                     <span>{doc.document_number}</span>
                     <span>${(doc.total_amount || 0).toLocaleString()}</span>
                   </Space>
-                  <span style={{ color: '#999', fontSize: '12px' }}>{doc.client_name}</span>
+                  <span style={{ color: '#8c8c8c', fontSize: '12px' }}>{doc.client_name}</span>
                 </Space>
               </Card.Grid>
             ))}

@@ -158,9 +158,9 @@ const WMEquipmentPanel: React.FC<WMEquipmentPanelProps> = ({
                 onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               >
                 {isExpanded ? (
-                  <DownOutlined style={{ fontSize: 10, color: '#999' }} />
+                  <DownOutlined style={{ fontSize: 10, color: '#8c8c8c' }} />
                 ) : (
-                  <RightOutlined style={{ fontSize: 10, color: '#999' }} />
+                  <RightOutlined style={{ fontSize: 10, color: '#8c8c8c' }} />
                 )}
                 <EquipmentIcon type={type} size={14} />
                 <Text style={{ fontSize: 12, flex: 1 }}>{config.name}</Text>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Card, Form, Input, Button, Typography, Space, Alert, Divider,
   Row, Col, message, Modal, Switch, Spin, Tag, List, Breadcrumb
@@ -46,6 +46,14 @@ const Profile: React.FC = () => {
   const [oauthLoading, setOauthLoading] = useState(false);
   const [oauthStatus, setOauthStatus] = useState<OAuthStatus | null>(null);
   const [connectingOAuth, setConnectingOAuth] = useState(false);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cleanup popup poll timer on unmount
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    };
+  }, []);
 
   // Folder browser state
   const [folderBrowserOpen, setFolderBrowserOpen] = useState(false);
@@ -117,10 +125,12 @@ const Profile: React.FC = () => {
         `width=${width},height=${height},left=${left},top=${top},popup=yes`
       );
 
-      // Poll for popup close
-      const pollTimer = setInterval(() => {
+      // Poll for popup close (ref-tracked for unmount cleanup)
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      pollTimerRef.current = setInterval(() => {
         if (popup?.closed) {
-          clearInterval(pollTimer);
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          pollTimerRef.current = null;
           setConnectingOAuth(false);
           loadOAuthStatus();
         }

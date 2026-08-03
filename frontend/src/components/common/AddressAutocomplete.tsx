@@ -142,7 +142,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
                   <div style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {streetAddr || r.display_name.split(',')[0]}
                   </div>
-                  <div style={{ fontSize: 12, color: '#888' }}>
+                  <div style={{ fontSize: 12, color: '#8c8c8c' }}>
                     {[city, stateCode, parsed.zip].filter(Boolean).join(', ')}
                   </div>
                 </div>

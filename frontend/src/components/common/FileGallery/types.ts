@@ -1,5 +1,5 @@
 export type ViewMode = 'grid' | 'list' | 'card';
-export type FileContext = 'work-order' | 'daily-log' | 'hauling-estimate' | 'water-mitigation' | 'general';
+export type FileContext = 'work-order' | 'daily-log' | 'hauling-estimate' | 'water-mitigation' | 'claim' | 'general';
 export type FileCategory = 'image' | 'document';
 
 export interface FileItem {

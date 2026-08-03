@@ -1,6 +1,26 @@
 /* Layout.css - Enhanced sidebar styling */
 
-/* Smooth transitions for all sidebar elements */
+/* Skip-to-content link — visible only on keyboard focus */
+.skip-to-content {
+  position: absolute;
+  top: -100%;
+  left: var(--space-lg);
+  z-index: var(--z-skip-link);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--color-primary);
+  color: var(--color-surface);
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  text-decoration: none;
+  transition: top 0.2s ease;
+}
+
+.skip-to-content:focus {
+  top: 0;
+}
+
+/* Smooth transitions for sidebar elements */
 .ant-layout-sider {
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
@@ -15,12 +35,12 @@
 }
 
 .ant-layout-sider .ant-menu::-webkit-scrollbar-track {
-  background: #001529;
+  background: var(--color-sidebar-start);
 }
 
 .ant-layout-sider .ant-menu::-webkit-scrollbar-thumb {
   background: #4a5568;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
 }
 
 .ant-layout-sider .ant-menu::-webkit-scrollbar-thumb:hover {
@@ -34,9 +54,9 @@
   align-items: center;
   color: white;
   font-weight: bold;
-  transition: all 0.3s ease;
-  border-bottom: 1px solid #1f1f1f;
-  background: linear-gradient(135deg, #001529 0%, #1f1f1f 100%);
+  transition: padding 0.3s ease, font-size 0.3s ease;
+  border-bottom: 1px solid var(--color-sidebar-end);
+  background: linear-gradient(135deg, var(--color-sidebar-start) 0%, var(--color-sidebar-end) 100%);
 }
 
 /* Toggle button styling */
@@ -45,28 +65,29 @@
   border: none !important;
   box-shadow: none !important;
   background: transparent !important;
-  transition: all 0.3s ease !important;
+  transition: background-color 0.3s ease !important;
 }
 
 .sidebar-toggle-btn:hover {
   background: rgba(255, 255, 255, 0.1) !important;
-  transform: scale(1.1);
 }
 
 .sidebar-toggle-btn:focus {
   background: transparent !important;
-  box-shadow: none !important;
+}
+
+.sidebar-toggle-btn:focus:not(:focus-visible) {
+  outline: none;
 }
 
 /* Header toggle button styling */
 .header-toggle-btn {
-  transition: all 0.3s ease;
-  border-radius: 6px;
+  transition: background-color 0.3s ease;
+  border-radius: var(--radius-md);
 }
 
 .header-toggle-btn:hover {
   background: rgba(0, 0, 0, 0.04);
-  transform: scale(1.05);
 }
 
 /* Menu item enhancements */
@@ -83,6 +104,7 @@
 /* Content area responsive margins */
 .main-content {
   transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: margin-left;
 }
 
 /* Mobile overlay for sidebar */
@@ -93,7 +115,7 @@
   right: 0;
   bottom: 0;
   background-color: rgba(0, 0, 0, 0.45);
-  z-index: 999;
+  z-index: var(--z-overlay);
   transition: opacity 0.3s ease;
   backdrop-filter: blur(2px);
 }
@@ -101,9 +123,9 @@
 /* Mobile responsiveness */
 @media (max-width: 992px) {
   .ant-layout-sider {
-    z-index: 1000 !important;
+    z-index: var(--z-sidebar) !important;
   }
-  
+
   .ant-layout-sider-collapsed {
     width: 0 !important;
     min-width: 0 !important;
@@ -114,30 +136,140 @@
 @media (max-width: 768px) {
   .sidebar-logo {
     font-size: 16px !important;
-    padding: 0 8px !important;
+    padding: 0 var(--space-sm) !important;
   }
-  
+
   .main-content {
-    margin: 16px !important;
+    margin: var(--space-lg) !important;
   }
 }
 
 /* Mobile phones */
 @media (max-width: 576px) {
   .main-content {
-    margin: 8px !important;
+    margin: var(--space-sm) !important;
+    /* Extra bottom padding to clear the bottom nav bar */
+    padding-bottom: calc(56px + var(--space-sm) + env(safe-area-inset-bottom, 0px)) !important;
   }
-  
+
   .ant-layout-header {
-    padding: 0 12px !important;
+    padding: 0 var(--space-md) !important;
+  }
+
+  /* Larger touch targets for sidebar menu items on mobile */
+  .ant-menu-dark .ant-menu-item,
+  .ant-menu-dark .ant-menu-submenu-title {
+    min-height: 44px !important;
+    line-height: 44px !important;
+    margin-block: 2px !important;
   }
 }
 
-/* Enhanced focus states for accessibility */
-.sidebar-toggle-btn:focus,
-.header-toggle-btn:focus {
-  outline: 2px solid #1890ff;
+/* Touch device enhancements */
+@media (pointer: coarse) {
+  .ant-menu-dark .ant-menu-item,
+  .ant-menu-dark .ant-menu-submenu-title {
+    min-height: 44px !important;
+    line-height: 44px !important;
+  }
+}
+
+/* ---- Mobile bottom navigation bar ---- */
+.mobile-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--z-bottom-nav, 90);
+  display: flex;
+  align-items: stretch;
+  justify-content: space-around;
+  height: 56px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-neutral-400);
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--color-neutral-600);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 6px 0;
+  min-width: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s ease;
+}
+
+.bottom-nav-item .anticon {
+  font-size: 20px;
+}
+
+.bottom-nav-item.active {
+  color: var(--color-primary);
+}
+
+.bottom-nav-item:active {
+  color: var(--color-primary-deep);
+}
+
+/* Prominent "Create" button in center */
+.bottom-nav-item.bottom-nav-create .anticon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: var(--color-surface);
+  font-size: 18px;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.35);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.bottom-nav-item.bottom-nav-create:active .anticon {
+  background: var(--color-primary-deep);
+  box-shadow: 0 1px 4px rgba(24, 144, 255, 0.25);
+}
+
+.bottom-nav-item.bottom-nav-create span:last-child {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* Enhanced focus states for accessibility — only on keyboard navigation */
+.sidebar-toggle-btn:focus-visible,
+.header-toggle-btn:focus-visible,
+.bottom-nav-item:focus-visible {
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
+}
+
+/* Reduced motion: disable transitions and animations */
+@media (prefers-reduced-motion: reduce) {
+  .ant-layout-sider,
+  .main-content,
+  .sidebar-logo,
+  .sidebar-toggle-btn,
+  .header-toggle-btn,
+  .mobile-overlay,
+  .skip-to-content,
+  .bottom-nav-item,
+  .bottom-nav-item.bottom-nav-create .anticon {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 
 /* Loading states */

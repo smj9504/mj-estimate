@@ -285,7 +285,7 @@ const PhotoSelectorModal: React.FC<PhotoSelectorModalProps> = ({
                       </Tag>
                     )}
                     {photo.taken_date && (
-                      <div style={{ color: '#999', fontSize: 10, marginTop: 4 }}>
+                      <div style={{ color: '#8c8c8c', fontSize: 10, marginTop: 4 }}>
                         {new Date(photo.taken_date).toLocaleDateString()}
                       </div>
                     )}

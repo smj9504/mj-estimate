@@ -203,7 +203,7 @@ const SortableAdjustmentItem: React.FC<{
     <div ref={setNodeRef} style={style} {...attributes}>
       <Row gutter={8} align="middle">
         <Col span={1}>
-          <span {...listeners} style={{ cursor: 'grab', color: '#999' }}><HolderOutlined /></span>
+          <span {...listeners} style={{ cursor: 'grab', color: '#8c8c8c' }}><HolderOutlined /></span>
         </Col>
         <Col span={6}>
           <Input placeholder="Name (e.g., Deductible)" value={adj.name} onChange={(e) => handleAdjustmentChange(adj.id, 'name', e.target.value)} size="small" />
@@ -295,7 +295,7 @@ const SectionHeader: React.FC<SectionHeaderProps> = ({
         <span
           {...dragListeners}
           className="section-drag-handle"
-          style={{ cursor: 'grab', color: '#999', padding: '4px' }}
+          style={{ cursor: 'grab', color: '#8c8c8c', padding: '4px' }}
           onClick={(e) => e.stopPropagation()}
         >
           <HolderOutlined />
@@ -444,7 +444,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
           <span
             {...dragListeners}
             className="section-drag-handle"
-            style={{ cursor: 'grab', color: '#999', padding: '4px', touchAction: 'none', flexShrink: 0 }}
+            style={{ cursor: 'grab', color: '#8c8c8c', padding: '4px', touchAction: 'none', flexShrink: 0 }}
             onClick={(e) => e.stopPropagation()}
           >
             <HolderOutlined />
@@ -454,7 +454,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
           {section.showSubtotal && (
             <Tag color="blue" style={{ margin: 0 }}>${formatCurrency(section.subtotal)}</Tag>
           )}
-          <span style={{ color: '#999' }}>
+          <span style={{ color: '#8c8c8c' }}>
             {isOpen ? <UpOutlined /> : <DownOutlined />}
           </span>
         </Space>
@@ -514,7 +514,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
       {isOpen && (
         <div style={{ padding: '16px' }}>
           {section.items.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+            <div style={{ textAlign: 'center', padding: '20px', color: '#8c8c8c' }}>
               No items in this section. Click "Add Item" to add items.
             </div>
           ) : (
@@ -3302,7 +3302,7 @@ const InvoiceCreation: React.FC = () => {
                             <div>
                               <strong>{client.display_name}</strong>
                               {client.address && (
-                                <span style={{ color: '#999', marginLeft: 8, fontSize: '12px' }}>
+                                <span style={{ color: '#8c8c8c', marginLeft: 8, fontSize: '12px' }}>
                                   {client.address}{client.city ? `, ${client.city}` : ''}
                                 </span>
                               )}
@@ -3578,7 +3578,7 @@ const InvoiceCreation: React.FC = () => {
                             gap: '8px',
                           }}
                         >
-                          <HolderOutlined style={{ color: '#999', fontSize: '12px' }} />
+                          <HolderOutlined style={{ color: '#8c8c8c', fontSize: '12px' }} />
                           <span style={{ fontWeight: '600' }}>{section.title}</span>
                           <Badge count={section.items.length} showZero color="#108ee9" />
                           <span style={{ color: '#1890ff', marginLeft: 'auto' }}>${formatCurrency(section.subtotal)}</span>
@@ -3610,9 +3610,9 @@ const InvoiceCreation: React.FC = () => {
                               gap: '8px',
                             }}
                           >
-                            <HolderOutlined style={{ color: '#999', fontSize: '12px' }} />
+                            <HolderOutlined style={{ color: '#8c8c8c', fontSize: '12px' }} />
                             <span style={{ fontWeight: '500' }}>{item.name || 'Item'}</span>
-                            <span style={{ color: '#999' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
+                            <span style={{ color: '#8c8c8c' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
                             <span style={{ color: '#1890ff', marginLeft: 'auto' }}>${formatCurrency(item.amount || (item.quantity * item.rate) || 0)}</span>
                           </div>
                         );
@@ -3682,7 +3682,7 @@ const InvoiceCreation: React.FC = () => {
                       <div>
                         <span style={{ fontWeight: 'bold' }}>Adjustments</span>
                         <Tooltip title="Add custom adjustments (e.g., Holiday Premium, Discount, O&P) that are applied in order to the subtotal">
-                          <span style={{ marginLeft: '8px', color: '#999', fontSize: '12px', cursor: 'help' }}>ℹ️</span>
+                          <span style={{ marginLeft: '8px', color: '#8c8c8c', fontSize: '12px', cursor: 'help' }}>ℹ️</span>
                         </Tooltip>
                       </div>
                       <Button
@@ -3707,7 +3707,7 @@ const InvoiceCreation: React.FC = () => {
                       </div>
                     )}
                     {adjustments.length === 0 && (
-                      <div style={{ padding: '8px 0', color: '#999', fontSize: '12px' }}>
+                      <div style={{ padding: '8px 0', color: '#8c8c8c', fontSize: '12px' }}>
                         No adjustments. Use legacy O&P and Discount fields below, or add custom adjustments above.
                       </div>
                     )}
@@ -3947,7 +3947,7 @@ const InvoiceCreation: React.FC = () => {
                           </Col>
                         </Row>
                         {adj.note && (
-                          <div style={{ fontSize: '12px', color: '#888', paddingLeft: 8, marginBottom: 8 }}>{adj.note}</div>
+                          <div style={{ fontSize: '12px', color: '#8c8c8c', paddingLeft: 8, marginBottom: 8 }}>{adj.note}</div>
                         )}
                       </div>
                     ))

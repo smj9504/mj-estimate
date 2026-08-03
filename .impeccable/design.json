@@ -1,0 +1,237 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-03T00:00:00Z",
+  "title": "Design System: MJ Estimate",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Action Blue",
+        "canonical": "#1890ff",
+        "tonalRamp": ["#002766", "#003a8c", "#0050b3", "#096dd9", "#1890ff", "#40a9ff", "#69c0ff", "#91d5ff", "#bae7ff", "#e6f7ff"]
+      },
+      "primary-hover": {
+        "role": "primary",
+        "displayName": "Action Blue Hover",
+        "canonical": "#40a9ff",
+        "tonalRamp": []
+      },
+      "primary-deep": {
+        "role": "primary",
+        "displayName": "Action Blue Deep",
+        "canonical": "#096dd9",
+        "tonalRamp": []
+      },
+      "success": {
+        "role": "secondary",
+        "displayName": "Success Green",
+        "canonical": "#52c41a",
+        "tonalRamp": ["#092b00", "#135200", "#237804", "#389e0d", "#52c41a", "#73d13d", "#95de64", "#b7eb8f", "#d9f7be", "#f6ffed"]
+      },
+      "warning": {
+        "role": "secondary",
+        "displayName": "Warning Orange",
+        "canonical": "#fa8c16",
+        "tonalRamp": ["#612500", "#873800", "#ad4e00", "#d46b08", "#fa8c16", "#ffa940", "#ffc069", "#ffd591", "#ffe7ba", "#fff7e6"]
+      },
+      "error": {
+        "role": "secondary",
+        "displayName": "Error Red",
+        "canonical": "#ff4d4f",
+        "tonalRamp": ["#5c0011", "#820014", "#a8071a", "#cf1322", "#f5222d", "#ff4d4f", "#ff7875", "#ffa39e", "#ffccc7", "#fff1f0"]
+      },
+      "purple": {
+        "role": "tertiary",
+        "displayName": "Indicator Purple",
+        "canonical": "#722ed1",
+        "tonalRamp": ["#120338", "#22075e", "#391085", "#531dab", "#722ed1", "#9254de", "#b37feb", "#d3adf7", "#efdbff", "#f9f0ff"]
+      },
+      "neutral-900": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#1f1f1f",
+        "tonalRamp": []
+      },
+      "neutral-800": {
+        "role": "neutral",
+        "displayName": "Charcoal",
+        "canonical": "#262626",
+        "tonalRamp": []
+      },
+      "neutral-700": {
+        "role": "neutral",
+        "displayName": "Steel",
+        "canonical": "#595959",
+        "tonalRamp": []
+      },
+      "neutral-600": {
+        "role": "neutral",
+        "displayName": "Ash",
+        "canonical": "#8c8c8c",
+        "tonalRamp": []
+      },
+      "neutral-400": {
+        "role": "neutral",
+        "displayName": "Silver",
+        "canonical": "#d9d9d9",
+        "tonalRamp": []
+      },
+      "neutral-200": {
+        "role": "neutral",
+        "displayName": "Smoke",
+        "canonical": "#f0f0f0",
+        "tonalRamp": []
+      },
+      "neutral-100": {
+        "role": "neutral",
+        "displayName": "Mist",
+        "canonical": "#f5f5f5",
+        "tonalRamp": []
+      },
+      "neutral-50": {
+        "role": "neutral",
+        "displayName": "Frost",
+        "canonical": "#fafafa",
+        "tonalRamp": []
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "White",
+        "canonical": "#ffffff",
+        "tonalRamp": []
+      },
+      "sidebar-start": {
+        "role": "neutral",
+        "displayName": "Sidebar Navy",
+        "canonical": "#001529",
+        "tonalRamp": []
+      },
+      "sidebar-end": {
+        "role": "neutral",
+        "displayName": "Sidebar Dark",
+        "canonical": "#1f1f1f",
+        "tonalRamp": []
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Page titles only — one per screen maximum." },
+      "headline": { "displayName": "Headline", "purpose": "Section headers within a page, sidebar logo text." },
+      "title": { "displayName": "Title", "purpose": "Card headers, modal titles, group labels." },
+      "body": { "displayName": "Body", "purpose": "Standard content text, table cells, form labels. The workhorse." },
+      "label": { "displayName": "Label", "purpose": "Metadata, timestamps, secondary descriptions." },
+      "mono": { "displayName": "Monospace", "purpose": "Code references, Xactimate line codes, financial calculations." }
+    },
+    "shadows": [
+      { "name": "ambient", "value": "0 1px 3px rgba(0,0,0,0.1)", "purpose": "Content cards at rest — barely perceptible separation." },
+      { "name": "header", "value": "0 1px 4px rgba(0,21,41,0.08)", "purpose": "Sticky header shadow with sidebar hue continuity." },
+      { "name": "hover", "value": "0 2px 8px rgba(0,0,0,0.15)", "purpose": "Interactive card hover states — subtle lift feedback." },
+      { "name": "elevated", "value": "0 4px 12px rgba(0,0,0,0.15)", "purpose": "Modals, dropdown menus, and floating action bars." },
+      { "name": "high", "value": "0 8px 24px rgba(0,0,0,0.12)", "purpose": "Gallery lightbox overlays and full-screen modals." },
+      { "name": "bottom-bar", "value": "0 -4px 12px rgba(0,0,0,0.15)", "purpose": "Upward-casting shadow for fixed bottom action bars." }
+    ],
+    "motion": [
+      { "name": "ease-standard", "value": "cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "Default easing for layout transitions (sidebar collapse, content shift)." },
+      { "name": "ease-default", "value": "ease", "purpose": "General-purpose easing for color and opacity transitions." },
+      { "name": "duration-fast", "value": "200ms", "purpose": "Hover states, opacity toggles, color shifts." },
+      { "name": "duration-standard", "value": "300ms", "purpose": "Layout transitions, sidebar collapse, content reflow." }
+    ],
+    "breakpoints": [
+      { "name": "mobile", "value": "576px" },
+      { "name": "tablet", "value": "768px" },
+      { "name": "desktop", "value": "1024px" },
+      { "name": "wide", "value": "1200px" },
+      { "name": "ultrawide", "value": "1920px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main action button for form submissions, confirmations, and primary CTAs.",
+      "html": "<button class=\"ds-btn-primary\">Save Estimate</button>",
+      "css": ".ds-btn-primary { background: #1890ff; color: #fff; padding: 4px 16px; font-size: 14px; font-weight: 400; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border: 1px solid #1890ff; border-radius: 6px; cursor: pointer; line-height: 1.5714; transition: background 0.2s ease, border-color 0.2s ease; } .ds-btn-primary:hover { background: #40a9ff; border-color: #40a9ff; } .ds-btn-primary:focus-visible { outline: 2px solid #1890ff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button-default",
+      "description": "Secondary action button for cancel, back, and non-primary operations.",
+      "html": "<button class=\"ds-btn-default\">Cancel</button>",
+      "css": ".ds-btn-default { background: #fff; color: #262626; padding: 4px 16px; font-size: 14px; font-weight: 400; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border: 1px solid #d9d9d9; border-radius: 6px; cursor: pointer; line-height: 1.5714; transition: color 0.2s ease, border-color 0.2s ease; } .ds-btn-default:hover { color: #1890ff; border-color: #1890ff; } .ds-btn-default:focus-visible { outline: 2px solid #1890ff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-default",
+      "description": "Standard text input for forms — estimates, client info, claim details.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Enter claim number\" />",
+      "css": ".ds-input { background: #fff; color: #262626; padding: 4px 11px; font-size: 14px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border: 1px solid #d9d9d9; border-radius: 6px; line-height: 1.5714; width: 100%; box-sizing: border-box; transition: border-color 0.2s ease; } .ds-input::placeholder { color: #8c8c8c; } .ds-input:hover { border-color: #40a9ff; } .ds-input:focus { border-color: #1890ff; outline: none; box-shadow: 0 0 0 2px rgba(24,144,255,0.2); } .ds-input:disabled { background: #f5f5f5; color: #8c8c8c; cursor: not-allowed; }"
+    },
+    {
+      "name": "Standard Card",
+      "kind": "card",
+      "refersTo": "card-standard",
+      "description": "Content container for grouping related information — estimate sections, job details, dashboard stats.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-title\">Claim Details</div><div class=\"ds-card-body\">Content area for structured data display.</div></div>",
+      "css": ".ds-card { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); } .ds-card-title { font-size: 16px; font-weight: 600; color: #262626; margin-bottom: 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; } .ds-card-body { font-size: 14px; color: #595959; line-height: 1.5714; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }"
+    },
+    {
+      "name": "Status Tag (Cyan)",
+      "kind": "chip",
+      "refersTo": "tag-cyan",
+      "description": "Pill-shaped status indicator for claim states and categories — blue variant for informational status.",
+      "html": "<span class=\"ds-tag ds-tag-cyan\">In Progress</span>",
+      "css": ".ds-tag { display: inline-block; padding: 2px 8px; font-size: 12px; line-height: 1.3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border-radius: 12px; border: 1px solid transparent; } .ds-tag-cyan { background: #e6f4ff; color: #0958d9; border-color: #91caff; } .ds-tag-purple { background: #f9f0ff; color: #531dab; border-color: #d3adf7; } .ds-tag-volcano { background: #fff2e8; color: #d4380d; border-color: #ffbb96; } .ds-tag-success { background: #f6ffed; color: #389e0d; border-color: #b7eb8f; } .ds-tag-default { background: #fafafa; color: #595959; border-color: #d9d9d9; }"
+    },
+    {
+      "name": "Sidebar Navigation",
+      "kind": "nav",
+      "refersTo": "sidebar-nav",
+      "description": "Dark full-height sidebar with gradient background — primary navigation for all app sections.",
+      "html": "<nav class=\"ds-sidebar\"><div class=\"ds-sidebar-logo\">MJ Estimate</div><a class=\"ds-sidebar-item\" href=\"#\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"currentColor\"><path d=\"M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z\"/></svg><span>Dashboard</span></a><a class=\"ds-sidebar-item ds-sidebar-item-active\" href=\"#\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"currentColor\"><path d=\"M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z\"/></svg><span>Estimates</span></a></nav>",
+      "css": ".ds-sidebar { background: linear-gradient(135deg, #001529 0%, #1f1f1f 100%); color: rgba(255,255,255,0.85); width: 280px; min-height: 200px; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; } .ds-sidebar-logo { padding: 16px 24px; font-size: 20px; font-weight: 600; color: #fff; border-bottom: 1px solid rgba(255,255,255,0.1); } .ds-sidebar-item { display: flex; align-items: center; gap: 12px; padding: 10px 24px; color: rgba(255,255,255,0.65); text-decoration: none; font-size: 14px; transition: color 0.2s ease, background 0.2s ease; cursor: pointer; } .ds-sidebar-item:hover { color: #fff; background: rgba(255,255,255,0.08); } .ds-sidebar-item-active { color: #fff; background: rgba(24,144,255,0.15); border-right: 3px solid #1890ff; } .ds-sidebar-item svg { flex-shrink: 0; opacity: 0.85; }"
+    },
+    {
+      "name": "Data Table Row",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Table row pattern for claim lists, estimate lists, and work order tables — the most-used component in the system.",
+      "html": "<table class=\"ds-table\"><thead><tr><th>Claim #</th><th>Client</th><th>Status</th><th>Amount</th></tr></thead><tbody><tr><td>CLM-2024-0142</td><td>Johnson Residence</td><td><span class=\"ds-tag ds-tag-cyan\">In Progress</span></td><td>$12,450.00</td></tr><tr class=\"ds-table-row-hover\"><td>CLM-2024-0138</td><td>Park Commercial</td><td><span class=\"ds-tag ds-tag-success\">Approved</span></td><td>$28,900.00</td></tr></tbody></table>",
+      "css": ".ds-table { width: 100%; border-collapse: collapse; font-size: 14px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; } .ds-table th { background: #fafafa; padding: 8px 6px; text-align: left; font-weight: 600; color: #595959; font-size: 12px; border-bottom: 1px solid #f0f0f0; } .ds-table td { padding: 8px 6px; color: #262626; border-bottom: 1px solid #f0f0f0; } .ds-table tbody tr:hover, .ds-table .ds-table-row-hover { background: #fafafa; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Claim Command Center",
+    "overview": "A calm, structured operations hub where restoration professionals manage complex insurance claims without the interface competing for attention. The system communicates through clarity, not decoration: clean data surfaces, predictable component behavior, and deliberate use of color only where it earns its place. Every screen should feel like an instrument panel — dense with useful information, yet quiet until something demands action.\n\nThe design language inherits from Ant Design 5.x and extends it conservatively. System fonts keep the interface fast and platform-native. The 8px spacing grid creates consistent rhythm without visible rigidity. Color enters the UI through semantic meaning (status, priority, category) rather than brand expression — the product's identity lives in its information architecture, not its palette.\n\nThe interface serves two contexts simultaneously: a desktop command center for office-based claim management, and a stripped-down field mode for tablet use on construction sites. Both share the same component vocabulary but differ in density and touch accommodation.",
+    "keyCharacteristics": [
+      "Information-dense without feeling crowded — tight spacing, small type, maximum data per viewport",
+      "Color is semantic, not decorative — blue for primary actions, green/orange/red for status",
+      "Flat surfaces with minimal elevation — shadows appear only on hover and modals",
+      "System fonts for speed and platform familiarity",
+      "Sidebar navigation with dark background provides spatial grounding"
+    ],
+    "rules": [
+      { "name": "The Semantic-Only Rule", "body": "Color is never used for decoration or brand expression in the application UI. Every colored element communicates a specific state, status, or interactive affordance. If removing the color would lose information, it belongs. If removing it would only lose aesthetics, it doesn't.", "section": "colors" },
+      { "name": "The 14px Floor Rule", "body": "Interactive text (buttons, links, form labels) never drops below 14px. Smaller sizes are reserved for non-interactive metadata. On mobile (<576px), body text may compress to 12px for density, but touch targets remain at 14px minimum.", "section": "typography" },
+      { "name": "The No-Max-Width Rule", "body": "Content areas never impose a max-width. Tables, dashboards, and forms stretch to use available screen real estate. Restoration professionals often work on wide monitors with multiple claims visible — artificial width constraints waste their primary resource: screen space.", "section": "layout" },
+      { "name": "The Flat-By-Default Rule", "body": "Surfaces are flat at rest. Shadows appear only as a response to state (hover, focus, elevation change) or to establish overlay hierarchy (modals, drawers, dropdowns). A shadow on a static, non-interactive card means the elevation vocabulary is being diluted.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use the 8px spacing grid. All padding, margin, and gap values should be multiples of 4px (4, 8, 12, 16, 24, 32).",
+      "Do use semantic color only — every colored element must communicate state, status, or interactive affordance.",
+      "Do include focus ring styles (2px solid #1890ff, 2px offset) on every interactive element.",
+      "Do provide prefers-reduced-motion overrides that disable transitions and animations.",
+      "Do use compact card padding (12px) and small cell padding (6px 4px) on mobile viewports.",
+      "Do keep interactive text at 14px minimum. Smaller sizes are for metadata only."
+    ],
+    "donts": [
+      "Don't add shadows to static, non-interactive surfaces. Shadows are earned through interaction or overlay hierarchy.",
+      "Don't impose max-width constraints on content areas. Let tables and dashboards use full viewport width.",
+      "Don't use color for decoration. If removing the color doesn't remove information, the color doesn't belong.",
+      "Don't use custom fonts. The system font stack is intentional — loading external fonts adds latency and breaks the native-tool feel.",
+      "Don't scale elements on hover (transform: scale) in data-dense views. Reserve scale transforms for gallery thumbnails and icon buttons only.",
+      "Don't mix border-radius values within a single component. Cards are 8px, buttons are 6px, pills are 12px — don't combine."
+    ]
+  }
+}

@@ -80,7 +80,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
     <Space>
       {title}
       <Tooltip title={tooltip}>
-        <InfoCircleOutlined style={{ color: '#999' }} />
+        <InfoCircleOutlined style={{ color: '#8c8c8c' }} />
       </Tooltip>
     </Space>
   ) : title;
@@ -133,7 +133,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
               {Math.abs(trend.value)}%
             </Text>
             {trend.label && (
-              <Text style={{ color: '#999', fontSize: '12px' }}>
+              <Text style={{ color: '#8c8c8c', fontSize: '12px' }}>
                 {trend.label}
               </Text>
             )}
@@ -150,7 +150,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
             size="small"
             showInfo={false}
           />
-          <Text style={{ fontSize: '12px', color: '#999' }}>
+          <Text style={{ fontSize: '12px', color: '#8c8c8c' }}>
             {progress.percent}% Target Achieved
           </Text>
         </div>

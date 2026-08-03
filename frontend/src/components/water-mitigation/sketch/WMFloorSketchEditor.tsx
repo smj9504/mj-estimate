@@ -3139,7 +3139,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                     margin: '0 auto 8px',
                   }}
                 />
-                <div style={{ fontSize: 12, color: '#888' }}>Loading floor plan...</div>
+                <div style={{ fontSize: 12, color: '#8c8c8c' }}>Loading floor plan...</div>
               </div>
             </div>
           )}

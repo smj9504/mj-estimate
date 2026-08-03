@@ -152,7 +152,7 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
                   </Col>
                 </Row>
                 {(wmSec.overhead_amount > 0 || wmSec.profit_amount > 0) && (
-                  <div style={{ marginTop: 6, fontSize: 11, color: '#888' }}>
+                  <div style={{ marginTop: 6, fontSize: 11, color: '#8c8c8c' }}>
                     <Tooltip title="Overhead & Profit included in RCV">
                       <InfoCircleOutlined style={{ marginRight: 4 }} />
                       O&P: {fmt(wmSec.overhead_amount)} + {fmt(wmSec.profit_amount)}
@@ -215,7 +215,7 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
       )}
 
       {insurance_estimate?.negotiation_date && (
-        <div style={{ marginTop: 6, fontSize: 11, color: '#999', textAlign: 'right' }}>
+        <div style={{ marginTop: 6, fontSize: 11, color: '#8c8c8c', textAlign: 'right' }}>
           Insurance estimate received: {new Date(insurance_estimate.negotiation_date).toLocaleDateString()}
           {insurance_estimate.negotiation_revision && (
             <> (Rev. {insurance_estimate.negotiation_revision})</>

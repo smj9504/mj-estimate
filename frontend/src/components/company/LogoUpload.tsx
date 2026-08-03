@@ -289,7 +289,7 @@ const LogoUpload: React.FC<LogoUploadProps> = ({
                 borderRadius: 4,
                 padding: 16,
                 textAlign: 'center',
-                color: '#999',
+                color: '#8c8c8c',
                 minHeight: 120,
                 display: 'flex',
                 alignItems: 'center',

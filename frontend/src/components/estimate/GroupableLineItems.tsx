@@ -649,7 +649,7 @@ const GroupableLineItems: React.FC<GroupableLineItemsProps> = ({
                   <div style={{ 
                     padding: '20px 40px', 
                     textAlign: 'center',
-                    color: '#999',
+                    color: '#8c8c8c',
                     borderBottom: '1px solid #f0f0f0'
                   }}>
                     <Empty 

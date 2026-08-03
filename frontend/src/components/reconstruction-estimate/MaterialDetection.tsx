@@ -619,7 +619,7 @@ const MaterialDetection: React.FC<MaterialDetectionProps> = ({
               <div>
                 <CloudUploadOutlined style={{ fontSize: 24 }} />
                 <div style={{ marginTop: 8 }}>Upload Image</div>
-                <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+                <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 4 }}>
                   or Ctrl+V
                 </div>
               </div>
@@ -684,7 +684,7 @@ const MaterialDetection: React.FC<MaterialDetectionProps> = ({
           <Row gutter={16}>
             <Col span={6}>
               <div>
-                <div style={{ marginBottom: 8, fontSize: 14, color: '#999' }}>Status</div>
+                <div style={{ marginBottom: 8, fontSize: 14, color: '#8c8c8c' }}>Status</div>
                 {getStatusTag(currentJob.status)}
               </div>
             </Col>

@@ -3,7 +3,7 @@
  * Manage dataset images, labeling, and training preparation
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Tabs,
   Button,
@@ -85,6 +85,16 @@ const DatasetDetails: React.FC<DatasetDetailsProps> = ({ dataset, onClose }) => 
   const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null);
   const [autoLabeling, setAutoLabeling] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup polling timers on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+    };
+  }, []);
   const [trainingModalVisible, setTrainingModalVisible] = useState(false);
   const [trainingParams, setTrainingParams] = useState({
     epochs: 10,
@@ -239,22 +249,29 @@ const DatasetDetails: React.FC<DatasetDetailsProps> = ({ dataset, onClose }) => 
         </div>
       );
 
+      // Clear any existing polling
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+
       // Poll for updates every 5 seconds
-      const pollInterval = setInterval(async () => {
+      pollIntervalRef.current = setInterval(async () => {
         const updatedImages = await getDatasetImages(dataset.id);
         setImages(updatedImages);
 
         // Check if all images are labeled
         const pendingImages = updatedImages.filter(img => img.labeling_status === 'pending');
         if (pendingImages.length === 0) {
-          clearInterval(pollInterval);
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
           message.success('Auto-labeling completed!');
         }
       }, 5000);
 
       // Stop polling after estimated time + buffer
-      setTimeout(() => {
-        clearInterval(pollInterval);
+      pollTimeoutRef.current = setTimeout(() => {
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+        pollTimeoutRef.current = null;
         loadImages();
       }, (result.estimated_time_minutes * 60 + 30) * 1000);
     } catch (error: any) {

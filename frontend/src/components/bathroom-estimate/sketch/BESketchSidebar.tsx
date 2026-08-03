@@ -320,7 +320,7 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
                         <div>Area: <strong>{zone.areaSF} SF</strong></div>
                         <div>Height: <strong>{zone.repairHeightInches}"</strong></div>
                         <div>Texture: <strong>{zone.textureType.replace(/_/g, ' ')}</strong></div>
-                        <div style={{ marginTop: 4, color: '#888', fontSize: 11 }}>
+                        <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: 11 }}>
                           Edit details in the Drywall Repair panel below.
                         </div>
                       </div>
@@ -340,7 +340,7 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
                         <div>Type: <strong>{zone.insulationType.replace(/_/g, ' ')}</strong></div>
                         <div>R-Value: <strong>R-{zone.rValue}</strong></div>
                         {zone.needsDemo && <Tag color="red" style={{ marginTop: 4 }}>Needs Demo</Tag>}
-                        <div style={{ marginTop: 4, color: '#888', fontSize: 11 }}>
+                        <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: 11 }}>
                           Edit details in the Insulation panel below.
                         </div>
                       </div>
@@ -1170,7 +1170,7 @@ const WallPropertiesPanel: React.FC<{ wall: BEWall; ppf: number; api: BESketchSt
 
       {/* Wall area display */}
       <Divider style={{ margin: '6px 0' }} />
-      <div style={{ fontSize: 11, color: '#888' }}>
+      <div style={{ fontSize: 11, color: '#8c8c8c' }}>
         Wall Area: <strong>{Math.round(lengthFt * (wall.heightInches / 12) * 10) / 10} SF</strong>
         <Tag color={wall.finish === 'tile' ? 'blue' : 'default'} style={{ marginLeft: 6, fontSize: 10 }}>
           {wall.finish === 'tile' ? 'Tile' : 'Paint'}

@@ -1841,7 +1841,7 @@ const PhotoMetadataEditor: React.FC = () => {
       children: (
         <div>
           {editableCount > 0 && (
-            <div style={{ marginBottom: 8, fontSize: 12, color: '#999' }}>
+            <div style={{ marginBottom: 8, fontSize: 12, color: '#8c8c8c' }}>
               <EditOutlined style={{ color: '#1890ff', marginRight: 4 }} />
               {editableCount} editable field(s) in this section
               {editedCount > 0 && <Tag color="blue" style={{ marginLeft: 8 }}>{editedCount} modified</Tag>}

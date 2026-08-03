@@ -208,7 +208,7 @@ const LineItemSearch: React.FC<{
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {item.description}
                 </span>
-                <span style={{ color: '#999', fontSize: 10 }}>{item.unit}</span>
+                <span style={{ color: '#8c8c8c', fontSize: 10 }}>{item.unit}</span>
               </div>
             ),
             id: String(item.id),
@@ -329,7 +329,7 @@ const MaterialTypeCard: React.FC<{
 
           {/* Preview */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', background: '#f5f5f5', borderRadius: 4 }}>
-            <Text style={{ fontSize: 11, color: '#999' }}>Preview:</Text>
+            <Text style={{ fontSize: 11, color: '#8c8c8c' }}>Preview:</Text>
             <RenderModePreview
               mode={effectiveMode}
               color={type.color}

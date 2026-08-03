@@ -293,7 +293,7 @@ const CompanyForm: React.FC<CompanyFormProps> = ({
                     <Select.Option key={method.id} value={method.id}>
                       {method.name}
                       {method.description && (
-                        <span style={{ color: '#888', fontSize: '12px', marginLeft: '8px' }}>
+                        <span style={{ color: '#8c8c8c', fontSize: '12px', marginLeft: '8px' }}>
                           ({method.description})
                         </span>
                       )}
@@ -318,7 +318,7 @@ const CompanyForm: React.FC<CompanyFormProps> = ({
                     <Select.Option key={freq.id} value={freq.id}>
                       {freq.name}
                       {freq.days_interval && (
-                        <span style={{ color: '#888', fontSize: '12px', marginLeft: '8px' }}>
+                        <span style={{ color: '#8c8c8c', fontSize: '12px', marginLeft: '8px' }}>
                           (Every {freq.days_interval} days)
                         </span>
                       )}

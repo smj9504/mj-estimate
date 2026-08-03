@@ -3815,6 +3815,499 @@ def generate_water_mitigation_report_pdf(
     return str(output_path)
 
 
+def generate_completion_report_pdf(
+    work_order_data: Dict[str, Any],
+    photos: List[Dict[str, Any]],
+    output_path: str,
+    company_data: Optional[Dict[str, Any]] = None,
+    client_data: Optional[Dict[str, Any]] = None,
+    claim_data: Optional[Dict[str, Any]] = None,
+    title: str = "Completion Photo Report",
+    description: Optional[str] = None,
+    report_date: Optional[str] = None,
+    compress: bool = False,
+) -> str:
+    """
+    Generate Completion Photo Report PDF using ReportLab.
+
+    Creates a professional report with:
+    - Cover page with company/client/claim/work order information
+    - Photo pages with grid layout and captions
+    - Page footers with numbers and generation date
+
+    Args:
+        work_order_data: Work order dict (work_order_number, job_site_address, etc.)
+        photos: List of photo dicts [{file_path, filename, caption, category}]
+        output_path: Path to save the PDF
+        company_data: Company info (name, logo, address, phone, email)
+        client_data: Client info (display_name, address, phone, email)
+        claim_data: Claim info (claim_number, insurance_company, policy_number, etc.)
+        title: Report title for cover page
+        description: Optional cover page description
+        report_date: Custom report date (YYYY-MM-DD)
+        compress: If True, compress images for smaller file size
+
+    Returns:
+        Path to the generated PDF
+    """
+    _ensure_pypdf()
+    if not PYPDF_AVAILABLE:
+        raise RuntimeError("pypdf and reportlab are required for PDF generation")
+
+    import io
+    import logging
+    import tempfile
+    from datetime import datetime
+    from pathlib import Path
+
+    from PIL import Image
+    from pypdf import PdfReader, PdfWriter
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.units import inch
+    from reportlab.pdfgen import canvas as pdf_canvas
+    from reportlab.platypus import Table, TableStyle
+
+    logger = logging.getLogger(__name__)
+    logger.info(f"Generating completion report for WO {work_order_data.get('work_order_number', 'unknown')} (compress={compress})")
+
+    style = _get_report_style("a")
+
+    if compress:
+        IMAGE_QUALITY = 50
+        IMAGE_MAX_SIZE = 1200
+    else:
+        IMAGE_QUALITY = 95
+        IMAGE_MAX_SIZE = None
+
+    page_width, page_height = letter
+    margin = 0.4 * inch
+
+    COLOR_ACCENT = colors.HexColor(style["color_accent"])
+    COLOR_BLACK = colors.HexColor(style["color_black"])
+    COLOR_DARK_GRAY = colors.HexColor(style["color_dark"])
+    COLOR_MEDIUM_GRAY = colors.HexColor(style["color_medium"])
+    COLOR_LIGHT_GRAY = colors.HexColor(style["color_light"])
+    COLOR_VERY_LIGHT_GRAY = colors.HexColor(style["color_very_light"])
+    COLOR_WHITE = colors.white
+
+    FONT_TITLE = style["font_title"]
+    FONT_BODY = style["font_body"]
+    FONT_BODY_BOLD = style["font_body_bold"]
+    TITLE_SIZE = style["title_size"]
+
+    writer = PdfWriter()
+    temp_files = []
+
+    def format_date(date_value):
+        if not date_value:
+            return ""
+        try:
+            if isinstance(date_value, str):
+                dt = datetime.fromisoformat(date_value.replace('Z', '+00:00'))
+            else:
+                dt = date_value
+            return safe_strftime(dt, "%B %d, %Y")
+        except Exception:
+            return str(date_value)
+
+    if report_date:
+        try:
+            custom_date = datetime.fromisoformat(report_date.replace('Z', '+00:00'))
+            report_date_formatted = format_date(custom_date)
+        except (ValueError, AttributeError):
+            report_date_formatted = format_date(datetime.now())
+    else:
+        report_date_formatted = format_date(datetime.now())
+
+    # ===== COVER PAGE =====
+    cover_buffer = io.BytesIO()
+    c = pdf_canvas.Canvas(cover_buffer, pagesize=letter)
+
+    def _draw_logo(lx, ly, max_w=2.5 * inch):
+        if not (company_data and company_data.get('logo')):
+            return None
+        logo_path = Path(company_data['logo'])
+        if not logo_path.exists():
+            return None
+        try:
+            logo_img = Image.open(logo_path)
+            lw, lh = logo_img.size
+            if lw > max_w:
+                s = max_w / lw
+                lw, lh = max_w, lh * s
+            else:
+                lw = lw * (inch / 100)
+                lh = lh * (inch / 100)
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+            logo_img.save(tmp.name, 'JPEG')
+            c.drawImage(tmp.name, lx, ly, width=lw, height=lh)
+            tmp.close()
+            temp_files.append(tmp.name)
+            return lw, lh
+        except Exception as e:
+            logger.warning(f"Failed to load company logo: {e}")
+            return None
+
+    def _wrap_lines(text, max_chars=80):
+        result = []
+        for para in text.split('\n'):
+            para = para.strip()
+            if not para:
+                result.append('')
+                continue
+            if len(para) <= max_chars:
+                result.append(para)
+                continue
+            words = para.split()
+            cur = []
+            for w in words:
+                cur.append(w)
+                if len(' '.join(cur)) > max_chars:
+                    if len(cur) > 1:
+                        cur.pop()
+                        result.append(' '.join(cur))
+                        cur = [w]
+                    else:
+                        result.append(w)
+                        cur = []
+            if cur:
+                result.append(' '.join(cur))
+        return result
+
+    # Build job info rows from work order, client, and claim data
+    wo = work_order_data or {}
+    cl = client_data or {}
+    cm = claim_data or {}
+    company = company_data or {}
+
+    job_info = []
+
+    # Client info
+    client_name = cl.get('display_name') or wo.get('client_name', '')
+    if client_name:
+        job_info.append(("Client Name:", client_name))
+
+    # Job site address
+    job_site = wo.get('job_site_address', '')
+    job_city = wo.get('job_site_city', '')
+    job_state = wo.get('job_site_state', '')
+    job_zip = wo.get('job_site_zipcode', '')
+    if job_site:
+        addr_parts = [job_site]
+        city_state = ', '.join(filter(None, [job_city, job_state]))
+        if city_state:
+            addr_parts.append(city_state)
+        if job_zip:
+            addr_parts[-1] = addr_parts[-1] + ' ' + job_zip
+        job_info.append(("Job Site Address:", ' '.join(addr_parts) if len(addr_parts) == 1 else ', '.join(addr_parts)))
+
+    # Work order number
+    wo_number = wo.get('work_order_number', '')
+    if wo_number:
+        job_info.append(("Work Order #:", wo_number))
+
+    # Insurance / Claim info
+    claim_number = cm.get('claim_number') or wo.get('insurance_claim_number', '')
+    if claim_number:
+        job_info.append(("Claim Number:", claim_number))
+
+    insurance_company = cm.get('insurance_company') or wo.get('insurance_company', '')
+    if insurance_company:
+        job_info.append(("Insurance Company:", insurance_company))
+
+    policy_number = cm.get('policy_number') or wo.get('insurance_policy_number', '')
+    if policy_number:
+        job_info.append(("Policy Number:", policy_number))
+
+    date_of_loss = cm.get('date_of_loss') or wo.get('insurance_date_of_loss', '')
+    if date_of_loss:
+        job_info.append(("Date of Loss:", format_date(date_of_loss)))
+
+    adjuster = cm.get('adjuster_name') or wo.get('insurance_adjuster_name', '')
+    if adjuster:
+        job_info.append(("Adjuster:", adjuster))
+
+    company_name = company.get('name', '')
+
+    # Logo (centered)
+    logo_height = 0
+    logo_result = _draw_logo(0, 0, max_w=2.5 * inch)
+    if logo_result:
+        lw, lh = logo_result
+        logo_x = (page_width - lw) / 2
+        logo_y = page_height - margin - lh - 0.5 * inch
+        c = pdf_canvas.Canvas(cover_buffer, pagesize=letter)
+        _draw_logo(logo_x, logo_y, max_w=2.5 * inch)
+        logo_height = lh + 1.2 * inch
+
+    y_position = page_height - margin - logo_height - 0.5 * inch
+
+    # Title (centered)
+    c.setFillColor(COLOR_ACCENT)
+    c.setFont(FONT_TITLE, TITLE_SIZE)
+    c.drawCentredString(page_width / 2, y_position, title)
+    y_position -= 0.25 * inch
+
+    # Divider line
+    c.setStrokeColor(COLOR_MEDIUM_GRAY)
+    c.setLineWidth(0.5)
+    lm = 2 * inch
+    c.line(lm, y_position, page_width - lm, y_position)
+    y_position -= 0.6 * inch
+
+    # Description
+    if description:
+        c.setFillColor(COLOR_DARK_GRAY)
+        c.setFont(FONT_BODY, 11)
+        for line in _wrap_lines(description):
+            if line:
+                c.drawCentredString(page_width / 2, y_position, line)
+            y_position -= 0.22 * inch
+        y_position -= 0.3 * inch
+
+    # Job info header
+    y_position -= 0.4 * inch
+    c.setFillColor(COLOR_VERY_LIGHT_GRAY)
+    c.rect(margin - 0.1 * inch, y_position,
+           page_width - 2 * margin + 0.2 * inch,
+           0.4 * inch, fill=1, stroke=0)
+    c.setFillColor(COLOR_ACCENT)
+    c.setFont(FONT_BODY_BOLD, 14)
+    c.drawString(margin + 0.1 * inch, y_position + 0.12 * inch, "PROJECT INFORMATION")
+    y_position -= 0.3 * inch
+
+    # Job info table
+    if job_info:
+        table_data = [[l, v] for l, v in job_info]
+        table = Table(table_data, colWidths=[2.2 * inch, 4 * inch])
+        table.setStyle(TableStyle([
+            ('FONT', (0, 0), (0, -1), FONT_BODY_BOLD, 10),
+            ('FONT', (1, 0), (1, -1), FONT_BODY, 10),
+            ('TEXTCOLOR', (0, 0), (-1, -1), COLOR_DARK_GRAY),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LINEBELOW', (0, 0), (-1, -2), 0.5, COLOR_VERY_LIGHT_GRAY),
+            ('TOPPADDING', (0, 0), (-1, 0), 4),
+            ('TOPPADDING', (0, 1), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('LEFTPADDING', (0, 0), (0, -1), 0),
+            ('RIGHTPADDING', (1, 0), (1, -1), 0),
+        ]))
+        tw, th = table.wrapOn(c, page_width, page_height)
+        table.drawOn(c, margin, y_position - th)
+        y_position -= th
+        c.setStrokeColor(COLOR_LIGHT_GRAY)
+        c.setLineWidth(1)
+        c.line(margin - 0.1 * inch, y_position,
+               page_width - margin + 0.1 * inch, y_position)
+
+    # Prepared By
+    if company_name:
+        y_position -= 1.4 * inch
+        c.setFillColor(COLOR_MEDIUM_GRAY)
+        c.setFont(FONT_BODY, 10)
+        c.drawCentredString(page_width / 2, y_position, "PREPARED BY")
+        y_position -= 0.3 * inch
+        c.setFillColor(COLOR_ACCENT)
+        c.setFont(FONT_TITLE, 13)
+        c.drawCentredString(page_width / 2, y_position, company_name)
+        # Company contact info
+        y_position -= 0.25 * inch
+        contact_parts = []
+        if company.get('phone'):
+            contact_parts.append(company['phone'])
+        if company.get('email'):
+            contact_parts.append(company['email'])
+        if contact_parts:
+            c.setFillColor(COLOR_DARK_GRAY)
+            c.setFont(FONT_BODY, 9)
+            c.drawCentredString(page_width / 2, y_position, ' | '.join(contact_parts))
+
+    # Cover page footer
+    footer_y = 0.65 * inch
+    c.setStrokeColor(COLOR_LIGHT_GRAY)
+    c.setLineWidth(0.5)
+    c.line(margin, footer_y, page_width - margin, footer_y)
+    c.setFillColor(COLOR_MEDIUM_GRAY)
+    c.setFont(FONT_BODY, 9)
+    c.drawCentredString(page_width / 2, 0.4 * inch,
+                        f"Report Date: {report_date_formatted}")
+
+    c.save()
+    cover_buffer.seek(0)
+    cover_reader = PdfReader(cover_buffer)
+    writer.add_page(cover_reader.pages[0])
+
+    # ===== PHOTO PAGES =====
+    # Flat layout: 4 photos per page (2x2 grid)
+    layout = 'four'
+    rows, cols = 2, 2
+    max_photos_per_page = 4
+    total_pages = 1
+    section_title = "Completion Photos"
+
+    job_site_display = wo.get('job_site_address', '')
+
+    for page_start in range(0, len(photos), max_photos_per_page):
+        page_photos = photos[page_start:page_start + max_photos_per_page]
+        page_buffer = io.BytesIO()
+        c = pdf_canvas.Canvas(page_buffer, pagesize=letter)
+
+        # Header
+        is_first_photo_page = (page_start == 0)
+        if is_first_photo_page:
+            title_y = page_height - margin - 0.25 * inch
+            c.setFillColor(COLOR_ACCENT)
+            c.setFont(FONT_TITLE, style["section_title_size"])
+            c.drawString(margin, title_y, section_title)
+            sep_y = page_height - margin - 0.35 * inch
+            c.setStrokeColor(COLOR_LIGHT_GRAY)
+            c.setLineWidth(0.5)
+            c.line(margin, sep_y, page_width - margin, sep_y)
+            header_height = 0.5 * inch
+        else:
+            c.setFillColor(COLOR_DARK_GRAY)
+            c.setFont(FONT_BODY_BOLD, 11)
+            c.drawString(margin, page_height - margin - 0.25 * inch, section_title)
+            divider_y = page_height - margin - 0.35 * inch
+            c.setStrokeColor(COLOR_LIGHT_GRAY)
+            c.setLineWidth(0.5)
+            c.line(margin, divider_y, page_width - margin, divider_y)
+            header_height = page_height - divider_y
+
+        # Photo grid
+        footer_reserve = 0.7 * inch
+        content_height = page_height - header_height - margin - footer_reserve
+        content_width = page_width - 2 * margin
+        h_gap = 0.1 * inch
+        photo_width = (content_width - h_gap * (cols - 1)) / cols
+        photo_height_cell = content_height / rows - 0.15 * inch
+
+        for idx, photo_item in enumerate(page_photos):
+            row = idx // cols
+            col = idx % cols
+
+            x = margin + col * (photo_width + h_gap)
+            y = page_height - header_height - 0.15 * inch - (row + 1) * (photo_height_cell + 0.25 * inch)
+
+            try:
+                img = Image.open(photo_item['file_path'])
+                actual_photo_path = photo_item['file_path']
+
+                if compress and IMAGE_MAX_SIZE:
+                    if img.width > IMAGE_MAX_SIZE or img.height > IMAGE_MAX_SIZE:
+                        img.thumbnail((IMAGE_MAX_SIZE, IMAGE_MAX_SIZE), Image.Resampling.LANCZOS)
+                    compressed_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+                    if img.mode in ('RGBA', 'P'):
+                        img = img.convert('RGB')
+                    img.save(compressed_temp.name, format='JPEG', quality=IMAGE_QUALITY, optimize=True, subsampling='4:2:0')
+                    compressed_temp.close()
+                    actual_photo_path = compressed_temp.name
+                    temp_files.append(compressed_temp.name)
+
+                img_width, img_height = img.size
+                caption_reserve = 0.35 * inch
+                available_photo_height = photo_height_cell - caption_reserve
+
+                width_scale = photo_width / img_width
+                height_scale = available_photo_height / img_height
+                scale = min(width_scale, height_scale)
+
+                scaled_width = img_width * scale
+                scaled_height = img_height * scale
+
+                img_x = x + (photo_width - scaled_width) / 2
+                img_y = y + caption_reserve + (available_photo_height - scaled_height) / 2
+
+                c.drawImage(actual_photo_path, img_x, img_y,
+                            width=scaled_width, height=scaled_height,
+                            preserveAspectRatio=True, mask='auto')
+
+                # Caption
+                caption_text = photo_item.get('caption', '') or photo_item.get('description', '')
+                if caption_text:
+                    import re
+                    _is_filename = bool(re.match(
+                        r'^[0-9a-fA-F\-]{20,}\.\w{2,4}$', caption_text.strip()
+                    )) or bool(re.match(
+                        r'^.+\.(jpg|jpeg|png|gif|bmp|webp|tiff?)$', caption_text.strip(), re.IGNORECASE
+                    ))
+                    if _is_filename:
+                        caption_text = ''
+                if caption_text:
+                    c.setFillColor(COLOR_BLACK)
+                    c.setFont(FONT_BODY, 8)
+                    caption_y = y + caption_reserve - 0.12 * inch
+                    max_caption_width = scaled_width + 0.3 * inch
+                    words = caption_text.split()
+                    lines = []
+                    current_line = []
+                    for word in words:
+                        current_line.append(word)
+                        test_line = ' '.join(current_line)
+                        if len(test_line) * 5 > max_caption_width * 72 / inch:
+                            if len(current_line) > 1:
+                                current_line.pop()
+                                lines.append(' '.join(current_line))
+                                current_line = [word]
+                            else:
+                                lines.append(word)
+                                current_line = []
+                    if current_line:
+                        lines.append(' '.join(current_line))
+                    for line in lines[:2]:
+                        line_width = c.stringWidth(line, FONT_BODY, 8)
+                        line_x = img_x + (scaled_width - line_width) / 2
+                        c.drawString(line_x, caption_y, line)
+                        caption_y -= 0.12 * inch
+
+            except Exception as e:
+                logger.error(f"Failed to draw photo: {e}")
+                c.setStrokeColor(COLOR_LIGHT_GRAY)
+                c.setFillColor(COLOR_VERY_LIGHT_GRAY)
+                c.rect(x, y + 0.3 * inch, photo_width, photo_height_cell - 0.3 * inch, fill=1)
+                c.setFillColor(COLOR_MEDIUM_GRAY)
+                c.setFont(FONT_BODY, 10)
+                c.drawCentredString(x + photo_width / 2, y + photo_height_cell / 2, "Image not available")
+
+        # Page footer
+        total_pages += 1
+        footer_y = 0.65 * inch
+        footer_text_y = 0.4 * inch
+        c.setStrokeColor(COLOR_LIGHT_GRAY)
+        c.setLineWidth(0.5)
+        c.line(margin, footer_y, page_width - margin, footer_y)
+        c.setFillColor(COLOR_MEDIUM_GRAY)
+        c.setFont(FONT_BODY, 8)
+        c.drawString(margin, footer_text_y, f"Page {total_pages}")
+        c.drawCentredString(page_width / 2, footer_text_y, section_title)
+        if job_site_display:
+            c.drawRightString(page_width - margin, footer_text_y, job_site_display)
+
+        c.save()
+        page_buffer.seek(0)
+        page_reader = PdfReader(page_buffer)
+        writer.add_page(page_reader.pages[0])
+
+    # Write final PDF
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, 'wb') as output_file:
+        writer.write(output_file)
+
+    # Cleanup temp files
+    for temp_file_path in temp_files:
+        try:
+            import os
+            os.unlink(temp_file_path)
+        except Exception:
+            pass
+
+    logger.info(f"Completion report PDF generated: {output_path} ({total_pages} pages)")
+    return str(output_path)
+
+
 def generate_ewa_pdf(
     job_address: str,
     date_of_loss: str,

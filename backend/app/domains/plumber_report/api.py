@@ -43,6 +43,7 @@ class AIGenerateRequest(BaseModel):
     pipe_material: str = ""
     wall_access_type: str = "drywall"
     protection_installed: str = "yes"
+    hours_on_site: str = ""
 
 
 @router.post("/generate-ai")
@@ -57,6 +58,7 @@ async def generate_ai_report(request: AIGenerateRequest):
         pipe_material=request.pipe_material,
         wall_access_type=request.wall_access_type,
         protection_installed=request.protection_installed,
+        hours_on_site=request.hours_on_site,
     )
     if result is None:
         raise HTTPException(

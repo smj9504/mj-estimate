@@ -717,6 +717,7 @@ const PlumberReportCreation: React.FC = () => {
         pipe_material: values.pipe_material || '',
         wall_access_type: values.wall_access_type || 'drywall',
         protection_installed: values.protection_installed || 'yes',
+        hours_on_site: values.hours_on_site || '',
       });
 
       // The backend runs both steps — update UI to reflect completion
@@ -1204,7 +1205,7 @@ const PlumberReportCreation: React.FC = () => {
                         gap: '8px',
                       }}
                     >
-                      <HolderOutlined style={{ color: '#999', fontSize: '12px' }} />
+                      <HolderOutlined style={{ color: '#8c8c8c', fontSize: '12px' }} />
                       <span style={{ fontWeight: '500' }}>
                         {(() => {
                           const index = parseInt(activeItemId.split('-')[1]);
@@ -1701,9 +1702,12 @@ const PlumberReportCreation: React.FC = () => {
                 name="pipe_material"
                 label="Pipe Material"
               >
-                <Select allowClear placeholder="Select pipe material">
+                <Select allowClear placeholder="Select or leave blank to auto-infer">
                   <Select.Option value="Type L copper">Type L Copper</Select.Option>
+                  <Select.Option value="CPVC">CPVC</Select.Option>
                   <Select.Option value="PEX">PEX</Select.Option>
+                  <Select.Option value="PVC (DWV)">PVC (DWV)</Select.Option>
+                  <Select.Option value="Cast iron">Cast Iron</Select.Option>
                   <Select.Option value="braided stainless">Braided Stainless</Select.Option>
                 </Select>
               </Form.Item>
@@ -1718,6 +1722,7 @@ const PlumberReportCreation: React.FC = () => {
                   <Select.Option value="drywall">Drywall</Select.Option>
                   <Select.Option value="tile">Tile</Select.Option>
                   <Select.Option value="access panel">Access Panel</Select.Option>
+                  <Select.Option value="under-sink cabinet">Under-sink / Cabinet</Select.Option>
                 </Select>
               </Form.Item>
             </Col>
@@ -1730,7 +1735,7 @@ const PlumberReportCreation: React.FC = () => {
             <Input placeholder="e.g. 2nd floor master bathroom shower, kitchen sink, basement" />
           </Form.Item>
           <Row gutter={16}>
-            <Col span={8}>
+            <Col span={6}>
               <Form.Item
                 name="ai_state"
                 label="State"
@@ -1743,19 +1748,27 @@ const PlumberReportCreation: React.FC = () => {
                 </Select>
               </Form.Item>
             </Col>
-            <Col span={8}>
+            <Col span={6}>
               <Form.Item
                 name="invoice_amount"
-                label="Total Invoice Amount"
+                label="Total Invoice"
                 initialValue="$3,000"
               >
                 <Input placeholder="$X,XXX" />
               </Form.Item>
             </Col>
-            <Col span={8}>
+            <Col span={6}>
+              <Form.Item
+                name="hours_on_site"
+                label="Hours on Site"
+              >
+                <Input placeholder="e.g. 3" />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
               <Form.Item
                 name="protection_installed"
-                label="Protection Installed"
+                label="Protection"
                 initialValue="yes"
               >
                 <Select>

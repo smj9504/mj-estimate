@@ -421,7 +421,7 @@ const SidingEstimateDetail: React.FC = () => {
           {Object.keys(groupedItems).length === 0 ? (
             <Card>
               <div style={{ textAlign: 'center', padding: 40 }}>
-                <CalculatorOutlined style={{ fontSize: 48, color: '#999', marginBottom: 16 }} />
+                <CalculatorOutlined style={{ fontSize: 48, color: '#8c8c8c', marginBottom: 16 }} />
                 <Title level={4} type="secondary">No line items yet</Title>
                 <Text type="secondary">
                   Save the estimate first, then click "Generate Items" to auto-create line items from measurements.

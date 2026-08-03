@@ -32,7 +32,7 @@ import type { ColumnsType, TablePaginationConfig, SorterResult } from 'antd/es/t
 import lineItemService from '../services/lineItemService';
 import LineItemFormModal from '../components/line-items/LineItemFormModal';
 import { LineItem } from '../types/lineItem';
-import { debounce } from 'lodash';
+import debounce from 'lodash/debounce';
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;

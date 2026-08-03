@@ -7,6 +7,7 @@ import {
   CloseOutlined,
   RightOutlined,
 } from '@ant-design/icons';
+import { zIndex as zIndexScale } from '../../styles/tokens';
 
 export interface SectionInfo {
   id: string;
@@ -79,7 +80,7 @@ const MultiSelectActionBar: React.FC<MultiSelectActionBarProps> = ({
           bottom: 0,
           left: 0,
           right: 0,
-          zIndex: 1000,
+          zIndex: zIndexScale.actionBar,
           backgroundColor: '#fff',
           borderTop: '2px solid #1890ff',
           boxShadow: '0 -4px 12px rgba(0, 0, 0, 0.15)',
@@ -101,7 +102,7 @@ const MultiSelectActionBar: React.FC<MultiSelectActionBarProps> = ({
             size="small"
             icon={<CloseOutlined />}
             onClick={onClearSelection}
-            style={{ color: '#999' }}
+            style={{ color: '#8c8c8c' }}
           />
         </div>
 
@@ -166,8 +167,8 @@ const MultiSelectActionBar: React.FC<MultiSelectActionBarProps> = ({
                 onClick={() => { if (!isSameSection) handleSectionSelect(section.index); }}
               >
                 <span style={{ fontWeight: 500 }}>{section.title}</span>
-                {!isSameSection && <RightOutlined style={{ color: '#999' }} />}
-                {isSameSection && <span style={{ color: '#999', fontSize: 12 }}>Current</span>}
+                {!isSameSection && <RightOutlined style={{ color: '#8c8c8c' }} />}
+                {isSameSection && <span style={{ color: '#8c8c8c', fontSize: 12 }}>Current</span>}
               </div>
             );
           })}

@@ -1621,7 +1621,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
               {/* Sections List */}
               {sections.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+                <div style={{ textAlign: 'center', padding: '40px', color: '#8c8c8c' }}>
                   <Title level={4} type="secondary">No sections added yet</Title>
                   <p>Add sections to organize your estimate items by room or category</p>
                 </div>
@@ -1658,7 +1658,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                           <div>
                             {/* Section Items */}
                             {section.items.length === 0 ? (
-                              <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+                              <div style={{ textAlign: 'center', padding: '20px', color: '#8c8c8c' }}>
                                 <p>No items in this section yet</p>
                                 <Button type="dashed" icon={<PlusOutlined />} onClick={() => addItemToSection(sectionIndex)}>
                                   Add First Item
@@ -1670,7 +1670,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                 onKeyDown={(e) => handleDeleteKeyPress(e, sectionIndex)}
                                 style={{ outline: 'none' }}
                               >
-                                <div style={{ marginBottom: '8px', fontSize: '12px', color: '#888' }}>
+                                <div style={{ marginBottom: '8px', fontSize: '12px', color: '#8c8c8c' }}>
                                   <Space>
                                     <span>Double-click row or use Edit button to edit</span>
                                     <Divider type="vertical" />
@@ -1712,7 +1712,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                           opacity: 0.9,
                         }}
                       >
-                        <HolderOutlined style={{ marginRight: 8, color: '#999' }} />
+                        <HolderOutlined style={{ marginRight: 8, color: '#8c8c8c' }} />
                         <strong>
                           {sections.find(s => s.id === activeId)?.title || 'Section'}
                         </strong>
@@ -1745,9 +1745,9 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                   gap: '8px',
                                 }}
                               >
-                                <HolderOutlined style={{ color: '#999', fontSize: '12px' }} />
+                                <HolderOutlined style={{ color: '#8c8c8c', fontSize: '12px' }} />
                                 <span style={{ fontWeight: '500' }}>{item.name || 'Item'}</span>
-                                <span style={{ color: '#999' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
+                                <span style={{ color: '#8c8c8c' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
                                 <span style={{ color: '#1890ff', marginLeft: 'auto' }}>{formatCurrency(item.total || 0)}</span>
                               </div>
                             );
@@ -1775,7 +1775,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                           <div>
                             <span style={{ fontWeight: 'bold' }}>Adjustments</span>
                             <Tooltip title="Add custom adjustments (e.g., Holiday Premium, Discount, O&P) that are applied in order to the subtotal">
-                              <span style={{ marginLeft: '8px', color: '#999', fontSize: '12px', cursor: 'help' }}>ℹ️</span>
+                              <span style={{ marginLeft: '8px', color: '#8c8c8c', fontSize: '12px', cursor: 'help' }}>ℹ️</span>
                             </Tooltip>
                           </div>
                           <Button
@@ -1800,7 +1800,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                           </div>
                         )}
                         {adjustments.length === 0 && (
-                          <div style={{ padding: '8px 0', color: '#999', fontSize: '12px' }}>
+                          <div style={{ padding: '8px 0', color: '#8c8c8c', fontSize: '12px' }}>
                             No adjustments. Use legacy O&P field below, or add custom adjustments above.
                           </div>
                         )}

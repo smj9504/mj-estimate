@@ -1716,7 +1716,7 @@ const BathroomEstimateDetail: React.FC = () => {
                             {paintSF != null && paintSF !== wallSF && (
                               <span style={{ marginLeft: 12 }}>
                                 Paintable: <strong>{paintSF} SF</strong>
-                                <span style={{ color: '#999', marginLeft: 4 }}>
+                                <span style={{ color: '#8c8c8c', marginLeft: 4 }}>
                                   (−{Math.round((wallSF - paintSF) * 10) / 10} SF covered by shower/tub)
                                 </span>
                               </span>
@@ -2049,7 +2049,7 @@ const BathroomEstimateDetail: React.FC = () => {
                           <div>• Vanity / Toilet만 교체 → Substrate 불필요</div>
                         </div>
                       }>
-                        <QuestionCircleOutlined style={{ color: '#999', fontSize: 14 }} />
+                        <QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 14 }} />
                       </Tooltip>
                     </Space>
                   } key="substrate">
@@ -2097,12 +2097,12 @@ const BathroomEstimateDetail: React.FC = () => {
                             )}
                             <Row gutter={16}>
                               <Col xs={12} sm={8} md={4}>
-                                <Form.Item label={<Space size={4}>Durock SF<Tooltip title={`Cement backer board for wet areas. ${wetSF > 0 ? `Auto: ${wetSF} SF from shower/tub tile areas.` : 'Enter manually.'} Override if needed.`}><QuestionCircleOutlined style={{ color: '#999' }} /></Tooltip></Space>} name={['substrate_spec', 'durock_sf']}>
+                                <Form.Item label={<Space size={4}>Durock SF<Tooltip title={`Cement backer board for wet areas. ${wetSF > 0 ? `Auto: ${wetSF} SF from shower/tub tile areas.` : 'Enter manually.'} Override if needed.`}><QuestionCircleOutlined style={{ color: '#8c8c8c' }} /></Tooltip></Space>} name={['substrate_spec', 'durock_sf']}>
                                   <InputNumber style={{ width: '100%' }} min={0} placeholder={wetSF > 0 ? `auto: ${wetSF}` : '0'} />
                                 </Form.Item>
                               </Col>
                               <Col xs={12} sm={8} md={4}>
-                                <Form.Item label={<Space size={4}>Greenboard SF<Tooltip title="Moisture-resistant drywall. Used on bathroom walls/ceilings not directly in wet areas."><QuestionCircleOutlined style={{ color: '#999' }} /></Tooltip></Space>} name={['substrate_spec', 'greenboard_sf']}>
+                                <Form.Item label={<Space size={4}>Greenboard SF<Tooltip title="Moisture-resistant drywall. Used on bathroom walls/ceilings not directly in wet areas."><QuestionCircleOutlined style={{ color: '#8c8c8c' }} /></Tooltip></Space>} name={['substrate_spec', 'greenboard_sf']}>
                                   <InputNumber style={{ width: '100%' }} min={0} />
                                 </Form.Item>
                               </Col>
@@ -2120,7 +2120,7 @@ const BathroomEstimateDetail: React.FC = () => {
                                 </Form.Item>
                               </Col>
                               <Col xs={12} sm={8} md={4}>
-                                <Form.Item label={<Space size={4}>Waterproof SF<Tooltip title={`Waterproofing area. ${wetSF > 0 ? `Auto: same as Durock (${wetSF} SF).` : 'Enter manually.'}`}><QuestionCircleOutlined style={{ color: '#999' }} /></Tooltip></Space>} name={['substrate_spec', 'waterproof_sf']}>
+                                <Form.Item label={<Space size={4}>Waterproof SF<Tooltip title={`Waterproofing area. ${wetSF > 0 ? `Auto: same as Durock (${wetSF} SF).` : 'Enter manually.'}`}><QuestionCircleOutlined style={{ color: '#8c8c8c' }} /></Tooltip></Space>} name={['substrate_spec', 'waterproof_sf']}>
                                   <InputNumber style={{ width: '100%' }} min={0} placeholder={wetSF > 0 ? `auto: ${wetSF}` : '0'} />
                                 </Form.Item>
                               </Col>
@@ -2165,7 +2165,7 @@ const BathroomEstimateDetail: React.FC = () => {
                           <Checkbox>
                             Drain Mod{' '}
                             <Tooltip title="배수관 위치 변경이 필요할 때 체크하세요. 예: 욕조→샤워 전환, fixture 위치 이동, 기존 배수관 크기 변경 등. 기존 위치 그대로 교체하는 경우에는 불필요합니다.">
-                              <QuestionCircleOutlined style={{ color: '#999' }} />
+                              <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
                             </Tooltip>
                           </Checkbox>
                         </Form.Item>
@@ -2175,7 +2175,7 @@ const BathroomEstimateDetail: React.FC = () => {
                           <Checkbox>
                             Pressure Balance{' '}
                             <Tooltip title="온수/냉수 압력 균형 밸브 (코드 요구사항). 다른 곳에서 물을 사용할 때 샤워 온도가 급변하는 것을 방지합니다. 기존 밸브가 없거나 노후된 경우, 또는 코드 업데이트가 필요한 경우 체크하세요.">
-                              <QuestionCircleOutlined style={{ color: '#999' }} />
+                              <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
                             </Tooltip>
                           </Checkbox>
                         </Form.Item>

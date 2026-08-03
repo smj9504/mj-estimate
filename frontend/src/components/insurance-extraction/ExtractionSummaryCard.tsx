@@ -36,7 +36,7 @@ const ExtractionSummaryCard: React.FC<ExtractionSummaryCardProps> = ({ extractio
         }
         description={
           (strategyLog || strategy) ? (
-            <span style={{ fontSize: 12, color: '#888', wordBreak: 'break-word' }}>
+            <span style={{ fontSize: 12, color: '#8c8c8c', wordBreak: 'break-word' }}>
               Strategy: {strategy || '—'}
               {strategyLog?.length ? ` | Pipeline: ${strategyLog.join(' → ')}` : ''}
             </span>

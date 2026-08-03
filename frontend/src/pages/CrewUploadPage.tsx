@@ -258,7 +258,7 @@ const CrewUploadPage: React.FC = () => {
           <h2 style={{ margin: 0, color: '#ff4d4f' }}>
             Invalid Link
           </h2>
-          <p style={{ color: '#999', marginTop: 8 }}>
+          <p style={{ color: '#8c8c8c', marginTop: 8 }}>
             This link has expired or is invalid.
           </p>
         </div>
@@ -323,7 +323,7 @@ const CrewUploadPage: React.FC = () => {
             <p style={{ marginTop: 16, fontSize: 15, color: '#1890ff', fontWeight: 500 }}>
               {compressProgress}
             </p>
-            <p style={{ fontSize: 13, color: '#999' }}>
+            <p style={{ fontSize: 13, color: '#8c8c8c' }}>
               Compressing photos for faster upload...
             </p>
           </div>
@@ -349,7 +349,7 @@ const CrewUploadPage: React.FC = () => {
                   <div style={{ fontSize: 28, fontWeight: 700 }}>
                     {completedFiles}
                   </div>
-                  <div style={{ fontSize: 13, color: '#999' }}>
+                  <div style={{ fontSize: 13, color: '#8c8c8c' }}>
                     / {totalFiles}
                   </div>
                 </div>
@@ -428,7 +428,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   label: {
     fontSize: 14,
-    color: '#888',
+    color: '#8c8c8c',
     marginBottom: 24,
   },
   uploadSection: {
@@ -444,7 +444,7 @@ const styles: Record<string, React.CSSProperties> = {
   hint: {
     marginTop: 12,
     fontSize: 13,
-    color: '#999',
+    color: '#8c8c8c',
   },
   progressSection: {
     marginTop: 16,

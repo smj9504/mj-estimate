@@ -2,8 +2,8 @@
 Work Order Pydantic schemas
 """
 
-from typing import Optional
-from pydantic import BaseModel, EmailStr, field_validator
+from typing import List, Optional
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import datetime
 from uuid import UUID
 from .models import WorkOrderStatus
@@ -192,6 +192,8 @@ class WorkOrder(WorkOrderBase):
     work_order_number: str
     status: WorkOrderStatus
     created_by_staff_id: UUID
+    client_id: Optional[UUID] = None
+    claim_id: Optional[UUID] = None
     
     # Staff names (populated from joins)
     created_by_staff_name: Optional[str] = None
@@ -256,3 +258,12 @@ class WorkOrderFilter(BaseModel):
     is_active: Optional[bool] = None
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
+
+
+class CompletionReportRequest(BaseModel):
+    """Request to generate Completion Photo Report PDF"""
+    photo_ids: List[str] = Field(..., description="List of file IDs to include in the report")
+    title: str = Field("Completion Photo Report", max_length=255)
+    description: Optional[str] = Field(None, description="Cover page description")
+    report_date: Optional[str] = Field(None, description="Report date (YYYY-MM-DD)")
+    compress: bool = Field(False, description="Compress images for smaller file size")

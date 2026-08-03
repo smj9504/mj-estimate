@@ -208,19 +208,19 @@ const CompanyManagement: React.FC = () => {
       title: 'Title',
       dataIndex: 'title',
       key: 'title',
-      render: (v) => v || <span style={{ color: '#ccc' }}>-</span>,
+      render: (v) => v || <span style={{ color: '#8c8c8c' }}>-</span>,
     },
     {
       title: 'Email',
       dataIndex: 'email',
       key: 'email',
-      render: (v) => v || <span style={{ color: '#ccc' }}>-</span>,
+      render: (v) => v || <span style={{ color: '#8c8c8c' }}>-</span>,
     },
     {
       title: 'Phone',
       dataIndex: 'phone',
       key: 'phone',
-      render: (v) => v || <span style={{ color: '#ccc' }}>-</span>,
+      render: (v) => v || <span style={{ color: '#8c8c8c' }}>-</span>,
     },
     {
       title: 'Actions',

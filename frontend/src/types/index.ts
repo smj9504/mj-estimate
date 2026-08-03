@@ -165,6 +165,8 @@ export interface WorkOrder {
   id: string;
   work_order_number: string;
   company_id: string;
+  client_id?: string;
+  claim_id?: string;
   document_type: DocumentType;
   document_type_name?: string;  // Added to display the actual name from database
   client_name: string;

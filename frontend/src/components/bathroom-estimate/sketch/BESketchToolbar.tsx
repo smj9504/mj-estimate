@@ -94,7 +94,7 @@ const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, onZoomIn, onZoom
         <>
           <Divider type="vertical" style={{ margin: '0 2px' }} />
           <Space size={2} style={{ flexShrink: 0 }}>
-            <Text style={{ fontSize: 11, color: '#888', marginRight: 2 }}>Surface:</Text>
+            <Text style={{ fontSize: 11, color: '#8c8c8c', marginRight: 2 }}>Surface:</Text>
             <Tooltip title="Wall — draw a line; area = length × height">
               <Button
                 size="small"
@@ -124,7 +124,7 @@ const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, onZoomIn, onZoom
         <>
           <Divider type="vertical" style={{ margin: '0 2px' }} />
           <Space size={2} style={{ flexShrink: 0 }}>
-            <Text style={{ fontSize: 11, color: '#888', marginRight: 2 }}>Surface:</Text>
+            <Text style={{ fontSize: 11, color: '#8c8c8c', marginRight: 2 }}>Surface:</Text>
             <Tooltip title="Wall — draw a line; area = length × height">
               <Button
                 size="small"

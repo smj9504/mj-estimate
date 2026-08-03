@@ -1,13 +1,34 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { Button } from 'antd';
+import { FilePdfOutlined } from '@ant-design/icons';
+import { useQueryClient } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
+import CompletionReportModal from './CompletionReportModal';
 
 interface WorkOrderDocumentsTabProps {
   workOrderId: string;
+  claimId?: string;
 }
 
-const WorkOrderDocumentsTab: React.FC<WorkOrderDocumentsTabProps> = ({ workOrderId }) => {
+const WorkOrderDocumentsTab: React.FC<WorkOrderDocumentsTabProps> = ({ workOrderId, claimId }) => {
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const queryClient = useQueryClient();
+
   return (
     <div className="work-order-documents-tab" style={{ height: 'calc(100vh - 180px)', padding: '16px' }}>
+      {/* Generate Completion Report button */}
+      <div style={{ marginBottom: 12 }}>
+        <Button
+          type="primary"
+          icon={<FilePdfOutlined />}
+          onClick={() => setReportModalVisible(true)}
+          disabled={!claimId}
+          title={!claimId ? 'Link a claim to this work order to generate completion reports' : undefined}
+        >
+          Generate Completion Report
+        </Button>
+      </div>
+
       <FileGallery
         context="work-order"
         mode="upload"
@@ -28,7 +49,7 @@ const WorkOrderDocumentsTab: React.FC<WorkOrderDocumentsTabProps> = ({ workOrder
         fileCategory="document"
 
         // Full screen utilization
-        height="100%"
+        height="calc(100% - 48px)"
         allowUpload={true}
         allowCategoryCreate={true}
 
@@ -61,6 +82,17 @@ const WorkOrderDocumentsTab: React.FC<WorkOrderDocumentsTabProps> = ({ workOrder
           showUploadList: false,
           listType: 'text',
           accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv'
+        }}
+      />
+
+      <CompletionReportModal
+        visible={reportModalVisible}
+        workOrderId={workOrderId}
+        claimId={claimId}
+        onClose={() => setReportModalVisible(false)}
+        onGenerated={() => {
+          setReportModalVisible(false);
+          queryClient.invalidateQueries({ queryKey: ['work-order-documents-count', workOrderId] });
         }}
       />
     </div>

@@ -271,7 +271,7 @@ const FixtureSelector: React.FC<FixtureSelectorProps> = ({
       <style>{`
         .fixture-card {
           cursor: pointer;
-          transition: all 0.2s ease;
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
 
         .fixture-card:hover {

@@ -1027,7 +1027,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                         }}
                       >
                         {currentSection.title}
-                        <EditOutlined style={{ marginLeft: 8, fontSize: 16, color: '#999' }} />
+                        <EditOutlined style={{ marginLeft: 8, fontSize: 16, color: '#8c8c8c' }} />
                       </Title>
                     )}
                     <Text type="secondary">{currentSection.photos.length} Photos</Text>
@@ -1162,7 +1162,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                                 ))}
                               </Select>
                               {photo.taken_date && (
-                                <div style={{ color: '#999', fontSize: 10 }}>
+                                <div style={{ color: '#8c8c8c', fontSize: 10 }}>
                                   {new Date(photo.taken_date).toLocaleDateString()}
                                 </div>
                               )}

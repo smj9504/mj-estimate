@@ -17,14 +17,28 @@ logger = logging.getLogger(__name__)
 # System prompts
 # ──────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are an experienced licensed master plumber in the DMV area (DC, Maryland, Virginia).
-You generate professional plumber's service reports for emergency repair calls."""
+SYSTEM_PROMPT = (
+    "You are an experienced licensed master plumber in the DMV area "
+    "(DC, Maryland, Virginia). You generate professional plumber's "
+    "field service reports for emergency repair calls."
+)
+
+# ──────────────────────────────────────────────
+# Pipe‑type inference rules (shared context)
+# ──────────────────────────────────────────────
+
+PIPE_INFERENCE_RULES = """
+### Pipe Type Inference (use when pipe_material is not specified)
+- Kitchen/bathroom sink drain line -> PVC (DWV)
+- Supply line (hot/cold) -> Copper or CPVC
+- Older home drain -> Cast iron or PVC
+"""
 
 # ──────────────────────────────────────────────
 # Step 1: Scope & Assessment
 # ──────────────────────────────────────────────
 
-SCOPE_PROMPT_TEMPLATE = """Assess this emergency plumbing call and write the field report sections.
+SCOPE_PROMPT_TEMPLATE = """Write the field report sections for this plumbing service call.
 
 ## JOB DETAILS
 
@@ -34,41 +48,70 @@ SCOPE_PROMPT_TEMPLATE = """Assess this emergency plumbing call and write the fie
 - **Location in home:** {location}
 - **Wall / access type:** {wall_access_type}
 - **Protection installed:** {protection_installed}
-
+""" + PIPE_INFERENCE_RULES + """
 ## INSTRUCTIONS
 
 ### SITE FINDINGS (-> site_findings)
-- Describe the failure factually as a burst/failure at the identified component and location.
-- Mention once, plainly, that the homeowner reported no prior signs of leakage — state it and move on.
-- "sudden failure" may appear **once** if it reads naturally, but is not required.
+- Describe ONLY what was observed on site — the component failure and its location.
+- State that homeowner reported no prior signs of leakage — mention once, plainly.
+- "sudden burst" or "sudden failure" may appear **once** if natural, but is not required.
 - Use factual, field-technician language — not legal or overly formal.
-- Do NOT mention age, wear and tear, or maintenance history.
-- Do NOT describe water supply as "still pressurized" or note how long water ran.
-- Do NOT estimate leak duration or volume of water.
-- Do NOT imply any fault or delay on the homeowner's part.
+- Vary opening phrasing — do NOT always start with "Upon arrival". Use alternatives:
+  - "Technician found..."
+  - "On-site inspection revealed..."
+  - "At time of service, technician observed..."
+  - Lead directly with the condition: "Active discharge was present at..."
+- **NEVER include any of the following in Site Findings:**
+  - Main water valve state upon arrival (open, closed, shut off, already turned off)
+  - Water pressure state upon arrival
+  - Any suggestion the supply was "still running" or left unattended
+  - Estimated leak duration or volume of water escaped
+  - Age, wear, deterioration, or maintenance history
+  - Any implication of homeowner fault or delayed response
+  - Any technician actions (shut-off, protection, repair) — those belong in Work Performed
 
 ### WORK PERFORMED (-> work_performed)
-- Written as a narrative paragraph describing the full scope of work.
-- Frame the water shut-off as an immediate action upon arrival.
+- Keep it to 3-4 sentences maximum.
+- Open with supply/drain shutoff as the immediate first action.
+  Do NOT open with "Upon arrival" — lead with the action itself.
+- Group related steps into single sentences — do not list every micro-step separately.
+- Structure: (1) shutoff + surface protection, (2) access + repair, (3) test + post-repair protection.
+- **Two protection phases when tile/drywall/finished surfaces are involved:**
+  - Phase 1 (pre-demo): Protect surrounding surfaces and fixtures BEFORE any cutting.
+  - Phase 2 (post-repair): Temporarily seal the exposed wall cavity with plastic sheeting
+    and tape AFTER plumbing work is complete, before leaving the job.
 - **Match repair method to pipe material:**
-  - copper → cut out failed section, replace with Type L copper, solder/push-fit couplings.
-  - PEX/flexible → replace connector or line with code-compliant fittings.
-- **Match demolition to wall/access type:**
-  - tile → cut and remove tile and backing.
-  - drywall → cut and remove drywall section.
-  - access panel → open existing panel, no cutting.
-- If protection installed = yes, describe poly sheeting installation.
-- Keep concise but clear.
+  - copper -> cut out failed section, replace with Type L copper, solder/push-fit couplings.
+  - PEX/flexible -> replace connector or line with code-compliant fittings.
+  - PVC (DWV) -> cut out failed section, fit replacement PVC with couplings, replace P-trap.
+  - CPVC -> cut and replace with CPVC transition fittings.
+- **Match access to wall/access type:**
+  - tile -> protect surrounding tile and fixtures, cut and remove tile and backing for access.
+  - drywall -> cut and remove drywall section.
+  - access panel -> open existing panel, no cutting.
+  - under-sink / cabinet -> protect cabinet interior and flooring.
+- Use field technician language — clear and factual, not legal.
+
+### CRITICAL CONSISTENCY CHECK
+Before outputting, verify ALL of these:
+1. Site Findings must NOT mention any action the technician performed (shut-off, repair, protection).
+2. Work Performed must NOT contradict Site Findings.
+3. If Site Findings says something was in a certain state, Work Performed must not claim the opposite.
+4. The word count for work_performed should be roughly 3-4 sentences, not a long list.
 
 ### WARRANTY (-> warranty_info)
-- 30-day labor warranty statement, 1 sentence.
+- One sentence: 30-day workmanship warranty from date of service.
 
 ### NOTES (-> notes)
-- 2-3 sentences max. Include leak-free verification, drying advisory, and hand-off to qualified trade for finish restoration.
+- 2-3 sentences max.
+- Include: drying advisory, monitoring recommendation, no additional issues found.
+- If tile or drywall was removed, note that restoration is pending and the cavity has been temporarily sealed.
 
 ## TONE
 Professional field report. Written as a licensed technician, not a lawyer.
-Avoid: wear and tear, deterioration, age-related, neglect, deferred maintenance, excessive defensive phrasing, legal language, estimates of leak duration/volume, homeowner fault implications.
+Avoid: wear and tear, deterioration, age-related, neglect, deferred maintenance,
+excessive defensive phrasing, legal language, estimates of leak duration/volume,
+homeowner fault implications.
 
 ## OUTPUT FORMAT
 Return ONLY a valid JSON object (no markdown, no code fences):
@@ -95,20 +138,29 @@ INVOICE_PROMPT_TEMPLATE = """Based on the plumbing work performed below, create 
 - **Wall / access type:** {wall_access_type}
 - **Protection installed:** {protection_installed}
 - **State:** {state}
+- **Hours on site:** {hours_on_site}
 - **Target total invoice amount:** {invoice_amount}
 
 ## INVOICE RULES
 - 5 line items maximum.
-- Include: Emergency Dispatch Fee, Labor (broken into 2-3 phases), Materials (grouped).
-- Labor phase names must reflect the ACTUAL work described above (e.g. "Shut-off & Tile Access," "Copper Repair, Testing & Protection").
-- Estimate realistic labor hours per phase based on the work described.
-- Materials should list the actual items used in the work description.
+- Structure: Emergency Dispatch Fee + Labor (2-3 phases) + Materials.
+- **Emergency Dispatch Fee**: $125-$200 depending on urgency (1 EA).
+- **Labor rate**: $185/hr (DMV standard rate). Use HR as unit.
+  Labor hours across all phases should roughly match {hours_on_site} total hours on site.
+- **Materials**: Group all materials into a single LOT line item.
+  Include temporary protection materials (plastic sheeting, tape) if protection was installed.
+  Materials description should list the actual items used in the work description.
+- Labor phase names must reflect the ACTUAL work described above.
+  Example phase names: "Shut-off, Protection & Access", "Repair, Testing & Seal-up".
 - **CRITICAL — Total must match {invoice_amount} exactly.**
-  Before outputting, compute: sum of (quantity × unit_cost) for every item + tax_amount.
-  That number MUST equal {invoice_amount} (strip $ and commas to compare).
-  Strategy: set Emergency Fee, then set labor hours & rate, then set Materials unit_cost = target − (Emergency + Labor totals) − tax.
+  Strategy: set Emergency Fee first, then set labor hours & $185/hr rate,
+  then set Materials unit_cost = target - (Emergency + Labor totals) - tax.
   Double-check your arithmetic before responding.
-- **Tax handling:** For MD/VA/DC real-property repair, do NOT apply sales tax to labor. tax_amount defaults to 0 unless materials are separately taxed per the state's rule.
+- **Tax handling:**
+  - VA: Labor exempt, materials 6% (if bundled into flat rate, tax can be $0).
+  - MD: Labor exempt, materials 6%.
+  - DC: Labor exempt, materials 6%.
+  - If materials cost is included in the flat rate, tax_amount = 0.
 
 ## OUTPUT FORMAT
 Return ONLY a valid JSON object (no markdown, no code fences):
@@ -117,24 +169,24 @@ Return ONLY a valid JSON object (no markdown, no code fences):
   "invoice_items": [
     {{
       "name": "Emergency Dispatch Fee",
-      "description": "After-hours emergency response and on-site assessment",
+      "description": "Emergency response and on-site assessment",
       "quantity": 1,
       "unit": "EA",
-      "unit_cost": 175.00
-    }},
-    {{
-      "name": "Labor — [Phase Name]",
-      "description": "Description of labor performed",
-      "quantity": 2,
-      "unit": "HR",
       "unit_cost": 150.00
     }},
     {{
+      "name": "Labor - [Phase Name]",
+      "description": "Description of labor performed",
+      "quantity": 1.5,
+      "unit": "HR",
+      "unit_cost": 185.00
+    }},
+    {{
       "name": "Materials",
-      "description": "List of materials used",
+      "description": "List of materials used including protection materials",
       "quantity": 1,
       "unit": "LOT",
-      "unit_cost": 130.00
+      "unit_cost": 0.00
     }}
   ],
   "tax_amount": 0
@@ -154,19 +206,21 @@ def generate_plumber_report(
     pipe_material: str = "",
     wall_access_type: str = "drywall",
     protection_installed: str = "yes",
+    hours_on_site: str = "",
 ) -> Optional[dict]:
     """
     2-step AI pipeline for plumber report generation.
 
-    Step 1: Scope & Assessment → site_findings, work_performed, warranty, notes
-    Step 2: Invoice → invoice_items, tax_amount (based on Step 1 work_performed)
+    Step 1: Scope & Assessment -> site_findings, work_performed, warranty, notes
+    Step 2: Invoice -> invoice_items, tax_amount (based on Step 1 work_performed)
 
     Returns merged JSON dict or None on failure.
     """
     resolved_component = failed_component or incident_type
-    resolved_material = pipe_material or "Type L copper"
+    resolved_material = pipe_material or "not specified (infer from incident and location)"
     resolved_wall = wall_access_type or "drywall"
     resolved_protection = protection_installed or "yes"
+    resolved_hours = hours_on_site or "3"
 
     # ── Step 1: Scope & Assessment ──
     logger.info("AI Step 1/2: Generating scope & assessment...")
@@ -201,6 +255,7 @@ def generate_plumber_report(
         protection_installed=resolved_protection,
         state=state,
         invoice_amount=invoice_amount,
+        hours_on_site=resolved_hours,
     )
 
     invoice_raw = _call_ai(invoice_prompt)
@@ -220,6 +275,13 @@ def generate_plumber_report(
     tax = invoice_data.get("tax_amount", 0)
     items = _reconcile_total(items, tax, invoice_amount)
 
+    # ── Compute subtotal and total ──
+    subtotal = round(sum(
+        item.get("quantity", 1) * item.get("unit_cost", 0)
+        for item in items
+    ), 2)
+    total = round(subtotal + tax, 2)
+
     # ── Merge results ──
     return {
         "site_findings": scope_data.get("site_findings", ""),
@@ -227,7 +289,9 @@ def generate_plumber_report(
         "warranty_info": scope_data.get("warranty_info", ""),
         "notes": scope_data.get("notes", ""),
         "invoice_items": items,
+        "subtotal": subtotal,
         "tax_amount": tax,
+        "total": total,
     }
 
 
@@ -370,7 +434,10 @@ def _parse_json_response(raw: str) -> Optional[dict]:
     # Strip markdown code fences
     if text.startswith("```"):
         lines = text.split("\n")
-        lines = [ln for ln in lines if not ln.strip().startswith("```")]
+        lines = [
+            ln for ln in lines
+            if not ln.strip().startswith("```")
+        ]
         text = "\n".join(lines).strip()
 
     try:

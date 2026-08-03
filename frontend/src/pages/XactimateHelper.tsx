@@ -204,9 +204,10 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ room, onResult }) => {
     setAnalyzing(true);
     setCurrentStep(0);
 
+    let stepTimer: ReturnType<typeof setInterval> | undefined;
     try {
       // Simulate step progression
-      const stepTimer = setInterval(() => {
+      stepTimer = setInterval(() => {
         setCurrentStep((prev) => Math.min(prev + 1, 2));
       }, 2000);
 
@@ -220,6 +221,7 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ room, onResult }) => {
       onResult(result);
       message.success('Analysis complete!');
     } catch (err: any) {
+      if (stepTimer) clearInterval(stepTimer);
       message.error(err?.response?.data?.detail || 'Analysis failed');
     } finally {
       setAnalyzing(false);

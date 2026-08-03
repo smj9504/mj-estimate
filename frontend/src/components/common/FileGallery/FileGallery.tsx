@@ -798,10 +798,10 @@ const FileGallery: React.FC<FileGalleryProps> = ({
             {isFetchingNextPage ? (
               <div style={{ textAlign: 'center' }}>
                 <Spin size="small" />
-                <p style={{ marginTop: 8, color: '#999' }}>Loading more photos...</p>
+                <p style={{ marginTop: 8, color: '#8c8c8c' }}>Loading more photos...</p>
               </div>
             ) : !hasNextPage && filteredFiles.length > 0 ? (
-              <p style={{ textAlign: 'center', margin: '16px 0', color: '#999' }}>End</p>
+              <p style={{ textAlign: 'center', margin: '16px 0', color: '#8c8c8c' }}>End</p>
             ) : null}
           </div>
         )}
@@ -909,7 +909,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
                 <Spin size="small" />
               </div>
             ) : !hasNextPage && filteredFiles.length > 0 ? (
-              <p style={{ textAlign: 'center', margin: '16px 0', color: '#999' }}>End</p>
+              <p style={{ textAlign: 'center', margin: '16px 0', color: '#8c8c8c' }}>End</p>
             ) : null}
           </div>
         )}

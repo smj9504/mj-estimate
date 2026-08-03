@@ -520,7 +520,7 @@ const ContractCard: React.FC<{ contract: ContractInstance; onClick: () => void }
             <Text type="secondary" style={{ fontSize: 14, display: 'block' }}>Client: {contract.client_name}</Text>
           )}
           {address && (
-            <Text style={{ fontSize: 13, color: '#999', display: 'block', marginTop: 2 }}>{address}</Text>
+            <Text style={{ fontSize: 13, color: '#8c8c8c', display: 'block', marginTop: 2 }}>{address}</Text>
           )}
         </div>
         <Tag color={STATUS_COLORS[contract.status] || 'default'} style={{ fontSize: 13, margin: 0, flexShrink: 0 }}>
