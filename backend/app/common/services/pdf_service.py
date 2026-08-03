@@ -4140,8 +4140,6 @@ def generate_completion_report_pdf(
     writer.add_page(cover_reader.pages[0])
 
     # ===== PHOTO PAGES =====
-    # Flat layout: 4 photos per page (2x2 grid)
-    layout = 'four'
     rows, cols = 2, 2
     max_photos_per_page = 4
     total_pages = 1
@@ -4227,7 +4225,6 @@ def generate_completion_report_pdf(
                 # Caption
                 caption_text = photo_item.get('caption', '') or photo_item.get('description', '')
                 if caption_text:
-                    import re
                     _is_filename = bool(re.match(
                         r'^[0-9a-fA-F\-]{20,}\.\w{2,4}$', caption_text.strip()
                     )) or bool(re.match(
@@ -4299,7 +4296,6 @@ def generate_completion_report_pdf(
     # Cleanup temp files
     for temp_file_path in temp_files:
         try:
-            import os
             os.unlink(temp_file_path)
         except Exception:
             pass
