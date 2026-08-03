@@ -95,9 +95,10 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
       setUploadProgress(100);
       hideLoading();
 
+      // Allow new uploads immediately; keep progress bar visible briefly
+      processingBatchRef.current = false;
       setTimeout(() => {
         setUploadProgress(0);
-        processingBatchRef.current = false;
       }, 1500);
     } catch (error: any) {
       message.error(`Upload failed: ${error.message || 'Unknown error'}`);
@@ -241,6 +242,7 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
         <Dragger
           name="files"
           multiple={allowBulkUpload}
+          fileList={[]}
           beforeUpload={beforeUpload}
           showUploadList={false}
           disabled={uploading}
