@@ -397,24 +397,41 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
 
   // Custom upload handler for Water Mitigation photos
   const handleUpload = useCallback(async (files: File[], category?: string): Promise<void> => {
+    const msgKey = 'photo-upload-progress';
+    message.loading({ content: `Uploading 0/${files.length} photos...`, key: msgKey, duration: 0 });
+
     try {
-      const { results, failed } = await waterMitigationService.photos.uploadMultiple(jobId, files, category);
+      const { results, failed } = await waterMitigationService.photos.uploadMultiple(
+        jobId,
+        files,
+        category,
+        (completed, total, failedCount) => {
+          const progress = Math.round((completed / total) * 100);
+          message.loading({
+            content: `Uploading photos ${completed}/${total} (${progress}%)${failedCount > 0 ? ` — ${failedCount} failed` : ''}`,
+            key: msgKey,
+            duration: 0,
+          });
+        },
+      );
+
       if (failed.length === 0) {
-        message.success(`Successfully uploaded ${results.length} photo(s)`);
+        message.success({ content: `Successfully uploaded ${results.length} photo(s)`, key: msgKey, duration: 3 });
       } else if (results.length > 0) {
-        message.warning(
-          `Uploaded ${results.length} of ${files.length} photos. ` +
-          `${failed.length} failed: ${failed.map(f => f.name).join(', ')}`
-        );
+        message.warning({
+          content: `Uploaded ${results.length}/${files.length} photos. ${failed.length} failed.`,
+          key: msgKey,
+          duration: 5,
+        });
       } else {
-        message.error(`All ${files.length} uploads failed. ${failed[0]?.error || 'Unknown error'}`);
+        message.error({ content: `All ${files.length} uploads failed. ${failed[0]?.error || 'Unknown error'}`, key: msgKey, duration: 5 });
       }
       // Refresh photos after upload
       queryClient.invalidateQueries({ queryKey: ['files', 'water-mitigation', jobId] });
       queryClient.invalidateQueries({ queryKey: ['files-infinite', 'water-mitigation', jobId] });
     } catch (error: any) {
       console.error('Upload failed:', error);
-      message.error(`Upload failed: ${error.message || 'Unknown error'}`);
+      message.error({ content: `Upload failed: ${error.message || 'Unknown error'}`, key: msgKey, duration: 5 });
       throw error;
     }
   }, [jobId, queryClient]);

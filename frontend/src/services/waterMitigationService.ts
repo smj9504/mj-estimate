@@ -236,7 +236,12 @@ export const waterMitigationService = {
     },
 
     // Upload multiple photos to job (concurrent batches)
-    uploadMultiple: async (jobId: string, files: File[], category?: string): Promise<{
+    uploadMultiple: async (
+      jobId: string,
+      files: File[],
+      category?: string,
+      onProgress?: (completed: number, total: number, failed: number) => void,
+    ): Promise<{
       results: any[];
       failed: { name: string; error: string }[];
     }> => {
@@ -267,6 +272,7 @@ export const waterMitigationService = {
             failed.push({ name: file.name, error: errMsg });
           }
         });
+        onProgress?.(results.length, files.length, failed.length);
       }
 
       return { results, failed };
