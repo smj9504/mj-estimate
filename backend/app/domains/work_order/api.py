@@ -614,6 +614,8 @@ async def generate_completion_report(
 
     from fastapi.responses import Response
 
+    temp_files = []  # Track all temp files for cleanup in finally block
+
     try:
         # 1. Get work order
         work_order = service.get_by_id(str(work_order_id))
@@ -628,7 +630,6 @@ async def generate_completion_report(
                 company_svc = CompanyService(get_database())
                 company = company_svc.get_by_id(str(work_order['company_id']))
                 if company:
-                    # Handle logo: if base64, save to temp file for PDF rendering
                     logo_path = None
                     if company.get('logo'):
                         import base64
@@ -641,6 +642,7 @@ async def generate_completion_report(
                             logo_temp.write(logo_bytes)
                             logo_temp.close()
                             logo_path = logo_temp.name
+                            temp_files.append(logo_temp.name)
                         except Exception as logo_err:
                             logger.warning(f"Failed to process company logo: {logo_err}")
 
@@ -704,7 +706,6 @@ async def generate_completion_report(
         storage = get_storage_provider()
 
         photo_items = []
-        temp_photo_files = []
 
         for file_id in request.photo_ids:
             try:
@@ -716,7 +717,6 @@ async def generate_completion_report(
                 file_url = file_record.get('url', '')
                 photo_path = None
 
-                # Download from storage
                 if file_url.startswith('gs://') or file_url.startswith('https://') or file_url.startswith('http://'):
                     photo_data = storage.download(file_url)
                     if photo_data:
@@ -724,7 +724,7 @@ async def generate_completion_report(
                         temp_file.write(photo_data)
                         temp_file.close()
                         photo_path = temp_file.name
-                        temp_photo_files.append(temp_file.name)
+                        temp_files.append(temp_file.name)
                 else:
                     # Local file
                     local_path = Path(file_url)
@@ -807,19 +807,6 @@ async def generate_completion_report(
         created_file = file_service.repository.create(file_record_data)
         file_service.repository.session.commit()
 
-        # Cleanup temp photo files
-        for temp_path in temp_photo_files:
-            try:
-                Path(temp_path).unlink()
-            except Exception:
-                pass
-        # Cleanup logo temp file
-        if company_data and company_data.get('logo'):
-            try:
-                Path(company_data['logo']).unlink()
-            except Exception:
-                pass
-
         # 9. Return PDF as response
         file_id = created_file.get('id', '') if isinstance(created_file, dict) else str(getattr(created_file, 'id', ''))
         return Response(
@@ -838,3 +825,9 @@ async def generate_completion_report(
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        for temp_path in temp_files:
+            try:
+                Path(temp_path).unlink(missing_ok=True)
+            except Exception:
+                pass

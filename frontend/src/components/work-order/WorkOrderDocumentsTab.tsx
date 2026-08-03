@@ -16,25 +16,21 @@ const WorkOrderDocumentsTab: React.FC<WorkOrderDocumentsTabProps> = ({ workOrder
 
   return (
     <div className="work-order-documents-tab" style={{ height: 'calc(100vh - 180px)', padding: '16px' }}>
-      {/* Generate Completion Report button */}
-      <div style={{ marginBottom: 12 }}>
-        <Button
-          type="primary"
-          icon={<FilePdfOutlined />}
-          onClick={() => setReportModalVisible(true)}
-          disabled={!claimId}
-          title={!claimId ? 'Link a claim to this work order to generate completion reports' : undefined}
-        >
-          Generate Completion Report
-        </Button>
-      </div>
+      <Button
+        style={{ marginBottom: 12 }}
+        type="primary"
+        icon={<FilePdfOutlined />}
+        onClick={() => setReportModalVisible(true)}
+        disabled={!claimId}
+        title={!claimId ? 'Link a claim to this work order to generate completion reports' : undefined}
+      >
+        Generate Completion Report
+      </Button>
 
       <FileGallery
         context="work-order"
         mode="upload"
         contextId={workOrderId}
-
-        // Document-specific settings
         allowedTypes={[
           'application/pdf',
           'application/msword',
@@ -47,36 +43,22 @@ const WorkOrderDocumentsTab: React.FC<WorkOrderDocumentsTabProps> = ({ workOrder
           'text/csv'
         ]}
         fileCategory="document"
-
-        // Full screen utilization
         height="calc(100% - 48px)"
         allowUpload={true}
         allowCategoryCreate={true}
-
-        // Multi-select support
         allowMultiSelect={true}
-
-        // Document-specific categories
         categories={['contracts', 'invoices', 'reports', 'permits', 'insurance', 'estimates', 'receipts', 'other']}
         defaultViewMode="list"
         allowViewModeChange={true}
-
-        // Document management features
         showDocumentPreview={true}
         enableDocumentSearch={true}
         showDocumentDetails={true}
         allowBulkUpload={true}
-
-        // Document file handling
-        maxFileSize={50 * 1024 * 1024} // 50MB
+        maxFileSize={50 * 1024 * 1024}
         maxFiles={100}
-
-        // Document list layout
-        listLayout="detailed" // filename, size, date, description etc
+        listLayout="detailed"
         showPreviewPanel={true}
         enableFullTextSearch={true}
-
-        // Upload configuration
         uploadConfig={{
           multiple: true,
           showUploadList: false,

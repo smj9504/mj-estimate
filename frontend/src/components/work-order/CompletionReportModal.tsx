@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   Modal, Button, Input, DatePicker, Checkbox, Space, Typography,
-  Spin, message, Empty, Image, Tag, Row, Col, Tabs,
+  Spin, message, Empty, Tag, Row, Col, Tabs,
 } from 'antd';
 import { FilePdfOutlined, CheckOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
@@ -19,8 +19,6 @@ interface CompletionReportModalProps {
   onClose: () => void;
   onGenerated: () => void;
 }
-
-const PHOTO_CATEGORIES = ['all', 'before', 'during', 'after', 'completion', 'damage', 'general'];
 
 const CompletionReportModal: React.FC<CompletionReportModalProps> = ({
   visible,
@@ -42,6 +40,11 @@ const CompletionReportModal: React.FC<CompletionReportModalProps> = ({
     queryFn: () => fileService.getFiles('claim', claimId!, undefined, 'image'),
     enabled: visible && !!claimId,
   });
+
+  const photoCategories = useMemo(() => {
+    const cats = new Set(photos.map((p: FileItem) => p.category).filter(Boolean));
+    return ['all', ...Array.from(cats).sort()];
+  }, [photos]);
 
   const filteredPhotos = useMemo(() => {
     if (activeCategory === 'all') return photos;
@@ -195,7 +198,7 @@ const CompletionReportModal: React.FC<CompletionReportModalProps> = ({
               size="small"
               activeKey={activeCategory}
               onChange={setActiveCategory}
-              items={PHOTO_CATEGORIES.map(cat => ({
+              items={photoCategories.map(cat => ({
                 key: cat,
                 label: cat === 'all' ? 'All' : cat.charAt(0).toUpperCase() + cat.slice(1),
               }))}

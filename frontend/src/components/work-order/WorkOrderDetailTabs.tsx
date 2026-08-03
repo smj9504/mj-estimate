@@ -16,11 +16,11 @@ interface WorkOrderDetailTabsProps {
 }
 
 const WorkOrderDetailTabs: React.FC<WorkOrderDetailTabsProps> = ({ workOrderId }) => {
-  // Fetch work order to get claim_id
   const { data: workOrderData } = useQuery({
     queryKey: ['work-order', workOrderId],
     queryFn: () => workOrderService.getWorkOrder(workOrderId),
     enabled: !!workOrderId,
+    staleTime: 2 * 60 * 1000,
   });
 
   const claimId = workOrderData?.claim_id;
