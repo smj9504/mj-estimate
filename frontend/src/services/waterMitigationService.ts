@@ -319,9 +319,10 @@ export const waterMitigationService = {
       return response.data;
     },
 
-    // Bulk trash photos
-    bulkTrash: async (photoIds: string[]): Promise<void> => {
-      await Promise.all(photoIds.map(id => api.post(`${BASE_URL}/photos/${id}/trash`)));
+    // Bulk trash photos (single request)
+    bulkTrash: async (photoIds: string[]): Promise<{ trashed: number; not_found: number; total: number }> => {
+      const response = await api.post(`${BASE_URL}/photos/bulk-trash`, { photo_ids: photoIds });
+      return response.data;
     },
 
     // Bulk restore photos from trash

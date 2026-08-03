@@ -13,6 +13,7 @@ from uuid import UUID
 from fastapi import (
     APIRouter,
     BackgroundTasks,
+    Body,
     Depends,
     File,
     Form,
@@ -1618,6 +1619,38 @@ def trash_photo(
     _invalidate_photo_list_cache()
 
     return {"message": "Photo moved to trash"}
+
+
+@router.post("/photos/bulk-trash")
+def bulk_trash_photos(
+    request: dict = Body(...),
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session),
+    current_user=Depends(get_current_user)
+):
+    """Move multiple photos to trash in a single transaction"""
+    photo_ids = request.get("photo_ids", [])
+    if not photo_ids:
+        raise HTTPException(status_code=400, detail="photo_ids is required")
+
+    trashed = 0
+    not_found = 0
+    for pid in photo_ids:
+        try:
+            photo_uuid = UUID(str(pid))
+            success = service.trash_photo(photo_uuid, trashed_by_id=current_user.id, reason='manual')
+            if success:
+                trashed += 1
+            else:
+                not_found += 1
+        except (ValueError, Exception) as e:
+            logger.warning(f"Failed to trash photo {pid}: {e}")
+            not_found += 1
+
+    db.commit()
+    _invalidate_photo_list_cache()
+
+    return {"trashed": trashed, "not_found": not_found, "total": len(photo_ids)}
 
 
 @router.post("/photos/{photo_id}/restore")

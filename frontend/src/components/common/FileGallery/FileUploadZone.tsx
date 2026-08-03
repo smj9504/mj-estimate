@@ -61,6 +61,10 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
     return true;
   };
 
+  // Accumulate files from beforeUpload calls, then process them all at once
+  const pendingFilesRef = useRef<File[]>([]);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleUpload = useCallback(async (fileList: File[]) => {
     const validFiles = fileList.filter(validateFile);
 
@@ -104,21 +108,34 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
     }
   }, [onUpload, selectedCategory, allowedTypes, maxFileSize, maxFiles]);
 
-  const beforeUpload = (file: File, fileList: File[]) => {
+  // Flush accumulated files — called after a short debounce to ensure
+  // all beforeUpload calls from a single file-picker selection are collected.
+  const flushPendingFiles = useCallback(() => {
+    const files = pendingFilesRef.current;
+    pendingFilesRef.current = [];
+    flushTimerRef.current = null;
+    if (files.length > 0) {
+      processingBatchRef.current = true;
+      handleUpload(files);
+    }
+  }, [handleUpload]);
+
+  const beforeUpload = (file: File, _fileList: File[]) => {
+    // While a previous upload is still in progress, reject new files
     if (processingBatchRef.current) {
       return false;
     }
 
-    if (allowBulkUpload && fileList.length > 1) {
-      const isLastFile = fileList.indexOf(file) === fileList.length - 1;
-      if (isLastFile) {
-        processingBatchRef.current = true;
-        handleUpload(fileList);
-      }
-    } else {
-      processingBatchRef.current = true;
-      handleUpload([file]);
+    // Accumulate every file the browser gives us
+    pendingFilesRef.current.push(file);
+
+    // Debounce: reset timer on each call so we flush only after
+    // the browser has finished delivering all selected files (~50ms gap)
+    if (flushTimerRef.current) {
+      clearTimeout(flushTimerRef.current);
     }
+    flushTimerRef.current = setTimeout(flushPendingFiles, 50);
+
     return false;
   };
 

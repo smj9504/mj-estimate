@@ -333,29 +333,34 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       cancelText: 'Cancel',
       onOk: async () => {
         const totalFiles = currentSelectedFiles.length;
-        const BATCH_SIZE = 5;
-        let deletedCount = 0;
-
-        const batches: string[][] = [];
-        for (let i = 0; i < totalFiles; i += BATCH_SIZE) {
-          batches.push(currentSelectedFiles.slice(i, i + BATCH_SIZE));
-        }
-
         const msgKey = 'bulk-delete-progress';
-        message.loading({ content: `Deleting files 0/${totalFiles}...`, key: msgKey, duration: 0 });
+        message.loading({ content: `Deleting ${totalFiles} files...`, key: msgKey, duration: 0 });
         bulkDeleteInProgressRef.current = true;
 
         try {
-          for (const batch of batches) {
-            await Promise.all(batch.map(fileId => deleteFileSilent(fileId)));
-            deletedCount += batch.length;
-            message.loading({ content: `Deleting files ${deletedCount}/${totalFiles}...`, key: msgKey, duration: 0 });
+          // Use bulk trash endpoint for water-mitigation images (single request)
+          if (context === 'water-mitigation' && fileCategory === 'image') {
+            const { default: waterMitigationService } = await import('../../../services/waterMitigationService');
+            await waterMitigationService.photos.bulkTrash(currentSelectedFiles);
+          } else {
+            // Fallback: sequential batch delete for other contexts
+            const BATCH_SIZE = 5;
+            let deletedCount = 0;
+            const batches: string[][] = [];
+            for (let i = 0; i < totalFiles; i += BATCH_SIZE) {
+              batches.push(currentSelectedFiles.slice(i, i + BATCH_SIZE));
+            }
+            for (const batch of batches) {
+              await Promise.all(batch.map(fileId => deleteFileSilent(fileId)));
+              deletedCount += batch.length;
+              message.loading({ content: `Deleting files ${deletedCount}/${totalFiles}...`, key: msgKey, duration: 0 });
+            }
           }
 
           handleFileSelectionChange(new Set());
           message.success({ content: `${totalFiles} file(s) deleted successfully`, key: msgKey, duration: 3 });
         } catch (error) {
-          message.error({ content: `Failed to delete some files (${deletedCount}/${totalFiles} completed)`, key: msgKey, duration: 5 });
+          message.error({ content: `Failed to delete some files`, key: msgKey, duration: 5 });
         } finally {
           bulkDeleteInProgressRef.current = false;
           // Single invalidation after all deletes complete
