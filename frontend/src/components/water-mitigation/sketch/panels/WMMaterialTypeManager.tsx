@@ -500,12 +500,10 @@ const WMMaterialTypeManager: React.FC<WMMaterialTypeManagerProps> = ({
     <>
       <Button
         size="small"
+        type="text"
         icon={<SettingOutlined />}
         onClick={handleOpen}
-        style={{ fontSize: 12 }}
-      >
-        Manage Materials
-      </Button>
+      />
 
       <Modal
         title="Manage Material Types"

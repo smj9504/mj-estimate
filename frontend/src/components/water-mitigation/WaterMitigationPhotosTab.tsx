@@ -1149,344 +1149,160 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       minHeight: isMobile ? 'calc(100vh - 250px)' : undefined,
       display: 'flex',
       flexDirection: 'column',
-      background: '#f5f7fa',
-      borderRadius: '12px',
+      background: '#fff',
+      border: '1px solid #f0f0f0',
+      borderRadius: 8,
       overflow: 'hidden'
     }}>
-      {/* Header Section */}
+      {/* Toolbar */}
       <div style={{
-        padding: isMobile ? '10px 12px' : '16px 20px',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        borderRadius: '12px 12px 0 0',
+        padding: isMobile ? '8px 12px' : '12px 16px',
+        background: '#fff',
+        borderBottom: '1px solid #f0f0f0',
         display: 'flex',
-        flexDirection: isMobile ? 'column' : 'row',
-        justifyContent: 'space-between',
-        alignItems: isMobile ? 'stretch' : 'center',
-        gap: isMobile ? 8 : 0,
-        boxShadow: '0 2px 8px rgba(102, 126, 234, 0.25)'
+        alignItems: 'center',
+        gap: 8,
+        flexWrap: 'wrap',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <CameraOutlined style={{ fontSize: isMobile ? '18px' : '24px', color: 'white' }} />
-          <div>
-            <Title level={5} style={{ margin: 0, color: 'white', fontWeight: 600, fontSize: isMobile ? 14 : undefined }}>
-              Photos
-            </Title>
-            {currentProjectId && (
-              <Tooltip title={`CompanyCam Project ID: ${currentProjectId}`}>
-                <Text style={{ fontSize: '11px', color: 'rgba(255,255,255,0.85)' }}>
-                  <CheckCircleOutlined style={{ marginRight: 4 }} />
-                  CompanyCam Linked
-                </Text>
-              </Tooltip>
-            )}
-          </div>
-        </div>
-
-        {/* Sync Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          {isSyncing && progressInfo ? (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: isMobile ? '8px' : '16px',
-              background: 'rgba(255,255,255,0.15)',
-              padding: isMobile ? '6px 10px' : '8px 16px',
-              borderRadius: '8px',
-              backdropFilter: 'blur(10px)',
-              flex: isMobile ? 1 : undefined
-            }}>
-              <div style={{ minWidth: isMobile ? '120px' : '180px', flex: 1 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                  <Text style={{ color: 'white', fontSize: '12px' }}>
-                    <SyncOutlined spin style={{ marginRight: 6 }} />
-                    Syncing Page {progressInfo.page}
-                  </Text>
-                  <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: '12px' }}>
-                    {progressInfo.synced + progressInfo.skipped} photos
-                  </Text>
-                </div>
-                <Progress
-                  percent={100}
-                  status="active"
-                  showInfo={false}
-                  strokeColor={{
-                    '0%': '#52c41a',
-                    '100%': '#87d068',
-                  }}
-                  trailColor="rgba(255,255,255,0.2)"
-                  size="small"
-                />
-              </div>
-              <Tooltip title="Cancel sync">
-                <Button
-                  type="text"
-                  danger
-                  size="small"
-                  icon={<CloseCircleOutlined />}
-                  onClick={handleCancel}
-                  loading={cancelMutation.isPending}
-                  style={{
-                    color: '#ff7875',
-                    background: 'rgba(255,255,255,0.1)',
-                    border: 'none'
-                  }}
-                >
-                  Cancel
-                </Button>
-              </Tooltip>
-            </div>
-          ) : syncStatus.status === 'running' ? (
-            // Show Resume button when sync is running but UI lost connection (e.g., page refresh, server restart)
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <Alert
-                message="Sync in progress"
-                description={
-                  <span>
-                    {syncStatus.synced_count !== undefined && (
-                      <>{syncStatus.synced_count} photos synced. </>
-                    )}
-                    Click Resume to monitor progress.
-                  </span>
-                }
-                type="info"
-                showIcon
-                icon={<SyncOutlined spin />}
-                style={{
-                  margin: 0,
-                  background: 'rgba(255,255,255,0.15)',
-                  border: '1px solid rgba(24,144,255,0.3)',
-                  color: 'white'
-                }}
-              />
-              <Button
-                type="primary"
-                icon={<SyncOutlined />}
-                onClick={() => {
-                  setIsSyncing(true);
-                  startPolling();
-                  message.info('Resuming sync monitoring...');
-                }}
-                style={{
-                  background: '#1890ff',
-                  border: '1px solid rgba(255,255,255,0.3)',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                  fontWeight: 500
-                }}
-              >
-                Resume Monitoring
-              </Button>
-              <Tooltip title="Cancel sync">
-                <Button
-                  type="text"
-                  danger
-                  size="small"
-                  icon={<CloseCircleOutlined />}
-                  onClick={handleCancel}
-                  loading={cancelMutation.isPending}
-                  style={{
-                    color: '#ff7875',
-                    background: 'rgba(255,255,255,0.1)',
-                    border: 'none'
-                  }}
-                >
-                  Cancel
-                </Button>
-              </Tooltip>
-            </div>
-          ) : (
+        {/* Source filter — left side */}
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: '1 1 auto' }}>
+          {[
+            { key: undefined, label: 'All' },
+            { key: 'companycam', label: 'CompanyCam' },
+            { key: 'magicplan', label: 'MagicPlan' },
+            { key: 'manual_upload', label: 'Upload' },
+          ].map(tab => (
             <Button
-              type="primary"
-              icon={currentProjectId ? <SyncOutlined /> : <LinkOutlined />}
-              onClick={handleSyncClick}
+              key={tab.key || 'all'}
+              type={sourceFilter === tab.key ? 'primary' : 'text'}
+              size="small"
+              onClick={() => setSourceFilter(tab.key)}
               style={{
-                background: 'rgba(255,255,255,0.2)',
-                border: '1px solid rgba(255,255,255,0.3)',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                fontWeight: 500
-              }}
-              size={isMobile ? 'small' : 'middle'}
-            >
-              {currentProjectId ? (isMobile ? 'Sync' : 'Sync from CompanyCam') : (isMobile ? 'Link' : 'Link CompanyCam')}
-            </Button>
-          )}
-
-          {/* MagicPlan Sync Button */}
-          <Tooltip title="Sync photos & floor plans from MagicPlan">
-            <Button
-              type="default"
-              icon={<CloudDownloadOutlined />}
-              onClick={handleMagicPlanClick}
-              loading={mpSyncing}
-              size={isMobile ? 'small' : 'middle'}
-              style={{
-                background: 'rgba(255,255,255,0.2)',
-                border: '1px solid rgba(255,255,255,0.3)',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                fontWeight: 500,
-                color: 'white'
+                borderRadius: 6,
+                fontSize: 12,
+                fontWeight: sourceFilter === tab.key ? 500 : 400,
               }}
             >
-              {isMobile ? 'MagicPlan' : 'Sync MagicPlan'}
+              {tab.label}
             </Button>
-          </Tooltip>
-
-          {/* Google Drive Export Button */}
-          {isExporting ? (
-            (() => {
-              const exportProgress = getExportProgressInfo();
-              return (
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '16px',
-                  background: 'rgba(255,255,255,0.15)',
-                  padding: '8px 16px',
-                  borderRadius: '8px',
-                  backdropFilter: 'blur(10px)'
-                }}>
-                  <div style={{ minWidth: '180px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                      <Text style={{ color: 'white', fontSize: '12px' }}>
-                        <CloudUploadOutlined style={{ marginRight: 6 }} />
-                        Uploading to Google Drive
-                      </Text>
-                      <Text style={{ color: 'white', fontSize: '12px' }}>
-                        {exportProgress?.uploaded || 0}/{exportProgress?.total || 0} photos
-                      </Text>
-                    </div>
-                    <Progress
-                      percent={exportProgress?.percent || 0}
-                      status="active"
-                      showInfo={false}
-                      strokeColor={{
-                        '0%': '#4285f4',
-                        '100%': '#34a853',
-                      }}
-                      trailColor="rgba(255,255,255,0.2)"
-                      size="small"
-                    />
-                    {exportProgress?.currentFilename && (
-                      <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', display: 'block', marginTop: '2px' }}>
-                        {exportProgress.currentFilename}
-                      </Text>
-                    )}
-                  </div>
-                  <Tooltip title="Cancel export">
-                    <Button
-                      type="text"
-                      danger
-                      size="small"
-                      icon={<CloseCircleOutlined />}
-                      onClick={handleCancelExport}
-                      loading={cancelExportMutation.isPending}
-                      style={{
-                        color: '#ff7875',
-                        background: 'rgba(255,255,255,0.1)',
-                        border: 'none'
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </Tooltip>
-                </div>
-              );
-            })()
-          ) : (
-            <Tooltip title="Export all photos to Google Drive">
-              <Button
-                type="default"
-                icon={<GoogleOutlined />}
-                onClick={handleExportClick}
-                size={isMobile ? 'small' : 'middle'}
-                style={{
-                  background: 'rgba(255,255,255,0.2)',
-                  border: '1px solid rgba(255,255,255,0.3)',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                  fontWeight: 500,
-                  color: 'white'
-                }}
-              >
-                {isMobile ? 'Drive' : 'Export to Drive'}
-              </Button>
+          ))}
+          {currentProjectId && (
+            <Tooltip title={`CompanyCam ID: ${currentProjectId}`}>
+              <Tag color="blue" style={{ margin: 0, lineHeight: '22px', fontSize: 11 }}>
+                <CheckCircleOutlined style={{ marginRight: 3 }} />Linked
+              </Tag>
             </Tooltip>
           )}
+        </div>
 
-          {/* AI Photo Classification Button with Re-classify option */}
+        {/* Actions — right side */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {/* Sync / Export progress inline */}
+          {isSyncing && progressInfo && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: '#f6ffed', borderRadius: 6, border: '1px solid #b7eb8f' }}>
+              <SyncOutlined spin style={{ color: '#52c41a' }} />
+              <Text style={{ fontSize: 12 }}>
+                Syncing… {progressInfo.synced + progressInfo.skipped} photos
+              </Text>
+              <Button type="text" danger size="small" icon={<CloseCircleOutlined />} onClick={handleCancel} loading={cancelMutation.isPending} style={{ padding: '0 4px' }} />
+            </div>
+          )}
+          {!isSyncing && syncStatus.status === 'running' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px', background: '#e6f7ff', borderRadius: 6, border: '1px solid #91d5ff' }}>
+              <SyncOutlined spin style={{ color: '#1890ff', fontSize: 12 }} />
+              <Text style={{ fontSize: 12 }}>Sync running</Text>
+              <Button size="small" onClick={() => { setIsSyncing(true); startPolling(); }}>Resume</Button>
+              <Button type="text" danger size="small" icon={<CloseCircleOutlined />} onClick={handleCancel} loading={cancelMutation.isPending} style={{ padding: '0 4px' }} />
+            </div>
+          )}
+          {isExporting && (() => {
+            const ep = getExportProgressInfo();
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: '#e6f7ff', borderRadius: 6, border: '1px solid #91d5ff' }}>
+                <CloudUploadOutlined style={{ color: '#1890ff' }} />
+                <Text style={{ fontSize: 12 }}>
+                  Exporting {ep?.uploaded || 0}/{ep?.total || 0}
+                </Text>
+                <Progress percent={ep?.percent || 0} size="small" showInfo={false} style={{ width: 60, margin: 0 }} />
+                <Button type="text" danger size="small" icon={<CloseCircleOutlined />} onClick={handleCancelExport} loading={cancelExportMutation.isPending} style={{ padding: '0 4px' }} />
+              </div>
+            );
+          })()}
+
+          {/* Import dropdown — CompanyCam, MagicPlan, Upload Link */}
           <Dropdown
             menu={{
               items: [
                 {
-                  key: 'uncategorized',
-                  icon: <RobotOutlined />,
-                  label: 'Uncategorized only',
-                  onClick: () => handleAiClassify(false, false),
+                  key: 'companycam',
+                  icon: currentProjectId ? <SyncOutlined /> : <LinkOutlined />,
+                  label: currentProjectId ? 'Sync CompanyCam' : 'Link CompanyCam',
+                  onClick: handleSyncClick,
+                  disabled: isSyncing,
                 },
                 {
-                  key: 'all',
-                  icon: <ReloadOutlined />,
-                  label: 'All photos (re-classify)',
-                  onClick: () => handleAiClassify(false, true),
+                  key: 'magicplan',
+                  icon: <CloudDownloadOutlined />,
+                  label: 'Sync MagicPlan',
+                  onClick: handleMagicPlanClick,
+                  disabled: mpSyncing,
+                },
+                { type: 'divider' as const },
+                {
+                  key: 'upload-link',
+                  icon: <ShareAltOutlined />,
+                  label: 'Crew Upload Link',
+                  onClick: () => { setUploadLinkModalVisible(true); fetchUploadLinks(); },
                 },
               ],
             }}
             trigger={['click']}
-            disabled={aiClassifying}
           >
-            <Button
-              type="default"
-              icon={<RobotOutlined />}
-              loading={aiClassifying}
-              size={isMobile ? 'small' : 'middle'}
-              style={{
-                background: 'rgba(255,255,255,0.2)',
-                border: '1px solid rgba(255,255,255,0.3)',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                fontWeight: 500,
-                color: 'white'
-              }}
-            >
-              {isMobile ? 'AI' : 'AI Classify'} <DownOutlined style={{ fontSize: 10 }} />
+            <Button size={isMobile ? 'small' : 'middle'} icon={<CloudDownloadOutlined />}>
+              Import {!isMobile && <DownOutlined style={{ fontSize: 10 }} />}
             </Button>
           </Dropdown>
-          <Tooltip title="View & edit previous AI classification results">
-            <Button
-              type="default"
-              icon={<SearchOutlined />}
-              onClick={handleAiLoadPrevious}
-              size={isMobile ? 'small' : 'middle'}
-              style={{
-                background: 'rgba(255,255,255,0.2)',
-                border: '1px solid rgba(255,255,255,0.3)',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                fontWeight: 500,
-                color: 'white'
-              }}
-            >
-              {isMobile ? '' : 'AI Results'}
-            </Button>
-          </Tooltip>
 
-          {/* Crew Upload Link Button */}
-          <Tooltip title="Create shareable upload link for crew">
-            <Button
-              type="default"
-              icon={<ShareAltOutlined />}
-              onClick={() => {
-                setUploadLinkModalVisible(true);
-                fetchUploadLinks();
-              }}
-              size={isMobile ? 'small' : 'middle'}
-              style={{
-                background: 'rgba(255,255,255,0.2)',
-                border: '1px solid rgba(255,255,255,0.3)',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                fontWeight: 500,
-                color: 'white'
-              }}
-            >
-              {isMobile ? 'Link' : 'Upload Link'}
+          {/* Tools dropdown — AI, Export */}
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: 'ai-uncategorized',
+                  icon: <RobotOutlined />,
+                  label: 'AI Classify (uncategorized)',
+                  onClick: () => handleAiClassify(false, false),
+                  disabled: aiClassifying,
+                },
+                {
+                  key: 'ai-all',
+                  icon: <ReloadOutlined />,
+                  label: 'AI Classify (all photos)',
+                  onClick: () => handleAiClassify(false, true),
+                  disabled: aiClassifying,
+                },
+                {
+                  key: 'ai-results',
+                  icon: <SearchOutlined />,
+                  label: 'View AI Results',
+                  onClick: handleAiLoadPrevious,
+                },
+                { type: 'divider' as const },
+                {
+                  key: 'export-drive',
+                  icon: <GoogleOutlined />,
+                  label: 'Export to Google Drive',
+                  onClick: handleExportClick,
+                  disabled: isExporting,
+                },
+              ],
+            }}
+            trigger={['click']}
+          >
+            <Button size={isMobile ? 'small' : 'middle'} icon={<RobotOutlined />}>
+              Tools {!isMobile && <DownOutlined style={{ fontSize: 10 }} />}
             </Button>
-          </Tooltip>
+          </Dropdown>
         </div>
       </div>
 
@@ -1500,58 +1316,23 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             <span>
               Sync completed! <strong>{syncStatus.synced_count}</strong> new photos added
               {(syncStatus.skipped_existing || 0) > 0 && (
-                <span style={{ color: '#8c8c8c', marginLeft: '8px' }}>
+                <span style={{ color: '#8c8c8c', marginLeft: 8 }}>
                   ({syncStatus.skipped_existing} skipped)
                 </span>
               )}
             </span>
           }
           closable
-          style={{
-            borderRadius: 0,
-            border: 'none',
-            borderBottom: '1px solid #b7eb8f'
-          }}
+          style={{ borderRadius: 0, border: 'none', borderBottom: '1px solid #b7eb8f' }}
         />
       )}
-
-      {/* Source Filter Tabs */}
-      <div style={{
-        padding: '8px 16px 0',
-        background: 'white',
-        display: 'flex',
-        gap: '4px',
-        flexWrap: 'wrap'
-      }}>
-        {[
-          { key: undefined, label: 'All Sources' },
-          { key: 'companycam', label: 'CompanyCam' },
-          { key: 'magicplan', label: 'MagicPlan' },
-          { key: 'manual_upload', label: 'Manual Upload' },
-        ].map(tab => (
-          <Button
-            key={tab.key || 'all'}
-            type={sourceFilter === tab.key ? 'primary' : 'default'}
-            size="small"
-            onClick={() => setSourceFilter(tab.key)}
-            style={{
-              borderRadius: '16px',
-              fontSize: '12px',
-              ...(sourceFilter === tab.key ? {} : { color: '#666' })
-            }}
-          >
-            {tab.label}
-          </Button>
-        ))}
-      </div>
 
       {/* Main Content Area */}
       <div style={{
         flex: 1,
         padding: isMobile ? '8px' : '16px',
         overflow: 'hidden',
-        background: 'white',
-        borderRadius: '0 0 12px 12px'
+        background: '#fff'
       }}>
         <FileGallery
           context="water-mitigation"

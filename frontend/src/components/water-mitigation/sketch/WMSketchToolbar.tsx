@@ -11,7 +11,6 @@ import {
   Button,
   Dropdown,
   Space,
-  Tooltip,
   Badge,
   Divider,
   Popover,
@@ -45,8 +44,8 @@ import type {
 } from '../../../types/wmSketch';
 import { EQUIPMENT_CONFIG, SHAPE_PRESETS, getEffectiveRenderMode } from '../../../types/wmSketch';
 
-// Space.Compact is available in antd v5+; aliased for readability
-const { Compact: SpaceCompact } = Space;
+// Space.Compact is available in antd v5+
+const SpaceCompact = Space.Compact;
 
 // ============================================================================
 // Responsive CSS
@@ -352,74 +351,34 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
           padding: '6px 12px',
           background: '#fff',
           borderBottom: `1px solid ${token.colorBorderSecondary}`,
-          flexWrap: 'wrap',
+          flexWrap: 'nowrap',
           minHeight: 44,
+          overflowX: 'auto',
         }}
       >
         {/* Group 1 — Select + Pan */}
         <SpaceCompact>
-          <Tooltip title="Select / Move (V)">
-            <Button
-              type={toolButtonType('select')}
-              icon={<SelectOutlined />}
-              size="small"
-              onClick={() => onToolChange('select')}
-            >
-              <span className="wm-tb-label">Select</span>
-            </Button>
-          </Tooltip>
-          <Tooltip title="Pan / Hand (H)">
-            <Button
-              type={toolButtonType('pan')}
-              icon={<HandIcon />}
-              size="small"
-              onClick={() => onToolChange('pan')}
-            />
-          </Tooltip>
-        </SpaceCompact>
-
-        <Divider className="wm-tb-divider" type="vertical" style={{ margin: '0 4px', height: 20 }} />
-
-        {/* Group 1b — Floor Plan drawing tools */}
-        <SpaceCompact>
-          <Tooltip title="Draw wall (W)">
-            <Button
-              type={toolButtonType('wall')}
-              icon={<LineOutlined />}
-              size="small"
-              onClick={() => onToolChange('wall')}
-            >
-              <span className="wm-tb-label">Wall</span>
-            </Button>
-          </Tooltip>
-          <Tooltip title="Detect room from enclosed walls (R)">
-            <Button
-              type={toolButtonType('room')}
-              icon={<GatewayOutlined />}
-              size="small"
-              onClick={() => onToolChange('room')}
-            >
-              <span className="wm-tb-label">Room</span>
-            </Button>
-          </Tooltip>
-          <Tooltip title="Click on a wall to split it">
-            <Button
-              type={toolButtonType('wall_split')}
-              icon={<ScissorOutlined />}
-              size="small"
-              onClick={() => onToolChange('wall_split')}
-            >
-              <span className="wm-tb-label">Split</span>
-            </Button>
-          </Tooltip>
+          <Button
+            type={toolButtonType('select')}
+            icon={<SelectOutlined />}
+            size="small"
+            onClick={() => onToolChange('select')}
+          >
+            <span className="wm-tb-label">Select</span>
+          </Button>
+          <Button
+            type={toolButtonType('pan')}
+            icon={<HandIcon />}
+            size="small"
+            onClick={() => onToolChange('pan')}
+          />
         </SpaceCompact>
 
         <Divider className="wm-tb-divider" type="vertical" style={{ margin: '0 4px', height: 20 }} />
 
         {/* Group 2 — Demolition */}
         <SpaceCompact>
-          <Tooltip title="Draw demolition zone">
-            <Button
+          <Button
               type={toolButtonType('demolition')}
               icon={<BorderOutlined />}
               size="small"
@@ -454,7 +413,6 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
                 <span className="wm-tb-label">Demo</span>
               )}
             </Button>
-          </Tooltip>
           <Dropdown
             menu={{ items: demoMenuItems }}
             trigger={['click']}
@@ -469,32 +427,9 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
           </Dropdown>
         </SpaceCompact>
 
-        {/* Group 2b — Polygon Demolition */}
-        <Tooltip title="Draw irregular polygon demolition zone">
-          <Button
-            type={activeTool === 'demolition_polygon' ? 'primary' : 'default'}
-            size="small"
-            onClick={() => {
-              if (!activeMaterialTypeId && materialTypes.length > 0) {
-                onMaterialTypeChange(materialTypes[0].id);
-              }
-              onToolChange('demolition_polygon');
-            }}
-            style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-          >
-            <span role="img" className="anticon" style={{ display: 'inline-flex' }}>
-              <svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <polygon points="3,12 1,5 5,1 12,2 15,8 13,14 7,15" />
-              </svg>
-            </span>
-            <span className="wm-tb-label">Polygon</span>
-          </Button>
-        </Tooltip>
-
         {/* Group 3 — Equipment */}
         <SpaceCompact>
-          <Tooltip title="Place drying equipment">
-            <Button
+          <Button
               type={toolButtonType('equipment')}
               icon={<ToolOutlined />}
               size="small"
@@ -524,7 +459,6 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
                 <span className="wm-tb-label">Equipment</span>
               )}
             </Button>
-          </Tooltip>
           <Dropdown
             menu={{ items: equipMenuItems }}
             trigger={['click']}
@@ -540,148 +474,89 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
         </SpaceCompact>
 
         {/* Group 4 — Containment */}
-        <Tooltip title="Draw containment zone">
-          <Button
-            type={toolButtonType('containment')}
-            icon={<DashOutlined />}
-            size="small"
-            onClick={() => onToolChange('containment')}
-          >
-            <span className="wm-tb-label">Containment</span>
-          </Button>
-        </Tooltip>
+        <Button
+          type={toolButtonType('containment')}
+          icon={<DashOutlined />}
+          size="small"
+          onClick={() => onToolChange('containment')}
+        >
+          <span className="wm-tb-label">Containment</span>
+        </Button>
 
         {/* Group 5 — Floor Protection (with stair toggle) */}
         <SpaceCompact size="small">
-          <Tooltip title={isStairFloorProtection ? 'Draw stair floor protection (higher cost)' : 'Draw floor protection strip'}>
-            <Button
-              type={toolButtonType('floor_protection')}
-              icon={<ColumnWidthOutlined />}
-              size="small"
-              onClick={() => onToolChange('floor_protection')}
-            >
-              <span className="wm-tb-label">{isStairFloorProtection ? 'Stair Prot' : 'Floor Prot'}</span>
-            </Button>
-          </Tooltip>
-          <Tooltip title={isStairFloorProtection ? 'Stair mode ON (click to switch to regular)' : 'Switch to stair floor protection'}>
-            <Button
-              type={isStairFloorProtection ? 'primary' : 'default'}
-              size="small"
-              onClick={() => {
-                onStairFloorProtectionChange?.(!isStairFloorProtection);
-                onToolChange('floor_protection');
-              }}
-              style={{
-                padding: '0 6px',
-                fontSize: 11,
-                fontWeight: isStairFloorProtection ? 600 : 400,
-                ...(isStairFloorProtection ? { backgroundColor: '#FF8C00', borderColor: '#FF8C00' } : {}),
-              }}
-            >
-              STR
-            </Button>
-          </Tooltip>
+          <Button
+            type={toolButtonType('floor_protection')}
+            icon={<ColumnWidthOutlined />}
+            size="small"
+            onClick={() => onToolChange('floor_protection')}
+          >
+            <span className="wm-tb-label">{isStairFloorProtection ? 'Stair Prot' : 'Floor Prot'}</span>
+          </Button>
+          <Button
+            type={isStairFloorProtection ? 'primary' : 'default'}
+            size="small"
+            onClick={() => {
+              onStairFloorProtectionChange?.(!isStairFloorProtection);
+              onToolChange('floor_protection');
+            }}
+            style={{
+              padding: '0 6px',
+              fontSize: 11,
+              fontWeight: isStairFloorProtection ? 600 : 400,
+              ...(isStairFloorProtection ? { backgroundColor: '#FF8C00', borderColor: '#FF8C00' } : {}),
+            }}
+          >
+            STR
+          </Button>
         </SpaceCompact>
 
         {/* Group 6 — Content Protection */}
-        <Tooltip title="Draw content protection area (vinyl cover)">
-          <Button
-            type={toolButtonType('content_protection')}
-            icon={<SkinOutlined />}
-            size="small"
-            onClick={() => onToolChange('content_protection')}
-          >
-            <span className="wm-tb-label">Content Prot</span>
-          </Button>
-        </Tooltip>
+        <Button
+          type={toolButtonType('content_protection')}
+          icon={<SkinOutlined />}
+          size="small"
+          onClick={() => onToolChange('content_protection')}
+        >
+          <span className="wm-tb-label">Content Prot</span>
+        </Button>
 
         {/* Group 6b — Content Manipulation */}
-        <Tooltip title="Draw content manipulation area (move out / move back)">
-          <Button
-            type={toolButtonType('content_manipulation')}
-            icon={<SwapOutlined />}
-            size="small"
-            onClick={() => onToolChange('content_manipulation')}
-          >
-            <span className="wm-tb-label">Content Move</span>
-          </Button>
-        </Tooltip>
+        <Button
+          type={toolButtonType('content_manipulation')}
+          icon={<SwapOutlined />}
+          size="small"
+          onClick={() => onToolChange('content_manipulation')}
+        >
+          <span className="wm-tb-label">Content Move</span>
+        </Button>
 
-        {/* Group 7 — Shapes */}
-        <SpaceCompact>
-          <Tooltip title="Place shape (door, cabinet, fixture)">
-            <Button
-              type={toolButtonType('shape')}
-              icon={<AppstoreOutlined />}
-              size="small"
-              onClick={() => {
-                if (!activeShapePresetId) {
-                  onShapePresetChange?.(SHAPE_PRESETS[0].id);
-                }
-                onToolChange('shape');
-              }}
-            >
-              {activeShapePreset ? (
-                <Space size={4}>
-                  {activeShapePreset.id === 'door' ? (
-                    <svg width="10" height="10" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
-                      <line x1="0" y1="13" x2="13" y2="13" stroke={activeShapePreset.stroke_color} strokeWidth="2" />
-                      <path d="M 13 13 A 13 13 0 0 0 0 0" fill="none" stroke={activeShapePreset.stroke_color} strokeWidth="1.5" />
-                    </svg>
-                  ) : (
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        width: 10,
-                        height: 10,
-                        borderRadius: activeShapePreset.shape_type === 'circle' ? '50%' : 2,
-                        background: activeShapePreset.fill_color,
-                        border: `1px solid ${activeShapePreset.stroke_color}`,
-                      }}
-                    />
-                  )}
-                  <span
-                    className="wm-tb-label"
-                    style={{
-                      maxWidth: 60,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {activeShapePreset.name}
-                  </span>
-                </Space>
-              ) : (
-                <span className="wm-tb-label">Shape</span>
-              )}
-            </Button>
-          </Tooltip>
-          <Dropdown
-            menu={{ items: shapeMenuItems }}
-            trigger={['click']}
-            placement="bottomLeft"
-          >
-            <Button
-              type={toolButtonType('shape')}
-              size="small"
-              icon={<DownOutlined style={{ fontSize: 10 }} />}
-              style={{ padding: '0 6px' }}
-            />
-          </Dropdown>
-        </SpaceCompact>
-
-        {/* Group 8 — Text */}
-        <Tooltip title="Add text annotation (T)">
-          <Button
-            type={toolButtonType('text')}
-            icon={<FontSizeOutlined />}
-            size="small"
-            onClick={() => onToolChange('text')}
-          >
-            <span className="wm-tb-label">Text</span>
+        {/* More tools — less frequently used */}
+        <Dropdown
+          menu={{
+            items: [
+              { key: 'wall', icon: <LineOutlined />, label: 'Wall (W)', onClick: () => onToolChange('wall') },
+              { key: 'room', icon: <GatewayOutlined />, label: 'Room (R)', onClick: () => onToolChange('room') },
+              { key: 'wall_split', icon: <ScissorOutlined />, label: 'Split Wall', onClick: () => onToolChange('wall_split') },
+              { type: 'divider' as const },
+              { key: 'demolition_polygon', label: 'Polygon Demo', onClick: () => {
+                if (!activeMaterialTypeId && materialTypes.length > 0) onMaterialTypeChange(materialTypes[0].id);
+                onToolChange('demolition_polygon');
+              }},
+              { type: 'divider' as const },
+              ...shapeMenuItems as any[],
+              { type: 'divider' as const },
+              { key: 'text', icon: <FontSizeOutlined />, label: 'Text (T)', onClick: () => onToolChange('text') },
+            ],
+          }}
+          trigger={['click']}
+          placement="bottomLeft"
+        >
+          <Button size="small" icon={<AppstoreOutlined />}>
+            <span className="wm-tb-label">More</span>
+            <DownOutlined style={{ fontSize: 10, marginLeft: 2 }} />
           </Button>
-        </Tooltip>
+        </Dropdown>
 
         {/* Spacer */}
         <div style={{ flex: 1, minWidth: 4 }} />
@@ -690,38 +565,32 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
 
         {/* Group — History */}
         <SpaceCompact>
-          <Tooltip title="Undo (Ctrl+Z)">
-            <Button
-              icon={<UndoOutlined />}
-              size="small"
-              disabled={!canUndo}
-              onClick={onUndo}
-            />
-          </Tooltip>
-          <Tooltip title="Redo (Ctrl+Y)">
-            <Button
-              icon={<RedoOutlined />}
-              size="small"
-              disabled={!canRedo}
-              onClick={onRedo}
-            />
-          </Tooltip>
+          <Button
+            icon={<UndoOutlined />}
+            size="small"
+            disabled={!canUndo}
+            onClick={onUndo}
+          />
+          <Button
+            icon={<RedoOutlined />}
+            size="small"
+            disabled={!canRedo}
+            onClick={onRedo}
+          />
         </SpaceCompact>
 
         {/* Group — Save */}
-        <Tooltip title={isDirty ? 'Unsaved changes — click to save (Ctrl+S)' : 'All changes saved'}>
-          <Badge dot={isDirty} offset={[-4, 4]}>
-            <Button
-              type={isDirty ? 'primary' : 'default'}
-              icon={<SaveOutlined />}
-              size="small"
-              loading={isSaving}
-              onClick={onSave}
-            >
-              <span className="wm-tb-label">{isSaving ? 'Saving...' : 'Save'}</span>
-            </Button>
-          </Badge>
-        </Tooltip>
+        <Badge dot={isDirty} offset={[-4, 4]}>
+          <Button
+            type={isDirty ? 'primary' : 'default'}
+            icon={<SaveOutlined />}
+            size="small"
+            loading={isSaving}
+            onClick={onSave}
+          >
+            <span className="wm-tb-label">{isSaving ? 'Saving...' : 'Save'}</span>
+          </Button>
+        </Badge>
 
         <Divider className="wm-tb-divider wm-tb-hide-mobile" type="vertical" style={{ margin: '0 4px', height: 20 }} />
 
@@ -774,12 +643,10 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             </div>
           }
         >
-          <Tooltip title="Keyboard shortcuts">
-            <Button
-              icon={<QuestionCircleOutlined />}
-              size="small"
-            />
-          </Tooltip>
+          <Button
+            icon={<QuestionCircleOutlined />}
+            size="small"
+          />
         </Popover>
       </div>
     </>

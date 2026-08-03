@@ -36,6 +36,9 @@ import {
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
 import { colors, shadows, spacing, radius, zIndex as zIndexScale, sidebar, breakpoints } from '../../styles/tokens';
+import CommandPalette from './CommandPalette';
+import AppBreadcrumbs from './AppBreadcrumbs';
+import { BreadcrumbProvider } from '../../contexts/BreadcrumbContext';
 import './Layout.css';
 
 const { Header, Sider, Content } = AntLayout;
@@ -538,6 +541,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
 
   return (
+    <BreadcrumbProvider>
     <AntLayout style={rootLayoutStyle}>
       {/* Skip to main content link for keyboard users */}
       <a
@@ -558,7 +562,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         collapsible
         collapsed={collapsed}
         onCollapse={setCollapsed}
-        breakpoint="lg"
+        breakpoint="md"
         collapsedWidth={isMobile ? 0 : 80}
         width={280}
         style={siderStyle}
@@ -620,14 +624,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </Space>
             )}
           </div>
+          <CommandPalette menuItems={menuItems} />
           <Dropdown menu={{ items: userMenuItems, onClick: handleMenuClick }} placement="bottomRight">
-            <Space style={{ cursor: 'pointer', flexShrink: 0 }}>
+            <Space style={{ cursor: 'pointer', flexShrink: 0, marginLeft: 8 }}>
               <Avatar icon={<UserOutlined />} size={isMobile ? 'small' : 'default'} />
               {!isMobile && <span>{user?.full_name || user?.username || 'User'}</span>}
             </Space>
           </Dropdown>
         </Header>
         <Content id="main-content" style={contentStyle} tabIndex={-1}>
+          <AppBreadcrumbs menuItems={menuItems} />
           {children}
         </Content>
       </AntLayout>
@@ -681,6 +687,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </nav>
       )}
     </AntLayout>
+    </BreadcrumbProvider>
   );
 }
 

@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useBreadcrumbTitle } from '../contexts/BreadcrumbContext';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -24,7 +25,8 @@ import {
   DatePicker,
   InputNumber,
   Tooltip,
-  Grid
+  Grid,
+  Dropdown
 } from 'antd';
 import dayjs from 'dayjs';
 import {
@@ -34,6 +36,7 @@ import {
   InfoCircleOutlined,
   SendOutlined,
   ReloadOutlined,
+  MoreOutlined,
 } from '@ant-design/icons';
 import { useQueryClient } from '@tanstack/react-query';
 import waterMitigationService from '../services/waterMitigationService';
@@ -122,6 +125,9 @@ const WaterMitigationDetail: React.FC = () => {
   }, [id, queryClient]);
   const [loading, setLoading] = useState(false);
   const [job, setJob] = useState<WaterMitigationJob | null>(null);
+
+  // Set breadcrumb title to property address
+  useBreadcrumbTitle(job?.property_address || null);
   const [statusHistory, setStatusHistory] = useState<JobStatusHistory[]>([]);
   const [isEditMode, setIsEditMode] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -422,7 +428,7 @@ const WaterMitigationDetail: React.FC = () => {
       <Space direction="vertical" style={{ width: '100%' }} size={isMobile ? 'middle' : 'large'}>
         {/* Header */}
         <Card styles={{ body: { padding: isMobile ? '12px' : '24px' } }}>
-          {/* Mobile: stacked layout */}
+          {/* Mobile: compact stacked layout */}
           {isMobile ? (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -431,50 +437,54 @@ const WaterMitigationDetail: React.FC = () => {
                   onClick={() => navigate('/water-mitigation')}
                   size="small"
                 />
-                <h3 style={{ margin: 0, flex: 1, fontSize: 16, lineHeight: '1.3' }}>
+                <h3 style={{ margin: 0, flex: 1, fontSize: 16, lineHeight: '1.3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {job.property_address}
                 </h3>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <Tag color={job.active ? 'success' : 'default'}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Tag color={job.active ? 'success' : 'default'} style={{ margin: 0 }}>
                   {job.active ? 'ACTIVE' : 'INACTIVE'}
                 </Tag>
                 <Select
                   value={job.status}
                   onChange={handleStatusChange}
-                  style={{ flex: 1, minWidth: 130 }}
+                  style={{ flex: 1, minWidth: 120 }}
                   options={JOB_STATUS_OPTIONS}
                   suffixIcon={<SwapOutlined />}
                   size="small"
                 />
-                <Button
-                  icon={<SendOutlined />}
-                  onClick={() => setSendToAdjusterOpen(true)}
-                  size="small"
+                <Dropdown
+                  menu={{
+                    items: [
+                      {
+                        key: 'send',
+                        icon: <SendOutlined />,
+                        label: 'Send to Adjuster',
+                        onClick: () => setSendToAdjusterOpen(true),
+                      },
+                      ...(job.documents_sent_date ? [{
+                        key: 'followup',
+                        icon: <ReloadOutlined />,
+                        label: 'Follow Up',
+                        onClick: () => setFollowUpOpen(true),
+                      }] : []),
+                      { type: 'divider' as const },
+                      {
+                        key: 'edit',
+                        icon: <EditOutlined />,
+                        label: 'Edit Job',
+                        onClick: () => navigate(`/water-mitigation/${id}/edit`),
+                      },
+                    ],
+                  }}
+                  trigger={['click']}
                 >
-                  Send
-                </Button>
-                {job.documents_sent_date && (
-                  <Button
-                    icon={<ReloadOutlined />}
-                    onClick={() => setFollowUpOpen(true)}
-                    size="small"
-                  >
-                    Follow Up
-                  </Button>
-                )}
-                <Button
-                  type="primary"
-                  icon={<EditOutlined />}
-                  onClick={() => navigate(`/water-mitigation/${id}/edit`)}
-                  size="small"
-                >
-                  Edit
-                </Button>
+                  <Button icon={<MoreOutlined />} size="small" />
+                </Dropdown>
               </div>
             </div>
           ) : (
-            /* Desktop: horizontal layout */
+            /* Desktop: horizontal layout — primary actions visible, secondary in dropdown */
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8,
               flexWrap: 'wrap', justifyContent: 'space-between',
@@ -495,14 +505,14 @@ const WaterMitigationDetail: React.FC = () => {
                 }}>
                   {job.property_address}
                 </h2>
+                <Tag color={job.active ? 'success' : 'default'} style={{ margin: 0, flexShrink: 0 }}>
+                  {job.active ? 'ACTIVE' : 'INACTIVE'}
+                </Tag>
               </div>
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 8,
-                flexWrap: 'wrap', flexShrink: 0,
+                flexShrink: 0,
               }}>
-                <Tag color={job.active ? 'success' : 'default'}>
-                  {job.active ? 'ACTIVE' : 'INACTIVE'}
-                </Tag>
                 <Select
                   value={job.status}
                   onChange={handleStatusChange}
@@ -511,26 +521,33 @@ const WaterMitigationDetail: React.FC = () => {
                   suffixIcon={<SwapOutlined />}
                 />
                 <Button
-                  icon={<SendOutlined />}
-                  onClick={() => setSendToAdjusterOpen(true)}
-                >
-                  Send to Adjuster
-                </Button>
-                {job.documents_sent_date && (
-                  <Button
-                    icon={<ReloadOutlined />}
-                    onClick={() => setFollowUpOpen(true)}
-                  >
-                    Follow Up
-                  </Button>
-                )}
-                <Button
                   type="primary"
                   icon={<EditOutlined />}
                   onClick={() => navigate(`/water-mitigation/${id}/edit`)}
                 >
                   Edit
                 </Button>
+                <Dropdown
+                  menu={{
+                    items: [
+                      {
+                        key: 'send',
+                        icon: <SendOutlined />,
+                        label: 'Send to Adjuster',
+                        onClick: () => setSendToAdjusterOpen(true),
+                      },
+                      ...(job.documents_sent_date ? [{
+                        key: 'followup',
+                        icon: <ReloadOutlined />,
+                        label: 'Follow Up',
+                        onClick: () => setFollowUpOpen(true),
+                      }] : []),
+                    ],
+                  }}
+                  trigger={['click']}
+                >
+                  <Button icon={<MoreOutlined />} />
+                </Dropdown>
               </div>
             </div>
           )}

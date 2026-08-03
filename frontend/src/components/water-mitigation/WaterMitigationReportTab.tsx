@@ -800,7 +800,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
             <FileTextOutlined /> Photo Report Builder
           </Title>
 
-          {/* Primary actions row */}
+          {/* Primary actions */}
           <Button
             type="primary"
             icon={<SaveOutlined />}
@@ -810,25 +810,6 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
           >
             Save
           </Button>
-          <Tooltip title="Automatically update photo dates by category (Day 1/2/3) when saving">
-            <Checkbox
-              checked={autoUpdatePhotoDates}
-              onChange={(e) => setAutoUpdatePhotoDates(e.target.checked)}
-              disabled={!mitigationStartDate || !mitigationEndDate}
-            >
-              {!isMobile && 'Update Photo Dates'}
-            </Checkbox>
-          </Tooltip>
-          <Select
-            value={pdfTemplateVariant}
-            onChange={(val) => setPdfTemplateVariant(val)}
-            style={{ width: isMobile ? 95 : 120 }}
-            size={isMobile ? 'small' : 'middle'}
-          >
-            <Select.Option value="a">Format A</Select.Option>
-            <Select.Option value="b">Format B</Select.Option>
-            <Select.Option value="c">Format C</Select.Option>
-          </Select>
           <Button
             type="default"
             icon={<FileImageOutlined />}
@@ -836,40 +817,48 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
             disabled={!config?.id && sections.length === 0}
             size={isMobile ? 'small' : 'middle'}
           >
-            {isMobile ? 'PDF' : 'Preview & Download PDF'}
+            {isMobile ? 'PDF' : 'PDF Preview'}
           </Button>
 
-          {/* Secondary actions - shown as dropdown on mobile */}
-          {isMobile ? (
-            <Dropdown
-              menu={{
-                items: [
-                  { key: 'template', icon: <AppstoreAddOutlined />, label: 'Use Template', onClick: handleUseTemplate },
-                  {
-                    key: 'autoAssign', icon: <ThunderboltOutlined />, label: 'Auto-Assign Photos',
-                    onClick: handleAutoAssignPhotos, disabled: sections.length === 0 || availablePhotos.length === 0
-                  },
-                ]
-              }}
-            >
-              <Button size="small" icon={<DownOutlined />}>More</Button>
-            </Dropdown>
-          ) : (
-            <>
-              <Button icon={<AppstoreAddOutlined />} onClick={handleUseTemplate}>Use Template</Button>
-              <Tooltip title="Auto-assign photos to sections based on category names">
-                <Button
-                  icon={<ThunderboltOutlined />}
-                  onClick={handleAutoAssignPhotos}
-                  loading={autoAssigning}
-                  disabled={sections.length === 0 || availablePhotos.length === 0}
-                >
-                  Auto-Assign Photos
-                </Button>
-              </Tooltip>
-            </>
-          )}
+          {/* Secondary actions — collapsed into dropdown */}
+          <Dropdown
+            menu={{
+              items: [
+                { key: 'template', icon: <AppstoreAddOutlined />, label: 'Use Template', onClick: handleUseTemplate },
+                {
+                  key: 'autoAssign', icon: <ThunderboltOutlined />, label: 'Auto-Assign Photos',
+                  onClick: handleAutoAssignPhotos, disabled: sections.length === 0 || availablePhotos.length === 0
+                },
+                { type: 'divider' as const },
+                {
+                  key: 'autoDate', label: (
+                    <Checkbox
+                      checked={autoUpdatePhotoDates}
+                      onChange={(e) => setAutoUpdatePhotoDates(e.target.checked)}
+                      disabled={!mitigationStartDate || !mitigationEndDate}
+                    >
+                      Update Photo Dates
+                    </Checkbox>
+                  ),
+                },
+              ]
+            }}
+            trigger={['click']}
+          >
+            <Button size={isMobile ? 'small' : 'middle'} icon={<DownOutlined />}>More</Button>
+          </Dropdown>
 
+          {/* Format + Date — compact row */}
+          <Select
+            value={pdfTemplateVariant}
+            onChange={(val) => setPdfTemplateVariant(val)}
+            style={{ width: 95 }}
+            size={isMobile ? 'small' : 'middle'}
+          >
+            <Select.Option value="a">Format A</Select.Option>
+            <Select.Option value="b">Format B</Select.Option>
+            <Select.Option value="c">Format C</Select.Option>
+          </Select>
           <DatePicker
             value={reportDate}
             onChange={(date) => setReportDate(date)}

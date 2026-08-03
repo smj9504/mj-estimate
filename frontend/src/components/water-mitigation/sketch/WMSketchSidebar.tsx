@@ -232,13 +232,15 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
   const wallCount = (overlayData.walls ?? []).length;
   const roomCount = (overlayData.rooms ?? []).length;
 
-  const panelItems = [
+  // Only show panels that have data or are core (demolition, equipment, summary)
+  const allPanelItems = [
     {
       key: 'demolition',
+      alwaysShow: true,
       label: (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <AppstoreOutlined style={{ color: '#B8860B', fontSize: 13 }} />
-          <Text style={{ fontSize: 13, fontWeight: 500 }}>Tear Out</Text>
+          <Text style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>Tear Out</Text>
           <div style={{ flex: 1 }} />
           {demoTotalSqft > 0 ? (
             <AreaBadge sqft={demoTotalSqft} />
@@ -270,10 +272,11 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
     },
     {
       key: 'equipment',
+      alwaysShow: true,
       label: (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <ToolOutlined style={{ color: '#4169E1', fontSize: 13 }} />
-          <Text style={{ fontSize: 13, fontWeight: 500 }}>Equipment</Text>
+          <Text style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>Equipment</Text>
           <div style={{ flex: 1 }} />
           <CountBadge count={equipCount} color="#4169E1" />
         </div>
@@ -289,10 +292,11 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
     },
     {
       key: 'containment',
+      itemCount: containCount,
       label: (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <GoldOutlined style={{ color: '#0066FF', fontSize: 13 }} />
-          <Text style={{ fontSize: 13, fontWeight: 500 }}>Containment</Text>
+          <Text style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>Containment</Text>
           <div style={{ flex: 1 }} />
           {summary.containment.total_sqft > 0 ? (
             <AreaBadge sqft={summary.containment.total_sqft} color="#0066FF" />
@@ -313,10 +317,11 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
     },
     {
       key: 'floor_protection',
+      itemCount: protCount,
       label: (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <ColumnWidthOutlined style={{ color: '#D4A000', fontSize: 13 }} />
-          <Text style={{ fontSize: 13, fontWeight: 500 }}>Floor Protection</Text>
+          <Text style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>Floor Protection</Text>
           <div style={{ flex: 1 }} />
           {(summary.floor_protection.total_sqft + summary.stair_floor_protection.total_sqft) > 0 ? (
             <AreaBadge sqft={summary.floor_protection.total_sqft + summary.stair_floor_protection.total_sqft} />
@@ -337,10 +342,11 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
     },
     {
       key: 'content_protection',
+      itemCount: contentProtCount,
       label: (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <SkinOutlined style={{ color: '#8B5CF6', fontSize: 13 }} />
-          <Text style={{ fontSize: 13, fontWeight: 500 }}>Content Protection</Text>
+          <Text style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>Content Protection</Text>
           <div style={{ flex: 1 }} />
           {summary.content_protection.total_sqft > 0 ? (
             <AreaBadge sqft={summary.content_protection.total_sqft} color="#8B5CF6" />
@@ -361,10 +367,11 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
     },
     {
       key: 'content_manipulation',
+      itemCount: contentManipCount,
       label: (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <SwapOutlined style={{ color: '#F97316', fontSize: 13 }} />
-          <Text style={{ fontSize: 13, fontWeight: 500 }}>Content Manipulation</Text>
+          <Text style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>Content Manipulation</Text>
           <div style={{ flex: 1 }} />
           {summary.content_manipulation.total_hours > 0 ? (
             <AreaBadge sqft={summary.content_manipulation.total_hours} unit="hr" color="#F97316" />
@@ -385,10 +392,11 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
     },
     {
       key: 'floor_plan',
+      itemCount: wallCount + roomCount,
       label: (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <BorderOutlined style={{ color: '#333', fontSize: 13 }} />
-          <Text style={{ fontSize: 13, fontWeight: 500 }}>Floor Plan</Text>
+          <Text style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>Floor Plan</Text>
           <div style={{ flex: 1 }} />
           <CountBadge count={wallCount + roomCount} color="#333" />
         </div>
@@ -540,15 +548,28 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
     },
     {
       key: 'summary',
+      alwaysShow: true,
       label: (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <BarChartOutlined style={{ color: '#595959', fontSize: 13 }} />
-          <Text style={{ fontSize: 13, fontWeight: 500 }}>Floor Summary</Text>
+          <Text style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>Floor Summary</Text>
         </div>
       ),
       children: <WMFloorSummaryPanel summary={summary} />,
     },
   ];
+
+  // Filter: show panels that alwaysShow OR have items OR are selected
+  const panelItems = allPanelItems.filter((item: any) => {
+    if (item.alwaysShow) return true;
+    if (item.itemCount > 0) return true;
+    // Show if a child element is currently selected
+    if (selection && SELECTION_PANEL_MAP[selection.element_type] === item.key) return true;
+    return false;
+  });
+
+  // Count hidden panels for user awareness
+  const hiddenCount = allPanelItems.length - panelItems.length;
 
   return (
     <div
@@ -576,7 +597,7 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
           ghost={false}
           size="small"
           style={{ borderRadius: 0, border: 'none' }}
-          items={panelItems.map((item) => ({
+          items={panelItems.map((item: any) => ({
             key: item.key,
             label: item.label,
             extra: 'extra' in item ? item.extra : undefined,
@@ -587,6 +608,11 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
             },
           }))}
         />
+        {hiddenCount > 0 && (
+          <div style={{ padding: '8px 16px', fontSize: 11, color: '#8c8c8c', textAlign: 'center' }}>
+            {hiddenCount} empty {hiddenCount === 1 ? 'panel' : 'panels'} hidden — draw on canvas to show
+          </div>
+        )}
       </Space>
     </div>
   );

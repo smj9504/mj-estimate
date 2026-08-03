@@ -9,7 +9,7 @@
  * controls wrap into rows, text labels hidden on small viewports.
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Segmented,
   Button,
@@ -33,6 +33,7 @@ import {
   ClearOutlined,
   CloudDownloadOutlined,
   DragOutlined,
+  MoreOutlined,
 } from '@ant-design/icons';
 import type { FloorPlanSourceType } from '../../../types/wmSketch';
 import { useImageImport } from './hooks/useImageImport';
@@ -152,6 +153,7 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
 
   const displayUrl = importedImageUrl ?? backgroundImageUrl;
   const hasImage = !!displayUrl;
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <>
@@ -165,7 +167,8 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
           padding: '6px 12px',
           background: '#fafafa',
           borderBottom: '1px solid #f0f0f0',
-          flexWrap: 'wrap',
+          flexWrap: 'nowrap',
+          overflowX: 'auto',
         }}
       >
         {/* Mode toggle */}
@@ -179,8 +182,19 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
           size="small"
         />
 
-        {/* Floor plan edit mode — hide overlays */}
-        {onHideOverlaysChange && (
+        {/* Expand toggle for additional controls */}
+        <Tooltip title={expanded ? 'Hide floor plan controls' : 'Show floor plan controls'}>
+          <Button
+            size="small"
+            type={expanded ? 'primary' : 'default'}
+            ghost={expanded}
+            icon={<MoreOutlined />}
+            onClick={() => setExpanded(!expanded)}
+          />
+        </Tooltip>
+
+        {/* Floor plan edit mode — hide overlays (only when expanded) */}
+        {expanded && onHideOverlaysChange && (
           <Tooltip title={hideOverlays ? 'Show all overlays' : 'Hide overlays to edit floor plan only'}>
             <Button
               size="small"
@@ -193,7 +207,7 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
             </Button>
           </Tooltip>
         )}
-        {onClearFloorPlan && (
+        {expanded && onClearFloorPlan && (
           <Tooltip title="Clear all walls and rooms">
             <Button
               size="small"
@@ -206,8 +220,8 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
           </Tooltip>
         )}
 
-        {/* Reference image controls — shown in sketch mode when background image exists */}
-        {sourceType === 'sketch' && hasBackgroundImage && (
+        {/* Reference image controls — shown in sketch mode when background image exists and expanded */}
+        {expanded && sourceType === 'sketch' && hasBackgroundImage && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <div className="wm-fps-divider" style={{ width: 1, height: 20, background: '#d9d9d9' }} />
             <Tooltip title={showReferenceImage ? 'Hide reference image' : 'Show imported image as trace reference'}>
@@ -238,8 +252,8 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
           </div>
         )}
 
-        {/* Image controls — shown only when in image mode */}
-        {sourceType === 'image' && (
+        {/* Image controls — shown only when in image mode and expanded */}
+        {expanded && sourceType === 'image' && (
           <div className="wm-fps-image-controls" style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, flexWrap: 'wrap' }}>
             {hasImage ? (
               // Thumbnail + action buttons — wraps on mobile
