@@ -323,7 +323,24 @@ class SQLAlchemyRepository(BaseRepository[T, ID]):
             logger.error(f"Error getting {self.table_name} by ID {entity_id}: {e}")
             raise DatabaseException(f"Failed to get {self.table_name} by ID", e)
     
-    def get_all(self, 
+    def _eager_load_convert_relationships(self, query):
+        """Eager-load relationships that _convert_to_dict touches on every
+        row (items, rooms, category) so get_all doesn't lazy-load them one
+        row at a time (N+1) when the model class has any of them."""
+        from sqlalchemy import inspect as sa_inspect
+        from sqlalchemy.orm import selectinload
+
+        try:
+            relationship_names = sa_inspect(self.model_class).relationships.keys()
+        except Exception:
+            return query
+
+        for rel_name in ('items', 'rooms', 'category'):
+            if rel_name in relationship_names:
+                query = query.options(selectinload(getattr(self.model_class, rel_name)))
+        return query
+
+    def get_all(self,
                 filters: Optional[Dict[str, Any]] = None,
                 order_by: Optional[str] = None,
                 limit: Optional[int] = None,
@@ -331,7 +348,8 @@ class SQLAlchemyRepository(BaseRepository[T, ID]):
         """Get all entities with optional filters and pagination"""
         try:
             query = self.db_session.query(self.model_class)
-            
+            query = self._eager_load_convert_relationships(query)
+
             # Apply filters
             if filters:
                 for key, value in filters.items():

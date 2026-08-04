@@ -48,27 +48,23 @@ def populate_staff_names(work_orders: List[dict], staff_service: StaffService) -
             staff_ids.add(wo['assigned_to_staff_id'])
     
     logger.info(f"Found {len(staff_ids)} unique staff IDs to fetch: {staff_ids}")
-    
-    # Fetch staff data
+
+    # Fetch all staff in one batched query instead of one query per staff ID
     staff_map = {}
-    for staff_id in staff_ids:
+    if staff_ids:
         try:
-            # staff_id is already a string from UUIDType, pass it directly
-            staff = staff_service.get_by_id(staff_id)
-            logger.info(f"Fetched staff {staff_id}: {staff}")
-            
-            if staff:
-                # Try to get name field or construct from first/last name
+            staff_list = staff_service.get_all(filters={'id': list(staff_ids)})
+            for staff in staff_list:
+                staff_id = staff.get('id')
                 name = staff.get('name')
                 if not name:
                     first = staff.get('first_name', '')
                     last = staff.get('last_name', '')
                     name = f"{first} {last}".strip() if first or last else staff.get('username', 'Unknown')
                 staff_map[staff_id] = name
-                logger.info(f"Staff {staff_id} name: {name}")
+            logger.info(f"Fetched {len(staff_map)} staff records in one batched query")
         except Exception as e:
-            # Log error but continue processing
-            logger.error(f"Error fetching staff {staff_id}: {e}")
+            logger.error(f"Error fetching staff for IDs {staff_ids}: {e}")
     
     # Populate names in work orders
     for wo in work_orders:

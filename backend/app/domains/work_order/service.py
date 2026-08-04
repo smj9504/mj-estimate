@@ -540,18 +540,39 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
         try:
             # Get work orders from parent class
             work_orders = super().get_all(filters=filters, order_by=order_by, limit=limit, offset=offset)
-            
+
+            # Fetch document types once for the whole page instead of once per row
+            doc_type_map = self._build_document_type_map()
+
             # Enrich each work order with document type name
             for work_order in work_orders:
-                self.enrich_document_type_name(work_order)
+                self.enrich_document_type_name(work_order, doc_type_map=doc_type_map)
                 # Also ensure cost fields
                 self.ensure_cost_fields(work_order)
-            
+
             return work_orders
-            
+
         except Exception as e:
             logger.error(f"Error getting all work orders: {e}")
             raise
+
+    def _build_document_type_map(self) -> Dict[str, str]:
+        """Fetch all document types once and map code (uppercased) -> name"""
+        try:
+            session = self.database.get_session()
+            try:
+                from app.domains.document_types import service as dt_service
+                document_types = dt_service.get_document_types(session, active_only=False)
+                return {
+                    doc_type.code.upper(): doc_type.name
+                    for doc_type in document_types
+                    if hasattr(doc_type, 'code')
+                }
+            finally:
+                session.close()
+        except Exception as e:
+            logger.error(f"Error building document type map: {e}")
+            return {}
     
     def get_by_id(self, entity_id) -> Optional[Dict[str, Any]]:
         """
@@ -575,54 +596,40 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
             logger.error(f"Error getting work order by ID {entity_id}: {e}")
             return None
     
-    def enrich_document_type_name(self, work_order: Dict[str, Any]) -> Dict[str, Any]:
+    def enrich_document_type_name(
+        self,
+        work_order: Dict[str, Any],
+        doc_type_map: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
         """
         Enrich work order with document type name from document types table
-        
+
         Args:
             work_order: Work order dictionary
-            
+            doc_type_map: Optional pre-built {code.upper(): name} map. When
+                given (e.g. from get_all enriching a whole page), no DB
+                query is made here. When omitted (e.g. single-row get_by_id),
+                the map is built with its own session as before.
+
         Returns:
             Work order with document_type_name field added
         """
         try:
             if work_order and work_order.get('document_type'):
                 doc_type_code = work_order['document_type']
-                logger.info(f"Looking up document type with code: {doc_type_code}")
-                
-                session = self.database.get_session()
-                try:
-                    from app.domains.document_types import service as dt_service
-                    
-                    # Get all document types (including inactive) and find the matching one by code
-                    document_types = dt_service.get_document_types(session, active_only=False)
-                    logger.info(f"Found {len(document_types)} document types in database")
-                    
-                    found = False
-                    for doc_type in document_types:
-                        if hasattr(doc_type, 'code'):
-                            logger.debug(f"Comparing '{doc_type.code}' with '{doc_type_code}'")
-                            # Case-insensitive comparison for better matching
-                            if doc_type.code.upper() == doc_type_code.upper():
-                                work_order['document_type_name'] = doc_type.name
-                                logger.info(f"Found document type name: {doc_type.name} for code: {doc_type_code}")
-                                found = True
-                                break
-                    
-                    # If no match found, use the code as the name
-                    if not found:
-                        logger.warning(f"No document type found for code: {doc_type_code}")
-                        work_order['document_type_name'] = work_order['document_type']
-                        
-                finally:
-                    session.close()
-                    
+
+                if doc_type_map is None:
+                    doc_type_map = self._build_document_type_map()
+
+                name = doc_type_map.get(doc_type_code.upper())
+                work_order['document_type_name'] = name or work_order['document_type']
+
         except Exception as e:
             logger.error(f"Error enriching document type name: {e}")
             # On error, use the code as the name
             if work_order and work_order.get('document_type'):
                 work_order['document_type_name'] = work_order['document_type']
-                
+
         return work_order
     
     def ensure_cost_fields(self, work_order: Dict[str, Any]) -> Dict[str, Any]:

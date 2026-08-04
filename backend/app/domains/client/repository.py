@@ -40,39 +40,55 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                 Claim.client_id == client_id
             ).order_by(Claim.created_at.desc()).all()
 
+            claim_ids = [str(claim.id) for claim in claims]
+
+            from app.domains.invoice.models import Invoice
+            from app.domains.estimate.models import Estimate
+            from app.domains.water_mitigation.models import WaterMitigationJob
+            from app.domains.work_order.models import WorkOrder
+            from app.domains.cabinet_estimate.models import CabinetEstimate
+
+            # Batch-fetch negotiations for all claims in one query instead
+            # of one query per claim
+            negotiations_by_claim: Dict[str, List[Dict[str, Any]]] = {}
+            if claim_ids:
+                negotiations = self.db_session.query(ClaimNegotiation).filter(
+                    ClaimNegotiation.claim_id.in_(claim_ids)
+                ).order_by(ClaimNegotiation.claim_id, ClaimNegotiation.revision_number).all()
+                for n in negotiations:
+                    negotiations_by_claim.setdefault(str(n.claim_id), []).append(
+                        self._convert_to_dict(n)
+                    )
+
+            # Batch-fetch linked-document counts per claim: one grouped
+            # query per model instead of one .count() query per claim
+            def _counts_by_claim(model) -> Dict[str, int]:
+                if not claim_ids:
+                    return {}
+                rows = self.db_session.query(
+                    model.claim_id, func.count(model.id)
+                ).filter(
+                    model.claim_id.in_(claim_ids)
+                ).group_by(model.claim_id).all()
+                return {str(cid): cnt for cid, cnt in rows}
+
+            invoice_counts = _counts_by_claim(Invoice)
+            estimate_counts = _counts_by_claim(Estimate)
+            wm_job_counts = _counts_by_claim(WaterMitigationJob)
+            work_order_counts = _counts_by_claim(WorkOrder)
+            cabinet_estimate_counts = _counts_by_claim(CabinetEstimate)
+
             claims_list = []
             for claim in claims:
                 claim_dict = self._convert_to_dict(claim)
+                cid = str(claim.id)
 
-                # Get negotiations for each claim
-                negotiations = self.db_session.query(ClaimNegotiation).filter(
-                    ClaimNegotiation.claim_id == claim.id
-                ).order_by(ClaimNegotiation.revision_number).all()
-                claim_dict['negotiations'] = [self._convert_to_dict(n) for n in negotiations]
-
-                # Count linked documents
-                from app.domains.invoice.models import Invoice
-                from app.domains.estimate.models import Estimate
-                from app.domains.water_mitigation.models import WaterMitigationJob
-                from app.domains.work_order.models import WorkOrder
-
-                claim_dict['invoice_count'] = self.db_session.query(Invoice).filter(
-                    Invoice.claim_id == claim.id
-                ).count()
-                claim_dict['estimate_count'] = self.db_session.query(Estimate).filter(
-                    Estimate.claim_id == claim.id
-                ).count()
-                claim_dict['wm_job_count'] = self.db_session.query(WaterMitigationJob).filter(
-                    WaterMitigationJob.claim_id == claim.id
-                ).count()
-                claim_dict['work_order_count'] = self.db_session.query(WorkOrder).filter(
-                    WorkOrder.claim_id == claim.id
-                ).count()
-
-                from app.domains.cabinet_estimate.models import CabinetEstimate
-                claim_dict['cabinet_estimate_count'] = self.db_session.query(CabinetEstimate).filter(
-                    CabinetEstimate.claim_id == claim.id
-                ).count()
+                claim_dict['negotiations'] = negotiations_by_claim.get(cid, [])
+                claim_dict['invoice_count'] = invoice_counts.get(cid, 0)
+                claim_dict['estimate_count'] = estimate_counts.get(cid, 0)
+                claim_dict['wm_job_count'] = wm_job_counts.get(cid, 0)
+                claim_dict['work_order_count'] = work_order_counts.get(cid, 0)
+                claim_dict['cabinet_estimate_count'] = cabinet_estimate_counts.get(cid, 0)
 
                 # Include plumber_report_id if linked
                 claim_dict['plumber_report_id'] = str(claim.plumber_report_id) if claim.plumber_report_id else None
@@ -82,11 +98,6 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
             client_dict['claims'] = claims_list
 
             # Count standalone documents (linked to client but no claim)
-            from app.domains.invoice.models import Invoice
-            from app.domains.estimate.models import Estimate
-            from app.domains.water_mitigation.models import WaterMitigationJob
-            from app.domains.work_order.models import WorkOrder
-
             client_dict['standalone_invoice_count'] = self.db_session.query(Invoice).filter(
                 Invoice.client_id == client_id,
                 Invoice.claim_id.is_(None)
@@ -105,7 +116,6 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
             ).count()
 
             # Collect cabinet estimates: via claim OR matching property_address
-            from app.domains.cabinet_estimate.models import CabinetEstimate
             claim_ids = [c['id'] for c in claims_list]
 
             cab_filters = []
