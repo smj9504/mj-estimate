@@ -22,6 +22,7 @@ import warnings
 
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
+import asyncio
 import logging
 import os
 import sys
@@ -265,6 +266,7 @@ from app.core.database_factory import db_factory, get_database
 
 # Service factory removed - using direct service instantiation
 from app.core.interfaces import ConfigurationError, ConnectionError, DatabaseException
+from app.core.error_reporting import report_error_to_admin
 
 # Conditional integration imports (only if enabled)
 if settings.ENABLE_INTEGRATIONS:
@@ -770,6 +772,87 @@ async def configuration_exception_handler(request: Request, exc: ConfigurationEr
             "request_id": request_id
         },
         headers={"X-Request-ID": request_id}
+    )
+
+
+def _cors_headers_for(request: Request) -> dict:
+    """
+    Manually mirror CORS headers for the catch-all handler's response.
+
+    Starlette wires @app.exception_handler(Exception) to ServerErrorMiddleware,
+    which sits OUTSIDE CORSMiddleware in the stack (CORSMiddleware only wraps
+    ExceptionMiddleware, which is where HTTPException/RequestValidationError/
+    DatabaseException/etc are handled). Without this, a truly unhandled
+    exception would return a 500 with no Access-Control-Allow-Origin header,
+    and the browser would block the frontend from reading it (shows up as a
+    generic network error instead of our JSON body).
+    """
+    origin = request.headers.get("origin")
+    if not origin:
+        return {}
+    if "*" in settings.CORS_ORIGINS or origin in settings.CORS_ORIGINS:
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+        }
+    return {}
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """
+    Catch-all handler for any exception not covered above.
+
+    HTTPException, RequestValidationError, DatabaseException, ConnectionError,
+    ConfigurationError and RateLimitExceeded all have more specific handlers
+    registered and are resolved before this one via Starlette's MRO-based
+    exception handler lookup - this handler only fires for genuinely
+    unexpected errors (AttributeError, KeyError, TypeError, un-wrapped
+    third-party exceptions, etc).
+
+    Reports the error to admins via Slack (throttled, fire-and-forget) and
+    returns the same JSON response shape as the handlers above.
+    """
+    import traceback
+    request_id = _get_request_id(request)
+    tb_str = traceback.format_exc()
+    logger.error(f"[{request_id[:8]}] Unhandled error on {request.method} {request.url}: {exc}")
+    logger.error(f"[{request_id[:8]}] Full traceback: {tb_str}")
+
+    # Use the matched route template (e.g. "/api/work-orders/{id}") instead
+    # of the resolved path when available, so errors on the same endpoint
+    # across many different record IDs are grouped under one throttle
+    # signature instead of flooding Slack with one alert per ID.
+    route = request.scope.get("route")
+    route_path = route.path if route is not None else request.url.path
+
+    # Fire-and-forget: never block or fail the error response on Slack.
+    asyncio.create_task(
+        report_error_to_admin(
+            request_id=request_id,
+            method=request.method,
+            path=route_path,
+            exc=exc,
+            traceback_str=tb_str,
+        )
+    )
+
+    content = {
+        "message": "An unexpected error occurred",
+        "detail": str(exc) if settings.DEBUG else "An internal error occurred",
+        "error_type": str(type(exc).__name__),
+        "timestamp": datetime.utcnow().isoformat(),
+        "type": "internal_error",
+        "request_id": request_id
+    }
+    if settings.DEBUG:
+        content["traceback"] = tb_str
+
+    return JSONResponse(
+        status_code=500,
+        content=content,
+        headers={"X-Request-ID": request_id, **_cors_headers_for(request)}
     )
 
 

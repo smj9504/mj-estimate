@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { Modal } from 'antd';
+import { showRetryableErrorNotification } from './apiErrorNotification';
 
 // Create axios instance with base configuration
 // For production: use backend URL directly (Vercel env vars not working)
@@ -57,7 +58,17 @@ api.interceptors.response.use(
           window.location.href = '/login';
         },
       });
+      return Promise.reject(error);
     }
+
+    // Server crashed or never responded - let the user retry instead of
+    // being stuck. 4xx errors are left untouched: pages already show a
+    // specific message for those via their own catch blocks.
+    const isServerOrNetworkError = !error.response || error.response.status >= 500;
+    if (isServerOrNetworkError) {
+      showRetryableErrorNotification(error, api);
+    }
+
     return Promise.reject(error);
   }
 );
@@ -71,5 +82,16 @@ export const publicApi = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+publicApi.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const isServerOrNetworkError = !error.response || error.response.status >= 500;
+    if (isServerOrNetworkError) {
+      showRetryableErrorNotification(error, publicApi);
+    }
+    return Promise.reject(error);
+  }
+);
 
 export default api;
