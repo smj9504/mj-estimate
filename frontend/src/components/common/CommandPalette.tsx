@@ -221,7 +221,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ menuItems }) => {
         centered
         width={560}
         className="command-palette-modal"
-        destroyOnClose
+        destroyOnHidden
       >
         <div className="cp-search">
           <SearchOutlined className="cp-search-icon" />

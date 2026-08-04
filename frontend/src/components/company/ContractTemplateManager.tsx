@@ -397,7 +397,7 @@ const ContractTemplateManager: React.FC<ContractTemplateManagerProps> = ({
         onOk={handleSubmit}
         okText={editing ? 'Save Changes' : 'Create Template'}
         confirmLoading={isMutating}
-        destroyOnClose
+        destroyOnHidden
         width={520}
       >
         <Form

@@ -1721,7 +1721,7 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
         width={720}
         open={!!emailDrawerClaim}
         onClose={() => setEmailDrawerClaim(null)}
-        destroyOnClose
+        destroyOnHidden
       >
         {emailDrawerClaim && (
           <EmailComposer

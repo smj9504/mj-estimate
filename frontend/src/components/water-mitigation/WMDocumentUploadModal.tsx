@@ -150,7 +150,7 @@ const WMDocumentUploadModal: React.FC<WMDocumentUploadModalProps> = ({
         </Button>,
       ]}
       width={520}
-      destroyOnClose
+      destroyOnHidden
     >
       <Space direction="vertical" style={{ width: '100%' }} size="middle">
         {/* Document Type */}

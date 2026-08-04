@@ -344,7 +344,7 @@ const TemplateManager: React.FC<TemplateManagerProps> = ({
         onCancel={onClose}
         footer={null}
         width={900}
-        destroyOnClose
+        destroyOnHidden
       >
         <Tabs
           activeKey={activeTab}
@@ -371,7 +371,7 @@ const TemplateManager: React.FC<TemplateManagerProps> = ({
           </Button>,
         ]}
         width={800}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={form}

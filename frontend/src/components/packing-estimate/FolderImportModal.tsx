@@ -249,7 +249,7 @@ const FolderImportModal: React.FC<FolderImportModalProps> = ({
           </div>
         </div>
       ) : null}
-      destroyOnClose
+      destroyOnHidden
     >
       <div style={{ marginBottom: 16 }}>
         <Text type="secondary" style={{ fontSize: 13 }}>

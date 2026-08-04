@@ -30,6 +30,11 @@ import {
   DEPRECIATION_PHASE_COLORS,
   type DepreciationPhase,
 } from '../../types/claimFollowUp';
+import {
+  SUPPLEMENT_STATUS_LABELS,
+  SUPPLEMENT_STATUS_COLORS,
+  type SupplementStatus,
+} from '../../types/supplement';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -56,6 +61,32 @@ function getDisplayStepIndex(phase?: DepreciationPhase): number {
     payment_received: 5,
   };
   return map[phase] ?? 0;
+}
+
+// Maps a directly-clickable display step to the concrete phase it sets.
+// Index 3 ("Docs Sent") and index 5 ("Payment") are excluded — they open a
+// modal instead, since setting them needs extra input (PA vs. insurance,
+// payment amount).
+const STEP_INDEX_TO_PHASE: Record<number, DepreciationPhase> = {
+  0: 'in_construction',
+  1: 'construction_done',
+  2: 'preparing_docs',
+  4: 'following_up',
+};
+
+function SupplementStatusTags({ statuses }: { statuses?: Record<string, number> }) {
+  const entries = Object.entries(statuses || {}).filter(([, count]) => count > 0);
+  if (entries.length === 0) return null;
+  return (
+    <>
+      {entries.map(([status, count]) => (
+        <Tag key={status} color={SUPPLEMENT_STATUS_COLORS[status as SupplementStatus] || 'default'}>
+          Supplement: {SUPPLEMENT_STATUS_LABELS[status as SupplementStatus] || status}
+          {count > 1 ? ` ×${count}` : ''}
+        </Tag>
+      ))}
+    </>
+  );
 }
 
 function getNextPhase(current?: DepreciationPhase): DepreciationPhase | null {
@@ -147,6 +178,30 @@ const DepreciationPhaseTracker: React.FC<DepreciationPhaseTrackerProps> = ({
     });
   };
 
+  // Direct stage change: clicking any step jumps straight to that phase,
+  // instead of only being able to advance one step at a time.
+  const handleStepClick = (idx: number) => {
+    if (idx === currentStep) return;
+    if (idx === 3) {
+      setSendModal(true);
+      return;
+    }
+    if (idx === 5) {
+      setPaymentAmount(task.depreciation_amount || null);
+      setPaymentModal(true);
+      return;
+    }
+    const phase = STEP_INDEX_TO_PHASE[idx];
+    if (!phase) return;
+    Modal.confirm({
+      title: `Change stage to "${DISPLAY_STEPS[idx].title}"?`,
+      content: idx < currentStep
+        ? 'This moves the claim back to an earlier stage.'
+        : undefined,
+      onOk: () => advanceMutation.mutate({ phase, notes: advanceNotes }),
+    });
+  };
+
   // Compact mode: just show a tag with current phase
   if (compact) {
     const label = currentPhase
@@ -156,13 +211,14 @@ const DepreciationPhaseTracker: React.FC<DepreciationPhaseTrackerProps> = ({
       ? DEPRECIATION_PHASE_COLORS[currentPhase]
       : 'default';
     return (
-      <Space size={4}>
+      <Space size={4} wrap>
         <Tag color={color}>{label}</Tag>
         {task.depreciation_amount != null && task.depreciation_amount > 0 && (
           <Text type="secondary" style={{ fontSize: 12 }}>
             ${task.depreciation_amount.toLocaleString()}
           </Text>
         )}
+        <SupplementStatusTags statuses={task.supplement_statuses} />
       </Space>
     );
   }
@@ -204,6 +260,16 @@ const DepreciationPhaseTracker: React.FC<DepreciationPhaseTrackerProps> = ({
         </div>
       )}
 
+      {/* Supplement status — shown alongside construction/depreciation stage so
+          e.g. "construction in progress + supplement in progress" is visible at once */}
+      {task.supplement_statuses && Object.keys(task.supplement_statuses).length > 0 && (
+        <div style={{ marginBottom: 12, textAlign: 'center' }}>
+          <Space size={4} wrap>
+            <SupplementStatusTags statuses={task.supplement_statuses} />
+          </Space>
+        </div>
+      )}
+
       {/* Supplement blocking warning */}
       {hasPendingSupps && currentPhase === 'preparing_docs' && (
         <Alert
@@ -216,11 +282,12 @@ const DepreciationPhaseTracker: React.FC<DepreciationPhaseTrackerProps> = ({
         />
       )}
 
-      {/* Steps */}
+      {/* Steps — click any step to jump directly to that stage */}
       <Steps
         current={currentStep}
         size="small"
         style={{ marginBottom: 16 }}
+        onChange={handleStepClick}
         items={DISPLAY_STEPS.map((step, idx) => {
           let desc: string | undefined;
           if (idx === 3 && (currentPhase === 'docs_sent_pa' || currentPhase === 'docs_sent_insurance')) {

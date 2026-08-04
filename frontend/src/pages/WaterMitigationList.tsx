@@ -15,7 +15,6 @@ import {
   Tag,
   Card,
   message,
-  Switch,
   Dropdown,
   Grid,
   List,
@@ -27,7 +26,8 @@ import {
   EditOutlined,
   DeleteOutlined,
   MoreOutlined,
-  RightOutlined
+  RightOutlined,
+  PoweroffOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import waterMitigationService from '../services/waterMitigationService';
@@ -146,20 +146,6 @@ const WaterMitigationList: React.FC = () => {
   // Table columns (desktop)
   const columns: ColumnsType<WaterMitigationJob> = [
     {
-      title: 'Active',
-      dataIndex: 'active',
-      key: 'active',
-      width: 80,
-      render: (active: boolean, record) => (
-        <Switch
-          checked={active}
-          onChange={() => handleToggleActive(record.id, active)}
-          checkedChildren="ON"
-          unCheckedChildren="OFF"
-        />
-      )
-    },
-    {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
@@ -243,6 +229,12 @@ const WaterMitigationList: React.FC = () => {
                 onClick: () => handleOpenEditModal(record)
               },
               {
+                key: 'toggle-active',
+                icon: <PoweroffOutlined />,
+                label: record.active ? 'Deactivate' : 'Activate',
+                onClick: () => handleToggleActive(record.id, record.active)
+              },
+              {
                 key: 'delete',
                 icon: <DeleteOutlined />,
                 label: 'Delete',
@@ -278,6 +270,12 @@ const WaterMitigationList: React.FC = () => {
                 icon: <EditOutlined />,
                 label: 'Edit',
                 onClick: () => handleOpenEditModal(job)
+              },
+              {
+                key: 'toggle-active',
+                icon: <PoweroffOutlined />,
+                label: job.active ? 'Deactivate' : 'Activate',
+                onClick: () => handleToggleActive(job.id, job.active)
               },
               {
                 key: 'delete',

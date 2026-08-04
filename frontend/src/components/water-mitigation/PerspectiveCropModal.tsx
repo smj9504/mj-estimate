@@ -293,7 +293,7 @@ const PerspectiveCropModal: React.FC<PerspectiveCropModalProps> = ({
           </Button>
         </Space>
       }
-      destroyOnClose
+      destroyOnHidden
     >
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40 }}>

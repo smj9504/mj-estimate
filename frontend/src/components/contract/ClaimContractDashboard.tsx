@@ -597,7 +597,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
         okText="Send Email"
         okButtonProps={{ loading: emailSending, icon: <SendOutlined /> }}
         cancelButtonProps={{ disabled: emailSending }}
-        destroyOnClose
+        destroyOnHidden
         width={520}
       >
         {/* Document info */}
@@ -707,7 +707,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
         okText="Send Reminder"
         okButtonProps={{ loading: reminderSending, icon: <BellOutlined /> }}
         cancelButtonProps={{ disabled: reminderSending }}
-        destroyOnClose
+        destroyOnHidden
         width={480}
       >
         <div style={{ marginBottom: 16, padding: '8px 12px', background: '#fff7e6', borderRadius: 6, borderLeft: '3px solid #fa8c16' }}>
@@ -771,7 +771,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
         width={420}
         open={!!activityContract}
         onClose={() => setActivityContract(null)}
-        destroyOnClose
+        destroyOnHidden
       >
         {activityContract && (
           <div>

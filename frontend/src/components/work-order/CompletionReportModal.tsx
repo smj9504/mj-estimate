@@ -133,7 +133,7 @@ const CompletionReportModal: React.FC<CompletionReportModalProps> = ({
           Generate Report ({selectedIds.size} photos)
         </Button>,
       ]}
-      destroyOnClose
+      destroyOnHidden
     >
       {!claimId ? (
         <Empty description="This work order has no linked claim. Link a claim first to upload and select photos." />

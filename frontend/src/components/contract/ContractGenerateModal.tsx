@@ -574,7 +574,7 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
       onCancel={onClose}
       closable={!createMutation.isPending}
       footer={footer}
-      destroyOnClose
+      destroyOnHidden
       width={600}
     >
       {/* Steps indicator */}

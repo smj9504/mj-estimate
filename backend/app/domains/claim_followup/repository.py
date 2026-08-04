@@ -41,7 +41,12 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
         sort_order: str = "asc",
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Get tasks with filtering, pagination, and sorting (enriched with claim data)"""
-        query = self.db_session.query(FollowUpTask)
+        from sqlalchemy.orm import selectinload
+        from app.domains.client.models import Claim
+
+        query = self.db_session.query(FollowUpTask).options(
+            selectinload(FollowUpTask.claim).selectinload(Claim.client)
+        )
 
         if status:
             query = query.filter(FollowUpTask.status == status)
@@ -169,6 +174,24 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
             except Exception:
                 pass
 
+        # Pre-fetch appraisal/attorney-referral task ids per claim (for
+        # depreciation_recovery enrichment) in one query instead of one
+        # per task
+        appraisal_task_ids_by_claim: Dict[str, set] = {}
+        if claim_ids:
+            try:
+                appraisal_rows = self.db_session.query(
+                    FollowUpTask.claim_id, FollowUpTask.id
+                ).filter(
+                    FollowUpTask.claim_id.in_(claim_ids),
+                    FollowUpTask.task_type.in_(['appraisal', 'attorney_referral']),
+                    FollowUpTask.status != 'cancelled',
+                ).all()
+                for cid, tid in appraisal_rows:
+                    appraisal_task_ids_by_claim.setdefault(str(cid), set()).add(tid)
+            except Exception:
+                pass
+
         results = []
         for t in tasks:
             d = self._convert_to_dict(t)
@@ -206,21 +229,14 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                         )
                         pending_supp = sum(
                             cnt for st, cnt in supp_statuses.items()
-                            if st not in ('resolved', 'cancelled')
+                            if st not in ('approved', 'denied', 'withdrawn')
                         )
                         d['has_pending_supplements'] = pending_supp > 0
                         # Check appraisal/attorney tasks
-                        appraisal_exists = self.db_session.query(
-                            FollowUpTask.id
-                        ).filter(
-                            FollowUpTask.claim_id == t.claim_id,
-                            FollowUpTask.task_type.in_(
-                                ['appraisal', 'attorney_referral']
-                            ),
-                            FollowUpTask.status != 'cancelled',
-                            FollowUpTask.id != t.id,
-                        ).first()
-                        d['has_appraisal_task'] = appraisal_exists is not None
+                        appraisal_ids = appraisal_task_ids_by_claim.get(
+                            str(t.claim_id), set()
+                        )
+                        d['has_appraisal_task'] = bool(appraisal_ids - {t.id})
                     # Address is on the Client model
                     if hasattr(t.claim, 'client') and t.claim.client:
                         client = t.claim.client
@@ -269,7 +285,12 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
 
     def get_tasks_by_claim(self, claim_id: str) -> List[Dict[str, Any]]:
         """Get all tasks for a specific claim"""
-        tasks = self.db_session.query(FollowUpTask).filter(
+        from sqlalchemy.orm import selectinload
+        from app.domains.client.models import Claim
+
+        tasks = self.db_session.query(FollowUpTask).options(
+            selectinload(FollowUpTask.claim).selectinload(Claim.client)
+        ).filter(
             FollowUpTask.claim_id == claim_id
         ).order_by(FollowUpTask.due_date.desc()).all()
 
@@ -280,11 +301,9 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                 if t.claim:
                     d['claim_number'] = t.claim.claim_number or ''
                     d['insurance_company'] = t.claim.insurance_company or ''
-                    from app.domains.client.models import Client
-                    client = self.db_session.query(Client).filter(
-                        Client.id == t.claim.client_id
-                    ).first()
-                    d['property_address'] = client.address if client else ''
+                    d['property_address'] = (
+                        t.claim.client.address if t.claim.client else ''
+                    )
             except Exception:
                 pass
             results.append(d)

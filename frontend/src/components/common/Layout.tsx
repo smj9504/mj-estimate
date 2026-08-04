@@ -176,6 +176,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             icon: <ProjectOutlined />,
             label: 'Work Orders',
           },
+          {
+            key: '/clients',
+            icon: <ContactsOutlined />,
+            label: 'Clients',
+          },
         ],
       },
 
@@ -273,11 +278,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         icon: <ToolOutlined />,
         label: 'Tools & Data',
         children: [
-          {
-            key: '/clients',
-            icon: <ContactsOutlined />,
-            label: 'Clients',
-          },
           {
             key: '/line-items',
             icon: <DatabaseOutlined />,

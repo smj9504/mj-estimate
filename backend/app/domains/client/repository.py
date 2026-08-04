@@ -5,7 +5,7 @@ Client, Claim, and ClaimNegotiation repository implementations.
 import logging
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 
 from app.common.base_repository import SQLAlchemyRepository, SupabaseRepository
 from app.core.interfaces import DatabaseSession
@@ -215,13 +215,15 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                 latest_claim_activity.c.latest_activity,
             )
 
-            # Order by client updated_at (desc), fallback to created_at
-            query = query.order_by(
-                func.coalesce(
-                    Client.updated_at,
-                    Client.created_at
-                ).desc()
+            # Order by most recent activity: client's own updated_at vs. its
+            # claims' latest activity, whichever is more recent (desc)
+            client_activity = func.coalesce(Client.updated_at, Client.created_at)
+            latest_overall_activity = case(
+                (latest_claim_activity.c.latest_activity > client_activity,
+                 latest_claim_activity.c.latest_activity),
+                else_=client_activity
             )
+            query = query.order_by(latest_overall_activity.desc())
 
             if offset:
                 query = query.offset(offset)

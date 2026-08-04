@@ -1918,15 +1918,15 @@ const ClaimFollowUpDashboard: React.FC = () => {
           return {
             key: group.claim_id,
             style: {
-              marginBottom: 8,
+              marginBottom: 12,
               border: group.hasOverdue ? '1px solid #ffccc7' : '1px solid #f0f0f0',
               borderRadius: 8,
-              background: group.hasOverdue ? '#fff2f0' : '#fff',
+              background: '#fff',
             },
             label: (
               <div style={{ width: '100%' }}>
                 {/* Row 1: Address + meta + badges */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 0', minWidth: 0 }}>
                     <div
                       style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', minWidth: 0 }}
@@ -1938,10 +1938,10 @@ const ClaimFollowUpDashboard: React.FC = () => {
                       <EnvironmentOutlined style={{ color: group.hasOverdue ? '#ff4d4f' : '#1890ff', fontSize: 14, flexShrink: 0 }} />
                       <Text
                         strong
+                        className="claim-followup-address-link"
                         style={{
                           fontSize: isMobile ? 13 : 14,
                           color: group.hasOverdue ? '#cf1322' : '#1890ff',
-                          textDecoration: 'underline',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
@@ -1988,15 +1988,18 @@ const ClaimFollowUpDashboard: React.FC = () => {
                         </Text>
                       </Tooltip>
                     )}
-                    <Tooltip title={`${resolvedTasks.length}/${totalTasks} resolved`}>
-                      <Progress
-                        percent={progressPct}
-                        size="small"
-                        style={{ width: 50, margin: 0 }}
-                        strokeColor={progressPct === 100 ? '#52c41a' : '#1890ff'}
-                        showInfo={false}
-                      />
-                    </Tooltip>
+                    {totalTasks > 1 && (
+                      <Tooltip title={`${resolvedTasks.length}/${totalTasks} resolved`}>
+                        <Progress
+                          percent={progressPct}
+                          size="small"
+                          style={{ width: 50, margin: 0 }}
+                          strokeColor={progressPct === 100 ? '#52c41a' : '#1890ff'}
+                          trailColor="#e8e8e8"
+                          showInfo={false}
+                        />
+                      </Tooltip>
+                    )}
                     <Badge
                       count={activeTasks.length}
                       style={{ backgroundColor: group.hasOverdue ? '#ff4d4f' : '#1890ff' }}
@@ -2027,7 +2030,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   </div>
                 )}
                 {/* Row 3: Stage pipeline + Supplement status */}
-                <div style={{ marginTop: 4, overflow: 'hidden' }}>
+                <div style={{ marginTop: 8, overflow: 'hidden' }}>
                   {renderStagePipeline(group)}
                 </div>
               </div>
@@ -2895,7 +2898,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
         open={claimDrawerOpen}
         onClose={() => { setClaimDrawerOpen(false); setSelectedClaimGroup(null); }}
         width={isMobile ? '100%' : 680}
-        destroyOnClose
+        destroyOnHidden
       >
         {selectedClaimGroup && (() => {
           const group = selectedClaimGroup;
@@ -3128,7 +3131,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
         open={taskDetailOpen}
         onClose={() => { setTaskDetailOpen(false); setDetailTask(null); }}
         width={isMobile ? '100%' : 560}
-        destroyOnClose
+        destroyOnHidden
       >
         {detailTask && (
           <>
@@ -3276,16 +3279,20 @@ const ClaimFollowUpDashboard: React.FC = () => {
         .ant-table-row-overdue:hover > td {
           background-color: #ffece8 !important;
         }
+        .claim-followup-address-link:hover {
+          text-decoration: underline;
+        }
         .ant-collapse > .ant-collapse-item > .ant-collapse-header {
-          padding: 8px 12px !important;
+          padding: 12px 16px !important;
           align-items: flex-start !important;
         }
         .ant-collapse-content-box {
-          padding: 0 !important;
+          padding: 8px 12px 12px !important;
+          border-top: 1px solid #f0f0f0;
         }
         @media (max-width: 576px) {
           .ant-collapse > .ant-collapse-item > .ant-collapse-header {
-            padding: 6px 8px !important;
+            padding: 8px 12px !important;
           }
           .ant-modal {
             margin: 8px !important;

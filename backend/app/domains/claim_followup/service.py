@@ -336,7 +336,7 @@ class ClaimFollowUpService:
                         from app.domains.supplement.models import SupplementRequest
                         pending_supps = session.query(SupplementRequest.id).filter(
                             SupplementRequest.claim_id == claim_id,
-                            SupplementRequest.status.notin_(['resolved', 'cancelled']),
+                            SupplementRequest.status.notin_(['approved', 'denied', 'withdrawn']),
                         ).first()
                         if pending_supps:
                             raise ValueError(
@@ -362,6 +362,13 @@ class ClaimFollowUpService:
                 update_data['status'] = 'resolved'
                 update_data['resolved_at'] = datetime.now(timezone.utc)
                 update_data['payment_status'] = 'received'
+            else:
+                # in_construction / construction_done / preparing_docs — reopen the
+                # task if a free-form jump moved it back from a waiting/resolved phase
+                update_data['status'] = 'pending'
+
+            if new_phase != 'payment_received' and task.get('status') == 'resolved':
+                update_data['resolved_at'] = None
 
             if notes:
                 update_data['resolution_notes'] = notes

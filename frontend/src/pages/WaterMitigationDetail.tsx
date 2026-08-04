@@ -30,7 +30,6 @@ import {
 } from 'antd';
 import dayjs from 'dayjs';
 import {
-  ArrowLeftOutlined,
   EditOutlined,
   SwapOutlined,
   InfoCircleOutlined,
@@ -432,11 +431,6 @@ const WaterMitigationDetail: React.FC = () => {
           {isMobile ? (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <Button
-                  icon={<ArrowLeftOutlined />}
-                  onClick={() => navigate('/water-mitigation')}
-                  size="small"
-                />
                 <h3 style={{ margin: 0, flex: 1, fontSize: 16, lineHeight: '1.3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {job.property_address}
                 </h3>
@@ -493,12 +487,6 @@ const WaterMitigationDetail: React.FC = () => {
                 display: 'flex', alignItems: 'center', gap: 8,
                 minWidth: 0, flex: '1 1 auto',
               }}>
-                <Button
-                  icon={<ArrowLeftOutlined />}
-                  onClick={() => navigate('/water-mitigation')}
-                >
-                  Back
-                </Button>
                 <h2 style={{
                   margin: 0, whiteSpace: 'nowrap',
                   overflow: 'hidden', textOverflow: 'ellipsis',

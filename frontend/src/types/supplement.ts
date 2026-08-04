@@ -148,6 +148,21 @@ export const SUPPLEMENT_STATUS_COLORS: Record<SupplementStatus, string> = {
   withdrawn: 'default',
 };
 
+export const SUPPLEMENT_STATUS_LABELS: Record<SupplementStatus, string> = {
+  identified: 'Identified',
+  in_progress: 'In Progress',
+  submitted: 'Submitted',
+  under_review: 'Under Review',
+  approved: 'Approved',
+  denied: 'Denied',
+  withdrawn: 'Withdrawn',
+};
+
+// Statuses that still require action — used to flag "supplement in progress" states
+export const SUPPLEMENT_PENDING_STATUSES: SupplementStatus[] = [
+  'identified', 'in_progress', 'submitted', 'under_review',
+];
+
 export const BID_ITEM_TYPE_LABELS: Record<BidItemType, string> = {
   xactimate: 'Xactimate',
   bathroom: 'Bathroom',

@@ -864,7 +864,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
         width="95vw"
         style={{ top: 10, maxWidth: '100vw' }}
         styles={{ body: { height: 'calc(100vh - 100px)', padding: 0, overflow: 'hidden' } }}
-        destroyOnClose
+        destroyOnHidden
       >
         <WMPdfAnnotator
           jobId={jobId}

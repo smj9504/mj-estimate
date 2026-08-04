@@ -98,7 +98,7 @@ const RegisterBidItemModal: React.FC<Props> = ({
       confirmLoading={createMutation.isPending}
       okText="Register"
       width={460}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form
         form={form}

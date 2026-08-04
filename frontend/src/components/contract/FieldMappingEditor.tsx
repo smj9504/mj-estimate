@@ -353,7 +353,7 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
           Save Mappings
         </Button>,
       ]}
-      destroyOnClose
+      destroyOnHidden
     >
       {loading ? (
         <div style={{ textAlign: 'center', padding: 80 }}>

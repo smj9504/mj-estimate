@@ -32,7 +32,9 @@ export const antTheme: ThemeConfig = {
     colorBgContainer: colors.surface,
     colorBgElevated: colors.surface,
     colorBgLayout: colors.neutral100,
-    colorBgSpotlight: colors.neutral50,
+    // Tooltip background only (AntD-reserved token) — Ink, so the tooltip's
+    // white text stays legible. Do not set this to a light neutral.
+    colorBgSpotlight: colors.neutral900,
 
     // Borders
     colorBorder: colors.neutral400,

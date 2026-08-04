@@ -212,7 +212,7 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({
       open={open}
       onCancel={handleCancel}
       width={720}
-      destroyOnClose
+      destroyOnHidden
       footer={[
         <Button key="cancel" onClick={handleCancel}>
           Cancel

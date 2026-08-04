@@ -370,7 +370,7 @@ const GenerateContractModal: React.FC<GenerateModalProps> = ({
       onCancel={currentStep === 3 ? onClose : undefined}
       closable={currentStep === 3 || !createMutation.isPending}
       footer={footer}
-      destroyOnClose
+      destroyOnHidden
       width={600}
     >
       <Steps
