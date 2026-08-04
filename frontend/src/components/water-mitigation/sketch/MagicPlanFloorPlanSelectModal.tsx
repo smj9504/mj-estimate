@@ -19,7 +19,7 @@ import {
   Empty,
   Space,
   Alert,
-  Radio,
+  Checkbox,
   Tooltip,
 } from 'antd';
 import {
@@ -53,7 +53,7 @@ export interface MagicPlanFloorSelection {
 export interface MagicPlanFloorPlanSelectModalProps {
   open: boolean;
   onClose: () => void;
-  onSelect: (selection: MagicPlanFloorSelection) => void;
+  onSelect: (selections: MagicPlanFloorSelection[]) => void;
   jobId: string;
   currentFloorLabel: string;
   loading?: boolean;
@@ -85,7 +85,7 @@ const MagicPlanFloorPlanSelectModal: React.FC<MagicPlanFloorPlanSelectModalProps
   const [floorPlansLoading, setFloorPlansLoading] = useState(false);
   const [floorPlansError, setFloorPlansError] = useState<string | null>(null);
   const [floorPlans, setFloorPlans] = useState<MagicPlanFloorPlanInfo[]>([]);
-  const [selectedFloorKey, setSelectedFloorKey] = useState<string | null>(null);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
 
   // Reset state when modal opens
   useEffect(() => {
@@ -93,7 +93,7 @@ const MagicPlanFloorPlanSelectModal: React.FC<MagicPlanFloorPlanSelectModalProps
       setCurrentStep(0);
       setSelectedProject(null);
       setFloorPlans([]);
-      setSelectedFloorKey(null);
+      setSelectedKeys([]);
       setProjectError(null);
       setFloorPlansError(null);
       searchProjects();
@@ -132,7 +132,7 @@ const MagicPlanFloorPlanSelectModal: React.FC<MagicPlanFloorPlanSelectModalProps
     setCurrentStep(1);
     setFloorPlansLoading(true);
     setFloorPlansError(null);
-    setSelectedFloorKey(null);
+    setSelectedKeys([]);
 
     try {
       const plans = await magicPlanService.getFloorPlans(project.project_id);
@@ -143,7 +143,7 @@ const MagicPlanFloorPlanSelectModal: React.FC<MagicPlanFloorPlanSelectModalProps
         (p.floors || []).map((f) => ({ planId: p.plan_id, ...f }))
       );
       if (allFloors.length === 1) {
-        setSelectedFloorKey(`${allFloors[0].planId}__${allFloors[0].index}`);
+        setSelectedKeys([`${allFloors[0].planId}__${allFloors[0].index}`]);
       }
     } catch (err: any) {
       setFloorPlansError(
@@ -158,25 +158,29 @@ const MagicPlanFloorPlanSelectModal: React.FC<MagicPlanFloorPlanSelectModalProps
   // Confirm selection
   // ------------------------------------------------------------------
   const handleConfirm = useCallback(() => {
-    if (!selectedProject || !selectedFloorKey) return;
+    if (!selectedProject || selectedKeys.length === 0) return;
 
-    const [planId, floorIndexStr] = selectedFloorKey.split('__');
-    const floorIndex = parseInt(floorIndexStr, 10);
+    const selections: MagicPlanFloorSelection[] = selectedKeys.map((key) => {
+      const [planId, floorIndexStr] = key.split('__');
+      const floorIndex = parseInt(floorIndexStr, 10);
 
-    // Find the matching plan and floor
-    const plan = floorPlans.find((p) => p.plan_id === planId);
-    const floor = plan?.floors?.find((f) => f.index === floorIndex);
+      // Find the matching plan and floor
+      const plan = floorPlans.find((p) => p.plan_id === planId);
+      const floor = plan?.floors?.find((f) => f.index === floorIndex);
 
-    onSelect({
-      projectId: selectedProject.project_id,
-      projectName: selectedProject.project_name,
-      planId,
-      planTitle: plan?.plan_title,
-      floorIndex,
-      floorName: floor?.name || `Floor ${floorIndex + 1}`,
-      imageUrl: floor?.image_url,
+      return {
+        projectId: selectedProject.project_id,
+        projectName: selectedProject.project_name,
+        planId,
+        planTitle: plan?.plan_title,
+        floorIndex,
+        floorName: floor?.name || `Floor ${floorIndex + 1}`,
+        imageUrl: floor?.image_url,
+      };
     });
-  }, [selectedProject, selectedFloorKey, floorPlans, onSelect]);
+
+    onSelect(selections);
+  }, [selectedProject, selectedKeys, floorPlans, onSelect]);
 
   // ------------------------------------------------------------------
   // Render helpers
@@ -328,68 +332,93 @@ const MagicPlanFloorPlanSelectModal: React.FC<MagicPlanFloorPlanSelectModalProps
       );
     }
 
+    const allKeys = allFloors.map((f) => f.key);
+    const allChecked = allKeys.length > 0 && selectedKeys.length === allKeys.length;
+    const someChecked = selectedKeys.length > 0 && selectedKeys.length < allKeys.length;
+
+    const toggleKey = (key: string) => {
+      setSelectedKeys((prev) =>
+        prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+      );
+    };
+
     return (
       <div>
         <Alert
           type="info"
           message={
-            <span>
-              Importing to: <strong>{currentFloorLabel}</strong>
-            </span>
+            selectedKeys.length > 1 ? (
+              <span>{selectedKeys.length} rooms selected</span>
+            ) : (
+              <span>
+                Importing to: <strong>{currentFloorLabel}</strong>
+              </span>
+            )
           }
-          description="Select which MagicPlan floor plan to use as background for this floor."
+          description={
+            selectedKeys.length > 1
+              ? 'Each selected room will be imported as a new sketch tab.'
+              : 'Select one or more MagicPlan rooms to import. Selecting more than one will add each as a new sketch tab.'
+          }
           showIcon
           style={{ marginBottom: 16 }}
         />
 
-        <Radio.Group
-          value={selectedFloorKey}
-          onChange={(e) => setSelectedFloorKey(e.target.value)}
-          style={{ width: '100%' }}
+        <Checkbox
+          indeterminate={someChecked}
+          checked={allChecked}
+          onChange={(e) => setSelectedKeys(e.target.checked ? allKeys : [])}
+          style={{ marginBottom: 12 }}
         >
-          <Space direction="vertical" style={{ width: '100%' }}>
-            {allFloors.map((floor) => (
-              <div
-                key={floor.key}
-                style={{
-                  border: selectedFloorKey === floor.key
-                    ? '2px solid #722ed1'
-                    : '1px solid #f0f0f0',
-                  borderRadius: 8,
-                  padding: 12,
-                  cursor: 'pointer',
-                  background: selectedFloorKey === floor.key ? '#f9f0ff' : '#fff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                }}
-                onClick={() => setSelectedFloorKey(floor.key)}
-              >
-                <Radio value={floor.key} />
-                <div style={{ flex: 1 }}>
-                  <Text strong>{floor.name || `Floor ${floor.index + 1}`}</Text>
-                  {floorPlans.length > 1 && floor.planTitle && (
-                    <div>
-                      <Text type="secondary" style={{ fontSize: 11 }}>
-                        Plan: {floor.planTitle}
-                      </Text>
-                    </div>
-                  )}
+          Select All ({allFloors.length})
+        </Checkbox>
+
+        <Space direction="vertical" style={{ width: '100%' }}>
+          {allFloors.map((floor) => (
+            <div
+              key={floor.key}
+              style={{
+                border: selectedKeys.includes(floor.key)
+                  ? '2px solid #722ed1'
+                  : '1px solid #f0f0f0',
+                borderRadius: 8,
+                padding: 12,
+                cursor: 'pointer',
+                background: selectedKeys.includes(floor.key) ? '#f9f0ff' : '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+              }}
+              onClick={() => toggleKey(floor.key)}
+            >
+              <Checkbox
+                checked={selectedKeys.includes(floor.key)}
+                onClick={(e) => e.stopPropagation()}
+                onChange={() => toggleKey(floor.key)}
+              />
+              <div style={{ flex: 1 }}>
+                <Text strong>{floor.name || `Floor ${floor.index + 1}`}</Text>
+                {floorPlans.length > 1 && floor.planTitle && (
                   <div>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {floor.room_count} room(s)
-                      {!floor.has_image && (
-                        <Tag color="warning" style={{ marginLeft: 8, fontSize: 11 }}>
-                          No image
-                        </Tag>
-                      )}
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      Plan: {floor.planTitle}
                     </Text>
                   </div>
+                )}
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {floor.room_count} room(s)
+                    {!floor.has_image && (
+                      <Tag color="warning" style={{ marginLeft: 8, fontSize: 11 }}>
+                        No image
+                      </Tag>
+                    )}
+                  </Text>
                 </div>
               </div>
-            ))}
-          </Space>
-        </Radio.Group>
+            </div>
+          ))}
+        </Space>
       </div>
     );
   };
@@ -420,12 +449,14 @@ const MagicPlanFloorPlanSelectModal: React.FC<MagicPlanFloorPlanSelectModalProps
               <Button
                 type="primary"
                 icon={<CloudDownloadOutlined />}
-                disabled={!selectedFloorKey}
+                disabled={selectedKeys.length === 0}
                 loading={externalLoading}
                 onClick={handleConfirm}
                 style={{ background: '#722ed1', borderColor: '#722ed1' }}
               >
-                Import Floor Plan
+                {selectedKeys.length > 1
+                  ? `Import ${selectedKeys.length} Floor Plans`
+                  : 'Import Floor Plan'}
               </Button>
             )}
           </Space>

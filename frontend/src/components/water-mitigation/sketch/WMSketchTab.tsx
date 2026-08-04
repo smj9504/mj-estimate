@@ -349,37 +349,135 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
     setMpFloorPlanModal(true);
   }, [activeFloorId]);
 
-  const handleMagicPlanFloorSelect = useCallback(async (selection: MagicPlanFloorSelection) => {
-    if (!activeFloorId) return;
-    setMpImporting(true);
-    try {
-      const result = await magicPlanService.importFloorPlan(
-        jobId,
-        selection.projectId,
-        selection.planId,
-        selection.floorIndex,
-        activeFloorId,
-      );
+  const handleMagicPlanFloorSelect = useCallback(async (selections: MagicPlanFloorSelection[]) => {
+    if (selections.length === 0) return;
 
-      if (result.success && result.image_url) {
-        setFloors((prev) =>
-          prev.map((f) =>
-            f.id === activeFloorId
-              ? { ...f, background_image_url: result.image_url!, source_type: 'image' as FloorPlanSourceType }
-              : f
-          )
+    // Single selection with an active tab: preserve the original behavior
+    // (import into the tab the user already opened the modal from).
+    if (selections.length === 1 && activeFloorId && floors.some((f) => f.id === activeFloorId)) {
+      const selection = selections[0];
+      setMpImporting(true);
+      try {
+        const result = await magicPlanService.importFloorPlan(
+          jobId,
+          selection.projectId,
+          selection.planId,
+          selection.floorIndex,
+          activeFloorId,
         );
-        message.success(`Floor plan imported: ${selection.floorName}`);
-        setMpFloorPlanModal(false);
-      } else {
-        message.error(result.error_message || 'Failed to import floor plan');
+
+        if (result.success && result.image_url) {
+          setFloors((prev) =>
+            prev.map((f) =>
+              f.id === activeFloorId
+                ? {
+                    ...f,
+                    background_image_url: result.image_url!,
+                    source_type: 'image' as FloorPlanSourceType,
+                    floor_label: selection.floorName,
+                  }
+                : f
+            )
+          );
+          try {
+            await wmSketchService.updateFloorSketch(activeFloorId, { floor_label: selection.floorName });
+          } catch {
+            // Non-critical - the image import already succeeded, a stale tab label isn't worth a second error toast.
+          }
+          message.success(`Floor plan imported: ${selection.floorName}`);
+          setMpFloorPlanModal(false);
+        } else {
+          message.error(result.error_message || 'Failed to import floor plan');
+        }
+      } catch (err: any) {
+        message.error(err?.response?.data?.detail || 'Failed to import from MagicPlan');
+      } finally {
+        setMpImporting(false);
       }
-    } catch (err: any) {
-      message.error(err?.response?.data?.detail || 'Failed to import from MagicPlan');
-    } finally {
-      setMpImporting(false);
+      return;
     }
-  }, [activeFloorId, jobId]);
+
+    // Multiple selections (or no active tab): each room becomes its own new
+    // sketch tab, since one WMFloorSketch can only hold one background image.
+    const runBulkImport = async () => {
+      setMpFloorPlanModal(false);
+      setMpImporting(true);
+      const msgKey = 'mp-bulk-import';
+      const baseOrder = floors.length > 0 ? Math.max(...floors.map((f) => f.floor_order)) + 1 : 1;
+      const succeeded: string[] = [];
+      const failed: { name: string; reason: string }[] = [];
+      let lastCreatedId: string | null = null;
+
+      message.loading({ content: `Importing floor plans 0/${selections.length}...`, key: msgKey, duration: 0 });
+
+      for (let i = 0; i < selections.length; i++) {
+        const selection = selections[i];
+        try {
+          const created = await wmSketchService.createFloorSketch(jobId, {
+            floor_label: selection.floorName,
+            floor_order: baseOrder + i,
+            address_display: jobAddress,
+            source_type: 'sketch',
+          });
+          const withOverlay: WMFloorSketch = { ...created, overlay_data: created.overlay_data ?? EMPTY_OVERLAY_DATA };
+          setFloors((prev) => [...prev, withOverlay].sort((a, b) => a.floor_order - b.floor_order));
+          lastCreatedId = withOverlay.id;
+
+          const result = await magicPlanService.importFloorPlan(
+            jobId,
+            selection.projectId,
+            selection.planId,
+            selection.floorIndex,
+            withOverlay.id,
+          );
+          if (result.success && result.image_url) {
+            setFloors((prev) =>
+              prev.map((f) =>
+                f.id === withOverlay.id
+                  ? { ...f, background_image_url: result.image_url!, source_type: 'image' as FloorPlanSourceType }
+                  : f
+              )
+            );
+            succeeded.push(selection.floorName);
+          } else {
+            failed.push({ name: selection.floorName, reason: result.error_message || 'No image available' });
+          }
+        } catch (err: any) {
+          failed.push({ name: selection.floorName, reason: err?.response?.data?.detail || 'Request failed' });
+        }
+        message.loading({
+          content: `Importing floor plans ${i + 1}/${selections.length}...`,
+          key: msgKey,
+          duration: 0,
+        });
+      }
+
+      if (lastCreatedId) setActiveFloorId(lastCreatedId);
+
+      if (failed.length === 0) {
+        message.success({ content: `Imported ${succeeded.length} floor plan(s) from MagicPlan.`, key: msgKey, duration: 3 });
+      } else if (succeeded.length > 0) {
+        const names = failed.map((f) => f.name).slice(0, 3).join(', ');
+        const more = failed.length > 3 ? ` +${failed.length - 3} more` : '';
+        message.warning({ content: `Imported ${succeeded.length}/${selections.length}. Failed: ${names}${more}`, key: msgKey, duration: 6 });
+      } else {
+        message.error({ content: `All ${selections.length} imports failed. ${failed[0]?.reason || ''}`, key: msgKey, duration: 6 });
+      }
+      setMpImporting(false);
+    };
+
+    if (selections.length > 10) {
+      Modal.confirm({
+        title: 'Import many floor plans?',
+        content: `You're about to import ${selections.length} floor plans. This may take a while since each one is fetched from MagicPlan individually.`,
+        okText: 'Import',
+        onOk: runBulkImport,
+      });
+      return;
+    }
+
+    await runBulkImport();
+  }, [activeFloorId, jobId, jobAddress, floors]);
 
   const handleScaleChanged = useCallback(
     async (scalePixelsPerFoot: number) => {
