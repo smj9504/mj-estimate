@@ -125,12 +125,32 @@ class AdjusterEmailService:
                 .first()
             )
 
-            # 6. Sketch - check WMFloorSketch existence
+            # 6. Sketch - check WMFloorSketch existence, and whether the
+            # last-generated sketch_report PDF is stale (floor sketch edited
+            # after the PDF was last rendered)
             sketch_exists = (
                 session.query(WMFloorSketch)
                 .filter(WMFloorSketch.job_id == job_id)
                 .first()
             ) is not None
+
+            sketch_doc = (
+                session.query(WMDocument)
+                .filter(
+                    WMDocument.job_id == job_id,
+                    WMDocument.is_active == True,
+                    WMDocument.document_type == 'sketch_report',
+                )
+                .order_by(WMDocument.created_at.desc())
+                .first()
+            )
+            sketch_stale = False
+            if sketch_doc:
+                from .sketch_pdf_service import SketchPdfService
+                sketch_last_modified = SketchPdfService(session).get_last_modified(job_id)
+                doc_generated_at = sketch_doc.updated_at or sketch_doc.created_at
+                if sketch_last_modified and doc_generated_at and sketch_last_modified > doc_generated_at:
+                    sketch_stale = True
 
             def _doc_info(doc):
                 if not doc:
@@ -164,6 +184,8 @@ class AdjusterEmailService:
                 },
                 "sketch": {
                     "ready": sketch_exists,
+                    "stale": sketch_stale,
+                    "document": _doc_info(sketch_doc),
                 },
                 "all_ready": all([
                     photo_report_doc is not None,
@@ -784,28 +806,27 @@ class AdjusterEmailService:
             )
             if doc:
                 att = self._attachment_from_wm_document(doc, f"Photo Report - {address_short}.pdf")
-                if att:
-                    attachments.append(att)
-                else:
+                if not att:
                     logger.warning(
                         f"Photo report doc exists (id={doc.id}, type={doc.document_type}, "
                         f"path={doc.file_path}, storage_id={getattr(doc, 'storage_file_id', None)}) "
-                        f"but file download failed"
+                        f"but file download failed - falling back to regenerating from saved config"
                     )
+                    att = self._generate_photo_report_attachment(session, job, address_short)
+                if att:
+                    attachments.append(att)
+                else:
                     failed_docs.append("photo_report")
             else:
-                # Log all documents for this job to help diagnose
-                all_docs = (
-                    session.query(WMDocument.id, WMDocument.document_type, WMDocument.is_active, WMDocument.filename)
-                    .filter(WMDocument.job_id == str(job.id))
-                    .all()
-                )
-                logger.warning(
-                    f"Photo report WMDocument not found for job {job.id}. "
-                    f"Please generate the photo report first. "
-                    f"Existing documents: {[(str(d.id)[:8], d.document_type, d.is_active, d.filename) for d in all_docs]}"
-                )
-                failed_docs.append("photo_report")
+                # No saved report yet - auto-generate one from the job's saved
+                # report config (the same sections/photos the user configured
+                # in the Documents tab), so users don't have to manually click
+                # "Generate Report" before sending to adjuster.
+                att = self._generate_photo_report_attachment(session, job, address_short)
+                if att:
+                    attachments.append(att)
+                else:
+                    failed_docs.append("photo_report")
 
         # 2. Invoice
         if "invoice" in selected_docs:
@@ -892,9 +913,17 @@ class AdjusterEmailService:
             storage_file_id = getattr(doc, 'storage_file_id', None) or ''
             storage_provider = getattr(doc, 'storage_provider', None) or ''
 
-            # Fallback to env STORAGE_PROVIDER when doc has no provider set
             if not storage_provider:
-                storage_provider = os.getenv('STORAGE_PROVIDER', 'local').lower()
+                # Legacy records (created before the storage_provider column
+                # existed) were always saved to local disk. Check local disk
+                # first rather than assuming today's env default (e.g. gcs) -
+                # guessing cloud for what is actually a local path silently
+                # fails since the path isn't a valid object key.
+                local_path = Path(file_path_str) if file_path_str else None
+                if local_path and local_path.exists():
+                    storage_provider = 'local'
+                else:
+                    storage_provider = os.getenv('STORAGE_PROVIDER', 'local').lower()
 
             logger.info(
                 f"Attachment resolve: doc={doc.id}, provider={storage_provider}, "
@@ -941,6 +970,44 @@ class AdjusterEmailService:
             }
         except Exception as e:
             logger.warning(f"Error reading WMDocument {doc.id}: {e}")
+            return None
+
+    def _generate_photo_report_attachment(
+        self, session, job, address_short: str
+    ) -> Optional[Dict[str, Any]]:
+        """No saved Photo Report yet - generate one on the fly using the
+        job's saved report config (same one shown/edited in the Documents
+        tab), persisting it as a WMDocument so it doesn't need to be
+        regenerated next time."""
+        try:
+            from .models import WMDocument
+            from .service import WaterMitigationService
+
+            service = WaterMitigationService(session)
+            config = service.get_report_config(job.id)
+            if not config:
+                all_docs = (
+                    session.query(WMDocument.id, WMDocument.document_type, WMDocument.is_active, WMDocument.filename)
+                    .filter(WMDocument.job_id == str(job.id))
+                    .all()
+                )
+                logger.warning(
+                    f"Photo report WMDocument not found for job {job.id} and no report "
+                    f"config saved - can't auto-generate. Please build the photo report "
+                    f"in the Documents tab first. "
+                    f"Existing documents: {[(str(d.id)[:8], d.document_type, d.is_active, d.filename) for d in all_docs]}"
+                )
+                return None
+
+            logger.info(f"Photo report attachment: no saved WMDocument, auto-generating from saved config for job {job.id}")
+            result = service.generate_and_save_photo_report(job.id, config=config, commit=False)
+            return {
+                "filename": f"Photo Report - {address_short}.pdf",
+                "data": result["pdf_bytes"],
+                "mime_type": "application/pdf",
+            }
+        except Exception as e:
+            logger.warning(f"Auto-generating photo report failed for job {job.id}: {e}")
             return None
 
     def _get_invoice_attachment(
@@ -1178,19 +1245,40 @@ class AdjusterEmailService:
     def _get_sketch_attachment(
         self, session, job, address_short: str
     ) -> Optional[Dict[str, Any]]:
-        """Generate sketch PDF on-the-fly and return as attachment."""
+        """Use the previously generated sketch_report WMDocument if one
+        exists (avoids re-rendering through the headless browser on every
+        send); fall back to generating fresh if there's no saved copy or
+        its file can't be read. Staleness (floor sketch edited after the
+        last render) is surfaced to the user as a warning in the send
+        dialog, not enforced here - we still attach the existing PDF."""
         try:
+            from .models import WMDocument
             from .sketch_pdf_service import SketchPdfService
 
+            doc = (
+                session.query(WMDocument)
+                .filter(
+                    WMDocument.job_id == str(job.id),
+                    WMDocument.is_active == True,
+                    WMDocument.document_type == 'sketch_report',
+                )
+                .order_by(WMDocument.created_at.desc())
+                .first()
+            )
+            if doc:
+                att = self._attachment_from_wm_document(doc, f"Sketch - {address_short}.pdf")
+                if att:
+                    return att
+                logger.warning(
+                    f"Sketch report doc exists (id={doc.id}) but file download failed - "
+                    f"falling back to regenerating"
+                )
+
             sketch_service = SketchPdfService(session)
-            pdf_bytes = sketch_service.generate_sketch_report(job.id)
-
-            if not pdf_bytes:
-                return None
-
+            result = sketch_service.generate_and_save_sketch_report(job.id, commit=False)
             return {
                 "filename": f"Sketch - {address_short}.pdf",
-                "data": pdf_bytes,
+                "data": result["pdf_bytes"],
                 "mime_type": "application/pdf",
             }
         except Exception as e:

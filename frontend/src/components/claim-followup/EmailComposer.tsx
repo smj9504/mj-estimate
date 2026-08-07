@@ -18,6 +18,7 @@ import {
   Spin,
   Upload,
   List,
+  Tooltip,
 } from 'antd';
 import {
   SendOutlined,
@@ -34,6 +35,7 @@ import {
   FileImageOutlined,
   FileOutlined,
   LoadingOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 import { claimFollowUpService } from '../../services/claimFollowUpService';
 import { emailIngestionService } from '../../services/emailIngestionService';
@@ -545,6 +547,13 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
                           </span>
                           {!isReady && (
                             <Text type="secondary" style={{ fontSize: 11 }}>(not ready)</Text>
+                          )}
+                          {isReady && docInfo?.stale && (
+                            <Tooltip title="Floor sketch was edited after this PDF was last generated - it may be outdated. Regenerate it in the Documents tab if you want the latest version sent.">
+                              <Tag color="warning" style={{ marginLeft: 0, fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>
+                                <WarningOutlined /> Outdated
+                              </Tag>
+                            </Tooltip>
                           )}
                         </Space>
                       </Checkbox>

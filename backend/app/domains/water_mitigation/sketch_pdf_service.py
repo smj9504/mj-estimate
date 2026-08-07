@@ -331,6 +331,108 @@ class SketchPdfService:
         html_content = self._render_html(job, floor_data)
         return self._html_to_pdf(html_content)
 
+    def get_last_modified(self, job_id: UUID) -> Optional[datetime]:
+        """Most recent modification timestamp across a job's floor sketches
+        and all their zones/equipment/protections, so callers can tell
+        whether a previously generated sketch_report PDF is stale."""
+        from sqlalchemy import func as sa_func
+
+        from app.domains.water_mitigation.sketch_models import WMContentManipulation
+
+        floor_ids = [
+            row[0] for row in
+            self.db.query(WMFloorSketch.id).filter(WMFloorSketch.job_id == job_id).all()
+        ]
+        if not floor_ids:
+            return None
+
+        timestamps = []
+
+        floor_max = self.db.query(
+            sa_func.max(sa_func.coalesce(WMFloorSketch.updated_at, WMFloorSketch.created_at))
+        ).filter(WMFloorSketch.job_id == job_id).scalar()
+        if floor_max:
+            timestamps.append(floor_max)
+
+        for model in (
+            WMDemolitionZone, WMEquipmentPlacement, WMContainmentZone,
+            WMFloorProtection, WMContentProtection, WMContentManipulation,
+        ):
+            child_max = self.db.query(
+                sa_func.max(sa_func.coalesce(model.updated_at, model.created_at))
+            ).filter(model.floor_sketch_id.in_(floor_ids)).scalar()
+            if child_max:
+                timestamps.append(child_max)
+
+        return max(timestamps) if timestamps else None
+
+    def generate_and_save_sketch_report(
+        self, job_id: UUID, template_variant: str = "a", commit: bool = True
+    ) -> Dict[str, Any]:
+        """Render the sketch report PDF, upload it to storage, and upsert the
+        WMDocument record so it can be reused (e.g. as an email attachment)
+        without re-rendering through the headless browser every time.
+
+        Returns dict with: pdf_bytes, filename, storage_provider, storage_file_id.
+        """
+        from app.common.utils.storage_helpers import upload_bytes_to_storage
+        from app.domains.water_mitigation.document_repository import WMDocumentRepository
+        from app.domains.water_mitigation.models import WaterMitigationJob as WMJob
+
+        job = self.db.query(WMJob).filter(WMJob.id == job_id).first()
+        if not job:
+            raise ValueError(f"Water mitigation job {job_id} not found")
+
+        pdf_bytes = self.generate_sketch_report(job_id, template_variant=template_variant)
+
+        property_address = job.property_address or "Property"
+        filename = f"{property_address} - Sketch Report.pdf"
+
+        storage_info = upload_bytes_to_storage(
+            file_bytes=pdf_bytes,
+            filename=filename,
+            context="water-mitigation",
+            context_id=str(job_id),
+            category="documents",
+        )
+
+        doc_repo = WMDocumentRepository(self.db)
+        existing_docs = doc_repo.get_by_type(str(job_id), 'sketch_report')
+        if existing_docs:
+            existing_doc = existing_docs[0]
+            existing_doc.filename = filename
+            existing_doc.file_path = storage_info["file_path"]
+            existing_doc.file_size = storage_info["file_size"]
+            existing_doc.storage_provider = storage_info["storage_provider"]
+            existing_doc.storage_file_id = storage_info["storage_file_id"]
+            existing_doc.is_active = True
+            self.db.add(existing_doc)
+            logger.info(f"Updated existing WMDocument {existing_doc.id} for sketch_report")
+        else:
+            doc_repo.create({
+                "job_id": str(job_id),
+                "document_type": "sketch_report",
+                "filename": filename,
+                "file_path": storage_info["file_path"],
+                "file_size": storage_info["file_size"],
+                "mime_type": "application/pdf",
+                "title": "Water Mitigation Sketch Report",
+                "storage_provider": storage_info["storage_provider"],
+                "storage_file_id": storage_info["storage_file_id"],
+                "is_active": True,
+            })
+            logger.info(f"Created new WMDocument for sketch_report")
+
+        if commit:
+            self.db.commit()
+
+        return {
+            "pdf_bytes": pdf_bytes,
+            "filename": filename,
+            "storage_provider": storage_info["storage_provider"],
+            "storage_file_id": storage_info["storage_file_id"],
+        }
+
     # ──────────────────────────────────────────────────────────────────────
     # SVG Generation
     # ──────────────────────────────────────────────────────────────────────

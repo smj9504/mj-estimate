@@ -3229,11 +3229,6 @@ async def generate_photo_report(
     Optionally saves the config for future use.
     """
     try:
-        from datetime import datetime
-        from pathlib import Path
-
-        from app.common.services.pdf_service import generate_water_mitigation_report_pdf
-
         # Get job data
         job = service.get_job(job_id)
         if not job:
@@ -3264,153 +3259,22 @@ async def generate_photo_report(
         else:
             raise HTTPException(status_code=400, detail="Either config_id or config must be provided")
 
-        # Get all photos for the job
-        photos = service.get_job_photos(job_id)
-        photos_list = [service.photo_repo._convert_to_dict(p) for p in photos]
-
-        # Get company data - prioritize assigned company, fall back to client company
-        company_data = None
-
-        # Check if job has company relationship already loaded
-        if job.get('company'):
-            # Company relationship is loaded (from lazy="joined" in model)
-            company_obj = job['company']
-            company_data = {
-                'name': company_obj.get('name', '') if isinstance(company_obj, dict) else getattr(company_obj, 'name', ''),
-                'logo': company_obj.get('logo', '') if isinstance(company_obj, dict) else getattr(company_obj, 'logo', '')
-            }
-            logger.info(f"Using job's assigned company: {company_data['name']}")
-        elif job.get('company_id'):
-            # Fetch assigned company if not loaded
-            from app.domains.company.repository import CompanyRepository
-            company_repo = CompanyRepository(db)
-            company = company_repo.get_by_id(job['company_id'])
-            if company:
-                company_dict = company_repo._convert_to_dict(company)
-                company_data = {
-                    'name': company_dict.get('name', ''),
-                    'logo': company_dict.get('logo', '')
-                }
-                logger.info(f"Fetched assigned company: {company_data['name']}")
-        elif job.get('client_id'):
-            # Fall back to client company for backwards compatibility
-            from app.domains.company.repository import CompanyRepository
-            company_repo = CompanyRepository(db)
-            company = company_repo.get_by_id(job['client_id'])
-            if company:
-                company_dict = company_repo._convert_to_dict(company)
-                company_data = {
-                    'name': company_dict.get('name', ''),
-                    'logo': company_dict.get('logo', '')
-                }
-                logger.info(f"Using client company: {company_data['name']}")
-
-        # Generate filename
-        property_address = job.get('property_address', 'Property')
-        filename = f"{property_address} - Water Mitigation Report.pdf"
-
-        # Generate PDF to a temp file, then upload to cloud storage
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
-            temp_path = tmp.name
-
-        logger.info(f"Generating photo report for job {job_id} (compress={request.compress})")
-        generate_water_mitigation_report_pdf(
-            job_data=job,
+        result = service.generate_and_save_photo_report(
+            job_id,
             config=config_dict,
-            photos=photos_list,
-            output_path=temp_path,
-            company_data=company_data,
             report_date=request.report_date,
             compress=request.compress,
             template_variant=request.template_variant,
         )
 
-        pdf_bytes = Path(temp_path).read_bytes()
-
-        # Clean up temp file
-        try:
-            Path(temp_path).unlink()
-        except Exception:
-            pass
-
-        logger.info(f"Report generated: {len(pdf_bytes)} bytes")
-
-        # Upload to cloud storage
-        from app.common.utils.storage_helpers import upload_bytes_to_storage
-        storage_info = upload_bytes_to_storage(
-            file_bytes=pdf_bytes,
-            filename=filename,
-            context="water-mitigation",
-            context_id=str(job_id),
-            category="reports",
-        )
-
-        # Create/update file record in database
-        from app.domains.file.repository import FileRepository
-
-        file_repo = FileRepository(db)
-
-        file_data = {
-            "context": "water-mitigation",
-            "context_id": str(job_id),
-            "filename": filename,
-            "original_name": filename,
-            "content_type": "application/pdf",
-            "size": storage_info["file_size"],
-            "url": storage_info["file_path"],
-            "category": "report",
-            "is_active": True
-        }
-
-        created_file = file_repo.create(file_data)
-
-        file_id = created_file.get('id') if isinstance(created_file, dict) else str(created_file.id)
-        logger.info(f"Created file record: {file_id}")
-
-        # Upsert WMDocument record so report appears in Documents tab
-        from .document_repository import WMDocumentRepository
-        doc_repo = WMDocumentRepository(db)
-        existing_docs = doc_repo.get_by_type(str(job_id), 'photo_report')
-
-        if existing_docs:
-            # Update existing document (avoid duplicates on regeneration)
-            existing_doc = existing_docs[0]
-            existing_doc.filename = filename
-            existing_doc.file_path = storage_info["file_path"]
-            existing_doc.file_size = storage_info["file_size"]
-            existing_doc.storage_provider = storage_info["storage_provider"]
-            existing_doc.storage_file_id = storage_info["storage_file_id"]
-            existing_doc.is_active = True
-            db.add(existing_doc)
-            logger.info(f"Updated existing WMDocument {existing_doc.id} for photo_report")
-        else:
-            # Create new WMDocument
-            doc_repo.create({
-                "job_id": str(job_id),
-                "document_type": "photo_report",
-                "filename": filename,
-                "file_path": storage_info["file_path"],
-                "file_size": storage_info["file_size"],
-                "mime_type": "application/pdf",
-                "title": "Water Mitigation Photo Report",
-                "storage_provider": storage_info["storage_provider"],
-                "storage_file_id": storage_info["storage_file_id"],
-                "is_active": True,
-            })
-            logger.info(f"Created new WMDocument for photo_report")
-
-        db.commit()
-
         # Return the PDF bytes directly for preview/download
         from starlette.responses import Response
         return Response(
-            content=pdf_bytes,
+            content=result["pdf_bytes"],
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "X-File-Id": str(file_id),
+                "Content-Disposition": f'attachment; filename="{result["filename"]}"',
+                "X-File-Id": str(result["file_id"]),
                 "X-Config-Id": str(config_id) if config_id else ""
             }
         )

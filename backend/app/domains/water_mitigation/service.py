@@ -1248,6 +1248,145 @@ class WaterMitigationService:
         """Delete report config"""
         return self.report_config_repo.delete_by_job_id(job_id)
 
+    def generate_and_save_photo_report(
+        self,
+        job_id: UUID,
+        config: Dict[str, Any],
+        report_date: Optional[str] = None,
+        compress: bool = False,
+        template_variant: str = "a",
+        commit: bool = True,
+    ) -> Dict[str, Any]:
+        """Render the photo report PDF, upload it to storage, and upsert the
+        WMDocument record so it shows up in the Documents tab and can be
+        reused (e.g. as an email attachment) without regenerating.
+
+        Returns dict with: pdf_bytes, filename, file_id, document_id.
+        """
+        import tempfile
+        from pathlib import Path
+
+        from app.common.services.pdf_service import generate_water_mitigation_report_pdf
+        from app.common.utils.storage_helpers import upload_bytes_to_storage
+        from app.domains.file.repository import FileRepository
+
+        job = self.get_job(job_id)
+        if not job:
+            raise ValueError("Job not found")
+
+        photos = self.get_job_photos(job_id)
+        photos_list = [self.photo_repo._convert_to_dict(p) for p in photos]
+
+        # Company data - prioritize assigned company, fall back to client company
+        company_data = None
+        if job.get('company'):
+            company_obj = job['company']
+            company_data = {
+                'name': company_obj.get('name', '') if isinstance(company_obj, dict) else getattr(company_obj, 'name', ''),
+                'logo': company_obj.get('logo', '') if isinstance(company_obj, dict) else getattr(company_obj, 'logo', '')
+            }
+        elif job.get('company_id'):
+            from app.domains.company.repository import CompanyRepository
+            company_repo = CompanyRepository(self.session)
+            company = company_repo.get_by_id(job['company_id'])
+            if company:
+                company_dict = company_repo._convert_to_dict(company)
+                company_data = {'name': company_dict.get('name', ''), 'logo': company_dict.get('logo', '')}
+        elif job.get('client_id'):
+            from app.domains.company.repository import CompanyRepository
+            company_repo = CompanyRepository(self.session)
+            company = company_repo.get_by_id(job['client_id'])
+            if company:
+                company_dict = company_repo._convert_to_dict(company)
+                company_data = {'name': company_dict.get('name', ''), 'logo': company_dict.get('logo', '')}
+
+        property_address = job.get('property_address', 'Property')
+        filename = f"{property_address} - Water Mitigation Report.pdf"
+
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+            temp_path = tmp.name
+
+        logger.info(f"Generating photo report for job {job_id} (compress={compress})")
+        generate_water_mitigation_report_pdf(
+            job_data=job,
+            config=config,
+            photos=photos_list,
+            output_path=temp_path,
+            company_data=company_data,
+            report_date=report_date,
+            compress=compress,
+            template_variant=template_variant,
+        )
+
+        pdf_bytes = Path(temp_path).read_bytes()
+        try:
+            Path(temp_path).unlink()
+        except Exception:
+            pass
+
+        logger.info(f"Report generated: {len(pdf_bytes)} bytes")
+
+        storage_info = upload_bytes_to_storage(
+            file_bytes=pdf_bytes,
+            filename=filename,
+            context="water-mitigation",
+            context_id=str(job_id),
+            category="reports",
+        )
+
+        file_repo = FileRepository(self.session)
+        created_file = file_repo.create({
+            "context": "water-mitigation",
+            "context_id": str(job_id),
+            "filename": filename,
+            "original_name": filename,
+            "content_type": "application/pdf",
+            "size": storage_info["file_size"],
+            "url": storage_info["file_path"],
+            "category": "report",
+            "is_active": True
+        })
+        file_id = created_file.get('id') if isinstance(created_file, dict) else str(created_file.id)
+
+        # Upsert WMDocument so the report appears in the Documents tab
+        existing_docs = self.document_repo.get_by_type(str(job_id), 'photo_report')
+        if existing_docs:
+            existing_doc = existing_docs[0]
+            existing_doc.filename = filename
+            existing_doc.file_path = storage_info["file_path"]
+            existing_doc.file_size = storage_info["file_size"]
+            existing_doc.storage_provider = storage_info["storage_provider"]
+            existing_doc.storage_file_id = storage_info["storage_file_id"]
+            existing_doc.is_active = True
+            self.session.add(existing_doc)
+            document_id = existing_doc.id
+            logger.info(f"Updated existing WMDocument {document_id} for photo_report")
+        else:
+            created_doc = self.document_repo.create({
+                "job_id": str(job_id),
+                "document_type": "photo_report",
+                "filename": filename,
+                "file_path": storage_info["file_path"],
+                "file_size": storage_info["file_size"],
+                "mime_type": "application/pdf",
+                "title": "Water Mitigation Photo Report",
+                "storage_provider": storage_info["storage_provider"],
+                "storage_file_id": storage_info["storage_file_id"],
+                "is_active": True,
+            })
+            document_id = created_doc.get('id') if isinstance(created_doc, dict) else created_doc.id
+            logger.info(f"Created new WMDocument for photo_report")
+
+        if commit:
+            self.session.commit()
+
+        return {
+            "pdf_bytes": pdf_bytes,
+            "filename": filename,
+            "file_id": file_id,
+            "document_id": document_id,
+        }
+
     # CompanyCam integration methods
     def get_by_companycam_project(self, companycam_project_id: str) -> Optional[WaterMitigationJob]:
         """Get job by CompanyCam project ID"""
