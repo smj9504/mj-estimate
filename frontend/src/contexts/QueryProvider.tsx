@@ -12,14 +12,21 @@ const queryClient = new QueryClient({
       staleTime: 5 * 60 * 1000,
       // Cache data for 10 minutes
       gcTime: 10 * 60 * 1000, // Previously cacheTime, now gcTime in v5
-      // Retry failed queries once
-      retry: 1,
+      // Retry failed queries, but skip 4xx (those won't succeed on retry) -
+      // this covers transient mobile network blips (DNS/connection drops)
+      // without hammering the server on real client errors.
+      retry: (failureCount, error: any) => {
+        const status = error?.response?.status;
+        if (status && status >= 400 && status < 500) return false;
+        return failureCount < 2;
+      },
       // Don't refetch on window focus to avoid unnecessary requests
       refetchOnWindowFocus: false,
       // Refetch on mount only if data is stale
       refetchOnMount: true,
-      // Don't refetch on reconnect
-      refetchOnReconnect: false,
+      // Field devices switch WiFi/cellular often - re-run in-view queries
+      // once the browser reports connectivity is back.
+      refetchOnReconnect: true,
     },
     mutations: {
       // Retry failed mutations once

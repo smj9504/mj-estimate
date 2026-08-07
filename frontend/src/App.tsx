@@ -11,6 +11,7 @@ import { TemplateBuilderProvider } from './contexts/TemplateBuilderContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Layout from './components/common/Layout';
 import ErrorBoundary from './components/common/ErrorBoundary';
+import { useNetworkStatus } from './hooks/useNetworkStatus';
 import 'antd/dist/reset.css';
 
 // =====================================================
@@ -1191,6 +1192,9 @@ const router = createBrowserRouter([
 ]);
 
 function App() {
+  // Activates online/offline toast notifications app-wide (see hook for details)
+  useNetworkStatus();
+
   return (
     <ErrorBoundary>
       <QueryProvider>

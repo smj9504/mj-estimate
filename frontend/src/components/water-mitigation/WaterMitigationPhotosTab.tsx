@@ -20,6 +20,13 @@ import type {
   MagicPlanSyncResult,
 } from '../../types/waterMitigation';
 import { magicPlanService } from '../../services/waterMitigationService';
+import {
+  addPendingUpload,
+  getPendingUploads,
+  removePendingUpload,
+  pendingUploadToFile,
+  type PendingUploadRecord,
+} from '../../utils/pendingPhotoUploadQueue';
 
 const { Text, Title } = Typography;
 
@@ -395,6 +402,23 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     setCurrentProjectId(companycamProjectId);
   }, [companycamProjectId]);
 
+  // Files that exhausted their in-flight retries in uploadMultiple and were
+  // saved to IndexedDB so they aren't lost on reload/navigation.
+  const [pendingUploads, setPendingUploads] = useState<PendingUploadRecord[]>([]);
+  const [retryingPending, setRetryingPending] = useState(false);
+
+  const refreshPendingUploads = useCallback(async () => {
+    try {
+      setPendingUploads(await getPendingUploads(jobId));
+    } catch (err) {
+      console.error('Failed to read pending upload queue:', err);
+    }
+  }, [jobId]);
+
+  useEffect(() => {
+    refreshPendingUploads();
+  }, [refreshPendingUploads]);
+
   // Custom upload handler for Water Mitigation photos
   const handleUpload = useCallback(async (files: File[], category?: string): Promise<void> => {
     const msgKey = 'photo-upload-progress';
@@ -415,16 +439,31 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         },
       );
 
+      if (failed.length > 0) {
+        // Retries were already exhausted inside uploadMultiple - save these
+        // to the local queue so a dropped connection doesn't lose the photo.
+        await Promise.all(
+          failed.map(f => addPendingUpload(jobId, f.file, category).catch(err =>
+            console.error('Failed to save pending upload:', err)
+          ))
+        );
+        await refreshPendingUploads();
+      }
+
       if (failed.length === 0) {
         message.success({ content: `Successfully uploaded ${results.length} photo(s)`, key: msgKey, duration: 3 });
       } else if (results.length > 0) {
         message.warning({
-          content: `Uploaded ${results.length}/${files.length} photos. ${failed.length} failed.`,
+          content: `Uploaded ${results.length}/${files.length} photos. ${failed.length} failed and were saved to retry later.`,
           key: msgKey,
           duration: 5,
         });
       } else {
-        message.error({ content: `All ${files.length} uploads failed. ${failed[0]?.error || 'Unknown error'}`, key: msgKey, duration: 5 });
+        message.error({
+          content: `All ${files.length} uploads failed and were saved to retry later. ${failed[0]?.error || 'Unknown error'}`,
+          key: msgKey,
+          duration: 5,
+        });
       }
       // Refresh photos after upload
       queryClient.invalidateQueries({ queryKey: ['files', 'water-mitigation', jobId] });
@@ -434,7 +473,84 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       message.error({ content: `Upload failed: ${error.message || 'Unknown error'}`, key: msgKey, duration: 5 });
       throw error;
     }
-  }, [jobId, queryClient]);
+  }, [jobId, queryClient, refreshPendingUploads]);
+
+  // Resend everything sitting in the local pending-upload queue (grouped by
+  // category, since uploadMultiple takes one category per call).
+  const handleRetryPendingUploads = useCallback(async () => {
+    if (pendingUploads.length === 0) return;
+    setRetryingPending(true);
+    const msgKey = 'pending-upload-retry';
+    message.loading({ content: `Retrying ${pendingUploads.length} pending photo(s)...`, key: msgKey, duration: 0 });
+
+    try {
+      const groups = new Map<string, PendingUploadRecord[]>();
+      pendingUploads.forEach(rec => {
+        const key = rec.category || '';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(rec);
+      });
+
+      const succeededIds: string[] = [];
+      const stillFailedIds: string[] = [];
+
+      for (const [category, records] of groups) {
+        const files = records.map(pendingUploadToFile);
+        const { failed } = await waterMitigationService.photos.uploadMultiple(
+          jobId,
+          files,
+          category || undefined,
+        );
+        const failedNames = new Set(failed.map(f => f.name));
+        records.forEach(rec => {
+          if (failedNames.has(rec.fileName)) {
+            stillFailedIds.push(rec.id);
+          } else {
+            succeededIds.push(rec.id);
+          }
+        });
+      }
+
+      await Promise.all(succeededIds.map(id => removePendingUpload(id)));
+      await refreshPendingUploads();
+
+      const stillFailedCount = stillFailedIds.length;
+      if (stillFailedCount === 0) {
+        message.success({ content: `Successfully uploaded ${succeededIds.length} pending photo(s)`, key: msgKey, duration: 3 });
+      } else {
+        message.warning({
+          content: `${succeededIds.length} uploaded, ${stillFailedCount} still failing. They remain saved for retry.`,
+          key: msgKey,
+          duration: 5,
+        });
+      }
+
+      if (succeededIds.length > 0) {
+        queryClient.invalidateQueries({ queryKey: ['files', 'water-mitigation', jobId] });
+        queryClient.invalidateQueries({ queryKey: ['files-infinite', 'water-mitigation', jobId] });
+      }
+    } catch (error: any) {
+      console.error('Retry of pending uploads failed:', error);
+      message.error({ content: `Retry failed: ${error.message || 'Unknown error'}`, key: msgKey, duration: 5 });
+    } finally {
+      setRetryingPending(false);
+    }
+  }, [pendingUploads, jobId, queryClient, refreshPendingUploads]);
+
+  const handleDiscardPendingUploads = useCallback(async () => {
+    await Promise.all(pendingUploads.map(rec => removePendingUpload(rec.id)));
+    await refreshPendingUploads();
+    message.info('Pending uploads discarded.');
+  }, [pendingUploads, refreshPendingUploads]);
+
+  // Auto-retry once the browser reports connectivity is back, so a worker
+  // doesn't have to remember to come tap "retry" after they get signal again.
+  useEffect(() => {
+    if (pendingUploads.length === 0) return;
+    const handleOnline = () => { handleRetryPendingUploads(); };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [pendingUploads.length, handleRetryPendingUploads]);
 
   // Handle category creation
   const handleCategoryCreate = useCallback(async (categoryName: string): Promise<void> => {
@@ -1324,6 +1440,31 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
           }
           closable
           style={{ borderRadius: 0, border: 'none', borderBottom: '1px solid #b7eb8f' }}
+        />
+      )}
+
+      {/* Pending Upload Queue - photos that failed to upload (network drop, etc.)
+          and were saved locally so they aren't lost */}
+      {pendingUploads.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          message={
+            <span>
+              <strong>{pendingUploads.length}</strong> photo(s) failed to upload and are saved on this device for retry.
+            </span>
+          }
+          action={
+            <Space>
+              <Button size="small" onClick={handleDiscardPendingUploads} disabled={retryingPending}>
+                Discard
+              </Button>
+              <Button type="primary" size="small" onClick={handleRetryPendingUploads} loading={retryingPending}>
+                Retry Now
+              </Button>
+            </Space>
+          }
+          style={{ borderRadius: 0, borderLeft: 'none', borderRight: 'none', borderTop: 'none' }}
         />
       )}
 

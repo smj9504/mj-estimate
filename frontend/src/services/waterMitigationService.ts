@@ -243,20 +243,39 @@ export const waterMitigationService = {
       onProgress?: (completed: number, total: number, failed: number) => void,
     ): Promise<{
       results: any[];
-      failed: { name: string; error: string }[];
+      failed: { file: File; name: string; error: string }[];
     }> => {
       const results: any[] = [];
-      const failed: { name: string; error: string }[] = [];
+      const failed: { file: File; name: string; error: string }[] = [];
       const CONCURRENCY = 5;
+      const MAX_ATTEMPTS = 3;
 
       const uploadOne = async (file: File) => {
         const formData = new FormData();
         formData.append('file', file);
         if (category) formData.append('category', category);
-        const response = await api.post(`${BASE_URL}/jobs/${jobId}/photos`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
-        return response.data;
+
+        let lastError: any;
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          try {
+            const response = await api.post(`${BASE_URL}/jobs/${jobId}/photos`, formData, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+              // Images can be several MB on a slow mobile connection - give this
+              // more room than the global 30s default before giving up.
+              timeout: 120000,
+            });
+            return response.data;
+          } catch (err: any) {
+            lastError = err;
+            const status = err?.response?.status;
+            const isClientError = status && status >= 400 && status < 500;
+            // 4xx won't succeed on retry (bad file, validation, etc). Anything
+            // else (network drop, timeout, 5xx) is worth retrying with backoff.
+            if (isClientError || attempt === MAX_ATTEMPTS) throw err;
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          }
+        }
+        throw lastError;
       };
 
       for (let i = 0; i < files.length; i += CONCURRENCY) {
@@ -269,7 +288,7 @@ export const waterMitigationService = {
             const file = batch[idx];
             const errMsg = result.reason?.response?.data?.detail || result.reason?.message || 'Unknown error';
             console.error(`Failed to upload ${file.name}:`, errMsg);
-            failed.push({ name: file.name, error: errMsg });
+            failed.push({ file, name: file.name, error: errMsg });
           }
         });
         onProgress?.(results.length, files.length, failed.length);
@@ -1409,7 +1428,7 @@ export interface DocumentReadiness {
   w9: { ready: boolean };
   cos: { ready: boolean; document?: { id: string; filename: string; created_at: string } | null };
   ewa: { ready: boolean; document?: { id: string; filename: string; created_at: string } | null };
-  sketch: { ready: boolean };
+  sketch: { ready: boolean; stale?: boolean; document?: { id: string; filename: string; created_at: string } | null };
   all_ready: boolean;
 }
 

@@ -12,8 +12,13 @@ const baseURL = isLocalDev
 
 console.log('API Base URL:', baseURL || 'Using proxy mode');
 
+// A hung mobile connection otherwise waits forever (axios default timeout is 0).
+// Individual calls that need more (e.g. large file uploads) can override this per-request.
+const DEFAULT_TIMEOUT_MS = 30000;
+
 const api = axios.create({
   baseURL: baseURL,
+  timeout: DEFAULT_TIMEOUT_MS,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -78,6 +83,7 @@ api.interceptors.response.use(
 // work independently of user sessions and server auth state.
 export const publicApi = axios.create({
   baseURL: baseURL,
+  timeout: DEFAULT_TIMEOUT_MS,
   headers: {
     'Content-Type': 'application/json',
   },
