@@ -29,7 +29,8 @@ import {
   ExclamationCircleOutlined,
   CheckSquareOutlined,
   BorderOutlined,
-  ClockCircleOutlined
+  ClockCircleOutlined,
+  PictureOutlined
 } from '@ant-design/icons';
 import waterMitigationService from '../../services/waterMitigationService';
 import api from '../../services/api';
@@ -75,6 +76,13 @@ const getDaysRemainingColor = (days: number): string => {
 const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId, isActive }) => {
   const queryClient = useQueryClient();
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
+  // Photos whose primary thumbnail URL (often a CompanyCam CDN link that dies
+  // once the source photo is deleted upstream) failed to load, so we fall
+  // back to our own storage-backed preview proxy instead.
+  const [brokenThumbnails, setBrokenThumbnails] = useState<Set<string>>(new Set());
+  // Photos where even the storage-backed proxy failed - nothing left to fall
+  // back to, so we show a static placeholder instead of a dead <img>.
+  const [unavailableThumbnails, setUnavailableThumbnails] = useState<Set<string>>(new Set());
 
   // Fetch trashed photos
   const { data, isLoading, error, refetch } = useQuery({
@@ -321,6 +329,13 @@ const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId
         <Row gutter={[16, 16]}>
           {trashedPhotos.map((photo) => {
             const daysRemaining = getDaysRemaining(photo.trashed_at);
+            const proxySrc = `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photo.id}/preview?size=thumbnail`;
+            const primarySrc = photo.storage_thumbnail_url || photo.storage_web_url || photo.thumbnail_url;
+            // Once the primary URL (often a CompanyCam CDN link) fails, switch to
+            // our own storage-backed proxy — it still works even if the photo
+            // was deleted upstream in CompanyCam, since we keep our own copy.
+            const imgSrc = (!primarySrc || brokenThumbnails.has(photo.id)) ? proxySrc : primarySrc;
+            const isUnavailable = unavailableThumbnails.has(photo.id);
             return (
               <Col key={photo.id} xs={12} sm={8} md={6} lg={4} xl={3}>
                 <Card
@@ -341,21 +356,68 @@ const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId
                       }}
                       onClick={() => toggleSelection(photo.id)}
                     >
-                      <Image
-                        src={photo.storage_thumbnail_url || photo.storage_web_url || photo.thumbnail_url || `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photo.id}/preview?size=thumbnail`}
-                        alt={photo.file_name}
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          height: '100%',
-                          objectFit: 'cover',
-                          filter: 'grayscale(50%)'
-                        }}
-                        preview={false}
-                        fallback="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMIAAADDCAYAAADQvc6UAAABRWlDQ1..."
-                      />
+                      {isUnavailable ? (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: '100%',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#bfbfbf',
+                            gap: 4,
+                          }}
+                        >
+                          <PictureOutlined style={{ fontSize: 28 }} />
+                          <Text style={{ fontSize: 10, color: '#bfbfbf' }}>Unavailable</Text>
+                        </div>
+                      ) : (
+                        // NOTE: no `fallback` prop here — rc-image runs its own
+                        // hidden validity check on `src` and, when a `fallback`
+                        // is set, swaps the *real* <img> to it as soon as that
+                        // check fails. That happens before our own onError-based
+                        // retry chain (primary URL -> storage proxy) ever gets a
+                        // chance to run, so the proxy fallback silently never fires.
+                        //
+                        // NOTE: `position: absolute` must go on `wrapperStyle`,
+                        // not `style`. antd's own `.ant-image` wrapper div is
+                        // itself `position: relative`, so an absolutely
+                        // positioned `<img>` sizes itself against THAT wrapper
+                        // (its nearest positioned ancestor) — not our own
+                        // aspect-ratio div two levels up. Since the wrapper's
+                        // only child is then out-of-flow, it collapses to 0x0
+                        // and the img's 100%/100% resolves to 0x0 too, even
+                        // though the image itself loaded fine.
+                        <Image
+                          src={imgSrc}
+                          alt={photo.file_name}
+                          wrapperStyle={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: '100%',
+                          }}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            filter: 'grayscale(50%)'
+                          }}
+                          preview={false}
+                          onError={() => {
+                            if (imgSrc === proxySrc) {
+                              setUnavailableThumbnails(prev => new Set(prev).add(photo.id));
+                            } else {
+                              setBrokenThumbnails(prev => new Set(prev).add(photo.id));
+                            }
+                          }}
+                        />
+                      )}
 
                       {/* Selection checkbox */}
                       <div style={{ position: 'absolute', top: 8, left: 8 }}>
