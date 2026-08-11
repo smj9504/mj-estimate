@@ -48,7 +48,10 @@ class GoogleSheetsService {
         spreadsheet_id: request.spreadsheet_id,
         sheet_name: request.sheet_name || 'Sheet1',
         sync_type: request.sync_type || 'full'
-      }
+      },
+      // Full sync processes every sheet row sequentially (DB writes + client/claim
+      // sync + PA mapping per row), which routinely exceeds the default 30s timeout.
+      { timeout: 120000 }
     );
     return response.data;
   }

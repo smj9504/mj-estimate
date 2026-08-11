@@ -10,7 +10,7 @@ Supports three authentication methods (in priority order):
 import json
 import logging
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import httpx
 from app.core.config import settings
 
@@ -98,7 +98,7 @@ class GoogleSheetsClient:
 
         # Check if we have a valid cached token
         if self._access_token and self._token_expires_at:
-            if datetime.utcnow() < self._token_expires_at:
+            if datetime.now(timezone.utc) < self._token_expires_at:
                 return self._access_token
 
         try:
@@ -106,7 +106,12 @@ class GoogleSheetsClient:
             from datetime import timedelta
 
             # Create JWT assertion
-            now = datetime.utcnow()
+            # NOTE: datetime.utcnow() is naive (no tzinfo). Calling .timestamp() on a
+            # naive datetime makes Python interpret it as LOCAL time, not UTC — on a
+            # machine set to a non-UTC timezone (e.g. KST/UTC+9) this silently shifts
+            # iat/exp by the local UTC offset and Google rejects the JWT as expired.
+            # Use an explicit UTC-aware datetime so .timestamp() is unambiguous.
+            now = datetime.now(timezone.utc)
             payload = {
                 "iss": creds["client_email"],
                 "scope": "https://www.googleapis.com/auth/spreadsheets.readonly",

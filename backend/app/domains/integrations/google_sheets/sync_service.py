@@ -303,12 +303,22 @@ class GoogleSheetsSyncService:
         # This matches the exact row that was previously synced, regardless of active status
         existing_job = self._find_job_by_row_number(row_number, sheet_name)
 
-        # Step 2: If not found by row number, create new job
-        # NOTE: We intentionally do NOT fall back to address matching here.
-        # The same address can have multiple WM jobs (different claims/incidents),
-        # so each unique sheet row should create its own job.
+        # Step 2: If not found by row number, look for a job that was manually
+        # pre-created for this address before the Sheet row existed, and link it
+        # instead of creating a duplicate.
+        # We restrict this to UNLINKED jobs (google_sheet_row_number IS NULL) only.
+        # Jobs that are already linked to a different sheet row are never matched
+        # by address here, because the same address can legitimately have multiple
+        # WM jobs (different claims/incidents) once each is tied to its own row.
         # The Client sync (sync_client_from_wm_job) will correctly match the
         # same Client by homeowner_name/address and create a new Claim if needed.
+        if not existing_job:
+            existing_job = self._find_unlinked_job_by_address(address)
+            if existing_job:
+                logger.info(
+                    f"Linking pre-created job {existing_job.id} to row {row_number} "
+                    f"(sheet {sheet_name}) by address match: {address}"
+                )
 
         # Step 3: Update existing job or create new one
         if existing_job:
@@ -438,6 +448,34 @@ class GoogleSheetsSyncService:
         jobs = result.scalars().all()
 
         # Fuzzy match addresses
+        for job in jobs:
+            if addresses_match(job.property_address, address):
+                return job
+
+        return None
+
+    def _find_unlinked_job_by_address(self, address: str) -> Optional[WaterMitigationJob]:
+        """
+        Find an active job with a matching address that has NOT yet been linked
+        to any Google Sheet row (google_sheet_row_number IS NULL).
+
+        Used to let users manually pre-create a WM Job for a property before the
+        corresponding row shows up in the Sheet; once it does, that row gets
+        linked to the existing job instead of creating a duplicate.
+
+        Args:
+            address: Full address string from the sheet row
+
+        Returns:
+            Matching unlinked job or None
+        """
+        query = select(WaterMitigationJob).where(
+            WaterMitigationJob.active.is_(True),
+            WaterMitigationJob.google_sheet_row_number.is_(None)
+        )
+        result = self.db.execute(query)
+        jobs = result.scalars().all()
+
         for job in jobs:
             if addresses_match(job.property_address, address):
                 return job
