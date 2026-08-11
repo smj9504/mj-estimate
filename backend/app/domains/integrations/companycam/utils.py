@@ -9,12 +9,41 @@ Includes:
 
 import logging
 import re
+from datetime import date as date_cls, datetime
 from difflib import SequenceMatcher
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from .schemas import AddressInfo, CompanyCamProject
 
 logger = logging.getLogger(__name__)
+
+
+def extract_captured_date(cc_photo: Dict[str, Any]) -> Optional[date_cls]:
+    """
+    Extract the calendar date a CompanyCam photo was captured on.
+
+    Falls back to created_at if captured_at is missing, since CompanyCam
+    always sets created_at but captured_at can be absent for older photos.
+
+    Args:
+        cc_photo: Raw photo dict from the CompanyCam API
+
+    Returns:
+        The captured date, or None if it can't be determined.
+    """
+    raw = cc_photo.get('captured_at') or cc_photo.get('created_at')
+    if not raw:
+        return None
+
+    try:
+        if isinstance(raw, (int, float)):
+            return datetime.fromtimestamp(raw).date()
+        if isinstance(raw, str):
+            return datetime.fromisoformat(raw.replace('Z', '+00:00')).date()
+    except (ValueError, TypeError, OSError):
+        return None
+
+    return None
 
 
 def parse_companycam_address(project: CompanyCamProject) -> AddressInfo:

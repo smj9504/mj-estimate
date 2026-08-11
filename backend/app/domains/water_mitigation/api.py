@@ -1917,12 +1917,42 @@ async def search_companycam_projects(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# CompanyCam photo date summary (for the "pick dates to import" step)
+@router.get("/jobs/{job_id}/companycam-photo-dates")
+async def get_companycam_photo_dates(
+    job_id: UUID,
+    companycam_project_id: Optional[str] = Query(None, description="CompanyCam project ID override. Falls back to the job's linked project ID."),
+    service: WaterMitigationService = Depends(get_wm_service),
+):
+    """
+    Get a date-grouped summary of photos available in the linked CompanyCam
+    project (counts only, no images downloaded). Used to let the user pick
+    which dates to import before running sync-companycam-photos, instead of
+    always importing everything.
+    """
+    try:
+        result = await service.get_companycam_photo_dates(
+            job_id, companycam_project_id=companycam_project_id
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch CompanyCam photo dates for job {job_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # CompanyCam sync endpoint
 @router.post("/jobs/{job_id}/sync-companycam-photos")
 async def sync_companycam_photos(
     job_id: UUID,
     background_tasks: BackgroundTasks,
     companycam_project_id: Optional[str] = Query(None, description="CompanyCam project ID to sync from (will be saved to job if provided)"),
+    selected_dates: Optional[str] = Query(None, description="Comma-separated ISO dates (YYYY-MM-DD) to restrict the sync to. Use 'unknown' for photos with no capture date. Omit to sync everything."),
     service: WaterMitigationService = Depends(get_wm_service),
     db: DatabaseSession = Depends(get_db_session)
 ):
@@ -1934,11 +1964,13 @@ async def sync_companycam_photos(
     - Returns immediately with status 'started'
     - Poll GET /sync-companycam-photos/status for progress
     - If companycam_project_id is provided, it will be saved to the job
+    - If selected_dates is provided, only photos captured on those dates are imported
 
     Use this when webhook sync fails or to force a full sync.
 
     Args:
         companycam_project_id: Optional CompanyCam project ID. If provided and job doesn't have one, it will be saved.
+        selected_dates: Optional comma-separated list of dates to restrict the import to.
 
     Returns:
         Confirmation that sync has started
@@ -1988,12 +2020,18 @@ async def sync_companycam_photos(
             except (json.JSONDecodeError, TypeError, KeyError) as e:
                 logger.warning(f"Failed to parse sync status: {e}")
 
+        # Parse comma-separated date filter, if provided
+        selected_dates_list = None
+        if selected_dates:
+            selected_dates_list = [d.strip() for d in selected_dates.split(',') if d.strip()]
+
         # Set initial status
         await cache.set(sync_key, json.dumps({
             'status': 'running',
             'synced_count': 0,
             'skipped_existing': 0,
             'skipped_trashed': 0,
+            'skipped_date_filtered': 0,
             'total_companycam': 0,
             'current_page': 0,
             'errors': [],
@@ -2003,7 +2041,8 @@ async def sync_companycam_photos(
         # Start background task (creates its own DB session)
         background_tasks.add_task(
             run_sync_in_background,
-            job_id=job_id
+            job_id=job_id,
+            selected_dates=selected_dates_list
         )
 
         return {
@@ -2021,7 +2060,7 @@ async def sync_companycam_photos(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def run_sync_in_background(job_id: UUID):
+def run_sync_in_background(job_id: UUID, selected_dates: Optional[List[str]] = None):
     """Background task to run CompanyCam sync (sync wrapper for async)"""
     import asyncio
     logger.info(f"Background sync task starting for job {job_id}")
@@ -2030,7 +2069,7 @@ def run_sync_in_background(job_id: UUID):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(_run_sync_async(job_id))
+        loop.run_until_complete(_run_sync_async(job_id, selected_dates=selected_dates))
     finally:
         # Clean up properly
         try:
@@ -2045,7 +2084,7 @@ def run_sync_in_background(job_id: UUID):
             loop.close()
 
 
-async def _run_sync_async(job_id: UUID):
+async def _run_sync_async(job_id: UUID, selected_dates: Optional[List[str]] = None):
     """Actual async sync implementation"""
     from app.core.database_factory import get_database
 
@@ -2059,7 +2098,7 @@ async def _run_sync_async(job_id: UUID):
     try:
         service = WaterMitigationService(db_session)
 
-        result = await service.sync_companycam_photos(job_id)
+        result = await service.sync_companycam_photos(job_id, selected_dates=selected_dates)
         db_session.commit()
 
         logger.info(f"Background sync completed for job {job_id}: {result}")

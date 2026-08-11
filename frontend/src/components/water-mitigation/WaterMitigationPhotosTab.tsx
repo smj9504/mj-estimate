@@ -8,6 +8,7 @@ import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spi
 import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined, ShareAltOutlined, CopyOutlined, RobotOutlined, ThunderboltOutlined, CloseOutlined, StarFilled, DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
+import CompanyCamDateSelectModal from './CompanyCamDateSelectModal';
 import api from '../../services/api';
 import waterMitigationService, {
   AI_CATEGORY_LABELS,
@@ -247,6 +248,7 @@ interface SyncStatus {
   synced_count?: number;
   skipped_existing?: number;
   skipped_trashed?: number;
+  skipped_date_filtered?: number;
   total_companycam?: number;
   current_page?: number;
   errors?: string[];
@@ -286,9 +288,16 @@ interface ProjectSearchResult {
 }
 
 // API calls
-const syncCompanyCamPhotos = async (jobId: string, projectId?: string): Promise<CompanyCamSyncResult> => {
-  const params = projectId ? `?companycam_project_id=${encodeURIComponent(projectId)}` : '';
-  const response = await api.post(`/api/water-mitigation/jobs/${jobId}/sync-companycam-photos${params}`);
+const syncCompanyCamPhotos = async (
+  jobId: string,
+  projectId?: string,
+  selectedDates?: string[]
+): Promise<CompanyCamSyncResult> => {
+  const params = new URLSearchParams();
+  if (projectId) params.set('companycam_project_id', projectId);
+  if (selectedDates && selectedDates.length > 0) params.set('selected_dates', selectedDates.join(','));
+  const qs = params.toString();
+  const response = await api.post(`/api/water-mitigation/jobs/${jobId}/sync-companycam-photos${qs ? `?${qs}` : ''}`);
   return response.data;
 };
 
@@ -328,7 +337,8 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const queryClient = useQueryClient();
-  const [syncModalVisible, setSyncModalVisible] = useState(false);
+  const [dateSelectModalVisible, setDateSelectModalVisible] = useState(false);
+  const [dateSelectProjectId, setDateSelectProjectId] = useState<string | undefined>(undefined);
   const [projectIdModalVisible, setProjectIdModalVisible] = useState(false);
   const [inputProjectId, setInputProjectId] = useState('');
   const [currentProjectId, setCurrentProjectId] = useState(companycamProjectId);
@@ -1116,12 +1126,13 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     }
   };
 
-  // Sync mutation - now supports project ID parameter
+  // Sync mutation - supports project ID + a date filter picked in CompanyCamDateSelectModal
   const syncMutation = useMutation({
-    mutationFn: (projectId?: string) => syncCompanyCamPhotos(jobId, projectId),
+    mutationFn: ({ projectId, selectedDates }: { projectId?: string; selectedDates?: string[] }) =>
+      syncCompanyCamPhotos(jobId, projectId, selectedDates),
     onMutate: () => {
       setIsSyncing(true);
-      setSyncModalVisible(false);
+      setDateSelectModalVisible(false);
       setProjectIdModalVisible(false);
       startPolling();
     },
@@ -1155,17 +1166,14 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
 
   const handleSyncClick = () => {
     if (currentProjectId) {
-      // Project ID exists, show confirmation modal
-      setSyncModalVisible(true);
+      // Project ID exists, go straight to date selection
+      setDateSelectProjectId(currentProjectId);
+      setDateSelectModalVisible(true);
     } else {
       // No project ID, show search modal and start search
       setProjectIdModalVisible(true);
       handleSearchProjects();
     }
-  };
-
-  const confirmSync = () => {
-    syncMutation.mutate(undefined);
   };
 
   const confirmSyncWithProjectId = () => {
@@ -1181,7 +1189,13 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     if (onProjectIdUpdated) {
       onProjectIdUpdated(projectId);
     }
-    syncMutation.mutate(projectId);
+    setProjectIdModalVisible(false);
+    setDateSelectProjectId(projectId);
+    setDateSelectModalVisible(true);
+  };
+
+  const handleDateSelectConfirm = (selectedDates: string[] | undefined) => {
+    syncMutation.mutate({ projectId: dateSelectProjectId, selectedDates });
   };
 
   const handleCancel = () => {
@@ -1553,36 +1567,15 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         />
       </div>
 
-      {/* Sync Confirmation Modal - when project is already linked */}
-      <Modal
-        title={
-          <Space>
-            <CloudDownloadOutlined style={{ color: '#1890ff' }} />
-            <span>Sync Photos from CompanyCam</span>
-          </Space>
-        }
-        open={syncModalVisible}
-        onOk={confirmSync}
-        onCancel={() => setSyncModalVisible(false)}
+      {/* CompanyCam Date Select Modal - pick which capture dates to import (linked or newly-linked project) */}
+      <CompanyCamDateSelectModal
+        visible={dateSelectModalVisible}
+        jobId={jobId}
+        projectId={dateSelectProjectId}
         confirmLoading={syncMutation.isPending}
-        okText="Start Sync"
-        cancelText="Cancel"
-      >
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <Text>
-            This will sync photos from the linked CompanyCam project:
-          </Text>
-          <ul style={{ margin: 0, paddingLeft: 20 }}>
-            <li>New photos will be downloaded and added</li>
-            <li>Existing photos will be skipped (not re-downloaded)</li>
-            <li>Trashed photos will remain trashed</li>
-            <li>Photo categories you've set will be preserved</li>
-          </ul>
-          <Text type="secondary">
-            This may take a while for projects with many photos. You can cancel anytime.
-          </Text>
-        </Space>
-      </Modal>
+        onCancel={() => setDateSelectModalVisible(false)}
+        onConfirm={handleDateSelectConfirm}
+      />
 
       {/* Project Search Modal - when no project is linked */}
       <Modal
@@ -1601,7 +1594,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
           setInputProjectId('');
         }}
         confirmLoading={syncMutation.isPending}
-        okText="Link & Start Sync"
+        okText="Link & Choose Dates"
         cancelText="Cancel"
         width={600}
         okButtonProps={{ disabled: !selectedProject && !inputProjectId.trim() }}

@@ -1452,10 +1452,96 @@ class WaterMitigationService:
         return created
 
     # CompanyCam photo sync
+    async def get_companycam_photo_dates(
+        self,
+        job_id: UUID,
+        companycam_project_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Fetch a date-grouped summary of photos available in the linked
+        CompanyCam project, without downloading any image bytes.
+
+        This lets the UI offer a "pick which dates to import" step before
+        running a full sync, instead of generating thumbnails for every
+        photo up front (slow for projects with hundreds of photos).
+
+        Args:
+            job_id: Water mitigation job ID
+            companycam_project_id: Optional project ID override. Falls back
+                to the job's linked project ID (mirrors sync_companycam_photos).
+
+        Returns:
+            Dict with per-date photo counts (total + not-yet-synced), sorted
+            most recent first. Photos with no discoverable capture date are
+            grouped under a date of None.
+        """
+        from app.domains.integrations.companycam.client import CompanyCamClient
+        from app.domains.integrations.companycam.utils import extract_captured_date
+
+        job = self.job_repo.get_by_id(job_id)
+        if not job:
+            raise ValueError(f'Job {job_id} not found')
+
+        existing_project_id = (
+            job.get('companycam_project_id') if isinstance(job, dict)
+            else getattr(job, 'companycam_project_id', None)
+        )
+        project_id_to_use = companycam_project_id or existing_project_id
+
+        if not project_id_to_use:
+            raise ValueError('No CompanyCam project ID provided and job has no project linked')
+
+        project_id = int(project_id_to_use)
+
+        # Existing photos for this job, so we can report how many photos
+        # per date are actually new (not already imported/trashed).
+        existing_photos = self.photo_repo.find_by_job_with_external_ids(
+            job_id, include_trashed=True
+        )
+        existing_external_ids = set(existing_photos.keys())
+
+        async with CompanyCamClient() as companycam_client:
+            photos = await companycam_client.get_project_photos(project_id)
+
+        buckets: Dict[Optional[str], Dict[str, int]] = {}
+        for cc_photo in photos:
+            photo_date = extract_captured_date(cc_photo)
+            date_key = photo_date.isoformat() if photo_date else None
+
+            bucket = buckets.setdefault(date_key, {'total_count': 0, 'new_count': 0})
+            bucket['total_count'] += 1
+
+            photo_id = str(cc_photo.get('id'))
+            if photo_id not in existing_external_ids:
+                bucket['new_count'] += 1
+
+        # Sort most recent first; unknown-date bucket (None) goes last.
+        sorted_keys = sorted(
+            (k for k in buckets.keys() if k is not None), reverse=True
+        ) + ([None] if None in buckets else [])
+
+        date_summary = [
+            {
+                'date': key,
+                'total_count': buckets[key]['total_count'],
+                'new_count': buckets[key]['new_count'],
+            }
+            for key in sorted_keys
+        ]
+
+        return {
+            'success': True,
+            'project_id': str(project_id),
+            'dates': date_summary,
+            'total_photos': len(photos),
+            'total_new': sum(b['new_count'] for b in buckets.values()),
+        }
+
     async def sync_companycam_photos(
         self,
         job_id: UUID,
-        force_refresh: bool = False
+        force_refresh: bool = False,
+        selected_dates: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Sync photos from CompanyCam project to Water Mitigation job.
@@ -1470,11 +1556,17 @@ class WaterMitigationService:
         Args:
             job_id: Water mitigation job ID
             force_refresh: If True, re-download even if photo exists (not implemented)
+            selected_dates: Optional list of ISO dates ("YYYY-MM-DD") to restrict
+                the sync to. The literal token "unknown" matches photos with no
+                discoverable capture date. None/empty means sync everything (default).
 
         Returns:
             Dict with sync results
         """
         from app.domains.integrations.companycam.client import CompanyCamClient
+        from app.domains.integrations.companycam.utils import extract_captured_date
+
+        selected_dates_set = set(selected_dates) if selected_dates else None
 
         # Get job and validate
         job = self.job_repo.get_by_id(job_id)
@@ -1528,6 +1620,7 @@ class WaterMitigationService:
         synced_count = 0
         skipped_existing = 0
         skipped_trashed = 0
+        skipped_date_filtered = 0
         total_companycam = 0
         errors = []
 
@@ -1567,6 +1660,7 @@ class WaterMitigationService:
                 'synced_count': synced_count,
                 'skipped_existing': skipped_existing,
                 'skipped_trashed': skipped_trashed,
+                'skipped_date_filtered': skipped_date_filtered,
                 'total_companycam': total_companycam,
                 'current_page': page,
                 'errors': errors[:5]
@@ -1626,6 +1720,15 @@ class WaterMitigationService:
                         else:
                             skipped_existing += 1
                         continue
+
+                    # If the caller narrowed the sync to specific
+                    # CompanyCam-grouped dates, skip anything outside them.
+                    if selected_dates_set is not None:
+                        photo_date = extract_captured_date(cc_photo)
+                        date_key = photo_date.isoformat() if photo_date else 'unknown'
+                        if date_key not in selected_dates_set:
+                            skipped_date_filtered += 1
+                            continue
 
                     photos_to_sync.append(cc_photo)
                     existing_external_ids.add(photo_id)
@@ -1899,11 +2002,16 @@ class WaterMitigationService:
                 has_more = False
 
         # Build result
+        date_filter_note = (
+            f" Skipped {skipped_date_filtered} outside the selected dates."
+            if selected_dates_set is not None else ""
+        )
         if cancelled:
             success = True
             message = (
                 f"Sync cancelled. Synced {synced_count} photos before cancellation. "
                 f"Skipped {skipped_existing} existing, {skipped_trashed} trashed."
+                f"{date_filter_note}"
             )
         else:
             success = len(errors) == 0 or synced_count > 0
@@ -1911,6 +2019,7 @@ class WaterMitigationService:
                 f"Synced {synced_count} photos. "
                 f"Skipped {skipped_existing} existing, {skipped_trashed} trashed. "
                 f"Total in CompanyCam: {total_companycam}."
+                f"{date_filter_note}"
             )
             if errors:
                 message += f" {len(errors)} errors occurred."
@@ -1924,6 +2033,7 @@ class WaterMitigationService:
             'synced_count': synced_count,
             'skipped_existing': skipped_existing,
             'skipped_trashed': skipped_trashed,
+            'skipped_date_filtered': skipped_date_filtered,
             'total_companycam': total_companycam,
             'current_page': page,
             'errors': errors[:10],
@@ -1936,6 +2046,7 @@ class WaterMitigationService:
             'synced_count': synced_count,
             'skipped_existing': skipped_existing,
             'skipped_trashed': skipped_trashed,
+            'skipped_date_filtered': skipped_date_filtered,
             'total_companycam': total_companycam,
             'errors': errors[:10],
             'cancelled': cancelled

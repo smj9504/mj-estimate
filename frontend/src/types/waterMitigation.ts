@@ -364,6 +364,7 @@ export interface CompanyCamSyncResult {
   synced_count: number;
   skipped_existing: number;
   skipped_trashed: number;
+  skipped_date_filtered?: number;
   total_companycam: number;
   errors: string[];
   message: string;
