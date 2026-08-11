@@ -95,17 +95,23 @@ export const useFileGallery = ({
   const normalizedCategoryFilter = categoryFilter === 'all' ? undefined : categoryFilter;
 
   // Infinite scroll query for water-mitigation photos
+  // pageParam tracks the cumulative offset ("skip") rather than a page number,
+  // because the first page intentionally uses a smaller size (20) than later
+  // pages (30) for perceived performance. Deriving the offset from `page *
+  // page_size` breaks the moment page_size differs between requests - it
+  // either skips a range of rows or re-fetches rows, which is why some
+  // uploaded photos were silently missing from the gallery.
   const infiniteQuery = useInfiniteQuery({
     queryKey: ['files-infinite', context, contextId, fileCategory, pageSize, normalizedCategoryFilter, sourceFilter],
-    queryFn: async ({ pageParam = 1 }) => {
-      if (!contextId) return { items: [], total: 0, page: 1, page_size: pageSize, total_pages: 1 };
+    queryFn: async ({ pageParam = { skip: 0, size: 20 } }) => {
+      if (!contextId) return { items: [], total: 0, page: 1, page_size: pageSize, total_pages: 1, nextSkip: 0, requestedSize: 1 };
 
       // Use pagination API for water-mitigation photos
       if (context === 'water-mitigation' && fileCategory === 'image') {
-        const dynamicPageSize = pageParam === 1 ? 20 : 30;
+        const { skip, size: dynamicPageSize } = pageParam as { skip: number; size: number };
 
         const params: Record<string, any> = {
-          page: pageParam,
+          skip,
           page_size: dynamicPageSize,
           sort_by: 'captured_date',
           sort_order: 'desc'
@@ -186,32 +192,37 @@ export const useFileGallery = ({
           total: data.total,
           page: data.page,
           page_size: data.page_size,
-          total_pages: data.total_pages
+          total_pages: data.total_pages,
+          // Cumulative offset consumed by this page + how many rows were
+          // requested, used by getNextPageParam to compute the next offset
+          // and to detect the last page (items.length < requested size).
+          nextSkip: skip + items.length,
+          requestedSize: dynamicPageSize,
         };
       }
 
-      // Fallback to regular API for other contexts
+      // Fallback to regular API for other contexts - returns everything in
+      // one shot, so force getNextPageParam to stop after this page
+      // (items.length is always < requestedSize, including the 0/0 case).
       const result = await fileService.getFiles(context, contextId, undefined, fileCategory);
       return {
         items: result,
         total: result.length,
         page: 1,
         page_size: result.length,
-        total_pages: 1
+        total_pages: 1,
+        nextSkip: result.length,
+        requestedSize: result.length + 1,
       };
     },
     getNextPageParam: (lastPage) => {
-      // If total_pages is None (performance optimization), continue loading
-      // until we get an empty page
-      if (lastPage.total_pages === null || lastPage.total_pages === undefined) {
-        return lastPage.items.length > 0 ? lastPage.page + 1 : undefined;
+      // Last page reached once fewer rows came back than were requested.
+      if (lastPage.items.length < lastPage.requestedSize) {
+        return undefined;
       }
-      if (lastPage.page < lastPage.total_pages) {
-        return lastPage.page + 1;
-      }
-      return undefined;
+      return { skip: lastPage.nextSkip, size: 30 };
     },
-    initialPageParam: 1,
+    initialPageParam: { skip: 0, size: 20 } as { skip: number; size: number },
     enabled: !!contextId && enableInfiniteScroll,
     staleTime: 5 * 60 * 1000, // 5 minutes - data is fresh for longer
     gcTime: 10 * 60 * 1000, // 10 minutes - keep cache longer to preserve scroll position

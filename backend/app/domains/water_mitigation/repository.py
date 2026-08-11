@@ -326,10 +326,15 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         if source_filter:
             query = query.filter(WMPhoto.source == source_filter)
 
-        # Get total count (after filters) - only for first page
-        # Skip count for later pages to significantly improve performance
+        # Get total count (after filters) - only for the first page
+        # Skip count for later pages to significantly improve performance.
+        # When an explicit `skip` is given (variable page-size callers), it
+        # takes precedence over `page` for deciding whether this is page 1 -
+        # `page` is otherwise left at its default and would incorrectly look
+        # like page 1 on every request.
+        is_first_page = skip == 0 if skip is not None else page == 1
         total = None
-        if page == 1:
+        if is_first_page:
             # Only count on first page - this is the most expensive operation
             total = query.count()
             if category_filter:

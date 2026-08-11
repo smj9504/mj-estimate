@@ -390,6 +390,7 @@ async def list_photos(
     source_filter: Optional[str] = None,
     page: int = 1,
     page_size: int = 50,
+    skip: Optional[int] = None,
     sort_by: str = 'captured_date',
     sort_order: str = 'desc',
     service: WaterMitigationService = Depends(get_wm_service)
@@ -403,6 +404,10 @@ async def list_photos(
         source_filter: Filter by source (companycam, magicplan, manual_upload)
         page: Page number (1-indexed)
         page_size: Number of items per page (default: 50, max: 200)
+        skip: Explicit offset override. Required when callers use a variable
+              page_size across requests (e.g. infinite scroll with a smaller
+              first page) - `page` alone cannot compute a correct offset in
+              that case and rows would be skipped or re-fetched.
         sort_by: Field to sort by (default: captured_date)
         sort_order: Sort order 'asc' or 'desc' (default: desc)
     """
@@ -414,7 +419,7 @@ async def list_photos(
         list_photos._cache = {}
         list_photos._cache_ts = {}
 
-    cache_key = f"{job_id}:{page}:{page_size}:{sort_by}:{sort_order}:{category_filter}:{uncategorized_only}:{source_filter}"
+    cache_key = f"{job_id}:{page}:{page_size}:{skip}:{sort_by}:{sort_order}:{category_filter}:{uncategorized_only}:{source_filter}"
     cached = list_photos._cache.get(cache_key)
     cached_ts = list_photos._cache_ts.get(cache_key, 0)
     if cached and (_time.time() - cached_ts) < 30:
@@ -423,6 +428,8 @@ async def list_photos(
     # Limit page_size to prevent excessive queries
     page_size = min(page_size, 200)
     page = max(page, 1)
+    if skip is not None:
+        skip = max(skip, 0)
 
     # Parse category filter
     categories = None
@@ -436,6 +443,7 @@ async def list_photos(
         job_id=job_id,
         page=page,
         page_size=page_size,
+        skip=skip,
         sort_by=sort_by,
         sort_order=sort_order,
         category_filter=categories,
