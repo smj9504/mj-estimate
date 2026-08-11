@@ -178,7 +178,11 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
     (val: string, option: any) => {
       justSelected.current = true;
       const parsed: ParsedAddress = option.data;
-      onChange?.(val);
+      // The option's own `value` is "street, city, state, zip" (needed so
+      // AutoComplete can match/highlight it) — but the input itself should
+      // only ever show the street portion; city/state/zip go to their own
+      // fields via onSelect below.
+      onChange?.(parsed.streetAddress);
       onSelect?.(parsed);
       setOptions([]);
     },
