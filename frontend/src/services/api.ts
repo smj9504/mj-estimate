@@ -2,6 +2,15 @@ import axios from 'axios';
 import { Modal } from 'antd';
 import { showRetryableErrorNotification } from './apiErrorNotification';
 
+// Lets specific call sites (e.g. status-polling loops that already retry
+// silently on their own timer) opt out of the global "다시 시도" notification -
+// otherwise every transient poll failure pops the same alert on repeat.
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    suppressErrorNotification?: boolean;
+  }
+}
+
 // Create axios instance with base configuration
 // For production: use backend URL directly (Vercel env vars not working)
 // For development: use proxy (empty string)
@@ -70,7 +79,7 @@ api.interceptors.response.use(
     // being stuck. 4xx errors are left untouched: pages already show a
     // specific message for those via their own catch blocks.
     const isServerOrNetworkError = !error.response || error.response.status >= 500;
-    if (isServerOrNetworkError) {
+    if (isServerOrNetworkError && !error.config?.suppressErrorNotification) {
       showRetryableErrorNotification(error, api);
     }
 
@@ -93,7 +102,7 @@ publicApi.interceptors.response.use(
   (response) => response,
   (error) => {
     const isServerOrNetworkError = !error.response || error.response.status >= 500;
-    if (isServerOrNetworkError) {
+    if (isServerOrNetworkError && !error.config?.suppressErrorNotification) {
       showRetryableErrorNotification(error, publicApi);
     }
     return Promise.reject(error);

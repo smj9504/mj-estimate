@@ -301,8 +301,10 @@ const syncCompanyCamPhotos = async (
   return response.data;
 };
 
-const getSyncStatus = async (jobId: string): Promise<SyncStatus> => {
-  const response = await api.get(`/api/water-mitigation/jobs/${jobId}/sync-companycam-photos/status`);
+const getSyncStatus = async (jobId: string, options?: { suppressErrorNotification?: boolean }): Promise<SyncStatus> => {
+  const response = await api.get(`/api/water-mitigation/jobs/${jobId}/sync-companycam-photos/status`, {
+    suppressErrorNotification: options?.suppressErrorNotification,
+  });
   return response.data;
 };
 
@@ -595,7 +597,10 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     if (!pollingRef.current) return;
 
     try {
-      const status = await getSyncStatus(jobId);
+      // suppressErrorNotification: this loop already retries silently below on
+      // failure - the global "다시 시도" toast would otherwise re-pop every 2-3s
+      // for the exact same transient blip it's already recovering from.
+      const status = await getSyncStatus(jobId, { suppressErrorNotification: true });
 
       // Check if still polling (component might have unmounted)
       if (!pollingRef.current) return;
