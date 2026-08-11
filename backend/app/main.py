@@ -202,6 +202,10 @@ from app.domains.claim_followup.reply_scheduler import (
     start_reply_scheduler,
     stop_reply_scheduler,
 )
+from app.domains.email_ingestion.scheduler import (
+    start_email_ingestion_scheduler,
+    stop_email_ingestion_scheduler,
+)
 from app.domains.crew_upload.models import UploadLink, UploadSession
 from app.domains.insurance_extraction.models import (
     InsurancePdfExtraction,
@@ -472,6 +476,12 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[STARTUP] Reply scheduler skipped: {e}")
 
+        try:
+            start_email_ingestion_scheduler()
+            print("[STARTUP] Email ingestion poll job registered (daily at 6AM ET)")
+        except Exception as e:
+            print(f"[STARTUP] Email ingestion scheduler skipped: {e}")
+
         # Start the single shared scheduler (1 thread for all jobs)
         start_shared_scheduler()
         print("[STARTUP] Shared scheduler started")
@@ -571,6 +581,7 @@ async def lifespan(app: FastAPI):
                 stop_scheduler()
             stop_trash_scheduler()
             stop_reply_scheduler()
+            stop_email_ingestion_scheduler()
 
             # Stop the single shared scheduler
             stop_shared_scheduler()
