@@ -276,6 +276,13 @@ class Settings(BaseSettings):
     XACT_CORRECTION_AUTO_APPLY_THRESHOLD: int = int(os.getenv("XACT_CORRECTION_AUTO_APPLY_THRESHOLD", "3"))
     XACT_CANDIDATE_ITEM_LIMIT: int = int(os.getenv("XACT_CANDIDATE_ITEM_LIMIT", "8"))
 
+    # Plumber Report AI Generation Settings
+    # OpenAI is shared with Photo Analysis above — this only controls whether
+    # the plumber report generator tries it. Default off: OpenAI account has
+    # no credits right now, so trying it just adds a guaranteed-failure delay
+    # before falling through to Anthropic. Flip to "true" once credits are added.
+    PLUMBER_REPORT_USE_OPENAI: bool = os.getenv("PLUMBER_REPORT_USE_OPENAI", "false").lower() == "true"
+
     # Email Ingestion Settings
     ENABLE_EMAIL_INGESTION: bool = os.getenv("ENABLE_EMAIL_INGESTION", "true").lower() == "true"
     EMAIL_ENCRYPTION_KEY: Optional[str] = os.getenv("EMAIL_ENCRYPTION_KEY")

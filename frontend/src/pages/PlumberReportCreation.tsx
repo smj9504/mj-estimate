@@ -78,6 +78,18 @@ const { Title, Text } = Typography;
 const { TextArea } = Input;
 const { Option } = Select;
 
+// Normalizes a free-text address State into MD/VA/DC, or null if it can't be
+// resolved confidently. Used to derive AI-generation tax state from the
+// existing client/property address instead of a separate (and easy to skip
+// or silently default) input field.
+const normalizeUsState = (raw?: string | null): 'MD' | 'VA' | 'DC' | null => {
+  const s = (raw || '').trim().toUpperCase();
+  if (s === 'MD' || s === 'MARYLAND') return 'MD';
+  if (s === 'VA' || s === 'VIRGINIA') return 'VA';
+  if (['DC', 'D.C.', 'WASHINGTON DC', 'WASHINGTON, DC', 'DISTRICT OF COLUMBIA'].includes(s)) return 'DC';
+  return null;
+};
+
 const PlumberReportCreation: React.FC = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
@@ -106,6 +118,18 @@ const PlumberReportCreation: React.FC = () => {
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiStep, setAiStep] = useState<string>('');
   const [aiForm] = Form.useForm();
+
+  // AI generation runs 15-25s+ in the background — closing/reloading the tab
+  // mid-request strands the result with nowhere to land when it resolves.
+  useEffect(() => {
+    if (!aiGenerating) return;
+    const warnBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [aiGenerating]);
 
   // Modal states
   const [itemModalVisible, setItemModalVisible] = useState(false);
@@ -141,6 +165,14 @@ const PlumberReportCreation: React.FC = () => {
 
   // Property same as client toggle
   const [propertyDifferent, setPropertyDifferent] = useState(false);
+
+  // Derive AI-generation tax state from the client/property address already
+  // on this form — reactive via useWatch so it updates as the user types.
+  const watchedClientState = Form.useWatch('state', form);
+  const watchedPropertyState = Form.useWatch('property_state', form);
+  const resolvedAiState = normalizeUsState(
+    propertyDifferent ? watchedPropertyState : watchedClientState
+  );
 
   // Drag and drop states
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
@@ -735,22 +767,57 @@ const PlumberReportCreation: React.FC = () => {
     }
   }, [jsonPasteValue, form]);
 
+  // Persist AI Generate modal inputs so they survive generation, navigation, and page reloads
+  const aiFormStorageKey = `plumberReportAiDraft_${id || 'new'}`;
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(aiFormStorageKey);
+      if (saved) {
+        aiForm.setFieldsValue(JSON.parse(saved));
+      }
+    } catch (error) {
+      console.error('Failed to restore AI form draft:', error);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleAiFormValuesChange = useCallback(() => {
+    try {
+      localStorage.setItem(aiFormStorageKey, JSON.stringify(aiForm.getFieldsValue()));
+    } catch (error) {
+      console.error('Failed to save AI form draft:', error);
+    }
+  }, [aiForm, aiFormStorageKey]);
+
+  const handleClearAiForm = useCallback(() => {
+    aiForm.resetFields();
+    try {
+      localStorage.removeItem(aiFormStorageKey);
+    } catch (error) {
+      console.error('Failed to clear AI form draft:', error);
+    }
+  }, [aiForm, aiFormStorageKey]);
+
   const handleAiGenerate = useCallback(async () => {
     try {
       const values = await aiForm.validateFields();
+
+      if (!resolvedAiState) {
+        message.error('Please enter a valid client/property State (MD, VA, or DC) before generating — it determines the materials tax calculation.');
+        return;
+      }
+
       setAiGenerating(true);
       setAiStep('Step 1/2: Analyzing scope & writing assessment...');
 
       const data = await plumberReportService.generateAI({
         incident_type: values.incident_type,
         location: values.location,
-        state: values.ai_state || 'MD',
-        invoice_amount: values.invoice_amount || '$3,000',
-        failed_component: values.failed_component || '',
-        pipe_material: values.pipe_material || '',
-        wall_access_type: values.wall_access_type || 'drywall',
-        protection_installed: values.protection_installed || 'yes',
-        hours_on_site: values.hours_on_site || '',
+        wall_access_type: values.wall_access_type,
+        pipe_material: values.pipe_material,
+        state: resolvedAiState,
+        detached_fixture: values.detached_fixture || '',
       });
 
       // The backend runs both steps — update UI to reflect completion
@@ -781,12 +848,13 @@ const PlumberReportCreation: React.FC = () => {
       message.success('AI report generated (2-step: scope → invoice)');
     } catch (error: any) {
       if (error?.errorFields) return; // form validation error
+      console.error('[AI Generate] failed:', error);
       message.error(error?.response?.data?.detail || 'AI generation failed. Please try again.');
     } finally {
       setAiGenerating(false);
       setAiStep('');
     }
-  }, [aiForm, form]);
+  }, [aiForm, form, resolvedAiState]);
 
   const totals = calculateTotals();
 
@@ -1685,15 +1753,18 @@ const PlumberReportCreation: React.FC = () => {
         }
         open={aiGenerateModalVisible}
         onCancel={() => {
+          if (aiGenerating) return; // generation in flight — closing now would strand the result when it lands
           setAiGenerateModalVisible(false);
-          aiForm.resetFields();
         }}
+        closable={!aiGenerating}
+        maskClosable={!aiGenerating}
+        keyboard={!aiGenerating}
         width={500}
         footer={[
-          <Button key="close" onClick={() => {
-            setAiGenerateModalVisible(false);
-            aiForm.resetFields();
-          }}>
+          <Button key="clear" onClick={handleClearAiForm} disabled={aiGenerating}>
+            Clear Fields
+          </Button>,
+          <Button key="close" onClick={() => setAiGenerateModalVisible(false)} disabled={aiGenerating}>
             Cancel
           </Button>,
           <Button
@@ -1701,6 +1772,7 @@ const PlumberReportCreation: React.FC = () => {
             type="primary"
             icon={<RobotOutlined />}
             loading={aiGenerating}
+            disabled={!resolvedAiState}
             onClick={handleAiGenerate}
           >
             {aiGenerating ? 'Generating...' : 'Generate Report'}
@@ -1710,107 +1782,61 @@ const PlumberReportCreation: React.FC = () => {
         {aiGenerating && aiStep && (
           <div style={{ marginBottom: 16, padding: '8px 12px', background: '#e6f4ff', borderRadius: 6, fontSize: 13 }}>
             <Spin size="small" style={{ marginRight: 8 }} />{aiStep}
+            <div style={{ marginTop: 4, color: '#8c8c8c' }}>
+              This can take up to 30 seconds — please keep this window open until it finishes.
+            </div>
           </div>
         )}
         <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-          AI will analyze the job in 2 steps: (1) assess scope &amp; write findings, then (2) build invoice from the work performed.
+          Fill in the details below — AI will infer everything else (failed component, hours, materials, and a fully priced invoice, including a detach &amp; reset charge if a fixture was removed) in 2 steps: (1) assess scope &amp; write findings, then (2) build invoice from the work performed.
         </Typography.Text>
-        <Form form={aiForm} layout="vertical">
+        <Typography.Text type={resolvedAiState ? 'secondary' : 'danger'} style={{ display: 'block', marginBottom: 16 }}>
+          {resolvedAiState
+            ? `Materials tax will be calculated for state: ${resolvedAiState} (from the client/property address above).`
+            : 'No valid State (MD, VA, or DC) found on the client/property address — fill that in before generating, it determines the materials tax calculation.'}
+        </Typography.Text>
+        <Form form={aiForm} layout="vertical" onValuesChange={handleAiFormValuesChange}>
           <Form.Item
             name="incident_type"
-            label="Incident Type"
-            rules={[{ required: true, message: 'Please enter the incident type' }]}
+            label="What Was the Problem?"
+            rules={[{ required: true, message: 'Please describe the problem' }]}
           >
             <Input placeholder="e.g. burst supply line, failed mixing valve, cracked flex connector" />
           </Form.Item>
           <Form.Item
-            name="failed_component"
-            label="Failed Component"
+            name="pipe_material"
+            label="Pipe Material"
+            rules={[{ required: true, message: 'Please select the pipe material' }]}
           >
-            <Input placeholder="e.g. rigid copper supply line, flexible grey connector, mixing valve" />
+            <Select placeholder="Select pipe material">
+              <Select.Option value="Type L copper">Type L Copper</Select.Option>
+              <Select.Option value="CPVC">CPVC</Select.Option>
+              <Select.Option value="PEX">PEX</Select.Option>
+              <Select.Option value="PVC (DWV)">PVC (DWV)</Select.Option>
+              <Select.Option value="Cast iron">Cast Iron</Select.Option>
+              <Select.Option value="braided stainless">Braided Stainless</Select.Option>
+            </Select>
           </Form.Item>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="pipe_material"
-                label="Pipe Material"
-              >
-                <Select allowClear placeholder="Select or leave blank to auto-infer">
-                  <Select.Option value="Type L copper">Type L Copper</Select.Option>
-                  <Select.Option value="CPVC">CPVC</Select.Option>
-                  <Select.Option value="PEX">PEX</Select.Option>
-                  <Select.Option value="PVC (DWV)">PVC (DWV)</Select.Option>
-                  <Select.Option value="Cast iron">Cast Iron</Select.Option>
-                  <Select.Option value="braided stainless">Braided Stainless</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="wall_access_type"
-                label="Wall / Access Type"
-                initialValue="drywall"
-              >
-                <Select>
-                  <Select.Option value="drywall">Drywall</Select.Option>
-                  <Select.Option value="tile">Tile</Select.Option>
-                  <Select.Option value="access panel">Access Panel</Select.Option>
-                  <Select.Option value="under-sink cabinet">Under-sink / Cabinet</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item
+            name="wall_access_type"
+            label="What Part Was Opened / Torn Out?"
+            rules={[{ required: true, message: 'Please describe what was opened to access the issue' }]}
+          >
+            <Input placeholder="e.g. drywall behind vanity, ceiling below bathroom, under-sink cabinet panel" />
+          </Form.Item>
           <Form.Item
             name="location"
-            label="Location in Home"
+            label="Water Damage Source Location"
             rules={[{ required: true, message: 'Please enter the location' }]}
           >
             <Input placeholder="e.g. 2nd floor master bathroom shower, kitchen sink, basement" />
           </Form.Item>
-          <Row gutter={16}>
-            <Col span={6}>
-              <Form.Item
-                name="ai_state"
-                label="State"
-                initialValue="MD"
-              >
-                <Select>
-                  <Select.Option value="MD">Maryland</Select.Option>
-                  <Select.Option value="VA">Virginia</Select.Option>
-                  <Select.Option value="DC">DC</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={6}>
-              <Form.Item
-                name="invoice_amount"
-                label="Total Invoice"
-                initialValue="$3,000"
-              >
-                <Input placeholder="$X,XXX" />
-              </Form.Item>
-            </Col>
-            <Col span={6}>
-              <Form.Item
-                name="hours_on_site"
-                label="Hours on Site"
-              >
-                <Input placeholder="e.g. 3" />
-              </Form.Item>
-            </Col>
-            <Col span={6}>
-              <Form.Item
-                name="protection_installed"
-                label="Protection"
-                initialValue="yes"
-              >
-                <Select>
-                  <Select.Option value="yes">Yes</Select.Option>
-                  <Select.Option value="no">No</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item
+            name="detached_fixture"
+            label="Anything Detached to Access the Area? (optional)"
+          >
+            <Input placeholder="e.g. toilet, vanity, dishwasher — leave blank if nothing was detached" />
+          </Form.Item>
         </Form>
       </Modal>
 

@@ -23,10 +23,13 @@ from app.domains.plumber_report.schemas import (
     PlumberReportNumberResponse
 )
 from app.domains.plumber_report.service import PlumberReportService
-from app.domains.plumber_report.ai_service import generate_plumber_report
+from app.domains.plumber_report.ai_service import (
+    generate_plumber_report,
+    VALID_STATES,
+)
 from app.common.services.pdf_service import PDFService
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -37,29 +40,39 @@ class AIGenerateRequest(BaseModel):
     """Request schema for AI report generation"""
     incident_type: str
     location: str
-    state: str = "MD"
-    invoice_amount: str = "$3,000"
-    failed_component: str = ""
-    pipe_material: str = ""
-    wall_access_type: str = "drywall"
-    protection_installed: str = "yes"
-    hours_on_site: str = ""
+    wall_access_type: str
+    pipe_material: str
+    state: str
+    detached_fixture: str = ""
+
+    @field_validator("state")
+    @classmethod
+    def validate_state(cls, v: str) -> str:
+        normalized = (v or "").strip().upper()
+        if normalized not in VALID_STATES:
+            raise ValueError(
+                f"state must be one of {sorted(VALID_STATES)} — "
+                f"it determines the materials tax calculation and has no "
+                f"default on purpose (a silent default previously caused "
+                f"VA jobs to be taxed as if they were MD)"
+            )
+        return normalized
 
 
 @router.post("/generate-ai")
 async def generate_ai_report(request: AIGenerateRequest):
     """Generate plumber report content using AI from job details"""
-    result = generate_plumber_report(
-        incident_type=request.incident_type,
-        location=request.location,
-        state=request.state,
-        invoice_amount=request.invoice_amount,
-        failed_component=request.failed_component,
-        pipe_material=request.pipe_material,
-        wall_access_type=request.wall_access_type,
-        protection_installed=request.protection_installed,
-        hours_on_site=request.hours_on_site,
-    )
+    try:
+        result = generate_plumber_report(
+            incident_type=request.incident_type,
+            location=request.location,
+            wall_access_type=request.wall_access_type,
+            pipe_material=request.pipe_material,
+            state=request.state,
+            detached_fixture=request.detached_fixture,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if result is None:
         raise HTTPException(
             status_code=500,
