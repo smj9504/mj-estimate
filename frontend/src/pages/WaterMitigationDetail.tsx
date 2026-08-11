@@ -55,6 +55,7 @@ import SendToAdjusterModal from '../components/water-mitigation/SendToAdjusterMo
 import FollowUpAdjusterModal from '../components/water-mitigation/FollowUpAdjusterModal';
 import WMFinancialComparisonCard from '../components/water-mitigation/WMFinancialComparison';
 import WMContractTab from '../components/water-mitigation/WMContractTab';
+import AccuLynxSyncButton from '../components/common/AccuLynxSyncButton'; // AccuLynx: remove this line to fully remove the feature
 
 const WMSketchTab = React.lazy(() => import('../components/water-mitigation/sketch/WMSketchTab'));
 
@@ -690,6 +691,24 @@ const WaterMitigationDetail: React.FC = () => {
                             ) : (
                               job.claim_number || '-'
                             )}
+                          </Descriptions.Item>
+                          {/* AccuLynx: remove this Descriptions.Item to fully remove the feature */}
+                          <Descriptions.Item label="AccuLynx">
+                            {job.claim_id ? (
+                              <AccuLynxSyncButton
+                                claimId={job.claim_id}
+                                clientId={job.client_id}
+                                size="small"
+                                prefill={{
+                                  firstName: job.homeowner_name?.split(' ')[0],
+                                  lastName: job.homeowner_name?.split(' ').slice(1).join(' '),
+                                  email: job.homeowner_email,
+                                  phone: job.homeowner_phone,
+                                  address: { street1: job.property_address },
+                                  notes: job.claim_number ? `Claim #${job.claim_number}` : undefined,
+                                }}
+                              />
+                            ) : '-'}
                           </Descriptions.Item>
                           <Descriptions.Item label="Date of Loss">
                             {isEditing ? (

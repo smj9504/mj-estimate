@@ -285,6 +285,12 @@ if settings.ENABLE_INTEGRATIONS:
     from app.domains.integrations.magicplan.api import (
         router as magicplan_router,
     )
+    # AccuLynx: self-contained, removable module - see
+    # app/domains/integrations/acculynx/__init__.py for the removal checklist
+    if settings.ENABLE_ACCULYNX:
+        from app.domains.integrations.acculynx.api import (
+            router as acculynx_router,
+        )
 
 # Configure logging system
 from app.core.logging_config import get_access_logger, get_error_logger, setup_logging
@@ -1031,6 +1037,10 @@ if settings.ENABLE_INTEGRATIONS:
     app.include_router(magicplan_router, prefix="/api/integrations/magicplan", tags=["MagicPlan Integration"])
     logger.info("Integration routes registered (CompanyCam, Google Sheets, Slack, MagicPlan)")
     logger.info(f"Webhook endpoint available at: /api/integrations/companycam/webhook")
+    # AccuLynx: self-contained, removable module (see acculynx/__init__.py)
+    if settings.ENABLE_ACCULYNX:
+        app.include_router(acculynx_router, prefix="/api/integrations/acculynx", tags=["AccuLynx Integration"])
+        logger.info("AccuLynx integration routes registered")
 else:
     logger.warning("⚠️ ENABLE_INTEGRATIONS is False - Integration endpoints disabled")
 

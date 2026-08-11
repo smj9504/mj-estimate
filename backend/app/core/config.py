@@ -149,6 +149,17 @@ class Settings(BaseSettings):
     MAGICPLAN_API_KEY: str = os.getenv("MAGICPLAN_API_KEY", "")
     MAGICPLAN_CUSTOMER_ID: str = os.getenv("MAGICPLAN_CUSTOMER_ID", "")
 
+    # AccuLynx Integration (self-contained/removable module - see app/domains/integrations/acculynx/__init__.py)
+    ENABLE_ACCULYNX: bool = os.getenv("ENABLE_ACCULYNX", "false").lower() == "true"
+    ACCULYNX_API_KEY: str = os.getenv("ACCULYNX_API_KEY", "")
+    # Fallback/default AccuLynx document folder (used for generic claim files and as
+    # the catch-all when a more specific folder below isn't configured). AccuLynx
+    # itself calls its catch-all folder "Other".
+    ACCULYNX_DOCUMENT_FOLDER_ID: str = os.getenv("ACCULYNX_DOCUMENT_FOLDER_ID", "")
+    # Optional per-document-type folder overrides (see acculynx/service.py:_resolve_document_folder_id)
+    ACCULYNX_DOCUMENT_FOLDER_ID_INVOICE: str = os.getenv("ACCULYNX_DOCUMENT_FOLDER_ID_INVOICE", "")
+    ACCULYNX_DOCUMENT_FOLDER_ID_WATER_MITIGATION: str = os.getenv("ACCULYNX_DOCUMENT_FOLDER_ID_WATER_MITIGATION", "")
+
     # Slack Integration
     SLACK_WEBHOOK_URL: str = os.getenv("SLACK_WEBHOOK_URL", "")
     SLACK_CHANNEL: str = os.getenv("SLACK_CHANNEL", "#work-orders")

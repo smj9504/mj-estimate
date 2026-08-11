@@ -67,6 +67,7 @@ import ClaimContractDashboard from '../components/contract/ClaimContractDashboar
 import ClientDocumentHub from '../components/client/ClientDocumentHub';
 import ClaimNotes from '../components/client/ClaimNotes';
 import ClaimPhotosSection from '../components/client/ClaimPhotosSection';
+import AccuLynxSyncButton from '../components/common/AccuLynxSyncButton'; // AccuLynx: remove this line to fully remove the feature
 import ClaimTodos from '../components/client/ClaimTodos';
 import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory } from '../components/claim-followup';
 import type { ClaimContact } from '../components/claim-followup/EmailComposer';
@@ -1632,6 +1633,25 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                   clientId={client.id}
                   clientEmail={client.email || undefined}
                 />
+
+                {/* AccuLynx: remove this block to fully remove the feature */}
+                <Divider style={{ margin: '16px 0 12px' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <Text strong style={{ fontSize: 14 }}>AccuLynx</Text>
+                  <AccuLynxSyncButton
+                    claimId={claim.id}
+                    clientId={client.id}
+                    size="small"
+                    prefill={{
+                      firstName: (client.owners?.find((o) => o.is_primary) || client.owners?.[0])?.name?.split(' ')[0],
+                      lastName: (client.owners?.find((o) => o.is_primary) || client.owners?.[0])?.name?.split(' ').slice(1).join(' '),
+                      email: client.email,
+                      phone: client.phone,
+                      address: { street1: client.address, city: client.city, state: client.state, zipCode: client.zipcode },
+                      notes: claim.claim_number ? `Claim #${claim.claim_number}` : undefined,
+                    }}
+                  />
+                </div>
 
                 {/* Email */}
                 <Divider style={{ margin: '16px 0 12px' }} />
