@@ -66,7 +66,7 @@ import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import DraggableTable from '../components/common/DraggableTable';
 import dayjs from 'dayjs';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { invoiceService, InvoiceSection, LineItemImage } from '../services/invoiceService';
 import { companyService } from '../services/companyService';
 import { Company } from '../types';
@@ -97,7 +97,7 @@ import { receiptService } from '../services/receiptService';
 import type { ReceiptTemplate } from '../types/receipt';
 import { useCompanies } from '../hooks/useCompanyQueries';
 import { clientService } from '../services/clientService';
-import type { ClientListItem } from '../types/client';
+import type { Client, ClientListItem } from '../types/client';
 import { useInvoice, useCreateInvoice, useUpdateInvoice } from '../hooks/useInvoiceQueries';
 import { useReceiptTemplates, useReceiptByNumber } from '../hooks/useReceiptQueries';
 
@@ -729,7 +729,9 @@ const InvoiceCreation: React.FC = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const isEditMode = !!id;
+  const presetClient = (location.state as { presetClient?: Client } | null)?.presetClient;
 
   // Loading states - separate for different operations
   const [isSaving, setIsSaving] = useState(false);
@@ -1533,6 +1535,36 @@ const InvoiceCreation: React.FC = () => {
     }
     // Invoice loading handled by React Query useInvoice hook in edit mode
   }, [isEditMode, id, form]);
+
+  // Prefill client info when navigated here from a client's detail page
+  useEffect(() => {
+    if (isEditMode || !presetClient) return;
+
+    const clientRecord = presetClient as unknown as ClientListItem;
+    const primaryOwner = presetClient.owners?.find((o) => o.is_primary) || presetClient.owners?.[0];
+
+    setClientInputMode('client');
+    setSelectedClientRecord(clientRecord);
+    setClientSearchResults([clientRecord]);
+
+    form.setFieldsValue({
+      client_record_selection: presetClient.id,
+      client_name: presetClient.display_name,
+      client_email: presetClient.email || primaryOwner?.email || '',
+      client_phone: presetClient.phone || primaryOwner?.phone || '',
+      client_address: presetClient.address || '',
+      client_city: presetClient.city || '',
+      client_state: presetClient.state || '',
+      client_zipcode: presetClient.zipcode || '',
+      insurance_company: presetClient.insurance_company || '',
+      insurance_policy_number: presetClient.insurance_policy_number || '',
+    });
+
+    if (presetClient.insurance_company || presetClient.insurance_policy_number) {
+      setShowInsurance(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditMode, presetClient, form]);
 
   // Consolidated company and form population effect
   useEffect(() => {

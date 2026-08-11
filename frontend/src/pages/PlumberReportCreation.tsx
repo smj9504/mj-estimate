@@ -37,7 +37,7 @@ import {
   MailOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
   plumberReportService,
   PlumberReport,
@@ -50,7 +50,7 @@ import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { companyService } from '../services/companyService';
 import { clientService, claimService } from '../services/clientService';
 import { Company } from '../types';
-import type { ClientListItem, Claim } from '../types/client';
+import type { Client, ClientListItem, Claim } from '../types/client';
 import RichTextEditor from '../components/editor/RichTextEditor';
 import UnitSelect from '../components/common/UnitSelect';
 import DraggableTable from '../components/common/DraggableTable';
@@ -82,6 +82,8 @@ const PlumberReportCreation: React.FC = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const presetClient = (location.state as { presetClient?: Client } | null)?.presetClient;
 
   // Loading states - separate for different operations
   const [isDataLoading, setIsDataLoading] = useState(false);
@@ -277,6 +279,37 @@ const PlumberReportCreation: React.FC = () => {
       }
     }
   }, [clientSearchResults, form]);
+
+  // Prefill client info when navigated here from a client's detail page
+  useEffect(() => {
+    if (id || !presetClient) return;
+
+    const owner = presetClient.owners?.find((o) => o.is_primary) || presetClient.owners?.[0];
+    form.setFieldsValue({
+      name: presetClient.display_name,
+      address: presetClient.address || '',
+      city: presetClient.city || '',
+      state: presetClient.state || '',
+      zipcode: presetClient.zipcode || '',
+      phone: presetClient.phone || owner?.phone || '',
+      email: presetClient.email || owner?.email || '',
+    });
+
+    setSelectedClientId(presetClient.id);
+    setClientSearchResults([presetClient as unknown as ClientListItem]);
+    setSelectedClaimId(null);
+    setClientClaims([]);
+    claimService.listByClient(presetClient.id).then((result) => {
+      const claims = result.claims || [];
+      setClientClaims(claims);
+      if (claims.length === 1) {
+        setSelectedClaimId(claims[0].id);
+      }
+    }).catch(() => {
+      // Client may not have claims yet
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, presetClient, form]);
 
   const [isDolLoading, setIsDolLoading] = useState(false);
   const handleFetchDateOfLoss = useCallback(async () => {

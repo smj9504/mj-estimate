@@ -54,12 +54,13 @@ import {
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import RichTextEditor from '../components/editor/RichTextEditor';
 import dayjs from 'dayjs';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { estimateService, EstimateLineItem, EstimateResponse, EstimateSection, PaymentScheduleItem } from '../services/estimateService';
 import { companyService } from '../services/companyService';
 import lineItemService from '../services/lineItemService';
 import { LineItemType } from '../types/lineItem';
 import { Company } from '../types';
+import type { Client } from '../types/client';
 import UnitSelect from '../components/common/UnitSelect';
 import { DEFAULT_UNIT } from '../constants/units';
 import ItemCodeSelector from '../components/estimate/ItemCodeSelector';
@@ -87,8 +88,10 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const isEditMode = !!id;
   const importSource = searchParams.get('import'); // 'pack' for pack estimate import
+  const presetClient = (location.state as { presetClient?: Client } | null)?.presetClient;
 
   // Loading states - separate for different operations
   const [isDataLoading, setIsDataLoading] = useState(false); // For initial data loading
@@ -353,6 +356,29 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       }
     }
   }, [importSource, isEditMode, form]);
+
+  // Prefill client info when navigated here from a client's detail page
+  useEffect(() => {
+    if (isEditMode || !presetClient) return;
+
+    const owner = presetClient.owners?.find((o) => o.is_primary) || presetClient.owners?.[0];
+    form.setFieldsValue({
+      client_name: presetClient.display_name,
+      client_address: presetClient.address || '',
+      client_city: presetClient.city || '',
+      client_state: presetClient.state || '',
+      client_zipcode: presetClient.zipcode || '',
+      client_phone: presetClient.phone || owner?.phone || '',
+      client_email: presetClient.email || owner?.email || '',
+      insurance_company: presetClient.insurance_company || '',
+      policy_number: presetClient.insurance_policy_number || '',
+    });
+
+    if (presetClient.insurance_company || presetClient.insurance_policy_number) {
+      setShowInsuranceInfo(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditMode, presetClient, form]);
 
   // Load estimate data when entering edit mode
   useEffect(() => {

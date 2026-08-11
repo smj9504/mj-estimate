@@ -30,6 +30,7 @@ import {
   Checkbox,
   Upload,
   Drawer,
+  Dropdown,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -54,6 +55,8 @@ import {
   FormOutlined,
   CheckSquareOutlined,
   CameraOutlined,
+  DownOutlined,
+  FileAddOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -2232,6 +2235,24 @@ const ClientDetail: React.FC = () => {
     },
   ];
 
+  const createDocumentItems = [
+    {
+      key: 'estimate',
+      label: 'Estimate',
+      onClick: () => navigate('/create/estimate', { state: { presetClient: client } }),
+    },
+    {
+      key: 'invoice',
+      label: 'Invoice',
+      onClick: () => navigate('/create/invoice', { state: { presetClient: client } }),
+    },
+    {
+      key: 'plumber-report',
+      label: "Plumber's Report",
+      onClick: () => navigate('/create/plumber-report', { state: { presetClient: client } }),
+    },
+  ];
+
   return (
     <div>
       {/* Back navigation */}
@@ -2257,9 +2278,16 @@ const ClientDetail: React.FC = () => {
           </Space>
         }
         extra={
-          <Button icon={<EditOutlined />} onClick={() => setEditModalOpen(true)}>
-            Edit
-          </Button>
+          <Space>
+            <Dropdown menu={{ items: createDocumentItems }} trigger={['click']}>
+              <Button type="primary" icon={<FileAddOutlined />}>
+                Create Document <DownOutlined />
+              </Button>
+            </Dropdown>
+            <Button icon={<EditOutlined />} onClick={() => setEditModalOpen(true)}>
+              Edit
+            </Button>
+          </Space>
         }
       >
         <Row gutter={[32, 16]}>
