@@ -879,8 +879,9 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         }
       }
 
-      // Classify in batches of 10 to avoid timeout
-      const batchSize = 10;
+      // Classify in small batches so a slow photo (2-phase Gemini verification)
+      // doesn't blow the whole batch past the request timeout.
+      const batchSize = 5;
       const allResults: AIClassifyResult[] = resume ? [...aiResults] : [];
       const totalPhotos = (resume ? aiResults.length : 0) + photoIds.length;
       setAiProgress({ current: allResults.length, total: totalPhotos });

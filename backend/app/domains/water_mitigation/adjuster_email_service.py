@@ -341,6 +341,15 @@ class AdjusterEmailService:
                             "role": "adjuster",
                         })
 
+            # 4. Public adjuster (PA) email
+            if pa_info["email"] and pa_info["email"].lower() not in seen_emails:
+                seen_emails.add(pa_info["email"].lower())
+                preset_emails.append({
+                    "name": pa_info["name"] or pa_info["company"] or "Public Adjuster",
+                    "email": pa_info["email"],
+                    "role": "pa",
+                })
+
             # Job context info
             job_info = {
                 "property_address": job.property_address or "",

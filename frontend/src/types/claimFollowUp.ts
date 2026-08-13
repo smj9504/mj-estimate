@@ -241,6 +241,19 @@ export interface GenerateAIEmailResponse {
   variables_used: Record<string, string>;
 }
 
+export type PolishEmailAction = 'shorten' | 'lengthen' | 'friendly' | 'formal' | 'proofread';
+
+export interface PolishEmailRequest {
+  body_html: string;
+  action: PolishEmailAction;
+  subject?: string;
+}
+
+export interface PolishEmailResponse {
+  subject: string;
+  body_html: string;
+}
+
 export interface SentEmail {
   id: string;
   claim_id: string;

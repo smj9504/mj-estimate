@@ -1,9 +1,8 @@
 """
 Reply check scheduler.
 
-Periodically checks IMAP inboxes for replies to sent follow-up emails.
-Runs every 10 minutes during US Eastern business hours (9am-6pm),
-every 1 hour outside business hours.
+Checks IMAP inboxes for replies to sent follow-up emails, twice a day
+(9am and 3pm US Eastern).
 """
 
 import asyncio
@@ -11,18 +10,13 @@ import logging
 from datetime import datetime
 
 import pytz
-from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 
 from app.core.scheduler import shared_scheduler
 
 logger = logging.getLogger(__name__)
 
 US_EASTERN_TZ = pytz.timezone("America/New_York")
-
-
-def _is_business_hours() -> bool:
-    us_time = datetime.now(US_EASTERN_TZ)
-    return 9 <= us_time.hour < 18
 
 
 def _sync_check_replies() -> dict:
@@ -36,12 +30,6 @@ async def check_replies_job():
     """Periodic job to check for email replies."""
     try:
         us_time = datetime.now(US_EASTERN_TZ)
-
-        # Skip if outside business hours (run less frequently)
-        # The scheduler fires every 10 min; we only run every 60 min
-        # outside business hours by skipping 5 out of 6 calls.
-        if not _is_business_hours() and us_time.minute >= 10:
-            return
 
         logger.info(
             f"Starting reply check at "
@@ -67,15 +55,15 @@ async def check_replies_job():
 
 
 def start_reply_scheduler():
-    """Register reply check job - every 10 minutes."""
+    """Register reply check job - twice daily at 9am and 3pm US Eastern."""
     shared_scheduler.add_job(
         check_replies_job,
-        trigger=IntervalTrigger(minutes=10),
+        trigger=CronTrigger(hour="9,15", minute=0, timezone=US_EASTERN_TZ),
         id="reply_check",
         name="Email Reply Auto-Check",
         replace_existing=True,
     )
-    logger.info("Reply check job registered - runs every 10 minutes")
+    logger.info("Reply check job registered - runs twice daily (9am, 3pm ET)")
 
 
 def stop_reply_scheduler():

@@ -215,10 +215,32 @@ async def delete_client(
 async def list_claims(
     client_id: str,
     service: ClaimService = Depends(_get_claim_service),
+    db=Depends(get_db),
 ):
     """List all claims for a client"""
     try:
         claims = service.get_by_client(client_id)
+
+        # Resolve pa_contact_id -> CompanyContact for claims where the PA was
+        # linked via a company contact rather than typed into the freetext
+        # pa_name/pa_email/pa_company fields (same priority as
+        # water_mitigation/adjuster_email_service.py's PA resolution), so
+        # callers that only read claim.pa_email (e.g. the client email
+        # composer's "To" options) still find the right address.
+        from app.domains.company.models import CompanyContact
+
+        contact_ids = {c.get('pa_contact_id') for c in claims if c.get('pa_contact_id') and not c.get('pa_email')}
+        if contact_ids:
+            contacts = db.query(CompanyContact).filter(CompanyContact.id.in_(contact_ids)).all()
+            contacts_by_id = {str(c.id): c for c in contacts}
+            for claim in claims:
+                contact = contacts_by_id.get(claim.get('pa_contact_id'))
+                if contact and not claim.get('pa_email'):
+                    claim['pa_name'] = contact.name or claim.get('pa_name')
+                    claim['pa_email'] = contact.email or claim.get('pa_email')
+                    if contact.company:
+                        claim['pa_company'] = contact.company.name or claim.get('pa_company')
+
         return {"claims": claims, "total": len(claims)}
     except Exception as e:
         logger.error(f"Error listing claims: {e}")

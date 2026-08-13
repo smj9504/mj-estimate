@@ -59,125 +59,227 @@ SCOPE_PROMPT_TEMPLATE = """Write the field report sections for this plumbing ser
 - **What was opened/torn out to access the issue:** {wall_access_type}
 - **Fixture detached for access (if any):** {detached_fixture}
 
+## GROUND RULES — WHAT YOU CAN AND CANNOT KNOW
+
+This report goes to an insurance adjuster and to the property owner, so every sentence
+must stay true no matter which plausible real-world scenario actually occurred. The JOB
+DETAILS above are the only facts you have. Never state or imply anything they do not
+establish.
+
+You do NOT know:
+- **How long the leak ran, when it started, or how much water escaped.** A leak inside a
+  wall can go unnoticed for an unknown length of time.
+- **Whether the homeowner did anything at all before the technician arrived.** Many
+  homeowners do not know where the main shutoff or an isolation valve is.
+- **Whether water was still discharging when the technician arrived, or had stopped.**
+- **The position of any valve, or the system pressure, on arrival.**
+- **The condition of anything not visible without opening a wall, ceiling, or fixture** —
+  insulation, framing, studs, subfloor. Not every wall even contains insulation; interior
+  partition walls, bathroom walls especially, often do not.
+- **The age, wear, deterioration, or maintenance history of the plumbing.** Nothing may
+  suggest homeowner fault or a delayed response.
+
+You DO know, and should write about: the physical conditions visible at the surface, and
+the actions the technician performed.
+
 ## INSTRUCTIONS
 
-### FIRST, INFER (include in output, used internally for the invoice step)
-- **failed_component**: the specific pipe/fixture/valve that failed, inferred from the incident type.
-- **hours_estimate**: realistic total technician hours on site for this scope of work (e.g. "3.5").
-- **protection_needed**: "yes" if tile/drywall/finished surfaces are involved (see access type), else "no".
-- **fixture_detached**: name of any fixture detached/removed to access the work area
-  (e.g. "toilet", "vanity", "dishwasher"). Use the value given above if provided;
-  otherwise infer from the incident/location/access context. Use "" if nothing was detached.
+### INFERRED FIELDS (part of the output; they also feed the invoice step)
+- **failed_component** — the specific pipe, fixture, or valve that failed, inferred from
+  the incident type and location.
+- **hours_estimate** — realistic total technician hours on site for this scope, written as
+  a decimal string (e.g. "3.5").
+- **protection_needed** — "yes" if tile, drywall, or other finished surfaces are involved
+  (judge from the access type above), otherwise "no".
+- **fixture_detached** — the fixture detached or removed to reach the work area (e.g.
+  "toilet", "vanity", "dishwasher"). Use the value given in JOB DETAILS if one was
+  provided; otherwise infer it from the incident, location, and access context. Use ""
+  if nothing was detached.
+All four must stay consistent with the narrative sections below.
 
 ### SITE FINDINGS (-> site_findings)
-- Describe ONLY what was observed on site — the component failure and its location.
-- State that homeowner reported no prior signs of leakage — mention once, plainly.
-- "sudden burst" or "sudden failure" may appear **once** if natural, but is not required.
-- Use factual, field-technician language — not legal or overly formal.
-- **Describe the failure mode specifically and neutrally** — state what was physically
-  observed, not a vague catch-all term. Use concrete language matched to the incident,
-  e.g. "split at the pipe body," "fitting separation at the joint," "cracked at the
-  elbow," "pinhole leak at the pipe wall," or "valve body failure at the stem." Avoid
-  vague euphemisms like "compromised," "failed section," or "damaged section" — they
-  can read as implying wear or age even when unintended.
-- **Note surface-level moisture indicators only** — e.g. staining or discoloration on
-  the drywall or paint, drywall that is soft/spongy to the touch, an elevated
-  moisture-meter reading on the wall, or visible water/dampness on the floor or
-  baseboard. Do NOT name or assume the condition of materials INSIDE the wall
-  (insulation, framing, studs) — those are not visible without opening the wall,
-  which is a technician action and belongs in Work Performed, not here. Not every
-  wall has insulation — interior partition walls, especially bathroom walls, often
-  don't — never assume it does.
-- **If water migrated to a lower level or adjacent room/unit, state it plainly** —
-  e.g. "active water staining was visible on the ceiling below" or "fresh staining
-  consistent with the active leak was noted on the ceiling below." Qualify it as
-  active/wet/fresh and tied to this incident — bare "staining" with no qualifier can
-  read as an old, unrelated mark and gives an adjuster room to argue it's
-  pre-existing damage rather than new damage from this failure.
-- Do NOT estimate how long the leak ran or how much water escaped — describe only
-  what was visibly wet or affected at the surface.
-- Vary opening phrasing — do NOT always start with "Upon arrival". Use alternatives:
-  - "Technician found..."
-  - "On-site inspection revealed..."
-  - "At time of service, technician observed..."
-  - Lead directly with the observed condition: "Water staining and dampness were
-    visible at..."
-  Most repairs happen same-day or next-day after the leak was discovered, so by
-  inspection time the leak itself has typically already stopped (isolated by the
-  homeowner) — don't phrase the opening as if water is still actively discharging
-  unless the incident/location genuinely indicates otherwise.
-- **NEVER include any of the following in Site Findings:**
-  - Main water valve state upon arrival (open, closed, shut off, already turned off)
-  - Water pressure state upon arrival
-  - Any suggestion the supply was "still running" or left unattended
-  - Estimated leak duration or volume of water escaped
-  - Age, wear, deterioration, or maintenance history
-  - Any implication of homeowner fault or delayed response
-  - Any technician actions (shut-off, protection, repair) — those belong in Work Performed
+
+Purpose: what was observed on site, before any work. Observations only — no technician
+action of any kind (isolation, protection, cutting, repair, testing) belongs here.
+
+REQUIRED:
+- The component that failed and where it is.
+- **The failure mode, described specifically and neutrally — but only if it was actually
+  visible without opening anything.** Whether it was depends on wall_access_type:
+  - Exposed component (access panel, under-sink/cabinet, or anything not behind a cut
+    surface) → state what was physically observed: "split at the pipe body," "fitting
+    separation at the joint," "cracked at the elbow," "pinhole leak at the pipe wall,"
+    "valve body failure at the stem."
+  - Enclosed behind drywall, tile, ceiling, or floor → the specific failure mode is NOT
+    knowable at this stage without cutting into it, which is a technician action. Describe
+    only the general suspected area instead (e.g. "a failure believed to be at the supply
+    line running through this section of wall"). Work Performed states the confirmed
+    failure mode once access was actually made — see its access step below. Do NOT write
+    "once exposed..." or "upon opening..." here; that describes a cutting action, which
+    belongs in Work Performed, not Site Findings.
+  Either way, never write "compromised," "failed section," or "damaged section" — vague
+  terms read as implying wear or age even when that is not intended.
+- **Never draw a conclusion about whether the failure was sudden or gradual** — e.g. never
+  write "this appears to have been a sudden failure rather than a gradual leak" or anything
+  like it. That is an argued conclusion aimed at a specific insurance objection, not an
+  observation, and it can conflict with the staining language a sentence or two away
+  (staining takes some time to develop, so pairing it with "not gradual" hands an adjuster
+  an opening to pick apart). The failure-mode description above already reads as an acute
+  mechanical failure — let it stand on its own without an added editorial verdict.
+- **Surface-level moisture indicators only** — staining or discoloration on the drywall or
+  paint, drywall that is soft or spongy to the touch, visible water or dampness on the
+  floor or baseboard. Do NOT mention a moisture-meter reading: no input here carries an
+  actual measured value, and citing an instrument reading with no number — or inventing
+  one — either hands an adjuster an unanswerable "what was the reading?" or puts a
+  fabricated figure in a report that has to hold up under scrutiny. If a real reading is
+  ever captured, it must ship with its baseline (e.g. "32% WME at the wall base vs. 9% on
+  unaffected wall in the same room") — a number with nothing to compare it to isn't
+  meaningful either. Nothing inside the wall: naming or characterizing insulation, framing,
+  or studs requires opening the wall, which is a technician action and belongs in Work
+  Performed.
+- One plain mention, exactly once, that the homeowner reported no prior signs of leakage.
+- **If water reached a lower level or an adjacent room/unit, say so, and qualify it as
+  active, fresh, or wet and tied to this incident** — e.g. "active water staining was
+  visible on the ceiling below," or "fresh staining consistent with the leak was noted on
+  the ceiling below." Bare "staining" with no qualifier reads as an old, unrelated mark and
+  gives an adjuster room to argue the damage is pre-existing rather than new. ("Active" and
+  "fresh" here describe the mark as new and wet — they are not a claim that water is still
+  flowing, which stays off-limits.)
+
+OPENING SENTENCE — vary it; do not always start with "Upon arrival":
+- "Technician found..."
+- "On-site inspection revealed..."
+- "At time of service, technician observed..."
+- Or lead straight into the condition: "Water staining and dampness were visible at..."
+Whichever you choose, open on the observed condition, and do not characterize the leak as
+either still discharging or already stopped — neither is knowable. "Water was present at
+the base of the wall" is safe; "water was actively discharging" and "the leak had since
+stopped" are both not.
+
+NEVER in Site Findings: valve position or pressure on arrival; any suggestion the supply
+was "still running" or left unattended; estimated leak duration or water volume; age, wear,
+deterioration, or maintenance history; homeowner fault or delayed response; any technician
+action.
 
 ### WORK PERFORMED (-> work_performed)
-- Keep it to 3-4 sentences maximum.
-- Open by confirming/isolating the water supply to the affected line before any work
-  begins (e.g. "Confirmed the water supply to the [line] was isolated" or "Isolated
-  the supply to the affected line before beginning work"). Do NOT frame this as an
-  urgent shutoff of actively-running water — most repairs happen same-day or
-  next-day after the leak was discovered, so the supply has typically already been
-  off for some time (isolated by the homeowner) before the technician ever arrives.
-  Do NOT open with "Upon arrival" — lead with the action itself.
-- Group related steps into single sentences — do not list every micro-step separately.
-- Structure: (1) confirm supply isolated + surface protection, (2) access + repair —
-  state the approximate access opening dimensions (e.g. "2' x 3'") when
-  tile/drywall/ceiling/floor was cut, (3) test + post-repair protection.
-- **Two protection phases when tile/drywall/finished surfaces are involved:**
-  - Phase 1 (pre-demo): Protect surrounding surfaces and fixtures BEFORE any cutting.
-  - Phase 2 (post-repair): Temporarily seal the exposed wall cavity with plastic sheeting
-    and tape AFTER plumbing work is complete, before leaving the job.
-- **Match repair method to pipe material:**
-  - copper -> cut out failed section, replace with Type L copper, solder/push-fit couplings.
-  - PEX/flexible -> replace connector or line with code-compliant fittings.
-  - PVC (DWV) -> cut out failed section, fit replacement PVC with couplings, replace P-trap.
-  - CPVC -> cut and replace with CPVC transition fittings.
-- **Match access to wall/access type:**
-  - tile -> protect surrounding tile and fixtures, cut and remove tile and backing for access.
-  - drywall -> cut and remove drywall section.
-  - access panel -> open existing panel, no cutting.
-  - under-sink / cabinet -> protect cabinet interior and flooring.
-  - Estimate opening size from scope: single supply-line access ≈ 1'x1' to 1.5'x1.5';
-    drain/multi-fitting or leak-search access ≈ 2'x2' to 2'x3'. Skip sizing for access
-    panel / under-sink cabinet (nothing is cut open).
-- **If a fixture was detached for access** (see fixture_detached): explicitly mention
-  detaching it before accessing the work area, and resetting/reinstalling it
-  (new wax ring, supply line connections, or caulk as applicable) as one of the final steps.
-- Use field technician language — clear and factual, not legal.
 
-### CRITICAL CONSISTENCY CHECK
-Before outputting, verify ALL of these:
-1. Site Findings must NOT mention any action the technician performed (shut-off, repair, protection).
-2. Work Performed must NOT contradict Site Findings.
-3. If Site Findings says something was in a certain state, Work Performed must not claim the opposite.
-4. The word count for work_performed should be roughly 3-4 sentences, not a long list.
+Purpose: what the technician did. 3-4 sentences maximum — group related steps into single
+sentences; never list every micro-step separately.
+
+Cover these steps, in this order:
+1. **Isolate the supply** — always (on a drain/DWV job, take the affected fixture out of
+   service instead). See "Opening step" below for the required phrasing.
+2. **Protect the surrounding surfaces and fixtures, before any cutting** — only when tile,
+   drywall, or other finished surfaces are involved (i.e. protection_needed is "yes").
+3. **Detach the fixture** — only if a fixture was detached for access (see fixture_detached).
+4. **Open access and make the repair** — always; state the approximate opening dimensions
+   (e.g. "2' x 3'") whenever tile, drywall, ceiling, or floor was cut. If Site Findings
+   could only describe a general suspected area (component was enclosed, not exposed —
+   see the failure-mode rule in Site Findings above), state the confirmed failure mode
+   here once access was made, e.g. "once exposed, the line was found split at the pipe
+   body." If Site Findings already stated the specific failure mode (component was
+   exposed), don't repeat it here.
+5. **Test the repair, reset the detached fixture, and temporarily seal the opened cavity**
+   with plastic sheeting and tape before leaving — reset only if step 3 applied, sealing
+   only if something was cut open in step 4.
+
+**Opening step — supply isolation, phrased neutrally.** Lead with the action itself (never
+"Upon arrival"). The sentence has to hold true whether the water was already off when the
+technician arrived or the technician had to close a still-open valve — you cannot know
+which, so state the isolation as a completed step, without attributing it to anyone and
+without dating it.
+- Use: "Water supply to the affected line was isolated before any work began."
+- Use: "Secured the water supply serving the affected line, then ..."
+- Use: "With the supply to the affected line isolated, ..." — efficient, since it folds
+  step 2 into the same sentence.
+- If the failure is on a drain/DWV line with no supply to isolate, the equivalent step is
+  taking the fixture out of service: "The affected fixture was taken out of service before
+  work began."
+- NEVER: "confirmed the supply was already isolated," "found the water already shut off,"
+  or anything else asserting a homeowner action before arrival.
+- NEVER: "shut off the actively running water," "emergency shutoff," or anything else
+  asserting the leak was still discharging.
+- NEVER state how long the supply had been off, or who turned it off.
+- You MAY add that the line was verified depressurized before cutting — that verifies the
+  technician's own isolation rather than a pre-arrival condition.
+
+Isolation belongs here and not in Site Findings because it is an action the technician
+took, not a condition found on arrival — so writing it here does not conflict with the
+Site Findings ban on valve position and pressure.
+
+**Repair method — match the pipe material:**
+- copper -> cut out the failure point, replace with Type L copper, solder or push-fit couplings.
+- PEX / flexible -> replace the affected connector or line with code-compliant fittings.
+- PVC (DWV) -> cut out the failure point, fit replacement PVC with couplings, replace the P-trap.
+- CPVC -> cut out the failure point and replace with CPVC transition fittings.
+
+**Access method — match the wall/access type:**
+- tile -> protect surrounding tile and fixtures, cut and remove tile and backing for access.
+- drywall -> cut and remove a drywall section.
+- access panel -> open the existing panel; nothing is cut.
+- under-sink / cabinet -> protect the cabinet interior and flooring; nothing is cut.
+
+**Opening dimensions** — required whenever something was cut open, since they are the
+evidentiary basis for the restoration scope that follows. Estimate from the scope:
+- single supply-line access ≈ 1'x1' to 1.5'x1.5'
+- drain, multi-fitting, or leak-search access ≈ 2'x2' to 2'x3'
+- access panel and under-sink cabinet -> omit dimensions entirely; nothing was cut open.
+
+**Fixture detach & reset** — if a fixture was detached, Work Performed must state that it
+was detached before the work area was accessed AND that it was reset/reinstalled near the
+end (new wax ring, supply-line reconnection, or re-caulking, as applicable). Never mention
+the detach without the reset.
 
 ### WARRANTY (-> warranty_info)
 - One sentence: 30-day workmanship warranty from date of service.
 
 ### NOTES (-> notes)
 - 2-3 sentences max.
-- Include: drying advisory, monitoring recommendation, no additional issues found.
-- If tile or drywall was removed, note that restoration is pending and the cavity has been temporarily sealed.
+- Cover: drying advisory, monitoring recommendation, and that no additional issues were found.
+- If tile or drywall was removed, add that restoration is pending and the cavity has been
+  temporarily sealed.
 
 ## TONE
-Professional field report. Written as a licensed technician, not a lawyer.
-Avoid: wear and tear, deterioration, age-related, neglect, deferred maintenance,
-excessive defensive phrasing, legal language, estimates of leak duration/volume,
-homeowner fault implications.
+A professional field report written by a licensed technician — clear, factual, plain. Not
+legal writing, not defensive, not formal for its own sake. This applies to every section.
+Never describe the pipe or the damage as "compromised," a "failed section," or a "damaged
+section"; name the specific failure instead. Avoid entirely: wear and tear, deterioration,
+age-related, neglect, deferred maintenance.
+
+## FINAL CHECK — verify every item before you output
+1. Site Findings contains no technician action at all (isolation, protection, cutting,
+   repair, testing) — including no "once exposed," "on opening," or similar phrasing that
+   implies the wall was already cut into.
+2. Site Findings names nothing inside the wall — no insulation, framing, studs, or subfloor.
+   If wall_access_type means the component was enclosed, Site Findings names only a
+   general suspected area, not a specific failure mode — that goes in Work Performed once
+   access was actually made.
+3. Nothing anywhere states or implies valve position or pressure on arrival, leak duration,
+   water volume, age or wear, or homeowner fault.
+4. The Work Performed opening does not say who isolated the supply or when, and does not
+   imply the water was either still running or already off.
+5. If water reached another level or room, it is described as active/fresh/wet and tied to
+   this incident.
+6. If a fixture was detached, Work Performed describes BOTH detaching and resetting it.
+7. If anything was cut open, Work Performed states approximate dimensions.
+8. work_performed is 3-4 sentences, not a list of micro-steps.
+9. Work Performed does not contradict Site Findings.
+10. Site Findings contains no sudden-vs-gradual conclusion (e.g. "rather than a gradual
+    leak") and no moisture-meter reading of any kind.
 
 ## OUTPUT FORMAT
-Return ONLY a valid JSON object (no markdown, no code fences):
+Return ONLY a valid JSON object — no markdown, no code fences, no commentary before or
+after it. All eight keys are required, and every value is a string:
+- `failed_component` — the specific component that failed
+- `hours_estimate` — a decimal number written as a string, e.g. "3.5"
+- `protection_needed` — exactly "yes" or "no"
+- `fixture_detached` — the fixture name, or "" if nothing was detached
+- `site_findings`, `work_performed`, `warranty_info`, `notes` — the sections written above
 
 {{
   "failed_component": "...",
   "hours_estimate": "...",
-  "protection_needed": "yes",
+  "protection_needed": "...",
   "fixture_detached": "...",
   "site_findings": "...",
   "work_performed": "...",
@@ -189,7 +291,7 @@ Return ONLY a valid JSON object (no markdown, no code fences):
 # Step 2: Invoice from Work Performed
 # ──────────────────────────────────────────────
 
-INVOICE_PROMPT_TEMPLATE = """Based on the plumbing work performed below, price a realistic itemized invoice using DMV-area market rates.
+INVOICE_PROMPT_TEMPLATE = """Price a realistic itemized invoice for the plumbing work described below, at DMV-area market rates.
 
 ## WORK PERFORMED
 {work_performed}
@@ -200,47 +302,55 @@ INVOICE_PROMPT_TEMPLATE = """Based on the plumbing work performed below, price a
 - **Wall / access type:** {wall_access_type}
 - **Protection installed:** {protection_installed}
 - **Fixture detached for access:** {fixture_detached}
-- **State:** {state}
+- **State:** {state} — regional pricing context only; see the tax rule below
 - **Estimated hours on site:** {hours_estimate}
 
-## INVOICE RULES
-- Up to 5 line items (6 if a fixture detach/reset line is needed — see below).
-- Structure: Emergency Dispatch Fee + Labor (2-3 phases) + Materials.
-- **Emergency Dispatch Fee**: $125-$200 depending on urgency (1 EA).
-- **Labor rate**: Use $185/hr as your reference when deciding realistic hours — the
-  unit_cost for every HR line is normalized to this exact rate automatically after
-  generation, so focus on realistic HOURS per phase, not the dollar figure. Use HR as
-  the unit for all labor lines.
-  Total labor hours across all phases should be realistic for the scope described —
-  use {hours_estimate} as a starting reference, but adjust to fit the actual work performed.
-- **Fixture detach & reset**: if "Fixture detached for access" above is not empty/"none",
-  add a dedicated labor line item for it — e.g. "Labor — Toilet Detach & Reset" or
-  "Labor — Vanity Detach & Reinstall" — typically 0.5-1.5 HR, separate from the other
-  labor phases. Include any reset materials (wax ring, caulk, etc.) in Materials.
-- **Materials**: Group all materials into a single LOT line item. Price it bottom-up by
-  summing realistic DMV-area retail/wholesale costs for the SPECIFIC items actually used
-  (see work performed above) — never pick a round placeholder number.
-  Reference price anchors (scale with quantity/scope):
-  - Copper pipe (Type L): ~$8-12/ft · CPVC pipe: ~$3-5/ft · PEX pipe: ~$1-2/ft
-  - Copper fittings (elbow/coupling): ~$3-8 each · CPVC/PVC fittings: ~$1-3 each
-  - Primer & cement (shared from can): ~$8-15 · Solder & flux (partial use): ~$5-10
-  - Wax ring: ~$8-15 · Toilet/appliance supply line: ~$8-15 · Braided connector: ~$10-20
-  - Protection plastic sheeting + tape: ~$15-30
-  Include temporary protection materials in this sum if protection was installed.
-  Materials description should list the actual items used with approximate quantities.
-  **The Materials total must NOT coincidentally equal the labor hourly rate ($185) or
-  any other line item's total** — if your first pass lands on a round or matching
-  number, recompute it from the itemized components above.
-- Labor phase names must reflect the ACTUAL work described above.
-  Example phase names: "Shut-off, Protection & Access", "Repair, Testing & Seal-up".
-- Price each line item independently at realistic market rates — there is no
-  predetermined total to hit. Add the line items up naturally.
-- **Tax**: Do not calculate or include sales tax, and do not add a tax/sales-tax line
-  item — it is computed automatically after generation from the state and materials cost.
-- Double-check your arithmetic (quantity × unit_cost per line) before responding.
+## LINE ITEMS — 4 to 6 total, in this order
+1. **Emergency Dispatch Fee** — exactly one line, quantity 1, unit EA, $125-$200
+   depending on urgency.
+2. **Labor** — 2 to 3 phase lines, unit HR. Phase names must reflect the ACTUAL work in
+   WORK PERFORMED above, e.g. "Labor - Isolation, Protection & Access" and
+   "Labor - Repair, Testing & Seal-up".
+3. **Fixture detach & reset labor** — one additional HR line, required ONLY if "Fixture
+   detached for access" above names a real fixture (i.e. it is not empty and not "none").
+   Name it for that fixture, e.g. "Labor - Toilet Detach & Reset" or
+   "Labor - Vanity Detach & Reinstall". Typically 0.5-1.5 HR, kept separate from the
+   other labor phases.
+4. **Materials** — exactly one line, quantity 1, unit LOT.
+
+## PRICING
+
+**Labor hours.** Spend your effort on realistic HOURS per phase, not on the dollar
+figure: every HR line's unit_cost is normalized to the standard $185/hr rate
+automatically after generation, so output 185.00 for each of them and do not vary it.
+Total hours across all labor lines should fit the scope described — {hours_estimate} is
+the starting reference; adjust up or down to match the work actually performed.
+
+**Materials.** Build the LOT price bottom-up, by summing realistic DMV-area
+retail/wholesale costs for the SPECIFIC items named in the work performed. Never pick a
+round or placeholder number. Reference anchors, scaled to quantity and scope:
+- Copper pipe (Type L) ~$8-12/ft · CPVC ~$3-5/ft · PEX ~$1-2/ft
+- Copper fittings (elbow/coupling) ~$3-8 each · CPVC/PVC fittings ~$1-3 each
+- Primer & cement (shared from a can) ~$8-15 · Solder & flux (partial use) ~$5-10
+- Wax ring ~$8-15 · Toilet/appliance supply line ~$8-15 · Braided connector ~$10-20
+- Protection plastic sheeting + tape ~$15-30
+Include the temporary protection materials if protection was installed, and the fixture
+reset materials (wax ring, caulk, supply line) if a fixture was detached. The description
+must list the actual items with approximate quantities.
+**The Materials total must not equal $185.00 or any other line's total** — a match reads
+as an unpriced placeholder rather than a real estimate. If your first pass lands on a
+round number or a coincidental match, recompute it from the components.
+
+**Tax.** Do not calculate tax, do not add a tax or sales-tax line item, and do not adjust
+any price for tax. It is computed automatically after generation.
+
+**No target total.** Price every line independently at realistic market rates; the invoice
+total is simply whatever they add up to. Before responding, multiply quantity × unit_cost
+for each line and sanity-check both the individual line totals and their sum against the
+scope of work.
 
 ## OUTPUT FORMAT
-Return ONLY a valid JSON object (no markdown, no code fences):
+Return ONLY a valid JSON object — no markdown, no code fences, no commentary:
 
 {{
   "invoice_items": [
@@ -253,20 +363,23 @@ Return ONLY a valid JSON object (no markdown, no code fences):
     }},
     {{
       "name": "Labor - [Phase Name]",
-      "description": "Description of labor performed",
+      "description": "What was done in this phase",
       "quantity": 1.5,
       "unit": "HR",
       "unit_cost": 185.00
     }},
     {{
       "name": "Materials",
-      "description": "List of materials used including protection materials",
+      "description": "Actual items used, with approximate quantities",
       "quantity": 1,
       "unit": "LOT",
-      "unit_cost": 0.00
+      "unit_cost": 142.85
     }}
   ]
-}}"""
+}}
+
+That skeleton shows shape only — the item count, the names, the descriptions, and every
+dollar figure except the 185.00 labor rate must come from the rules above."""
 
 
 # ──────────────────────────────────────────────

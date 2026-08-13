@@ -590,7 +590,11 @@ class PostgreSQLDatabase(DatabaseProvider):
             # Don't raise ConnectionError - let it be handled by get_db()
             raise
 
-    @retry_on_database_error(max_retries=3)
+    # Read-only sessions are mostly used by background jobs (e.g. the email
+    # reply scheduler), not live request handlers, so it's worth waiting out
+    # a few seconds of DNS/network flakiness rather than failing fast:
+    # backoff is 2s, 4s, 8s (~14s total) instead of the previous 1s, 2s (~3s).
+    @retry_on_database_error(max_retries=4, delay=2.0)
     def get_readonly_session(self) -> DatabaseSession:
         """Get read-only SQLAlchemy session with autocommit for SELECT queries"""
         try:

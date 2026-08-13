@@ -262,17 +262,19 @@ export const supplementService = {
   },
 
   async polishScopeNotes(notes: string, estimateType?: string): Promise<{ polished: string }> {
+    // LLM call (Anthropic) - can exceed the default 30s client timeout.
     const { data } = await api.post(`${BASE_URL}/polish-scope-notes`, {
       notes,
       estimate_type: estimateType || '',
-    });
+    }, { timeout: 60000 });
     return data;
   },
 
   async polishDescriptionForEmail(descriptions: string): Promise<{ polished_html: string }> {
+    // LLM call (Anthropic) - can exceed the default 30s client timeout.
     const { data } = await api.post(`${BASE_URL}/polish-description-for-email`, {
       descriptions,
-    });
+    }, { timeout: 60000 });
     return data;
   },
 

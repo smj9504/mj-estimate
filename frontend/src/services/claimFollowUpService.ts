@@ -16,6 +16,8 @@ import type {
   SendFromTemplateRequest,
   GenerateAIEmailRequest,
   GenerateAIEmailResponse,
+  PolishEmailRequest,
+  PolishEmailResponse,
   FollowUpDashboardStats,
 } from '../types/claimFollowUp';
 
@@ -271,7 +273,16 @@ export const claimFollowUpService = {
   },
 
   async generateAIEmail(payload: GenerateAIEmailRequest): Promise<GenerateAIEmailResponse> {
-    const { data } = await api.post(`${BASE_URL}/emails/generate-ai`, payload);
+    // LLM call (Anthropic, falling back to OpenAI on failure) plus claim context
+    // lookup - can exceed the default 30s client timeout.
+    const { data } = await api.post(`${BASE_URL}/emails/generate-ai`, payload, { timeout: 60000 });
+    return data;
+  },
+
+  async polishEmail(payload: PolishEmailRequest): Promise<PolishEmailResponse> {
+    // LLM call (Anthropic, falling back to OpenAI on failure) - can exceed the
+    // default 30s client timeout, especially when the fallback path is taken.
+    const { data } = await api.post(`${BASE_URL}/emails/polish`, payload, { timeout: 60000 });
     return data;
   },
 

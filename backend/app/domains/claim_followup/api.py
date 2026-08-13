@@ -20,6 +20,8 @@ from app.domains.claim_followup.schemas import (
     FollowUpTaskUpdate,
     GenerateAIEmailRequest,
     GenerateAIEmailResponse,
+    PolishEmailRequest,
+    PolishEmailResponse,
     SendEmailRequest,
     SendFromTemplateRequest,
     SentEmailResponse,
@@ -921,6 +923,19 @@ async def generate_ai_email(data: GenerateAIEmailRequest):
     except Exception as e:
         logger.error(f"Error generating AI email: {e}")
         raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
+
+
+@router.post("/emails/polish", response_model=PolishEmailResponse)
+async def polish_email(data: PolishEmailRequest):
+    """Polish/rewrite an already-drafted email (shorten/lengthen/tone/proofread)"""
+    service = _get_service()
+    try:
+        return service.polish_email(data.dict())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error polishing email: {e}")
+        raise HTTPException(status_code=500, detail=f"AI polish failed: {str(e)}")
 
 
 @router.post("/emails/{email_id}/mark-reply", response_model=SentEmailResponse)

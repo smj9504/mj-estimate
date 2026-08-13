@@ -102,7 +102,8 @@ export const bathroomEstimateService = {
   // ── Overview Note Generation ──
 
   async generateOverview(id: string) {
-    const { data } = await api.post(`${BASE_URL}/${id}/generate-overview`);
+    // LLM call - can exceed the default 30s client timeout.
+    const { data } = await api.post(`${BASE_URL}/${id}/generate-overview`, undefined, { timeout: 60000 });
     return data as { overview_text: string };
   },
 

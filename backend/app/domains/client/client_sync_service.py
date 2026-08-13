@@ -291,10 +291,18 @@ class ClientSyncService:
         """Match or create Claim from WM Job data."""
         claim_number = (job.claim_number or '').strip()
 
-        # Priority 1: WM Job already linked to a Claim
+        # Priority 1: WM Job already linked to a Claim - but only reuse it while
+        # the job's claim_number still agrees with it. If claim_number has since
+        # diverged (corrected in the Sheet, or the property now has a second
+        # incident/claim), fall through to Priority 2 so the job gets matched
+        # or a new Claim gets created instead of silently sticking to the stale
+        # one (which was leaving second claims for the same client uncreated).
         if job.claim_id:
             claim = self.db.query(Claim).filter(Claim.id == job.claim_id).first()
-            if claim:
+            if claim and (
+                not claim_number
+                or claim_number.lower() == (claim.claim_number or '').strip().lower()
+            ):
                 self._update_claim_from_job(claim, job)
                 return claim, 'updated'
 

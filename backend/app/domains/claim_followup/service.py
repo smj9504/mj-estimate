@@ -1698,6 +1698,16 @@ class ClaimFollowUpService:
             followup_task_id=task_id,
         )
 
+    def polish_email(self, data: Dict[str, Any]) -> Dict[str, str]:
+        """Polish/rewrite an already-drafted email (shorten/lengthen/tone/proofread)"""
+        from app.domains.claim_followup.ai_composer import polish_email_content
+
+        return polish_email_content(
+            body_html=data['body_html'],
+            action=data['action'],
+            subject=data.get('subject'),
+        )
+
     def _get_claim_context(self, claim_id: str) -> Dict[str, Any]:
         """Gather claim information for AI email generation"""
         session = self._get_readonly_session()

@@ -454,18 +454,23 @@ export const waterMitigationService = {
     // ─── AI Photo Classification ───
 
     // Classify multiple photos using AI
+    // Backend processes photos sequentially, up to 2 Gemini calls each (2-phase
+    // verification) - a batch of several photos can easily exceed the default
+    // 30s client timeout even though the server is still working. Give it room.
     aiClassify: async (photoIds: string[], forceRefresh: boolean = false, signal?: AbortSignal): Promise<AIClassifyResponse> => {
       const response = await api.post(`${BASE_URL}/photos/ai-classify`, {
         photo_ids: photoIds,
         force_refresh: forceRefresh,
-      }, { signal });
+      }, { signal, timeout: 120000 });
       return response.data;
     },
 
     // Classify a single photo using AI
     aiClassifySingle: async (photoId: string, forceRefresh: boolean = false): Promise<AIClassifyResult> => {
       const response = await api.post(
-        `${BASE_URL}/photos/${photoId}/ai-classify?force_refresh=${forceRefresh}`
+        `${BASE_URL}/photos/${photoId}/ai-classify?force_refresh=${forceRefresh}`,
+        undefined,
+        { timeout: 60000 }
       );
       return response.data;
     },
@@ -1435,7 +1440,7 @@ export interface DocumentReadiness {
 export interface PresetEmail {
   name: string;
   email: string;
-  role: string; // 'adjuster' | 'insurance' | 'other'
+  role: string; // 'adjuster' | 'insurance' | 'pa' | 'other'
 }
 
 export interface AdjusterEmailInfo {

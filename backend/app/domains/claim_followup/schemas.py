@@ -318,6 +318,19 @@ class GenerateAIEmailResponse(BaseModel):
     variables_used: Dict[str, Any] = Field(default_factory=dict)
 
 
+class PolishEmailRequest(BaseModel):
+    """Request AI to polish/rewrite an already-drafted email"""
+    body_html: str = Field(..., min_length=1)
+    action: str = Field(..., description="shorten | lengthen | friendly | formal | proofread")
+    subject: Optional[str] = None
+
+
+class PolishEmailResponse(BaseModel):
+    """AI-polished email content"""
+    subject: str = ""
+    body_html: str
+
+
 class MarkReplyRequest(BaseModel):
     reply_summary: Optional[str] = None
 

@@ -13,6 +13,9 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+SYSTEM_PROMPT = "You are a professional email writer for a water mitigation company."
+ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
+
 # Email context prompts by type
 CONTEXT_PROMPTS = {
     "initial_send": "Write a professional email to the insurance adjuster informing them that water mitigation documents have been submitted. Include: Invoice, Certificate of Satisfaction, Emergency Work Authorization, and Photo Report.",
@@ -55,6 +58,15 @@ TONE_INSTRUCTIONS = {
     "friendly": "Use a friendly but professional tone, showing understanding and patience.",
     "urgent": "Use a firm, urgent tone emphasizing the importance of immediate attention.",
     "formal": "Use a very formal, legal-style tone appropriate for official correspondence.",
+}
+
+# Polish actions: quick-edit instructions applied to an already-drafted email
+POLISH_ACTIONS = {
+    "shorten": "Make this email significantly shorter and more concise. Keep only the essential message and remove filler.",
+    "lengthen": "Expand this email with a bit more detail and context, while keeping it professional and not padding it with fluff.",
+    "friendly": "Rewrite this email in a warmer, more friendly and personable tone, while keeping it professional.",
+    "formal": "Rewrite this email in a more formal, polite, and professional tone.",
+    "proofread": "Fix any grammar, spelling, and punctuation mistakes and improve clarity. Do not change the tone, meaning, or length otherwise.",
 }
 
 
@@ -158,22 +170,87 @@ BODY:
 [email body HTML here]
 """
 
-    try:
-        result = _call_openai(prompt)
-        if result:
-            return _parse_ai_response(result, claim_context)
-    except Exception as e:
-        logger.warning(f"OpenAI generation failed: {e}")
+    result = _call_ai_provider(prompt)
+    if result:
+        return _parse_ai_response(result, claim_context)
 
     # Fallback: generate stage-aware template-based email
     return _generate_fallback_email(context_type, claim_context, tone)
+
+
+def polish_email_content(
+    body_html: str,
+    action: str,
+    subject: Optional[str] = None,
+) -> Dict[str, str]:
+    """
+    Polish an already-drafted email (Gmail "Help me write" style quick edit).
+
+    Rewrites the given body_html (and subject, if provided) according to
+    `action` (see POLISH_ACTIONS), preserving the original language and
+    basic HTML paragraph structure. Raises RuntimeError if the AI call
+    fails or is unavailable - callers should surface this as an error
+    rather than silently returning unmodified content.
+    """
+    instruction = POLISH_ACTIONS.get(action)
+    if not instruction:
+        raise ValueError(f"Unknown polish action: {action}")
+
+    subject_block = f'\nSUBJECT: {subject}' if subject else "\nSUBJECT: (none)"
+    subject_instruction = (
+        "Also rewrite the subject line to match, following the same instruction."
+        if subject else
+        'The subject is "(none)" - leave the SUBJECT line in your response as "(none)" too.'
+    )
+    prompt = f"""You are editing an already-written email. {instruction}
+
+Keep the email in the same language it is currently written in.
+Keep the same basic HTML structure (<p> tags for paragraphs, no complex HTML, no markdown).
+Do not add a greeting or signature that isn't already there. Do not invent new facts or details.
+{subject_instruction}
+
+Current email:{subject_block}
+BODY:
+{body_html}
+
+Format your response exactly as:
+SUBJECT: [subject line here]
+BODY:
+[polished email body HTML here]
+"""
+
+    result = _call_ai_provider(prompt)
+    if not result:
+        raise RuntimeError("AI polish failed - no provider returned a usable response")
+
+    parsed = _parse_ai_response(result, {})
+    polished_body = parsed.get("body_html") or body_html
+    parsed_subject = parsed.get("subject", "").strip()
+    if not subject or not parsed_subject or parsed_subject == "(none)":
+        polished_subject = subject or ""
+    else:
+        polished_subject = parsed_subject
+
+    return {
+        "subject": polished_subject,
+        "body_html": polished_body,
+    }
+
+
+def _call_ai_provider(prompt: str) -> Optional[str]:
+    """Try Anthropic first, then fall back to OpenAI if Anthropic is unavailable or fails
+    (e.g. missing key, no credits, transient error)."""
+    result = _call_anthropic(prompt)
+    if result:
+        return result
+    return _call_openai(prompt)
 
 
 def _call_openai(prompt: str) -> Optional[str]:
     """Call OpenAI API for email generation"""
     api_key = getattr(settings, "OPENAI_API_KEY", None)
     if not api_key:
-        logger.warning("No OPENAI_API_KEY configured, using fallback")
+        logger.warning("No OPENAI_API_KEY configured, skipping OpenAI")
         return None
 
     try:
@@ -182,7 +259,7 @@ def _call_openai(prompt: str) -> Optional[str]:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a professional email writer for a water mitigation company."},
+                {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.7,
@@ -191,7 +268,33 @@ def _call_openai(prompt: str) -> Optional[str]:
         return response.choices[0].message.content
     except Exception as e:
         logger.error(f"OpenAI API error: {e}")
-        raise
+        return None
+
+
+def _call_anthropic(prompt: str) -> Optional[str]:
+    """Call Anthropic API as a fallback for email generation"""
+    api_key = getattr(settings, "ANTHROPIC_API_KEY", None)
+    if not api_key:
+        logger.warning("No ANTHROPIC_API_KEY configured, skipping Anthropic")
+        return None
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=1000,
+            temperature=0.7,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return next(
+            (t for b in response.content if (t := getattr(b, "text", None)) is not None),
+            None,
+        )
+    except Exception as e:
+        logger.error(f"Anthropic API error: {e}")
+        return None
 
 
 def _parse_ai_response(response: str, claim_context: Dict[str, Any]) -> Dict[str, str]:

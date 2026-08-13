@@ -19,7 +19,9 @@ import {
   Upload,
   List,
   Tooltip,
+  Dropdown,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   SendOutlined,
   RobotOutlined,
@@ -36,6 +38,12 @@ import {
   FileOutlined,
   LoadingOutlined,
   WarningOutlined,
+  HighlightOutlined,
+  CompressOutlined,
+  ExpandOutlined,
+  SmileOutlined,
+  BankOutlined,
+  CheckOutlined,
 } from '@ant-design/icons';
 import { claimFollowUpService } from '../../services/claimFollowUpService';
 import { emailIngestionService } from '../../services/emailIngestionService';
@@ -46,6 +54,7 @@ import type {
   EmailTemplate,
   SendEmailRequest,
   GenerateAIEmailRequest,
+  PolishEmailAction,
   EmailAttachment,
 } from '../../types/claimFollowUp';
 
@@ -95,6 +104,14 @@ function getFollowupStage(contactCount: number): string {
   if (contactCount === 2) return 'third';
   return 'escalated';
 }
+
+const POLISH_ACTIONS: { key: PolishEmailAction; label: string; icon: React.ReactNode }[] = [
+  { key: 'shorten', label: 'Shorten', icon: <CompressOutlined /> },
+  { key: 'lengthen', label: 'Lengthen', icon: <ExpandOutlined /> },
+  { key: 'friendly', label: 'More Friendly', icon: <SmileOutlined /> },
+  { key: 'formal', label: 'More Formal', icon: <BankOutlined /> },
+  { key: 'proofread', label: 'Fix Grammar', icon: <CheckOutlined /> },
+];
 
 const ROLE_COLORS: Record<string, string> = {
   adjuster: 'orange',
@@ -208,7 +225,7 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
       for (const p of wmJobInfo.preset_emails) {
         if (!p.email || seen.has(p.email.toLowerCase())) continue;
         seen.add(p.email.toLowerCase());
-        const roleLabel = p.role === 'insurance' ? 'Insurance' : p.role === 'adjuster' ? 'Adjuster' : p.role;
+        const roleLabel = p.role === 'insurance' ? 'Insurance' : p.role === 'adjuster' ? 'Adjuster' : p.role === 'pa' ? 'PA' : p.role;
         options.push({
           value: p.email,
           label: (
@@ -333,6 +350,33 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
       message.error('AI generation failed. Using fallback template.');
     },
   });
+
+  // AI polish mutation (Gmail-style "Help me write" quick edits on the current draft)
+  const polishMutation = useMutation({
+    mutationFn: (action: PolishEmailAction) => {
+      const { subject, body_html } = form.getFieldsValue(['subject', 'body_html']);
+      return claimFollowUpService.polishEmail({ body_html, action, subject });
+    },
+    onSuccess: (result) => {
+      form.setFieldsValue({
+        subject: result.subject || form.getFieldValue('subject'),
+        body_html: result.body_html,
+      });
+      message.success('Email polished');
+    },
+    onError: () => {
+      message.error('Failed to polish email. Please try again.');
+    },
+  });
+
+  const handlePolish = (action: PolishEmailAction) => {
+    const bodyText = (form.getFieldValue('body_html') || '').replace(/<[^>]+>/g, '').trim();
+    if (!bodyText) {
+      message.warning('Write something in the body first');
+      return;
+    }
+    polishMutation.mutate(action);
+  };
 
   const handleTemplateSelect = async (templateId: string) => {
     setSelectedTemplate(templateId);
@@ -740,6 +784,27 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
           label={
             <Space>
               <span>Body</span>
+              <Dropdown
+                trigger={['click']}
+                disabled={polishMutation.isPending}
+                menu={{
+                  items: POLISH_ACTIONS.map(({ key, label, icon }) => ({
+                    key,
+                    label,
+                    icon,
+                  })) as MenuProps['items'],
+                  onClick: ({ key }) => handlePolish(key as PolishEmailAction),
+                }}
+              >
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<HighlightOutlined />}
+                  loading={polishMutation.isPending}
+                >
+                  Polish
+                </Button>
+              </Dropdown>
               <Button
                 type="link"
                 size="small"
