@@ -3455,13 +3455,26 @@ async def generate_photo_report(
             template_variant=request.template_variant,
         )
 
-        # Return the PDF bytes directly for preview/download
+        # Return the PDF bytes directly for preview/download.
+        # Content-Disposition headers are latin-1 encoded by Starlette, so a
+        # filename containing non-latin-1 characters (e.g. a Korean property
+        # address) would raise UnicodeEncodeError here — after the PDF was
+        # already generated, uploaded, and committed. Use an ASCII-safe
+        # fallback plus the RFC 5987 filename* extension for the real name.
         from starlette.responses import Response
+        from urllib.parse import quote
+
+        raw_filename = result["filename"]
+        ascii_filename = raw_filename.encode('ascii', 'ignore').decode('ascii').strip() or "report.pdf"
+        content_disposition = f'attachment; filename="{ascii_filename}"'
+        if ascii_filename != raw_filename:
+            content_disposition += f"; filename*=UTF-8''{quote(raw_filename)}"
+
         return Response(
             content=result["pdf_bytes"],
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f'attachment; filename="{result["filename"]}"',
+                "Content-Disposition": content_disposition,
                 "X-File-Id": str(result["file_id"]),
                 "X-Config-Id": str(config_id) if config_id else ""
             }
