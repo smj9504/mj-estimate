@@ -2958,13 +2958,21 @@ def generate_water_mitigation_report_pdf(
     def _draw_logo(lx, ly, max_w=2.5 * inch):
         if not (company_data and company_data.get('logo')):
             return None
-        logo_path = Path(company_data['logo'])
-        if not logo_path.exists():
-            return None
+        logo_value = company_data['logo']
         try:
-            logo_img = Image.open(logo_path)
+            if logo_value.startswith('data:'):
+                import base64
+                _, encoded = logo_value.split(',', 1)
+                logo_img = Image.open(io.BytesIO(base64.b64decode(encoded)))
+            else:
+                logo_path = Path(logo_value)
+                if not logo_path.exists():
+                    return None
+                logo_img = Image.open(logo_path)
             if style["logo_grayscale"]:
                 logo_img = logo_img.convert('L')
+            elif logo_img.mode in ('RGBA', 'P', 'LA'):
+                logo_img = logo_img.convert('RGB')
             lw, lh = logo_img.size
             if lw > max_w:
                 s = max_w / lw
@@ -3927,11 +3935,19 @@ def generate_completion_report_pdf(
     def _draw_logo(lx, ly, max_w=2.5 * inch):
         if not (company_data and company_data.get('logo')):
             return None
-        logo_path = Path(company_data['logo'])
-        if not logo_path.exists():
-            return None
+        logo_value = company_data['logo']
         try:
-            logo_img = Image.open(logo_path)
+            if logo_value.startswith('data:'):
+                import base64
+                _, encoded = logo_value.split(',', 1)
+                logo_img = Image.open(io.BytesIO(base64.b64decode(encoded)))
+            else:
+                logo_path = Path(logo_value)
+                if not logo_path.exists():
+                    return None
+                logo_img = Image.open(logo_path)
+            if logo_img.mode in ('RGBA', 'P', 'LA'):
+                logo_img = logo_img.convert('RGB')
             lw, lh = logo_img.size
             if lw > max_w:
                 s = max_w / lw
