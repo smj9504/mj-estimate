@@ -191,19 +191,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         label: 'Estimates',
         children: [
           {
-            key: '/documents/estimate',
-            icon: <FileTextOutlined />,
-            label: 'Estimates',
-          },
-          {
             key: '/supplements',
             icon: <FileTextOutlined />,
             label: 'Supplements',
-          },
-          {
-            key: '/documents/invoice',
-            icon: <FileTextOutlined />,
-            label: 'Invoices',
           },
           {
             key: '/reconstruction-estimate/pack-calculator-new/list',
@@ -230,11 +220,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             icon: <ColumnWidthOutlined />,
             label: 'Siding',
           },
-          {
-            key: '/material-orders',
-            icon: <ShoppingCartOutlined />,
-            label: 'Material Orders',
-          },
         ],
       },
 
@@ -244,6 +229,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         icon: <FilePdfOutlined />,
         label: 'Documents',
         children: [
+          {
+            key: '/documents/estimate',
+            icon: <FileTextOutlined />,
+            label: 'Estimates',
+          },
+          {
+            key: '/documents/invoice',
+            icon: <FileTextOutlined />,
+            label: 'Invoices',
+          },
+          {
+            key: '/material-orders',
+            icon: <ShoppingCartOutlined />,
+            label: 'Material Orders',
+          },
           {
             key: '/documents/plumber_report',
             icon: <ToolOutlined />,
