@@ -71,6 +71,9 @@ interface BackendEstimateResponse {
     title: string;
     showSubtotal: boolean;
     order: number;
+    is_lump_sum?: boolean;
+    lump_sum_amount?: number;
+    taxable?: boolean;
   }>;
   payment_schedule?: PaymentScheduleItem[];
 }
@@ -137,6 +140,12 @@ export interface EstimateSection {
   showSubtotal: boolean;
   subtotal: number;
   sort_order?: number;
+  // Lump sum mode: when enabled, `lumpSumAmount` (not the sum of `items`)
+  // is used as this section's contribution to the document total. Items
+  // remain visible/editable for reference but don't drive the total.
+  isLumpSum?: boolean;
+  lumpSumAmount?: number;
+  taxable?: boolean;
 }
 
 export interface PaymentScheduleItem {
@@ -417,12 +426,15 @@ class EstimateService {
       discount_amount: estimate.discount_amount ? Number(estimate.discount_amount) : null,
       total_amount: estimate.total_amount ? Number(estimate.total_amount) : null,
       items: estimate.items.map(item => this.transformItemToBackend(item)),
-      // Persist section structure (titles, order, display settings)
+      // Persist section structure (titles, order, display settings, lump-sum)
       sections_data: estimate.sections ? estimate.sections.map((section, index) => ({
         id: section.id,
         title: section.title,
         showSubtotal: section.showSubtotal,
         order: index,
+        is_lump_sum: section.isLumpSum || false,
+        lump_sum_amount: section.isLumpSum ? (section.lumpSumAmount ?? 0) : undefined,
+        taxable: section.taxable ?? true,
       })) : undefined,
       // Payment schedule
       payment_schedule: estimate.payment_schedule || undefined,
@@ -510,12 +522,18 @@ class EstimateService {
       const sectionItems = itemsByGroup[sd.title] || [];
       // Remove matched items so leftovers can be handled
       delete itemsByGroup[sd.title];
+      const isLumpSum = sd.is_lump_sum ?? false;
       return {
         id: sd.id,
         title: sd.title,
         showSubtotal: sd.showSubtotal ?? true,
-        subtotal: sectionItems.reduce((sum, it) => sum + (it.total || 0), 0),
+        subtotal: isLumpSum
+          ? (sd.lump_sum_amount ?? 0)
+          : sectionItems.reduce((sum, it) => sum + (it.total || 0), 0),
         items: sectionItems,
+        isLumpSum,
+        lumpSumAmount: sd.lump_sum_amount,
+        taxable: sd.taxable ?? true,
       };
     });
   }
@@ -626,6 +644,9 @@ class EstimateService {
         title: section.title,
         showSubtotal: section.showSubtotal,
         subtotal: section.subtotal,
+        is_lump_sum: section.isLumpSum || false,
+        lump_sum_amount: section.lumpSumAmount,
+        taxable: section.taxable ?? true,
         items: section.items.map(item => ({
           name: item.name || '',
           description: item.description || '',
@@ -755,6 +776,15 @@ class EstimateService {
         taxable: item.taxable ?? true, // Include taxable status for HTML
         note: item.note || ''
       })),
+      // Section metadata (needed so lump-sum sections show their manual
+      // amount instead of the sum of items in the HTML preview)
+      sections: estimate.sections ? estimate.sections.map(section => ({
+        title: section.title,
+        showSubtotal: section.showSubtotal,
+        is_lump_sum: section.isLumpSum || false,
+        lump_sum_amount: section.lumpSumAmount,
+        taxable: section.taxable ?? true,
+      })) : undefined,
       subtotal: estimate.subtotal || 0,
       op_percent: estimate.op_percent || 0, // Include O&P percentage
       op_amount: estimate.op_amount || 0, // Include O&P amount

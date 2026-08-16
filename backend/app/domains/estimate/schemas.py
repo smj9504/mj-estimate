@@ -12,6 +12,19 @@ from pydantic import BaseModel, Field, validator
 from app.domains.invoice.schemas import Adjustment
 
 
+class EstimateSection(BaseModel):
+    """Section metadata (title/order/display + optional lump-sum override).
+    Items are NOT stored here - they live in the flat items list, grouped by
+    primary_group == section title."""
+    id: Optional[str] = None
+    title: str
+    order: Optional[int] = None
+    show_subtotal: Optional[bool] = True
+    is_lump_sum: Optional[bool] = False
+    lump_sum_amount: Optional[float] = None
+    taxable: Optional[bool] = True
+
+
 class PaymentScheduleItem(BaseModel):
     """A single payment milestone in the schedule"""
     label: str = Field(..., description="e.g. 'Deposit', 'Upon Start', 'Upon Completion'")
@@ -148,7 +161,7 @@ class EstimateBase(BaseModel):
     room_data: Optional[Dict[str, Any]] = None
 
     # Sections data - preserves section structure across save/load
-    sections_data: Optional[List[Dict[str, Any]]] = None
+    sections_data: Optional[List[EstimateSection]] = None
 
     # Payment schedule
     payment_schedule: Optional[List[PaymentScheduleItem]] = None
@@ -216,7 +229,7 @@ class EstimateUpdate(BaseModel):
     room_data: Optional[Dict[str, Any]] = None
 
     # Sections data - preserves section structure across save/load
-    sections_data: Optional[List[Dict[str, Any]]] = None
+    sections_data: Optional[List[EstimateSection]] = None
 
     # Payment schedule
     payment_schedule: Optional[List[PaymentScheduleItem]] = None
@@ -303,7 +316,7 @@ class EstimateResponse(BaseModel):
     notes: Optional[str] = None
     terms: Optional[str] = None
     room_data: Optional[Dict[str, Any]] = None
-    sections_data: Optional[List[Dict[str, Any]]] = None
+    sections_data: Optional[List[EstimateSection]] = None
     payment_schedule: Optional[List[PaymentScheduleItem]] = None
 
     # Relationships
@@ -348,6 +361,10 @@ class EstimatePDFRequest(BaseModel):
 
     items: List[Dict[str, Any]] = []
     room_data: Optional[Dict[str, Any]] = None
+
+    # Section metadata (title/order/lump-sum) - used to correctly show a
+    # lump-sum section's manual amount as its subtotal in the PDF/preview
+    sections: Optional[List[EstimateSection]] = None
 
     # Financial
     subtotal: float = 0

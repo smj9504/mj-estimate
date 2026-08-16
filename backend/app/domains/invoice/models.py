@@ -81,6 +81,10 @@ class Invoice(Base, BaseModel):
     terms = Column(Text)
     payment_terms = Column(Text)
 
+    # Sections data - stores section structure (title, order, showSubtotal,
+    # lump-sum flag/amount) as JSON, mirroring Estimate.sections_data
+    sections_data = Column(JSON)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

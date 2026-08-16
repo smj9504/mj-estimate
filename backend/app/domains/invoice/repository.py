@@ -51,11 +51,30 @@ class InvoiceRepositoryMixin:
         tax_amount = invoice_data.get('tax_amount', 0)
         adjustments = invoice_data.get('adjustments', [])
 
+        # Sections flagged as lump-sum contribute their lumpSumAmount instead
+        # of their items' quantity*rate sum. Empty dict (no sections/no
+        # lump-sum sections) keeps this function's output identical to before.
+        # Sections may arrive as Pydantic model instances or plain dicts -
+        # normalize to dicts first.
+        raw_sections = invoice_data.get('sections_data') or []
+        normalized_sections = [
+            s.dict() if hasattr(s, 'dict') else s
+            for s in raw_sections
+        ]
+        lump_sum_sections = {
+            s.get('title'): s
+            for s in normalized_sections
+            if s.get('isLumpSum')
+        }
+
         items_subtotal = Decimal('0')
         item_level_tax = Decimal('0')
 
         # Calculate subtotal and item-level taxes
         for item in items:
+            if item.get('primary_group') in lump_sum_sections:
+                continue
+
             quantity = Decimal(str(item.get('quantity', 1)))
             rate = Decimal(str(item.get('rate', 0)))
             taxable = item.get('taxable', True)
@@ -68,6 +87,9 @@ class InvoiceRepositoryMixin:
             if taxable and item_tax_rate > 0:
                 item_tax = item_amount * (item_tax_rate / 100)
                 item_level_tax += item_tax
+
+        for section in lump_sum_sections.values():
+            items_subtotal += Decimal(str(section.get('lumpSumAmount', 0) or 0))
 
         # Apply adjustments in order
         current_subtotal = items_subtotal

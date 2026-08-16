@@ -781,10 +781,19 @@ async def duplicate_estimate(estimate_id: str, db=Depends(get_db)):
     )
 
 
-def _group_items_into_sections(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Group items by primary_group to create sections for PDF rendering"""
+def _group_items_into_sections(items: List[Dict[str, Any]], sections_data: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    """Group items by primary_group to create sections for PDF rendering.
+
+    sections_data (optional): the estimate's saved section metadata. Sections
+    flagged is_lump_sum=True there use their lump_sum_amount as the subtotal
+    instead of the sum of their (still-displayed) items' quantity*rate.
+    """
     logger = logging.getLogger(__name__)
     logger.info(f"_group_items_into_sections called with {len(items)} items")
+
+    lump_sum_by_title = {
+        s.get('title'): s for s in (sections_data or []) if s.get('is_lump_sum')
+    }
 
     if not items:
         logger.info("No items found, returning empty sections")
@@ -818,11 +827,14 @@ def _group_items_into_sections(items: List[Dict[str, Any]]) -> List[Dict[str, An
             group = 'General'
 
         if group not in sections_dict:
+            lump_section = lump_sum_by_title.get(group)
             sections_dict[group] = {
                 'title': group,
                 'items': [],
                 'subtotal': 0,
-                'showSubtotal': True
+                'showSubtotal': True,
+                'isLumpSum': bool(lump_section),
+                'lumpSumAmount': float(lump_section.get('lump_sum_amount', 0) or 0) if lump_section else None,
             }
 
         # Add processed item to section
@@ -843,6 +855,12 @@ def _group_items_into_sections(items: List[Dict[str, Any]]) -> List[Dict[str, An
         # Update section subtotal
         item_total = item.get('quantity', 0) * item.get('rate', 0)
         sections_dict[group]['subtotal'] += item_total
+
+    # Override subtotal for lump-sum sections with their manually-entered
+    # amount instead of the sum computed above from item quantity*rate.
+    for title, lump_section in lump_sum_by_title.items():
+        if title in sections_dict:
+            sections_dict[title]['subtotal'] = float(lump_section.get('lump_sum_amount', 0) or 0)
 
     # Convert to list - preserve original order (dict maintains insertion order in Python 3.7+)
     # This keeps sections in the order they first appear in the estimate items
@@ -902,7 +920,7 @@ async def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
     if items_data:
         logger.info(f"Sample item structure: {items_data[0]}")
 
-    sections_data = _group_items_into_sections(items_data)
+    sections_data = _group_items_into_sections(items_data, estimate.get('sections_data'))
     logger.info(f"PDF context sections: {len(sections_data)} sections created")
 
     # Log each section details
@@ -962,9 +980,9 @@ async def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
     }
 
     # Generate PDF
-    if not pdf_service:
+    if not get_pdf_service():
         raise HTTPException(status_code=500, detail="PDF service not available")
-    
+
     # Use temp_file_handler for automatic cleanup (cross-platform compatible)
     with temp_file_handler(suffix=".pdf", prefix="estimate_") as temp_path:
         try:
@@ -1026,7 +1044,8 @@ async def preview_estimate_html(data: EstimatePDFRequest):
 
         # Generate sections from items before passing to PDF service
         if 'items' in html_data:
-            sections_data = _group_items_into_sections(html_data.get('items', []))
+            source_sections = [s.dict() if hasattr(s, 'dict') else s for s in (data.sections or [])]
+            sections_data = _group_items_into_sections(html_data.get('items', []), source_sections)
             html_data['sections'] = sections_data
             logger.info(f"Generated {len(sections_data)} sections for HTML preview")
 
@@ -1061,7 +1080,7 @@ async def preview_estimate_pdf(data: EstimatePDFRequest):
     import traceback
     logger = logging.getLogger(__name__)
 
-    if not pdf_service:
+    if not get_pdf_service():
         raise HTTPException(status_code=500, detail="PDF service not available")
 
     # Use temp_file_handler for automatic cleanup (cross-platform compatible)
@@ -1077,7 +1096,8 @@ async def preview_estimate_pdf(data: EstimatePDFRequest):
 
             # Generate sections from items before passing to PDF service
             if 'items' in pdf_data:
-                sections_data = _group_items_into_sections(pdf_data.get('items', []))
+                source_sections = [s.dict() if hasattr(s, 'dict') else s for s in (data.sections or [])]
+                sections_data = _group_items_into_sections(pdf_data.get('items', []), source_sections)
                 pdf_data['sections'] = sections_data
                 logger.info(f"Generated {len(sections_data)} sections for PDF preview")
 

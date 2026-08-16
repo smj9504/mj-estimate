@@ -161,6 +161,21 @@ class InvoiceItemResponse(InvoiceItemBase):
         from_attributes = True
 
 
+class InvoiceSection(BaseModel):
+    """Section model - used for PDF generation and for persisted section
+    metadata (create/update/response). `items` is populated for PDF requests;
+    for persistence it's typically empty since items live in the flat
+    `items` list on the invoice itself, grouped by primary_group == title."""
+    id: Optional[str] = None
+    title: str
+    items: List[InvoiceItemBase] = []
+    showSubtotal: Optional[bool] = True
+    subtotal: float = 0
+    isLumpSum: Optional[bool] = False
+    lumpSumAmount: Optional[float] = None
+    taxable: Optional[bool] = True
+
+
 # Main invoice schemas
 class InvoiceBase(BaseModel):
     invoice_number: Optional[str] = None
@@ -245,7 +260,11 @@ class InvoiceBase(BaseModel):
 
 class InvoiceCreate(InvoiceBase):
     items: List[InvoiceItemCreate] = []
-    
+
+    # Section metadata (title/order/lump-sum) - preserves section structure
+    # across save/load, mirroring Estimate's sections_data
+    sections: Optional[List[InvoiceSection]] = None
+
     # Additional fields from frontend
     subtotal: Optional[float] = None
     total: Optional[float] = None
@@ -286,6 +305,10 @@ class InvoiceUpdate(BaseModel):
     insurance: Optional[InsuranceInfo] = None
 
     items: Optional[List[InvoiceItemCreate]] = None
+
+    # Section metadata (title/order/lump-sum) - preserves section structure
+    # across save/load, mirroring Estimate's sections_data
+    sections: Optional[List[InvoiceSection]] = None
 
     # Tax configuration
     tax_method: Optional[str] = None
@@ -403,24 +426,18 @@ class InvoiceResponse(BaseModel):
     # Additional
     payment_terms: Optional[str]
     notes: Optional[str]
-    
+
+    # Section metadata (title/order/lump-sum)
+    sections: Optional[List[InvoiceSection]] = None
+
     # Relationships
     items: List[InvoiceItemResponse] = []
-    
+
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
-
-
-class InvoiceSection(BaseModel):
-    """Section model for PDF generation"""
-    id: Optional[str] = None
-    title: str
-    items: List[InvoiceItemBase]
-    showSubtotal: Optional[bool] = True
-    subtotal: float = 0
 
 
 class InvoicePDFRequest(BaseModel):

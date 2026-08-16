@@ -1,7 +1,7 @@
 import React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Collapse, Badge, Tag, Button, Space, Tooltip, Popconfirm } from 'antd';
+import { Collapse, Badge, Tag, Button, Space, Tooltip, Popconfirm, Switch, InputNumber } from 'antd';
 import { HolderOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 
 const { Panel } = Collapse;
@@ -13,6 +13,8 @@ interface SortableSectionProps {
     items: any[];
     showSubtotal: boolean;
     subtotal: number;
+    isLumpSum?: boolean;
+    lumpSumAmount?: number;
   };
   sectionIndex: number;
   children?: React.ReactNode;
@@ -20,6 +22,8 @@ interface SortableSectionProps {
   onEditSection: (sectionId: string, title: string) => void;
   onDeleteSection: (sectionIndex: number) => void;
   renderHeaderOnly?: boolean;
+  onToggleLumpSum?: (sectionIndex: number, checked: boolean) => void;
+  onLumpSumAmountChange?: (sectionIndex: number, value: number | null) => void;
 }
 
 const SortableSection: React.FC<SortableSectionProps> = ({
@@ -30,6 +34,8 @@ const SortableSection: React.FC<SortableSectionProps> = ({
   onEditSection,
   onDeleteSection,
   renderHeaderOnly = false,
+  onToggleLumpSum,
+  onLumpSumAmountChange,
 }) => {
   const {
     attributes,
@@ -100,8 +106,31 @@ const SortableSection: React.FC<SortableSectionProps> = ({
           <Badge count={section.items.length} style={{ marginLeft: 4, flexShrink: 0 }} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-          {section.showSubtotal && (
-            <Tag color="blue" style={{ margin: 0 }}>${section.subtotal.toFixed(2)}</Tag>
+          {onToggleLumpSum && (
+            <Tooltip title="Lump sum: enter one total for this section instead of computing it from items">
+              <Space size={4} onClick={(e) => e.stopPropagation()}>
+                <span style={{ fontSize: 12, color: '#8c8c8c' }}>Lump Sum</span>
+                <Switch
+                  size="small"
+                  checked={section.isLumpSum || false}
+                  onChange={(checked) => onToggleLumpSum(sectionIndex, checked)}
+                />
+              </Space>
+            </Tooltip>
+          )}
+          {section.isLumpSum ? (
+            <InputNumber
+              size="small"
+              value={section.lumpSumAmount ?? 0}
+              onChange={(value) => onLumpSumAmountChange?.(sectionIndex, value)}
+              onClick={(e) => e.stopPropagation()}
+              prefix="$"
+              style={{ width: 110 }}
+            />
+          ) : (
+            section.showSubtotal && (
+              <Tag color="blue" style={{ margin: 0 }}>${section.subtotal.toFixed(2)}</Tag>
+            )
           )}
           <Space size={4}>
             <Button

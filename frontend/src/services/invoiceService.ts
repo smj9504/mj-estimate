@@ -70,6 +70,12 @@ export interface InvoiceSection {
   showSubtotal: boolean;
   subtotal: number;
   sort_order?: number;
+  // Lump sum mode: when enabled, `lumpSumAmount` (not the sum of `items`)
+  // is used as this section's contribution to the document total. Items
+  // remain visible/editable for reference but don't drive the total.
+  isLumpSum?: boolean;
+  lumpSumAmount?: number;
+  taxable?: boolean;
 }
 
 export interface Adjustment {

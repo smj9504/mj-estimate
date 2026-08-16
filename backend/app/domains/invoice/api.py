@@ -288,23 +288,29 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         {
             'quantity': item.quantity,
             'rate': item.rate,
-            'taxable': item.taxable if hasattr(item, 'taxable') else True
+            'taxable': item.taxable if hasattr(item, 'taxable') else True,
+            'primary_group': item.primary_group,
         }
         for item in invoice_data.items
     ]
-    
+
     # Prepare adjustments if provided
     adjustments_data = None
     if hasattr(invoice_data, 'adjustments') and invoice_data.adjustments:
         adjustments_data = [adj.dict() for adj in invoice_data.adjustments]
-    
+
+    # Prepare sections if provided (for lump-sum section support)
+    sections_data = None
+    if invoice_data.sections:
+        sections_data = [s.dict() for s in invoice_data.sections]
+
     # Calculate totals with adjustments support
     tax_method = invoice_data.tax_method or 'percentage'
     tax_rate = invoice_data.tax_rate or 0
     tax_amount = invoice_data.tax_amount if tax_method == 'specific' else 0
     discount = invoice_data.discount if hasattr(invoice_data, 'discount') else 0
     op_percent = invoice_data.op_percent if hasattr(invoice_data, 'op_percent') else 0
-    
+
     totals = service.calculate_totals(
         items=items_for_calc,
         tax_method=tax_method,
@@ -312,7 +318,8 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         tax_amount=tax_amount,
         discount_amount=discount,
         op_percent=op_percent,
-        adjustments=adjustments_data
+        adjustments=adjustments_data,
+        sections=sections_data
     )
     
     subtotal = totals['items_subtotal']
@@ -386,6 +393,20 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         'payment_terms': invoice_data.payment_terms if hasattr(invoice_data, 'payment_terms') else 'Net 30',
         'notes': invoice_data.notes if hasattr(invoice_data, 'notes') else None,
         'terms': invoice_data.terms if hasattr(invoice_data, 'terms') else None,
+
+        # Section metadata (title/order/lump-sum) - items/subtotal are dropped
+        # since items already live in the normalized invoice_items table
+        'sections_data': [
+            {
+                'id': s.id,
+                'title': s.title,
+                'showSubtotal': s.showSubtotal,
+                'isLumpSum': s.isLumpSum,
+                'lumpSumAmount': s.lumpSumAmount,
+                'taxable': s.taxable,
+            }
+            for s in invoice_data.sections
+        ] if invoice_data.sections else None,
     }
     
     # Prepare items separately
@@ -476,6 +497,7 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         balance_due=created_invoice.get('balance_due', 0),
         payment_terms=created_invoice.get('payment_terms'),
         notes=created_invoice.get('notes'),
+        sections=created_invoice.get('sections_data'),
         created_at=created_invoice.get('created_at'),
         updated_at=created_invoice.get('updated_at'),
         items=[
@@ -649,6 +671,22 @@ async def update_invoice(
             for key, value in insurance.items():
                 update_dict[f'insurance_{key}'] = value
 
+    if 'sections' in update_dict:
+        sections = update_dict.pop('sections')
+        # Map Pydantic 'sections' field to the 'sections_data' DB column,
+        # stripping items/subtotal since items already live in invoice_items
+        update_dict['sections_data'] = [
+            {
+                'id': s.get('id'),
+                'title': s.get('title'),
+                'showSubtotal': s.get('showSubtotal'),
+                'isLumpSum': s.get('isLumpSum'),
+                'lumpSumAmount': s.get('lumpSumAmount'),
+                'taxable': s.get('taxable'),
+            }
+            for s in sections
+        ] if sections else None
+
     # Convert date strings to datetime objects for SQLAlchemy
     if 'date' in update_dict:
         invoice_date = update_dict['date']
@@ -673,30 +711,36 @@ async def update_invoice(
         adjustments_data = update_dict['adjustments']
     elif hasattr(invoice_data, 'adjustments') and invoice_data.adjustments:
         adjustments_data = [adj.dict() if hasattr(adj, 'dict') else adj for adj in invoice_data.adjustments]
-    
+
+    # Prepare sections if provided (for lump-sum section support).
+    # Note: 'sections' was already renamed to 'sections_data' above, mapping
+    # the Pydantic field to the Invoice model's DB column.
+    sections_data = update_dict.get('sections_data')
+
     # Calculate totals if items are provided
     if 'items' in update_dict and update_dict['items']:
         items = update_dict['items']
-        
+
         # Prepare items for calculation
         items_for_calc = [
             {
                 'quantity': item.get('quantity', 0),
                 'rate': item.get('rate', 0),
-                'taxable': item.get('taxable', True)
+                'taxable': item.get('taxable', True),
+                'primary_group': item.get('primary_group'),
             }
             for item in items
         ]
-        
+
         # Handle tax calculation based on method
         tax_method = update_dict.get('tax_method', invoice_data.tax_method if hasattr(invoice_data, 'tax_method') else 'percentage')
         tax_rate = update_dict.get('tax_rate', invoice_data.tax_rate if hasattr(invoice_data, 'tax_rate') else 0)
         tax_amount = update_dict.get('tax_amount', 0) if tax_method == 'specific' else 0
-        
+
         # Use discount and op_percent from update_dict or invoice_data (for backward compatibility)
         discount = update_dict.get('discount', invoice_data.discount if hasattr(invoice_data, 'discount') else 0)
         op_percent = update_dict.get('op_percent', invoice_data.op_percent if hasattr(invoice_data, 'op_percent') else 0)
-        
+
         # Calculate totals using service method (supports adjustments)
         totals = service.calculate_totals(
             items=items_for_calc,
@@ -705,7 +749,8 @@ async def update_invoice(
             tax_amount=tax_amount,
             discount_amount=discount,
             op_percent=op_percent,
-            adjustments=adjustments_data
+            adjustments=adjustments_data,
+            sections=sections_data
         )
         
         # Calculate paid amount from payment records
@@ -762,20 +807,27 @@ async def update_invoice(
                 {
                     'quantity': item.get('quantity', 0),
                     'rate': item.get('rate', 0),
-                    'taxable': item.get('taxable', True)
+                    'taxable': item.get('taxable', True),
+                    'primary_group': item.get('primary_group'),
                 }
                 for item in existing_items
             ]
-            
+
             # Use existing tax configuration
             tax_method = update_dict.get('tax_method', existing.get('tax_method', 'percentage'))
             tax_rate = update_dict.get('tax_rate', existing.get('tax_rate', 0))
             tax_amount = update_dict.get('tax_amount', existing.get('tax_amount', 0)) if tax_method == 'specific' else 0
-            
+
             # Use discount and op_percent from update_dict or existing (for backward compatibility)
             discount = update_dict.get('discount', existing.get('discount_amount', 0))
             op_percent = update_dict.get('op_percent', existing.get('op_percent', 0))
-            
+
+            # Use sections from update_dict, or fall back to the existing
+            # invoice's stored sections_data so a lump-sum section's amount
+            # isn't dropped from the subtotal just because only adjustments
+            # were resubmitted on this update.
+            fallback_sections_data = sections_data if sections_data else existing.get('sections_data')
+
             # Calculate totals using service method (supports adjustments)
             totals = service.calculate_totals(
                 items=items_for_calc,
@@ -784,7 +836,8 @@ async def update_invoice(
                 tax_amount=tax_amount,
                 discount_amount=discount,
                 op_percent=op_percent,
-                adjustments=adjustments_data
+                adjustments=adjustments_data,
+                sections=fallback_sections_data
             )
             
             # Calculate paid amount from payment records
@@ -899,6 +952,7 @@ async def update_invoice(
         balance_due=updated_invoice.get('balance_due', 0),
         payment_terms=updated_invoice.get('payment_terms'),
         notes=updated_invoice.get('notes'),
+        sections=updated_invoice.get('sections_data'),
         created_at=updated_invoice.get('created_at'),
         updated_at=updated_invoice.get('updated_at'),
         items=[
@@ -1010,14 +1064,27 @@ async def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
             "amount": item.get('quantity', 0) * item.get('rate', 0)
         })
 
+    # Lump-sum sections use their manually-entered amount as the subtotal
+    # instead of the sum of their (still-displayed) items.
+    lump_sum_by_title_html = {
+        s.get('title'): s
+        for s in (invoice.get('sections_data') or [])
+        if s.get('isLumpSum')
+    }
+
     # Create sections with subtotals (order is preserved from OrderedDict)
     sections_html = []
     for section_name, section_items in items_by_section_html.items():
-        section_subtotal = sum(item['amount'] for item in section_items)
+        lump_section = lump_sum_by_title_html.get(section_name)
+        if lump_section:
+            section_subtotal = float(lump_section.get('lumpSumAmount', 0) or 0)
+        else:
+            section_subtotal = sum(item['amount'] for item in section_items)
         sections_html.append({
             "title": section_name,
             "items": section_items,
-            "subtotal": section_subtotal
+            "subtotal": section_subtotal,
+            "isLumpSum": bool(lump_section),
         })
         logger.info(f"Section '{section_name}': {len(section_items)} items, subtotal: {section_subtotal}")
 
@@ -1163,14 +1230,27 @@ async def generate_invoice_pdf(
             "amount": item.get('quantity', 0) * item.get('rate', 0)
         })
 
+    # Lump-sum sections use their manually-entered amount as the subtotal
+    # instead of the sum of their (still-displayed) items.
+    lump_sum_by_title = {
+        s.get('title'): s
+        for s in (invoice.get('sections_data') or [])
+        if s.get('isLumpSum')
+    }
+
     # Create sections with subtotals (order is preserved from OrderedDict)
     sections = []
     for section_name, section_items in items_by_section.items():
-        section_subtotal = sum(item['amount'] for item in section_items)
+        lump_section = lump_sum_by_title.get(section_name)
+        if lump_section:
+            section_subtotal = float(lump_section.get('lumpSumAmount', 0) or 0)
+        else:
+            section_subtotal = sum(item['amount'] for item in section_items)
         sections.append({
             "title": section_name,
             "items": section_items,
-            "subtotal": section_subtotal
+            "subtotal": section_subtotal,
+            "isLumpSum": bool(lump_section),
         })
         logger.info(f"Section '{section_name}': {len(section_items)} items, subtotal: {section_subtotal}")
 
@@ -1671,6 +1751,7 @@ async def get_invoice(invoice_id: str, service: InvoiceService = Depends(get_inv
             balance_due=invoice.get('balance_due', 0),
             payment_terms=invoice.get('payment_terms'),
             notes=invoice.get('notes'),
+            sections=invoice.get('sections_data'),
             created_at=invoice.get('created_at', ''),
             updated_at=invoice.get('updated_at', ''),
             items=[

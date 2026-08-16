@@ -377,7 +377,7 @@ interface SectionPanelProps {
   taxMethod: string;
   sections: InvoiceSection[];
   setSections: React.Dispatch<React.SetStateAction<InvoiceSection[]>>;
-  calculateSectionSubtotal: (items: any[]) => number;
+  calculateSectionSubtotal: (items: any[], section?: { isLumpSum?: boolean; lumpSumAmount?: number }) => number;
   activeId: string | null;
   dragListeners?: any;
   setEditingSectionIndex: (index: number) => void;
@@ -387,6 +387,8 @@ interface SectionPanelProps {
   setItemModalVisible: (visible: boolean) => void;
   selectedRowKeys?: string[];
   onRowSelection?: (keys: string[]) => void;
+  onToggleLumpSum?: (sectionIndex: number, checked: boolean) => void;
+  onLumpSumAmountChange?: (sectionIndex: number, value: number | null) => void;
 }
 
 const SectionPanel: React.FC<SectionPanelProps> = ({
@@ -413,6 +415,8 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
   setItemModalVisible,
   selectedRowKeys = [],
   onRowSelection,
+  onToggleLumpSum,
+  onLumpSumAmountChange,
 }) => {
   return (
     <div
@@ -451,8 +455,31 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
           </span>
           <span style={{ fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{section.title}</span>
           <Badge count={section.items.length} showZero color="#108ee9" style={{ flexShrink: 0 }} />
-          {section.showSubtotal && (
-            <Tag color="blue" style={{ margin: 0 }}>${formatCurrency(section.subtotal)}</Tag>
+          {onToggleLumpSum && (
+            <Tooltip title="Lump sum: enter one total for this section instead of computing it from items">
+              <Space size={4} onClick={(e) => e.stopPropagation()} style={{ flexShrink: 0 }}>
+                <span style={{ fontSize: 12, color: '#8c8c8c' }}>Lump Sum</span>
+                <Switch
+                  size="small"
+                  checked={section.isLumpSum || false}
+                  onChange={(checked) => onToggleLumpSum(sectionIndex, checked)}
+                />
+              </Space>
+            </Tooltip>
+          )}
+          {section.isLumpSum ? (
+            <InputNumber
+              size="small"
+              value={section.lumpSumAmount ?? 0}
+              onChange={(value) => onLumpSumAmountChange?.(sectionIndex, value)}
+              onClick={(e) => e.stopPropagation()}
+              prefix="$"
+              style={{ width: 110, flexShrink: 0 }}
+            />
+          ) : (
+            section.showSubtotal && (
+              <Tag color="blue" style={{ margin: 0 }}>${formatCurrency(section.subtotal)}</Tag>
+            )
           )}
           <span style={{ color: '#8c8c8c' }}>
             {isOpen ? <UpOutlined /> : <DownOutlined />}
@@ -631,7 +658,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                               ...item,
                               taxable: checked
                             }));
-                            newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
+                            newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items, newSections[sectionIndex]);
                             setSections(newSections);
                           }}
                         />
@@ -653,7 +680,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                           ...newSections[sectionIndex].items[recordIndex],
                           taxable: checked
                         };
-                        newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
+                        newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items, newSections[sectionIndex]);
                         setSections(newSections);
                       }}
                     />
@@ -697,7 +724,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                             e?.stopPropagation();
                             const newSections = [...sections];
                             newSections[sectionIndex].items.splice(index, 1);
-                            newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
+                            newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items, newSections[sectionIndex]);
                             setSections(newSections);
                             message.success('Item deleted successfully');
                           }}
@@ -923,7 +950,7 @@ const InvoiceCreation: React.FC = () => {
             const newSections = [...sections];
             const newItems = arrayMove([...sectionItems], activeItemIdx, overItemIdx);
             newSections[sectionIdx].items = newItems;
-            newSections[sectionIdx].subtotal = calculateSectionSubtotal(newItems);
+            newSections[sectionIdx].subtotal = calculateSectionSubtotal(newItems, newSections[sectionIdx]);
             setSections(newSections);
           }
         }
@@ -1029,6 +1056,25 @@ const InvoiceCreation: React.FC = () => {
     message.success('Section deleted successfully');
   };
 
+  // Toggle a section into/out of lump-sum mode. Items are kept as-is;
+  // only the section's contribution to the total switches between
+  // computed-from-items and the manually-entered lumpSumAmount.
+  const toggleSectionLumpSum = (sectionIndex: number, checked: boolean) => {
+    setSections(prev => prev.map((section, i) => {
+      if (i !== sectionIndex) return section;
+      const updated = { ...section, isLumpSum: checked };
+      return { ...updated, subtotal: calculateSectionSubtotal(updated.items, updated) };
+    }));
+  };
+
+  const updateSectionLumpSumAmount = (sectionIndex: number, value: number | null) => {
+    setSections(prev => prev.map((section, i) => {
+      if (i !== sectionIndex) return section;
+      const updated = { ...section, lumpSumAmount: value ?? 0 };
+      return { ...updated, subtotal: calculateSectionSubtotal(updated.items, updated) };
+    }));
+  };
+
   // Section editing functions
   const handleEditSection = (sectionId: string, currentTitle: string) => {
     setEditingSectionId(sectionId);
@@ -1073,7 +1119,13 @@ const InvoiceCreation: React.FC = () => {
     setEditingSectionTitle('');
   };
 
-  const calculateSectionSubtotal = (items: InvoiceItem[]): number => {
+  const calculateSectionSubtotal = (
+    items: InvoiceItem[],
+    section?: { isLumpSum?: boolean; lumpSumAmount?: number }
+  ): number => {
+    if (section?.isLumpSum) {
+      return section.lumpSumAmount ?? 0;
+    }
     return items.reduce((sum, item) => {
       const quantity = parseFloat(String(item.quantity)) || 0;
       const rate = parseFloat(String(item.rate)) || 0;
@@ -1142,7 +1194,7 @@ const InvoiceCreation: React.FC = () => {
         ...newSections[si],
         items: newSections[si].items.filter((_, idx) => !indices.has(idx)),
       };
-      newSections[si].subtotal = calculateSectionSubtotal(newSections[si].items);
+      newSections[si].subtotal = calculateSectionSubtotal(newSections[si].items, newSections[si]);
     });
 
     // Add to target
@@ -1150,7 +1202,7 @@ const InvoiceCreation: React.FC = () => {
       ...newSections[targetSectionIndex],
       items: [...newSections[targetSectionIndex].items, ...itemsToMove],
     };
-    newSections[targetSectionIndex].subtotal = calculateSectionSubtotal(newSections[targetSectionIndex].items);
+    newSections[targetSectionIndex].subtotal = calculateSectionSubtotal(newSections[targetSectionIndex].items, newSections[targetSectionIndex]);
 
     setSections(newSections);
     setSelectedItemKeys({});
@@ -1172,7 +1224,7 @@ const InvoiceCreation: React.FC = () => {
     const newSections = sections.map((section, i) => {
       if (i !== targetSectionIndex) return section;
       const newItems = [...section.items, ...copiedItems];
-      return { ...section, items: newItems, subtotal: calculateSectionSubtotal(newItems) };
+      return { ...section, items: newItems, subtotal: calculateSectionSubtotal(newItems, section) };
     });
 
     setSections(newSections);
@@ -1201,7 +1253,7 @@ const InvoiceCreation: React.FC = () => {
           const indices = removeMap.get(i);
           if (!indices) return section;
           const filteredItems = section.items.filter((_, idx) => !indices.has(idx));
-          return { ...section, items: filteredItems, subtotal: calculateSectionSubtotal(filteredItems) };
+          return { ...section, items: filteredItems, subtotal: calculateSectionSubtotal(filteredItems, section) };
         });
 
         setSections(newSections);
@@ -1250,7 +1302,7 @@ const InvoiceCreation: React.FC = () => {
     });
 
     newSections[sectionIndex].items.push(...convertedItems);
-    newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
+    newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items, newSections[sectionIndex]);
 
     setSections(newSections);
 
@@ -1348,10 +1400,59 @@ const InvoiceCreation: React.FC = () => {
     const data = fetchedInvoice as any;
     setInvoiceData(data);
 
-    // Convert items to sections or use existing sections
+    // Convert items to sections or use existing sections.
+    // data.sections carries section metadata only (title/order/lump-sum) -
+    // items live separately in the flat data.items array (normalized in the
+    // invoice_items table) and must be grouped back in by primary_group.
     if (data.sections && data.sections.length > 0) {
-      setSections(data.sections);
-      setActiveKeys(data.sections.map((s: any) => s.id));
+      const flatItems = (data.items || []).map((item: any) => {
+        const quantity = parseFloat(item.quantity) || 0;
+        const rate = parseFloat(item.rate || item.unit_price) || 0;
+        const amount = parseFloat(item.amount || item.total) || (quantity * rate);
+        return {
+          id: item.id,
+          line_item_id: item.line_item_id,
+          name: item.name || item.description || '',
+          description: item.description || item.name || '',
+          quantity,
+          unit: item.unit || 'EA',
+          rate,
+          amount,
+          taxable: item.taxable !== false,
+          primary_group: item.primary_group,
+          secondary_group: item.secondary_group,
+          sort_order: item.sort_order || 0,
+          note: item.note,
+        };
+      });
+
+      const itemsByGroup: Record<string, InvoiceItem[]> = {};
+      flatItems.forEach((item: InvoiceItem) => {
+        const group = item.primary_group || 'Default Section';
+        if (!itemsByGroup[group]) itemsByGroup[group] = [];
+        itemsByGroup[group].push(item);
+      });
+
+      const mergedSections: InvoiceSection[] = data.sections.map((sd: any) => {
+        const sectionItems = itemsByGroup[sd.title] || [];
+        const isLumpSum = sd.isLumpSum ?? false;
+        return {
+          ...sd,
+          items: sectionItems,
+          subtotal: isLumpSum
+            ? (sd.lumpSumAmount ?? 0)
+            : sectionItems.reduce((sum: number, item: InvoiceItem) => {
+                const quantity = parseFloat(String(item.quantity)) || 0;
+                const rate = parseFloat(String(item.rate)) || 0;
+                const amount = parseFloat(String(item.amount)) || (quantity * rate);
+                return sum + amount;
+              }, 0),
+        };
+      });
+
+      setSections(mergedSections);
+      setActiveKeys(mergedSections.map((s: any) => s.id));
+      setItems(flatItems);
     } else if (data.items && data.items.length > 0) {
       const processedItems = data.items.map((item: any) => {
         // Ensure numeric values are properly converted
@@ -1924,7 +2025,7 @@ const InvoiceCreation: React.FC = () => {
       }
 
       // Recalculate section subtotal
-      newSections[editingSectionIndex].subtotal = calculateSectionSubtotal(newSections[editingSectionIndex].items);
+      newSections[editingSectionIndex].subtotal = calculateSectionSubtotal(newSections[editingSectionIndex].items, newSections[editingSectionIndex]);
       setSections(newSections);
 
       // Auto-expand the section when an item is added
@@ -2091,6 +2192,9 @@ const InvoiceCreation: React.FC = () => {
     if (taxMethod === 'percentage') {
       // Calculate tax on taxable items only
       const taxableAmount = sections.reduce((sum, section) => {
+        if (section.isLumpSum) {
+          return sum + (section.taxable !== false ? (section.lumpSumAmount || 0) : 0);
+        }
         return sum + section.items.reduce((itemSum, item) => {
           if (item.taxable !== false) { // Default to taxable if not specified
             const quantity = parseFloat(String(item.quantity)) || 0;
@@ -2379,7 +2483,10 @@ const InvoiceCreation: React.FC = () => {
           title: section.title,
           items: section.items,
           showSubtotal: section.showSubtotal !== false,
-          subtotal: section.subtotal || section.items.reduce((sum, item) => sum + (item.quantity * item.rate), 0)
+          subtotal: section.subtotal || section.items.reduce((sum, item) => sum + (item.quantity * item.rate), 0),
+          isLumpSum: section.isLumpSum || false,
+          lumpSumAmount: section.isLumpSum ? (section.lumpSumAmount ?? 0) : undefined,
+          taxable: section.taxable ?? true,
         })),
         subtotal: totals.subtotal,
         adjustments: adjustments.length > 0 ? adjustments.map(adj => ({
@@ -3581,6 +3688,8 @@ const InvoiceCreation: React.FC = () => {
                       setItemModalVisible={setItemModalVisible}
                       selectedRowKeys={selectedItemKeys[sectionIndex] || []}
                       onRowSelection={(keys) => handleItemRowSelection(sectionIndex, keys)}
+                      onToggleLumpSum={toggleSectionLumpSum}
+                      onLumpSumAmountChange={updateSectionLumpSumAmount}
                     />
                   </SortableSectionItem>
                 ))}

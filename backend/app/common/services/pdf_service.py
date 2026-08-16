@@ -907,10 +907,26 @@ print(os.path.getsize(output_path))
         # Calculate totals - matching frontend logic
         items = context.get('items', [])
         sections = context.get('sections', [])
+
+        # Lump-sum sections contribute their manual subtotal instead of the
+        # sum of their (still-displayed) items' quantity*rate. Match items to
+        # sections by title (== primary_group), since that's the only link
+        # between the flat items list and the section metadata at this point.
+        lump_sum_titles = {
+            s.get('title') for s in sections
+            if s.get('isLumpSum') or s.get('is_lump_sum')
+        }
+
         if items:
             items_subtotal = sum(
                 float(item.get('quantity', 0)) * float(item.get('rate', 0))
                 for item in items
+                if item.get('primary_group') not in lump_sum_titles
+            )
+            items_subtotal += sum(
+                float(s.get('subtotal', 0) or 0)
+                for s in sections
+                if s.get('title') in lump_sum_titles
             )
         elif sections:
             # When items is empty but sections exist (e.g. roofing invoice),
@@ -1227,28 +1243,35 @@ print(os.path.getsize(output_path))
             for section in context['sections']:
                 processed_items = []
                 section_subtotal = 0
-                
+                is_lump_sum = bool(section.get('isLumpSum') or section.get('is_lump_sum'))
+
                 for item in section.get('items', []):
                     # Preserve HTML in description and note fields
                     processed_item = item.copy()
-                    
+
                     # Keep description HTML as-is (from RichTextEditor)
                     if item.get('description'):
                         processed_item['description'] = item['description']
-                    
-                    # Keep note HTML as-is (from RichTextEditor)  
+
+                    # Keep note HTML as-is (from RichTextEditor)
                     if item.get('note'):
                         processed_item['note'] = item['note']
-                    
+
                     # Calculate item total
                     quantity = float(item.get('quantity', 0))
                     unit_price = float(item.get('unit_price', item.get('rate', 0)))
                     item_total = quantity * unit_price
                     processed_item['total'] = item_total
                     section_subtotal += item_total
-                    
+
                     processed_items.append(processed_item)
-                
+
+                # Lump-sum sections use their manually-entered amount as the
+                # subtotal instead of the sum of their (still-displayed) items.
+                if is_lump_sum:
+                    lump_amount = section.get('lumpSumAmount', section.get('lump_sum_amount', 0))
+                    section_subtotal = float(lump_amount or 0)
+
                 processed_section = {
                     'title': section.get('title', ''),
                     'items': processed_items,

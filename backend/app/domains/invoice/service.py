@@ -265,7 +265,7 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
         """
         return self.update(invoice_id, {'status': 'overdue'})
     
-    def calculate_totals(self, items: List[Dict[str, Any]], tax_method: str = "percentage", tax_rate: float = 0, tax_amount: float = 0, discount_amount: float = 0, op_percent: float = 0, adjustments: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    def calculate_totals(self, items: List[Dict[str, Any]], tax_method: str = "percentage", tax_rate: float = 0, tax_amount: float = 0, discount_amount: float = 0, op_percent: float = 0, adjustments: Optional[List[Dict[str, Any]]] = None, sections: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         """
         Calculate invoice totals based on items, adjustments, and tax configuration.
 
@@ -277,16 +277,32 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
             discount_amount: Discount amount to subtract (DEPRECATED: Use adjustments instead)
             op_percent: O&P percentage to add (DEPRECATED: Use adjustments instead)
             adjustments: List of adjustments to apply (new flexible system)
+            sections: Optional section metadata list. Sections with isLumpSum=True
+                contribute their lumpSumAmount to the subtotal instead of the sum
+                of their items' quantity*rate. Items belonging to a lump-sum
+                section (matched via primary_group == section title) are excluded
+                from item summation but are NOT removed from the items list itself.
 
         Returns:
             Dictionary with calculated totals including adjustments
         """
         try:
+            # Sections flagged as lump-sum: their items are excluded from the
+            # quantity*rate summation below, and their lumpSumAmount is added
+            # to the subtotal once instead. When `sections` is None/empty this
+            # dict is empty and behavior is identical to before this feature.
+            lump_sum_sections = {
+                s.get('title'): s for s in (sections or []) if s.get('isLumpSum')
+            }
+
             items_subtotal = Decimal('0')
 
             # Calculate items subtotal and track taxable items
             taxable_amount = Decimal('0')
             for item in items:
+                if item.get('primary_group') in lump_sum_sections:
+                    continue
+
                 quantity = Decimal(str(item.get('quantity', 1)))
                 rate = Decimal(str(item.get('rate', 0)))
                 taxable = item.get('taxable', True)
@@ -297,6 +313,12 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
                 # Track taxable amount for percentage tax calculation
                 if taxable:
                     taxable_amount += item_amount
+
+            for section in lump_sum_sections.values():
+                lump_amount = Decimal(str(section.get('lumpSumAmount', 0) or 0))
+                items_subtotal += lump_amount
+                if section.get('taxable', True):
+                    taxable_amount += lump_amount
 
             # Apply adjustments in order (new flexible system)
             current_subtotal = items_subtotal
@@ -513,6 +535,7 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
         
         # Calculate totals with tax configuration and adjustments
         adjustments_data = validated_data.get('adjustments')
+        sections_data = validated_data.get('sections_data')
         totals = self.calculate_totals(
             items,
             tax_method=tax_method,
@@ -520,16 +543,17 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
             tax_amount=float(validated_data.get('tax_amount', 0)),
             discount_amount=float(validated_data.get('discount_amount', 0)),
             op_percent=float(validated_data.get('op_percent', 0)),
-            adjustments=adjustments_data if adjustments_data else None
+            adjustments=adjustments_data if adjustments_data else None,
+            sections=sections_data if sections_data else None
         )
         validated_data.update(totals)
-        
+
         # Calculate balance due
         paid_amount = sum(float(payment.get('amount', 0)) for payment in payments)
         validated_data['balance_due'] = totals['total_amount'] - paid_amount
-        
+
         return validated_data
-    
+
     def _validate_update_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Validate data for invoice update"""
         logger.info(f"Received invoice update data: {data}")
@@ -586,6 +610,7 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
         
         # Calculate totals if items are provided (items are required for calculation)
         if items is not None:
+            sections_data = validated_data.get('sections_data')
             # Calculate totals with tax configuration and adjustments
             totals = self.calculate_totals(
                 items,
@@ -594,7 +619,8 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
                 tax_amount=float(validated_data.get('tax_amount', 0)),
                 discount_amount=float(validated_data.get('discount_amount', 0)),
                 op_percent=float(validated_data.get('op_percent', 0)),
-                adjustments=adjustments_data if adjustments_data else None
+                adjustments=adjustments_data if adjustments_data else None,
+                sections=sections_data if sections_data else None
             )
             validated_data.update(totals)
             

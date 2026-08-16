@@ -47,25 +47,47 @@ class EstimateRepositoryMixin:
     def calculate_totals(self, estimate_data: Dict[str, Any]) -> Dict[str, Any]:
         """Calculate estimate totals based on items"""
         items = estimate_data.get('items', [])
-        
+
+        # Sections flagged as lump-sum contribute their lump_sum_amount instead
+        # of their items' quantity*rate sum. Empty dict (no sections/no lump-sum
+        # sections) keeps this function's output identical to before.
+        # Sections may arrive as Pydantic model instances (from the API layer)
+        # or plain dicts (from internal callers) - normalize to dicts first.
+        raw_sections = estimate_data.get('sections_data') or []
+        normalized_sections = [
+            s.dict() if hasattr(s, 'dict') else s
+            for s in raw_sections
+        ]
+        lump_sum_sections = {
+            s.get('title'): s
+            for s in normalized_sections
+            if s.get('is_lump_sum')
+        }
+
         subtotal = Decimal('0')
         total_tax = Decimal('0')
         total_depreciation = Decimal('0')
-        
+
         for item in items:
+            if item.get('primary_group') in lump_sum_sections:
+                continue
+
             quantity = Decimal(str(item.get('quantity', 1)))
             rate = Decimal(str(item.get('rate', 0)))
             tax_rate = Decimal(str(item.get('tax_rate', 0)))
             depreciation_rate = Decimal(str(item.get('depreciation_rate', 0)))
-            
+
             item_amount = quantity * rate
             item_tax = item_amount * (tax_rate / 100)
             item_depreciation = item_amount * (depreciation_rate / 100)
-            
+
             subtotal += item_amount
             total_tax += item_tax
             total_depreciation += item_depreciation
-        
+
+        for section in lump_sum_sections.values():
+            subtotal += Decimal(str(section.get('lump_sum_amount', 0) or 0))
+
         discount = Decimal(str(estimate_data.get('discount_amount', 0)))
         rcv_amount = subtotal + total_tax - discount  # Replacement Cost Value
         acv_amount = rcv_amount - total_depreciation  # Actual Cash Value

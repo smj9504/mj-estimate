@@ -422,6 +422,25 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     message.success('Section deleted successfully');
   };
 
+  // Toggle a section into/out of lump-sum mode. Items are kept as-is;
+  // only the section's contribution to the total switches between
+  // computed-from-items and the manually-entered lumpSumAmount.
+  const toggleSectionLumpSum = (sectionIndex: number, checked: boolean) => {
+    setSections(prev => prev.map((section, i) => {
+      if (i !== sectionIndex) return section;
+      const updated = { ...section, isLumpSum: checked };
+      return { ...updated, subtotal: calculateSectionSubtotal(updated.items, updated) };
+    }));
+  };
+
+  const updateSectionLumpSumAmount = (sectionIndex: number, value: number | null) => {
+    setSections(prev => prev.map((section, i) => {
+      if (i !== sectionIndex) return section;
+      const updated = { ...section, lumpSumAmount: value ?? 0 };
+      return { ...updated, subtotal: calculateSectionSubtotal(updated.items, updated) };
+    }));
+  };
+
   // Unified drag and drop sensors with improved activation
   // PointerSensor for mouse/stylus; TouchSensor with delay for mobile (prevents scroll/drag conflict)
   const unifiedSensors = useSensors(
@@ -519,7 +538,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
           if (activeItemIdx !== -1 && overItemIdx !== -1 && activeItemIdx !== overItemIdx) {
             const newItems = arrayMove([...sectionItems], activeItemIdx, overItemIdx);
             const newSections = sections.map((section, i) =>
-              i !== sectionIdx ? section : { ...section, items: newItems, subtotal: calculateSectionSubtotal(newItems) }
+              i !== sectionIdx ? section : { ...section, items: newItems, subtotal: calculateSectionSubtotal(newItems, section) }
             );
             setSections(newSections);
           }
@@ -599,7 +618,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       return {
         ...section,
         items: newItems,
-        subtotal: calculateSectionSubtotal(newItems),
+        subtotal: calculateSectionSubtotal(newItems, section),
       };
     });
 
@@ -689,7 +708,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     const newSections = sections.map((section, i) => {
       if (i !== sectionIndex) return section;
       const newItems = section.items.filter((_, j) => j !== itemIndex);
-      return { ...section, items: newItems, subtotal: calculateSectionSubtotal(newItems) };
+      return { ...section, items: newItems, subtotal: calculateSectionSubtotal(newItems, section) };
     });
     setSections(newSections);
     message.success('Item deleted successfully');
@@ -720,7 +739,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     const newSections = sections.map((section, i) => {
       if (i !== sectionIndex) return section;
       const filteredItems = section.items.filter((_, index) => !selectedKeys.includes(String(index)));
-      return { ...section, items: filteredItems, subtotal: calculateSectionSubtotal(filteredItems) };
+      return { ...section, items: filteredItems, subtotal: calculateSectionSubtotal(filteredItems, section) };
     });
     setSections(newSections);
 
@@ -786,7 +805,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
         ...newSections[si],
         items: newSections[si].items.filter((_, idx) => !indices.has(idx)),
       };
-      newSections[si].subtotal = calculateSectionSubtotal(newSections[si].items);
+      newSections[si].subtotal = calculateSectionSubtotal(newSections[si].items, newSections[si]);
     });
 
     // Add to target
@@ -794,7 +813,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       ...newSections[targetSectionIndex],
       items: [...newSections[targetSectionIndex].items, ...itemsToMove],
     };
-    newSections[targetSectionIndex].subtotal = calculateSectionSubtotal(newSections[targetSectionIndex].items);
+    newSections[targetSectionIndex].subtotal = calculateSectionSubtotal(newSections[targetSectionIndex].items, newSections[targetSectionIndex]);
 
     setSections(newSections);
     setSelectedItemKeys({});
@@ -816,7 +835,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     const newSections = sections.map((section, i) => {
       if (i !== targetSectionIndex) return section;
       const newItems = [...section.items, ...copiedItems];
-      return { ...section, items: newItems, subtotal: calculateSectionSubtotal(newItems) };
+      return { ...section, items: newItems, subtotal: calculateSectionSubtotal(newItems, section) };
     });
 
     setSections(newSections);
@@ -845,7 +864,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
           const indices = removeMap.get(i);
           if (!indices) return section;
           const filteredItems = section.items.filter((_, idx) => !indices.has(idx));
-          return { ...section, items: filteredItems, subtotal: calculateSectionSubtotal(filteredItems) };
+          return { ...section, items: filteredItems, subtotal: calculateSectionSubtotal(filteredItems, section) };
         });
 
         setSections(newSections);
@@ -860,7 +879,13 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     setSelectedItemKeys({});
   }, []);
 
-  const calculateSectionSubtotal = (items: EstimateLineItem[]): number => {
+  const calculateSectionSubtotal = (
+    items: EstimateLineItem[],
+    section?: { isLumpSum?: boolean; lumpSumAmount?: number }
+  ): number => {
+    if (section?.isLumpSum) {
+      return section.lumpSumAmount ?? 0;
+    }
     return items.reduce((sum, item) => sum + (item.total || 0), 0);
   };
 
@@ -922,6 +947,9 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     if (taxMethod === 'percentage') {
       // Calculate tax on taxable items only
       const taxableAmount = sections.reduce((sum, section) => {
+        if (section.isLumpSum) {
+          return sum + (section.taxable !== false ? (section.lumpSumAmount || 0) : 0);
+        }
         return sum + section.items.reduce((itemSum, item) => {
           if (item.taxable !== false) { // Default to taxable if not specified
             return itemSum + (item.total || 0);
@@ -1064,7 +1092,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       return {
         ...section,
         items: newItems,
-        subtotal: calculateSectionSubtotal(newItems),
+        subtotal: calculateSectionSubtotal(newItems, section),
       };
     });
 
@@ -1678,6 +1706,8 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                             }}
                             onDeleteSection={deleteSection}
                             renderHeaderOnly={true}
+                            onToggleLumpSum={toggleSectionLumpSum}
+                            onLumpSumAmountChange={updateSectionLumpSumAmount}
                           />
                         ),
                         children: (

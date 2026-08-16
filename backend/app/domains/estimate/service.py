@@ -349,6 +349,24 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
 
             logger.info(f"Converting estimate to invoice: {len(invoice_items)} items, notes included: {sum(1 for i in invoice_items if i.get('note'))}")
 
+            # Carry section metadata (including lump-sum flag/amount) through
+            # to the invoice, converting field names from the estimate's
+            # snake_case convention (is_lump_sum) to the invoice's camelCase
+            # convention (isLumpSum) so InvoiceService.calculate_totals()
+            # recognizes lump-sum sections on the created invoice.
+            estimate_sections = estimate.get('sections_data') or []
+            invoice_sections_data = [
+                {
+                    'id': s.get('id'),
+                    'title': s.get('title'),
+                    'showSubtotal': s.get('show_subtotal', True),
+                    'isLumpSum': s.get('is_lump_sum', False),
+                    'lumpSumAmount': s.get('lump_sum_amount'),
+                    'taxable': s.get('taxable', True),
+                }
+                for s in estimate_sections
+            ] if estimate_sections else None
+
             invoice_data = {
                 'company_id': estimate.get('company_id'),
                 'client_name': estimate.get('client_name'),
@@ -367,7 +385,8 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                 'total_amount': estimate.get('total_amount'),
                 'notes': estimate.get('notes'),
                 'terms': estimate.get('terms'),
-                'items': invoice_items
+                'items': invoice_items,
+                'sections_data': invoice_sections_data,
             }
             
             # Create invoice
@@ -382,7 +401,7 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
             logger.error(f"Error converting estimate to invoice: {e}")
             raise
     
-    def calculate_totals(self, items: List[Dict[str, Any]], op_percent: float = 0, tax_method: str = 'percentage', tax_rate: float = 0, tax_amount: float = 0, adjustments: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    def calculate_totals(self, items: List[Dict[str, Any]], op_percent: float = 0, tax_method: str = 'percentage', tax_rate: float = 0, tax_amount: float = 0, adjustments: Optional[List[Dict[str, Any]]] = None, sections: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         """
         Calculate estimate totals based on items with O&P and tax calculations.
 
@@ -392,16 +411,32 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
             tax_method: Tax method ('percentage' or 'specific')
             tax_rate: Tax rate percentage (used when tax_method is 'percentage')
             tax_amount: Specific tax amount (used when tax_method is 'specific')
+            sections: Optional section metadata list. Sections with is_lump_sum=True
+                contribute their lump_sum_amount to the subtotal instead of the sum
+                of their items' quantity*rate. Items belonging to a lump-sum section
+                (matched via primary_group == section title) are excluded from item
+                summation but are NOT removed from the items list itself.
 
         Returns:
             Dictionary with calculated totals
         """
         try:
+            # Sections flagged as lump-sum: their items are excluded from the
+            # quantity*rate summation below, and their lump_sum_amount is added
+            # to the subtotal once instead. When `sections` is None/empty this
+            # dict is empty and behavior is identical to before this feature.
+            lump_sum_sections = {
+                s.get('title'): s for s in (sections or []) if s.get('is_lump_sum')
+            }
+
             subtotal = Decimal('0')
             total_item_tax = Decimal('0')
             total_depreciation = Decimal('0')
 
             for item in items:
+                if item.get('primary_group') in lump_sum_sections:
+                    continue
+
                 quantity = Decimal(str(item.get('quantity', 1)))
                 rate = Decimal(str(item.get('rate', 0)))
                 item_tax_rate = Decimal(str(item.get('tax_rate', 0)))
@@ -414,6 +449,9 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                 subtotal += item_amount
                 total_item_tax += item_tax
                 total_depreciation += item_depreciation
+
+            for section in lump_sum_sections.values():
+                subtotal += Decimal(str(section.get('lump_sum_amount', 0) or 0))
 
             # Apply adjustments in order (new flexible system)
             current_subtotal = subtotal
@@ -462,10 +500,16 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                 # Calculate tax on taxable items only + proportional O&P
                 taxable_amount = Decimal('0')
                 for item in items:
+                    if item.get('primary_group') in lump_sum_sections:
+                        continue
                     if item.get('taxable', True):  # Default to taxable if not specified
                         quantity = Decimal(str(item.get('quantity', 1)))
                         rate = Decimal(str(item.get('rate', 0)))
                         taxable_amount += quantity * rate
+
+                for section in lump_sum_sections.values():
+                    if section.get('taxable', True):
+                        taxable_amount += Decimal(str(section.get('lump_sum_amount', 0) or 0))
 
                 if taxable_amount > 0 and subtotal > 0:
                     taxable_ratio = taxable_amount / subtotal
@@ -727,14 +771,26 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                     for adj in adjustments_data
                 ]
 
+        # Prepare sections if provided (for lump-sum section support).
+        # Normalize Pydantic model instances to plain dicts and write back
+        # into validated_data so downstream repository code (which also
+        # reads sections_data) doesn't receive raw Pydantic objects.
+        sections_data = None
+        if validated_data.get('sections_data'):
+            sections_data = [
+                s.dict() if hasattr(s, 'dict') else s
+                for s in validated_data['sections_data']
+            ]
+            validated_data['sections_data'] = sections_data
+
         totals = self.calculate_totals(
             items, op_percent, tax_method, tax_rate, tax_amount,
-            adjustments=adjustments_data
+            adjustments=adjustments_data, sections=sections_data
         )
         validated_data.update(totals)
-        
+
         return validated_data
-    
+
     def _validate_update_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Validate data for estimate update"""
         logger.info(f"=== SERVICE _validate_update_data INPUT ===")
@@ -787,9 +843,21 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                         for adj in adjustments_data
                     ]
 
+            # Prepare sections if provided (for lump-sum section support).
+            # Normalize Pydantic model instances to plain dicts and write
+            # back into validated_data so downstream repository code (which
+            # also reads sections_data) doesn't receive raw Pydantic objects.
+            sections_data = None
+            if validated_data.get('sections_data'):
+                sections_data = [
+                    s.dict() if hasattr(s, 'dict') else s
+                    for s in validated_data['sections_data']
+                ]
+                validated_data['sections_data'] = sections_data
+
             totals = self.calculate_totals(
                 items, op_percent, tax_method, tax_rate, tax_amount,
-                adjustments=adjustments_data
+                adjustments=adjustments_data, sections=sections_data
             )
             validated_data.update(totals)
         
