@@ -372,11 +372,12 @@ const FileList: React.FC<FileListProps> = ({
         onCancel={() => setPreviewVisible(false)}
         width="80%"
         style={{ top: 20 }}
+        styles={{ body: { textAlign: 'center' } }}
       >
         <Image
           src={previewImage}
           alt={previewTitle}
-          style={{ width: '100%' }}
+          style={{ maxWidth: '100%', maxHeight: 'calc(100vh - 160px)', objectFit: 'contain' }}
           preview={false}
         />
       </Modal>
