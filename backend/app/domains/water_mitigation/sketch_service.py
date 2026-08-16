@@ -396,6 +396,17 @@ class SketchService:
         "wall_drywall", "wall_drywall_2ft", "wall_drywall_4ft",
     })
 
+    # Material IDs that expose framing/subfloor requiring antimicrobial
+    # treatment per IICRC S500 guidance (drywall ceiling/wall demo, floor demo)
+    _ANTIMICROBIAL_TRIGGER_MATERIAL_IDS = frozenset({
+        "wall_drywall", "wall_drywall_2ft", "wall_drywall_4ft",
+        "ceiling", "wood_floor", "carpet", "tile",
+    })
+
+    # Line item code used to price the auto-added antimicrobial scope item
+    # (seeded by migration am01a2b3c4d5_seed_antimicrobial_line_item)
+    _ANTIMICROBIAL_LINE_ITEM_CODE = "WTRGRM"
+
     # Trim / door size sub-type display names
     _TRIM_SIZE_SUB_TYPE_NAMES = {
         "small": "Small",
@@ -488,6 +499,7 @@ class SketchService:
         from decimal import Decimal
 
         from sqlalchemy import select
+        from app.domains.line_items.models import LineItem
         from app.domains.reconstruction_estimate.models import MaterialWeight
         from app.domains.water_mitigation.models import (
             WMScopeItem,
@@ -520,6 +532,18 @@ class SketchService:
             )
         except Exception as e:
             logger.warning(f"[SCOPE GEN] Failed to load material weights: {e}")
+
+        # Resolve the antimicrobial application LineItem for direct pricing
+        antimicrobial_line_item_id: UUID | None = None
+        try:
+            antimicrobial_line_item_id = self.db.execute(
+                select(LineItem.id).where(
+                    LineItem.item == self._ANTIMICROBIAL_LINE_ITEM_CODE,
+                    LineItem.is_active.is_(True),
+                )
+            ).scalar()
+        except Exception as e:
+            logger.warning(f"[SCOPE GEN] Failed to load antimicrobial line item: {e}")
 
         # Optionally clear existing scope data
         if options.clear_existing:
@@ -560,6 +584,7 @@ class SketchService:
             insulation_sqft: float = 0.0
             glue_down_carpet_sqft: float = 0.0
             glue_down_floor_sqft: float = 0.0
+            antimicrobial_sqft: float = 0.0
             # Baseboard/trim LF accumulated from wall drywall zones with baseboard_type
             baseboard_lf: dict[str, float] = {}  # key = baseboard_type, value = total LF
             crown_molding_lf: float = 0.0
@@ -577,6 +602,10 @@ class SketchService:
                 key = (mt, st)
                 if sqft > 0:
                     demo_groups[key] = demo_groups.get(key, 0) + sqft
+                # Accumulate antimicrobial treatment area — required whenever
+                # drywall (ceiling/wall) or floor demo exposes framing/subfloor
+                if mt in self._ANTIMICROBIAL_TRIGGER_MATERIAL_IDS and sqft > 0:
+                    antimicrobial_sqft += sqft
                 # Accumulate carpet pad area
                 if mt == "carpet" and zone.get("include_pad") and sqft > 0:
                     carpet_pad_sqft += sqft
@@ -657,6 +686,34 @@ class SketchService:
                 all_items.append(GeneratedScopeItemSummary(
                     name=name, item_type="demolition",
                     quantity=round(total_qty, 2), unit=unit,
+                    floor_label=floor_label,
+                ))
+
+            # Antimicrobial Application — auto-added whenever drywall
+            # (ceiling/wall) or floor demo is present, per IICRC S500
+            if antimicrobial_sqft > 0:
+                am_item = WMScopeItem(
+                    location_id=location.id,
+                    item_type="standard",
+                    name="Antimicrobial Application",
+                    quantity=Decimal(str(round(antimicrobial_sqft, 2))),
+                    unit="SF",
+                    include_in_debris=False,
+                    line_item_id=antimicrobial_line_item_id,
+                    display_order=item_order,
+                )
+                if not antimicrobial_line_item_id:
+                    warnings.append(
+                        "No line item found for 'Antimicrobial Application' "
+                        f"(expected code '{self._ANTIMICROBIAL_LINE_ITEM_CODE}') — "
+                        "item added without pricing"
+                    )
+                self.db.add(am_item)
+                items_created += 1
+                item_order += 1
+                all_items.append(GeneratedScopeItemSummary(
+                    name="Antimicrobial Application", item_type="standard",
+                    quantity=round(antimicrobial_sqft, 2), unit="SF",
                     floor_label=floor_label,
                 ))
 
