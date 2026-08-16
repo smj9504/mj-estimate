@@ -631,7 +631,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     subfloor_explicit = sub.get("subfloor_repair", None)
     if not has_explicit_repair_subfloor and subfloor_explicit is True and subfloor_repair_sf > 0:
         # Explicit: user specified repair area
-        _add(line_items, 3, "Subfloor repair allowance (plywood)", subfloor_repair_sf, "SF",
+        _add(line_items, 3, "Subfloor repair - partial (plywood)", subfloor_repair_sf, "SF",
              SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
              notes="Subfloor integrity verification + replacement as needed per industry standard")
     # Auto-include removed — subfloor repair only when explicitly checked
@@ -651,12 +651,15 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     # Cement board replacement — same SF as demo (partial repair)
     if cb_repair_sf > 0:
         _add(line_items, 3,
-             "Cement board replacement",
+             "Cement board replacement - water damage repair (partial)",
              cb_repair_sf, "SF",
              SUBSTRATE_RATES["durock_per_sf"] * labor_mult,
              "substrate",
-             notes="Replace section per code-compliant installation; "
-                   "overlap to nearest studs; reuse serviceable board")
+             notes="Separate from wet-area/floor cement board above — "
+                   "replaces water-damaged section only, not full "
+                   "re-installation. Replace section per code-compliant "
+                   "installation; overlap to nearest studs; reuse "
+                   "serviceable board")
 
     # ── Substrate Repair: Drywall & Subfloor ──
     # Wall drywall replacement (hang + tape + mud + sand + prime)
@@ -698,7 +701,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         repair_floor_sf = getattr(estimate, 'repair_subfloor_sf', None) or floor_sf
         if repair_floor_sf > 0:
             _add(line_items, 3,
-                 "Subfloor replacement (plywood)",
+                 "Subfloor repair - partial (plywood)",
                  repair_floor_sf, "SF",
                  SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
                  notes="Plywood replacement per code-compliant installation + fasteners")
