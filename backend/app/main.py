@@ -427,19 +427,32 @@ def _auto_add_columns_with_conn(conn):
 
     for table, col, col_type in _NEEDED_COLUMNS:
         if col not in existing.get(table, set()):
-            conn.execute(text(
-                f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"
-            ))
-            print(f"[MIGRATION] Added {table}.{col}")
+            # Each column is its own savepoint so one failure (lock
+            # timeout, type conflict, etc.) can't block every column
+            # after it in the list — previously a single failed ALTER
+            # aborted the whole outer transaction, silently skipping
+            # all subsequent columns on every future restart too.
+            try:
+                with conn.begin_nested():
+                    conn.execute(text(
+                        f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"
+                    ))
+                print(f"[MIGRATION] Added {table}.{col}")
+            except Exception as e:
+                print(f"[MIGRATION] Failed to add {table}.{col}: {e}")
 
     # Rename 'mode' → 'estimate_mode' (conflicts with PG aggregate)
     pc_cols = existing.get("pack_calculations", set())
     if "mode" in pc_cols and "estimate_mode" not in pc_cols:
-        conn.execute(text(
-            'ALTER TABLE pack_calculations '
-            'RENAME COLUMN "mode" TO estimate_mode'
-        ))
-        print("[MIGRATION] Renamed pack_calculations.mode → estimate_mode")
+        try:
+            with conn.begin_nested():
+                conn.execute(text(
+                    'ALTER TABLE pack_calculations '
+                    'RENAME COLUMN "mode" TO estimate_mode'
+                ))
+            print("[MIGRATION] Renamed pack_calculations.mode → estimate_mode")
+        except Exception as e:
+            print(f"[MIGRATION] Failed to rename pack_calculations.mode: {e}")
 
 
 
@@ -542,12 +555,16 @@ async def lifespan(app: FastAPI):
                         # so never-updated rows had updated_at = NULL).
                         for backfill_table in ("estimates", "invoices"):
                             if backfill_table in existing or backfill_table in {t.name for t in tables_to_create}:
-                                result = conn.execute(text(
-                                    f"UPDATE {backfill_table} SET updated_at = created_at "
-                                    "WHERE updated_at IS NULL"
-                                ))
-                                if result.rowcount:
-                                    print(f"[MIGRATION] Backfilled updated_at for {result.rowcount} rows in {backfill_table}")
+                                try:
+                                    with conn.begin_nested():
+                                        result = conn.execute(text(
+                                            f"UPDATE {backfill_table} SET updated_at = created_at "
+                                            "WHERE updated_at IS NULL"
+                                        ))
+                                    if result.rowcount:
+                                        print(f"[MIGRATION] Backfilled updated_at for {result.rowcount} rows in {backfill_table}")
+                                except Exception as e:
+                                    print(f"[MIGRATION] Failed to backfill updated_at for {backfill_table}: {e}")
 
                     _db._tables_initialized = True
 
