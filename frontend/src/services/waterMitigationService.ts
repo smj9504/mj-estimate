@@ -611,7 +611,8 @@ export const waterMitigationService = {
       annotationData?: string,
       documentId?: string,
       documentType?: string,
-      sourcePdfBlob?: Blob
+      sourcePdfBlob?: Blob,
+      templateId?: string
     ): Promise<any> => {
       const formData = new FormData();
       formData.append('pdf_file', pdfBlob, filename);
@@ -620,6 +621,7 @@ export const waterMitigationService = {
       if (documentId) formData.append('document_id', documentId);
       if (documentType) formData.append('document_type', documentType);
       if (sourcePdfBlob) formData.append('source_pdf_file', sourcePdfBlob, `source_${filename}`);
+      if (templateId) formData.append('template_id', templateId);
 
       const response = await api.post(
         `${BASE_URL}/jobs/${jobId}/documents/upload-annotated-pdf`,
@@ -636,15 +638,17 @@ export const waterMitigationService = {
     },
 
     // Generate prefilled template: returns original PDF + text annotations
+    // + positioned signature/initial/date_signed fields from the template's
+    // field mappings, so the annotator can render clickable "Sign Here" boxes.
     generateFromTemplate: async (
       jobId: string,
       templateId: string,
-    ): Promise<{ blob: Blob; annotations: any; filename: string }> => {
+    ): Promise<{ blob: Blob; annotations: any; signatureFields: any[]; filename: string; templateId: string }> => {
       const response = await api.post(
         `${BASE_URL}/jobs/${jobId}/documents/generate-from-template`,
         { template_id: templateId },
       );
-      const { pdf_base64, annotations, filename } = response.data;
+      const { pdf_base64, annotations, signature_fields, template_id, filename } = response.data;
       // Convert base64 to Blob
       const byteChars = atob(pdf_base64);
       const byteArray = new Uint8Array(byteChars.length);
@@ -652,7 +656,7 @@ export const waterMitigationService = {
         byteArray[i] = byteChars.charCodeAt(i);
       }
       const blob = new Blob([byteArray], { type: 'application/pdf' });
-      return { blob, annotations, filename };
+      return { blob, annotations, signatureFields: signature_fields || [], filename, templateId: template_id };
     },
 
     // Upload document file manually

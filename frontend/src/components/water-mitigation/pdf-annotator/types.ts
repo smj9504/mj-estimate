@@ -3,6 +3,8 @@
  * Types for text annotations, signature overlays, and per-page annotation data
  */
 
+export type { SignatureFieldPlacement } from '../../../types/contract';
+
 export interface PdfTextAnnotation {
   id: string;
   pageIndex: number;
@@ -31,6 +33,13 @@ export interface PdfSignatureAnnotation {
   height: number;
   /** Base64 PNG data of the signature */
   imageData: string;
+  /** ID of the template signature field this was captured for, if any.
+   *  Lets re-edit match this annotation back to its field overlay. */
+  fieldId?: string;
+  /** Field type from the template mapping (signature | initial) */
+  fieldType?: string;
+  /** Signer role from the template mapping (homeowner | company_rep | witness) */
+  signerRole?: string;
 }
 
 export interface PageAnnotations {

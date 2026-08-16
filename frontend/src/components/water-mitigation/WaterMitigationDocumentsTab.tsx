@@ -89,6 +89,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   const [editingSourceUrl, setEditingSourceUrl] = useState<string | undefined>(undefined);
   const [editingDocType, setEditingDocType] = useState<string | undefined>(undefined);
   const [editingFilename, setEditingFilename] = useState<string | undefined>(undefined);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | undefined>(undefined);
+  const [editingSignatureFields, setEditingSignatureFields] = useState<any[] | undefined>(undefined);
   const [cropModalOpen, setCropModalOpen] = useState(false);
   const [cropPhotoId, setCropPhotoId] = useState<string>('');
   const [cropPhotoUrl, setCropPhotoUrl] = useState<string>('');
@@ -278,7 +280,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
       setGeneratingFromTemplate(true);
       message.loading('Generating prefilled PDF...', 0);
 
-      const { blob, annotations } = await waterMitigationService.documents.generateFromTemplate(
+      const { blob, annotations, signatureFields, templateId } = await waterMitigationService.documents.generateFromTemplate(
         jobId,
         selectedTemplateId,
       );
@@ -290,6 +292,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
       setEditingSourceUrl(blobUrl);
       // Preserve document type from template selection for proper categorization
       setEditingDocType(selectedDocType || undefined);
+      setEditingTemplateId(templateId);
+      setEditingSignatureFields(signatureFields);
       setAnnotatorOpen(true);
 
       // Close create modal
@@ -318,6 +322,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     setEditingAnnotations(null);
     setEditingSourceUrl(undefined);
     setEditingDocType(undefined);
+    setEditingTemplateId(undefined);
+    setEditingSignatureFields(undefined);
     setAnnotatorOpen(true);
   };
 
@@ -326,10 +332,17 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     annotationDataJson: string | null,
     previewUrl: string,
     hasSourcePdf: boolean,
-    docType?: string
+    docType?: string,
+    templateId?: string,
+    signatureFields?: any[]
   ) => {
     setEditingDocumentId(documentId);
     setEditingDocType(docType);
+    // Re-derived by the backend from the source ContractTemplate's field
+    // mappings (if this document was generated from one), so the "Sign
+    // Here" overlays reappear when re-editing.
+    setEditingTemplateId(templateId);
+    setEditingSignatureFields(signatureFields);
 
     // source-pdf endpoint returns clean PDF:
     // - New docs: returns stored original (unannotated) PDF
@@ -357,7 +370,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
       JSON.stringify(annotationData),
       editingDocumentId,
       editingDocType,
-      sourcePdfBlob
+      sourcePdfBlob,
+      editingTemplateId
     );
     setAnnotatorOpen(false);
     documentListRef.current?.refresh();
@@ -873,6 +887,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
           sourcePdfUrl={editingSourceUrl}
           documentType={editingDocType}
           defaultFilename={editingFilename}
+          signatureFields={editingSignatureFields}
           onSave={handleAnnotatorSave}
           onClose={() => setAnnotatorOpen(false)}
         />

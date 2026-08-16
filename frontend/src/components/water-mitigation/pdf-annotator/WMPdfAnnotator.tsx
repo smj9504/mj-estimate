@@ -12,6 +12,7 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist';
 import WMPdfToolbar from './WMPdfToolbar';
 import WMSignaturePad from './WMSignaturePad';
+import ContractSignatureOverlay from '../../contract/ContractSignatureOverlay';
 import type {
   PdfAnnotationData,
   PdfTextAnnotation,
@@ -19,6 +20,7 @@ import type {
   PageAnnotations,
   AnnotatorState,
   AnnotationTool,
+  SignatureFieldPlacement,
 } from './types';
 import { DEFAULT_ANNOTATOR_STATE } from './types';
 
@@ -42,6 +44,10 @@ interface WMPdfAnnotatorProps {
   documentType?: string;
   /** Default filename when no annotation data exists */
   defaultFilename?: string;
+  /** Positioned signature/initial/date_signed fields from the source contract
+   *  template's field mappings. When present, clickable "Sign Here" boxes are
+   *  rendered at these positions so signing lands exactly where mapped. */
+  signatureFields?: SignatureFieldPlacement[];
   onSave: (pdfBlob: Blob, filename: string, annotationData: PdfAnnotationData, sourcePdfBlob?: Blob) => Promise<void>;
   onClose: () => void;
 }
@@ -62,6 +68,7 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
   sourcePdfUrl,
   documentType,
   defaultFilename,
+  signatureFields,
   onSave,
   onClose,
 }) => {
@@ -75,6 +82,9 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
   const [signaturePadOpen, setSignaturePadOpen] = useState(false);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editTextValue, setEditTextValue] = useState('');
+  // ID of the template signature field currently being signed via the field
+  // overlay flow. Null when the pad was opened via the free-placement toolbar.
+  const [activeFieldId, setActiveFieldId] = useState<string | null>(null);
 
   // Per-page annotations
   const [annotations, setAnnotations] = useState<Record<number, PageAnnotations>>({});
@@ -106,6 +116,12 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
   // Current page data
   const currentPageData = renderedPages[annotatorState.currentPage];
   const currentAnnotations = annotations[annotatorState.currentPage] || { texts: [], signatures: [] };
+
+  // Template-mapped signature/initial/date_signed fields on the current page
+  const currentPageFields = useMemo(
+    () => (signatureFields || []).filter(f => f.pageIndex === annotatorState.currentPage),
+    [signatureFields, annotatorState.currentPage]
+  );
 
   // Responsive: fit PDF to container width on mobile, use manual scale on desktop
   const availableWidth = containerWidth > 0 ? containerWidth - 32 : 600; // 32px for padding
@@ -426,6 +442,88 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
     setAnnotatorState(prev => ({ ...prev, scale: Math.max(0.5, prev.scale - 0.25) }));
   };
 
+  // --- Template signature fields ---
+
+  /** Find the captured signature annotation for a template field, if any. */
+  const getFieldAnnotation = useCallback((fieldId: string): PdfSignatureAnnotation | undefined => {
+    for (const pageAnns of Object.values(annotations)) {
+      const found = pageAnns.signatures.find(s => s.fieldId === fieldId);
+      if (found) return found;
+    }
+    return undefined;
+  }, [annotations]);
+
+  const handleFieldClick = (field: SignatureFieldPlacement) => {
+    if (field.fieldType === 'date_signed') {
+      // Fill immediately with today's date as a text annotation at the field position
+      const today = new Date().toLocaleDateString('en-US', {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+      });
+      updateCurrentAnnotations(prev => {
+        const existingIdx = prev.texts.findIndex(t => t.id === `field_${field.id}`);
+        const dateText: PdfTextAnnotation = {
+          id: `field_${field.id}`,
+          pageIndex: annotatorState.currentPage,
+          x: field.x,
+          y: field.y + (field.height - 0.02) / 2,
+          text: today,
+          fontSize: 12,
+          fontFamily: 'Arial',
+          color: '#000000',
+          bold: false,
+          italic: false,
+        };
+        if (existingIdx >= 0) {
+          const texts = [...prev.texts];
+          texts[existingIdx] = dateText;
+          return { ...prev, texts };
+        }
+        return { ...prev, texts: [...prev.texts, dateText] };
+      });
+      return;
+    }
+    // signature / initial — open the pad, scoped to this field
+    setActiveFieldId(field.id);
+    setSignaturePadOpen(true);
+  };
+
+  /** Save a signature captured for a specific template field, replacing any
+   *  previous capture for that field and sizing it to the field's box. */
+  const handleFieldSignatureSave = (field: SignatureFieldPlacement, imageData: string) => {
+    const existing = getFieldAnnotation(field.id);
+    const newSig: PdfSignatureAnnotation = {
+      id: existing?.id || genId(),
+      pageIndex: field.pageIndex,
+      x: field.x,
+      y: field.y,
+      width: field.width,
+      height: field.height,
+      imageData,
+      fieldId: field.id,
+      fieldType: field.fieldType,
+      signerRole: field.signerRole,
+    };
+
+    setAnnotations(prev => {
+      const pageAnns = prev[field.pageIndex] || { texts: [], signatures: [] };
+      const signatures = existing
+        ? pageAnns.signatures.map(s => s.id === existing.id ? newSig : s)
+        : [...pageAnns.signatures, newSig];
+      return { ...prev, [field.pageIndex]: { ...pageAnns, signatures } };
+    });
+
+    // Preload image
+    const img = new window.Image();
+    img.src = imageData;
+    img.onload = () => {
+      sigImagesRef.current[newSig.id] = img;
+      setAnnotations(prev => ({ ...prev })); // Force re-render
+    };
+
+    setSignaturePadOpen(false);
+    setActiveFieldId(null);
+  };
+
   // --- Signature ---
 
   const handleSignatureSave = (imageData: string) => {
@@ -639,6 +737,7 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
       >
         {currentPageData && (
           <div style={{
+            position: 'relative',
             boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
             background: '#fff',
             width: stageWidth,
@@ -716,6 +815,43 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
                 />
               </Layer>
             </Stage>
+
+            {/* Template signature field overlays — clickable "Sign Here" boxes
+                at template-mapped positions. The signature/date content itself
+                is drawn by Konva above (draggable); filled fields render this
+                overlay as an invisible click-catcher so re-clicking still lets
+                the signer redo it, without double-drawing the image. */}
+            {currentPageFields.map(field => {
+              const isFilled = field.fieldType === 'date_signed'
+                ? currentAnnotations.texts.some(t => t.id === `field_${field.id}`)
+                : !!getFieldAnnotation(field.id);
+              if (isFilled) {
+                return (
+                  <div
+                    key={field.id}
+                    onClick={() => handleFieldClick(field)}
+                    style={{
+                      position: 'absolute',
+                      left: field.x * stageWidth,
+                      top: field.y * stageHeight,
+                      width: field.width * stageWidth,
+                      height: field.height * stageHeight,
+                      cursor: 'pointer',
+                    }}
+                    title="Click to re-sign"
+                  />
+                );
+              }
+              return (
+                <ContractSignatureOverlay
+                  key={field.id}
+                  field={field}
+                  containerWidth={stageWidth}
+                  containerHeight={stageHeight}
+                  onClick={() => handleFieldClick(field)}
+                />
+              );
+            })}
           </div>
         )}
       </div>
@@ -723,8 +859,16 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
       {/* Signature Pad Modal */}
       <WMSignaturePad
         open={signaturePadOpen}
-        onClose={() => setSignaturePadOpen(false)}
-        onSave={handleSignatureSave}
+        onClose={() => { setSignaturePadOpen(false); setActiveFieldId(null); }}
+        onSave={(imageData) => {
+          const field = activeFieldId ? currentPageFields.find(f => f.id === activeFieldId) : undefined;
+          if (field) {
+            handleFieldSignatureSave(field, imageData);
+          } else {
+            handleSignatureSave(imageData);
+          }
+        }}
+        initialImage={activeFieldId ? getFieldAnnotation(activeFieldId)?.imageData : undefined}
       />
 
       {/* Text Edit Modal */}

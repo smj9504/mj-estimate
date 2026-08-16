@@ -14,7 +14,7 @@ const { Text } = Typography;
 interface WMDocumentListProps {
   jobId: string;
   onDelete?: () => void;
-  onEditAnnotation?: (documentId: string, annotationData: string | null, previewUrl: string, hasSourcePdf: boolean, docType?: string) => void;
+  onEditAnnotation?: (documentId: string, annotationData: string | null, previewUrl: string, hasSourcePdf: boolean, docType?: string, templateId?: string, signatureFields?: any[]) => void;
   onInvoiceAmountChange?: () => void;
 }
 
@@ -31,6 +31,8 @@ interface Document {
   title?: string | null;
   description?: string | null;
   created_at: string;
+  template_id?: string;
+  signature_fields?: any[];
 }
 
 const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListProps>(
@@ -326,7 +328,9 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
                     doc.annotation_data || null,
                     waterMitigationService.documents.getPreviewUrl(doc.id),
                     doc.has_source_pdf || false,
-                    doc.document_type
+                    doc.document_type,
+                    doc.template_id,
+                    doc.signature_fields
                   )}
                 >
                   Edit

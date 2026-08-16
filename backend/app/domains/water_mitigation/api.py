@@ -68,6 +68,40 @@ def get_wm_service(db: DatabaseSession = Depends(get_db_session)) -> WaterMitiga
     return WaterMitigationService(db)
 
 
+def _attach_signature_fields(db: DatabaseSession, documents: list) -> list:
+    """Re-derive signature_fields for each document from its source
+    ContractTemplate.field_mappings, so re-editing a document still shows
+    clickable signature/initial/date boxes at the template-mapped positions.
+    """
+    import json as _json
+
+    from app.domains.contract.field_signing_api import _extract_signature_fields
+    from app.domains.contract.models import ContractTemplate
+
+    template_ids = {str(d.template_id) for d in documents if d.template_id}
+    templates_by_id = {}
+    if template_ids:
+        templates = db.query(ContractTemplate).filter(
+            ContractTemplate.id.in_(template_ids)
+        ).all()
+        templates_by_id = {str(t.id): t for t in templates}
+
+    results = []
+    for doc in documents:
+        response = WMDocumentResponse.model_validate(doc)
+        template = templates_by_id.get(str(doc.template_id)) if doc.template_id else None
+        if template and template.field_mappings:
+            try:
+                mappings = _json.loads(template.field_mappings)
+                response.signature_fields = [
+                    f.model_dump() for f in _extract_signature_fields(mappings)
+                ]
+            except Exception as e:
+                logger.warning(f"Failed to re-derive signature_fields for document {doc.id}: {e}")
+        results.append(response)
+    return results
+
+
 # Job endpoints
 @router.post("/jobs", response_model=JobResponse)
 def create_job(
@@ -2480,6 +2514,7 @@ def list_documents(
     job_id: UUID,
     document_type: Optional[str] = None,
     is_active: bool = True,
+    db: DatabaseSession = Depends(get_db_session),
     service: WaterMitigationService = Depends(get_wm_service)
 ):
     """List documents for a job"""
@@ -2489,7 +2524,7 @@ def list_documents(
         else:
             documents = service.document_repo.get_by_job(str(job_id), is_active)
 
-        return documents
+        return _attach_signature_fields(db, documents)
     except Exception as e:
         logger.error(f"Failed to list documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2863,6 +2898,7 @@ async def generate_document_from_template(
         from datetime import datetime as _dt
         from pathlib import Path as _Path
 
+        from app.domains.contract.field_signing_api import _extract_signature_fields
         from app.domains.contract.models import ContractTemplate
         from app.domains.contract.service import ContractInstanceService
 
@@ -2979,6 +3015,12 @@ async def generate_document_from_template(
 
         logger.info(f"Built {filled_count} text annotations from prefill data")
 
+        # Extract signature/initial/date_signed field placements so the
+        # frontend annotator can render clickable "Sign Here" boxes at the
+        # positions the template author mapped, instead of silently
+        # dropping these field types.
+        signature_fields = [f.model_dump() for f in _extract_signature_fields(mappings)]
+
         property_address = job.get('property_address', 'Property')
         filename = f"{property_address} - {template.name}.pdf"
 
@@ -2989,6 +3031,8 @@ async def generate_document_from_template(
                 'originalFilename': filename,
                 'version': 1,
             },
+            'signature_fields': signature_fields,
+            'template_id': str(template_id),
             'filename': filename,
         }
     except HTTPException:
@@ -3008,6 +3052,7 @@ async def upload_annotated_pdf(
     annotation_data: str = Form(None),
     document_id: str = Form(None),
     document_type: str = Form(None),
+    template_id: str = Form(None),
     source_pdf_file: Optional[UploadFile] = File(None),
     service: WaterMitigationService = Depends(get_wm_service),
     db: DatabaseSession = Depends(get_db_session)
@@ -3019,6 +3064,8 @@ async def upload_annotated_pdf(
 
     source_pdf_file: Original unannotated PDF for clean re-editing.
     document_type: Document type (COS, EWA, etc.). Defaults to 'annotated_pdf'.
+    template_id: ContractTemplate this document was generated from, if any.
+        Lets re-edit re-derive signature/initial field placements.
     """
     import json
     import os
@@ -3077,10 +3124,14 @@ async def upload_annotated_pdf(
             # Update document_type if provided (fix type from 'annotated_pdf' to actual type)
             if document_type and existing.document_type == "annotated_pdf":
                 update_data["document_type"] = resolved_doc_type
+            # Backfill template_id only if not already set — don't clobber
+            # it on re-edits where the frontend doesn't resend it.
+            if template_id and not existing.template_id:
+                update_data["template_id"] = template_id
 
             updated = service.document_repo.update(document_id, update_data)
             db.commit()
-            return updated
+            return _attach_signature_fields(db, [updated])[0]
         else:
             # Create new document
             document_data = {
@@ -3097,13 +3148,15 @@ async def upload_annotated_pdf(
                 "storage_file_id": storage_info["storage_file_id"],
                 "is_active": True,
             }
+            if template_id:
+                document_data["template_id"] = template_id
             if source_pdf_info:
                 document_data["source_pdf_path"] = source_pdf_info["file_path"]
                 document_data["source_storage_file_id"] = source_pdf_info["storage_file_id"]
 
             created = service.document_repo.create(document_data)
             db.commit()
-            return created
+            return _attach_signature_fields(db, [created])[0]
 
     except HTTPException:
         raise

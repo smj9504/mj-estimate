@@ -283,6 +283,11 @@ class WMDocument(Base, BaseModel):
     source_pdf_path = Column(String(1000))  # Storage path to original PDF
     source_storage_file_id = Column(String(500))  # Provider-specific file ID for original PDF
 
+    # Contract template this document was generated from (if any).
+    # Lets re-edit re-derive signature/initial field placements from
+    # the template's field_mappings.
+    template_id = Column(UUIDType(), ForeignKey("contract_templates.id"))
+
     @hybrid_property
     def has_source_pdf(self):
         return bool(self.source_pdf_path)

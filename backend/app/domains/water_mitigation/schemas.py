@@ -438,6 +438,8 @@ class WMDocumentResponse(WMDocumentBase):
     is_active: bool
     created_at: datetime
     updated_at: Optional[datetime] = None
+    template_id: Optional[UUID] = None  # ContractTemplate this doc was generated from, if any
+    signature_fields: Optional[List[dict]] = None  # Re-derived from template.field_mappings for re-edit
 
     class Config:
         from_attributes = True
