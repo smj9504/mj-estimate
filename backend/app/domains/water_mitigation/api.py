@@ -1010,7 +1010,95 @@ async def preview_photo(
             storage_file_id = photo.get('storage_file_id') if isinstance(photo, dict) else photo.storage_file_id
             if storage_provider in ('gdrive', 'gcs') and hasattr(storage, 'download') and storage_file_id:
                 import asyncio
+
+                from app.core.config import settings as app_settings_cache
+                cache_base_dir = Path(app_settings_cache.STORAGE_BASE_DIR) / ".cache" / "previews"
+
+                # Optimize + disk-cache web/thumbnail sizes, same as the local
+                # storage path below — otherwise every grid thumbnail and every
+                # detail-modal open re-downloads the full original from GCS.
+                if size in ("thumbnail", "web") and media_type.startswith('image/'):
+                    from fastapi.responses import Response
+
+                    from ..storage.optimization import ImageOptimizer
+
+                    max_size = (250, 250) if size == "thumbnail" else (800, 800)
+                    quality = 80 if size == "thumbnail" else 85
+
+                    cache_dir = cache_base_dir / size
+                    cache_file = cache_dir / f"{photo_id}.webp"
+
+                    if cache_file.exists():
+                        return FileResponse(
+                            path=str(cache_file),
+                            media_type='image/webp',
+                            headers={
+                                "Content-Disposition": "inline",
+                                "Cache-Control": "public, max-age=604800, immutable",
+                            }
+                        )
+
+                    try:
+                        photo_bytes = await asyncio.to_thread(storage.download, storage_file_id)
+                        optimizer = ImageOptimizer()
+                        optimized_file, metadata = optimizer.optimize(
+                            io.BytesIO(photo_bytes),
+                            max_size=max_size,
+                            quality=quality,
+                            format='WebP',
+                            preserve_exif=False
+                        )
+                        optimized_bytes = optimized_file.read()
+
+                        try:
+                            cache_dir.mkdir(parents=True, exist_ok=True)
+                            tmp_file = cache_file.with_suffix('.tmp')
+                            tmp_file.write_bytes(optimized_bytes)
+                            tmp_file.rename(cache_file)
+                            logger.debug(
+                                f"Cached {size} preview for GCS photo {photo_id}: "
+                                f"{metadata.get('compression_ratio', '0%')} reduction"
+                            )
+                        except Exception as cache_err:
+                            logger.warning(f"Failed to cache GCS preview for {photo_id}: {cache_err}")
+
+                        return Response(
+                            content=optimized_bytes,
+                            media_type='image/webp',
+                            headers={
+                                "Content-Disposition": "inline",
+                                "Cache-Control": "public, max-age=604800, immutable",
+                            }
+                        )
+                    except Exception as e:
+                        logger.warning(f"GCS image optimization failed for photo {photo_id}: {e}, serving original")
+                        # Fall through to unoptimized original below
+
+                # size=original: cache the raw downloaded bytes too, so
+                # reopening the same photo's detail modal doesn't re-hit GCS.
+                original_cache_dir = cache_base_dir / "original"
+                original_cache_file = original_cache_dir / str(photo_id)
+
+                if original_cache_file.exists():
+                    return FileResponse(
+                        path=str(original_cache_file),
+                        media_type=media_type,
+                        headers={
+                            "Content-Disposition": "inline",
+                            "Cache-Control": "public, max-age=86400"
+                        }
+                    )
+
                 photo_bytes = await asyncio.to_thread(storage.download, storage_file_id)
+
+                try:
+                    original_cache_dir.mkdir(parents=True, exist_ok=True)
+                    tmp_file = original_cache_file.with_suffix('.tmp')
+                    tmp_file.write_bytes(photo_bytes)
+                    tmp_file.rename(original_cache_file)
+                except Exception as cache_err:
+                    logger.warning(f"Failed to cache GCS original for {photo_id}: {cache_err}")
+
                 return StreamingResponse(
                     io.BytesIO(photo_bytes),
                     media_type=media_type,
