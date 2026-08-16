@@ -19,7 +19,9 @@ import {
   Card,
   Spin,
   Dropdown,
+  Grid,
 } from 'antd';
+import './WMDocumentInvoiceList.css';
 import type { MenuProps } from 'antd';
 import {
   FileTextOutlined,
@@ -34,6 +36,7 @@ import waterMitigationService from '../../services/waterMitigationService';
 import type { WMScopeInvoiceResponse, JobInvoiceHistoryResponse } from '../../types/waterMitigation';
 
 const { Text, Title } = Typography;
+const { useBreakpoint } = Grid;
 
 interface WMInvoiceListProps {
   jobId: string;
@@ -43,6 +46,8 @@ interface WMInvoiceListProps {
 
 const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListProps>(
   ({ jobId, jobAddress, onInvoiceDeleted }, ref) => {
+    const screens = useBreakpoint();
+    const isMobile = !screens.md;
     const navigate = useNavigate();
     const [invoiceHistory, setInvoiceHistory] = useState<JobInvoiceHistoryResponse | null>(null);
     const [loading, setLoading] = useState(false);
@@ -182,8 +187,10 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
         {/* Invoice List */}
         <List
           dataSource={invoiceHistory.invoices}
+          itemLayout={isMobile ? 'vertical' : 'horizontal'}
           renderItem={(invoice: WMScopeInvoiceResponse) => (
             <List.Item
+              className="wm-list-item"
               actions={[
                 <Button
                   key="view"
@@ -234,6 +241,7 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
               ]}
             >
               <List.Item.Meta
+                style={{ minWidth: 0 }}
                 avatar={
                   <div style={{
                     width: 48,
@@ -242,14 +250,15 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
                     background: '#f6ffed',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center'
+                    justifyContent: 'center',
+                    flexShrink: 0
                   }}>
                     <FileTextOutlined style={{ fontSize: 24, color: '#52c41a' }} />
                   </div>
                 }
                 title={
-                  <Space>
-                    <Text strong style={{ fontSize: 16 }}>
+                  <Space wrap size={[8, 4]} style={{ minWidth: 0 }}>
+                    <Text strong style={{ fontSize: 16, wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                       {invoice.invoice_number || 'Invoice'}
                     </Text>
                     <Tag color="green">
@@ -263,13 +272,13 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
                   </Space>
                 }
                 description={
-                  <Space direction="vertical" size={0}>
+                  <Space direction="vertical" size={0} style={{ width: '100%', minWidth: 0 }}>
                     <Text type="secondary">
                       <CalendarOutlined style={{ marginRight: 4 }} />
                       Generated: {formatDate(invoice.generated_at)}
                     </Text>
                     {invoice.notes && (
-                      <Text type="secondary" ellipsis style={{ maxWidth: 400 }}>
+                      <Text type="secondary" ellipsis style={{ maxWidth: '100%' }}>
                         {invoice.notes.replace(/<[^>]*>/g, '').substring(0, 100)}
                         {invoice.notes.length > 100 ? '...' : ''}
                       </Text>

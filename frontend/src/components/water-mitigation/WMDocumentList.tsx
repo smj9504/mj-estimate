@@ -4,12 +4,14 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { List, Button, Popconfirm, message, Tag, Typography, Checkbox, Space, InputNumber, Tooltip } from 'antd';
+import { List, Button, Popconfirm, message, Tag, Typography, Checkbox, Space, InputNumber, Tooltip, Grid } from 'antd';
 import { FilePdfOutlined, FileImageOutlined, FileOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, EditOutlined, DollarOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import waterMitigationService from '../../services/waterMitigationService';
+import './WMDocumentInvoiceList.css';
 
 const { Text } = Typography;
+const { useBreakpoint } = Grid;
 
 interface WMDocumentListProps {
   jobId: string;
@@ -37,6 +39,8 @@ interface Document {
 
 const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListProps>(
   ({ jobId, onDelete, onEditAnnotation, onInvoiceAmountChange }, ref) => {
+    const screens = useBreakpoint();
+    const isMobile = !screens.md;
     const queryClient = useQueryClient();
     const { data: documents = [], isLoading: loading } = useQuery({
       queryKey: ['wm-documents', jobId],
@@ -313,10 +317,12 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
         loading={loading}
         dataSource={documents}
         locale={{ emptyText: 'No documents yet' }}
+        itemLayout={isMobile ? 'vertical' : 'horizontal'}
         renderItem={(doc) => {
         const typeInfo = getDocumentTypeLabel(doc.document_type);
         return (
           <List.Item
+            className="wm-list-item"
             actions={[
               ...(doc.annotation_data && onEditAnnotation ? [
                 <Button
@@ -373,8 +379,9 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
             ]}
           >
             <List.Item.Meta
+              style={{ minWidth: 0 }}
               avatar={
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                   <Checkbox
                     checked={selectedIds.includes(doc.id)}
                     onChange={(e) => handleSelectOne(doc.id, e.target.checked)}
@@ -389,8 +396,8 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
                 </div>
               }
               title={
-                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <Text strong>{doc.filename}</Text>
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
+                  <Text strong style={{ wordBreak: 'break-word', overflowWrap: 'break-word', minWidth: 0 }}>{doc.filename}</Text>
                   <Tag color={typeInfo.color} style={{ marginLeft: 8 }}>
                     {typeInfo.label}
                   </Tag>

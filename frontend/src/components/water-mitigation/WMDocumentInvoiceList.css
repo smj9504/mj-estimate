@@ -1,0 +1,23 @@
+/* Shared responsive fixes for WMDocumentList / WMInvoiceList */
+
+/* Default (desktop/tablet): actions stay in a single row, but must wrap
+   instead of overflowing when there are 3-4 buttons and limited width. */
+.wm-list-item .ant-list-item-action {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+/* Vertical layout (mobile): action row sits under the content and should
+   spread edge-to-edge, wrapping onto a second line rather than scrolling. */
+.wm-list-item.ant-list-item-vertical .ant-list-item-action {
+  margin-top: 8px;
+  justify-content: flex-start;
+}
+
+.wm-list-item .ant-list-item-action > li {
+  padding: 0 4px;
+}
+
+.wm-list-item .ant-list-item-meta-content {
+  min-width: 0;
+}
