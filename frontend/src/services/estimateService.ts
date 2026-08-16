@@ -75,6 +75,8 @@ interface BackendEstimateResponse {
     lump_sum_amount?: number;
     taxable?: boolean;
   }>;
+  is_lump_sum_document?: boolean;
+  lump_sum_document_amount?: number;
   payment_schedule?: PaymentScheduleItem[];
 }
 
@@ -178,6 +180,11 @@ export interface EstimateCreate {
   deductible?: number;
   items: EstimateLineItem[];
   sections?: EstimateSection[];  // 섹션 기반 데이터
+  // Document-level lump sum: when enabled, item qty/unit/rate/amount and
+  // section subtotals are hidden and lump_sum_document_amount is shown
+  // as the single grand total instead of the calculated total.
+  is_lump_sum_document?: boolean;
+  lump_sum_document_amount?: number;
   op_percent?: number;  // O&P 퍼센트 (DEPRECATED: Use adjustments instead)
   adjustments?: Array<{
     name: string;
@@ -231,7 +238,11 @@ export interface EstimateResponse {
   // Line Items
   items: EstimateLineItem[];
   sections?: EstimateSection[];  // 섹션 기반 데이터
-  
+
+  // Document-level lump sum (see EstimateCreate for semantics)
+  is_lump_sum_document?: boolean;
+  lump_sum_document_amount?: number;
+
   // Totals
   subtotal?: number;
   tax_method?: 'percentage' | 'specific'; // Tax calculation method
@@ -436,6 +447,9 @@ class EstimateService {
         lump_sum_amount: section.isLumpSum ? (section.lumpSumAmount ?? 0) : undefined,
         taxable: section.taxable ?? true,
       })) : undefined,
+      // Document-level lump sum
+      is_lump_sum_document: estimate.is_lump_sum_document || false,
+      lump_sum_document_amount: estimate.is_lump_sum_document ? (estimate.lump_sum_document_amount ?? 0) : undefined,
       // Payment schedule
       payment_schedule: estimate.payment_schedule || undefined,
     };
@@ -492,6 +506,9 @@ class EstimateService {
         backendData.sections_data,
         (backendData.items || []).map((item) => this.transformItemFromBackend(item))
       ),
+      // Document-level lump sum
+      is_lump_sum_document: backendData.is_lump_sum_document || false,
+      lump_sum_document_amount: backendData.lump_sum_document_amount,
       // Payment schedule
       payment_schedule: backendData.payment_schedule,
     };
@@ -668,6 +685,8 @@ class EstimateService {
         rate: item.unit_price || 0,
         taxable: item.taxable ?? true
       })),
+      is_lump_sum_document: estimate.is_lump_sum_document || false,
+      lump_sum_document_amount: estimate.is_lump_sum_document ? (estimate.lump_sum_document_amount ?? 0) : undefined,
       subtotal: estimate.subtotal || 0,
       op_percent: estimate.op_percent || 0, // Include O&P percentage
       op_amount: estimate.op_amount || 0, // Include O&P amount
@@ -785,6 +804,8 @@ class EstimateService {
         lump_sum_amount: section.lumpSumAmount,
         taxable: section.taxable ?? true,
       })) : undefined,
+      is_lump_sum_document: estimate.is_lump_sum_document || false,
+      lump_sum_document_amount: estimate.is_lump_sum_document ? (estimate.lump_sum_document_amount ?? 0) : undefined,
       subtotal: estimate.subtotal || 0,
       op_percent: estimate.op_percent || 0, // Include O&P percentage
       op_amount: estimate.op_amount || 0, // Include O&P amount

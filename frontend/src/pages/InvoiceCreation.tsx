@@ -389,6 +389,9 @@ interface SectionPanelProps {
   onRowSelection?: (keys: string[]) => void;
   onToggleLumpSum?: (sectionIndex: number, checked: boolean) => void;
   onLumpSumAmountChange?: (sectionIndex: number, value: number | null) => void;
+  // When true (document-level lump sum mode), qty/unit/rate/amount/tax
+  // columns and the per-section lump-sum controls are hidden.
+  hidePricing?: boolean;
 }
 
 const SectionPanel: React.FC<SectionPanelProps> = ({
@@ -417,6 +420,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
   onRowSelection,
   onToggleLumpSum,
   onLumpSumAmountChange,
+  hidePricing = false,
 }) => {
   return (
     <div
@@ -455,7 +459,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
           </span>
           <span style={{ fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{section.title}</span>
           <Badge count={section.items.length} showZero color="#108ee9" style={{ flexShrink: 0 }} />
-          {onToggleLumpSum && (
+          {!hidePricing && onToggleLumpSum && (
             <Tooltip title="Lump sum: enter one total for this section instead of computing it from items">
               <Space size={4} onClick={(e) => e.stopPropagation()} style={{ flexShrink: 0 }}>
                 <span style={{ fontSize: 12, color: '#8c8c8c' }}>Lump Sum</span>
@@ -467,7 +471,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
               </Space>
             </Tooltip>
           )}
-          {section.isLumpSum ? (
+          {!hidePricing && (section.isLumpSum ? (
             <InputNumber
               size="small"
               value={section.lumpSumAmount ?? 0}
@@ -480,7 +484,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
             section.showSubtotal && (
               <Tag color="blue" style={{ margin: 0 }}>${formatCurrency(section.subtotal)}</Tag>
             )
-          )}
+          ))}
           <span style={{ color: '#8c8c8c' }}>
             {isOpen ? <UpOutlined /> : <DownOutlined />}
           </span>
@@ -615,6 +619,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                     </div>
                   ),
                 },
+                ...(hidePricing ? [] : [
                 {
                   title: 'Qty',
                   dataIndex: 'quantity',
@@ -644,7 +649,8 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                   align: 'right' as const,
                   render: (_: any, record: InvoiceItem) => formatCurrency((record.quantity || 0) * (record.rate || 0)),
                 },
-                ...(taxMethod === 'percentage' ? [{
+                ]),
+                ...(!hidePricing && taxMethod === 'percentage' ? [{
                   title: (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <span>Tax</span>
@@ -819,6 +825,11 @@ const InvoiceCreation: React.FC = () => {
   const [clientSearchLoading, setClientSearchLoading] = useState(false);
   const [opPercent, setOpPercent] = useState(0); // DEPRECATED: Use adjustments instead
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
+
+  // Document-level lump sum: hides qty/unit/rate/amount for all items and
+  // replaces the calculated grand total with a single manually-entered amount.
+  const [isLumpSumDocument, setIsLumpSumDocument] = useState(false);
+  const [lumpSumDocumentAmount, setLumpSumDocumentAmount] = useState(0);
 
   // Receipt generation state
   // React Query: Load receipt templates when company is selected
@@ -1523,6 +1534,10 @@ const InvoiceCreation: React.FC = () => {
     // Set discount state
     setDiscount(parseFloat(data.discount || data.discount_amount) || 0);
 
+    // Set document-level lump sum mode
+    setIsLumpSumDocument(data.is_lump_sum_document || false);
+    setLumpSumDocumentAmount(parseFloat(data.lump_sum_document_amount) || 0);
+
     // Set insurance visibility from DB flag (fallback to data presence for legacy invoices)
     if (data.show_insurance != null) {
       setShowInsurance(data.show_insurance);
@@ -2148,6 +2163,30 @@ const InvoiceCreation: React.FC = () => {
   };
 
   const calculateTotals = useCallback(() => {
+    // Document-level lump sum: skip item/section/tax/adjustment calculations
+    // entirely and use the single manually-entered amount as the total.
+    // Payments are still tracked normally against that total.
+    if (isLumpSumDocument) {
+      const total = lumpSumDocumentAmount;
+      const totalPaid = payments.reduce((sum, payment) => {
+        const paymentAmount = parseFloat(String(payment.amount)) || 0;
+        return sum + paymentAmount;
+      }, 0);
+      const balanceDue = total - totalPaid;
+
+      return {
+        itemsSubtotal: lumpSumDocumentAmount,
+        adjustments: [],
+        opAmount: 0,
+        subtotal: lumpSumDocumentAmount,
+        discount: 0,
+        taxAmount: 0,
+        total,
+        totalPaid,
+        balanceDue,
+      };
+    }
+
     // Calculate subtotal from sections (ensure numeric)
     const itemsSubtotal = sections.reduce((sum, section) => {
       const sectionSubtotal = parseFloat(String(section.subtotal)) || 0;
@@ -2260,7 +2299,7 @@ const InvoiceCreation: React.FC = () => {
       totalPaid,
       balanceDue,
     };
-  }, [sections, adjustments, taxMethod, taxRate, specificTaxAmount, discount, payments, form, formMounted, opPercent]);
+  }, [sections, adjustments, taxMethod, taxRate, specificTaxAmount, discount, payments, form, formMounted, opPercent, isLumpSumDocument, lumpSumDocumentAmount]);
 
   const handleSave = async (status: string = 'pending', skipNavigation: boolean = false) => {
     try {
@@ -2341,6 +2380,8 @@ const InvoiceCreation: React.FC = () => {
       }));
       invoiceData.items = allItems;
       invoiceData.sections = sections;
+      invoiceData.is_lump_sum_document = isLumpSumDocument;
+      invoiceData.lump_sum_document_amount = isLumpSumDocument ? lumpSumDocumentAmount : undefined;
       invoiceData.subtotal = totals.subtotal;
       // Add adjustments if provided, otherwise use legacy op_percent and discount
       if (adjustments.length > 0) {
@@ -2488,6 +2529,8 @@ const InvoiceCreation: React.FC = () => {
           lumpSumAmount: section.isLumpSum ? (section.lumpSumAmount ?? 0) : undefined,
           taxable: section.taxable ?? true,
         })),
+        is_lump_sum_document: isLumpSumDocument,
+        lump_sum_document_amount: isLumpSumDocument ? lumpSumDocumentAmount : undefined,
         subtotal: totals.subtotal,
         adjustments: adjustments.length > 0 ? adjustments.map(adj => ({
           name: adj.name,
@@ -3051,6 +3094,7 @@ const InvoiceCreation: React.FC = () => {
         return <Tooltip title={stripped}>{stripped}</Tooltip>;
       },
     },
+    ...(isLumpSumDocument ? [] : [
     {
       title: 'Qty',
       dataIndex: 'quantity',
@@ -3080,7 +3124,8 @@ const InvoiceCreation: React.FC = () => {
       align: 'right' as const,
       render: (_: any, record: InvoiceItem) => formatCurrency(record.quantity * record.rate),
     },
-    ...(taxMethod === 'percentage' ? [{
+    ]),
+    ...(!isLumpSumDocument && taxMethod === 'percentage' ? [{
       title: (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span>Taxable</span>
@@ -3690,6 +3735,7 @@ const InvoiceCreation: React.FC = () => {
                       onRowSelection={(keys) => handleItemRowSelection(sectionIndex, keys)}
                       onToggleLumpSum={toggleSectionLumpSum}
                       onLumpSumAmountChange={updateSectionLumpSumAmount}
+                      hidePricing={isLumpSumDocument}
                     />
                   </SortableSectionItem>
                 ))}
@@ -3795,7 +3841,54 @@ const InvoiceCreation: React.FC = () => {
           </Col>
 
           <Col xs={24} lg={12}>
-            <Card title="Payment Summary" style={{ marginBottom: 24 }}>
+            <Card
+              title="Payment Summary"
+              style={{ marginBottom: 24 }}
+              extra={
+                <Tooltip title="Lump sum document: hides qty/unit/rate/amount for all items and shows a single total you enter directly, instead of the calculated total">
+                  <Space onClick={(e) => e.stopPropagation()}>
+                    <span style={{ fontSize: 12, color: '#8c8c8c' }}>Lump Sum Document</span>
+                    <Switch
+                      checked={isLumpSumDocument}
+                      onChange={setIsLumpSumDocument}
+                    />
+                  </Space>
+                </Tooltip>
+              }
+            >
+              {isLumpSumDocument ? (
+                <>
+                  <Form.Item label="Total Amount">
+                    <InputNumber
+                      style={{ width: '100%' }}
+                      min={0}
+                      size="large"
+                      value={lumpSumDocumentAmount}
+                      onChange={(value) => setLumpSumDocumentAmount(value || 0)}
+                      formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                      parser={value => value!.replace(/\$\s?|(,*)/g, '') as any}
+                    />
+                  </Form.Item>
+                  <Divider />
+                  <Row justify="space-between" style={{ fontWeight: 'bold', fontSize: '18px' }}>
+                    <Col>Total:</Col>
+                    <Col>${formatCurrency(totals.total)}</Col>
+                  </Row>
+                  {totals.totalPaid > 0 && (
+                    <>
+                      <Row justify="space-between" style={{ marginTop: 8 }}>
+                        <Col>Total Paid:</Col>
+                        <Col>${formatCurrency(totals.totalPaid)}</Col>
+                      </Row>
+                      <Row justify="space-between" style={{ fontWeight: 'bold', color: totals.balanceDue > 0 ? '#ff4d4f' : '#52c41a' }}>
+                        <Col>Balance Due:</Col>
+                        <Col>${formatCurrency(totals.balanceDue)}</Col>
+                      </Row>
+                    </>
+                  )}
+                </>
+              ) : (
+              <>
               <Row gutter={16}>
                 <Col span={24}>
                   <Form.Item label="Discount">
@@ -4140,6 +4233,8 @@ const InvoiceCreation: React.FC = () => {
                   </>
                 )}
               </div>
+              </>
+              )}
             </Card>
           </Col>
         </Row>

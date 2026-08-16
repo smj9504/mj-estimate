@@ -325,7 +325,14 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
     subtotal = totals['items_subtotal']
     tax_amount = totals['tax_amount']
     total = totals['total_amount']
-    
+
+    # Document-level lump sum overrides all calculated totals with a single
+    # manually-entered amount (qty/unit/rate are still stored on items, but
+    # hidden from display and excluded from totals).
+    lump_sum_amount = float(invoice_data.lump_sum_document_amount or 0) if invoice_data.is_lump_sum_document else 0
+    if invoice_data.is_lump_sum_document:
+        total = lump_sum_amount
+
     # Calculate paid amount from payment records
     payments = invoice_data.payments or []
     paid_amount = sum(payment.amount for payment in payments)
@@ -374,15 +381,19 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         'insurance_claim_number': invoice_data.insurance.claim_number if invoice_data.insurance else None,
         'insurance_deductible': invoice_data.insurance.deductible if invoice_data.insurance else None,
 
+        # Document-level lump sum
+        'is_lump_sum_document': invoice_data.is_lump_sum_document or False,
+        'lump_sum_document_amount': invoice_data.lump_sum_document_amount if invoice_data.is_lump_sum_document else None,
+
         # Financial information
-        'subtotal': totals['subtotal'],
-        'adjustments': totals.get('adjustments', []),
+        'subtotal': lump_sum_amount if invoice_data.is_lump_sum_document else totals['subtotal'],
+        'adjustments': [] if invoice_data.is_lump_sum_document else totals.get('adjustments', []),
         'tax_method': tax_method,
         'tax_rate': tax_rate,
-        'tax_amount': tax_amount,
-        'discount_amount': totals.get('discount_amount', discount),
-        'op_percent': op_percent,
-        'total_amount': total,
+        'tax_amount': 0 if invoice_data.is_lump_sum_document else tax_amount,
+        'discount_amount': 0 if invoice_data.is_lump_sum_document else totals.get('discount_amount', discount),
+        'op_percent': 0 if invoice_data.is_lump_sum_document else op_percent,
+        'total_amount': lump_sum_amount if invoice_data.is_lump_sum_document else total,
 
         # Payment tracking
         'payments': [payment.dict() for payment in payments],
@@ -498,6 +509,8 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         payment_terms=created_invoice.get('payment_terms'),
         notes=created_invoice.get('notes'),
         sections=created_invoice.get('sections_data'),
+        is_lump_sum_document=created_invoice.get('is_lump_sum_document', False),
+        lump_sum_document_amount=created_invoice.get('lump_sum_document_amount'),
         created_at=created_invoice.get('created_at'),
         updated_at=created_invoice.get('updated_at'),
         items=[
@@ -765,16 +778,27 @@ async def update_invoice(
             paid_amount = 0
         
         total = totals['total_amount']
+
+        # Document-level lump sum overrides all calculated totals with a
+        # single manually-entered amount.
+        is_lump_sum_document = update_dict.get(
+            'is_lump_sum_document',
+            invoice_data.is_lump_sum_document if hasattr(invoice_data, 'is_lump_sum_document') else False,
+        )
+        lump_sum_amount = float(update_dict.get('lump_sum_document_amount') or 0) if is_lump_sum_document else 0
+        if is_lump_sum_document:
+            total = lump_sum_amount
+
         balance_due = total - paid_amount
-        
+
         # Update totals in update_dict
-        update_dict['subtotal'] = totals['subtotal']
-        update_dict['adjustments'] = totals.get('adjustments', [])
+        update_dict['subtotal'] = lump_sum_amount if is_lump_sum_document else totals['subtotal']
+        update_dict['adjustments'] = [] if is_lump_sum_document else totals.get('adjustments', [])
         update_dict['tax_method'] = tax_method
         update_dict['tax_rate'] = tax_rate
-        update_dict['tax_amount'] = totals['tax_amount']
-        update_dict['discount_amount'] = totals.get('discount_amount', discount)
-        update_dict['op_percent'] = op_percent
+        update_dict['tax_amount'] = 0 if is_lump_sum_document else totals['tax_amount']
+        update_dict['discount_amount'] = 0 if is_lump_sum_document else totals.get('discount_amount', discount)
+        update_dict['op_percent'] = 0 if is_lump_sum_document else op_percent
         update_dict['total_amount'] = total
         update_dict['balance_due'] = balance_due
         
@@ -953,6 +977,8 @@ async def update_invoice(
         payment_terms=updated_invoice.get('payment_terms'),
         notes=updated_invoice.get('notes'),
         sections=updated_invoice.get('sections_data'),
+        is_lump_sum_document=updated_invoice.get('is_lump_sum_document', False),
+        lump_sum_document_amount=updated_invoice.get('lump_sum_document_amount'),
         created_at=updated_invoice.get('created_at'),
         updated_at=updated_invoice.get('updated_at'),
         items=[
@@ -1287,6 +1313,8 @@ async def generate_invoice_pdf(
         },
         "items": all_items,  # Keep original items for backward compatibility
         "sections": sections,  # New: grouped by section with subtotals
+        "is_lump_sum_document": invoice.get('is_lump_sum_document', False),
+        "lump_sum_document_amount": invoice.get('lump_sum_document_amount', 0),
         "subtotal": invoice.get('subtotal', 0),
         "adjustments": invoice.get('adjustments', []),  # New: adjustments list
         "op_percent": invoice.get('op_percent', 0),  # For backward compatibility
@@ -1498,6 +1526,8 @@ async def duplicate_invoice(invoice_id: str, db=Depends(get_db)):
         paid_amount=duplicated.get('paid_amount', 0),
         payment_terms=duplicated.get('payment_terms'),
         notes=duplicated.get('notes'),
+        is_lump_sum_document=duplicated.get('is_lump_sum_document', False),
+        lump_sum_document_amount=duplicated.get('lump_sum_document_amount'),
         created_at=duplicated.get('created_at', ''),
         updated_at=duplicated.get('updated_at', ''),
         items=[
@@ -1584,6 +1614,8 @@ async def add_payment(
         balance_due=updated_invoice.get('balance_due', 0),
         payment_terms=updated_invoice.get('payment_terms'),
         notes=updated_invoice.get('notes'),
+        is_lump_sum_document=updated_invoice.get('is_lump_sum_document', False),
+        lump_sum_document_amount=updated_invoice.get('lump_sum_document_amount'),
         created_at=updated_invoice.get('created_at', ''),
         updated_at=updated_invoice.get('updated_at', ''),
         items=[
@@ -1667,6 +1699,8 @@ async def remove_payment(
         balance_due=updated_invoice.get('balance_due', 0),
         payment_terms=updated_invoice.get('payment_terms'),
         notes=updated_invoice.get('notes'),
+        is_lump_sum_document=updated_invoice.get('is_lump_sum_document', False),
+        lump_sum_document_amount=updated_invoice.get('lump_sum_document_amount'),
         created_at=updated_invoice.get('created_at', ''),
         updated_at=updated_invoice.get('updated_at', ''),
         items=[
@@ -1752,6 +1786,8 @@ async def get_invoice(invoice_id: str, service: InvoiceService = Depends(get_inv
             payment_terms=invoice.get('payment_terms'),
             notes=invoice.get('notes'),
             sections=invoice.get('sections_data'),
+            is_lump_sum_document=invoice.get('is_lump_sum_document', False),
+            lump_sum_document_amount=invoice.get('lump_sum_document_amount'),
             created_at=invoice.get('created_at', ''),
             updated_at=invoice.get('updated_at', ''),
             items=[

@@ -368,21 +368,25 @@
     {% endif %}
 
     <div class="line-header">
-        <div class="col-item">Item</div>
+        <div class="col-item"{% if is_lump_sum_document %} style="width: 100%;"{% endif %}>Item</div>
+        {% if not is_lump_sum_document %}
         <div class="col-qty">Qty</div>
         <div class="col-unit">Unit</div>
         <div class="col-price">Price</div>
         <div class="col-total">Total</div>
+        {% endif %}
     </div>
 
     {% for item in section['items'] %}
     {% set item_counter.value = item_counter.value + 1 %}
     <div class="line-row">
-      <div class="col-item">{{ item_counter.value }}. {{ item.description if item.description else item.name }}</div>
+      <div class="col-item"{% if is_lump_sum_document %} style="width: 100%;"{% endif %}>{{ item_counter.value }}. {{ item.description if item.description else item.name }}</div>
+      {% if not is_lump_sum_document %}
       <div class="col-qty">{{ item.quantity|format_quantity }}</div>
       <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
       <div class="col-price">{{ item.rate|format_currency }}</div>
       <div class="col-total">{{ (item.quantity * item.rate)|format_currency }}</div>
+      {% endif %}
     </div>
 
     {% if item.note %}
@@ -392,7 +396,7 @@
     {% endfor %}
 
     <!-- Section Subtotal -->
-    {% if section.get('showSubtotal', True) %}
+    {% if not is_lump_sum_document and section.get('showSubtotal', True) %}
     <div class="subtotal">
       {{ section.title }} Subtotal: {{ section.subtotal|format_currency }}
     </div>
@@ -465,12 +469,14 @@
 
 <div class="footer-total">
   <div class="totals-container">
+    {% if not is_lump_sum_document %}
     <div class="total-row">
       <span class="total-label">Items Subtotal</span>
       <span class="total-value">${{ items_subtotal|format_number_smart }}</span>
     </div>
+    {% endif %}
 
-    {% if adjustments and adjustments|length > 0 %}
+    {% if not is_lump_sum_document and adjustments and adjustments|length > 0 %}
       {% for adjustment in adjustments|sort(attribute='order') %}
       <div class="total-row">
         <span class="total-label">
@@ -494,7 +500,7 @@
       </div>
       {% endif %}
       {% endfor %}
-    {% else %}
+    {% elif not is_lump_sum_document %}
       {# Backward compatibility: show op_percent and discount if adjustments not used #}
       {% if op_percent and op_percent > 0 %}
       <div class="total-row">
@@ -511,7 +517,7 @@
       {% endif %}
     {% endif %}
 
-    {% if tax_amount and tax_amount > 0 %}
+    {% if not is_lump_sum_document and tax_amount and tax_amount > 0 %}
     <div class="total-row">
       {% if tax_method == 'percentage' and tax_rate %}
         <span class="total-label">Tax ({{ tax_rate }}%)</span>

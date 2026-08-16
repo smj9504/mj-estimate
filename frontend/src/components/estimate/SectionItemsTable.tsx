@@ -16,6 +16,9 @@ interface SectionItemsTableProps {
   onTaxableChange: (index: number, checked: boolean) => void;
   onToggleAllTaxable: (checked: boolean) => void;
   formatCurrency: (value: number) => string;
+  // When true (document-level lump sum mode), qty/unit/rate/total/tax
+  // columns are hidden - only the description remains visible.
+  hidePricing?: boolean;
 }
 
 // Memoized table component to prevent re-renders during drag
@@ -31,6 +34,7 @@ const SectionItemsTable: React.FC<SectionItemsTableProps> = memo(({
   onTaxableChange,
   onToggleAllTaxable,
   formatCurrency,
+  hidePricing = false,
 }) => {
   // Memoize dataSource to prevent new objects on every render
   const dataSource = useMemo(() =>
@@ -58,7 +62,7 @@ const SectionItemsTable: React.FC<SectionItemsTableProps> = memo(({
 
   // Memoize columns to prevent recreation on every render
   const columns = useMemo(() => {
-    const baseColumns = [
+    const baseColumns: any[] = [
       {
         title: 'Description',
         dataIndex: 'description',
@@ -79,40 +83,45 @@ const SectionItemsTable: React.FC<SectionItemsTableProps> = memo(({
           </div>
         ),
       },
-      {
-        title: 'Qty',
-        dataIndex: 'quantity',
-        key: 'quantity',
-        width: 60,
-        align: 'center' as const,
-      },
-      {
-        title: 'Unit',
-        dataIndex: 'unit',
-        key: 'unit',
-        width: 60,
-        align: 'center' as const,
-      },
-      {
-        title: 'Rate',
-        dataIndex: 'unit_price',
-        key: 'unit_price',
-        width: 80,
-        align: 'right' as const,
-        render: (value: number) => formatCurrency(value || 0),
-      },
-      {
-        title: 'Total',
-        dataIndex: 'total',
-        key: 'total',
-        width: 90,
-        align: 'right' as const,
-        render: (value: number) => formatCurrency(value || 0),
-      },
     ];
 
+    if (!hidePricing) {
+      baseColumns.push(
+        {
+          title: 'Qty',
+          dataIndex: 'quantity',
+          key: 'quantity',
+          width: 60,
+          align: 'center' as const,
+        },
+        {
+          title: 'Unit',
+          dataIndex: 'unit',
+          key: 'unit',
+          width: 60,
+          align: 'center' as const,
+        },
+        {
+          title: 'Rate',
+          dataIndex: 'unit_price',
+          key: 'unit_price',
+          width: 80,
+          align: 'right' as const,
+          render: (value: number) => formatCurrency(value || 0),
+        } as any,
+        {
+          title: 'Total',
+          dataIndex: 'total',
+          key: 'total',
+          width: 90,
+          align: 'right' as const,
+          render: (value: number) => formatCurrency(value || 0),
+        } as any,
+      );
+    }
+
     // Add tax column if using percentage method
-    if (taxMethod === 'percentage') {
+    if (!hidePricing && taxMethod === 'percentage') {
       const allTaxable = items.every(item => item.taxable !== false);
       baseColumns.push({
         title: (
@@ -185,7 +194,7 @@ const SectionItemsTable: React.FC<SectionItemsTableProps> = memo(({
     } as any);
 
     return baseColumns;
-  }, [taxMethod, items, formatCurrency, onToggleAllTaxable, onTaxableChange, handleEdit, handleDelete]);
+  }, [taxMethod, items, formatCurrency, onToggleAllTaxable, onTaxableChange, handleEdit, handleDelete, hidePricing]);
 
   // Memoize getRowId function
   const getRowId = useCallback((record: EstimateLineItem, index: number) =>
@@ -233,6 +242,7 @@ const SectionItemsTable: React.FC<SectionItemsTableProps> = memo(({
     prevProps.items === nextProps.items &&
     prevProps.taxMethod === nextProps.taxMethod &&
     prevProps.selectedRowKeys === nextProps.selectedRowKeys &&
+    prevProps.hidePricing === nextProps.hidePricing &&
     // Don't compare activeId - let dnd-kit handle that internally
     prevProps.formatCurrency === nextProps.formatCurrency
   );

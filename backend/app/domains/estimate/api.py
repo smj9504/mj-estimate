@@ -370,6 +370,8 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
         'deductible': estimate_data.deductible,
         'room_data': estimate_data.room_data,
         'sections_data': estimate_data.sections_data,
+        'is_lump_sum_document': estimate_data.is_lump_sum_document or False,
+        'lump_sum_document_amount': estimate_data.lump_sum_document_amount if estimate_data.is_lump_sum_document else None,
         'adjustments': (
             [adj.dict() if hasattr(adj, 'dict') else adj for adj in estimate_data.adjustments]
             if hasattr(estimate_data, 'adjustments') and estimate_data.adjustments else []
@@ -452,6 +454,8 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
         terms=created_estimate.get('terms'),
         room_data=created_estimate.get('room_data'),
         sections_data=created_estimate.get('sections_data'),
+        is_lump_sum_document=created_estimate.get('is_lump_sum_document', False),
+        lump_sum_document_amount=created_estimate.get('lump_sum_document_amount'),
         payment_schedule=created_estimate.get('payment_schedule'),
         created_at=created_estimate.get('created_at'),
         updated_at=created_estimate.get('updated_at'),
@@ -592,6 +596,8 @@ async def update_estimate(
         terms=updated_estimate.get('terms'),
         room_data=updated_estimate.get('room_data'),
         sections_data=updated_estimate.get('sections_data'),
+        is_lump_sum_document=updated_estimate.get('is_lump_sum_document', False),
+        lump_sum_document_amount=updated_estimate.get('lump_sum_document_amount'),
         payment_schedule=updated_estimate.get('payment_schedule'),
         created_at=updated_estimate.get('created_at'),
         updated_at=updated_estimate.get('updated_at'),
@@ -965,6 +971,8 @@ async def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
         ],
         # Add sections data for proper section-based display
         "sections": sections_data,
+        "is_lump_sum_document": estimate.get('is_lump_sum_document', False),
+        "lump_sum_document_amount": estimate.get('lump_sum_document_amount', 0),
         "subtotal": estimate.get('subtotal', 0),
         "op_percent": estimate.get('op_percent', 0),
         "op_amount": estimate.get('op_amount', 0),

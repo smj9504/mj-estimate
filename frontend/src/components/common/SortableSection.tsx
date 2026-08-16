@@ -24,6 +24,9 @@ interface SortableSectionProps {
   renderHeaderOnly?: boolean;
   onToggleLumpSum?: (sectionIndex: number, checked: boolean) => void;
   onLumpSumAmountChange?: (sectionIndex: number, value: number | null) => void;
+  // When true (document-level lump sum mode), the per-section lump-sum
+  // toggle and subtotal display are hidden - pricing is document-wide only.
+  hideAmounts?: boolean;
 }
 
 const SortableSection: React.FC<SortableSectionProps> = ({
@@ -34,6 +37,7 @@ const SortableSection: React.FC<SortableSectionProps> = ({
   onEditSection,
   onDeleteSection,
   renderHeaderOnly = false,
+  hideAmounts = false,
   onToggleLumpSum,
   onLumpSumAmountChange,
 }) => {
@@ -106,7 +110,7 @@ const SortableSection: React.FC<SortableSectionProps> = ({
           <Badge count={section.items.length} style={{ marginLeft: 4, flexShrink: 0 }} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-          {onToggleLumpSum && (
+          {!hideAmounts && onToggleLumpSum && (
             <Tooltip title="Lump sum: enter one total for this section instead of computing it from items">
               <Space size={4} onClick={(e) => e.stopPropagation()}>
                 <span style={{ fontSize: 12, color: '#8c8c8c' }}>Lump Sum</span>
@@ -118,7 +122,7 @@ const SortableSection: React.FC<SortableSectionProps> = ({
               </Space>
             </Tooltip>
           )}
-          {section.isLumpSum ? (
+          {!hideAmounts && (section.isLumpSum ? (
             <InputNumber
               size="small"
               value={section.lumpSumAmount ?? 0}
@@ -131,7 +135,7 @@ const SortableSection: React.FC<SortableSectionProps> = ({
             section.showSubtotal && (
               <Tag color="blue" style={{ margin: 0 }}>${section.subtotal.toFixed(2)}</Tag>
             )
-          )}
+          ))}
           <Space size={4}>
             <Button
               type="dashed"

@@ -102,6 +102,11 @@ export interface InvoiceData {
   insurance?: InsuranceInfo | null;
   items: InvoiceItem[];
   sections?: InvoiceSection[];  // Section-based data
+  // Document-level lump sum: when enabled, item qty/unit/rate/amount and
+  // section subtotals are hidden and lump_sum_document_amount is shown
+  // as the single grand total instead of the calculated total.
+  is_lump_sum_document?: boolean;
+  lump_sum_document_amount?: number;
   subtotal?: number;
   tax_method?: 'percentage' | 'specific'; // Tax calculation method
   tax_rate?: number;

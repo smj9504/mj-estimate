@@ -192,6 +192,11 @@ class InvoiceBase(BaseModel):
     show_insurance: Optional[bool] = False
     insurance: Optional[InsuranceInfo] = None
 
+    # Document-level lump sum: hides qty/unit/rate/amount for all items and
+    # replaces the calculated grand total with lump_sum_document_amount
+    is_lump_sum_document: Optional[bool] = False
+    lump_sum_document_amount: Optional[float] = None
+
     # Tax configuration
     tax_method: Optional[str] = Field("percentage", description="Tax calculation method: 'percentage' or 'specific'")
     tax_rate: Optional[float] = 0
@@ -304,6 +309,11 @@ class InvoiceUpdate(BaseModel):
     show_insurance: Optional[bool] = None
     insurance: Optional[InsuranceInfo] = None
 
+    # Document-level lump sum: hides qty/unit/rate/amount for all items and
+    # replaces the calculated grand total with lump_sum_document_amount
+    is_lump_sum_document: Optional[bool] = None
+    lump_sum_document_amount: Optional[float] = None
+
     items: Optional[List[InvoiceItemCreate]] = None
 
     # Section metadata (title/order/lump-sum) - preserves section structure
@@ -399,7 +409,11 @@ class InvoiceResponse(BaseModel):
     insurance_policy_number: Optional[str]
     insurance_claim_number: Optional[str]
     insurance_deductible: Optional[float]
-    
+
+    # Document-level lump sum
+    is_lump_sum_document: Optional[bool] = False
+    lump_sum_document_amount: Optional[float] = None
+
     # Financial
     subtotal: float
     adjustments: Optional[List[Adjustment]] = Field(default_factory=list, description="List of adjustments")
@@ -449,10 +463,15 @@ class InvoicePDFRequest(BaseModel):
     company: CompanyInfo
     client: ClientInfo
     insurance: Optional[InsuranceInfo] = None
-    
+
+    # Document-level lump sum: hides qty/unit/rate/amount for all items and
+    # replaces the calculated grand total with lump_sum_document_amount
+    is_lump_sum_document: Optional[bool] = False
+    lump_sum_document_amount: Optional[float] = None
+
     items: List[InvoiceItemBase] = []
     sections: Optional[List[InvoiceSection]] = []  # Grouped items by section
-    
+
     subtotal: float = 0
     adjustments: Optional[List[Adjustment]] = Field(default_factory=list, description="List of adjustments")
     op_percent: Optional[float] = 0  # O&P percentage (DEPRECATED: Use adjustments instead)

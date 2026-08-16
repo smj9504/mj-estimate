@@ -309,8 +309,12 @@ _NEEDED_COLUMNS = [
     ("contract_templates", "storage_file_id", "VARCHAR(500)"),
     ("invoices", "client_id", "UUID"),
     ("invoices", "claim_id", "UUID"),
+    ("invoices", "is_lump_sum_document", "BOOLEAN"),
+    ("invoices", "lump_sum_document_amount", "DECIMAL(15,2)"),
     ("estimates", "client_id", "UUID"),
     ("estimates", "claim_id", "UUID"),
+    ("estimates", "is_lump_sum_document", "BOOLEAN"),
+    ("estimates", "lump_sum_document_amount", "DECIMAL(15,2)"),
     ("work_orders", "client_id", "UUID"),
     ("work_orders", "claim_id", "UUID"),
     ("water_mitigation_jobs", "claim_id", "UUID"),
@@ -532,6 +536,18 @@ async def lifespan(app: FastAPI):
 
                         _auto_add_columns_with_conn(conn)
                         print("[STARTUP] Column migration done")
+
+                        # Backfill updated_at for rows created before the
+                        # column had a server_default (was onupdate-only,
+                        # so never-updated rows had updated_at = NULL).
+                        for backfill_table in ("estimates", "invoices"):
+                            if backfill_table in existing or backfill_table in {t.name for t in tables_to_create}:
+                                result = conn.execute(text(
+                                    f"UPDATE {backfill_table} SET updated_at = created_at "
+                                    "WHERE updated_at IS NULL"
+                                ))
+                                if result.rowcount:
+                                    print(f"[MIGRATION] Backfilled updated_at for {result.rowcount} rows in {backfill_table}")
 
                     _db._tables_initialized = True
 

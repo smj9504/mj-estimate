@@ -83,12 +83,17 @@ class Estimate(Base, BaseModel):
     # Sections data - stores section structure (title, order, showSubtotal) as JSON
     sections_data = Column(JSON)
 
+    # Document-level lump sum mode: hides qty/unit/rate/amount for all items
+    # and replaces the calculated grand total with a single user-entered amount
+    is_lump_sum_document = Column(Boolean, default=False)
+    lump_sum_document_amount = Column(DECIMAL(15, 2))
+
     # Payment schedule - stores payment milestones as JSON array
     # Each entry: {label, type: 'percentage'|'fixed', value, due_label, sort_order}
     payment_schedule = Column(JSON)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     company = relationship("Company", back_populates="estimates")

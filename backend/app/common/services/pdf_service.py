@@ -908,6 +908,14 @@ print(os.path.getsize(output_path))
         items = context.get('items', [])
         sections = context.get('sections', [])
 
+        # Document-level lump sum: item/section/tax/adjustment calculations
+        # below still run (harmlessly) but their results are overwritten
+        # further down with the single manually-entered amount.
+        is_lump_sum_document = bool(
+            context.get('is_lump_sum_document') or context.get('isLumpSumDocument')
+        )
+        context['is_lump_sum_document'] = is_lump_sum_document
+
         # Lump-sum sections contribute their manual subtotal instead of the
         # sum of their (still-displayed) items' quantity*rate. Match items to
         # sections by title (== primary_group), since that's the only link
@@ -1062,7 +1070,29 @@ print(os.path.getsize(output_path))
         context['tax_calculated'] = tax_amount  # Template expects this name
         context['total'] = total
         context['total_with_tax'] = total  # Template expects this name
-        
+
+        # Document-level lump sum: override all calculated totals with the
+        # single manually-entered amount. Items/sections are still rendered
+        # below (for description) but the template hides pricing columns
+        # based on is_lump_sum_document.
+        if is_lump_sum_document:
+            lump_sum_amount = float(
+                context.get('lump_sum_document_amount')
+                or context.get('lumpSumDocumentAmount')
+                or 0
+            )
+            context['adjustments'] = []
+            context['items_subtotal'] = lump_sum_amount
+            context['op_percent'] = 0
+            context['op_amount'] = 0
+            context['subtotal'] = lump_sum_amount
+            context['subtotal_total'] = lump_sum_amount
+            context['tax_amount'] = 0
+            context['tax_calculated'] = 0
+            context['discount'] = 0
+            context['total'] = lump_sum_amount
+            context['total_with_tax'] = lump_sum_amount
+
         # Modern template expects serviceSections structure (legacy)
         # But prefer 'sections' (new format with subtotals) if available
         if data.get('sections'):
@@ -1375,7 +1405,29 @@ print(os.path.getsize(output_path))
         
         # Final total
         context['total'] = current_subtotal + context['tax_amount']
-        
+
+        # Document-level lump sum: override all calculated totals with the
+        # single manually-entered amount. Items/sections are still rendered
+        # (for description) but the template hides pricing columns based on
+        # is_lump_sum_document.
+        is_lump_sum_document = bool(
+            context.get('is_lump_sum_document') or context.get('isLumpSumDocument')
+        )
+        context['is_lump_sum_document'] = is_lump_sum_document
+        if is_lump_sum_document:
+            lump_sum_amount = float(
+                context.get('lump_sum_document_amount')
+                or context.get('lumpSumDocumentAmount')
+                or 0
+            )
+            context['adjustments'] = []
+            context['op_percent'] = 0
+            context['op_amount'] = 0
+            context['subtotal'] = lump_sum_amount
+            context['tax_amount'] = 0
+            context['discount_amount'] = 0
+            context['total'] = lump_sum_amount
+
         # Preserve HTML in global notes fields
         if context.get('notes'):
             # Don't convert - keep as HTML from RichTextEditor

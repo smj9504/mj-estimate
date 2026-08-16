@@ -163,6 +163,11 @@ class EstimateBase(BaseModel):
     # Sections data - preserves section structure across save/load
     sections_data: Optional[List[EstimateSection]] = None
 
+    # Document-level lump sum: hides qty/unit/rate/amount for all items and
+    # replaces the calculated grand total with lump_sum_document_amount
+    is_lump_sum_document: Optional[bool] = False
+    lump_sum_document_amount: Optional[float] = None
+
     # Payment schedule
     payment_schedule: Optional[List[PaymentScheduleItem]] = None
 
@@ -230,6 +235,11 @@ class EstimateUpdate(BaseModel):
 
     # Sections data - preserves section structure across save/load
     sections_data: Optional[List[EstimateSection]] = None
+
+    # Document-level lump sum: hides qty/unit/rate/amount for all items and
+    # replaces the calculated grand total with lump_sum_document_amount
+    is_lump_sum_document: Optional[bool] = None
+    lump_sum_document_amount: Optional[float] = None
 
     # Payment schedule
     payment_schedule: Optional[List[PaymentScheduleItem]] = None
@@ -317,6 +327,11 @@ class EstimateResponse(BaseModel):
     terms: Optional[str] = None
     room_data: Optional[Dict[str, Any]] = None
     sections_data: Optional[List[EstimateSection]] = None
+
+    # Document-level lump sum
+    is_lump_sum_document: Optional[bool] = False
+    lump_sum_document_amount: Optional[float] = None
+
     payment_schedule: Optional[List[PaymentScheduleItem]] = None
 
     # Relationships
@@ -365,6 +380,11 @@ class EstimatePDFRequest(BaseModel):
     # Section metadata (title/order/lump-sum) - used to correctly show a
     # lump-sum section's manual amount as its subtotal in the PDF/preview
     sections: Optional[List[EstimateSection]] = None
+
+    # Document-level lump sum: hides qty/unit/rate/amount for all items and
+    # replaces the calculated grand total with lump_sum_document_amount
+    is_lump_sum_document: Optional[bool] = False
+    lump_sum_document_amount: Optional[float] = None
 
     # Financial
     subtotal: float = 0

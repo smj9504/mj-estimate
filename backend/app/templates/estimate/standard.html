@@ -551,11 +551,15 @@
                 <table class="items-table">
                     <thead>
                         <tr>
+                            {% if is_lump_sum_document %}
+                            <th style="width: 100%;">Item</th>
+                            {% else %}
                             <th style="width: 58%;">Item</th>
                             <th class="text-center" style="width: 7%;">Qty</th>
                             <th class="text-center" style="width: 5%;">Unit</th>
                             <th class="text-right" style="width: 15%;">Price</th>
                             <th class="text-right" style="width: 25%;">Total</th>
+                            {% endif %}
                         </tr>
                     </thead>
                     <tbody>
@@ -571,17 +575,19 @@
                                     {% endif %}
                                 </div>
                             </td>
+                            {% if not is_lump_sum_document %}
                             <td class="text-center">{{ item.quantity }}</td>
                             <td class="text-center">{{ item.unit if item.unit else 'EA' }}</td>
                             <td class="text-right">{{ item.rate|format_currency }}</td>
                             <td class="text-right">{{ (item.quantity * item.rate)|format_currency }}</td>
+                            {% endif %}
                         </tr>
                         {% endfor %}
                         {% endif %}
                     </tbody>
                 </table>
 
-                {% if section.showSubtotal and section['items'] and section['items']|length > 0 %}
+                {% if not is_lump_sum_document and section.showSubtotal and section['items'] and section['items']|length > 0 %}
                     <div class="section-subtotal">
                         Section Subtotal: {{ format_amount(section.subtotal) }}
                     </div>
@@ -594,11 +600,15 @@
                 <table class="items-table">
                     <thead>
                         <tr>
+                            {% if is_lump_sum_document %}
+                            <th style="width: 100%;">Item</th>
+                            {% else %}
                             <th style="width: 50%;">Item</th>
                             <th class="text-center" style="width: 8%;">Qty</th>
                             <th class="text-center" style="width: 12%;">Unit</th>
                             <th class="text-right" style="width: 15%;">Price</th>
                             <th class="text-right" style="width: 15%;">Total</th>
+                            {% endif %}
                         </tr>
                     </thead>
                     <tbody>
@@ -612,10 +622,12 @@
                                     {% endif %}
                                 </div>
                             </td>
+                            {% if not is_lump_sum_document %}
                             <td class="text-center">{{ item.quantity }}</td>
                             <td class="text-center">{{ item.unit if item.unit else 'EA' }}</td>
                             <td class="text-right">{{ item.rate|format_currency }}</td>
                             <td class="text-right">{{ (item.quantity * item.rate)|format_currency }}</td>
+                            {% endif %}
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -626,12 +638,14 @@
         <!-- Totals Section -->
         <div class="totals-section">
             <div class="totals-container">
+                {% if not is_lump_sum_document %}
                 <div class="total-row subtotal">
                     <span class="total-label">Subtotal</span>
                     <span class="total-value">{{ format_amount(subtotal) }}</span>
                 </div>
+                {% endif %}
 
-                {% if adjustments and adjustments|length > 0 %}
+                {% if not is_lump_sum_document and adjustments and adjustments|length > 0 %}
                     {% for adjustment in adjustments|sort(attribute='order') %}
                     <div class="total-row">
                         <span class="total-label">
@@ -655,7 +669,7 @@
                     </div>
                     {% endif %}
                     {% endfor %}
-                {% else %}
+                {% elif not is_lump_sum_document %}
                     {# Backward compatibility: show op_percent and discount_amount if adjustments not used #}
                     {% if discount_amount and discount_amount > 0 %}
                     <div class="total-row">
@@ -672,7 +686,7 @@
                     {% endif %}
                 {% endif %}
 
-                {% if tax_amount and tax_amount > 0 %}
+                {% if not is_lump_sum_document and tax_amount and tax_amount > 0 %}
                 <div class="total-row">
                     <span class="total-label">Tax{% if tax_rate %} ({{ tax_rate }}%){% endif %}</span>
                     <span class="total-value">{{ format_amount(tax_amount) }}</span>

@@ -147,6 +147,11 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   // Payment schedule state
   const [paymentSchedule, setPaymentSchedule] = useState<PaymentScheduleItem[]>([]);
 
+  // Document-level lump sum: hides qty/unit/rate/amount for all items and
+  // replaces the calculated grand total with a single manually-entered amount.
+  const [isLumpSumDocument, setIsLumpSumDocument] = useState(false);
+  const [lumpSumDocumentAmount, setLumpSumDocumentAmount] = useState(0);
+
 
   const statusOptions = [
     { value: 'draft', label: 'Draft' },
@@ -263,6 +268,10 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       } else {
         setPaymentSchedule([]);
       }
+
+      // Set document-level lump sum mode
+      setIsLumpSumDocument(estimate.is_lump_sum_document || false);
+      setLumpSumDocumentAmount(estimate.lump_sum_document_amount ?? 0);
       
       // Set company
       if (estimate.company_id) {
@@ -911,13 +920,24 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     ));
   };
 
-  const calculateGrandTotal = useMemo((): { 
-    subtotal: number; 
-    opAmount: number; 
-    taxAmount: number; 
+  const calculateGrandTotal = useMemo((): {
+    subtotal: number;
+    opAmount: number;
+    taxAmount: number;
     total: number;
     adjustments?: Array<{ adjustment: Adjustment; amount: number }>;
   } => {
+    // Document-level lump sum: ignore item/section/tax/adjustment calculations
+    // entirely and use the single manually-entered amount as the grand total.
+    if (isLumpSumDocument) {
+      return {
+        subtotal: lumpSumDocumentAmount,
+        opAmount: 0,
+        taxAmount: 0,
+        total: lumpSumDocumentAmount,
+      };
+    }
+
     const subtotal = sections.reduce((sum, section) => sum + section.subtotal, 0);
     
     // Process adjustments if provided (new flexible system)
@@ -987,7 +1007,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       total,
       adjustments: adjustmentsWithAmounts.length > 0 ? adjustmentsWithAmounts : undefined
     };
-  }, [sections, opPercent, adjustments, taxMethod, taxRate, specificTaxAmount]);
+  }, [sections, opPercent, adjustments, taxMethod, taxRate, specificTaxAmount, isLumpSumDocument, lumpSumDocumentAmount]);
 
   // Helper function to generate item code from description
   const generateItemCode = (description: string): string => {
@@ -1258,6 +1278,8 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       estimate_date: values.estimate_date?.format('YYYY-MM-DD'),
       items: allItems,
       sections: sections,
+      is_lump_sum_document: isLumpSumDocument,
+      lump_sum_document_amount: isLumpSumDocument ? lumpSumDocumentAmount : undefined,
       op_percent: opPercent,
       op_amount: grandTotal.opAmount,
       subtotal: grandTotal.subtotal,
@@ -1324,6 +1346,8 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       estimate_date: values.estimate_date?.format('YYYY-MM-DD'),
       items: allItems,
       sections: sections,
+      is_lump_sum_document: isLumpSumDocument,
+      lump_sum_document_amount: isLumpSumDocument ? lumpSumDocumentAmount : undefined,
       op_percent: opPercent,
       op_amount: grandTotal.opAmount,
       subtotal: grandTotal.subtotal,
@@ -1708,6 +1732,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                             renderHeaderOnly={true}
                             onToggleLumpSum={toggleSectionLumpSum}
                             onLumpSumAmountChange={updateSectionLumpSumAmount}
+                            hideAmounts={isLumpSumDocument}
                           />
                         ),
                         children: (
@@ -1745,6 +1770,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                   onTaxableChange={(index, checked) => handleTaxableChange(sectionIndex, index, checked)}
                                   onToggleAllTaxable={(checked) => handleToggleAllTaxable(sectionIndex, checked)}
                                   formatCurrency={formatCurrency}
+                                  hidePricing={isLumpSumDocument}
                                 />
                               </div>
                             )}
@@ -1820,7 +1846,41 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
           {/* O&P, Tax and Totals */}
           <Col xs={24}>
-            <Card title="O&P, Tax & Totals" style={{ marginBottom: 24 }}>
+            <Card
+              title="O&P, Tax & Totals"
+              style={{ marginBottom: 24 }}
+              extra={
+                <Tooltip title="Lump sum document: hides qty/unit/rate/amount for all items and shows a single total you enter directly, instead of the calculated total">
+                  <Space onClick={(e) => e.stopPropagation()}>
+                    <span style={{ fontSize: 12, color: '#8c8c8c' }}>Lump Sum Document</span>
+                    <Switch
+                      checked={isLumpSumDocument}
+                      onChange={setIsLumpSumDocument}
+                    />
+                  </Space>
+                </Tooltip>
+              }
+            >
+              {isLumpSumDocument ? (
+                <Row gutter={16} justify="end">
+                  <Col xs={24} md={12}>
+                    <Form.Item label="Total Amount">
+                      <InputNumber
+                        style={{ width: '100%' }}
+                        min={0}
+                        size="large"
+                        value={lumpSumDocumentAmount}
+                        onChange={(value) => setLumpSumDocumentAmount(value || 0)}
+                        formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                        parser={value => value!.replace(/\$\s?|(,*)/g, '') as any}
+                      />
+                    </Form.Item>
+                    <div style={{ textAlign: 'right', fontSize: '20px', color: '#1890ff' }}>
+                      <strong>Total: {formatCurrency(calculateGrandTotal.total)}</strong>
+                    </div>
+                  </Col>
+                </Row>
+              ) : (
               <Row gutter={16}>
                 <Col xs={24} md={12}>
                   {/* Adjustments Section */}
@@ -2069,6 +2129,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                   </div>
                 </Col>
               </Row>
+              )}
             </Card>
           </Col>
 

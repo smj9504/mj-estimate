@@ -85,8 +85,13 @@ class Invoice(Base, BaseModel):
     # lump-sum flag/amount) as JSON, mirroring Estimate.sections_data
     sections_data = Column(JSON)
 
+    # Document-level lump sum mode: hides qty/unit/rate/amount for all items
+    # and replaces the calculated grand total with a single user-entered amount
+    is_lump_sum_document = Column(Boolean, default=False)
+    lump_sum_document_amount = Column(DECIMAL(15, 2))
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     company = relationship("Company", foreign_keys=[company_id], back_populates="invoices")
