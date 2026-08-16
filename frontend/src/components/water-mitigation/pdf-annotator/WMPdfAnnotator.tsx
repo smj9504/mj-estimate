@@ -704,7 +704,7 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
   const cursorStyle = annotatorState.tool === 'text' ? 'crosshair' : 'default';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <WMPdfToolbar
         state={annotatorState}
         onToolChange={handleToolChange}
@@ -727,6 +727,7 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
         ref={containerRef}
         style={{
           flex: 1,
+          minHeight: 0,
           overflow: 'auto',
           background: '#e8e8e8',
           display: 'flex',
