@@ -5,6 +5,15 @@ import type { AxiosError, AxiosInstance } from 'axios';
 // the same time - newer alerts replace older ones once maxCount is hit.
 notification.config({ placement: 'topRight', maxCount: 3 });
 
+// When the backend goes down (e.g. Render cold start / crash), a single
+// page can fire several parallel requests that all fail within the same
+// instant - each with a different URL, so the per-key dedupe above doesn't
+// help. Suppress additional alerts for a short window after the first one,
+// since "the server is down" only needs to be communicated once; the user
+// doesn't need one retry prompt per failed request.
+const SUPPRESS_WINDOW_MS = 4000;
+let lastAlertShownAt = 0;
+
 /**
  * Shows a "다시 시도" notification for a server-side error (5xx response,
  * or a network failure where no response was received at all).
@@ -16,10 +25,17 @@ notification.config({ placement: 'topRight', maxCount: 3 });
  */
 export function showRetryableErrorNotification(
   error: AxiosError,
-  axiosInstance: AxiosInstance
+  axiosInstance: AxiosInstance,
+  isRetry: boolean = false
 ): void {
   const config = error.config;
   if (!config) return;
+
+  const now = Date.now();
+  if (!isRetry && now - lastAlertShownAt < SUPPRESS_WINDOW_MS) {
+    return;
+  }
+  lastAlertShownAt = now;
 
   const method = (config.method || 'request').toUpperCase();
   const url = config.url || '';
@@ -30,7 +46,10 @@ export function showRetryableErrorNotification(
 
   const handleRetry = () => {
     notification.destroy(key);
-    axiosInstance(config)
+    // Mark this specific request as a user-initiated retry so the response
+    // interceptor skips its own (possibly-suppressed) call and defers to
+    // the explicit one below - avoids double-invoking for the same failure.
+    axiosInstance({ ...config, suppressErrorNotification: true })
       .then(() => {
         notification.success({
           key,
@@ -39,10 +58,10 @@ export function showRetryableErrorNotification(
           duration: 4,
         });
       })
-      .catch(() => {
-        // The response interceptor runs again for this failure and will
-        // re-open the same `key` notification with fresh state - nothing
-        // else to do here.
+      .catch((retryError) => {
+        // Force this through regardless of the suppress window - a user
+        // who explicitly clicked "다시 시도" should always get feedback.
+        showRetryableErrorNotification(retryError, axiosInstance, true);
       });
   };
 
