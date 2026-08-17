@@ -2961,7 +2961,13 @@ def generate_water_mitigation_report_pdf(
         IMAGE_MAX_SIZE = 1200  # Maximum dimension in pixels
     else:
         IMAGE_QUALITY = 95  # High quality for original
-        IMAGE_MAX_SIZE = None  # No resizing
+        IMAGE_MAX_SIZE = None  # No resizing for output quality
+
+    # Hard cap on decoded pixel dimensions regardless of `compress`, so a
+    # handful of full-resolution originals can't blow up process memory.
+    # Photos are printed at most a few inches wide on the page, so 2400px
+    # is already far beyond what the PDF can visually use.
+    MAX_DECODE_SIZE = 2400
 
     # Get storage provider from settings
     from app.core.config import settings
@@ -3000,6 +3006,12 @@ def generate_water_mitigation_report_pdf(
 
     # Create PDF writer
     writer = PdfWriter()
+
+    # Track temp files (downloaded + compressed/downscaled copies) for
+    # cleanup. Declared once at function scope — must NOT be reset inside
+    # the per-photo loop below, or earlier photos' temp files lose their
+    # only reference and leak on disk for the life of the process.
+    temp_files = []
 
     # Format dates
     def format_date(date_value):
@@ -3518,7 +3530,6 @@ def generate_water_mitigation_report_pdf(
 
             # Get photo file (local or cloud storage)
             photo_file_path = None
-            temp_files = []  # Track temp files for cleanup
 
             if photo_storage == 'local':
                 local_path = Path(file_path_str)
@@ -3677,8 +3688,18 @@ def generate_water_mitigation_report_pdf(
                 y = page_height - header_height - 0.15 * inch - (row + 1) * (photo_height + 0.25 * inch)
 
                 # Draw photo with caption below and date overlay at bottom-right
+                img = None
                 try:
                     img = Image.open(photo_item['file_path'])
+                    # Use draft mode to decode oversized JPEGs at a reduced
+                    # resolution directly (avoids fully decoding a huge
+                    # original into memory before we downscale it).
+                    if img.width > MAX_DECODE_SIZE or img.height > MAX_DECODE_SIZE:
+                        img.draft('RGB', (MAX_DECODE_SIZE, MAX_DECODE_SIZE))
+                    was_downscaled = False
+                    if img.width > MAX_DECODE_SIZE or img.height > MAX_DECODE_SIZE:
+                        img.thumbnail((MAX_DECODE_SIZE, MAX_DECODE_SIZE), Image.Resampling.LANCZOS)
+                        was_downscaled = True
 
                     # Apply compression if enabled (resize and reduce quality)
                     actual_photo_path = photo_item['file_path']
@@ -3699,8 +3720,21 @@ def generate_water_mitigation_report_pdf(
                         compressed_temp.close()
                         actual_photo_path = compressed_temp.name
                         temp_files.append(compressed_temp.name)
+                    elif was_downscaled:
+                        # Not compressing, but the original exceeded the
+                        # decode-size cap — persist the downscaled version so
+                        # drawImage/reportlab doesn't re-read the huge
+                        # original file from disk.
+                        downscale_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+                        save_img = img.convert('RGB') if img.mode in ('RGBA', 'P') else img
+                        save_img.save(downscale_temp.name, format='JPEG', quality=IMAGE_QUALITY, optimize=True)
+                        downscale_temp.close()
+                        actual_photo_path = downscale_temp.name
+                        temp_files.append(downscale_temp.name)
 
                     img_width, img_height = img.size
+                    img.close()
+                    img = None
 
                     # All photos use full cell width for maximum size
                     # This ensures portrait and landscape photos have the same width
@@ -3815,6 +3849,25 @@ def generate_water_mitigation_report_pdf(
                     c.setFont(FONT_BODY, 10)
                     c.drawCentredString(x + photo_width / 2, y + photo_height / 2, "Image not available")
                     c.setFillColor(colors.HexColor(style["color_black"]))
+                finally:
+                    if img is not None:
+                        try:
+                            img.close()
+                        except Exception:
+                            pass
+                    # Release this photo's downloaded/downscaled temp files
+                    # immediately rather than waiting until the whole report
+                    # finishes — sections can hold dozens of photos and
+                    # letting them all accumulate on disk/in the temp_files
+                    # list adds unnecessary pressure during generation.
+                    photo_temp_path = photo_item['file_path']
+                    if photo_temp_path in temp_files:
+                        try:
+                            import os
+                            os.unlink(photo_temp_path)
+                        except Exception:
+                            pass
+                        temp_files.remove(photo_temp_path)
 
             # Page footer — variant layout
             total_pages += 1
