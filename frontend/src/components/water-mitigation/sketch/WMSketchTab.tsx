@@ -53,6 +53,7 @@ import {
 } from '../../../types/wmSketch';
 import type { FloorPlanSourceType } from '../../../types/wmSketch';
 import { generateOverlayId } from './utils/wmCalculations';
+import { useWMResponsive } from './hooks/useWMResponsive';
 import WMFloorSelector from './WMFloorSelector';
 import WMFloorSketchEditor from './WMFloorSketchEditor';
 import MagicPlanFloorPlanSelectModal from './MagicPlanFloorPlanSelectModal';
@@ -108,6 +109,8 @@ export interface WMSketchTabProps {
 // ============================================================================
 
 const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }) => {
+  const { isMobile } = useWMResponsive();
+
   // ------------------------------------------------------------------
   // State
   // ------------------------------------------------------------------
@@ -612,11 +615,14 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
 
   return (
     <div
+      data-testid="wm-sketch-tab"
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(100vh - 260px)',
-        minHeight: 500,
+        // Mobile pages carry less chrome above the tab, so reclaim that space
+        // for the canvas rather than leaving the editor letterboxed.
+        height: isMobile ? 'calc(100vh - 140px)' : 'calc(100vh - 260px)',
+        minHeight: isMobile ? 460 : 500,
         background: '#fff',
       }}
     >

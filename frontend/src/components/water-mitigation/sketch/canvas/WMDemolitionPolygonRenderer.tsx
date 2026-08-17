@@ -13,6 +13,8 @@ import { Group, Line, Circle, Text, Rect } from 'react-konva';
 import Konva from 'konva';
 import type { WMDemolitionZone, DemoStrokeStyle } from '../../../../types/wmSketch';
 
+import { useTouchTargetSizes } from '../hooks/useWMResponsive';
+
 export interface WMDemolitionPolygonRendererProps {
   zone: WMDemolitionZone;
   isSelected: boolean;
@@ -44,6 +46,9 @@ const WMDemolitionPolygonRenderer: React.FC<WMDemolitionPolygonRendererProps> = 
   onDragEnd,
   onPolygonPointsChanged,
 }) => {
+  // Handles must be finger-sized on touch devices; `hitStrokeWidth`
+  // widens the tap target without changing how the handle looks.
+  const touchSizes = useTouchTargetSizes();
   const groupRef = useRef<Konva.Group>(null);
   const lineRef = useRef<Konva.Line>(null);
   const selLineRef = useRef<Konva.Line>(null);
@@ -243,6 +248,7 @@ const WMDemolitionPolygonRenderer: React.FC<WMDemolitionPolygonRendererProps> = 
           fill={draggingIndex === i ? '#1890ff' : '#ffffff'}
           stroke="#1890ff"
           strokeWidth={2}
+          hitStrokeWidth={touchSizes.hitStrokeWidth}
           draggable
           onMouseEnter={(e) => {
             const container = e.target.getStage()?.container();

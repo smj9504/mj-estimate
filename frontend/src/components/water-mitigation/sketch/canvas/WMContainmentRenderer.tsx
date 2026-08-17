@@ -13,6 +13,8 @@ import Konva from 'konva';
 import { WMContainmentZone } from '../../../../types/wmSketch';
 import { formatContainmentTypeLabel } from '../utils/wmDefaults';
 
+import { useTouchTargetSizes } from '../hooks/useWMResponsive';
+
 export interface WMContainmentRendererProps {
   zone: WMContainmentZone;
   isSelected: boolean;
@@ -40,6 +42,9 @@ const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
   onDragEnd,
   onTransformEnd,
 }) => {
+  // Handles must be finger-sized on touch devices; `hitStrokeWidth`
+  // widens the tap target without changing how the handle looks.
+  const touchSizes = useTouchTargetSizes();
   const lengthPx = zone.length_ft * scalePixelsPerFoot;
   const zipperCount = zone.zipper_count || 0;
 
@@ -117,11 +122,11 @@ const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
         lineCap="round"
       />
 
-      {/* Hit area — wider invisible line for easier clicking */}
+      {/* Hit area — wider invisible line for easier clicking / tapping */}
       <Line
         points={[0, 0, lengthPx, 0]}
         stroke="transparent"
-        strokeWidth={16}
+        strokeWidth={Math.max(touchSizes.hitStrokeWidth, 16)}
       />
 
       {/* Selection highlight */}
@@ -207,6 +212,7 @@ const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
             fill={CONTAINMENT_STROKE}
             stroke="#ffffff"
             strokeWidth={2}
+            hitStrokeWidth={touchSizes.hitStrokeWidth}
             draggable
             onDragEnd={handleEndpointDrag}
             onMouseEnter={(e) => {

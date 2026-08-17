@@ -39,6 +39,10 @@ import {
   Tag,
   Space,
   Menu,
+  Button,
+  Drawer,
+  Badge,
+  Tooltip,
   theme,
   message,
 } from 'antd';
@@ -52,6 +56,13 @@ import {
   GroupOutlined,
   UngroupOutlined,
   SwapOutlined,
+  ZoomInOutlined,
+  ZoomOutOutlined,
+  CompressOutlined,
+  CheckOutlined,
+  CloseOutlined,
+  MenuUnfoldOutlined,
+  MoreOutlined,
 } from '@ant-design/icons';
 import { Stage, Layer } from 'react-konva';
 import type Konva from 'konva';
@@ -106,6 +117,7 @@ import {
   DEFAULT_CONTENT_MANIPULATION_COLOR,
   DEFAULT_PAPER_WIDTH_FT,
 } from './utils/wmDefaults';
+import { useWMResponsive } from './hooks/useWMResponsive';
 import WMFloorPlanSource from './WMFloorPlanSource';
 import WMSketchToolbar from './WMSketchToolbar';
 import WMSketchSidebar from './WMSketchSidebar';
@@ -150,6 +162,68 @@ const INITIAL_DRAW_STATE: DrawState = {
   currentX: 0,
   currentY: 0,
 };
+
+// ============================================================================
+// Pointer normalization (mouse + touch)
+// ============================================================================
+
+/**
+ * Konva dispatches MouseEvent for mouse input and TouchEvent for touch. The
+ * drawing handlers below are shared between both, so every access to
+ * mouse-only fields (`button`, `shiftKey`, `clientX`) goes through these
+ * helpers instead of being read off `e.evt` directly.
+ */
+type WMPointerEvent = MouseEvent | TouchEvent;
+
+function isTouchEvt(evt: WMPointerEvent): evt is TouchEvent {
+  return 'touches' in evt;
+}
+
+/** Viewport coordinates of the primary pointer, or null if it has lifted. */
+function getClientPoint(evt: WMPointerEvent): { x: number; y: number } | null {
+  if (isTouchEvt(evt)) {
+    const t = evt.touches[0] ?? evt.changedTouches[0];
+    return t ? { x: t.clientX, y: t.clientY } : null;
+  }
+  return { x: evt.clientX, y: evt.clientY };
+}
+
+/** Mouse button index; touch always reports the primary button. */
+function getButton(evt: WMPointerEvent): number {
+  return isTouchEvt(evt) ? 0 : evt.button;
+}
+
+/** Modifier keys are unavailable on touch — treat them as not held. */
+function isShiftKey(evt: WMPointerEvent): boolean {
+  return !isTouchEvt(evt) && evt.shiftKey;
+}
+
+function isMultiSelectKey(evt: WMPointerEvent): boolean {
+  return !isTouchEvt(evt) && (evt.ctrlKey || evt.metaKey);
+}
+
+/** Number of active touch points (1 for mouse). */
+function touchCount(evt: WMPointerEvent): number {
+  return isTouchEvt(evt) ? evt.touches.length : 1;
+}
+
+/** Distance and midpoint between the first two touch points. */
+function getPinchGeometry(evt: TouchEvent) {
+  const [a, b] = [evt.touches[0], evt.touches[1]];
+  if (!a || !b) return null;
+  return {
+    dist: Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY),
+    center: { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 },
+  };
+}
+
+/** Movement (px) a finger may drift before a long-press is cancelled. */
+const LONG_PRESS_MOVE_TOLERANCE = 12;
+/** Hold duration (ms) that opens the context menu on touch. */
+const LONG_PRESS_DURATION = 500;
+/** Zoom limits shared by wheel, pinch, and the on-screen zoom buttons. */
+const MIN_STAGE_SCALE = 0.2;
+const MAX_STAGE_SCALE = 8;
 
 // ============================================================================
 // Geometry helpers for room detection
@@ -317,6 +391,7 @@ const StatusBar: React.FC<{ overlayData: WMOverlayData; materialTypes: DemoMater
   if (byType.length === 0 && containment_zones.length === 0 && floor_protections.length === 0 && contentProtections.length === 0 && contentManipulations.length === 0 && eqCount === 0) {
     return (
       <div
+        data-testid="wm-sketch-status-bar"
         style={{
           padding: '4px 12px',
           background: '#fafafa',
@@ -335,6 +410,7 @@ const StatusBar: React.FC<{ overlayData: WMOverlayData; materialTypes: DemoMater
 
   return (
     <div
+      data-testid="wm-sketch-status-bar"
       style={{
         padding: '4px 12px',
         background: '#fafafa',
@@ -486,6 +562,34 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   const { token } = theme.useToken();
 
   // ------------------------------------------------------------------
+  // Responsive layout
+  //   - narrow viewport → properties sidebar moves into a bottom Drawer
+  //   - touch pointer   → on-canvas controls replace keyboard/mouse-only
+  //                       affordances (wheel zoom, Esc, Delete, right-click)
+  // ------------------------------------------------------------------
+  const { isMobile, useTouchUI } = useWMResponsive();
+  const [sidebarDrawerOpen, setSidebarDrawerOpen] = useState(false);
+
+  /**
+   * Width of the row that holds the canvas and the sidebar. The editor can be
+   * far narrower than the viewport — on a tablet the app's own navigation
+   * takes most of the screen — so the sidebar layout is decided from the space
+   * actually available here, not from the viewport breakpoint.
+   */
+  const contentRowRef = useRef<HTMLDivElement>(null);
+  const [contentWidth, setContentWidth] = useState(0);
+
+  useLayoutEffect(() => {
+    const el = contentRowRef.current;
+    if (!el) return;
+    const measure = () => setContentWidth(el.getBoundingClientRect().width);
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    measure();
+    return () => observer.disconnect();
+  }, []);
+
+  // ------------------------------------------------------------------
   // Scale calibration state
   // ------------------------------------------------------------------
   const [isCalibrating, setIsCalibrating] = useState(false);
@@ -594,6 +698,13 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // ------------------------------------------------------------------
   const containerRef = useRef<HTMLDivElement>(null);
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
+  /**
+   * Whether `stageSize` reflects a real measurement rather than the initial
+   * placeholder. Fitting the view against the placeholder leaves the sketch
+   * zoomed past the edges of a small viewport, so the initial fit waits for
+   * this.
+   */
+  const [stageMeasured, setStageMeasured] = useState(false);
 
   // ------------------------------------------------------------------
   // Persistence
@@ -631,20 +742,19 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     const el = containerRef.current;
     if (!el) return;
 
-    const observer = new ResizeObserver(() => {
+    const measure = () => {
       const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return;
       setStageSize({
         width: Math.max(300, Math.floor(rect.width)),
         height: Math.max(200, Math.floor(rect.height)),
       });
-    });
+      setStageMeasured(true);
+    };
+
+    const observer = new ResizeObserver(measure);
     observer.observe(el);
-    // Initial measurement
-    const rect = el.getBoundingClientRect();
-    setStageSize({
-      width: Math.max(300, Math.floor(rect.width)),
-      height: Math.max(200, Math.floor(rect.height)),
-    });
+    measure(); // Initial measurement
     return () => observer.disconnect();
   }, []);
 
@@ -654,6 +764,12 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   const stageRef = useRef<Konva.Stage>(null);
   const [stageScale, setStageScale] = useState(1);
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
+  // Mirrors of the above for use inside event handlers, which are memoized
+  // with empty dep arrays and would otherwise read stale values.
+  const stageScaleRef = useRef(stageScale);
+  stageScaleRef.current = stageScale;
+  const stagePosRef = useRef(stagePos);
+  stagePosRef.current = stagePos;
 
   // ------------------------------------------------------------------
   // Fit-to-view: compute scale to fit logical canvas into viewport
@@ -679,16 +795,62 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // regardless of whether the viewport is smaller or larger than 1200×900.
   const initialFitDoneRef = useRef(false);
   useEffect(() => {
-    if (!initialFitDoneRef.current && fitScale > 0) {
+    if (!initialFitDoneRef.current && stageMeasured && fitScale > 0) {
       initialFitDoneRef.current = true;
       setStageScale(fitScale);
     }
-  }, [fitScale]);
+  }, [fitScale, stageMeasured]);
   const isPanningRef = useRef(false);
   const lastPointerRef = useRef({ x: 0, y: 0 });
 
   // Clipboard for copy/paste
   const clipboardRef = useRef<Array<{ type: string; data: Record<string, unknown> }>>([]);
+
+  /**
+   * Rescale the stage while keeping the canvas point currently under
+   * `anchor` (in stage/container pixels) pinned in place.
+   */
+  const zoomAroundPoint = useCallback(
+    (nextScale: number, anchor: { x: number; y: number }) => {
+      const oldScale = stageScaleRef.current;
+      const oldPos = stagePosRef.current;
+      const newScale = Math.max(MIN_STAGE_SCALE, Math.min(MAX_STAGE_SCALE, nextScale));
+      if (newScale === oldScale) return;
+
+      const pointTo = {
+        x: (anchor.x - oldPos.x) / oldScale,
+        y: (anchor.y - oldPos.y) / oldScale,
+      };
+      const newPos = {
+        x: anchor.x - pointTo.x * newScale,
+        y: anchor.y - pointTo.y * newScale,
+      };
+
+      stageScaleRef.current = newScale;
+      stagePosRef.current = newPos;
+      setStageScale(newScale);
+      setStagePos(newPos);
+    },
+    []
+  );
+
+  /** Convert viewport (client) coordinates into stage-container coordinates. */
+  const toStagePoint = useCallback((clientX: number, clientY: number) => {
+    const el = containerRef.current;
+    if (!el) return { x: clientX, y: clientY };
+    const rect = el.getBoundingClientRect();
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  }, []);
+
+  /** Zoom by a fixed step around the viewport centre (on-screen buttons). */
+  const zoomByStep = useCallback(
+    (direction: 'in' | 'out') => {
+      const center = { x: stageSize.width / 2, y: stageSize.height / 2 };
+      const factor = direction === 'in' ? 1.25 : 1 / 1.25;
+      zoomAroundPoint(stageScaleRef.current * factor, center);
+    },
+    [stageSize.width, stageSize.height, zoomAroundPoint]
+  );
 
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
@@ -696,27 +858,30 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     if (!stage) return;
 
     const scaleBy = 1.08;
-    const oldScale = stage.scaleX();
+    const oldScale = stageScaleRef.current;
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
 
-    const newScale =
-      e.evt.deltaY < 0
-        ? Math.min(oldScale * scaleBy, 8)
-        : Math.max(oldScale / scaleBy, 0.2);
+    zoomAroundPoint(e.evt.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy, pointer);
+  }, [zoomAroundPoint]);
 
-    const mousePointTo = {
-      x: (pointer.x - stage.x()) / oldScale,
-      y: (pointer.y - stage.y()) / oldScale,
-    };
-    const newPos = {
-      x: pointer.x - mousePointTo.x * newScale,
-      y: pointer.y - mousePointTo.y * newScale,
-    };
+  /** Reset zoom/pan so the whole logical canvas fits the viewport. */
+  const handleFitView = useCallback(() => {
+    stageScaleRef.current = fitScale;
+    stagePosRef.current = { x: 0, y: 0 };
+    setStageScale(fitScale);
+    setStagePos({ x: 0, y: 0 });
+  }, [fitScale]);
 
-    setStageScale(newScale);
-    setStagePos(newPos);
-  }, []);
+  // ------------------------------------------------------------------
+  // Pinch-to-zoom / two-finger pan state
+  // ------------------------------------------------------------------
+  const pinchRef = useRef<{ dist: number; center: { x: number; y: number } } | null>(null);
+  /**
+   * Set once a gesture has been claimed by pinch/pan so the trailing
+   * `touchend` does not fall through and finalize a drawing.
+   */
+  const gestureConsumedRef = useRef(false);
 
   // ------------------------------------------------------------------
   // Drawing state
@@ -1005,8 +1170,13 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   );
 
   // Helper: get canvas-space coordinates from a Konva event
+  /**
+   * Current pointer position in logical canvas coordinates.
+   * Konva populates `getPointerPosition()` for touch events too, so this
+   * works unchanged for both input types.
+   */
   const getCanvasPos = useCallback(
-    (e: Konva.KonvaEventObject<MouseEvent>): { x: number; y: number } => {
+    (_e?: Konva.KonvaEventObject<WMPointerEvent>): { x: number; y: number } => {
       const stage = stageRef.current;
       if (!stage) return { x: 0, y: 0 };
       const ptr = stage.getPointerPosition();
@@ -1300,17 +1470,58 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     return () => el.removeEventListener('contextmenu', handler);
   }, []);
 
-  // Close context menu on any click or scroll
+  // Close context menu on any click, tap, or scroll
   useEffect(() => {
     if (!contextMenu) return;
     const close = () => setContextMenu(null);
     window.addEventListener('mousedown', close);
     window.addEventListener('wheel', close);
+    // Deferred so the long-press that opened the menu doesn't close it via
+    // its own trailing touchend.
+    const armTouch = setTimeout(() => {
+      window.addEventListener('touchstart', close);
+    }, 0);
     return () => {
+      clearTimeout(armTouch);
       window.removeEventListener('mousedown', close);
       window.removeEventListener('wheel', close);
+      window.removeEventListener('touchstart', close);
     };
   }, [contextMenu]);
+
+  /**
+   * Remove every selected element. Shared by the Delete/Backspace shortcut,
+   * the context menu, and the on-canvas Delete button used on touch devices
+   * (which have no keyboard).
+   */
+  const deleteSelectedElements = useCallback(() => {
+    for (const sel of stateRef.current.selections) {
+      const { element_id, element_type } = sel;
+      if (element_type === 'demolition') removeDemolitionZone(element_id);
+      else if (element_type === 'equipment') removeEquipment(element_id);
+      else if (element_type === 'containment') removeContainment(element_id);
+      else if (element_type === 'floor_protection') removeFloorProtection(element_id);
+      else if (element_type === 'content_protection') removeContentProtection(element_id);
+      else if (element_type === 'content_manipulation') removeContentManipulation(element_id);
+      else if (element_type === 'text') removeTextAnnotation(element_id);
+      else if (element_type === 'shape') removeShape(element_id);
+      else if (element_type === 'wall') removeWall(element_id);
+      else if (element_type === 'room') removeRoomWithWalls(element_id);
+    }
+  }, [
+    removeDemolitionZone, removeEquipment, removeContainment, removeFloorProtection,
+    removeContentProtection, removeContentManipulation, removeTextAnnotation,
+    removeShape, removeWall, removeRoomWithWalls,
+  ]);
+
+  /** Abandon an in-progress multi-click wall chain or polygon. */
+  const cancelPendingDrawing = useCallback(() => {
+    setPolygonDrawPoints([]);
+    setPolygonDrawCursor(null);
+    setWallDrawStart(null);
+    setWallDrawCursor(null);
+    setWallSnapEnd(null);
+  }, []);
 
   const contextMenuItems: MenuProps['items'] = React.useMemo(() => {
     const sel = state.selections;
@@ -1464,21 +1675,23 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   }, [state.selections, state.overlayData.demolition_zones, state.overlayData.shapes, bringToFront, bringForward, sendBackward, sendToBack, removeDemolitionZone, removeEquipment, removeContainment, removeFloorProtection, removeContentProtection, removeTextAnnotation, removeShape, removeWall, removeRoomWithWalls, combineSelectedZones, ungroupZone, updateShape]);
 
   // ------------------------------------------------------------------
-  // Mouse event handlers on Stage
+  // Pointer event handlers on Stage (shared by mouse and touch)
   // ------------------------------------------------------------------
   const handleMouseDown = useCallback(
-    (e: Konva.KonvaEventObject<MouseEvent>) => {
+    (e: Konva.KonvaEventObject<WMPointerEvent>) => {
       setContextMenu(null);
       const st = stateRef.current;
       const mats = materialTypesRef.current;
       const fs = floorSketchRef.current;
-      // Middle mouse or space+left or pan tool = pan
-      if (e.evt.button === 1 || spaceDownRef.current || st.activeTool === 'pan') {
+      const client = getClientPoint(e.evt);
+      // Middle mouse or space+left or pan tool = pan.
+      // On touch, a second finger anywhere also pans (handled in move).
+      if (getButton(e.evt) === 1 || spaceDownRef.current || st.activeTool === 'pan') {
         isPanningRef.current = true;
-        lastPointerRef.current = { x: e.evt.clientX, y: e.evt.clientY };
+        if (client) lastPointerRef.current = client;
         return;
       }
-      if (e.evt.button !== 0) return;
+      if (getButton(e.evt) !== 0) return;
 
       const pos = getCanvasPos(e);
       const { activeTool } = st;
@@ -1676,7 +1889,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         } else {
           // Second click — finalize wall
           let endPoint = snapped.point;
-          if (e.evt.shiftKey) endPoint = constrainToAxis(wds, endPoint);
+          if (isShiftKey(e.evt)) endPoint = constrainToAxis(wds, endPoint);
           else if (snapped.snapped) endPoint = snapped.point;
 
           const dx = endPoint.x - wds.x;
@@ -1803,13 +2016,47 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   );
 
   const handleMouseMove = useCallback(
-    (e: Konva.KonvaEventObject<MouseEvent>) => {
+    (e: Konva.KonvaEventObject<WMPointerEvent>) => {
+      // Two-finger gesture: pinch-zoom + pan, regardless of the active tool.
+      if (isTouchEvt(e.evt) && e.evt.touches.length >= 2) {
+        e.evt.preventDefault();
+        // A pinch cancels any in-progress single-finger drawing.
+        if (drawStateRef.current.isDrawing) setDrawStateSync(INITIAL_DRAW_STATE);
+        isPanningRef.current = false;
+        gestureConsumedRef.current = true;
+
+        const geo = getPinchGeometry(e.evt);
+        if (!geo) return;
+        const center = toStagePoint(geo.center.x, geo.center.y);
+        const prev = pinchRef.current;
+        if (!prev || prev.dist === 0) {
+          pinchRef.current = { dist: geo.dist, center };
+          return;
+        }
+        // Pan by how far the pinch midpoint travelled, then zoom about it.
+        const dx = center.x - prev.center.x;
+        const dy = center.y - prev.center.y;
+        if (dx || dy) {
+          const panned = { x: stagePosRef.current.x + dx, y: stagePosRef.current.y + dy };
+          stagePosRef.current = panned;
+          setStagePos(panned);
+        }
+        zoomAroundPoint(stageScaleRef.current * (geo.dist / prev.dist), center);
+        pinchRef.current = { dist: geo.dist, center };
+        return;
+      }
+
       // Pan
       if (isPanningRef.current) {
-        const dx = e.evt.clientX - lastPointerRef.current.x;
-        const dy = e.evt.clientY - lastPointerRef.current.y;
-        lastPointerRef.current = { x: e.evt.clientX, y: e.evt.clientY };
-        setStagePos((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+        const client = getClientPoint(e.evt);
+        if (!client) return;
+        if (isTouchEvt(e.evt)) e.evt.preventDefault();
+        const dx = client.x - lastPointerRef.current.x;
+        const dy = client.y - lastPointerRef.current.y;
+        lastPointerRef.current = client;
+        const next = { x: stagePosRef.current.x + dx, y: stagePosRef.current.y + dy };
+        stagePosRef.current = next;
+        setStagePos(next);
         return;
       }
 
@@ -1825,7 +2072,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       if (stateRef.current.activeTool === 'wall' && wds) {
         const pos = getCanvasPos(e);
         let endPos = pos;
-        if (e.evt.shiftKey) endPos = constrainToAxis(wds, pos);
+        if (isShiftKey(e.evt)) endPos = constrainToAxis(wds, pos);
         const snap = snapToWallEndpoint(endPos);
         setWallDrawCursor(snap.snapped ? snap.point : endPos);
         setWallSnapEnd(snap.snapped ? snap.point : null);
@@ -1835,11 +2082,14 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       const ds = drawStateRef.current;
       if (!ds.isDrawing) return;
 
+      // A finger dragging out a shape must not also scroll the page.
+      if (isTouchEvt(e.evt)) e.evt.preventDefault();
+
       const pos = getCanvasPos(e);
 
       // Shift constraint for line tools (containment, demolition_line)
       if (
-        e.evt.shiftKey &&
+        isShiftKey(e.evt) &&
         (stateRef.current.activeTool === 'containment' || stateRef.current.activeTool === 'demolition_line')
       ) {
         const start = { x: ds.startX, y: ds.startY };
@@ -1853,11 +2103,11 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       setDrawStateSync({ ...prev, currentX: pos.x, currentY: pos.y });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [getCanvasPos, snapToWallEndpoint, constrainToAxis, setDrawStateSync]
+    [getCanvasPos, snapToWallEndpoint, constrainToAxis, setDrawStateSync, toStagePoint, zoomAroundPoint]
   );
 
   const handleMouseUp = useCallback(
-    (_e: Konva.KonvaEventObject<MouseEvent>) => {
+    (_e: Konva.KonvaEventObject<WMPointerEvent>) => {
       if (isPanningRef.current) {
         isPanningRef.current = false;
         return;
@@ -2055,6 +2305,100 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [addDemolitionZone, addContainment, addFloorProtection, addContentProtection, addContentManipulation, selectNewElement, setDrawStateSync]
   );
+
+  // ------------------------------------------------------------------
+  // Touch gestures
+  //
+  //   1 finger  → same as the left mouse button (draw / place / select)
+  //   2 fingers → pinch-zoom and pan, cancelling any in-progress drawing
+  //   hold      → context menu (the touch equivalent of right-click)
+  //
+  // The long-press timer only arms for the select tool: while a drawing
+  // tool is active a long hold is a legitimate slow drag, not a menu request.
+  // ------------------------------------------------------------------
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressOriginRef.current = null;
+  }, []);
+
+  const handleTouchStart = useCallback(
+    (e: Konva.KonvaEventObject<TouchEvent>) => {
+      if (e.evt.touches.length >= 2) {
+        // Second finger down — abandon anything the first finger started.
+        cancelLongPress();
+        gestureConsumedRef.current = true;
+        isPanningRef.current = false;
+        if (drawStateRef.current.isDrawing) setDrawStateSync(INITIAL_DRAW_STATE);
+        const geo = getPinchGeometry(e.evt);
+        pinchRef.current = geo
+          ? { dist: geo.dist, center: toStagePoint(geo.center.x, geo.center.y) }
+          : null;
+        return;
+      }
+
+      gestureConsumedRef.current = false;
+      pinchRef.current = null;
+
+      const client = getClientPoint(e.evt);
+      if (client && stateRef.current.activeTool === 'select') {
+        longPressOriginRef.current = client;
+        longPressTimerRef.current = setTimeout(() => {
+          longPressTimerRef.current = null;
+          gestureConsumedRef.current = true;
+          isPanningRef.current = false;
+          setContextMenu({ x: client.x, y: client.y });
+        }, LONG_PRESS_DURATION);
+      }
+
+      handleMouseDown(e);
+    },
+    [handleMouseDown, cancelLongPress, setDrawStateSync, toStagePoint]
+  );
+
+  const handleTouchMove = useCallback(
+    (e: Konva.KonvaEventObject<TouchEvent>) => {
+      // Any meaningful drift means this is a drag, not a hold.
+      const origin = longPressOriginRef.current;
+      const client = getClientPoint(e.evt);
+      if (origin && client) {
+        const drift = Math.hypot(client.x - origin.x, client.y - origin.y);
+        if (drift > LONG_PRESS_MOVE_TOLERANCE) cancelLongPress();
+      }
+      handleMouseMove(e);
+    },
+    [handleMouseMove, cancelLongPress]
+  );
+
+  const handleTouchEnd = useCallback(
+    (e: Konva.KonvaEventObject<TouchEvent>) => {
+      cancelLongPress();
+      const remaining = e.evt.touches.length;
+      if (remaining >= 2) return; // still pinching
+
+      pinchRef.current = null;
+
+      if (gestureConsumedRef.current) {
+        // The gesture was a pinch/pan or opened the context menu — do not
+        // let it also commit a shape.
+        gestureConsumedRef.current = false;
+        isPanningRef.current = false;
+        if (drawStateRef.current.isDrawing) setDrawStateSync(INITIAL_DRAW_STATE);
+        return;
+      }
+
+      handleMouseUp(e);
+    },
+    [handleMouseUp, cancelLongPress, setDrawStateSync]
+  );
+
+  // Clear any pending long-press timer if the editor unmounts mid-hold.
+  useEffect(() => cancelLongPress, [cancelLongPress]);
 
   // ------------------------------------------------------------------
   // Canvas drag-end (element position update)
@@ -2339,19 +2683,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       }
 
       if ((e.key === 'Delete' || e.key === 'Backspace') && state.selections.length > 0) {
-        for (const sel of state.selections) {
-          const { element_id, element_type } = sel;
-          if (element_type === 'demolition') removeDemolitionZone(element_id);
-          else if (element_type === 'equipment') removeEquipment(element_id);
-          else if (element_type === 'containment') removeContainment(element_id);
-          else if (element_type === 'floor_protection') removeFloorProtection(element_id);
-          else if (element_type === 'content_protection') removeContentProtection(element_id);
-          else if (element_type === 'content_manipulation') removeContentManipulation(element_id);
-          else if (element_type === 'text') removeTextAnnotation(element_id);
-          else if (element_type === 'shape') removeShape(element_id);
-          else if (element_type === 'wall') removeWall(element_id);
-          else if (element_type === 'room') removeRoomWithWalls(element_id);
-        }
+        deleteSelectedElements();
       }
     };
 
@@ -2371,16 +2703,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     handleSaveShortcut,
     setTool,
     state.selections,
-    removeDemolitionZone,
-    removeEquipment,
-    removeContainment,
-    removeFloorProtection,
-    removeContentProtection,
-    removeContentManipulation,
-    removeTextAnnotation,
-    removeShape,
-    removeWall,
-    removeRoomWithWalls,
+    deleteSelectedElements,
     wallDrawStart,
     state.overlayData,
     addDemolitionZone,
@@ -2670,6 +2993,21 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     return mat?.color ?? '#B8860B';
   }, [state.activeTool, state.activeMaterialTypeId, materialTypes]);
 
+  /**
+   * True while a multi-step drawing is open — a wall chain awaiting its next
+   * click, or a polygon awaiting closure. On desktop these end with Escape or
+   * a double-click; on touch the on-canvas action bar ends them instead.
+   */
+  const hasPendingDrawing = wallDrawStart !== null || polygonDrawPoints.length > 0;
+
+  /**
+   * Below this width the inline sidebar would leave too little canvas to draw
+   * on (280px sidebar + a workable drawing area), so it moves into a drawer.
+   */
+  const SIDEBAR_INLINE_MIN_WIDTH = 700;
+  const useDrawerSidebar =
+    isMobile || (contentWidth > 0 && contentWidth < SIDEBAR_INLINE_MIN_WIDTH);
+
   // ------------------------------------------------------------------
   // Cursor style
   // ------------------------------------------------------------------
@@ -2688,13 +3026,61 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // Render
   // ============================================================================
 
+  // The properties sidebar is identical in both layouts; only its container
+  // differs (inline Sider on desktop, bottom Drawer on mobile).
+  const sidebarNode = (
+    <WMSketchSidebar
+      overlayData={state.overlayData}
+      selection={state.selection}
+      materialTypes={materialTypes}
+      summary={floorSummary}
+      floorSketchId={floorSketch.id}
+      onUpdateDemolitionZone={(id, updates) => {
+        // Sync pixel dimensions when real dimensions change
+        // so the visual rect resizes smoothly instead of jumping
+        const scale = floorSketch.scale_pixels_per_foot;
+        const patch: Partial<WMDemolitionZone> & { id: string } = { id, ...updates };
+        if (updates.dimension1_ft != null) {
+          patch.pixel_width = updates.dimension1_ft * scale;
+        }
+        if (updates.dimension2_ft != null) {
+          patch.pixel_height = updates.dimension2_ft * scale;
+        }
+        updateDemolitionZone(patch);
+      }}
+      onDeleteDemolitionZone={removeDemolitionZone}
+      onAddDemolitionZone={addDemolitionZone}
+      onUpdateEquipment={(id, updates) => updateEquipment({ id, ...updates })}
+      onDeleteEquipment={removeEquipment}
+      onUpdateContainment={(id, updates) => updateContainment({ id, ...updates })}
+      onDeleteContainment={removeContainment}
+      onUpdateProtection={(id, updates) => updateFloorProtection({ id, ...updates })}
+      onDeleteProtection={removeFloorProtection}
+      onUpdateContentProtection={(id, updates) => updateContentProtection({ id, ...updates })}
+      onDeleteContentProtection={removeContentProtection}
+      onUpdateContentManipulation={(id, updates) => updateContentManipulation({ id, ...updates })}
+      onDeleteContentManipulation={removeContentManipulation}
+      onUpdateWall={(id, updates) => updateWall({ id, ...updates })}
+      onDeleteWall={removeWall}
+      onUpdateRoom={(id, updates) => updateRoom({ id, ...updates })}
+      onDeleteRoom={removeRoom}
+      scalePixelsPerFoot={floorSketch.scale_pixels_per_foot}
+      onSelectElement={handleSelectElement}
+      onMaterialTypesChange={() => {/* material types are fixed for now */}}
+      width={useDrawerSidebar ? '100%' : 280}
+    />
+  );
+
   return (
     <div
+      className="wm-sketch-editor-root"
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(100vh - 340px)',
-        minHeight: 300,
+        // Mobile viewports have far less chrome above the editor, so the
+        // canvas is given back the vertical space the desktop layout reserves.
+        height: isMobile ? 'calc(100vh - 210px)' : 'calc(100vh - 340px)',
+        minHeight: isMobile ? 380 : 300,
         background: '#fff',
         overflow: 'hidden',
       }}
@@ -2762,17 +3148,31 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       />
 
       {/* Main content: canvas + sidebar */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+      <div ref={contentRowRef} style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
         {/* Canvas area */}
         <div
           ref={containerRef}
+          data-testid="wm-sketch-canvas-container"
+          // Konva keeps the stage transform inside the canvas context, where
+          // nothing outside React can read it. Mirroring the zoom level here
+          // lets tests (and the status bar) observe it.
+          data-stage-scale={stageScale.toFixed(4)}
           style={{
             flex: 1,
             overflow: 'hidden',
             cursor: getCursor(),
             background: '#f5f5f5',
             position: 'relative',
-          }}
+            // Hand every touch to Konva: without this the browser claims
+            // one-finger drags for page scrolling and two-finger pinches
+            // for document zoom, and drawing never receives them.
+            touchAction: 'none',
+            // Suppress the iOS/Android long-press callout so the custom
+            // context menu can take over the gesture.
+            WebkitUserSelect: 'none',
+            userSelect: 'none',
+            WebkitTouchCallout: 'none',
+          } as React.CSSProperties}
         >
           {/* Address + floor label overlay */}
           <div
@@ -2827,8 +3227,16 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
             onDblClick={() => {
               // Double-click to finalize polygon drawing
+              if (stateRef.current.activeTool === 'demolition_polygon' && polygonDrawPointsRef.current.length >= 3) {
+                finalizePolygon(polygonDrawPointsRef.current);
+              }
+            }}
+            onDblTap={() => {
               if (stateRef.current.activeTool === 'demolition_polygon' && polygonDrawPointsRef.current.length >= 3) {
                 finalizePolygon(polygonDrawPointsRef.current);
               }
@@ -3090,16 +3498,165 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
             materialTypes={materialTypes}
           />
 
+          {/*
+            On-canvas control cluster — top-right.
+            The Panels button appears whenever the sidebar has moved into a
+            drawer; the zoom buttons appear for coarse pointers, which have no
+            scroll wheel. A touch laptop gets both.
+          */}
+          {(useTouchUI || useDrawerSidebar) && (
+            <div
+              data-testid="wm-sketch-touch-controls"
+              style={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                zIndex: 20,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}
+            >
+              {useDrawerSidebar && (
+                <Badge count={state.selections.length} size="small" offset={[-4, 4]}>
+                  <Button
+                    data-testid="wm-sketch-open-panels"
+                    aria-label="Open sketch panels"
+                    shape="circle"
+                    size="large"
+                    type={state.selections.length > 0 ? 'primary' : 'default'}
+                    icon={<MenuUnfoldOutlined />}
+                    onClick={() => setSidebarDrawerOpen(true)}
+                  />
+                </Badge>
+              )}
+              {useTouchUI && (
+                <>
+                  <Button
+                    data-testid="wm-sketch-zoom-in"
+                    aria-label="Zoom in"
+                    shape="circle"
+                    size="large"
+                    icon={<ZoomInOutlined />}
+                    onClick={() => zoomByStep('in')}
+                  />
+                  <Button
+                    data-testid="wm-sketch-zoom-out"
+                    aria-label="Zoom out"
+                    shape="circle"
+                    size="large"
+                    icon={<ZoomOutOutlined />}
+                    onClick={() => zoomByStep('out')}
+                  />
+                  <Tooltip title="Fit to view" placement="left">
+                    <Button
+                      data-testid="wm-sketch-zoom-fit"
+                      aria-label="Fit to view"
+                      shape="circle"
+                      size="large"
+                      icon={<CompressOutlined />}
+                      onClick={handleFitView}
+                    />
+                  </Tooltip>
+                </>
+              )}
+            </div>
+          )}
+
+          {/*
+            Touch action bar — bottom-centre.
+            Surfaces the actions that are keyboard-only on desktop:
+            Escape (cancel a wall chain / polygon), double-click (close a
+            polygon), Delete, and right-click (element menu).
+          */}
+          {useTouchUI && (hasPendingDrawing || state.selections.length > 0) && (
+            <div
+              data-testid="wm-sketch-touch-actions"
+              style={{
+                position: 'absolute',
+                bottom: 12,
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 20,
+                display: 'flex',
+                gap: 8,
+                padding: '6px 8px',
+                borderRadius: 999,
+                background: 'rgba(255,255,255,0.94)',
+                boxShadow: '0 2px 12px rgba(0,0,0,0.18)',
+                backdropFilter: 'blur(4px)',
+              }}
+            >
+              {hasPendingDrawing ? (
+                <>
+                  <Button
+                    data-testid="wm-sketch-finish-drawing"
+                    type="primary"
+                    icon={<CheckOutlined />}
+                    disabled={polygonDrawPoints.length > 0 && polygonDrawPoints.length < 3}
+                    onClick={() => {
+                      if (polygonDrawPoints.length >= 3) {
+                        finalizePolygon(polygonDrawPoints);
+                      }
+                      cancelPendingDrawing();
+                    }}
+                  >
+                    Finish
+                  </Button>
+                  <Button
+                    data-testid="wm-sketch-cancel-drawing"
+                    icon={<CloseOutlined />}
+                    onClick={cancelPendingDrawing}
+                  >
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    data-testid="wm-sketch-delete-selected"
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={deleteSelectedElements}
+                  >
+                    Delete{state.selections.length > 1 ? ` (${state.selections.length})` : ''}
+                  </Button>
+                  <Button
+                    data-testid="wm-sketch-more-actions"
+                    aria-label="Element actions"
+                    icon={<MoreOutlined />}
+                    onClick={(ev) => {
+                      const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+                      setContextMenu({ x: r.left, y: r.top });
+                    }}
+                  />
+                </>
+              )}
+            </div>
+          )}
+
           {/* Right-click context menu */}
           {contextMenu && contextMenuItems && contextMenuItems.length > 0 && (
             <div
+              data-testid="wm-sketch-context-menu"
               style={{
                 position: 'fixed',
-                left: contextMenu.x,
-                top: contextMenu.y,
+                // Keep the menu on screen: flip above the anchor when opened
+                // near the bottom edge (common for the touch action bar) and
+                // pull back from the right edge on narrow viewports.
+                left: Math.max(
+                  8,
+                  Math.min(contextMenu.x, window.innerWidth - 200)
+                ),
+                ...(contextMenu.y > window.innerHeight * 0.6
+                  ? { bottom: Math.max(8, window.innerHeight - contextMenu.y + 8) }
+                  : { top: contextMenu.y }),
+                maxHeight: '60vh',
+                overflowY: 'auto',
                 zIndex: 1050,
               }}
               onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
             >
               <Menu
                 items={contextMenuItems}
@@ -3145,47 +3702,22 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           )}
         </div>
 
-        {/* Sidebar */}
-        <WMSketchSidebar
-          overlayData={state.overlayData}
-          selection={state.selection}
-          materialTypes={materialTypes}
-          summary={floorSummary}
-          floorSketchId={floorSketch.id}
-          onUpdateDemolitionZone={(id, updates) => {
-            // Sync pixel dimensions when real dimensions change
-            // so the visual rect resizes smoothly instead of jumping
-            const scale = floorSketch.scale_pixels_per_foot;
-            const patch: Partial<WMDemolitionZone> & { id: string } = { id, ...updates };
-            if (updates.dimension1_ft != null) {
-              patch.pixel_width = updates.dimension1_ft * scale;
-            }
-            if (updates.dimension2_ft != null) {
-              patch.pixel_height = updates.dimension2_ft * scale;
-            }
-            updateDemolitionZone(patch);
-          }}
-          onDeleteDemolitionZone={removeDemolitionZone}
-          onAddDemolitionZone={addDemolitionZone}
-          onUpdateEquipment={(id, updates) => updateEquipment({ id, ...updates })}
-          onDeleteEquipment={removeEquipment}
-          onUpdateContainment={(id, updates) => updateContainment({ id, ...updates })}
-          onDeleteContainment={removeContainment}
-          onUpdateProtection={(id, updates) => updateFloorProtection({ id, ...updates })}
-          onDeleteProtection={removeFloorProtection}
-          onUpdateContentProtection={(id, updates) => updateContentProtection({ id, ...updates })}
-          onDeleteContentProtection={removeContentProtection}
-          onUpdateContentManipulation={(id, updates) => updateContentManipulation({ id, ...updates })}
-          onDeleteContentManipulation={removeContentManipulation}
-          onUpdateWall={(id, updates) => updateWall({ id, ...updates })}
-          onDeleteWall={removeWall}
-          onUpdateRoom={(id, updates) => updateRoom({ id, ...updates })}
-          onDeleteRoom={removeRoom}
-          scalePixelsPerFoot={floorSketch.scale_pixels_per_foot}
-          onSelectElement={handleSelectElement}
-          onMaterialTypesChange={() => {/* material types are fixed for now */}}
-          width={280}
-        />
+        {/* Sidebar — inline when there's room, otherwise in a bottom Drawer */}
+        {useDrawerSidebar ? (
+          <Drawer
+            title="Sketch Properties"
+            placement="bottom"
+            height="72vh"
+            open={sidebarDrawerOpen}
+            onClose={() => setSidebarDrawerOpen(false)}
+            styles={{ body: { padding: 0 } }}
+            rootClassName="wm-sketch-sidebar-drawer"
+          >
+            {sidebarNode}
+          </Drawer>
+        ) : (
+          sidebarNode
+        )}
       </div>
 
       {/* Status bar */}

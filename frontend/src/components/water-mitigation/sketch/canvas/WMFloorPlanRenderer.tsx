@@ -13,6 +13,7 @@ import { Group, Line, Circle, Text } from 'react-konva';
 import type { WMWall, WMRoom } from '../../../../types/wmSketch';
 import { DEFAULT_WALL_COLOR, DEFAULT_ROOM_COLOR } from '../../../../types/wmSketch';
 
+import { useTouchTargetSizes } from '../hooks/useWMResponsive';
 // ============================================================================
 // Wall Renderer
 // ============================================================================
@@ -33,6 +34,9 @@ const WMWallRendererInner: React.FC<WMWallRendererProps> = ({
   onDragEndpoint,
   onWallDragEnd,
 }) => {
+  // Handles must be finger-sized on touch devices; `hitStrokeWidth`
+  // widens the tap target without changing how the handle looks.
+  const touchSizes = useTouchTargetSizes();
   const { id, start_x, start_y, end_x, end_y, thickness, color } = wall;
 
   const handleClick = useCallback(
@@ -105,7 +109,7 @@ const WMWallRendererInner: React.FC<WMWallRendererProps> = ({
         stroke={isSelected ? '#1890ff' : (color || DEFAULT_WALL_COLOR)}
         strokeWidth={strokeWidth}
         lineCap="round"
-        hitStrokeWidth={Math.max(strokeWidth + 10, 16)}
+        hitStrokeWidth={Math.max(strokeWidth + 10, 16, touchSizes.hitStrokeWidth)}
         onClick={handleClick}
         onTap={handleClick}
       />
@@ -152,6 +156,7 @@ const WMWallRendererInner: React.FC<WMWallRendererProps> = ({
             fill="#fff"
             stroke="#1890ff"
             strokeWidth={2}
+            hitStrokeWidth={touchSizes.hitStrokeWidth}
             draggable
             onDragEnd={handleStartDragEnd}
           />
@@ -162,6 +167,7 @@ const WMWallRendererInner: React.FC<WMWallRendererProps> = ({
             fill="#fff"
             stroke="#1890ff"
             strokeWidth={2}
+            hitStrokeWidth={touchSizes.hitStrokeWidth}
             draggable
             onDragEnd={handleEndDragEnd}
           />
@@ -194,6 +200,9 @@ const WMRoomRendererInner: React.FC<WMRoomRendererProps> = ({
   onRoomDragEnd,
   onRoomVertexDrag,
 }) => {
+  // Handles must be finger-sized on touch devices; `hitStrokeWidth`
+  // widens the tap target without changing how the handle looks.
+  const touchSizes = useTouchTargetSizes();
   const { id, boundary, name, color, area_sqft } = room;
   const isVertexDragging = useRef(false);
 
@@ -304,6 +313,7 @@ const WMRoomRendererInner: React.FC<WMRoomRendererProps> = ({
           fill="#fff"
           stroke="#1890ff"
           strokeWidth={2}
+          hitStrokeWidth={touchSizes.hitStrokeWidth}
           draggable
           onDragStart={(e) => { e.cancelBubble = true; isVertexDragging.current = true; }}
           onDragEnd={(e) => {
@@ -335,6 +345,7 @@ const WMRoomRendererInner: React.FC<WMRoomRendererProps> = ({
           fill="#1890ff"
           stroke="#fff"
           strokeWidth={1.5}
+          hitStrokeWidth={touchSizes.hitStrokeWidth}
           draggable
           onDragStart={(e) => { e.cancelBubble = true; isVertexDragging.current = true; }}
           onDragEnd={(e) => {
