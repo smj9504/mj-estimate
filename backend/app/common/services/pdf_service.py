@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from html import escape as html_escape
 from pathlib import Path
@@ -3578,41 +3579,58 @@ def generate_water_mitigation_report_pdf(
             page_photo_meta = section_photos[i:i + max_photos]
 
             # Resolve (download if needed) only THIS page's photos now.
-            page_photos = []
+            # Remote downloads for the page run in parallel (bounded to this
+            # page's photo count, same as before) since each is an independent
+            # blocking network call - this cuts wall-clock time without
+            # raising peak memory, as all of this page's photos were already
+            # being held at once.
+            local_photos = []
+            remote_pms = []
             for pm in page_photo_meta:
                 if pm['storage_provider'] == 'local':
-                    page_photos.append({
+                    local_photos.append({
                         'file_path': pm['storage_path'],
                         'is_temp': False,
                         'caption': pm['caption'],
                         'captured_date': pm['captured_date'],
                         'show_date': pm['show_date'],
                     })
-                    continue
+                else:
+                    remote_pms.append(pm)
+
+            def _download_photo(pm):
                 try:
                     from app.domains.storage.factory import StorageFactory
                     storage = StorageFactory.get_instance(pm['storage_provider'])
-                    photo_data = storage.download(pm['storage_path'])
-                    _photo_download_count += 1
-                    if _photo_download_count % 5 == 0:
-                        _log_rss(f"after {_photo_download_count} photo downloads")
-                    if not photo_data:
-                        continue
-                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-                    temp_file.write(photo_data)
-                    temp_file.close()
-                    del photo_data
-                    temp_files.append(temp_file.name)
-                    page_photos.append({
-                        'file_path': temp_file.name,
-                        'is_temp': True,
-                        'caption': pm['caption'],
-                        'captured_date': pm['captured_date'],
-                        'show_date': pm['show_date'],
-                    })
+                    return pm, storage.download(pm['storage_path'])
                 except Exception as e:
                     logger.error(f"Failed to download photo: {e}")
+                    return pm, None
+
+            downloaded = []
+            if remote_pms:
+                with ThreadPoolExecutor(max_workers=len(remote_pms)) as executor:
+                    downloaded = list(executor.map(_download_photo, remote_pms))
+
+            page_photos = list(local_photos)
+            for pm, photo_data in downloaded:
+                if not photo_data:
                     continue
+                _photo_download_count += 1
+                if _photo_download_count % 5 == 0:
+                    _log_rss(f"after {_photo_download_count} photo downloads")
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+                temp_file.write(photo_data)
+                temp_file.close()
+                del photo_data
+                temp_files.append(temp_file.name)
+                page_photos.append({
+                    'file_path': temp_file.name,
+                    'is_temp': True,
+                    'caption': pm['caption'],
+                    'captured_date': pm['captured_date'],
+                    'show_date': pm['show_date'],
+                })
 
             if not page_photos:
                 continue
