@@ -41,8 +41,11 @@ google-auth-oauthlib==1.1.0
 google-auth-httplib2==0.1.1
 google-api-python-client==2.108.0
 
-# Google Cloud Storage (RECOMMENDED for production)
+# Google Cloud Storage (legacy provider, kept for existing files)
 google-cloud-storage==2.14.0
+
+# Backblaze B2 (S3-compatible, RECOMMENDED for production - lower cost than GCS)
+boto3==1.35.36
 
 # PDF Generation
 # playwright==1.40.0  # Optional - only for browser-based PDF (commented out for faster deployment)

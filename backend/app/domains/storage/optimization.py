@@ -8,7 +8,6 @@ import hashlib
 import gzip
 import logging
 from typing import BinaryIO, Optional, Tuple, Dict, Any
-from pathlib import Path
 from PIL import Image
 
 logger = logging.getLogger(__name__)

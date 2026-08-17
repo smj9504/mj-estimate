@@ -21,6 +21,7 @@ class StorageFactory:
     - local: Local filesystem storage
     - gdrive: Google Drive storage
     - gcs: Google Cloud Storage
+    - b2: Backblaze B2 storage (S3-compatible, lower cost than GCS)
     - s3: AWS S3 storage (future)
     - azure: Azure Blob storage (future)
 
@@ -32,6 +33,11 @@ class StorageFactory:
     - GCS_BUCKET_NAME: GCS bucket name
     - GCS_SERVICE_ACCOUNT_FILE: GCS service account JSON path
     - GCS_MAKE_PUBLIC: Make uploaded files public (default: false)
+    - B2_BUCKET_NAME: Backblaze B2 bucket name
+    - B2_KEY_ID: Backblaze B2 application key ID
+    - B2_APPLICATION_KEY: Backblaze B2 application key secret
+    - B2_ENDPOINT: Backblaze B2 S3-compatible endpoint URL
+    - B2_MAKE_PUBLIC: Make uploaded files public (default: false)
     """
 
     _instance: Optional[StorageProvider] = None
@@ -66,6 +72,9 @@ class StorageFactory:
 
         elif provider_type == 'gcs':
             return cls._create_gcs_provider()
+
+        elif provider_type == 'b2':
+            return cls._create_b2_provider()
 
         elif provider_type == 's3':
             raise NotImplementedError("AWS S3 provider not yet implemented")
@@ -156,6 +165,41 @@ class StorageFactory:
         return GCSProvider(
             bucket_name=bucket_name,
             service_account_file=service_account_file,
+            make_public=make_public,
+            enable_optimization=True  # Enable cost-saving optimizations
+        )
+
+    @classmethod
+    def _create_b2_provider(cls):
+        """Create Backblaze B2 storage provider (S3-compatible)"""
+        from .b2_provider import B2Provider
+
+        bucket_name = os.getenv('B2_BUCKET_NAME')
+        key_id = os.getenv('B2_KEY_ID')
+        application_key = os.getenv('B2_APPLICATION_KEY')
+        endpoint_url = os.getenv('B2_ENDPOINT')
+        make_public = os.getenv('B2_MAKE_PUBLIC', 'false').lower() == 'true'
+
+        if not bucket_name:
+            raise RuntimeError(
+                "B2_BUCKET_NAME environment variable is required for B2 storage"
+            )
+        if not key_id or not application_key:
+            raise RuntimeError(
+                "B2_KEY_ID and B2_APPLICATION_KEY environment variables are required for B2 storage"
+            )
+        if not endpoint_url:
+            raise RuntimeError(
+                "B2_ENDPOINT environment variable is required for B2 storage"
+            )
+
+        logger.debug(f"Creating B2 storage provider: bucket={bucket_name}, optimizations=enabled")
+
+        return B2Provider(
+            bucket_name=bucket_name,
+            key_id=key_id,
+            application_key=application_key,
+            endpoint_url=endpoint_url,
             make_public=make_public,
             enable_optimization=True  # Enable cost-saving optimizations
         )

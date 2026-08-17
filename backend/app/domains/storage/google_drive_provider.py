@@ -4,7 +4,6 @@ Supports both Shared Drives and My Drive
 Service Accounts MUST use Shared Drives (no storage quota on My Drive)
 """
 
-import os
 import re
 from typing import BinaryIO, Optional, List, Dict, Any
 from datetime import datetime

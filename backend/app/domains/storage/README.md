@@ -16,13 +16,25 @@ Flexible storage abstraction layer supporting multiple storage providers.
 - **Storage**: Google Drive (30GB free)
 - **Cost**: Free (30GB) / $1.99/month (100GB)
 
-### 3. AWS S3 (Future)
+### 3. Google Cloud Storage
+- **Provider**: `gcs`
+- **Use Case**: Production (legacy - kept for files uploaded before B2 migration)
+- **Storage**: GCS Standard Storage
+- **Cost**: $0.020/GB/month
+
+### 4. Backblaze B2 (Production - Recommended, Lowest Cost)
+- **Provider**: `b2`
+- **Use Case**: Production deployments, S3-compatible API
+- **Storage**: Backblaze B2 (10GB + 1GB/day download free)
+- **Cost**: $0.006/GB/month (~3x cheaper than GCS)
+
+### 5. AWS S3 (Future)
 - **Provider**: `s3`
 - **Status**: Not yet implemented
 - **Use Case**: Large-scale production
 - **Cost**: Pay per use
 
-### 4. Azure Blob (Future)
+### 6. Azure Blob (Future)
 - **Provider**: `azure`
 - **Status**: Not yet implemented
 - **Use Case**: Azure-based deployments
@@ -75,6 +87,41 @@ GDRIVE_SERVICE_ACCOUNT_FILE=./secrets/service-account-key.json
 
 # Root folder ID (from Google Drive URL)
 GDRIVE_ROOT_FOLDER_ID=1abc...xyz
+```
+
+### Backblaze B2
+
+1. **Create Backblaze Account**
+   - Go to [backblaze.com](https://www.backblaze.com/cloud-storage)
+   - Sign up (no credit card required for free tier)
+
+2. **Create a Bucket**
+   - Buckets → Create a Bucket
+   - Name: "mj-estimate-storage" (must be globally unique)
+   - Files in Bucket are: Private (recommended)
+
+3. **Create Application Key**
+   - App Keys → Add a New Application Key
+   - Name: "mj-storage"
+   - Allow access to: your bucket only
+   - Copy `keyID` and `applicationKey` (shown once)
+
+4. **Find S3-Compatible Endpoint**
+   - Bucket details page shows the endpoint, e.g. `s3.us-west-004.backblazeb2.com`
+   - Use the full URL: `https://s3.us-west-004.backblazeb2.com`
+
+5. **Configure Environment**
+
+```.env
+# Storage provider
+STORAGE_PROVIDER=b2
+
+# Bucket and credentials
+B2_BUCKET_NAME=mj-estimate-storage
+B2_KEY_ID=your_b2_key_id
+B2_APPLICATION_KEY=your_b2_application_key
+B2_ENDPOINT=https://s3.us-west-004.backblazeb2.com
+B2_MAKE_PUBLIC=false
 ```
 
 ---

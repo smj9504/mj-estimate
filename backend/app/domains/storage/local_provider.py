@@ -110,10 +110,13 @@ class LocalStorageProvider(StorageProvider):
             if file_path and file_path.exists():
                 file_path.unlink()
 
-                # Delete thumbnail if exists
-                thumb_path = file_path.parent / f"thumb_{file_path.stem}.jpg"
-                if thumb_path.exists():
-                    thumb_path.unlink()
+                # Delete thumbnail if exists (webp is the primary format, jpg is the fallback)
+                for thumb_path in (
+                    file_path.parent / f"thumb_{file_path.stem}.webp",
+                    file_path.parent / f"thumb_{file_path.stem}.jpg",
+                ):
+                    if thumb_path.exists():
+                        thumb_path.unlink()
 
                 logger.info(f"File deleted: {file_id}")
                 return True
@@ -219,11 +222,14 @@ class LocalStorageProvider(StorageProvider):
             # Move file
             shutil.move(str(file_path), str(new_path))
 
-            # Move thumbnail if exists
-            thumb_path = file_path.parent / f"thumb_{file_path.stem}.jpg"
-            if thumb_path.exists():
-                new_thumb_path = new_dir / thumb_path.name
-                shutil.move(str(thumb_path), str(new_thumb_path))
+            # Move thumbnail if exists (webp is the primary format, jpg is the fallback)
+            for thumb_path in (
+                file_path.parent / f"thumb_{file_path.stem}.webp",
+                file_path.parent / f"thumb_{file_path.stem}.jpg",
+            ):
+                if thumb_path.exists():
+                    new_thumb_path = new_dir / thumb_path.name
+                    shutil.move(str(thumb_path), str(new_thumb_path))
 
             logger.info(f"File moved: {file_id} to {new_category}")
             return True

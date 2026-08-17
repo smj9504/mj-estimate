@@ -5,7 +5,6 @@ Applicable to GCS, S3, Azure with same optimization patterns
 """
 
 import os
-import io
 from typing import BinaryIO, Optional, List, Dict, Any
 from datetime import datetime, timedelta
 import logging
