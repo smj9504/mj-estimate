@@ -4,6 +4,7 @@
  */
 
 import api from './api';
+import { compressIfNeeded } from '../utils/imageCompressor';
 import type {
   WaterMitigationJob,
   JobCreate,
@@ -256,8 +257,15 @@ export const waterMitigationService = {
       const MAX_ATTEMPTS = 3;
 
       const uploadOne = async (file: File) => {
+        // Resize/compress on the client (web worker, non-blocking) before
+        // sending. The backend re-encodes every upload in memory on a
+        // 512MB single-worker instance - shrinking the source file here
+        // cuts that peak memory use dramatically instead of shipping a
+        // 5-15MB phone photo for the server to decode.
+        const uploadFile = await compressIfNeeded(file);
+
         const formData = new FormData();
-        formData.append('file', file);
+        formData.append('file', uploadFile);
         if (category) formData.append('category', category);
 
         let lastError: any;

@@ -52,6 +52,15 @@ class ImageOptimizer:
             # Get original dimensions
             original_width, original_height = img.size
 
+            # JPEG draft mode decodes directly at (close to) the target size
+            # using the file's built-in DCT scaling, instead of allocating a
+            # full-resolution pixel buffer just to immediately downscale it.
+            # A 12MP phone photo can otherwise decode to ~140MB in memory
+            # before thumbnail() ever runs - this avoids that peak on a
+            # memory-constrained single-worker server.
+            if img.format == 'JPEG':
+                img.draft('RGB', max_size)
+
             # Handle EXIF orientation
             if hasattr(img, '_getexif') and img._getexif():
                 try:
