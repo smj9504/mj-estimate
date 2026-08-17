@@ -426,6 +426,25 @@ class WaterMitigationService:
         """Get status history for job"""
         return self.status_history_repo.find_by_job(job_id)
 
+    def _save_temp_and_extract_capture_date(self, file_content: bytes) -> datetime:
+        """
+        Save file content to a temp path and extract its EXIF capture date.
+
+        Synchronous by design - call via asyncio.to_thread so the blocking
+        disk I/O and PIL decoding don't stall the event loop.
+        """
+        temp_path = (
+            UPLOAD_DIR / "temp" /
+            f"temp_{datetime.utcnow().timestamp()}.jpg"
+        )
+        temp_path.parent.mkdir(parents=True, exist_ok=True)
+        with temp_path.open("wb") as f:
+            f.write(file_content)
+        try:
+            return self._extract_photo_capture_date(temp_path)
+        finally:
+            temp_path.unlink(missing_ok=True)
+
     def _extract_photo_capture_date(self, file_path: Path) -> datetime:
         """
         Extract photo capture date from EXIF metadata
@@ -522,19 +541,15 @@ class WaterMitigationService:
         file_type = 'photo' if is_image else 'video'
 
         # Extract capture date from EXIF metadata
+        # Runs on a worker thread: temp-file I/O + PIL decoding are blocking
+        # calls that would otherwise stall the single event loop worker
+        # (--workers 1) and cause other concurrent requests to time out.
         captured_date = None
         if is_image:
             try:
-                # Save to temp location for EXIF extraction
-                temp_path = (
-                    UPLOAD_DIR / "temp" /
-                    f"temp_{datetime.utcnow().timestamp()}.jpg"
+                captured_date = await asyncio.to_thread(
+                    self._save_temp_and_extract_capture_date, file_content
                 )
-                temp_path.parent.mkdir(parents=True, exist_ok=True)
-                with temp_path.open("wb") as f:
-                    f.write(file_content)
-                captured_date = self._extract_photo_capture_date(temp_path)
-                temp_path.unlink()  # Clean up temp file
             except Exception as e:
                 logger.warning(f"Failed to extract EXIF date: {e}")
                 captured_date = datetime.utcnow()
