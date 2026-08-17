@@ -265,7 +265,7 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
         """
         return self.update(invoice_id, {'status': 'overdue'})
     
-    def calculate_totals(self, items: List[Dict[str, Any]], tax_method: str = "percentage", tax_rate: float = 0, tax_amount: float = 0, discount_amount: float = 0, op_percent: float = 0, adjustments: Optional[List[Dict[str, Any]]] = None, sections: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    def calculate_totals(self, items: List[Dict[str, Any]], tax_method: str = "percentage", tax_rate: float = 0, tax_amount: float = 0, discount_amount: float = 0, op_percent: float = 0, adjustments: Optional[List[Dict[str, Any]]] = None, sections: Optional[List[Dict[str, Any]]] = None, is_lump_sum_document: bool = False, lump_sum_document_amount: Optional[float] = None) -> Dict[str, Any]:
         """
         Calculate invoice totals based on items, adjustments, and tax configuration.
 
@@ -282,10 +282,27 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
                 of their items' quantity*rate. Items belonging to a lump-sum
                 section (matched via primary_group == section title) are excluded
                 from item summation but are NOT removed from the items list itself.
+            is_lump_sum_document: When True, the whole document is a lump sum -
+                item quantity*rate is not used at all; subtotal/total_amount are
+                taken directly from lump_sum_document_amount.
+            lump_sum_document_amount: The lump sum amount for the whole document,
+                used only when is_lump_sum_document is True.
 
         Returns:
             Dictionary with calculated totals including adjustments
         """
+        if is_lump_sum_document:
+            amount = Decimal(str(lump_sum_document_amount or 0))
+            return {
+                'items_subtotal': float(amount),
+                'adjustments': [],
+                'op_amount': 0.0,
+                'subtotal': float(amount),
+                'tax_amount': 0.0,
+                'discount_amount': 0.0,
+                'total_amount': float(amount)
+            }
+
         try:
             # Sections flagged as lump-sum: their items are excluded from the
             # quantity*rate summation below, and their lumpSumAmount is added
@@ -544,7 +561,9 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
             discount_amount=float(validated_data.get('discount_amount', 0)),
             op_percent=float(validated_data.get('op_percent', 0)),
             adjustments=adjustments_data if adjustments_data else None,
-            sections=sections_data if sections_data else None
+            sections=sections_data if sections_data else None,
+            is_lump_sum_document=bool(validated_data.get('is_lump_sum_document')),
+            lump_sum_document_amount=validated_data.get('lump_sum_document_amount')
         )
         validated_data.update(totals)
 
@@ -620,7 +639,9 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
                 discount_amount=float(validated_data.get('discount_amount', 0)),
                 op_percent=float(validated_data.get('op_percent', 0)),
                 adjustments=adjustments_data if adjustments_data else None,
-                sections=sections_data if sections_data else None
+                sections=sections_data if sections_data else None,
+                is_lump_sum_document=bool(validated_data.get('is_lump_sum_document')),
+                lump_sum_document_amount=validated_data.get('lump_sum_document_amount')
             )
             validated_data.update(totals)
             

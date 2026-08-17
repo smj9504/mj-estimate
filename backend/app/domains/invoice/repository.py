@@ -45,6 +45,16 @@ class InvoiceRepositoryMixin:
     
     def calculate_totals(self, invoice_data: Dict[str, Any]) -> Dict[str, Any]:
         """Calculate invoice totals based on items, adjustments, and tax configuration"""
+        # Document-level lump sum: bypass item quantity*rate summation entirely
+        # and use the lump sum amount directly as subtotal/total.
+        if invoice_data.get('is_lump_sum_document'):
+            amount = Decimal(str(invoice_data.get('lump_sum_document_amount', 0) or 0))
+            return {
+                'subtotal': float(amount),
+                'tax_amount': 0.0,
+                'total_amount': float(amount)
+            }
+
         items = invoice_data.get('items', [])
         tax_method = invoice_data.get('tax_method', 'percentage')
         tax_rate = invoice_data.get('tax_rate', 0)

@@ -46,6 +46,19 @@ class EstimateRepositoryMixin:
     
     def calculate_totals(self, estimate_data: Dict[str, Any]) -> Dict[str, Any]:
         """Calculate estimate totals based on items"""
+        # Document-level lump sum: bypass item quantity*rate summation entirely
+        # and use the lump sum amount directly as subtotal/total.
+        if estimate_data.get('is_lump_sum_document'):
+            amount = Decimal(str(estimate_data.get('lump_sum_document_amount', 0) or 0))
+            return {
+                'subtotal': float(amount),
+                'tax_amount': 0.0,
+                'depreciation_amount': 0.0,
+                'rcv_amount': float(amount),
+                'acv_amount': float(amount),
+                'total_amount': float(amount)
+            }
+
         items = estimate_data.get('items', [])
 
         # Sections flagged as lump-sum contribute their lump_sum_amount instead
