@@ -11,7 +11,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field, HttpUrl
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from sqlalchemy import select, func, desc
 
 from app.domains.photo_analysis.pack_estimate_service import (
@@ -30,8 +30,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pack-estimate", tags=["Pack Estimate"])
 
-# Service instance
-pack_estimate_service = PackEstimateService()
+# Service instance — created lazily on first use, not at import time.
+# PackEstimateService.__init__ instantiates OpenAIVisionProvider, which
+# imports the `openai` SDK (~30MB+ RSS). Since this module is imported
+# from app.main at process startup, an eager instance here loaded that
+# cost into every worker regardless of whether pack-estimate is ever used.
+_pack_estimate_service: Optional[PackEstimateService] = None
+
+
+def _get_pack_estimate_service() -> PackEstimateService:
+    global _pack_estimate_service
+    if _pack_estimate_service is None:
+        _pack_estimate_service = PackEstimateService()
+    return _pack_estimate_service
 
 
 # ============================================================
@@ -162,7 +173,7 @@ async def generate_pack_estimate(
     try:
         photo_urls = [str(url) for url in request.photo_urls]
 
-        result = await pack_estimate_service.generate_pack_estimate(
+        result = await _get_pack_estimate_service().generate_pack_estimate(
             photo_urls=photo_urls,
             room_name=request.room_name,
             custom_pricing=request.custom_pricing_json,
@@ -202,7 +213,7 @@ async def analyze_photos_phase1(
     try:
         photo_urls = [str(url) for url in request.photo_urls]
 
-        result = await pack_estimate_service.analyze_photos_phase1(
+        result = await _get_pack_estimate_service().analyze_photos_phase1(
             photo_urls=photo_urls,
             room_name=request.room_name
         )
@@ -234,7 +245,7 @@ async def generate_estimate_from_inventory(
     Use this after reviewing/editing Phase 1 inventory results.
     """
     try:
-        result = await pack_estimate_service.generate_estimate_phase2(
+        result = await _get_pack_estimate_service().generate_estimate_phase2(
             inventory=request.inventory,
             custom_pricing=request.custom_pricing_json
         )
@@ -266,7 +277,7 @@ async def export_to_estimate(
     Returns line items that can be directly imported into the Estimate Editor.
     """
     try:
-        estimate_items = pack_estimate_service.convert_to_estimate_items(
+        estimate_items = _get_pack_estimate_service().convert_to_estimate_items(
             request.pack_result
         )
 
@@ -303,7 +314,7 @@ async def set_pricing_data(
     until replaced or the server restarts.
     """
     try:
-        pack_estimate_service.set_pricing_data(request.pricing_json)
+        _get_pack_estimate_service().set_pricing_data(request.pricing_json)
         return {"status": "success", "message": "Pricing data updated"}
 
     except Exception as e:
@@ -453,7 +464,7 @@ class UpdatePackEstimateRequest(BaseModel):
 )
 async def save_pack_estimate(
     request: SavePackEstimateRequest,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -526,8 +537,8 @@ async def save_pack_estimate(
                 )
 
         db.add(pack_estimate)
-        await db.commit()
-        await db.refresh(pack_estimate)
+        db.commit()
+        db.refresh(pack_estimate)
 
         logger.info(f"Pack estimate saved: ID={pack_estimate.id}, job_id={request.job_id}")
 
@@ -560,7 +571,7 @@ async def save_pack_estimate(
 
     except Exception as e:
         logger.error(f"Error saving pack estimate: {e}")
-        await db.rollback()
+        db.rollback()
         raise HTTPException(
             status_code=500,
             detail=f"Failed to save pack estimate: {str(e)}"
@@ -578,7 +589,7 @@ async def list_pack_estimates(
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     status: Optional[str] = Query(None, description="Filter by status"),
     job_id: Optional[str] = Query(None, description="Filter by job ID"),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -599,14 +610,14 @@ async def list_pack_estimates(
 
         # Count total
         count_query = select(func.count()).select_from(query.subquery())
-        total_result = await db.execute(count_query)
+        total_result = db.execute(count_query)
         total = total_result.scalar() or 0
 
         # Apply pagination
         query = query.order_by(desc(PackEstimate.created_at))
         query = query.offset((page - 1) * page_size).limit(page_size)
 
-        result = await db.execute(query)
+        result = db.execute(query)
         estimates = result.scalars().all()
 
         items = []
@@ -664,7 +675,7 @@ async def list_pack_estimates(
 )
 async def get_pack_estimate(
     estimate_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -678,7 +689,7 @@ async def get_pack_estimate(
             PackEstimate.company_id == company_id
         )
 
-        result = await db.execute(query)
+        result = db.execute(query)
         estimate = result.scalar_one_or_none()
 
         if not estimate:
@@ -737,7 +748,7 @@ async def get_pack_estimate(
 async def update_pack_estimate(
     estimate_id: int,
     request: UpdatePackEstimateRequest,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -751,7 +762,7 @@ async def update_pack_estimate(
             PackEstimate.company_id == company_id
         )
 
-        result = await db.execute(query)
+        result = db.execute(query)
         estimate = result.scalar_one_or_none()
 
         if not estimate:
@@ -776,8 +787,8 @@ async def update_pack_estimate(
 
         estimate.updated_by_id = current_user.get("id")
 
-        await db.commit()
-        await db.refresh(estimate)
+        db.commit()
+        db.refresh(estimate)
 
         logger.info(f"Pack estimate updated: ID={estimate.id}")
 
@@ -812,7 +823,7 @@ async def update_pack_estimate(
         raise
     except Exception as e:
         logger.error(f"Error updating pack estimate: {e}")
-        await db.rollback()
+        db.rollback()
         raise HTTPException(
             status_code=500,
             detail=f"Failed to update pack estimate: {str(e)}"
@@ -826,7 +837,7 @@ async def update_pack_estimate(
 )
 async def delete_pack_estimate(
     estimate_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -840,7 +851,7 @@ async def delete_pack_estimate(
             PackEstimate.company_id == company_id
         )
 
-        result = await db.execute(query)
+        result = db.execute(query)
         estimate = result.scalar_one_or_none()
 
         if not estimate:
@@ -849,8 +860,8 @@ async def delete_pack_estimate(
                 detail=f"Pack estimate with ID {estimate_id} not found"
             )
 
-        await db.delete(estimate)
-        await db.commit()
+        db.delete(estimate)
+        db.commit()
 
         logger.info(f"Pack estimate deleted: ID={estimate_id}")
 
@@ -860,7 +871,7 @@ async def delete_pack_estimate(
         raise
     except Exception as e:
         logger.error(f"Error deleting pack estimate: {e}")
-        await db.rollback()
+        db.rollback()
         raise HTTPException(
             status_code=500,
             detail=f"Failed to delete pack estimate: {str(e)}"

@@ -20,7 +20,6 @@ from app.domains.photo_analysis.prompts.pack_estimate_prompts import (
     PHASE1_OUTPUT_SCHEMA,
     PHASE2_OUTPUT_SCHEMA
 )
-from app.domains.photo_analysis.providers import OpenAIVisionProvider
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -166,6 +165,11 @@ class PackEstimateService:
 
     def __init__(self):
         """Initialize the service."""
+        # Deferred: importing OpenAIVisionProvider at module scope pulls in
+        # the `openai` SDK (~30MB+ RSS) even for processes that never touch
+        # pack-estimate. Importing here means that cost is paid only when a
+        # PackEstimateService is actually constructed.
+        from app.domains.photo_analysis.providers import OpenAIVisionProvider
         self.provider = OpenAIVisionProvider()
         self.pricing_data: Optional[str] = None
         logger.info("PackEstimateService initialized")
