@@ -248,9 +248,11 @@ export const waterMitigationService = {
       const results: any[] = [];
       const failed: { file: File; name: string; error: string }[] = [];
       // Backend decodes/resizes/re-encodes each image in memory (PIL), and
-      // the Render instance runs a single worker with limited RAM. Too much
-      // concurrency here causes the backend process to OOM under load.
-      const CONCURRENCY = 2;
+      // the Render instance runs a single worker with a 512MB limit that
+      // sits near 80% at idle - confirmed via Render metrics that even 2
+      // concurrent uploads spike memory to 0% (OOM kill + restart). One at
+      // a time is the only concurrency that doesn't crash the process.
+      const CONCURRENCY = 1;
       const MAX_ATTEMPTS = 3;
 
       const uploadOne = async (file: File) => {
