@@ -778,12 +778,16 @@ export const waterMitigationService = {
     },
 
     // Generate photo report PDF
+    // Downloads every photo from cloud storage and renders them into the
+    // PDF server-side, which can take well over the default 30s timeout
+    // for reports with many photos — give it much more room.
     generateReport: async (
       jobId: string,
       request: GenerateReportRequest
     ): Promise<Blob> => {
       const response = await api.post(`${BASE_URL}/jobs/${jobId}/generate-report`, request, {
-        responseType: 'blob'
+        responseType: 'blob',
+        timeout: 300000,
       });
       return response.data;
     }
