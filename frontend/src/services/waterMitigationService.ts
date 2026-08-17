@@ -247,7 +247,10 @@ export const waterMitigationService = {
     }> => {
       const results: any[] = [];
       const failed: { file: File; name: string; error: string }[] = [];
-      const CONCURRENCY = 5;
+      // Backend decodes/resizes/re-encodes each image in memory (PIL), and
+      // the Render instance runs a single worker with limited RAM. Too much
+      // concurrency here causes the backend process to OOM under load.
+      const CONCURRENCY = 2;
       const MAX_ATTEMPTS = 3;
 
       const uploadOne = async (file: File) => {
