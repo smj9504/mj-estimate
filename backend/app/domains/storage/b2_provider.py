@@ -73,14 +73,25 @@ class B2Provider(StorageProvider):
             logger.info("B2 provider initialized with optimization enabled")
 
         try:
+            # region_name is required by boto3's signer even though B2 ignores
+            # it operationally; without it boto3 falls back to slow region
+            # auto-discovery on first request. Derived from the endpoint host
+            # (e.g. s3.us-east-005.backblazeb2.com -> us-east-005).
+            region_name = endpoint_url.split('//')[-1].split('.')[1]
             self.client = boto3.client(
                 's3',
                 endpoint_url=endpoint_url,
                 aws_access_key_id=key_id,
                 aws_secret_access_key=application_key,
-                config=Config(signature_version='s3v4')
+                region_name=region_name,
+                config=Config(
+                    signature_version='s3v4',
+                    connect_timeout=10,
+                    read_timeout=30,
+                    retries={'max_attempts': 3, 'mode': 'standard'},
+                )
             )
-            logger.info(f"B2 provider initialized: bucket={bucket_name}")
+            logger.info(f"B2 provider initialized: bucket={bucket_name}, region={region_name}")
         except Exception as e:
             logger.error(f"Failed to initialize B2 client: {e}")
             raise RuntimeError(f"B2 client initialization failed: {e}")
