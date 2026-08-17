@@ -2084,7 +2084,9 @@ Use the exact structure below:
                   allowClear
                   placeholder="Select sender account"
                   options={paEmailInfo.email_accounts.map((a) => ({
-                    label: a.display_name || a.email_address,
+                    label: a.display_name
+                      ? `${a.display_name} (${a.email_address})`
+                      : a.email_address,
                     value: a.id,
                   }))}
                 />
@@ -2119,8 +2121,11 @@ Use the exact structure below:
               name="body_html"
               label="Message"
               rules={[{ required: true }]}
+              getValueFromEvent={(val: string) => val}
+              trigger="onChange"
+              valuePropName="value"
             >
-              <TextArea rows={5} />
+              <RichTextEditor minHeight={150} maxHeight={300} />
             </Form.Item>
           </Form>
         )}
