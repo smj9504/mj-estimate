@@ -3514,7 +3514,11 @@ def generate_water_mitigation_report_pdf(
 
         logger.info(f"Processing section: {section_title} (layout: {layout})")
 
-        # Collect all photos for this section
+        # Collect photo METADATA only for this section — do NOT download
+        # yet. Downloading every photo in the section up front (sometimes
+        # 20-30+ full-resolution originals) spikes memory/disk before a
+        # single page is even drawn. Actual download happens per-page,
+        # just before each photo is drawn, and is released immediately after.
         section_photos = []
         for photo_meta in section_data.get('photos', []):
             photo_id = photo_meta.get('photo_id')
@@ -3523,46 +3527,23 @@ def generate_water_mitigation_report_pdf(
 
             photo = photo_dict[photo_id]
             file_path_str = photo.get('file_path', '')
+            if not file_path_str:
+                continue
 
-            # Use per-photo storage_provider if available, fallback to global setting
             photo_storage = photo.get('storage_provider', '') or storage_provider
             photo_storage = (photo_storage or 'local').lower()
 
-            # Get photo file (local or cloud storage)
-            photo_file_path = None
+            if photo_storage == 'local' and not Path(file_path_str).exists():
+                logger.warning(f"Local file not found: {file_path_str}")
+                continue
 
-            if photo_storage == 'local':
-                local_path = Path(file_path_str)
-                if local_path.exists():
-                    photo_file_path = str(local_path)
-                else:
-                    logger.warning(f"Local file not found: {local_path}")
-                    continue
-            else:
-                # Cloud storage: download to temp file
-                try:
-                    from app.domains.storage.factory import StorageFactory
-                    storage = StorageFactory.get_instance(photo_storage)
-                    photo_data = storage.download(file_path_str)
-                    if photo_data:
-                        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-                        temp_file.write(photo_data)
-                        temp_file.close()
-                        photo_file_path = temp_file.name
-                        temp_files.append(temp_file.name)
-                    else:
-                        continue
-                except Exception as e:
-                    logger.error(f"Failed to download photo: {e}")
-                    continue
-
-            if photo_file_path:
-                section_photos.append({
-                    'file_path': photo_file_path,
-                    'caption': photo_meta.get('caption', ''),
-                    'captured_date': photo.get('captured_date'),
-                    'show_date': photo_meta.get('show_date', True),
-                })
+            section_photos.append({
+                'storage_path': file_path_str,
+                'storage_provider': photo_storage,
+                'caption': photo_meta.get('caption', ''),
+                'captured_date': photo.get('captured_date'),
+                'show_date': photo_meta.get('show_date', True),
+            })
 
         if not section_photos:
             logger.warning(f"No photos found for section: {section_title}")
@@ -3570,7 +3551,44 @@ def generate_water_mitigation_report_pdf(
 
         # Split photos into pages
         for page_num, i in enumerate(range(0, len(section_photos), max_photos), start=1):
-            page_photos = section_photos[i:i + max_photos]
+            page_photo_meta = section_photos[i:i + max_photos]
+
+            # Resolve (download if needed) only THIS page's photos now.
+            page_photos = []
+            for pm in page_photo_meta:
+                if pm['storage_provider'] == 'local':
+                    page_photos.append({
+                        'file_path': pm['storage_path'],
+                        'is_temp': False,
+                        'caption': pm['caption'],
+                        'captured_date': pm['captured_date'],
+                        'show_date': pm['show_date'],
+                    })
+                    continue
+                try:
+                    from app.domains.storage.factory import StorageFactory
+                    storage = StorageFactory.get_instance(pm['storage_provider'])
+                    photo_data = storage.download(pm['storage_path'])
+                    if not photo_data:
+                        continue
+                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+                    temp_file.write(photo_data)
+                    temp_file.close()
+                    del photo_data
+                    temp_files.append(temp_file.name)
+                    page_photos.append({
+                        'file_path': temp_file.name,
+                        'is_temp': True,
+                        'caption': pm['caption'],
+                        'captured_date': pm['captured_date'],
+                        'show_date': pm['show_date'],
+                    })
+                except Exception as e:
+                    logger.error(f"Failed to download photo: {e}")
+                    continue
+
+            if not page_photos:
+                continue
 
             # Create page
             page_buffer = io.BytesIO()
@@ -3855,19 +3873,20 @@ def generate_water_mitigation_report_pdf(
                             img.close()
                         except Exception:
                             pass
-                    # Release this photo's downloaded/downscaled temp files
-                    # immediately rather than waiting until the whole report
-                    # finishes — sections can hold dozens of photos and
-                    # letting them all accumulate on disk/in the temp_files
-                    # list adds unnecessary pressure during generation.
-                    photo_temp_path = photo_item['file_path']
-                    if photo_temp_path in temp_files:
+                    # Release this photo's downloaded temp file immediately
+                    # (never the original local-storage file — is_temp
+                    # guards that). Photos are now downloaded per-page
+                    # rather than per-section, so at most one page's worth
+                    # of temp files exist at a time.
+                    if photo_item.get('is_temp'):
+                        photo_temp_path = photo_item['file_path']
                         try:
                             import os
                             os.unlink(photo_temp_path)
                         except Exception:
                             pass
-                        temp_files.remove(photo_temp_path)
+                        if photo_temp_path in temp_files:
+                            temp_files.remove(photo_temp_path)
 
             # Page footer — variant layout
             total_pages += 1
