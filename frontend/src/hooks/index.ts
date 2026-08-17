@@ -11,3 +11,5 @@ export {
   type OperationsConfig,
   type OperationsResult,
 } from './useAsyncOperation';
+
+export { useWakeLock } from './useWakeLock';

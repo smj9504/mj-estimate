@@ -10,6 +10,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
 import CompanyCamDateSelectModal from './CompanyCamDateSelectModal';
 import api from '../../services/api';
+import { useWakeLock } from '../../hooks';
 import waterMitigationService, {
   AI_CATEGORY_LABELS,
   AI_CATEGORY_COLORS,
@@ -431,10 +432,17 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     refreshPendingUploads();
   }, [refreshPendingUploads]);
 
+  const { requestWakeLock, releaseWakeLock } = useWakeLock();
+
   // Custom upload handler for Water Mitigation photos
   const handleUpload = useCallback(async (files: File[], category?: string): Promise<void> => {
     const msgKey = 'photo-upload-progress';
     message.loading({ content: `Uploading 0/${files.length} photos...`, key: msgKey, duration: 0 });
+
+    // Mobile browsers throttle/suspend JS once the screen turns off, which
+    // stalls the upload loop mid-batch even though the server is fine.
+    // Holding a screen wake lock for the duration keeps it running.
+    await requestWakeLock();
 
     try {
       const { results, failed } = await waterMitigationService.photos.uploadMultiple(
@@ -484,8 +492,10 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       console.error('Upload failed:', error);
       message.error({ content: `Upload failed: ${error.message || 'Unknown error'}`, key: msgKey, duration: 5 });
       throw error;
+    } finally {
+      releaseWakeLock();
     }
-  }, [jobId, queryClient, refreshPendingUploads]);
+  }, [jobId, queryClient, refreshPendingUploads, requestWakeLock, releaseWakeLock]);
 
   // Resend everything sitting in the local pending-upload queue (grouped by
   // category, since uploadMultiple takes one category per call).
