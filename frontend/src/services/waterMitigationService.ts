@@ -266,6 +266,11 @@ export const waterMitigationService = {
               // Images can be several MB on a slow mobile connection - give this
               // more room than the global 30s default before giving up.
               timeout: 120000,
+              // This loop already retries transient failures on its own timer -
+              // without this, the global axios interceptor pops a "server error"
+              // notification on every failed attempt, even ones that succeed
+              // moments later on retry, making a routine retry look like a crash.
+              suppressErrorNotification: true,
             });
             return response.data;
           } catch (err: any) {
