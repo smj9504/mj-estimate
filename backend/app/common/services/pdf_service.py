@@ -2952,6 +2952,25 @@ def generate_water_mitigation_report_pdf(
     logger = logging.getLogger(__name__)
     logger.info(f"Generating photo report for job {job_data.get('id', 'unknown')} (compress={compress}, variant={template_variant})")
 
+    # TEMPORARY: process RSS instrumentation to pin down where memory grows
+    # during report generation (OOM investigation, safe to remove once the
+    # real cause is confirmed from production logs).
+    try:
+        import psutil
+        _proc = psutil.Process()
+
+        def _log_rss(label: str):
+            try:
+                rss_mb = _proc.memory_info().rss / 1024 / 1024
+                logger.info(f"[MEM] {label}: RSS={rss_mb:.1f}MB")
+            except Exception:
+                pass
+    except ImportError:
+        def _log_rss(label: str):
+            pass
+
+    _log_rss("function start")
+
     # Load style variant
     style = _get_report_style(template_variant)
 
@@ -3012,6 +3031,10 @@ def generate_water_mitigation_report_pdf(
     # the per-photo loop below, or earlier photos' temp files lose their
     # only reference and leak on disk for the life of the process.
     temp_files = []
+
+    # TEMPORARY: counts photo downloads across the whole report for the
+    # every-5th-photo RSS log below (OOM investigation).
+    _photo_download_count = 0
 
     # Format dates
     def format_date(date_value):
@@ -3513,6 +3536,7 @@ def generate_water_mitigation_report_pdf(
         rows, cols = grid_layouts.get(layout, (2, 2))
 
         logger.info(f"Processing section: {section_title} (layout: {layout})")
+        _log_rss(f"section start: {section_title}")
 
         # Collect photo METADATA only for this section — do NOT download
         # yet. Downloading every photo in the section up front (sometimes
@@ -3569,6 +3593,9 @@ def generate_water_mitigation_report_pdf(
                     from app.domains.storage.factory import StorageFactory
                     storage = StorageFactory.get_instance(pm['storage_provider'])
                     photo_data = storage.download(pm['storage_path'])
+                    _photo_download_count += 1
+                    if _photo_download_count % 5 == 0:
+                        _log_rss(f"after {_photo_download_count} photo downloads")
                     if not photo_data:
                         continue
                     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
@@ -3951,12 +3978,16 @@ def generate_water_mitigation_report_pdf(
             page_reader = PdfReader(page_buffer)
             writer.add_page(page_reader.pages[0])
 
+    _log_rss(f"all {total_pages} pages built, before writer.write()")
+
     # ===== WRITE FINAL PDF =====
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(output_path, 'wb') as output_file:
         writer.write(output_file)
+
+    _log_rss("after writer.write()")
 
     # Cleanup temporary files (compressed images)
     for temp_file_path in temp_files:

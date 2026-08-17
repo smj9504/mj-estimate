@@ -96,3 +96,6 @@ aioredis==2.0.1
 anthropic>=0.39.0  # Claude API for Vision + LLM matching
 pgvector>=0.3.6  # PostgreSQL vector similarity search
 numpy>=1.26.0  # Required by pgvector
+
+# Diagnostics
+psutil>=5.9.0  # Process RSS logging for OOM investigation (PDF generation memory instrumentation)

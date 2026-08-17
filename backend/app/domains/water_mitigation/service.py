@@ -1285,6 +1285,16 @@ class WaterMitigationService:
         from app.common.utils.storage_helpers import upload_bytes_to_storage
         from app.domains.file.repository import FileRepository
 
+        # TEMPORARY: log RSS at request entry to see how much memory the
+        # process is already carrying (other schedulers, prior requests,
+        # etc.) before report generation even starts (OOM investigation).
+        try:
+            import psutil
+            _rss_mb = psutil.Process().memory_info().rss / 1024 / 1024
+            logger.info(f"[MEM] generate_and_save_photo_report entry: RSS={_rss_mb:.1f}MB")
+        except Exception:
+            pass
+
         job = self.get_job(job_id)
         if not job:
             raise ValueError("Job not found")
