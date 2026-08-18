@@ -414,3 +414,6 @@ class EstimatePDFRequest(BaseModel):
 
     # Template selection
     template_type: Optional[str] = "estimate"  # "estimate" or "invoice"
+
+    # Whether to render a blank customer signature area at the bottom of the PDF
+    include_signature: Optional[bool] = False

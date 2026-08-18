@@ -19,6 +19,7 @@ import {
   Switch,
   Checkbox,
   Spin,
+  Grid,
 } from 'antd';
 import {
   PlusOutlined,
@@ -67,8 +68,10 @@ import ItemCodeSelector from '../components/estimate/ItemCodeSelector';
 import { generateId } from '../components/sketch/utils/idUtils';
 
 import { formatCurrency } from '../utils/formatUtils';
+import { zIndex as zIndexScale } from '../styles/tokens';
 
 const { Title } = Typography;
+const { useBreakpoint } = Grid;
 
 interface Adjustment {
   id: string;
@@ -85,6 +88,8 @@ interface EstimateCreationProps {
 
 const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) => {
   const [form] = Form.useForm();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
@@ -143,6 +148,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
   // PDF Template selection state
   const [pdfTemplateType, setPdfTemplateType] = useState<'estimate' | 'invoice'>('estimate');
+  const [includeSignature, setIncludeSignature] = useState(false);
 
   // Payment schedule state
   const [paymentSchedule, setPaymentSchedule] = useState<PaymentScheduleItem[]>([]);
@@ -1406,7 +1412,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       const pdfData = createPdfPreviewData(values);
 
       // Get HTML preview and open in new window (working approach without WeasyPrint)
-      const htmlContent = await estimateService.previewHTML(pdfData, pdfTemplateType);
+      const htmlContent = await estimateService.previewHTML(pdfData, pdfTemplateType, includeSignature);
 
       const newWindow = window.open('', '_blank');
       if (newWindow) {
@@ -1454,30 +1460,91 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Title level={2}>
+    <div style={{ padding: isMobile ? '12px' : '24px', maxWidth: '1200px', margin: '0 auto', paddingBottom: isMobile ? 84 : undefined }}>
+      <div
+        style={{
+          marginBottom: isMobile ? 16 : 24,
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          justifyContent: 'space-between',
+          alignItems: isMobile ? 'stretch' : 'center',
+          gap: isMobile ? 12 : 0,
+        }}
+      >
+        <Title level={isMobile ? 3 : 2} style={{ margin: 0 }}>
           {isEditMode ? 'Edit Estimate' : 'Create New Estimate'}
         </Title>
-        <Space>
-          <Button onClick={() => navigate('/documents/estimate')}>Cancel</Button>
-          <Select
-            value={pdfTemplateType}
-            onChange={setPdfTemplateType}
-            style={{ width: 150 }}
-            options={[
-              { value: 'invoice', label: 'Standard' },
-              { value: 'estimate', label: 'Enhanced' }
-            ]}
-          />
+        <Space wrap={!isMobile} direction={isMobile ? 'vertical' : 'horizontal'} style={isMobile ? { width: '100%' } : undefined}>
+          <div style={{ display: 'flex', gap: 8, width: isMobile ? '100%' : undefined }}>
+            <Select
+              value={pdfTemplateType}
+              onChange={setPdfTemplateType}
+              style={{ width: isMobile ? '100%' : 150, flex: isMobile ? 1 : undefined }}
+              options={[
+                { value: 'invoice', label: 'Standard' },
+                { value: 'estimate', label: 'Enhanced' }
+              ]}
+            />
+            <Button onClick={() => navigate('/documents/estimate')} style={isMobile ? { flexShrink: 0 } : undefined}>
+              Cancel
+            </Button>
+          </div>
+          <Checkbox
+            checked={includeSignature}
+            onChange={(e) => setIncludeSignature(e.target.checked)}
+          >
+            Include Signature Area
+          </Checkbox>
+          {!isMobile && (
+            <>
+              <Button
+                type="primary"
+                icon={<EyeOutlined />}
+                onClick={handlePreviewPDF}
+                loading={isPreviewing}
+                disabled={isSaving || isDataLoading}
+              >
+                Preview PDF
+              </Button>
+              <Button
+                type="primary"
+                icon={<SaveOutlined />}
+                onClick={handleSave}
+                loading={isSaving}
+                disabled={isPreviewing || isDataLoading}
+              >
+                {isEditMode ? 'Update' : 'Save'} Estimate
+              </Button>
+            </>
+          )}
+        </Space>
+      </div>
+
+      {isMobile && (
+        <div
+          style={{
+            position: 'fixed',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: zIndexScale.actionBar,
+            display: 'flex',
+            gap: 8,
+            padding: '10px 12px',
+            paddingBottom: 'calc(10px + env(safe-area-inset-bottom, 0px))',
+            background: '#fff',
+            borderTop: '1px solid #d9d9d9',
+            boxShadow: '0 -4px 12px rgba(0, 0, 0, 0.15)',
+          }}
+        >
           <Button
-            type="primary"
             icon={<EyeOutlined />}
             onClick={handlePreviewPDF}
             loading={isPreviewing}
             disabled={isSaving || isDataLoading}
+            style={{ flex: 1 }}
           >
-            Preview PDF
+            Preview
           </Button>
           <Button
             type="primary"
@@ -1485,11 +1552,12 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
             onClick={handleSave}
             loading={isSaving}
             disabled={isPreviewing || isDataLoading}
+            style={{ flex: 1 }}
           >
-            {isEditMode ? 'Update' : 'Save'} Estimate
+            {isEditMode ? 'Update' : 'Save'}
           </Button>
-        </Space>
-      </div>
+        </div>
+      )}
 
       <Form form={form} layout="vertical" initialValues={{ estimate_date: dayjs(), status: 'draft' }}>
         <Row gutter={[24, 24]}>
@@ -1923,15 +1991,15 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                         {adjustments.map((adj) => {
                           const calculatedAdj = calculateGrandTotal.adjustments?.find(a => a.adjustment.id === adj.id);
                           return (
-                            <div key={adj.id} style={{ 
-                              marginBottom: 12, 
-                              padding: 12, 
-                              border: '1px solid #f0f0f0', 
+                            <div key={adj.id} style={{
+                              marginBottom: 12,
+                              padding: 12,
+                              border: '1px solid #f0f0f0',
                               borderRadius: 4,
                               background: '#fafafa'
                             }}>
-                              <Row gutter={8} align="middle">
-                                <Col span={6}>
+                              <Row gutter={[8, 8]} align="middle">
+                                <Col xs={18} sm={6}>
                                   <Input
                                     placeholder="Name (e.g., Holiday Premium)"
                                     value={adj.name}
@@ -1939,7 +2007,15 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                     size="small"
                                   />
                                 </Col>
-                                <Col span={4}>
+                                <Col xs={6} sm={2} style={{ textAlign: 'right' }}>
+                                  <Button
+                                    danger
+                                    size="small"
+                                    icon={<DeleteOutlined />}
+                                    onClick={() => handleRemoveAdjustment(adj.id)}
+                                  />
+                                </Col>
+                                <Col xs={12} sm={4}>
                                   <Tooltip title="Percentage value (e.g., 10 for 10%, -5 for -5%)">
                                     <InputNumber
                                       placeholder="%"
@@ -1955,7 +2031,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                     />
                                   </Tooltip>
                                 </Col>
-                                <Col span={4}>
+                                <Col xs={12} sm={4}>
                                   <Tooltip title="Add (+) or Subtract (-) from subtotal">
                                     <Select
                                       value={adj.type}
@@ -1968,7 +2044,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                     </Select>
                                   </Tooltip>
                                 </Col>
-                                <Col span={4}>
+                                <Col xs={12} sm={4}>
                                   <Tooltip title="Application order (lower number = applied first)">
                                     <InputNumber
                                       placeholder="Order"
@@ -1980,20 +2056,12 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                     />
                                   </Tooltip>
                                 </Col>
-                                <Col span={4}>
+                                <Col xs={12} sm={4}>
                                   <Tooltip title="Calculated adjustment amount">
                                     <span style={{ fontSize: '12px', color: '#666', fontWeight: '500' }}>
                                       {formatCurrency(calculatedAdj?.amount || 0)}
                                     </span>
                                   </Tooltip>
-                                </Col>
-                                <Col span={2}>
-                                  <Button
-                                    danger
-                                    size="small"
-                                    icon={<DeleteOutlined />}
-                                    onClick={() => handleRemoveAdjustment(adj.id)}
-                                  />
                                 </Col>
                               </Row>
                             </div>
@@ -2024,7 +2092,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                   )}
 
                   <Row gutter={16}>
-                    <Col span={12}>
+                    <Col xs={24} sm={12}>
                       <Form.Item label="Tax Method">
                         <Select
                           value={taxMethod}
@@ -2036,7 +2104,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                         />
                       </Form.Item>
                     </Col>
-                    <Col span={12}>
+                    <Col xs={24} sm={12}>
                       {taxMethod === 'percentage' ? (
                         <Form.Item label="Tax Rate (%)">
                           <InputNumber

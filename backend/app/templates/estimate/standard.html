@@ -404,6 +404,33 @@
             white-space: pre-wrap;
         }
         
+        /* Signature */
+        .signature-section {
+            margin-bottom: 32px;
+            page-break-inside: avoid;
+        }
+
+        .signature-row {
+            display: flex;
+            gap: 48px;
+            margin-top: 24px;
+        }
+
+        .signature-block {
+            flex: 1;
+        }
+
+        .signature-line {
+            border-bottom: 1px solid #111827;
+            height: 40px;
+        }
+
+        .signature-label {
+            font-size: 12px;
+            color: #6B7280;
+            margin-top: 6px;
+        }
+
         /* Footer */
         .footer {
             margin-top: 64px;
@@ -733,6 +760,23 @@
         {% if terms %}
         <div class="terms-section">
             <div class="section-content">{{ terms | safe }}</div>
+        </div>
+        {% endif %}
+
+        <!-- Customer Signature -->
+        {% if include_signature %}
+        <div class="signature-section">
+            <div class="section-heading">Customer Approval</div>
+            <div class="signature-row">
+                <div class="signature-block">
+                    <div class="signature-line"></div>
+                    <div class="signature-label">Customer Signature</div>
+                </div>
+                <div class="signature-block">
+                    <div class="signature-line"></div>
+                    <div class="signature-label">Date</div>
+                </div>
+            </div>
         </div>
         {% endif %}
 

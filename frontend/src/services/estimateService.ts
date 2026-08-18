@@ -631,7 +631,7 @@ class EstimateService {
     return response.data;
   }
 
-  async previewPDF(estimate: EstimateResponse, templateType: string = 'estimate'): Promise<Blob> {
+  async previewPDF(estimate: EstimateResponse, templateType: string = 'estimate', includeSignature: boolean = false): Promise<Blob> {
     // Transform the estimate data to the format expected by the PDF endpoint
     const pdfData = {
       estimate_number: estimate.estimate_number || this.generateEstimateNumberFallback(),
@@ -648,7 +648,7 @@ class EstimateService {
         logo: estimate.company_logo || ''
       },
       client: {
-        name: estimate.client_name || 'Client Name Not Provided',
+        name: estimate.client_name || '',
         address: estimate.client_address || '',
         city: estimate.client_city || '',
         state: estimate.client_state || '',
@@ -704,7 +704,8 @@ class EstimateService {
       notes: estimate.notes,
       terms: estimate.terms,
       payment_schedule: estimate.payment_schedule,
-      template_type: templateType // Add template type selection
+      template_type: templateType, // Add template type selection
+      include_signature: includeSignature
     };
 
     console.log('Sending PDF preview data:', pdfData);
@@ -753,7 +754,7 @@ class EstimateService {
     }
   }
 
-  async previewHTML(estimate: EstimateResponse, templateType: string = 'estimate'): Promise<string> {
+  async previewHTML(estimate: EstimateResponse, templateType: string = 'estimate', includeSignature: boolean = false): Promise<string> {
     // Check for items without primary_group and show warning
     const itemsWithoutGroup = estimate.items.filter(item => !item.primary_group);
     if (itemsWithoutGroup.length > 0) {
@@ -777,7 +778,7 @@ class EstimateService {
         logo: estimate.company_logo || ''
       },
       client: {
-        name: estimate.client_name || 'Client Name Not Provided',
+        name: estimate.client_name || '',
         address: estimate.client_address || '',
         city: estimate.client_city || '',
         state: estimate.client_state || '',
@@ -823,7 +824,8 @@ class EstimateService {
       notes: estimate.notes,
       terms: estimate.terms,
       payment_schedule: estimate.payment_schedule,
-      template_type: templateType // Add template type selection
+      template_type: templateType, // Add template type selection
+      include_signature: includeSignature
     };
 
     try {

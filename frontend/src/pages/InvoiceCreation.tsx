@@ -19,6 +19,7 @@ import {
   Tooltip,
   Popconfirm,
   Spin,
+  Grid,
 } from 'antd';
 import {
   PlusOutlined,
@@ -75,6 +76,7 @@ import UnitSelect from '../components/common/UnitSelect';
 import { DEFAULT_UNIT } from '../constants/units';
 import ItemCodeSelector from '../components/estimate/ItemCodeSelector';
 import { EstimateLineItem } from '../services/estimateService';
+import { zIndex as zIndexScale } from '../styles/tokens';
 import SortableSection from '../components/common/SortableSection';
 import MultiSelectActionBar from '../components/common/MultiSelectActionBar';
 import LineItemTemplateSelector from '../components/line-items/LineItemTemplateSelector';
@@ -103,6 +105,7 @@ import { useReceiptTemplates, useReceiptByNumber } from '../hooks/useReceiptQuer
 
 const { Title } = Typography;
 const { TextArea } = Input;
+const { useBreakpoint } = Grid;
 
 // Format number with thousand separators
 const formatCurrency = (value: number): string => {
@@ -201,20 +204,20 @@ const SortableAdjustmentItem: React.FC<{
   };
   return (
     <div ref={setNodeRef} style={style} {...attributes}>
-      <Row gutter={8} align="middle">
-        <Col span={1}>
-          <span {...listeners} style={{ cursor: 'grab', color: '#8c8c8c' }}><HolderOutlined /></span>
+      <Row gutter={[8, 8]} align="middle">
+        <Col flex="20px">
+          <span {...listeners} style={{ cursor: 'grab', color: '#8c8c8c', touchAction: 'none' }}><HolderOutlined /></span>
         </Col>
-        <Col span={6}>
+        <Col flex="auto" xs={16} sm={6}>
           <Input placeholder="Name (e.g., Deductible)" value={adj.name} onChange={(e) => handleAdjustmentChange(adj.id, 'name', e.target.value)} size="small" />
         </Col>
-        <Col span={3}>
+        <Col xs={7} sm={3}>
           <Select value={adj.type} onChange={(value) => handleAdjustmentChange(adj.id, 'type', value)} size="small" style={{ width: '100%' }}>
             <Select.Option value="add">+ Add</Select.Option>
             <Select.Option value="subtract">− Sub</Select.Option>
           </Select>
         </Col>
-        <Col span={7}>
+        <Col xs={24} sm={7}>
           <InputNumber
             placeholder={adj.fixedAmount != null ? "Dollar amount" : "Percentage"}
             value={adj.fixedAmount != null ? adj.fixedAmount : adj.percentage}
@@ -250,16 +253,16 @@ const SortableAdjustmentItem: React.FC<{
             }
           />
         </Col>
-        <Col span={5}>
+        <Col xs={17} sm={5}>
           <span style={{ fontSize: '13px', color: adj.type === 'subtract' ? '#cf1322' : '#389e0d', fontWeight: '600' }}>
             {adj.type === 'subtract' ? '−' : '+'} ${calculatedAdj?.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
           </span>
         </Col>
-        <Col span={2}>
+        <Col xs={7} sm={2} style={{ textAlign: 'right' }}>
           <Button danger size="small" icon={<DeleteOutlined />} onClick={() => handleRemoveAdjustment(adj.id)} />
         </Col>
       </Row>
-      <div style={{ marginTop: 6, paddingLeft: 32 }}>
+      <div style={{ marginTop: 6, paddingLeft: 28 }}>
         <Input placeholder="Note (optional, shown on PDF)" value={adj.note || ''} onChange={(e) => handleAdjustmentChange(adj.id, 'note', e.target.value)} size="small" />
       </div>
     </div>
@@ -760,6 +763,8 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
 
 const InvoiceCreation: React.FC = () => {
   const [form] = Form.useForm();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
@@ -3230,13 +3235,22 @@ const InvoiceCreation: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: '24px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={2} style={{ margin: 0 }}>{isEditMode ? 'Edit Invoice' : 'Create Invoice'}</Title>
+    <div style={{ padding: isMobile ? '12px' : '24px', paddingBottom: isMobile ? 84 : undefined }}>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          justifyContent: 'space-between',
+          alignItems: isMobile ? 'stretch' : 'center',
+          gap: isMobile ? 12 : 0,
+          marginBottom: 16,
+        }}
+      >
+        <Title level={isMobile ? 3 : 2} style={{ margin: 0 }}>{isEditMode ? 'Edit Invoice' : 'Create Invoice'}</Title>
         <Button
           type="primary"
           ghost
-          size="large"
+          size={isMobile ? 'middle' : 'large'}
           icon={<SnippetsOutlined />}
           onClick={() => { setJsonPasteVisible(true); setJsonPasteError(null); }}
           data-testid="json-paste-button"
@@ -3992,7 +4006,7 @@ const InvoiceCreation: React.FC = () => {
                 </>
               )}
               <Row gutter={16}>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item label="Tax Method">
                     <Select
                       value={taxMethod}
@@ -4004,7 +4018,7 @@ const InvoiceCreation: React.FC = () => {
                     />
                   </Form.Item>
                 </Col>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   {taxMethod === 'percentage' ? (
                     <Form.Item label="Tax Rate (%)">
                       <InputNumber
@@ -4273,6 +4287,43 @@ const InvoiceCreation: React.FC = () => {
         </Card>
       </Form>
 
+      {isMobile && (
+        <div
+          style={{
+            position: 'fixed',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: zIndexScale.actionBar,
+            display: 'flex',
+            gap: 8,
+            padding: '10px 12px',
+            paddingBottom: 'calc(10px + env(safe-area-inset-bottom, 0px))',
+            background: '#fff',
+            borderTop: '1px solid #d9d9d9',
+            boxShadow: '0 -4px 12px rgba(0, 0, 0, 0.15)',
+          }}
+        >
+          <Button
+            icon={<EyeOutlined />}
+            onClick={handlePreviewHTML}
+            loading={isPreviewing}
+            style={{ flex: 1 }}
+          >
+            Preview
+          </Button>
+          <Button
+            type="primary"
+            icon={<SaveOutlined />}
+            onClick={() => handleSave('sent')}
+            loading={isSaving}
+            style={{ flex: 1 }}
+          >
+            {isEditMode ? 'Update' : 'Save'}
+          </Button>
+        </div>
+      )}
+
       {/* Item Modal */}
       <Modal
         title={editingItem ? 'Edit Item' : 'Add Item'}
@@ -4317,7 +4368,7 @@ const InvoiceCreation: React.FC = () => {
             />
           </Form.Item>
           <Row gutter={16}>
-            <Col span={6}>
+            <Col xs={12} sm={8} md={6}>
               <Form.Item
                 name="quantity"
                 label="Quantity"
@@ -4339,7 +4390,7 @@ const InvoiceCreation: React.FC = () => {
                 />
               </Form.Item>
             </Col>
-            <Col span={6}>
+            <Col xs={12} sm={8} md={6}>
               <Form.Item
                 name="unit"
                 label="Unit"
@@ -4354,7 +4405,7 @@ const InvoiceCreation: React.FC = () => {
                 />
               </Form.Item>
             </Col>
-            <Col span={6}>
+            <Col xs={12} sm={8} md={6}>
               <Form.Item
                 name="rate"
                 label="Rate"
@@ -4372,7 +4423,7 @@ const InvoiceCreation: React.FC = () => {
               </Form.Item>
             </Col>
             {taxMethod === 'percentage' && (
-              <Col span={6}>
+              <Col xs={12} sm={8} md={6}>
                 <Form.Item
                   name="taxable"
                   label="Taxable"
@@ -4542,13 +4593,13 @@ const InvoiceCreation: React.FC = () => {
           }}
         >
           <Row gutter={16}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item
                 name="amount"
                 label="Amount"
                 rules={[
                   { required: true, message: 'Please enter payment amount' },
-                  { 
+                  {
                     type: 'number',
                     min: 0.01,
                     message: 'Payment amount must be greater than $0'
@@ -4571,7 +4622,7 @@ const InvoiceCreation: React.FC = () => {
                 />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item
                 name="date"
                 label="Payment Date (Optional)"
@@ -4579,13 +4630,13 @@ const InvoiceCreation: React.FC = () => {
                 <DatePicker style={{ width: '100%' }} placeholder="Select date (optional)" allowClear />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item
                 name="method"
                 label="Payment Method"
               >
-                <Select 
-                  placeholder="Select method (optional)" 
+                <Select
+                  placeholder="Select method (optional)"
                   allowClear
                   options={[
                     { value: 'CA', label: 'Cash' },
@@ -4601,7 +4652,7 @@ const InvoiceCreation: React.FC = () => {
                 />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item
                 name="reference"
                 label="Reference/Check #"
