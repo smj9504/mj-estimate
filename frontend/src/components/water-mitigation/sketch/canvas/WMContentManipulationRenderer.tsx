@@ -9,6 +9,7 @@ import React, { useCallback, useRef, useEffect } from 'react';
 import { Group, Rect, Shape, Text, Transformer } from 'react-konva';
 import Konva from 'konva';
 import { WMContentManipulation } from '../../../../types/wmSketch';
+import { useTouchTargetSizes } from '../hooks/useWMResponsive';
 
 export interface WMContentManipulationRendererProps {
   manipulation: WMContentManipulation;
@@ -33,6 +34,8 @@ const WMContentManipulationRenderer: React.FC<WMContentManipulationRendererProps
   const groupRef = useRef<Konva.Group>(null);
   const rectRef = useRef<Konva.Rect>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
+  // Resize/rotate handles must be finger-sized on touch devices
+  const touchSizes = useTouchTargetSizes();
 
   const widthPx = manipulation.width_ft * scalePixelsPerFoot;
   const lengthPx = manipulation.length_ft * scalePixelsPerFoot;
@@ -243,10 +246,10 @@ const WMContentManipulationRenderer: React.FC<WMContentManipulationRendererProps
     <Transformer
       ref={transformerRef}
       rotateEnabled={true}
-      rotateAnchorOffset={20}
+      rotateAnchorOffset={touchSizes.rotateAnchorOffset}
       borderStroke="#1890ff"
       borderDash={[3, 3]}
-      anchorSize={8}
+      anchorSize={touchSizes.anchorSize}
       anchorCornerRadius={2}
       anchorStroke="#1890ff"
       anchorFill="#ffffff"

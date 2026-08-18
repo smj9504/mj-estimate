@@ -14,6 +14,8 @@ import { Group, Line, Circle, Rect, Text } from 'react-konva';
 import Konva from 'konva';
 import { WMDemolitionZone, DemoMaterialType, DEFAULT_DEMO_MATERIAL_TYPES } from '../../../../types/wmSketch';
 
+import { useTouchTargetSizes } from '../hooks/useWMResponsive';
+
 export interface WMWallLineRendererProps {
   zone: WMDemolitionZone;
   isSelected: boolean;
@@ -68,6 +70,9 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
   onDragEnd,
   onTransformEnd,
 }) => {
+  // Handles must be finger-sized on touch devices; `hitStrokeWidth`
+  // widens the tap target without changing how the handle looks.
+  const touchSizes = useTouchTargetSizes();
   const mat = getMaterial(zone, materialTypes);
   const isLF = mat?.unit === 'LF';
   const isWallSF = mat?.surface === 'wall' && !isLF;
@@ -395,11 +400,14 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
         </>
       )}
 
-      {/* Hit area */}
+      {/* Hit area — widened on touch so a fingertip can grab the line */}
       <Line
         points={[0, 0, lengthPx, 0]}
         stroke="transparent"
-        strokeWidth={(showBaseboard || showInsulation || showCrownMolding) ? 28 : 16}
+        strokeWidth={Math.max(
+          touchSizes.hitStrokeWidth,
+          (showBaseboard || showInsulation || showCrownMolding) ? 28 : 16
+        )}
       />
 
       {/* Selection highlight */}
@@ -558,6 +566,7 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
             fill={color}
             stroke="#ffffff"
             strokeWidth={2}
+            hitStrokeWidth={touchSizes.hitStrokeWidth}
             draggable
             onDragEnd={handleEndpointDrag}
             onMouseEnter={(e) => {
@@ -585,6 +594,7 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
             fill={isRotating ? '#1890ff' : '#ffffff'}
             stroke="#1890ff"
             strokeWidth={2}
+            hitStrokeWidth={touchSizes.hitStrokeWidth}
             draggable
             onDragStart={(e) => {
               e.cancelBubble = true;

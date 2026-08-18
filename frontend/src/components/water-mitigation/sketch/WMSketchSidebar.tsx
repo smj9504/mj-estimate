@@ -96,8 +96,11 @@ export interface WMSketchSidebarProps {
   scalePixelsPerFoot?: number;
   onSelectElement: (id: string, type: string) => void;
   onMaterialTypesChange: (types: DemoMaterialType[]) => void;
-  /** Optional width override, defaults to 280 */
-  width?: number;
+  /**
+   * Optional width override, defaults to 280.
+   * Pass '100%' when hosting the sidebar inside a mobile Drawer.
+   */
+  width?: number | string;
 }
 
 // Mapping from selection elementType to panel key
@@ -571,17 +574,23 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
   // Count hidden panels for user awareness
   const hiddenCount = allPanelItems.length - panelItems.length;
 
+  // Percentage widths mean the sidebar is being hosted in a mobile Drawer
+  const isFluid = typeof width === 'string';
+
   return (
     <div
+      data-testid="wm-sketch-sidebar"
       style={{
         width,
-        minWidth: width,
-        maxWidth: width,
+        // A fluid ('100%') sidebar lives in a Drawer and must be free to
+        // shrink; the fixed-width desktop Sider must not.
+        ...(isFluid ? {} : { minWidth: width, maxWidth: width }),
         height: '100%',
         backgroundColor: '#fafafa',
-        borderLeft: '1px solid #e8e8e8',
+        borderLeft: isFluid ? 'none' : '1px solid #e8e8e8',
         overflowY: 'auto',
         overflowX: 'hidden',
+        WebkitOverflowScrolling: 'touch',
         display: 'flex',
         flexDirection: 'column',
       }}

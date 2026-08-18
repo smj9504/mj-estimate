@@ -28,6 +28,7 @@ import { Group, Rect, Text, Transformer } from 'react-konva';
 import Konva from 'konva';
 import { WMDemolitionZone, WOOD_FLOOR_SUB_TYPES, EA_MATERIAL_IDS, EA_ITEM_PIXEL_SIZES, TRIM_SIZE_SUB_TYPES, type DemoStrokeStyle } from '../../../../types/wmSketch';
 import { formatDimensionCompact } from '../utils/wmCalculations';
+import { useTouchTargetSizes } from '../hooks/useWMResponsive';
 
 export interface WMDemolitionRendererProps {
   zone: WMDemolitionZone;
@@ -119,6 +120,8 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
   const groupRef = useRef<Konva.Group>(null);
   const rectRef = useRef<Konva.Rect>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
+  // Resize/rotate handles must be finger-sized on touch devices
+  const touchSizes = useTouchTargetSizes();
 
   const { widthPx, heightPx, hasDimensions, isEA } = resolveRenderSize(zone, scalePixelsPerFoot);
 
@@ -510,10 +513,10 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
       <Transformer
         ref={transformerRef}
         rotateEnabled={true}
-        rotateAnchorOffset={20}
+        rotateAnchorOffset={touchSizes.rotateAnchorOffset}
         borderStroke="#1890ff"
         borderDash={[3, 3]}
-        anchorSize={8}
+        anchorSize={touchSizes.anchorSize}
         anchorCornerRadius={2}
         anchorStroke="#1890ff"
         anchorFill="#ffffff"
