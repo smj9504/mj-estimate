@@ -30,6 +30,7 @@ import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from
 import { Stage, Layer, Line, Circle, Text as KonvaText, Image as KonvaImage } from 'react-konva';
 import { Button, InputNumber, Space, Typography, Alert, theme } from 'antd';
 import { AimOutlined, CheckOutlined, CloseOutlined, UndoOutlined } from '@ant-design/icons';
+import { useIsCoarsePointer } from '../hooks/useWMResponsive';
 
 const { Text } = Typography;
 
@@ -108,6 +109,8 @@ const WMScaleCalibration: React.FC<WMScaleCalibrationProps> = ({
   onCancel,
 }) => {
   const { token } = theme.useToken();
+  // Instructions should name the gesture the user actually has
+  const tapWord = useIsCoarsePointer() ? 'Tap' : 'Click';
 
   // ------------------------------------------------------------------
   // Self-sizing: measure the actual visible canvas area
@@ -260,6 +263,7 @@ const WMScaleCalibration: React.FC<WMScaleCalibrationProps> = ({
           alignItems: 'center',
           gap: 12,
           flexShrink: 0,
+          flexWrap: 'wrap',
         }}
       >
         <AimOutlined style={{ fontSize: 18 }} />
@@ -269,10 +273,10 @@ const WMScaleCalibration: React.FC<WMScaleCalibrationProps> = ({
           </div>
           <div style={{ fontSize: 12, opacity: 0.9 }}>
             {!pointA
-              ? 'Step 1: Click on the image to set the start point of a known dimension.'
+              ? `Step 1: ${tapWord} on the image to set the start point of a known dimension.`
               : !pointB
-              ? 'Step 2: Click the end point of the same dimension.'
-              : 'Step 3: Enter the real-world length, then click Apply.'}
+              ? `Step 2: ${tapWord} the end point of the same dimension.`
+              : `Step 3: Enter the real-world length, then ${tapWord.toLowerCase()} Apply.`}
           </div>
         </div>
         <Space>
@@ -310,7 +314,17 @@ const WMScaleCalibration: React.FC<WMScaleCalibrationProps> = ({
           height={canvasHeight}
           onClick={handleStageClick}
           onMouseMove={handleStageMouseMove}
-          style={{ cursor: 'crosshair', display: 'block' }}
+          // Konva dispatches `tap`, not `click`, for touch input — without
+          // these the calibration points cannot be placed with a finger.
+          onTap={handleStageClick}
+          onTouchMove={handleStageMouseMove}
+          style={{
+            cursor: 'crosshair',
+            display: 'block',
+            // Let the two calibration taps through instead of letting the
+            // browser treat them as scroll/zoom gestures.
+            touchAction: 'none',
+          }}
         >
           {/* Background image */}
           <Layer listening={false}>

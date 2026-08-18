@@ -43,6 +43,7 @@ import type {
   ShapePreset,
 } from '../../../types/wmSketch';
 import { EQUIPMENT_CONFIG, SHAPE_PRESETS, getEffectiveRenderMode } from '../../../types/wmSketch';
+import { useIsCoarsePointer } from './hooks/useWMResponsive';
 
 // Space.Compact is available in antd v5+
 const SpaceCompact = Space.Compact;
@@ -78,6 +79,26 @@ const responsiveStyles = `
     }
     .wm-toolbar-root .wm-tb-label {
       display: none !important;
+    }
+  }
+  /*
+    Touch pointers: antd's "small" buttons are ~24px tall, well under the
+    ~44px a fingertip needs. Grow the hit box without growing the icons, and
+    let the strip flick-scroll horizontally instead of clipping tools.
+   */
+  @media (pointer: coarse) {
+    .wm-toolbar-root {
+      min-height: 48px !important;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .wm-toolbar-root::-webkit-scrollbar {
+      display: none;
+    }
+    .wm-toolbar-root .ant-btn-sm {
+      height: 38px !important;
+      min-width: 38px !important;
+      padding-inline: 10px !important;
     }
   }
 `;
@@ -192,6 +213,19 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
   onStairFloorProtectionChange,
 }) => {
   const { token } = theme.useToken();
+  // Touch users need gesture docs, not keyboard shortcuts
+  const isTouch = useIsCoarsePointer();
+
+  /**
+   * These menus are long enough to exceed a phone viewport. Without a cap
+   * antd flips them above the trigger and the top items land off-screen,
+   * unreachable. Cap the height and let the menu scroll instead.
+   */
+  const dropdownOverlayStyle: React.CSSProperties = {
+    maxHeight: '55vh',
+    overflowY: 'auto',
+    overscrollBehavior: 'contain',
+  };
 
   // Active material for demo button label
   const activeMaterial = materialTypes.find((m) => m.id === activeMaterialTypeId);
@@ -362,6 +396,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             type={toolButtonType('select')}
             icon={<SelectOutlined />}
             size="small"
+            aria-label="Select tool"
             onClick={() => onToolChange('select')}
           >
             <span className="wm-tb-label">Select</span>
@@ -370,6 +405,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             type={toolButtonType('pan')}
             icon={<HandIcon />}
             size="small"
+            aria-label="Pan tool"
             onClick={() => onToolChange('pan')}
           />
         </SpaceCompact>
@@ -382,6 +418,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
               type={toolButtonType('demolition')}
               icon={<BorderOutlined />}
               size="small"
+              aria-label="Demolition tool"
               onClick={() => {
                 if (!activeMaterialTypeId && materialTypes.length > 0) {
                   onMaterialTypeChange(materialTypes[0].id);
@@ -417,6 +454,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             menu={{ items: demoMenuItems }}
             trigger={['click']}
             placement="bottomLeft"
+            overlayStyle={dropdownOverlayStyle}
           >
             <Button
               type={toolButtonType('demolition')}
@@ -433,6 +471,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
               type={toolButtonType('equipment')}
               icon={<ToolOutlined />}
               size="small"
+              aria-label="Equipment tool"
               onClick={() => {
                 if (!activeEquipmentType) {
                   onEquipmentTypeChange('air_mover');
@@ -463,6 +502,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             menu={{ items: equipMenuItems }}
             trigger={['click']}
             placement="bottomLeft"
+            overlayStyle={dropdownOverlayStyle}
           >
             <Button
               type={toolButtonType('equipment')}
@@ -478,6 +518,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
           type={toolButtonType('containment')}
           icon={<DashOutlined />}
           size="small"
+          aria-label="Containment tool"
           onClick={() => onToolChange('containment')}
         >
           <span className="wm-tb-label">Containment</span>
@@ -489,6 +530,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             type={toolButtonType('floor_protection')}
             icon={<ColumnWidthOutlined />}
             size="small"
+            aria-label="Floor protection tool"
             onClick={() => onToolChange('floor_protection')}
           >
             <span className="wm-tb-label">{isStairFloorProtection ? 'Stair Prot' : 'Floor Prot'}</span>
@@ -516,6 +558,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
           type={toolButtonType('content_protection')}
           icon={<SkinOutlined />}
           size="small"
+          aria-label="Content protection tool"
           onClick={() => onToolChange('content_protection')}
         >
           <span className="wm-tb-label">Content Prot</span>
@@ -526,6 +569,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
           type={toolButtonType('content_manipulation')}
           icon={<SwapOutlined />}
           size="small"
+          aria-label="Content manipulation tool"
           onClick={() => onToolChange('content_manipulation')}
         >
           <span className="wm-tb-label">Content Move</span>
@@ -551,8 +595,9 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
           }}
           trigger={['click']}
           placement="bottomLeft"
+          overlayStyle={dropdownOverlayStyle}
         >
-          <Button size="small" icon={<AppstoreOutlined />}>
+          <Button size="small" aria-label="More tools" icon={<AppstoreOutlined />}>
             <span className="wm-tb-label">More</span>
             <DownOutlined style={{ fontSize: 10, marginLeft: 2 }} />
           </Button>
@@ -568,12 +613,14 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
           <Button
             icon={<UndoOutlined />}
             size="small"
+            aria-label="Undo"
             disabled={!canUndo}
             onClick={onUndo}
           />
           <Button
             icon={<RedoOutlined />}
             size="small"
+            aria-label="Redo"
             disabled={!canRedo}
             onClick={onRedo}
           />
@@ -585,6 +632,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             type={isDirty ? 'primary' : 'default'}
             icon={<SaveOutlined />}
             size="small"
+            aria-label="Save sketch"
             loading={isSaving}
             onClick={onSave}
           >
@@ -598,23 +646,36 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
         <Popover
           trigger="click"
           placement="bottomRight"
-          title="Keyboard Shortcuts"
+          title={isTouch ? 'Touch Gestures' : 'Keyboard Shortcuts'}
           content={
             <div style={{ minWidth: 200 }}>
-              {[
-                ['V', 'Select tool'],
-                ['H', 'Hand / Pan tool'],
-                ['T', 'Text tool'],
-                ['W', 'Wall tool'],
-                ['R', 'Room tool'],
-                ['Ctrl+Z', 'Undo'],
-                ['Ctrl+Y', 'Redo'],
-                ['Ctrl+S', 'Save'],
-                ['Del / Backspace', 'Remove selected'],
-                ['Scroll wheel', 'Zoom in / out'],
-                ['Space + Drag', 'Pan canvas'],
-                ['Middle mouse', 'Pan canvas'],
-              ].map(([key, desc]) => (
+              {(isTouch
+                ? [
+                    ['Tap', 'Select / place element'],
+                    ['Drag', 'Draw or move element'],
+                    ['Pinch', 'Zoom in / out'],
+                    ['Two-finger drag', 'Pan canvas'],
+                    ['Long press', 'Element menu'],
+                    ['Double tap', 'Close polygon'],
+                    ['⊕ / ⊖ / ⤡', 'Zoom in / out / fit'],
+                    ['Finish', 'End wall or polygon'],
+                    ['Panels button', 'Open properties'],
+                  ]
+                : [
+                    ['V', 'Select tool'],
+                    ['H', 'Hand / Pan tool'],
+                    ['T', 'Text tool'],
+                    ['W', 'Wall tool'],
+                    ['R', 'Room tool'],
+                    ['Ctrl+Z', 'Undo'],
+                    ['Ctrl+Y', 'Redo'],
+                    ['Ctrl+S', 'Save'],
+                    ['Del / Backspace', 'Remove selected'],
+                    ['Scroll wheel', 'Zoom in / out'],
+                    ['Space + Drag', 'Pan canvas'],
+                    ['Middle mouse', 'Pan canvas'],
+                  ]
+              ).map(([key, desc]) => (
                 <div
                   key={key}
                   style={{
@@ -646,6 +707,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
           <Button
             icon={<QuestionCircleOutlined />}
             size="small"
+            aria-label={isTouch ? 'Touch gestures' : 'Keyboard shortcuts'}
           />
         </Popover>
       </div>

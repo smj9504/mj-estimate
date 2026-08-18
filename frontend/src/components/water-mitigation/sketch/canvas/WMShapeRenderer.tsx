@@ -11,6 +11,7 @@ import React, { useCallback, useRef, useEffect } from 'react';
 import { Group, Rect, Ellipse, Text, Line, Arc, Transformer } from 'react-konva';
 import Konva from 'konva';
 import type { WMShapeAnnotation } from '../../../../types/wmSketch';
+import { useTouchTargetSizes } from '../hooks/useWMResponsive';
 
 /** 15° snap angles for Shift+Rotate (0, 15, 30, …, 345) */
 const ROTATION_SNAP_ANGLES = Array.from({ length: 24 }, (_, i) => i * 15);
@@ -35,6 +36,8 @@ const WMShapeRenderer: React.FC<WMShapeRendererProps> = ({
   const groupRef = useRef<Konva.Group>(null);
   const shapeNodeRef = useRef<Konva.Rect | Konva.Ellipse>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
+  // Resize/rotate handles must be finger-sized on touch devices
+  const touchSizes = useTouchTargetSizes();
 
   const { width, height } = shape;
 
@@ -411,10 +414,10 @@ const WMShapeRenderer: React.FC<WMShapeRendererProps> = ({
       <Transformer
         ref={transformerRef}
         rotateEnabled
-        rotateAnchorOffset={20}
+        rotateAnchorOffset={touchSizes.rotateAnchorOffset}
         borderStroke="#1890ff"
         borderDash={[3, 3]}
-        anchorSize={8}
+        anchorSize={touchSizes.anchorSize}
         anchorCornerRadius={2}
         anchorStroke="#1890ff"
         anchorFill="#ffffff"
