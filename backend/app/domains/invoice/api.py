@@ -319,9 +319,11 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         discount_amount=discount,
         op_percent=op_percent,
         adjustments=adjustments_data,
-        sections=sections_data
+        sections=sections_data,
+        is_lump_sum_document=bool(invoice_data.is_lump_sum_document),
+        lump_sum_document_amount=invoice_data.lump_sum_document_amount
     )
-    
+
     subtotal = totals['items_subtotal']
     tax_amount = totals['tax_amount']
     total = totals['total_amount']
@@ -755,6 +757,14 @@ async def update_invoice(
         op_percent = update_dict.get('op_percent', invoice_data.op_percent if hasattr(invoice_data, 'op_percent') else 0)
 
         # Calculate totals using service method (supports adjustments)
+        is_lump_sum_document = update_dict.get(
+            'is_lump_sum_document',
+            existing.get('is_lump_sum_document', False)
+        )
+        lump_sum_document_amount = update_dict.get(
+            'lump_sum_document_amount',
+            existing.get('lump_sum_document_amount')
+        )
         totals = service.calculate_totals(
             items=items_for_calc,
             tax_method=tax_method,
@@ -763,9 +773,11 @@ async def update_invoice(
             discount_amount=discount,
             op_percent=op_percent,
             adjustments=adjustments_data,
-            sections=sections_data
+            sections=sections_data,
+            is_lump_sum_document=bool(is_lump_sum_document),
+            lump_sum_document_amount=lump_sum_document_amount
         )
-        
+
         # Calculate paid amount from payment records
         payments = update_dict.get('payments', invoice_data.payments or [])
         if payments:
@@ -851,6 +863,14 @@ async def update_invoice(
             # isn't dropped from the subtotal just because only adjustments
             # were resubmitted on this update.
             fallback_sections_data = sections_data if sections_data else existing.get('sections_data')
+            is_lump_sum_document = update_dict.get(
+                'is_lump_sum_document',
+                existing.get('is_lump_sum_document', False)
+            )
+            lump_sum_document_amount = update_dict.get(
+                'lump_sum_document_amount',
+                existing.get('lump_sum_document_amount')
+            )
 
             # Calculate totals using service method (supports adjustments)
             totals = service.calculate_totals(
@@ -861,7 +881,9 @@ async def update_invoice(
                 discount_amount=discount,
                 op_percent=op_percent,
                 adjustments=adjustments_data,
-                sections=fallback_sections_data
+                sections=fallback_sections_data,
+                is_lump_sum_document=bool(is_lump_sum_document),
+                lump_sum_document_amount=lump_sum_document_amount
             )
             
             # Calculate paid amount from payment records
