@@ -383,8 +383,6 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                 'tax_amount': estimate.get('tax_amount'),
                 'discount_amount': estimate.get('discount_amount'),
                 'total_amount': estimate.get('total_amount'),
-                'notes': estimate.get('notes'),
-                'terms': estimate.get('terms'),
                 'items': invoice_items,
                 'sections_data': invoice_sections_data,
             }

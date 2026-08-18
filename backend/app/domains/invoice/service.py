@@ -516,9 +516,6 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
     
     def _validate_create_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Validate data for invoice creation"""
-        if not data.get('client_name'):
-            raise ValueError("Client name is required")
-        
         validated_data = data.copy()
         
         # Remove None values
