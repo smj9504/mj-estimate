@@ -4839,7 +4839,7 @@ const InvoiceCreation: React.FC = () => {
                   All fields are optional except <Typography.Text code>client.name</Typography.Text> and <Typography.Text code>sections</Typography.Text>.
                   Items default to <Typography.Text code>taxable: true</Typography.Text>.
                 </Typography.Paragraph>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 12 }}>
                   <div>
                     <Typography.Text strong style={{ fontSize: 12 }}>Available Fields:</Typography.Text>
                     <ul style={{ fontSize: 12, margin: '4px 0', paddingLeft: 16 }}>
