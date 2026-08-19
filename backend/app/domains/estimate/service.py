@@ -385,6 +385,10 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                 'total_amount': estimate.get('total_amount'),
                 'items': invoice_items,
                 'sections_data': invoice_sections_data,
+                # Document-level lump sum must carry over too, otherwise a
+                # lump-sum estimate becomes a normal itemized invoice.
+                'is_lump_sum_document': estimate.get('is_lump_sum_document', False),
+                'lump_sum_document_amount': estimate.get('lump_sum_document_amount'),
             }
             
             # Create invoice

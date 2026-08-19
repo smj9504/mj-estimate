@@ -642,7 +642,7 @@ async def generate_receipt_html(
             logger.info(f"Created {len(sections)} sections from items")
 
         # Generate HTML using PDF service
-        if not pdf_service:
+        if not get_pdf_service():
             raise HTTPException(status_code=500, detail="PDF service not available")
 
         html_content = get_pdf_service().generate_receipt_html(html_data)
@@ -822,7 +822,7 @@ async def generate_receipt_pdf(
             logger.info(f"Created {len(sections)} sections from items")
 
         # Generate PDF using PDF service
-        if not pdf_service:
+        if not get_pdf_service():
             raise HTTPException(status_code=500, detail="PDF service not available")
 
         # Use temp_file_handler for automatic cleanup (cross-platform compatible)
@@ -981,7 +981,7 @@ async def preview_receipt_html(
         }
 
         # Generate HTML using PDF service
-        if not pdf_service:
+        if not get_pdf_service():
             raise HTTPException(status_code=500, detail="PDF service not available")
 
         html_content = get_pdf_service().generate_receipt_html(preview_data)
@@ -1074,6 +1074,7 @@ async def preview_receipt_pdf(
                 "insurance_deductible": invoice.get('insurance_deductible')
             },
             "amount": data.get('payment_amount', 0),
+            "paid_amount_to_date": data.get('payment_amount', 0),
             "payment_method": data.get('payment_method', ''),
             "payments": mapped_payments,
             "items": invoice.get('items', []),
@@ -1112,7 +1113,7 @@ async def preview_receipt_pdf(
             preview_data['serviceSections'] = sections
 
         # Generate PDF
-        if not pdf_service:
+        if not get_pdf_service():
             raise HTTPException(status_code=500, detail="PDF service not available")
 
         # Use temp_file_handler for automatic cleanup (cross-platform compatible)

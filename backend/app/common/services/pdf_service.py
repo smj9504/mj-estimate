@@ -2504,7 +2504,7 @@ print(os.path.getsize(output_path))
             context['receipt_number'] = data['receipt_number']
         else:
             # Fallback: Generate receipt number from invoice number (INV → RCT)
-            invoice_number = context.get('invoice_number', '')
+            invoice_number = context.get('invoice_number') or ''
             if invoice_number.startswith('INV-'):
                 context['receipt_number'] = invoice_number.replace('INV-', 'RCT-', 1)
             else:

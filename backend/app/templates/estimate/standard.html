@@ -410,6 +410,12 @@
             page-break-inside: avoid;
         }
 
+        .signature-name-line {
+            border-bottom: 1px solid #111827;
+            height: 32px;
+            margin-top: 24px;
+        }
+
         .signature-row {
             display: flex;
             gap: 48px;
@@ -767,6 +773,8 @@
         {% if include_signature %}
         <div class="signature-section">
             <div class="section-heading">Customer Approval</div>
+            <div class="signature-name-line"></div>
+            <div class="signature-label">Print Name</div>
             <div class="signature-row">
                 <div class="signature-block">
                     <div class="signature-line"></div>
