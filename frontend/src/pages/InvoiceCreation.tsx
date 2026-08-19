@@ -65,6 +65,10 @@ import { CSS } from '@dnd-kit/utilities';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import DraggableTable from '../components/common/DraggableTable';
+import {
+  useIsNarrowLineItemTable,
+  MobileLineItemCell,
+} from '../components/estimate/lineItemTableResponsive';
 import dayjs from 'dayjs';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { invoiceService, InvoiceSection, LineItemImage } from '../services/invoiceService';
@@ -422,6 +426,10 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
   onLumpSumAmountChange,
   hidePricing = false,
 }) => {
+  // On a phone the full column set does not fit; qty/unit/rate/amount fold into
+  // the description cell so the description itself can wrap in full.
+  const isNarrow = useIsNarrowLineItemTable();
+
   return (
     <div
       style={{
@@ -543,7 +551,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
 
       {/* Section Content */}
       {isOpen && (
-        <div style={{ padding: '16px' }}>
+        <div style={{ padding: isNarrow ? '8px' : '16px' }}>
           {section.items.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '20px', color: '#8c8c8c' }}>
               No items in this section. Click "Add Item" to add items.
@@ -566,9 +574,9 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
               sectionIndex={sectionIndex}
               dragType="item"
               activeId={activeId}
-              scroll={{ x: 600 }}
-              resizableColumns={true}
-              rowSelection={onRowSelection ? {
+              scroll={isNarrow ? undefined : { x: 600 }}
+              resizableColumns={!isNarrow}
+              rowSelection={onRowSelection && !isNarrow ? {
                 selectedRowKeys,
                 onChange: (keys: React.Key[]) => onRowSelection(keys as string[]),
                 type: 'checkbox' as const,
@@ -578,16 +586,15 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                   title: 'Description',
                   dataIndex: 'description',
                   key: 'description',
-                  ellipsis: true,
-                  width: 200,
-                  minWidth: 100,
-                  maxWidth: 500,
-                  fixed: 'left' as const,
-                  render: (value: string, record: InvoiceItem) => (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {value ? (
-                        <div dangerouslySetInnerHTML={{ __html: value }} style={{ flex: 1 }} />
-                      ) : null}
+                  // Narrow viewports must wrap instead of clipping, and a fixed
+                  // column would pin the description to a sliver of the screen.
+                  ellipsis: !isNarrow,
+                  ...(isNarrow
+                    ? {}
+                    : { width: 200, minWidth: 100, maxWidth: 500, fixed: 'left' as const }),
+                  render: (value: string, record: InvoiceItem, recordIndex: number) => {
+                    const adornments = (
+                    <>
                       {record.note && record.note.replace(/<[^>]*>/g, '').trim() ? (
                         <Tooltip
                           title={`Item Note: ${record.note.replace(/<[^>]*>/g, '').substring(0, 100)}${record.note.replace(/<[^>]*>/g, '').length > 100 ? '...' : ''}`}
@@ -616,10 +623,58 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                           />
                         </Tooltip>
                       ) : null}
-                    </div>
-                  ),
+                    </>
+                    );
+
+                    if (isNarrow) {
+                      return (
+                        <MobileLineItemCell
+                          description={value}
+                          adornments={adornments}
+                          pricing={
+                            hidePricing
+                              ? undefined
+                              : {
+                                  quantity: record.quantity,
+                                  unit: record.unit,
+                                  rate: formatCurrency(record.rate || 0),
+                                  amount: formatCurrency((record.quantity || 0) * (record.rate || 0)),
+                                }
+                          }
+                          tax={
+                            !hidePricing && taxMethod === 'percentage'
+                              ? {
+                                  checked: record.taxable !== false,
+                                  onChange: (checked) => {
+                                    const newSections = [...sections];
+                                    newSections[sectionIndex].items[recordIndex] = {
+                                      ...newSections[sectionIndex].items[recordIndex],
+                                      taxable: checked,
+                                    };
+                                    newSections[sectionIndex].subtotal = calculateSectionSubtotal(
+                                      newSections[sectionIndex].items,
+                                      newSections[sectionIndex],
+                                    );
+                                    setSections(newSections);
+                                  },
+                                }
+                              : undefined
+                          }
+                        />
+                      );
+                    }
+
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {value ? (
+                          <div dangerouslySetInnerHTML={{ __html: value }} style={{ flex: 1 }} />
+                        ) : null}
+                        {adornments}
+                      </div>
+                    );
+                  },
                 },
-                ...(hidePricing ? [] : [
+                ...(hidePricing || isNarrow ? [] : [
                 {
                   title: 'Qty',
                   dataIndex: 'quantity',
@@ -650,7 +705,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                   render: (_: any, record: InvoiceItem) => formatCurrency((record.quantity || 0) * (record.rate || 0)),
                 },
                 ]),
-                ...(!hidePricing && taxMethod === 'percentage' ? [{
+                ...(!hidePricing && !isNarrow && taxMethod === 'percentage' ? [{
                   title: (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <span>Tax</span>
@@ -697,7 +752,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                   key: 'actions',
                   width: 70,
                   align: 'center' as const,
-                  fixed: 'right' as const,
+                  ...(isNarrow ? {} : { fixed: 'right' as const }),
                   render: (_: any, record: InvoiceItem, index: number) => (
                     <Space size="small">
                       <Tooltip title="Edit item">

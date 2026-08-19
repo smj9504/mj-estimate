@@ -32,6 +32,7 @@ import {
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import SortableSection from '../components/common/SortableSection';
 import SectionItemsTable from '../components/estimate/SectionItemsTable';
+import { useIsNarrowLineItemTable } from '../components/estimate/lineItemTableResponsive';
 import MultiSelectActionBar from '../components/common/MultiSelectActionBar';
 import {
   DndContext,
@@ -90,6 +91,8 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const isEditMode = !!id;
+  // Phone-width item tables stack their columns, so the editing hint changes too
+  const isNarrowLineItemTable = useIsNarrowLineItemTable();
   const importSource = searchParams.get('import'); // 'pack' for pack estimate import
   const presetClient = (location.state as { presetClient?: Client } | null)?.presetClient;
 
@@ -1454,17 +1457,37 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Title level={2}>
+    <div
+      style={{
+        padding: isNarrowLineItemTable ? '12px' : '24px',
+        maxWidth: '1200px',
+        margin: '0 auto',
+      }}
+    >
+      {/*
+        The action row is ~550px wide. Left unwrapped on a phone it overflows
+        the viewport, and the browser shrink-to-fits the entire page — which is
+        what made every table (and its descriptions) render tiny.
+      */}
+      <div
+        style={{
+          marginBottom: '24px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
+        <Title level={2} style={{ marginBottom: 0 }}>
           {isEditMode ? 'Edit Estimate' : 'Create New Estimate'}
         </Title>
-        <Space>
+        <Space wrap>
           <Button onClick={() => navigate('/documents/estimate')}>Cancel</Button>
           <Select
             value={pdfTemplateType}
             onChange={setPdfTemplateType}
-            style={{ width: 150 }}
+            style={{ width: isNarrowLineItemTable ? 120 : 150 }}
             options={[
               { value: 'invoice', label: 'Standard' },
               { value: 'estimate', label: 'Enhanced' }
@@ -1714,6 +1737,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                 >
                   <SortableContext items={sections.map(s => s.id)} strategy={verticalListSortingStrategy}>
                     <Collapse
+                      className="estimate-sections-collapse"
                       activeKey={activeKeys}
                       onChange={(keys) => setActiveKeys(keys as string[])}
                       items={sections.map((section, sectionIndex) => ({
@@ -1751,12 +1775,21 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                 onKeyDown={(e) => handleDeleteKeyPress(e, sectionIndex)}
                                 style={{ outline: 'none' }}
                               >
+                                {/*
+                                  The desktop hint names double-click and the
+                                  Delete key, neither of which exists on a
+                                  phone — and it wraps to three lines there.
+                                */}
                                 <div style={{ marginBottom: '8px', fontSize: '12px', color: '#8c8c8c' }}>
-                                  <Space>
-                                    <span>Double-click row or use Edit button to edit</span>
-                                    <Divider type="vertical" />
-                                    <span>Use Actions buttons or select items and press Delete key to remove</span>
-                                  </Space>
+                                  {isNarrowLineItemTable ? (
+                                    <span>Tap the edit or delete button on a row</span>
+                                  ) : (
+                                    <Space>
+                                      <span>Double-click row or use Edit button to edit</span>
+                                      <Divider type="vertical" />
+                                      <span>Use Actions buttons or select items and press Delete key to remove</span>
+                                    </Space>
+                                  )}
                                 </div>
                                 <SectionItemsTable
                                   sectionIndex={sectionIndex}

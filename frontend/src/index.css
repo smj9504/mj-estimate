@@ -137,3 +137,49 @@ code {
   pointer-events: none;
   z-index: 9999;
 }
+
+/*
+ * Estimate / Invoice line-item tables on narrow viewports.
+ *
+ * At phone widths the description competes with the drag handle, the actions
+ * column and antd's cell padding for ~250px of table. Trimming the padding
+ * (4 cells x 8px each side) hands roughly 30px back to the description, which
+ * is the only column whose content actually needs the room.
+ */
+@media (max-width: 767px) {
+  .estimate-items-table .ant-table-tbody > tr > td,
+  .estimate-items-table .ant-table-thead > tr > th,
+  .invoice-items-table .ant-table-tbody > tr > td,
+  .invoice-items-table .ant-table-thead > tr > th {
+    padding-inline: 4px !important;
+  }
+
+  /* Long words in a description must break rather than widen the column */
+  .estimate-items-table .ant-table-tbody > tr > td,
+  .invoice-items-table .ant-table-tbody > tr > td {
+    overflow-wrap: anywhere;
+  }
+}
+
+/* Section panels wrap the item table in another 16px of padding — too much
+   when the whole table only has ~260px to work with. */
+@media (max-width: 767px) {
+  .estimate-sections-collapse .ant-collapse-content-box {
+    padding-inline: 6px !important;
+  }
+}
+
+/* Section headers stack on mobile, but a stacked flex child is sized by its
+   content and can still run past the viewport, taking its action buttons
+   off-screen with it. Constrain the children and let their rows wrap. */
+@media (max-width: 767px) {
+  .section-panel-header > *,
+  .ant-collapse-header > * {
+    max-width: 100%;
+    min-width: 0;
+  }
+  .section-panel-header .ant-space,
+  .ant-collapse-header .ant-space {
+    flex-wrap: wrap;
+  }
+}

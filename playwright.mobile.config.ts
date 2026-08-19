@@ -1,9 +1,9 @@
 /**
- * Playwright config for the Water Mitigation sketch tests.
+ * Playwright config for the mobile-layout suites.
  *
- * These specs stub every /api call (see tests/e2e/fixtures/wm-sketch-mock.ts),
- * so unlike the main suite they need only the frontend dev server — no
- * backend, no database, and no shared login step. They therefore skip the
+ * These specs stub every /api call (see the fixtures alongside them), so
+ * unlike the main suite they need only the frontend dev server — no backend,
+ * no database, and no shared login step. They therefore skip the
  * global-setup/storageState pair that the main config relies on.
  */
 
@@ -11,7 +11,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
-  testMatch: /wm-sketch-.*\.spec\.ts/,
+  testMatch: /(wm-sketch|estimate-invoice)-mobile\.spec\.ts/,
   outputDir: './tests/e2e/test-results',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

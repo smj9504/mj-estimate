@@ -3,6 +3,10 @@ import { Button, Space, Switch, Tooltip, Popconfirm } from 'antd';
 import { EditOutlined, DeleteOutlined, FileTextFilled } from '@ant-design/icons';
 import DraggableTable from '../common/DraggableTable';
 import { EstimateLineItem } from '../../services/estimateService';
+import {
+  useIsNarrowLineItemTable,
+  MobileLineItemCell,
+} from './lineItemTableResponsive';
 
 interface SectionItemsTableProps {
   sectionIndex: number;
@@ -36,6 +40,10 @@ const SectionItemsTable: React.FC<SectionItemsTableProps> = memo(({
   formatCurrency,
   hidePricing = false,
 }) => {
+  // On a phone the full column set does not fit; qty/unit/rate/total fold into
+  // the description cell so the description itself can wrap in full.
+  const isNarrow = useIsNarrowLineItemTable();
+
   // Memoize dataSource to prevent new objects on every render
   const dataSource = useMemo(() =>
     items.map((item, index) => ({
@@ -62,30 +70,58 @@ const SectionItemsTable: React.FC<SectionItemsTableProps> = memo(({
 
   // Memoize columns to prevent recreation on every render
   const columns = useMemo(() => {
+    const noteIcon = (record: EstimateLineItem) =>
+      record.note ? (
+        <Tooltip title={<div dangerouslySetInnerHTML={{ __html: record.note }} />}>
+          <FileTextFilled style={{ color: '#1890ff', cursor: 'help', flexShrink: 0 }} />
+        </Tooltip>
+      ) : null;
+
     const baseColumns: any[] = [
       {
         title: 'Description',
         dataIndex: 'description',
         key: 'description',
-        ellipsis: true,
-        width: 200,
-        minWidth: 100,
-        maxWidth: 500,
-        fixed: 'left' as const,
-        render: (value: string, record: EstimateLineItem) => (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {value ? <div dangerouslySetInnerHTML={{ __html: value }} /> : null}
-            {record.note && (
-              <Tooltip title={<div dangerouslySetInnerHTML={{ __html: record.note }} />}>
-                <FileTextFilled style={{ color: '#1890ff', cursor: 'help', flexShrink: 0 }} />
-              </Tooltip>
-            )}
-          </div>
-        ),
+        // Narrow viewports must wrap instead of clipping, and a fixed column
+        // would pin the description to a sliver of the screen.
+        ellipsis: !isNarrow,
+        ...(isNarrow
+          ? {}
+          : { width: 200, minWidth: 100, maxWidth: 500, fixed: 'left' as const }),
+        render: (value: string, record: EstimateLineItem, recordIndex: number) =>
+          isNarrow ? (
+            <MobileLineItemCell
+              description={value}
+              adornments={noteIcon(record)}
+              pricing={
+                hidePricing
+                  ? undefined
+                  : {
+                      quantity: record.quantity,
+                      unit: record.unit,
+                      rate: formatCurrency(record.unit_price || 0),
+                      amount: formatCurrency(record.total || 0),
+                    }
+              }
+              tax={
+                !hidePricing && taxMethod === 'percentage'
+                  ? {
+                      checked: record.taxable !== false,
+                      onChange: (checked) => onTaxableChange(recordIndex, checked),
+                    }
+                  : undefined
+              }
+            />
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {value ? <div dangerouslySetInnerHTML={{ __html: value }} /> : null}
+              {noteIcon(record)}
+            </div>
+          ),
       },
     ];
 
-    if (!hidePricing) {
+    if (!hidePricing && !isNarrow) {
       baseColumns.push(
         {
           title: 'Qty',
@@ -121,7 +157,7 @@ const SectionItemsTable: React.FC<SectionItemsTableProps> = memo(({
     }
 
     // Add tax column if using percentage method
-    if (!hidePricing && taxMethod === 'percentage') {
+    if (!hidePricing && !isNarrow && taxMethod === 'percentage') {
       const allTaxable = items.every(item => item.taxable !== false);
       baseColumns.push({
         title: (
@@ -156,7 +192,7 @@ const SectionItemsTable: React.FC<SectionItemsTableProps> = memo(({
       key: 'actions',
       width: 70,
       align: 'center' as const,
-      fixed: 'right' as const,
+      ...(isNarrow ? {} : { fixed: 'right' as const }),
       render: (_: any, _record: EstimateLineItem, index: number) => (
         <Space size="small">
           <Tooltip title="Edit item">
@@ -194,7 +230,7 @@ const SectionItemsTable: React.FC<SectionItemsTableProps> = memo(({
     } as any);
 
     return baseColumns;
-  }, [taxMethod, items, formatCurrency, onToggleAllTaxable, onTaxableChange, handleEdit, handleDelete, hidePricing]);
+  }, [taxMethod, items, formatCurrency, onToggleAllTaxable, onTaxableChange, handleEdit, handleDelete, hidePricing, isNarrow]);
 
   // Memoize getRowId function
   const getRowId = useCallback((record: EstimateLineItem, index: number) =>
@@ -223,13 +259,19 @@ const SectionItemsTable: React.FC<SectionItemsTableProps> = memo(({
       sectionIndex={sectionIndex}
       dragType="item"
       activeId={activeId}
-      scroll={{ x: 600 }}
-      resizableColumns={true}
-      rowSelection={{
-        selectedRowKeys,
-        onChange: handleRowSelection,
-        type: 'checkbox',
-      }}
+      scroll={isNarrow ? undefined : { x: 600 }}
+      resizableColumns={!isNarrow}
+      // Bulk selection only feeds the Delete-key shortcut, which a phone does
+      // not have — dropping it returns its column width to the description.
+      rowSelection={
+        isNarrow
+          ? undefined
+          : {
+              selectedRowKeys,
+              onChange: handleRowSelection,
+              type: 'checkbox',
+            }
+      }
       onRow={onRowHandler}
       columns={columns}
     />
