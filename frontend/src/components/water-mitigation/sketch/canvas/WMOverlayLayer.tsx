@@ -74,6 +74,10 @@ export interface WMOverlayLayerProps {
   onDragEnd: (id: string, type: string, x: number, y: number) => void;
   onTransformEnd?: (id: string, type: string, widthFt: number, heightFt: number, rotation?: number) => void;
   onUpdateTextAnnotation?: (id: string, patch: Partial<WMTextAnnotation>) => void;
+  /** Id of the text annotation whose inline editor should open. */
+  textEditRequestId?: string | null;
+  /** Called once that editor has opened. */
+  onTextEditOpened?: (id: string) => void;
   onPolygonPointsChanged?: (id: string, points: { x: number; y: number }[]) => void;
   onMoveGroup?: (groupId: string, dx: number, dy: number) => void;
   onRotateGroup?: (groupId: string, pivotX: number, pivotY: number, deltaDeg: number) => void;
@@ -160,6 +164,8 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   onDragEnd,
   onTransformEnd,
   onUpdateTextAnnotation,
+  textEditRequestId = null,
+  onTextEditOpened,
   onPolygonPointsChanged,
   onMoveGroup,
   onRotateGroup,
@@ -464,7 +470,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
           case 'text': {
             const a = textMap.get(item.id);
             return a ? (
-              <WMTextRenderer key={a.id} annotation={a} isSelected={isSelected(a.id)} onSelect={selectTextHandler} onDragEnd={dragTextHandler} onUpdate={updateTextHandler} />
+              <WMTextRenderer key={a.id} annotation={a} isSelected={isSelected(a.id)} onSelect={selectTextHandler} onDragEnd={dragTextHandler} onUpdate={updateTextHandler} editRequested={textEditRequestId === a.id} onEditOpened={onTextEditOpened} />
             ) : null;
           }
           default:

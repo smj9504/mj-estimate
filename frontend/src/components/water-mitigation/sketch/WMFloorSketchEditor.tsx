@@ -56,6 +56,7 @@ import {
   GroupOutlined,
   UngroupOutlined,
   SwapOutlined,
+  FontSizeOutlined,
   ZoomInOutlined,
   ZoomOutOutlined,
   CompressOutlined,
@@ -634,6 +635,13 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // ------------------------------------------------------------------
   const { isMobile, useTouchUI } = useWMResponsive();
   const [sidebarDrawerOpen, setSidebarDrawerOpen] = useState(false);
+  /**
+   * Text annotation whose inline editor should open. A freshly placed label
+   * reads "Text" until it is edited, and the on-canvas glyph is far too small
+   * to double-tap once the stage is fitted to a phone viewport, so the editor
+   * is opened for the user instead of waiting to be found.
+   */
+  const [textEditRequestId, setTextEditRequestId] = useState<string | null>(null);
 
   /**
    * Width of the row that holds the canvas and the sidebar. The editor can be
@@ -1587,6 +1595,17 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     const sel = state.selections;
     const items: MenuProps['items'] = [];
 
+    // --- Edit text (the on-canvas glyph is too small to double-tap) ---
+    if (sel.length === 1 && sel[0].element_type === 'text') {
+      items.push({
+        key: 'edit-text',
+        icon: <FontSizeOutlined />,
+        label: 'Edit text',
+        onClick: () => setTextEditRequestId(sel[0].element_id),
+      });
+      items.push({ type: 'divider' as const });
+    }
+
     // --- Combine / Ungroup (always shown for demolition zones) ---
     const demoSels = sel.filter((s) => s.element_type === 'demolition');
     const demoZones = demoSels
@@ -1917,6 +1936,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         };
         addTextAnnotation(annotation);
         selectNewElement(newId, 'text');
+        setTextEditRequestId(newId);
       }
 
       // ---- Polygon demolition tool: click-to-place vertices ----
@@ -3069,6 +3089,16 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   const hasPendingDrawing = wallDrawStart !== null || polygonDrawPoints.length > 0;
 
   /**
+   * The single selected text annotation, if that is what is selected. Its
+   * on-canvas glyph is only a few pixels tall at fit-scale, so the action bar
+   * carries the edit affordance rather than relying on a double-tap.
+   */
+  const selectedTextId =
+    state.selections.length === 1 && state.selections[0].element_type === 'text'
+      ? state.selections[0].element_id
+      : null;
+
+  /**
    * Below this width the inline sidebar would leave too little canvas to draw
    * on (280px sidebar + a workable drawing area), so it moves into a drawer.
    */
@@ -3380,6 +3410,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                 onDragEnd={handleDragEnd}
                 onTransformEnd={handleTransformEnd}
                 onUpdateTextAnnotation={(id, patch) => updateTextAnnotation({ id, ...patch })}
+                textEditRequestId={textEditRequestId}
+                onTextEditOpened={() => setTextEditRequestId(null)}
                 onPolygonPointsChanged={(id, pts) => {
                   // Recalculate area when polygon vertices are dragged
                   const zone = state.overlayData.demolition_zones.find((z) => z.id === id);
@@ -3681,6 +3713,15 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                 </>
               ) : (
                 <>
+                  {selectedTextId && (
+                    <Button
+                      data-testid="wm-sketch-edit-text"
+                      icon={<FontSizeOutlined />}
+                      onClick={() => setTextEditRequestId(selectedTextId)}
+                    >
+                      Edit
+                    </Button>
+                  )}
                   <Button
                     data-testid="wm-sketch-delete-selected"
                     danger

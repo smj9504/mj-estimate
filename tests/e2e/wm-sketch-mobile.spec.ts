@@ -375,6 +375,94 @@ test.describe('WM Sketch tab — axis snapping on touch', () => {
   });
 });
 
+test.describe('WM Sketch tab — text annotations', () => {
+  let api: Awaited<ReturnType<typeof mockSketchApi>>;
+
+  test.beforeEach(async ({ page }) => {
+    api = await mockSketchApi(page);
+    await gotoSketchTab(page);
+  });
+
+  /** Activate the Text tool, which lives in the overflow menu. */
+  async function pickTextTool(page: Page) {
+    await tool(page, /more tools/i).click();
+    await page.getByRole('menuitem', { name: /text \(t\)/i }).click();
+    // The menu can shift the page while open; settle before measuring
+    await page.waitForTimeout(200);
+  }
+
+  const editor = (page: Page) => page.getByTestId('wm-sketch-text-editor');
+
+  test('placing a text opens its editor, and the typed text is kept', async ({ page }) => {
+    await pickTextTool(page);
+
+    const box = await canvasBox(page);
+    const spot = { x: box.x + box.width * 0.4, y: box.y + box.height * 0.4 };
+    if (isTouchProject()) await touchTap(page, spot);
+    else await page.mouse.click(spot.x, spot.y);
+
+    // A new label reads "Text" and its on-canvas glyph is only a few pixels
+    // tall once the stage is fitted, so the editor has to come to the user.
+    await expect(editor(page)).toBeVisible();
+    await expect(editor(page)).toBeFocused();
+
+    await editor(page).fill('Master Bedroom');
+    await editor(page).press('Enter');
+    await expect(editor(page)).toHaveCount(0);
+
+    await tool(page, /save sketch/i).click();
+    await expect
+      .poll(() => api.getSavedOverlay()?.text_annotations?.[0]?.text)
+      .toBe('Master Bedroom');
+  });
+
+  test('the editor opens inside the canvas, not clipped outside it', async ({ page }) => {
+    await pickTextTool(page);
+
+    const box = await canvasBox(page);
+    const spot = { x: box.x + box.width * 0.4, y: box.y + box.height * 0.4 };
+    if (isTouchProject()) await touchTap(page, spot);
+    else await page.mouse.click(spot.x, spot.y);
+
+    await expect(editor(page)).toBeVisible();
+
+    // The canvas area clips its overflow: an editor positioned outside it
+    // simply disappears, which is how this used to fail.
+    const canvas = await canvasBox(page);
+    const ed = (await editor(page).boundingBox())!;
+    expect(ed.x).toBeGreaterThanOrEqual(canvas.x - 1);
+    expect(ed.y).toBeGreaterThanOrEqual(canvas.y - 1);
+    expect(ed.x + ed.width).toBeLessThanOrEqual(canvas.x + canvas.width + 1);
+    expect(ed.y + ed.height).toBeLessThanOrEqual(canvas.y + canvas.height + 1);
+
+    // Below 16px iOS zooms the page on focus
+    const fontSize = await editor(page).evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    expect(fontSize).toBeGreaterThanOrEqual(16);
+  });
+
+  test('a selected text can be reopened from the action bar', async ({ page }) => {
+    test.skip(!isTouchProject(), 'the action bar is the touch affordance');
+    await pickTextTool(page);
+
+    const box = await canvasBox(page);
+    const spot = { x: box.x + box.width * 0.4, y: box.y + box.height * 0.4 };
+    await touchTap(page, spot);
+    await expect(editor(page)).toBeVisible();
+    await editor(page).fill('Kitchen');
+    await editor(page).press('Enter');
+    await expect(editor(page)).toHaveCount(0);
+
+    // Tapping the glyph again is hopeless at fit-scale — it is a few pixels
+    // tall — so the action bar carries the affordance while it is selected.
+    const editButton = page.getByTestId('wm-sketch-edit-text');
+    await expect(editButton).toBeVisible();
+    await editButton.click();
+
+    await expect(editor(page)).toBeVisible();
+    await expect(editor(page)).toHaveValue('Kitchen');
+  });
+});
+
 test.describe('WM Sketch tab — desktop is unaffected', () => {
   test.beforeEach(async ({ page }) => {
     test.skip(isTouchProject(), 'desktop project only');
