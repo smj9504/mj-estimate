@@ -207,6 +207,71 @@ function touchCount(evt: WMPointerEvent): number {
   return isTouchEvt(evt) ? evt.touches.length : 1;
 }
 
+// ============================================================================
+// Axis alignment for line-shaped elements
+// ============================================================================
+
+/**
+ * How far off horizontal/vertical (in degrees) a line may be and still be
+ * treated as an attempt at an axis-aligned line.
+ *
+ * A fingertip aiming for a level line routinely drifts 8-10 degrees, so a
+ * tighter threshold would leave exactly the slanted walls this is meant to
+ * prevent. Building geometry is effectively always square or 45 degrees, so
+ * nothing under 12 degrees off an axis is plausibly deliberate.
+ */
+const AXIS_SNAP_THRESHOLD_DEG = 12;
+
+/** Collapse a line onto the nearer axis through `start`. */
+function forceAxis(
+  start: { x: number; y: number },
+  end: { x: number; y: number }
+): { x: number; y: number } {
+  const dx = Math.abs(end.x - start.x);
+  const dy = Math.abs(end.y - start.y);
+  if (dx > dy) return { x: end.x, y: start.y }; // horizontal
+  return { x: start.x, y: end.y }; // vertical
+}
+
+/**
+ * Straighten a nearly-axis-aligned line, and leave everything else alone.
+ * A line within `AXIS_SNAP_THRESHOLD_DEG` of horizontal or vertical is
+ * assumed to be meant as exactly that; anything more slanted is a diagonal
+ * the user drew on purpose.
+ */
+function snapNearAxis(
+  start: { x: number; y: number },
+  end: { x: number; y: number }
+): { x: number; y: number } {
+  const dx = Math.abs(end.x - start.x);
+  const dy = Math.abs(end.y - start.y);
+  // Too short to have a meaningful angle yet
+  if (Math.hypot(dx, dy) < 1) return end;
+
+  const maxDrift = Math.tan((AXIS_SNAP_THRESHOLD_DEG * Math.PI) / 180);
+  if (dy <= dx * maxDrift) return { x: end.x, y: start.y }; // near-horizontal
+  if (dx <= dy * maxDrift) return { x: start.x, y: end.y }; // near-vertical
+  return end;
+}
+
+/**
+ * Where a line being drawn should actually end.
+ *
+ * Shift forces the line onto an axis, as it always has. Touch input has no
+ * Shift key, so near-axis lines snap straight automatically — otherwise a
+ * horizontal drag with a finger commits a wall or containment line a few
+ * degrees off level.
+ */
+function alignLineEnd(
+  evt: WMPointerEvent,
+  start: { x: number; y: number },
+  end: { x: number; y: number }
+): { x: number; y: number } {
+  if (isShiftKey(evt)) return forceAxis(start, end);
+  if (isTouchEvt(evt)) return snapNearAxis(start, end);
+  return end;
+}
+
 /** Distance and midpoint between the first two touch points. */
 function getPinchGeometry(evt: TouchEvent) {
   const [a, b] = [evt.touches[0], evt.touches[1]];
@@ -961,12 +1026,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
    * when Shift is held.
    */
   const constrainToAxis = useCallback(
-    (start: { x: number; y: number }, end: { x: number; y: number }): { x: number; y: number } => {
-      const dx = Math.abs(end.x - start.x);
-      const dy = Math.abs(end.y - start.y);
-      if (dx > dy) return { x: end.x, y: start.y }; // horizontal
-      return { x: start.x, y: end.y }; // vertical
-    },
+    (start: { x: number; y: number }, end: { x: number; y: number }) => forceAxis(start, end),
     []
   );
 
@@ -1887,10 +1947,17 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           setWallDrawStart(snapped.point);
           setWallDrawCursor(snapped.point);
         } else {
-          // Second click — finalize wall
-          let endPoint = snapped.point;
-          if (isShiftKey(e.evt)) endPoint = constrainToAxis(wds, endPoint);
-          else if (snapped.snapped) endPoint = snapped.point;
+          // Second click — finalize wall.
+          // Joining an existing wall endpoint beats axis alignment, since a
+          // connected corner matters more than a perfectly level segment.
+          let endPoint: { x: number; y: number };
+          if (isShiftKey(e.evt)) {
+            endPoint = constrainToAxis(wds, snapped.point);
+          } else if (snapped.snapped) {
+            endPoint = snapped.point;
+          } else {
+            endPoint = alignLineEnd(e.evt, wds, snapped.point);
+          }
 
           const dx = endPoint.x - wds.x;
           const dy = endPoint.y - wds.y;
@@ -2071,8 +2138,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       const wds = wallDrawStartRef.current;
       if (stateRef.current.activeTool === 'wall' && wds) {
         const pos = getCanvasPos(e);
-        let endPos = pos;
-        if (isShiftKey(e.evt)) endPos = constrainToAxis(wds, pos);
+        // Preview exactly what the second click will commit
+        const endPos = alignLineEnd(e.evt, wds, pos);
         const snap = snapToWallEndpoint(endPos);
         setWallDrawCursor(snap.snapped ? snap.point : endPos);
         setWallSnapEnd(snap.snapped ? snap.point : null);
@@ -2087,15 +2154,16 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
 
       const pos = getCanvasPos(e);
 
-      // Shift constraint for line tools (containment, demolition_line)
+      // Axis alignment for line tools (containment, demolition_line):
+      // forced by Shift, automatic for near-axis lines drawn by touch.
       if (
-        isShiftKey(e.evt) &&
-        (stateRef.current.activeTool === 'containment' || stateRef.current.activeTool === 'demolition_line')
+        stateRef.current.activeTool === 'containment' ||
+        stateRef.current.activeTool === 'demolition_line'
       ) {
         const start = { x: ds.startX, y: ds.startY };
-        const constrained = constrainToAxis(start, pos);
+        const aligned = alignLineEnd(e.evt, start, pos);
         const prev = drawStateRef.current;
-        setDrawStateSync({ ...prev, currentX: constrained.x, currentY: constrained.y });
+        setDrawStateSync({ ...prev, currentX: aligned.x, currentY: aligned.y });
         return;
       }
 

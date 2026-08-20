@@ -73,11 +73,20 @@ function floorSketch(overrides: Record<string, unknown> = {}) {
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
+export interface SketchApiMock {
+  /**
+   * The overlay most recently persisted by the editor, or null if nothing has
+   * been saved yet. Lets a test assert on what the app actually stores rather
+   * than on pixels.
+   */
+  getSavedOverlay: () => any;
+}
+
 /**
  * Install the auth session and the stubbed API.
  * Call before `page.goto`.
  */
-export async function mockSketchApi(page: Page) {
+export async function mockSketchApi(page: Page): Promise<SketchApiMock> {
   // Seed a logged-in session so ProtectedRoute lets the page render.
   await page.addInitScript(
     ([user]) => {
@@ -88,7 +97,8 @@ export async function mockSketchApi(page: Page) {
   );
 
   // Saved overlay data, so a save followed by a reload round-trips.
-  let savedOverlay: unknown = EMPTY_OVERLAY;
+  let savedOverlay: any = EMPTY_OVERLAY;
+  let hasSaved = false;
 
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
@@ -112,6 +122,7 @@ export async function mockSketchApi(page: Page) {
     if (path.includes('/api/water-mitigation/sketch/floors/') && path.endsWith('/overlay')) {
       // Full replace, mirroring the backend contract
       savedOverlay = route.request().postDataJSON?.() ?? savedOverlay;
+      hasSaved = true;
       return json(route, savedOverlay);
     }
     if (path.includes('/api/water-mitigation/sketch/floors/')) {
@@ -134,6 +145,8 @@ export async function mockSketchApi(page: Page) {
     // reason.
     return json(route, []);
   });
+
+  return { getSavedOverlay: () => (hasSaved ? savedOverlay : null) };
 }
 
 /**

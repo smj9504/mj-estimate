@@ -323,6 +323,58 @@ test.describe('WM Sketch tab — mobile', () => {
 
 });
 
+test.describe('WM Sketch tab — axis snapping on touch', () => {
+  let api: Awaited<ReturnType<typeof mockSketchApi>>;
+
+  test.beforeEach(async ({ page }) => {
+    test.skip(!isTouchProject(), 'touch project only');
+    api = await mockSketchApi(page);
+    await gotoSketchTab(page);
+  });
+
+  /** Draw a containment line, save, and return the persisted zone. */
+  async function drawContainment(page: Page, from: Pt, to: Pt) {
+    await tool(page, /containment tool/i).click();
+    await touchDrag(page, from, to);
+    await expect(page.getByTestId('wm-sketch-status-bar')).toContainText('Containment');
+
+    await tool(page, /save sketch/i).click();
+    await expect
+      .poll(async () => api.getSavedOverlay()?.containment_zones?.length ?? 0)
+      .toBeGreaterThan(0);
+    return api.getSavedOverlay().containment_zones[0];
+  }
+
+  // Offsets are in pixels, not canvas fractions: the drawn angle has to be the
+  // same on every device, and canvas aspect ratios differ between them.
+  test('a near-horizontal drag is straightened to level', async ({ page }) => {
+    const from = await at(page, 0.15, 0.5);
+    // ~6 degrees off horizontal — a finger aiming for a level line
+    const to = { x: from.x + 180, y: from.y + 19 };
+
+    const zone = await drawContainment(page, from, to);
+    expect(Math.abs(zone.rotation % 180)).toBeLessThan(0.001);
+  });
+
+  test('a near-vertical drag is straightened to plumb', async ({ page }) => {
+    const from = await at(page, 0.5, 0.12);
+    const to = { x: from.x + 19, y: from.y + 180 };
+
+    const zone = await drawContainment(page, from, to);
+    expect(Math.abs(Math.abs(zone.rotation) - 90)).toBeLessThan(0.001);
+  });
+
+  test('a deliberate diagonal is left alone', async ({ page }) => {
+    const from = await at(page, 0.15, 0.15);
+    // ~40 degrees: well past the snap threshold, so the angle must survive
+    const to = { x: from.x + 160, y: from.y + 135 };
+
+    const zone = await drawContainment(page, from, to);
+    expect(Math.abs(zone.rotation)).toBeGreaterThan(30);
+    expect(Math.abs(zone.rotation)).toBeLessThan(50);
+  });
+});
+
 test.describe('WM Sketch tab — desktop is unaffected', () => {
   test.beforeEach(async ({ page }) => {
     test.skip(isTouchProject(), 'desktop project only');
