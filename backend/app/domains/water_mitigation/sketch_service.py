@@ -277,6 +277,7 @@ class SketchService:
         ("baseboard_quarter_round", ""): "baseboard_3",
         ("quarter_round", ""):         "quarter_round",
         ("toe_kick", ""):              "baseboard_3",
+        ("crown_molding", ""):         "crown_molding_4",
         # Insulation
         ("insulation", ""):            "fiberglass_r13",
         # Trim demos
