@@ -774,6 +774,7 @@ const InvoiceCreation: React.FC = () => {
   // Loading states - separate for different operations
   const [isSaving, setIsSaving] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isPreviewingReceipt, setIsPreviewingReceipt] = useState(false);
 
   const [formMounted, setFormMounted] = useState(false);
@@ -2463,21 +2464,18 @@ const InvoiceCreation: React.FC = () => {
     }
   };
 
-  const handlePreviewHTML = async () => {
-    try {
-      setIsPreviewing(true);
-      const values = await form.validateFields();
+  const buildInvoicePdfData = async () => {
+    const values = await form.validateFields();
 
-      // Validate company information
-      if (!selectedCompany) {
-        message.error('Please select a company');
-        setIsPreviewing(false);
-        return;
-      }
+    // Validate company information
+    if (!selectedCompany) {
+      message.error('Please select a company');
+      return null;
+    }
 
-      const totals = calculateTotals();
+    const totals = calculateTotals();
 
-      const pdfData = {
+    return {
         invoice_number: values.invoice_number || `INV-${dayjs().format('YYYYMMDDHHmmss')}`,
         date: values.date ? values.date.format('MM-DD-YYYY') : dayjs().format('MM-DD-YYYY'),
         due_date: values.due_date ? values.due_date.format('MM-DD-YYYY') : dayjs().add(30, 'days').format('MM-DD-YYYY'),
@@ -2566,6 +2564,13 @@ const InvoiceCreation: React.FC = () => {
         payment_terms: values.payment_terms,
         notes: values.notes,
       };
+  };
+
+  const handlePreviewHTML = async () => {
+    try {
+      setIsPreviewing(true);
+      const pdfData = await buildInvoicePdfData();
+      if (!pdfData) return;
 
       const htmlContent = await invoiceService.previewHTML(pdfData);
       const blob = new Blob([htmlContent], { type: 'text/html' });
@@ -2576,6 +2581,23 @@ const InvoiceCreation: React.FC = () => {
       console.error(error);
     } finally {
       setIsPreviewing(false);
+    }
+  };
+
+  const handleDownloadInvoicePDF = async () => {
+    try {
+      setIsDownloadingPdf(true);
+      const pdfData = await buildInvoicePdfData();
+      if (!pdfData) return;
+
+      const blob = await invoiceService.previewPDF(pdfData);
+      const filename = generatePdfFilename('invoice', pdfData.invoice_number);
+      invoiceService.downloadPDF(blob, filename);
+    } catch (error) {
+      message.error('Failed to download invoice PDF');
+      console.error(error);
+    } finally {
+      setIsDownloadingPdf(false);
     }
   };
 
@@ -4270,6 +4292,13 @@ const InvoiceCreation: React.FC = () => {
               loading={isPreviewing}
             >
               Preview PDF
+            </Button>
+            <Button
+              icon={<DownloadOutlined />}
+              onClick={handleDownloadInvoicePDF}
+              loading={isDownloadingPdf}
+            >
+              Download PDF
             </Button>
             <Divider type="vertical" />
             <Button
