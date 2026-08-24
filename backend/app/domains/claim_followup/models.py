@@ -338,6 +338,11 @@ class SentEmail(Base, BaseModel):
     reply_received_at = Column(DateTime(timezone=True))
     reply_summary = Column(Text, comment="Summary of the reply content")
 
+    # Open tracking (pixel-based)
+    opened_at = Column(DateTime(timezone=True), comment="When the email was first opened")
+    open_count = Column(Integer, default=0, comment="Number of times the tracking pixel was loaded")
+    last_opened_at = Column(DateTime(timezone=True), comment="Most recent open timestamp")
+
     # Audit
     sent_by_id = Column(UUIDType(), ForeignKey("staff.id"))
 

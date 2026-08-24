@@ -273,6 +273,9 @@ export interface SentEmail {
   reply_received: boolean;
   reply_received_at?: string;
   reply_summary?: string;
+  opened_at?: string;
+  open_count: number;
+  last_opened_at?: string;
   created_at?: string;
 }
 

@@ -169,6 +169,9 @@ class Settings(BaseSettings):
     # Frontend URL (for generating links in notifications)
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
+    # Backend public URL (for links/pixels embedded in outbound emails, e.g. open tracking)
+    BACKEND_PUBLIC_URL: str = os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8000")
+
     # Email Settings (for password reset, notifications, etc.)
     SMTP_HOST: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
     SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))

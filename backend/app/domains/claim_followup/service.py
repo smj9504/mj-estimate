@@ -13,6 +13,13 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _with_open_tracking_pixel(body_html: str, email_id: str) -> str:
+    """Append an invisible 1x1 tracking pixel that records when the email is opened."""
+    pixel_url = f"{settings.BACKEND_PUBLIC_URL}/api/claim-followup/emails/{email_id}/track-open.gif"
+    pixel_tag = f'<img src="{pixel_url}" width="1" height="1" alt="" style="display:none;" />'
+    return body_html + pixel_tag
+
+
 class ClaimFollowUpService:
     """Service for managing claim follow-up tasks and communications"""
 
@@ -1409,6 +1416,22 @@ class ClaimFollowUpService:
         finally:
             session.close()
 
+    def mark_opened(self, email_id: str) -> Optional[Dict[str, Any]]:
+        """Record that a sent email's tracking pixel was loaded (i.e. the email was opened)."""
+        session = self._get_session()
+        try:
+            from app.domains.claim_followup.repository import get_sent_email_repository
+            email_repo = get_sent_email_repository(session)
+            result = email_repo.mark_opened(email_id)
+            session.commit()
+            return result
+        except Exception as e:
+            session.rollback()
+            logger.warning(f"Error recording email open for {email_id}: {e}")
+            return None
+        finally:
+            session.close()
+
     def mark_reply(self, email_id: str, reply_summary: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Mark a sent email as having received a reply.
 
@@ -1614,7 +1637,7 @@ class ClaimFollowUpService:
                     cc_addresses=data.get('cc_addresses', []),
                     bcc_addresses=data.get('bcc_addresses', []),
                     subject=data['subject'],
-                    body_html=data['body_html'],
+                    body_html=_with_open_tracking_pixel(data['body_html'], email_id),
                     attachments=raw_attachments,
                     skip_signature=manual_from,
                 )

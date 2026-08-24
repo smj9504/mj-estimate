@@ -7,6 +7,7 @@ import {
 import {
   CheckCircleOutlined, ClockCircleOutlined, MailOutlined,
   ExclamationCircleOutlined, SendOutlined, MessageOutlined,
+  EyeOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -88,6 +89,30 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
         if (r.status === 'failed') return <Tag color="red">Failed</Tag>;
         if (r.status === 'sent') return <Tag color="blue" icon={<CheckCircleOutlined />}>Sent</Tag>;
         return <Tag>{r.status}</Tag>;
+      },
+    },
+    {
+      title: 'Opened', width: 90, align: 'center',
+      render: (_, r) => {
+        if (r.opened_at) {
+          return (
+            <Tooltip title={
+              <div>
+                <div>First opened: {dayjs(r.opened_at).format('MM/DD HH:mm')}</div>
+                {r.last_opened_at && r.last_opened_at !== r.opened_at && (
+                  <div>Last opened: {dayjs(r.last_opened_at).format('MM/DD HH:mm')}</div>
+                )}
+                <div>Opens: {r.open_count}</div>
+              </div>
+            }>
+              <Tag color="green" icon={<EyeOutlined />}>Read</Tag>
+            </Tooltip>
+          );
+        }
+        if (r.status === 'sent') {
+          return <Tag icon={<EyeOutlined />}>Unread</Tag>;
+        }
+        return '-';
       },
     },
     {

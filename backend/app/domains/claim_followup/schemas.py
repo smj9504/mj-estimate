@@ -355,6 +355,9 @@ class SentEmailResponse(BaseModel):
     reply_received: bool = False
     reply_received_at: Optional[datetime] = None
     reply_summary: Optional[str] = None
+    opened_at: Optional[datetime] = None
+    open_count: int = 0
+    last_opened_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
 
     class Config:

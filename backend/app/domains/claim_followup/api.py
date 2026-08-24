@@ -5,7 +5,7 @@ Claim Follow-up API endpoints.
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
 
 from app.domains.claim_followup.schemas import (
     CommunicationLogCreate,
@@ -946,6 +946,34 @@ async def mark_reply_received(email_id: str, data: MarkReplyRequest):
     if not result:
         raise HTTPException(status_code=404, detail="Email not found")
     return result
+
+
+# 1x1 transparent GIF, served for every tracking pixel request
+_TRACKING_PIXEL_GIF = bytes.fromhex(
+    "47494638396101000100800000000000ffffff21f90401000000002c00000000010001000002024401003b"
+)
+
+
+@router.get("/emails/{email_id}/track-open.gif")
+async def track_email_open(email_id: str):
+    """Record an email open event and return a 1x1 transparent tracking pixel.
+
+    Always returns the pixel image regardless of whether the email_id is
+    valid, so a broken/expired link never shows as a missing image.
+    """
+    service = _get_service()
+    try:
+        service.mark_opened(email_id)
+    except Exception as e:
+        logger.warning(f"Failed to record email open for {email_id}: {e}")
+    return Response(
+        content=_TRACKING_PIXEL_GIF,
+        media_type="image/gif",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @router.post("/emails/test-smtp")

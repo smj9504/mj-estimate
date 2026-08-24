@@ -513,6 +513,23 @@ class SentEmailRepository(SQLAlchemyRepository):
         self.db_session.flush()
         return self._convert_to_dict(email)
 
+    def mark_opened(self, email_id: str) -> Optional[Dict[str, Any]]:
+        """Record a tracking pixel load (email open event)"""
+        email = self.db_session.query(SentEmail).filter(
+            SentEmail.id == email_id
+        ).first()
+        if not email:
+            return None
+
+        now = datetime.now(timezone.utc)
+        if not email.opened_at:
+            email.opened_at = now
+        email.last_opened_at = now
+        email.open_count = (email.open_count or 0) + 1
+
+        self.db_session.flush()
+        return self._convert_to_dict(email)
+
 
 # Factory functions
 def get_followup_task_repository(session: DatabaseSession) -> FollowUpTaskRepository:
