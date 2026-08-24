@@ -1599,23 +1599,68 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                         <FileTextOutlined style={{ marginRight: 6 }} />
                         Water Mitigation Jobs ({claim.wm_jobs.length})
                       </Text>
-                      <Space wrap size={8}>
+                      <Space direction="vertical" size={6} style={{ width: '100%' }}>
                         {claim.wm_jobs.map((job) => (
                           <Button
                             key={job.id}
                             size="small"
                             type="default"
+                            style={{ height: 'auto', textAlign: 'left', whiteSpace: 'normal' }}
                             onClick={() => navigate(`/water-mitigation/${job.id}`)}
                           >
-                            {job.property_address || job.claim_number || 'WM Job'}
-                            {job.status && (
-                              <Tag
-                                color={job.status === 'Completed' ? 'green' : job.status === 'Lead' ? 'blue' : 'orange'}
-                                style={{ marginLeft: 6, fontSize: 11 }}
-                              >
-                                {job.status}
+                            <Space wrap size={6}>
+                              <span>{job.property_address || job.claim_number || 'WM Job'}</span>
+                              {job.status && (
+                                <Tag
+                                  color={job.status === 'Completed' ? 'green' : job.status === 'Lead' ? 'blue' : 'orange'}
+                                  style={{ margin: 0, fontSize: 11 }}
+                                >
+                                  {job.status}
+                                </Tag>
+                              )}
+                              <Tag color={job.company_name ? 'geekblue' : 'default'} style={{ margin: 0, fontSize: 11 }}>
+                                {job.company_name || 'Unassigned'}
                               </Tag>
-                            )}
+                            </Space>
+                          </Button>
+                        ))}
+                      </Space>
+                    </div>
+                  </>
+                )}
+
+                {/* Rebuild (Work Order) Jobs */}
+                {claim.rebuild_jobs && claim.rebuild_jobs.length > 0 && (
+                  <>
+                    <Divider style={{ margin: '12px 0 8px' }} />
+                    <div style={{ marginBottom: 12 }}>
+                      <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 8 }}>
+                        <HomeOutlined style={{ marginRight: 6 }} />
+                        Rebuild Work Orders ({claim.rebuild_jobs.length})
+                      </Text>
+                      <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                        {claim.rebuild_jobs.map((wo) => (
+                          <Button
+                            key={wo.id}
+                            size="small"
+                            type="default"
+                            style={{ height: 'auto', textAlign: 'left', whiteSpace: 'normal' }}
+                            onClick={() => navigate(`/work-order/${wo.id}`)}
+                          >
+                            <Space wrap size={6}>
+                              <span>{wo.property_address || wo.work_order_number || 'Work Order'}</span>
+                              {wo.status && (
+                                <Tag
+                                  color={wo.status === 'completed' ? 'green' : wo.status === 'in_progress' ? 'orange' : 'default'}
+                                  style={{ margin: 0, fontSize: 11 }}
+                                >
+                                  {wo.status}
+                                </Tag>
+                              )}
+                              <Tag color={wo.company_name ? 'geekblue' : 'default'} style={{ margin: 0, fontSize: 11 }}>
+                                {wo.company_name || 'Unassigned'}
+                              </Tag>
+                            </Space>
                           </Button>
                         ))}
                       </Space>

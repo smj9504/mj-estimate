@@ -284,7 +284,9 @@ class ClaimDetailResponse(ClaimBase):
     invoice_count: int = 0
     estimate_count: int = 0
     wm_job_count: int = 0
+    wm_jobs: List[Dict[str, Any]] = []
     work_order_count: int = 0
+    rebuild_jobs: List[Dict[str, Any]] = []
     cabinet_estimate_count: int = 0
     plumber_report_id: Optional[str] = None
 

@@ -304,6 +304,7 @@ class ClaimSQLAlchemyRepository(SQLAlchemyRepository):
             from app.domains.estimate.models import Estimate
             from app.domains.water_mitigation.models import WaterMitigationJob
             from app.domains.work_order.models import WorkOrder
+            from app.domains.company.models import Company
 
             claim_dict['invoice_count'] = self.db_session.query(Invoice).filter(
                 Invoice.claim_id == claim_id
@@ -311,9 +312,9 @@ class ClaimSQLAlchemyRepository(SQLAlchemyRepository):
             claim_dict['estimate_count'] = self.db_session.query(Estimate).filter(
                 Estimate.claim_id == claim_id
             ).count()
-            wm_jobs = self.db_session.query(WaterMitigationJob).filter(
-                WaterMitigationJob.claim_id == claim_id
-            ).all()
+            wm_jobs = self.db_session.query(WaterMitigationJob, Company.name).outerjoin(
+                Company, WaterMitigationJob.company_id == Company.id
+            ).filter(WaterMitigationJob.claim_id == claim_id).all()
             claim_dict['wm_job_count'] = len(wm_jobs)
             claim_dict['wm_jobs'] = [
                 {
@@ -321,12 +322,26 @@ class ClaimSQLAlchemyRepository(SQLAlchemyRepository):
                     'property_address': j.property_address,
                     'status': j.status,
                     'claim_number': j.claim_number,
+                    'company_id': str(j.company_id) if j.company_id else None,
+                    'company_name': company_name,
                 }
-                for j in wm_jobs
+                for j, company_name in wm_jobs
             ]
-            claim_dict['work_order_count'] = self.db_session.query(WorkOrder).filter(
-                WorkOrder.claim_id == claim_id
-            ).count()
+            rebuild_jobs = self.db_session.query(WorkOrder, Company.name).outerjoin(
+                Company, WorkOrder.company_id == Company.id
+            ).filter(WorkOrder.claim_id == claim_id).all()
+            claim_dict['work_order_count'] = len(rebuild_jobs)
+            claim_dict['rebuild_jobs'] = [
+                {
+                    'id': str(wo.id),
+                    'work_order_number': wo.work_order_number,
+                    'property_address': wo.job_site_address,
+                    'status': wo.status.value if wo.status else None,
+                    'company_id': str(wo.company_id) if wo.company_id else None,
+                    'company_name': company_name,
+                }
+                for wo, company_name in rebuild_jobs
+            ]
 
             from app.domains.cabinet_estimate.models import CabinetEstimate
             claim_dict['cabinet_estimate_count'] = self.db_session.query(CabinetEstimate).filter(
@@ -341,8 +356,54 @@ class ClaimSQLAlchemyRepository(SQLAlchemyRepository):
             raise
 
     def get_claims_by_client(self, client_id: str) -> List[Dict[str, Any]]:
-        """Get all claims for a client"""
-        return self.get_all(filters={'client_id': client_id}, order_by='-created_at')
+        """Get all claims for a client, including assigned WM/rebuild company history"""
+        claims = self.get_all(filters={'client_id': client_id}, order_by='-created_at')
+        if not claims:
+            return claims
+
+        claim_ids = [c['id'] for c in claims]
+
+        from app.domains.water_mitigation.models import WaterMitigationJob
+        from app.domains.work_order.models import WorkOrder
+        from app.domains.company.models import Company
+
+        wm_jobs = self.db_session.query(WaterMitigationJob, Company.name).outerjoin(
+            Company, WaterMitigationJob.company_id == Company.id
+        ).filter(WaterMitigationJob.claim_id.in_(claim_ids)).all()
+
+        wm_jobs_by_claim: Dict[str, List[Dict[str, Any]]] = {}
+        for job, company_name in wm_jobs:
+            wm_jobs_by_claim.setdefault(str(job.claim_id), []).append({
+                'id': str(job.id),
+                'property_address': job.property_address,
+                'status': job.status,
+                'claim_number': job.claim_number,
+                'company_id': str(job.company_id) if job.company_id else None,
+                'company_name': company_name,
+            })
+
+        rebuild_jobs = self.db_session.query(WorkOrder, Company.name).outerjoin(
+            Company, WorkOrder.company_id == Company.id
+        ).filter(WorkOrder.claim_id.in_(claim_ids)).all()
+
+        rebuild_jobs_by_claim: Dict[str, List[Dict[str, Any]]] = {}
+        for wo, company_name in rebuild_jobs:
+            rebuild_jobs_by_claim.setdefault(str(wo.claim_id), []).append({
+                'id': str(wo.id),
+                'work_order_number': wo.work_order_number,
+                'property_address': wo.job_site_address,
+                'status': wo.status.value if wo.status else None,
+                'company_id': str(wo.company_id) if wo.company_id else None,
+                'company_name': company_name,
+            })
+
+        for claim in claims:
+            claim['wm_jobs'] = wm_jobs_by_claim.get(claim['id'], [])
+            claim['wm_job_count'] = len(claim['wm_jobs'])
+            claim['rebuild_jobs'] = rebuild_jobs_by_claim.get(claim['id'], [])
+            claim['work_order_count'] = len(claim['rebuild_jobs'])
+
+        return claims
 
     def get_by_claim_number(self, claim_number: str) -> Optional[Dict[str, Any]]:
         """Get claim by claim number"""
