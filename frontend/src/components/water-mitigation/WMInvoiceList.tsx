@@ -20,6 +20,7 @@ import {
   Spin,
   Dropdown,
   Grid,
+  Modal,
 } from 'antd';
 import './WMDocumentInvoiceList.css';
 import type { MenuProps } from 'antd';
@@ -53,6 +54,9 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
     const [loading, setLoading] = useState(false);
     const [deleting, setDeleting] = useState<string | null>(null);
     const [downloading, setDownloading] = useState<string | null>(null);
+    const [previewing, setPreviewing] = useState<string | null>(null);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [previewInvoice, setPreviewInvoice] = useState<WMScopeInvoiceResponse | null>(null);
 
     const fetchInvoiceHistory = useCallback(async () => {
       setLoading(true);
@@ -95,6 +99,31 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
       } finally {
         setDownloading(null);
       }
+    };
+
+    const handlePreviewInvoice = async (invoice: WMScopeInvoiceResponse) => {
+      setPreviewing(invoice.invoice_id);
+      try {
+        const blob = await waterMitigationService.scopeInvoice.getPdfBlob(jobId, invoice.invoice_id, 'a');
+        const url = URL.createObjectURL(blob);
+        setPreviewUrl(url);
+        setPreviewInvoice(invoice);
+      } catch (error) {
+        console.error('Failed to preview invoice PDF:', error);
+        message.error('Failed to preview invoice PDF');
+      } finally {
+        setPreviewing(null);
+      }
+    };
+
+    const handleClosePreview = () => {
+      setPreviewInvoice(null);
+      setTimeout(() => {
+        if (previewUrl) {
+          URL.revokeObjectURL(previewUrl);
+          setPreviewUrl(null);
+        }
+      }, 300);
     };
 
     const pdfVariantMenu = (invoice: WMScopeInvoiceResponse): MenuProps['items'] => [
@@ -193,12 +222,20 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
               className="wm-list-item"
               actions={[
                 <Button
-                  key="view"
+                  key="preview"
                   type="link"
                   icon={<EyeOutlined />}
+                  loading={previewing === invoice.invoice_id}
+                  onClick={() => handlePreviewInvoice(invoice)}
+                >
+                  Preview
+                </Button>,
+                <Button
+                  key="view"
+                  type="link"
                   onClick={() => handleViewInvoice(invoice.invoice_id)}
                 >
-                  View
+                  Edit
                 </Button>,
                 <Dropdown
                   key="download"
@@ -289,6 +326,37 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
             </List.Item>
           )}
         />
+
+        <Modal
+          title={previewInvoice ? `Invoice Preview — ${previewInvoice.invoice_number || 'Invoice'}` : 'Invoice Preview'}
+          open={!!previewInvoice}
+          onCancel={handleClosePreview}
+          footer={[
+            <Button key="close" onClick={handleClosePreview}>
+              Close
+            </Button>,
+            <Button
+              key="download"
+              type="primary"
+              icon={<DownloadOutlined />}
+              loading={previewInvoice ? downloading === previewInvoice.invoice_id : false}
+              onClick={() => previewInvoice && handleDownloadPdf(previewInvoice, 'a')}
+            >
+              Download PDF
+            </Button>,
+          ]}
+          width="90vw"
+          style={{ top: 20 }}
+          styles={{ body: { height: 'calc(90vh - 110px)', padding: 0 } }}
+        >
+          {previewUrl && (
+            <iframe
+              src={previewUrl}
+              style={{ width: '100%', height: '100%', border: 'none' }}
+              title="Invoice Preview"
+            />
+          )}
+        </Modal>
       </div>
     );
   }

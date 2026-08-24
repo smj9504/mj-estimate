@@ -1160,8 +1160,8 @@ export const waterMitigationService = {
       return response.data;
     },
 
-    // Download invoice PDF (also saves as WMDocument)
-    downloadPdf: async (jobId: string, invoiceId: string, filename?: string, templateVariant: string = 'a'): Promise<void> => {
+    // Fetch invoice PDF as a blob (also saves as WMDocument). Used for both preview and download.
+    getPdfBlob: async (jobId: string, invoiceId: string, templateVariant: string = 'a'): Promise<Blob> => {
       const response = await api.post(
         `${BASE_URL}/scope/jobs/${jobId}/invoice-pdf/${invoiceId}`,
         {},
@@ -1170,7 +1170,12 @@ export const waterMitigationService = {
           params: { template_variant: templateVariant },
         }
       );
-      const blob = new Blob([response.data], { type: 'application/pdf' });
+      return new Blob([response.data], { type: 'application/pdf' });
+    },
+
+    // Download invoice PDF (also saves as WMDocument)
+    downloadPdf: async (jobId: string, invoiceId: string, filename?: string, templateVariant: string = 'a'): Promise<void> => {
+      const blob = await waterMitigationService.scopeInvoice.getPdfBlob(jobId, invoiceId, templateVariant);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;

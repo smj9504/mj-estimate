@@ -398,22 +398,24 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
               }
               title={
                 <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
-                  <Text strong style={{ wordBreak: 'break-word', overflowWrap: 'break-word', minWidth: 0 }}>{doc.filename}</Text>
+                  <Tooltip title={doc.title && doc.title !== doc.filename ? doc.title : undefined}>
+                    <Text strong style={{ wordBreak: 'break-word', overflowWrap: 'break-word', minWidth: 0 }}>{doc.filename}</Text>
+                  </Tooltip>
                   <Tag color={typeInfo.color} style={{ marginLeft: 8 }}>
                     {typeInfo.label}
                   </Tag>
+                  {doc.upload_source !== 'manual_upload' && doc.photo_count > 0 && (
+                    <Tag style={{ marginLeft: 4 }}>
+                      {doc.photo_count} photo{doc.photo_count !== 1 ? 's' : ''}
+                    </Tag>
+                  )}
                   {renderInvoiceAmount(doc)}
                 </div>
               }
               description={
-                <div>
-                  <Text type="secondary">
-                    {doc.file_size ? formatFileSize(doc.file_size) : ''}{doc.file_size ? ' • ' : ''}
-                    {doc.upload_source === 'manual_upload' ? 'Uploaded' : `${doc.photo_count} photo${doc.photo_count !== 1 ? 's' : ''}`}
-                    {' • '}Created {formatDate(doc.created_at)}
-                    {doc.title && ` • ${doc.title}`}
-                  </Text>
-                </div>
+                <Tooltip title={doc.file_size ? formatFileSize(doc.file_size) : undefined}>
+                  <Text type="secondary">Created {formatDate(doc.created_at)}</Text>
+                </Tooltip>
               }
             />
           </List.Item>
