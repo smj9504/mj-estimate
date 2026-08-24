@@ -713,7 +713,7 @@ async def generate_completion_report(
                 file_url = file_record.get('url', '')
                 photo_path = None
 
-                if file_url.startswith('gs://') or file_url.startswith('https://') or file_url.startswith('http://'):
+                if file_url.startswith('gs://') or file_url.startswith('b2://') or file_url.startswith('https://') or file_url.startswith('http://'):
                     photo_data = storage.download(file_url)
                     if photo_data:
                         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')

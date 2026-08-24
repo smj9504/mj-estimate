@@ -148,8 +148,8 @@ async def download_file(
         disposition = "inline" if inline else "attachment"
         filename = file_record["original_name"]
 
-        # Check if file is in cloud storage (gs:// or other remote URL)
-        if file_url.startswith('gs://') or file_url.startswith('https://') or file_url.startswith('http://'):
+        # Check if file is in cloud storage (gs://, b2://, or other remote URL)
+        if file_url.startswith('gs://') or file_url.startswith('b2://') or file_url.startswith('https://') or file_url.startswith('http://'):
             # Get file from storage provider
             try:
                 file_data = storage.download(file_url)
@@ -199,15 +199,15 @@ async def preview_file(
         file_url = file_record.get('url', '')
         storage = get_storage_provider()
 
-        # Check if file is in cloud storage (gs:// or other remote URL)
-        if file_url.startswith('gs://') or file_url.startswith('https://') or file_url.startswith('http://'):
+        # Check if file is in cloud storage (gs://, b2://, or other remote URL)
+        if file_url.startswith('gs://') or file_url.startswith('b2://') or file_url.startswith('https://') or file_url.startswith('http://'):
             # Get file from storage provider
             try:
                 # For images, try thumbnail first
                 if (file_record.get('content_type', '').startswith('image/') and
                     file_record.get('thumbnail_url')):
                     thumb_url = file_record['thumbnail_url']
-                    if thumb_url.startswith('gs://') or thumb_url.startswith('http'):
+                    if thumb_url.startswith('gs://') or thumb_url.startswith('b2://') or thumb_url.startswith('http'):
                         file_data = storage.download(thumb_url)
                         return StreamingResponse(
                             io.BytesIO(file_data),

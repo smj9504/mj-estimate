@@ -418,7 +418,7 @@ class SmtpService:
                 session.close()
             file_data = None
 
-            if file_url.startswith('gs://') or file_url.startswith('https://') or file_url.startswith('http://'):
+            if file_url.startswith('gs://') or file_url.startswith('b2://') or file_url.startswith('https://') or file_url.startswith('http://'):
                 # Cloud storage - download via provider
                 storage = get_storage_provider()
                 file_data = storage.download(file_url)

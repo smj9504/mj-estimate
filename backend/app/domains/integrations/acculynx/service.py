@@ -43,13 +43,13 @@ def _get_generic_file_bytes(file_record: GenericFile) -> bytes:
     Fetch bytes for a generic `files` table row.
 
     Mirrors the logic in app/domains/file/api.py's download_file endpoint:
-    gs:// / http(s):// URLs go through the configured storage provider,
+    gs:// / b2:// / http(s):// URLs go through the configured storage provider,
     anything else is treated as a local filesystem path.
     """
     from app.domains.file.service import get_storage_provider
 
     url = file_record.url or ""
-    if url.startswith("gs://") or url.startswith("http://") or url.startswith("https://"):
+    if url.startswith("gs://") or url.startswith("b2://") or url.startswith("http://") or url.startswith("https://"):
         storage = get_storage_provider()
         return storage.download(url)
 

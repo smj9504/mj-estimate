@@ -96,6 +96,7 @@ class PDFEditorService:
                 # Check if file is in cloud storage
                 is_cloud = (
                     file_url.startswith('gs://') or
+                    file_url.startswith('b2://') or
                     file_url.startswith('https://') or
                     file_url.startswith('http://')
                 )
