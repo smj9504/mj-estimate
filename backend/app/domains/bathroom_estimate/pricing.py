@@ -8,6 +8,22 @@ All rates based on 2025-2026 web research:
 
 Rates are mid-range for the DMV region (DC/MD/VA).
 Includes material + labor unless otherwise noted.
+
+2026-08 price update (research: FloorDaily Ceramic Tile Report 2026,
+CountBricks labor rates Feb 2026, Depo Homes "Bathroom Remodel Costs
+Increase 15-20% in 2026", felixdeco tariff tracker):
+- Import tariffs (China/India/Vietnam/Brazil Section 301+122) are pushing
+  tile and vanity/cabinet costs up sharply (tile ceramic ~+15%, vanity
+  tariff exposure ~20-28%) — categories most exposed to tariffs capped
+  at the top of our 1-5% adjustment range.
+- Skilled trade labor (plumber/electrician) up ~8-10% YoY on tight
+  labor supply — plumbing/electrical nudged up accordingly.
+- Fixtures (toilets, sinks, tub/shower units) showed milder +2-3%
+  supplier increases.
+- Paint, trim, demo/disposal remained comparatively stable (+1-2%).
+Applied per-category: tile/substrate/vanity +5%, plumbing/electrical
++3-4%, fixtures/tub/shower +2-3%, paint/trim/accessories/demo +1-2%,
+rounded to natural price points.
 """
 
 # ──────────────────────────────────────────────
@@ -16,32 +32,33 @@ Includes material + labor unless otherwise noted.
 # Sources: Angi avg $1,445, Modernize $8-$20/SF, This Old House $658-$2,469
 DEMO_RATES = {
     # Per-SF demo rates (labor only — unskilled labor, straightforward removal)
-    "floor_tile_per_sf": 3.00,        # tile removal + haul ($2-$4/SF avg)
-    "wall_tile_per_sf": 3.75,         # wall tile removal ($3-$5/SF)
-    "ceiling_per_sf": 2.00,           # ceiling demo
+    # 2026-08: +1-2% (stable category, minor labor cost drift)
+    "floor_tile_per_sf": 3.05,        # tile removal + haul ($2-$4/SF avg)
+    "wall_tile_per_sf": 3.80,         # wall tile removal ($3-$5/SF)
+    "ceiling_per_sf": 2.05,           # ceiling demo
 
     # Per-fixture demo (labor, disconnect + remove + haul)
-    "bathtub_standard": 200,          # standard acrylic/fiberglass ($200-$500, HomeGuide 2026)
-    "bathtub_cast_iron": 325,         # cast iron (heavy, needs crew)
-    "shower_surround": 150,           # prefab surround removal
-    "shower_custom_tile": 250,        # custom tile shower tear-out
-    "vanity": 150,                    # vanity + top removal + haul ($150-$500, Angi 2026)
-    "pedestal_sink": 55,              # pedestal sink disconnect + remove
-    "wall_mount_sink": 50,            # wall-mount sink disconnect + remove
-    "toilet": 60,                     # toilet disconnect + remove
-    "mirror": 35,                     # mirror removal
+    "bathtub_standard": 205,          # standard acrylic/fiberglass ($200-$500, HomeGuide 2026)
+    "bathtub_cast_iron": 330,         # cast iron (heavy, needs crew)
+    "shower_surround": 153,           # prefab surround removal
+    "shower_custom_tile": 255,        # custom tile shower tear-out
+    "vanity": 153,                    # vanity + top removal + haul ($150-$500, Angi 2026)
+    "pedestal_sink": 56,              # pedestal sink disconnect + remove
+    "wall_mount_sink": 51,            # wall-mount sink disconnect + remove
+    "toilet": 61,                     # toilet disconnect + remove
+    "mirror": 36,                     # mirror removal
 
     # Substrate demo
-    "durock_per_sf": 2.00,            # cement board tear-out
-    "drywall_per_sf": 1.75,           # drywall tear-out
-    "subfloor_per_sf": 4.00,          # subfloor removal/repair
+    "durock_per_sf": 2.05,            # cement board tear-out
+    "drywall_per_sf": 1.80,           # drywall tear-out
+    "subfloor_per_sf": 4.10,          # subfloor removal/repair
 
     # Dumpster (DMV area, Angi DC avg $442, range $370-$900)
-    "dumpster_10yard": 395,
-    "dumpster_15yard": 475,
-    "dumpster_20yard": 550,
-    "dump_tip_fee": 75,               # tip/disposal fee
-    "debris_bag": 25,                 # per bag: heavy-duty bag + haul-away labor
+    "dumpster_10yard": 400,
+    "dumpster_15yard": 480,
+    "dumpster_20yard": 560,
+    "dump_tip_fee": 76,               # tip/disposal fee
+    "debris_bag": 25.50,               # per bag: heavy-duty bag + haul-away labor
 }
 
 # ──────────────────────────────────────────────
@@ -51,18 +68,19 @@ DEMO_RATES = {
 # For like-for-like replacement, much less than full rough-in
 PLUMBING_RATES = {
     # Per-unit costs (material + labor)
-    "shutoff_valve_each": 185,        # quarter-turn ball valve replacement ($150-$335, HomeWyse 2026)
-    "supply_line_each": 65,           # braided stainless flex line
-    "p_trap_each": 175,               # P-trap replacement ($200-$325, HomeAdvisor 2026; on-site discount)
-    "drain_modification": 350,        # drain line modification
-    "pressure_balance_valve": 425,    # code-required shower valve ($300-$550)
-    "rough_inspection_fee": 150,      # county inspection fee
+    # 2026-08: +3-4% (licensed plumber hourly rates up ~8-10% YoY, CountBricks Feb 2026)
+    "shutoff_valve_each": 192,        # quarter-turn ball valve replacement ($150-$335, HomeWyse 2026)
+    "supply_line_each": 67,           # braided stainless flex line
+    "p_trap_each": 182,               # P-trap replacement ($200-$325, HomeAdvisor 2026; on-site discount)
+    "drain_modification": 364,        # drain line modification
+    "pressure_balance_valve": 440,    # code-required shower valve ($300-$550)
+    "rough_inspection_fee": 155,      # county inspection fee
 
     # Fixture connection labor (licensed plumber, per fixture)
-    "toilet_set": 350,                # toilet install (set, wax ring, bolt, connect, test; $275-$530 HomeWyse 2026)
-    "vanity_faucet_install": 225,     # faucet install ($200-$250; simplest plumbing task)
-    "tub_faucet_install": 400,        # tub faucet/valve install (access panel, connect, test)
-    "shower_valve_trim": 325,         # shower trim kit install (existing valve)
+    "toilet_set": 365,                # toilet install (set, wax ring, bolt, connect, test; $275-$530 HomeWyse 2026)
+    "vanity_faucet_install": 233,     # faucet install ($200-$250; simplest plumbing task)
+    "tub_faucet_install": 415,        # tub faucet/valve install (access panel, connect, test)
+    "shower_valve_trim": 338,         # shower trim kit install (existing valve)
 }
 
 # ──────────────────────────────────────────────
@@ -70,28 +88,29 @@ PLUMBING_RATES = {
 # ──────────────────────────────────────────────
 # Sources: Angi GFCI $130-$300 avg $210, Exhaust fan $250-$950
 ELECTRICAL_RATES = {
+    # 2026-08: +3-4% (electrician hourly rates up on tight skilled-labor supply)
     # 1st outlet ~$210 incl. service call; add'l same visit ~$100
-    "gfci_outlet_each": 165,          # blended avg (1-3 outlets per bath)
-    "vanity_light_install": 185,      # light fixture install (labor)
-    "ceiling_fixture_install": 195,   # standard ceiling light install
-    "recessed_light_install": 225,    # recessed can light (cut hole + housing + trim + wire)
-    "recessed_light_multi": 175,      # per-can when installing multiple (reduced per-unit)
+    "gfci_outlet_each": 171,          # blended avg (1-3 outlets per bath)
+    "vanity_light_install": 192,      # light fixture install (labor)
+    "ceiling_fixture_install": 202,   # standard ceiling light install
+    "recessed_light_install": 233,    # recessed can light (cut hole + housing + trim + wire)
+    "recessed_light_multi": 181,      # per-can when installing multiple (reduced per-unit)
     "exhaust_fan": {                  # fan + install by CFM ($250-$950, Angi/HomeGuide)
-        50: 325,
-        80: 425,
-        110: 550,
-        150: 695,
+        50: 337,
+        80: 440,
+        110: 570,
+        150: 720,
     },
     "exhaust_fan_switch": {           # switch upgrade
-        "standard": 35,
-        "timer": 75,
-        "humidity": 125,
+        "standard": 36,
+        "timer": 78,
+        "humidity": 130,
     },
-    "heated_floor_per_sf": 12,        # mat + install ($8-$15/SF, Greenwave 2025)
-    "heated_floor_thermostat": 175,   # programmable thermostat
-    "heated_floor_circuit": 350,      # dedicated 20A circuit
-    "electrical_inspection_fee": 125, # county inspection
-    "megohmmeter_check": 150,         # insulation resistance test on circuits
+    "heated_floor_per_sf": 12.50,     # mat + install ($8-$15/SF, Greenwave 2025)
+    "heated_floor_thermostat": 182,   # programmable thermostat
+    "heated_floor_circuit": 363,      # dedicated 20A circuit
+    "electrical_inspection_fee": 130, # county inspection
+    "megohmmeter_check": 155,         # insulation resistance test on circuits
 }
 
 # ──────────────────────────────────────────────
@@ -99,30 +118,31 @@ ELECTRICAL_RATES = {
 # ──────────────────────────────────────────────
 # Sources: CountBricks $4-$6/SF labor, PRG Contractors, TillerStead
 SUBSTRATE_RATES = {
-    "durock_per_sf": 6.50,            # 1/2" cement board material + install ($5-$8/SF)
-    "durock_floor_per_sf": 5.50,      # 1/4" cement board for floor
-    "greenboard_per_sf": 4.50,        # moisture-resistant drywall
-    "mold_resistant_drywall_per_sf": 5.25,  # mold-resistant ceiling drywall
+    # 2026-08: +5% (cement board/membrane material costs tracking tariff-driven building material inflation)
+    "durock_per_sf": 6.80,            # 1/2" cement board material + install ($5-$8/SF)
+    "durock_floor_per_sf": 5.75,      # 1/4" cement board for floor
+    "greenboard_per_sf": 4.70,        # moisture-resistant drywall
+    "mold_resistant_drywall_per_sf": 5.50,  # mold-resistant ceiling drywall
 
     # Waterproofing membrane
-    "paint_on_per_sf": 2.25,          # paint-on membrane: RedGard, HydroBan ($1-$3/SF)
+    "paint_on_per_sf": 2.35,          # paint-on membrane: RedGard, HydroBan ($1-$3/SF)
     # Sheet membrane: Schluter Kerdi — material ~$2.25/SF + thinset + labor → $7-$12/SF
-    "sheet_per_sf": 9.00,
+    "sheet_per_sf": 9.45,
 
     # Subfloor repair
-    "subfloor_repair_per_sf": 8.50,   # plywood + install ($6-$12/SF)
-    "self_leveling_per_sf": 4.75,     # self-leveling compound + pour ($3-$7/SF, Angi 2026)
+    "subfloor_repair_per_sf": 8.90,   # plywood + install ($6-$12/SF)
+    "self_leveling_per_sf": 4.98,     # self-leveling compound + pour ($3-$7/SF, Angi 2026)
 
     # Drywall repair (full replacement: hang + tape + mud + sand + prime)
-    "drywall_replace_per_sf": 5.75,   # standard 1/2" drywall ($4-$7/SF installed)
-    "drywall_replace_moisture_per_sf": 6.50,  # greenboard/moisture-resistant ($5-$8/SF)
+    "drywall_replace_per_sf": 6.03,   # standard 1/2" drywall ($4-$7/SF installed)
+    "drywall_replace_moisture_per_sf": 6.80,  # greenboard/moisture-resistant ($5-$8/SF)
 
     # Insulation (demo + install)
-    "insulation_demo_per_sf": 1.50,             # tear-out existing insulation ($1-$2/SF)
-    "insulation_fiberglass_batt_per_sf": 2.50,  # R-13 fiberglass batt supply + install ($1.50-$3.50/SF)
-    "insulation_blown_in_per_sf": 3.00,         # blown-in cellulose/fiberglass ($2-$4/SF)
-    "insulation_spray_foam_per_sf": 5.50,       # closed-cell spray foam ($4-$7/SF)
-    "insulation_rigid_board_per_sf": 4.00,      # rigid foam board supply + install ($3-$5/SF)
+    "insulation_demo_per_sf": 1.55,             # tear-out existing insulation ($1-$2/SF)
+    "insulation_fiberglass_batt_per_sf": 2.60,  # R-13 fiberglass batt supply + install ($1.50-$3.50/SF)
+    "insulation_blown_in_per_sf": 3.15,         # blown-in cellulose/fiberglass ($2-$4/SF)
+    "insulation_spray_foam_per_sf": 5.75,       # closed-cell spray foam ($4-$7/SF)
+    "insulation_rigid_board_per_sf": 4.20,      # rigid foam board supply + install ($3-$5/SF)
 }
 
 # ──────────────────────────────────────────────
@@ -131,20 +151,24 @@ SUBSTRATE_RATES = {
 # Sources: HomeWyse $17-$21/SF installed, Angi $10-$50/SF, RUBI $12-$35/SF
 TILE_MATERIAL_RATES = {
     # Material cost per SF
-    "ceramic": 4.00,                  # $2-$5/SF (Angi, HomeAdvisor)
-    "porcelain": 7.50,                # $4-$10/SF (Angi)
-    "natural_stone": 18.00,           # $10-$30/SF
-    "glass_mosaic": 22.00,            # $16-$30/SF
-    "lvt_spc": 4.50,                  # $3-$7/SF LVT/SPC plank
+    # 2026-08: +5% — tile is the most tariff-exposed category (Section 301/122
+    # tariffs on China/India/Vietnam/Brazil imports; ~70% of ceramic is imported,
+    # FloorDaily Ceramic Tile Report 2026)
+    "ceramic": 4.20,                  # $2-$5/SF (Angi, HomeAdvisor)
+    "porcelain": 7.85,                # $4-$10/SF (Angi)
+    "natural_stone": 18.90,           # $10-$30/SF
+    "glass_mosaic": 23.10,            # $16-$30/SF
+    "lvt_spc": 4.70,                  # $3-$7/SF LVT/SPC plank
 }
 
 TILE_LABOR_RATES = {
     # Labor per SF by application
-    "floor_per_sf": 10.00,            # $8-$14/SF (Fixr tile installer)
-    "wall_per_sf": 12.00,             # $10-$15/SF (vertical work premium)
-    "shower_wall_per_sf": 14.00,      # $10-$18/SF (wet area, precision)
+    # 2026-08: +4-5% (skilled tile installer demand + material handling of pricier tile)
+    "floor_per_sf": 10.50,            # $8-$14/SF (Fixr tile installer)
+    "wall_per_sf": 12.60,             # $10-$15/SF (vertical work premium)
+    "shower_wall_per_sf": 14.70,      # $10-$18/SF (wet area, precision)
     # slope + drain cuts + mosaic → more labor than shower wall
-    "shower_floor_per_sf": 18.00,     # $16-$22/SF
+    "shower_floor_per_sf": 18.90,     # $16-$22/SF
 }
 
 TILE_PATTERN_MULTIPLIER = {
@@ -176,11 +200,12 @@ TILE_SIZE_MULTIPLIER = {
 TILE_SIZES = list(TILE_SIZE_MULTIPLIER.keys())
 
 TILE_EXTRAS = {
-    "waste_factor": 0.10,             # 10% waste
-    "grout_per_sf": 1.50,             # grout material
-    "sealer_per_sf": 0.75,            # sealant for natural stone
-    "thinset_per_sf": 0.65,           # thinset mortar
-    "tile_demo_per_sf": 4.00,         # old tile removal ($1.50-$4.50/SF)
+    "waste_factor": 0.10,             # 10% waste (unchanged — not a price)
+    # 2026-08: material lines +5% (tariff-exposed), demo labor +2%
+    "grout_per_sf": 1.57,             # grout material
+    "sealer_per_sf": 0.78,            # sealant for natural stone
+    "thinset_per_sf": 0.68,           # thinset mortar
+    "tile_demo_per_sf": 4.10,         # old tile removal ($1.50-$4.50/SF)
 }
 
 # ──────────────────────────────────────────────
@@ -189,102 +214,104 @@ TILE_EXTRAS = {
 # Sources: Angi, HomeGuide, Fixr, Boss Design Center DC
 
 # Bathtub (material only, install separate under plumbing)
+# 2026-08: +2-3% (fixture/supplier increases, milder than tile/tariff-exposed categories)
 BATHTUB_PRICES = {
     "alcove": {
-        "acrylic": 450,               # most common, $300-$600
-        "porcelain_steel": 350,       # cheap but chips, $200-$500
-        "cast_iron": 950,             # heavy, premium, $700-$1,200
-        "fiberglass": 325,            # budget, $200-$450
+        "acrylic": 460,               # most common, $300-$600
+        "porcelain_steel": 358,       # cheap but chips, $200-$500
+        "cast_iron": 970,             # heavy, premium, $700-$1,200
+        "fiberglass": 333,            # budget, $200-$450
     },
     "drop_in": {
-        "acrylic": 650,
-        "porcelain_steel": 550,
-        "cast_iron": 1200,
-        "fiberglass": 500,
+        "acrylic": 665,
+        "porcelain_steel": 563,
+        "cast_iron": 1225,
+        "fiberglass": 511,
     },
     "freestanding": {
-        "acrylic": 1200,              # $800-$2,000
-        "cast_iron": 2500,            # $1,500-$4,000
-        "fiberglass": 800,
+        "acrylic": 1225,              # $800-$2,000
+        "cast_iron": 2555,            # $1,500-$4,000
+        "fiberglass": 818,
     },
     "walk_in": {
-        "acrylic": 3500,              # ADA/senior, $2,500-$5,000+
+        "acrylic": 3570,              # ADA/senior, $2,500-$5,000+
     },
 }
 
 BATHTUB_INSTALL = {
-    "alcove": 675,                    # standard install (set, level, seal, connect; $500-$1,500 HomeGuide 2026)
-    "drop_in": 950,                   # deck mount, more plumber time + framing
-    "freestanding": 1100,             # floor mount, filler, drain alignment
-    "walk_in": 1650,                  # complex install + electrical + ADA compliance
+    "alcove": 690,                    # standard install (set, level, seal, connect; $500-$1,500 HomeGuide 2026)
+    "drop_in": 970,                   # deck mount, more plumber time + framing
+    "freestanding": 1125,             # floor mount, filler, drain alignment
+    "walk_in": 1685,                  # complex install + electrical + ADA compliance
 }
 
 BATHTUB_EXTRAS = {
-    "whirlpool_upgrade": 800,         # jets + pump + dedicated circuit
-    "air_jet_upgrade": 600,
-    "surround_tile_labor_per_sf": 13.00,  # surround tile install ($10-$16/SF)
+    "whirlpool_upgrade": 820,         # jets + pump + dedicated circuit
+    "air_jet_upgrade": 615,
+    "surround_tile_labor_per_sf": 13.65,  # surround tile install ($10-$16/SF) — tile labor category, +5%
     # Drain/overflow assembly — new tub needs new drain kit
     # Includes: drain body, overflow plate, linkage, gaskets, plumber's putty
     # Sources: Angi 2025-2026, HomeWyse ($80-$200 installed)
-    "drain_overflow_kit": 135,        # drain + overflow assembly supply + install
+    "drain_overflow_kit": 139,        # drain + overflow assembly supply + install
     # Mortar bed / setting material — level base for tub
     # Acrylic/fiberglass tubs REQUIRE full support underneath (flex = crack)
     # Sources: Angi 2025, TerryLove forum, HomeGuide ($50-$150)
-    "mortar_bed": 95,                 # mortar mix + pour + level ($75-$125)
+    "mortar_bed": 98,                 # mortar mix + pour + level ($75-$125)
     # Tub/shower valve replacement (when tub has surround tile / combo unit)
     # Valve body + trim kit, Moen/Delta mid-grade ($250-$450 parts + $150-$250 labor)
-    "shower_valve_body_trim": 475,    # pressure-balance valve body + trim kit installed
-    "shower_valve_trim_only": 225,    # trim kit only (retain existing valve body)
-    "showerhead_install": 85,         # shower head + arm install labor
-    "curtain_rod": 65,                # curtain rod + rings + mount (supply + install)
+    "shower_valve_body_trim": 490,    # pressure-balance valve body + trim kit installed
+    "shower_valve_trim_only": 232,    # trim kit only (retain existing valve body)
+    "showerhead_install": 88,         # shower head + arm install labor
+    "curtain_rod": 67,                # curtain rod + rings + mount (supply + install)
 }
 
 # Shower door / enclosure
 # Material price by type × opening width (inches)
 # Sources: Angi 2026, HomeGuide 2026, ThisOldHouse 2026
+# 2026-08: +3% (imported glass/hardware components, moderate tariff exposure)
 SHOWER_DOOR_PRICES = {
     # Curtain - flat rate
-    "curtain": {"any": 45},
+    "curtain": {"any": 46},
     # Framed sliding/bypass - budget ($400-$900 installed)
     "framed_sliding": {
-        48: 280, 60: 350, 72: 420,
+        48: 288, 60: 360, 72: 433,
     },
     # Semi-frameless sliding ($700-$1,500 installed)
     "semi_frameless_sliding": {
-        48: 450, 60: 550, 72: 650,
+        48: 464, 60: 567, 72: 670,
     },
     # Frameless sliding ($1,000-$2,500 installed, Angi 2026)
     "frameless_sliding": {
-        48: 900, 60: 1050, 72: 1250,
+        48: 927, 60: 1082, 72: 1288,
     },
     # Framed pivot ($400-$1,100 installed)
     "framed_pivot": {
-        28: 250, 32: 300, 36: 350,
+        28: 258, 32: 309, 36: 361,
     },
     # Semi-frameless pivot
     "semi_frameless_pivot": {
-        28: 400, 32: 475, 36: 550,
+        28: 412, 32: 489, 36: 567,
     },
     # Frameless pivot ($1,000-$3,500 installed, Angi 2026)
     "frameless_pivot": {
-        28: 900, 32: 1100, 36: 1350,
+        28: 927, 32: 1133, 36: 1391,
     },
     # Fixed panel / half wall glass
     "fixed_panel": {
-        24: 400, 30: 550, 36: 700,
+        24: 412, 30: 567, 36: 721,
     },
 }
 
 # Installation labor by door category (precision leveling, drilling, sealing)
 SHOWER_DOOR_INSTALL = {
     "curtain": 0,
-    "framed_sliding": 275,
-    "semi_frameless_sliding": 375,
-    "frameless_sliding": 475,
-    "framed_pivot": 275,
-    "semi_frameless_pivot": 375,
-    "frameless_pivot": 475,
-    "fixed_panel": 350,
+    "framed_sliding": 283,
+    "semi_frameless_sliding": 386,
+    "frameless_sliding": 489,
+    "framed_pivot": 283,
+    "semi_frameless_pivot": 386,
+    "frameless_pivot": 489,
+    "fixed_panel": 361,
 }
 
 SHOWER_DOOR_TYPES = [
@@ -298,122 +325,126 @@ SHOWER_DOOR_TYPES = [
     "frameless_neo_angle",
 ]
 
-# Legacy compat — still referenced by enclosure dropdown
+# Legacy compat — still referenced by enclosure dropdown (2026-08: +3%)
 SHOWER_ENCLOSURE_PRICES = {
-    "curtain": 45,
-    "sliding": 350,
-    "pivot": 550,
-    "frameless": 1650,
-    "half_wall_glass": 1200,
+    "curtain": 46,
+    "sliding": 361,
+    "pivot": 567,
+    "frameless": 1700,
+    "half_wall_glass": 1236,
 }
 
 SHOWER_INSERT_PRICES = {
-    # Prefab shower units (material only)
-    "one_piece": 650,                 # fiberglass one-piece ($400-$1,000)
-    "multi_piece_kit": 950,           # multi-piece kit ($600-$1,500)
+    # Prefab shower units (material only), +2-3% fixture supplier increase
+    "one_piece": 667,                 # fiberglass one-piece ($400-$1,000)
+    "multi_piece_kit": 977,           # multi-piece kit ($600-$1,500)
 }
 
 # prefab shower unit install (set, level, seal, connect)
-SHOWER_INSERT_INSTALL = 575
+SHOWER_INSERT_INSTALL = 590
 
 # Neo-angle (corner) shower components
 # Sources: Home Depot, Lowe's, Amazon 2025-2026
 # Neo-angle base pan: acrylic/fiberglass, center drain
 NEO_ANGLE_BASE_PRICES = {
-    # By size (inches), material only
-    32: 180,   # 32x32 ($150-$230)
-    36: 220,   # 36x36 ($170-$280)
-    38: 350,   # 38x38 ($270-$490)
-    42: 425,   # 42x42 ($350-$500)
-    48: 550,   # 48x48 ($450-$650)
+    # By size (inches), material only. 2026-08: +3%
+    32: 185,   # 32x32 ($150-$230)
+    36: 227,   # 36x36 ($170-$280)
+    38: 361,   # 38x38 ($270-$490)
+    42: 438,   # 42x42 ($350-$500)
+    48: 567,   # 48x48 ($450-$650)
 }
 
 # pan install: set, level, seal, connect drain
-NEO_ANGLE_BASE_INSTALL = 475
+NEO_ANGLE_BASE_INSTALL = 489
 
 # Neo-angle shower door (3-panel enclosure)
 # door + 2 fixed side panels
 # Higher than regular: precision angles, custom glass
+# 2026-08: +3%
 NEO_ANGLE_DOOR_PRICES = {
     # Framed (most common, budget) — by size
     "framed_neo_angle": {
-        32: 350, 36: 425, 38: 500,
-        42: 600, 48: 750,
+        32: 361, 36: 438, 38: 515,
+        42: 618, 48: 773,
     },
     # Semi-frameless
     "semi_frameless_neo_angle": {
-        32: 550, 36: 650, 38: 750,
-        42: 900, 48: 1100,
+        32: 567, 36: 670, 38: 773,
+        42: 927, 48: 1133,
     },
     # Frameless ($1,200-$3,500+ installed, Angi 2026)
     "frameless_neo_angle": {
-        32: 1050, 36: 1250, 38: 1450,
-        42: 1750, 48: 2100,
+        32: 1082, 36: 1288, 38: 1494,
+        42: 1803, 48: 2163,
     },
 }
 
 NEO_ANGLE_DOOR_INSTALL = {
-    "framed_neo_angle": 375,
-    "semi_frameless_neo_angle": 475,
-    "frameless_neo_angle": 575,
+    "framed_neo_angle": 386,
+    "semi_frameless_neo_angle": 489,
+    "frameless_neo_angle": 592,
 }
 
 # Neo-angle prefab wall surround
 # (acrylic/fiberglass, replaces tile)
 # Sources: MAAX, American Standard, Aquatic 2025-2026
+# 2026-08: +3%
 NEO_ANGLE_WALL_SURROUND_PRICES = {
     # By base size (inches), material only
     "prefab_acrylic": {
-        32: 250, 36: 325, 38: 400,
-        42: 500, 48: 650,
+        32: 258, 36: 335, 38: 412,
+        42: 515, 48: 670,
     },
     "prefab_fiberglass": {
-        32: 175, 36: 225, 38: 275,
-        42: 350, 48: 450,
+        32: 180, 36: 232, 38: 283,
+        42: 361, 48: 464,
     },
     "solid_surface": {
-        32: 600, 36: 750, 38: 900,
-        42: 1100, 48: 1400,
+        32: 618, 36: 773, 38: 927,
+        42: 1133, 48: 1442,
     },
 }
 
 # surround panel install ($350-$500)
-NEO_ANGLE_WALL_SURROUND_INSTALL = 425
+NEO_ANGLE_WALL_SURROUND_INSTALL = 438
 
 # Complete neo-angle kits (base + walls + door)
 # Budget: MAAX Warren, Aqua Glass, American Std
+# 2026-08: +3%
 NEO_ANGLE_KIT_PRICES = {
     # base + wall surround + door (material only)
     "basic_fiberglass": {
-        36: 750, 38: 900, 42: 1150,
+        36: 773, 38: 927, 42: 1185,
     },
     "mid_acrylic": {
-        36: 1200, 38: 1400, 42: 1800,
+        36: 1236, 38: 1442, 42: 1854,
     },
 }
 
 # full kit install ($650-$850)
-NEO_ANGLE_KIT_INSTALL = 750
+NEO_ANGLE_KIT_INSTALL = 773
 
+# tile-adjacent labor items, +5% (tile category)
 SHOWER_CUSTOM_EXTRAS = {
-    "niche_each": 185,                # recessed niche (material + labor)
-    "bench": 450,                     # tiled bench (material + labor)
-    "curb": 225,                      # standard curb build
-    "curbless_drain": 650,            # linear drain + slope work
+    "niche_each": 194,                # recessed niche (material + labor)
+    "bench": 471,                     # tiled bench (material + labor)
+    "curb": 236,                      # standard curb build
+    "curbless_drain": 681,             # linear drain + slope work
 }
 
-# Shower head/valve
+# Shower head/valve — fixtures, +2-3%
 SHOWERHEAD_PRICES = {
-    "standard": 65,
-    "rain": 175,
-    "handheld": 95,
-    "combo": 225,                     # rain + handheld
-    "body_spray": 350,                # per set
+    "standard": 67,
+    "rain": 180,
+    "handheld": 98,
+    "combo": 232,                     # rain + handheld
+    "body_spray": 360,                # per set
 }
 
 SHOWER_VALVE_PRICES = {
-    "pressure_balance": 275,          # code-required basic
-    "thermostatic": 550,              # premium
+    "pressure_balance": 283,          # code-required basic
+    "thermostatic": 566,              # premium
 }
 
 TRIM_GRADE_MULTIPLIER = {
@@ -423,95 +454,100 @@ TRIM_GRADE_MULTIPLIER = {
 }
 
 # Vanity
+# 2026-08: +5% — vanities/cabinets are the single most tariff-exposed category
+# (50% tariff on imported cabinets effective Jan 1, 2026 pushes vanity costs up
+# 20-28%; capped at the top of our 1-5% adjustment range here)
 VANITY_PRICES = {
     # By width (material only, mid-range stock)
-    "stock_rta": {24: 350, 30: 425, 36: 500, 48: 700, 60: 950, 72: 1200},
-    "semi_custom": {24: 650, 30: 800, 36: 950, 48: 1350, 60: 1800, 72: 2400},
+    "stock_rta": {24: 368, 30: 446, 36: 525, 48: 735, 60: 998, 72: 1260},
+    "semi_custom": {24: 683, 30: 840, 36: 998, 48: 1418, 60: 1890, 72: 2520},
     # truly custom (local shop/craftsman); DMV min ~$2,500 for 36"
     "custom": {
-        24: 1650, 30: 2100, 36: 2500,
-        48: 3600, 60: 4800, 72: 6200,
+        24: 1733, 30: 2205, 36: 2625,
+        48: 3780, 60: 5040, 72: 6510,
     },
 }
 
 VANITY_TOP_PRICES = {
-    # Per linear inch of width
-    "cultured_marble": 8,             # integrated bowl, cheapest
-    "quartz": 14,                     # most popular (36"=$504)
-    "granite": 13,                    # (36"=$468)
-    "marble": 22,                     # premium, sealing required
-    "laminate": 5,
+    # Per linear inch of width, +5%
+    "cultured_marble": 8.40,          # integrated bowl, cheapest
+    "quartz": 14.70,                  # most popular (36"=$504)
+    "granite": 13.65,                 # (36"=$468)
+    "marble": 23.10,                  # premium, sealing required
+    "laminate": 5.25,
 }
 
-VANITY_INSTALL = 475                  # labor to install vanity (set, level, secure, cutouts; $400-$870 HomeWyse 2026)
+VANITY_INSTALL = 499                  # labor to install vanity (set, level, secure, cutouts; $400-$870 HomeWyse 2026), +5%
 
 VANITY_EXTRAS = {
-    "wall_mount_blocking": 225,       # wood blocking for floating vanity (framing work)
-    "faucet_single_hole": 245,        # faucet supply + install
-    "faucet_centerset": 275,
-    "faucet_widespread": 350,
-    "faucet_wall_mount": 525,         # wall-mount requires rough valve + access
-    "toe_kick_per_lf": 12,            # toe kick board (supply + install, freestanding vanity)
+    # framing/faucet labor +3-4%, toe kick material +5%
+    "wall_mount_blocking": 234,       # wood blocking for floating vanity (framing work)
+    "faucet_single_hole": 255,        # faucet supply + install
+    "faucet_centerset": 286,
+    "faucet_widespread": 364,
+    "faucet_wall_mount": 546,         # wall-mount requires rough valve + access
+    "toe_kick_per_lf": 12.60,         # toe kick board (supply + install, freestanding vanity)
 }
 
-# Pedestal Sink / Wall-Mount Sink (non-vanity options)
+# Pedestal Sink / Wall-Mount Sink (non-vanity options), +2-3% fixture increase
 SINK_PRICES = {
     # Supply (fixture + faucet)
-    "pedestal_sink": 350,             # pedestal sink unit ($250-$500)
-    "wall_mount_sink": 300,           # wall-mount basin ($200-$450)
+    "pedestal_sink": 360,             # pedestal sink unit ($250-$500)
+    "wall_mount_sink": 309,           # wall-mount basin ($200-$450)
 }
 SINK_INSTALL = {
-    "pedestal_sink": 375,             # set pedestal, connect plumbing ($300-$450)
-    "wall_mount_sink": 425,           # blocking + bracket + connect ($350-$500)
+    "pedestal_sink": 386,             # set pedestal, connect plumbing ($300-$450) — plumbing labor +3-4%
+    "wall_mount_sink": 438,           # blocking + bracket + connect ($350-$500)
 }
 SINK_FAUCET = {
-    "centerset": 175,                 # 4" centerset faucet supply
-    "single_hole": 150,               # single hole faucet supply
+    "centerset": 180,                 # 4" centerset faucet supply
+    "single_hole": 155,               # single hole faucet supply
 }
-SINK_FAUCET_INSTALL = 225             # faucet install labor (same as vanity)
+SINK_FAUCET_INSTALL = 232             # faucet install labor (same as vanity)
 
-# Mirror / Medicine Cabinet
+# Mirror / Medicine Cabinet, +2-3%
 MIRROR_PRICES = {
-    "plain": 85,
-    "framed": 175,
-    "medicine_cabinet": 275,          # surface mount
-    "medicine_cabinet_recessed": 375, # recessed (requires wall work)
-    "led_backlit": 425,               # + electrical
+    "plain": 88,
+    "framed": 180,
+    "medicine_cabinet": 283,          # surface mount
+    "medicine_cabinet_recessed": 386, # recessed (requires wall work)
+    "led_backlit": 438,               # + electrical
 }
 
-MIRROR_INSTALL = 125                  # labor to hang (anchoring, leveling)
+MIRROR_INSTALL = 129                  # labor to hang (anchoring, leveling)
 
-# Toilet
+# Toilet, +2-3% (fixture supplier increases)
 TOILET_PRICES = {
     # Material only (install under plumbing)
-    "two_piece_standard": 225,        # basic two-piece ($130-$250)
-    "two_piece_comfort": 295,         # comfort height
-    "one_piece_standard": 375,        # one-piece ($250-$450)
-    "one_piece_comfort": 425,
-    "bidet_seat": 350,                # bidet seat add-on (needs GFCI)
-    "smart_toilet": 1200,             # integrated bidet ($800-$2,000)
+    "two_piece_standard": 232,        # basic two-piece ($130-$250)
+    "two_piece_comfort": 304,         # comfort height
+    "one_piece_standard": 386,        # one-piece ($250-$450)
+    "one_piece_comfort": 438,
+    "bidet_seat": 360,                # bidet seat add-on (needs GFCI)
+    "smart_toilet": 1236,             # integrated bidet ($800-$2,000)
 }
 
 TOILET_EXTRAS = {
-    "wax_ring": 15,
-    "flange_repair": 95,              # if slab condition requires
-    "soft_close_seat": 45,            # if not included
+    "wax_ring": 15.50,
+    "flange_repair": 98,              # if slab condition requires
+    "soft_close_seat": 46,            # if not included
 }
 
 # ──────────────────────────────────────────────
 # Phase 7: Finish (Paint, Trim, Accessories)
 # ──────────────────────────────────────────────
 # Sources: Fixr painter $2-$7/SF, HomeGuide baseboard $1-$3.50/LF
+# 2026-08: +1-2% (paint/labor comparatively stable category)
 PAINT_RATES = {
-    "seal_prime_per_sf": 1.50,        # seal & prime repaired drywall only
-    "wall_per_sf": 4.50,              # paint walls (prep + 2 coats; $4-$9/SF HomeWyse 2026)
-    "ceiling_per_sf": 4.75,           # ceiling paint (overhead premium)
-    "trim_per_lf": 3.75,              # baseboard/trim paint ($2.30-$4.88/LF)
+    "seal_prime_per_sf": 1.53,        # seal & prime repaired drywall only
+    "wall_per_sf": 4.60,              # paint walls (prep + 2 coats; $4-$9/SF HomeWyse 2026)
+    "ceiling_per_sf": 4.85,           # ceiling paint (overhead premium)
+    "trim_per_lf": 3.85,              # baseboard/trim paint ($2.30-$4.88/LF)
 }
 
 PAINT_PREP = {
-    "masking_per_sf": 0.75,               # tape, plastic sheeting on fixtures/trim ($0.50-$1.00/SF)
-    "floor_protection_per_sf": 0.50,      # drop cloth / ram board for paint work ($0.35-$0.65/SF)
+    "masking_per_sf": 0.76,               # tape, plastic sheeting on fixtures/trim ($0.50-$1.00/SF)
+    "floor_protection_per_sf": 0.51,      # drop cloth / ram board for paint work ($0.35-$0.65/SF)
 }
 
 PAINT_GRADE_MULTIPLIER = {
@@ -520,44 +556,48 @@ PAINT_GRADE_MULTIPLIER = {
     "premium": 1.30,                  # Sherwin Cashmere, BM Aura
 }
 
+# 2026-08: +1-2%
 BASEBOARD_PRICES = {
     # Material + install per LF
-    "pvc": 6.50,                      # PVC (recommended for bath)
-    "mdf": 5.00,
-    "wood": 8.50,
-    "tile": 12.00,
+    "pvc": 6.60,                      # PVC (recommended for bath)
+    "mdf": 5.10,
+    "wood": 8.65,
+    "tile": 12.25,
 }
 
 # Tile baseboard pricing by tile material (material + labor per LF)
 # Sources: HomeAdvisor 2025, Angi 2026, FlooringClarity
+# 2026-08: +5% (tile category — tariff-exposed material)
 TILE_BASEBOARD_PRICES = {
-    "ceramic": 9.00,                  # $8-$12/LF installed
-    "porcelain": 12.00,               # $10-$15/LF installed
-    "natural_stone": 18.00,           # $15-$25/LF installed
-    "glass_mosaic": 20.00,            # $16-$25/LF installed
+    "ceramic": 9.45,                  # $8-$12/LF installed
+    "porcelain": 12.60,               # $10-$15/LF installed
+    "natural_stone": 18.90,           # $15-$25/LF installed
+    "glass_mosaic": 21.00,            # $16-$25/LF installed
 }
 
 # Quarter round molding pricing (material + labor per LF)
 # Add-on to standard baseboard install; matches baseboard material
 # Sources: Angi 2026 ($3-$7/LF installed), HomeGuide 2026, CountBricks 2026
 # DMV mid-range: thin pin-nailer install, slightly faster than baseboard
+# 2026-08: +1-2%
 QUARTER_ROUND_PRICES = {
-    "pvc": 3.75,                      # PVC quarter round (moisture-resistant, bath)
-    "mdf": 3.25,                      # MDF quarter round (budget, paintable)
-    "wood": 4.50,                     # Paint-grade pine quarter round
+    "pvc": 3.80,                      # PVC quarter round (moisture-resistant, bath)
+    "mdf": 3.30,                      # MDF quarter round (budget, paintable)
+    "wood": 4.60,                     # Paint-grade pine quarter round
 }
 
 # Accessories (material + install per piece)
 # Sources: HomeWyse towel bar $61-$134, grab bar $100-$350
+# 2026-08: +1-2%
 ACCESSORY_PRICES = {
-    "towel_bar": 95,                  # supply + install ($61-$134)
-    "hand_towel_ring": 75,
-    "tp_holder": 55,
-    "robe_hook": 50,
-    "corner_shelf": 65,
-    "grab_bar": 225,                  # + blocking ($100-$350, HomeGuide)
-    "toilet_brush_holder": 45,
-    "soap_dispenser": 65,
+    "towel_bar": 97,                  # supply + install ($61-$134)
+    "hand_towel_ring": 76,
+    "tp_holder": 56,
+    "robe_hook": 51,
+    "corner_shelf": 66,
+    "grab_bar": 229,                  # + blocking ($100-$350, HomeGuide)
+    "toilet_brush_holder": 46,
+    "soap_dispenser": 66,
 }
 
 ACCESSORY_FINISH_MULTIPLIER = {
@@ -581,62 +621,66 @@ ACCESSORY_GRADE_MULTIPLIER = {
 # stored, then reinstalled after wall/floor work is completed.
 # All costs are LABOR ONLY (no new material).
 # Sources: Xactimate D&R codes, Angi, CountBricks, HomeWyse 2025-2026
+# 2026-08: +3-4% (skilled trade labor rates up ~8-10% YoY, applied at the
+# lower end since D&R labor blends plumber/general-labor time)
 DETACH_RESET_COSTS = {
     # Toilet: disconnect water, remove wax ring, store, reinstall w/ new wax ring
-    "toilet": 185,                    # ~1.5 hrs plumber ($125-$250)
+    "toilet": 192,                    # ~1.5 hrs plumber ($125-$250)
     # Vanity + sink: disconnect plumbing, remove, store, reinstall & reconnect
     # Larger vanities need 2-person crew, more time, bigger storage footprint
     # Sources: Xactimate D&R, Angi 2025-2026, HomeGuide
     "vanity": {
-        24: 200,                      # small single vanity, ~1.5 hrs ($150-$250)
-        30: 225,                      # standard single, ~1.75 hrs ($175-$275)
-        36: 275,                      # standard single, ~2.5 hrs ($200-$350)
-        48: 350,                      # large single, ~3 hrs, may need 2 ppl ($275-$425)
-        60: 425,                      # double vanity, 2-person crew, ~3.5 hrs ($350-$500)
-        72: 500,                      # large double, 2-person crew, ~4 hrs ($400-$600)
+        24: 208,                      # small single vanity, ~1.5 hrs ($150-$250)
+        30: 234,                      # standard single, ~1.75 hrs ($175-$275)
+        36: 286,                      # standard single, ~2.5 hrs ($200-$350)
+        48: 364,                      # large single, ~3 hrs, may need 2 ppl ($275-$425)
+        60: 442,                      # double vanity, 2-person crew, ~3.5 hrs ($350-$500)
+        72: 520,                      # large double, 2-person crew, ~4 hrs ($400-$600)
     },
     # Bathtub: disconnect plumbing, remove, store, reinstall
-    "bathtub_standard": 450,          # ~4 hrs ($350-$550)
-    "bathtub_cast_iron": 650,         # ~6 hrs, heavy ($500-$800)
+    "bathtub_standard": 468,          # ~4 hrs ($350-$550)
+    "bathtub_cast_iron": 676,         # ~6 hrs, heavy ($500-$800)
     # Shower door/enclosure: careful glass removal, store, reinstall
-    "shower_door": 275,               # ~2.5 hrs ($200-$350)
+    "shower_door": 286,               # ~2.5 hrs ($200-$350)
     # Shower surround (prefab): remove panels, store, reinstall
-    "shower_surround": 350,           # ~3 hrs ($275-$425)
+    "shower_surround": 364,           # ~3 hrs ($275-$425)
     # Mirror: careful removal, store, reinstall
-    "mirror": 95,                     # ~0.75 hrs ($65-$125)
+    "mirror": 99,                     # ~0.75 hrs ($65-$125)
     # Vanity light: disconnect, remove, store, reinstall
-    "vanity_light": 85,              # ~0.5-0.75 hrs ($65-$110)
+    "vanity_light": 88,               # ~0.5-0.75 hrs ($65-$110)
     # Accessories (towel bars, tp holders, etc.): remove all, store, reinstall
     # Per-piece: unscrew/pull anchors, label, bag, reinstall w/ new anchors
     # Sources: Xactimate D&R, Angi 2025-2026
-    "accessory_per_piece": 35,       # ~15-20 min each ($25-$45)
+    "accessory_per_piece": 36,       # ~15-20 min each ($25-$45)
 }
 
 # ──────────────────────────────────────────────
 # Hidden / Commonly Missed Costs
 # ──────────────────────────────────────────────
+# 2026-08: general labor/service lines +2%, tile-adjacent drywall work +5%
 HIDDEN_COSTS = {
-    "floor_protection": 125,          # Ram board, plastic, tape
-    "mobilization": 175,              # tool/equipment transport
-    "final_clean": 225,               # move-in ready cleaning
-    "punch_list": 200,                # 1-2 follow-up visits
-    "caulk_day": 275,                 # silicone/latex caulking (1 day labor)
-    "drywall_patch_per_sf": 5.50,     # patching around tile edges
-    "drywall_skim_coat_per_sf": 4.25, # skim coat after tile removal ($3-$6/SF)
-    "trim_paint_per_lf": 4.50,        # post-install trim paint
-    "lead_rrp": 375,                  # EPA RRP surcharge (pre-1978)
-    "cast_iron_disposal": 175,        # weight surcharge for CI tub
-    "permit_fee": 250,                # building permit (varies by county, $150-$400)
+    "floor_protection": 128,          # Ram board, plastic, tape
+    "mobilization": 179,              # tool/equipment transport
+    "final_clean": 230,               # move-in ready cleaning
+    "punch_list": 204,                # 1-2 follow-up visits
+    "caulk_day": 281,                 # silicone/latex caulking (1 day labor)
+    "drywall_patch_per_sf": 5.75,     # patching around tile edges
+    "drywall_skim_coat_per_sf": 4.45, # skim coat after tile removal ($3-$6/SF)
+    "trim_paint_per_lf": 4.60,        # post-install trim paint
+    "lead_rrp": 383,                  # EPA RRP surcharge (pre-1978)
+    "cast_iron_disposal": 179,        # weight surcharge for CI tub
+    "permit_fee": 255,                # building permit (varies by county, $150-$400)
 }
 
 # ──────────────────────────────────────────────
 # Shower Pan / Pre-slope (custom tile showers)
 # ──────────────────────────────────────────────
 # Sources: HomeGuide 2025, Angi 2026, Fixr
+# 2026-08: +5% (tile/waterproofing category)
 SHOWER_PAN_COSTS = {
-    "mortar_preslope_per_sf": 8.50,   # mud bed pre-slope ($6-$12/SF)
-    "pan_liner": 185,                 # PVC liner + drain assembly
-    "curb_waterproof": 75,            # curb membrane wrap
+    "mortar_preslope_per_sf": 8.90,   # mud bed pre-slope ($6-$12/SF)
+    "pan_liner": 194,                 # PVC liner + drain assembly
+    "curb_waterproof": 78.50,         # curb membrane wrap
 }
 
 # ──────────────────────────────────────────────

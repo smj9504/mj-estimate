@@ -8,7 +8,8 @@ export const companyService = {
     if (search) params.append('search', search);
     if (city) params.append('city', city);
     if (state) params.append('state', state);
-    
+    params.append('per_page', '100');
+
     const url = `/api/companies/?${params.toString()}`;
     console.log('Requesting companies from:', url);
     const response = await apiClient.get(url);

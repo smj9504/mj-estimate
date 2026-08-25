@@ -593,7 +593,10 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     durock_sf = sub.get("durock_sf", 0) or auto_wet_sf
     if durock_sf > 0:
         _add(line_items, 3, "Cement board (Durock) - wet area", durock_sf, "SF",
-             SUBSTRATE_RATES["durock_per_sf"] * labor_mult, "substrate")
+             SUBSTRATE_RATES["durock_per_sf"] * labor_mult, "substrate",
+             notes="1/2\" cement board on shower/tub surround walls "
+                   "(behind wall tile) — waterproof substrate for wet "
+                   "vertical surfaces, separate from floor underlayment below")
 
     # Floor cement board (1/4") — only when demo removed the old substrate
     # If existing cement board is intact (no demo), tile directly over it
@@ -605,7 +608,11 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             _add(line_items, 3, "Cement board (1/4\") - floor underlayment",
                  tile_floor_sf, "SF",
                  SUBSTRATE_RATES["durock_floor_per_sf"] * labor_mult,
-                 "substrate")
+                 "substrate",
+                 notes="1/4\" cement board under new floor tile "
+                       "(bathroom floor, not shower/tub walls) — rigid "
+                       "underlayment for floor tile after old flooring "
+                       "demo, separate from wet-wall cement board above")
 
     greenboard_sf = sub.get("greenboard_sf") or 0
     if greenboard_sf > 0:
