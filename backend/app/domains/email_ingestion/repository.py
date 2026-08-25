@@ -44,10 +44,14 @@ class EmailIngestionLogRepository(SQLAlchemyRepository):
     def __init__(self, session: DatabaseSession):
         super().__init__(session, EmailIngestionLog)
 
-    def exists_by_message_id(self, message_id: str) -> bool:
-        """Check if email has already been processed"""
+    def exists_by_message_id_and_hash(self, message_id: str, attachment_hash: Optional[str]) -> bool:
+        """Check if this specific attachment (by message + content hash) has
+        already been logged. Attachment-scoped rather than email-scoped, so
+        that if an email has multiple PDFs and only one fails, the others
+        aren't reprocessed but the failed one is retried on the next poll."""
         return self.db_session.query(EmailIngestionLog).filter(
-            EmailIngestionLog.message_id == message_id
+            EmailIngestionLog.message_id == message_id,
+            EmailIngestionLog.attachment_hash == attachment_hash,
         ).first() is not None
 
     def exists_by_attachment_hash(self, attachment_hash: str, claim_id: Optional[str] = None) -> bool:
@@ -63,7 +67,7 @@ class EmailIngestionLogRepository(SQLAlchemyRepository):
     def get_pending_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Get logs that need manual review"""
         logs = self.db_session.query(EmailIngestionLog).filter(
-            EmailIngestionLog.status.in_(["pending", "classified"]),
+            EmailIngestionLog.status == "pending",
         ).order_by(EmailIngestionLog.created_at.desc()).limit(limit).all()
         return [self._convert_to_dict(log) for log in logs]
 
@@ -94,7 +98,7 @@ class EmailIngestionLogRepository(SQLAlchemyRepository):
             EmailIngestionLog.status == "uploaded"
         ).scalar() or 0
         pending = self.db_session.query(func.count(EmailIngestionLog.id)).filter(
-            EmailIngestionLog.status.in_(["pending", "classified"])
+            EmailIngestionLog.status == "pending"
         ).scalar() or 0
         skipped = self.db_session.query(func.count(EmailIngestionLog.id)).filter(
             EmailIngestionLog.status == "skipped"

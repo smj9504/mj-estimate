@@ -83,7 +83,10 @@ class EmailIngestionLog(Base, BaseModel):
     __table_args__ = (
         Index("ix_email_ingestion_logs_account_id", "email_account_id"),
         Index("ix_email_ingestion_logs_status", "status"),
-        Index("ix_email_ingestion_logs_message_id", "message_id", unique=True),
+        # Composite unique per-attachment (not per-email): an email with
+        # multiple PDFs where only one fails should let that one attachment
+        # be retried on the next poll without re-processing the rest.
+        Index("ix_email_ingestion_logs_msgid_hash", "message_id", "attachment_hash", unique=True),
         Index("ix_email_ingestion_logs_attachment_hash", "attachment_hash"),
         {"extend_existing": True},
     )
@@ -94,8 +97,10 @@ class EmailIngestionLog(Base, BaseModel):
         nullable=False,
     )
 
-    # Email identification (RFC 2822 Message-ID) - unique to prevent reprocessing
-    message_id = Column(String(500), nullable=False, unique=True)
+    # Email identification (RFC 2822 Message-ID). Uniqueness is enforced
+    # per-attachment via the (message_id, attachment_hash) composite index
+    # above, not on this column alone - an email can have multiple PDFs.
+    message_id = Column(String(500), nullable=False)
 
     # Email metadata
     subject = Column(Text, nullable=True)
@@ -107,7 +112,7 @@ class EmailIngestionLog(Base, BaseModel):
     attachment_hash = Column(String(64), nullable=True)  # SHA-256 hex digest
 
     # Processing status
-    # pending | processing | classified | matched | uploaded | skipped | failed | duplicate
+    # pending | uploaded | skipped | failed | duplicate
     status = Column(String(50), nullable=False, default="pending")
 
     # Classification result
