@@ -530,6 +530,7 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
                 secondary_group=item.get('secondary_group'),
                 sort_order=item.get('sort_order'),
                 order_index=item.get('order_index'),
+                note=item.get('note'),
                 images=item.get('images', []),
                 created_at=item.get('created_at'),
                 updated_at=item.get('updated_at')
