@@ -1360,7 +1360,12 @@ async def serve_contract_pdf(
         if not pdf_url:
             raise HTTPException(status_code=404, detail="No PDF available")
 
-        storage_provider = contract.get('storage_provider')
+        # provider must match whichever url we actually picked above -
+        # filled_pdf_provider for the instance's own generated PDF,
+        # falling back to the template's provider only when we fell back
+        # to the template's file_url too (previously this always read the
+        # template's provider even when serving the instance's own PDF)
+        storage_provider = contract.get('filled_pdf_provider') if filled_url else contract.get('storage_provider')
         pdf_bytes = _resolve_contract_pdf(pdf_url, storage_provider)
         if not pdf_bytes:
             raise HTTPException(status_code=404, detail="Contract PDF not found")

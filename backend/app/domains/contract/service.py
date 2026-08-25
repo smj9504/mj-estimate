@@ -414,13 +414,16 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                     try:
                         mappings = json.loads(tmpl.field_mappings)
                         if mappings:
-                            filled_url = self._generate_filled_pdf(
+                            filled = self._generate_filled_pdf(
                                 tmpl.file_url, mappings, prefill
                             )
-                            if filled_url:
-                                repo.update(str(result['id']), {'filled_pdf_url': filled_url})
+                            if filled:
+                                repo.update(str(result['id']), {
+                                    'filled_pdf_url': filled['url'],
+                                    'filled_pdf_provider': filled['provider'],
+                                })
                                 session.commit()
-                                result['filled_pdf_url'] = filled_url
+                                result['filled_pdf_url'] = filled['url']
                     except Exception as e:
                         logger.warning(f"Failed to generate filled PDF: {e}")
 
@@ -640,8 +643,13 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
         except Exception:
             return ''
 
-    def _generate_filled_pdf(self, template_file_url: str, mappings: list, prefill: dict) -> Optional[str]:
-        """Generate a filled PDF by overlaying text on the template PDF using reportlab"""
+    def _generate_filled_pdf(self, template_file_url: str, mappings: list, prefill: dict) -> Optional[Dict[str, str]]:
+        """Generate a filled PDF by overlaying text on the template PDF using reportlab.
+
+        Returns {"url": ..., "provider": ...} on success (provider is the
+        authoritative storage_provider for url - callers must persist it
+        alongside the url, not re-derive it later by parsing the url string).
+        """
         try:
             from pypdf import PdfReader, PdfWriter
             from reportlab.pdfgen import canvas as rl_canvas
@@ -773,7 +781,7 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                 except Exception:
                     pass
 
-            return storage_info["file_path"]
+            return {"url": storage_info["file_url"], "provider": storage_info["storage_provider"]}
 
         except Exception as e:
             logger.error(f"Error generating filled PDF: {e}")
@@ -1017,11 +1025,14 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                     if isinstance(raw_mappings, str):
                         mappings = json.loads(raw_mappings)
                     if mappings:
-                        filled_url = self._generate_filled_pdf(
+                        filled = self._generate_filled_pdf(
                             template_file_url, mappings, existing
                         )
-                        if filled_url:
-                            repo.update(instance_id, {'filled_pdf_url': filled_url})
+                        if filled:
+                            repo.update(instance_id, {
+                                'filled_pdf_url': filled['url'],
+                                'filled_pdf_provider': filled['provider'],
+                            })
                             session.commit()
 
                 return repo.get_by_id_enriched(instance_id)
@@ -1096,17 +1107,19 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                 # Generate signed PDF with overlaid signatures
                 if signature_fields:
                     try:
-                        signed_url = self._generate_signed_pdf(
+                        signed = self._generate_signed_pdf(
                             session, contract, signature_fields
                         )
-                        if signed_url:
+                        if signed:
                             # Compute document hash
                             doc_hash = self._compute_pdf_hash(
-                                signed_url
+                                signed['url']
                             )
                             repo.update(instance_id, {
-                                'signed_pdf_url': signed_url,
-                                'filled_pdf_url': signed_url,
+                                'signed_pdf_url': signed['url'],
+                                'signed_pdf_provider': signed['provider'],
+                                'filled_pdf_url': signed['url'],
+                                'filled_pdf_provider': signed['provider'],
                             })
                             # Store hash on the signature
                             if doc_hash:
@@ -1138,9 +1151,14 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
     def _generate_signed_pdf(
         self, session, contract: Dict[str, Any],
         signature_fields: Dict[str, str],
-    ) -> Optional[str]:
+    ) -> Optional[Dict[str, str]]:
         """Overlay signature images onto the PDF at mapped
-        field positions and upload the result."""
+        field positions and upload the result.
+
+        Returns {"url": ..., "provider": ...} on success (provider is the
+        authoritative storage_provider for url - callers must persist it
+        alongside the url).
+        """
         import base64
         from io import BytesIO
         from pathlib import Path
@@ -1317,7 +1335,7 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
             context_id=str(contract.get('id', uuid.uuid4())),
             category="signed",
         )
-        return storage_info["file_path"]
+        return {"url": storage_info["file_url"], "provider": storage_info["storage_provider"]}
 
     def _compute_pdf_hash(self, pdf_url: str) -> Optional[str]:
         """Compute SHA-256 hash of a PDF for integrity."""

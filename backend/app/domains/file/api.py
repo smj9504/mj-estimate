@@ -130,14 +130,14 @@ async def download_file(
     try:
         from fastapi.responses import StreamingResponse
 
-        from app.domains.file.service import get_storage_provider
+        from app.domains.storage.factory import StorageFactory
 
         file_record = service.repository.get_by_id(file_id)
         if not file_record or not file_record.get('is_active', True):
             raise HTTPException(status_code=404, detail="File not found")
 
         file_url = file_record.get('url', '')
-        storage = get_storage_provider()
+        storage_provider = file_record.get('storage_provider')
 
         # Determine media type
         media_type = file_record.get('content_type')
@@ -148,8 +148,20 @@ async def download_file(
         disposition = "inline" if inline else "attachment"
         filename = file_record["original_name"]
 
-        # Check if file is in cloud storage (gs://, b2://, or other remote URL)
-        if file_url.startswith('gs://') or file_url.startswith('b2://') or file_url.startswith('https://') or file_url.startswith('http://'):
+        # Prefer the authoritative storage_provider column - falls back to
+        # sniffing the url prefix only for legacy rows written before this
+        # column existed (a url missing its provider prefix would otherwise
+        # be misread as a local path even though it's genuinely in the
+        # cloud, which is exactly the bug this column exists to prevent).
+        is_cloud = bool(storage_provider) and storage_provider != 'local'
+        if not storage_provider:
+            is_cloud = file_url.startswith('gs://') or file_url.startswith('b2://') or file_url.startswith('https://') or file_url.startswith('http://')
+
+        if is_cloud:
+            # Pass the record's own provider so a file stored under a
+            # different provider than the currently-configured default
+            # still resolves correctly (common during a provider migration).
+            storage = StorageFactory.get_instance(storage_provider)
             # Get file from storage provider
             try:
                 file_data = storage.download(file_url)
@@ -190,17 +202,27 @@ async def preview_file(
     try:
         from fastapi.responses import StreamingResponse
 
-        from app.domains.file.service import get_storage_provider
+        from app.domains.storage.factory import StorageFactory
 
         file_record = service.repository.get_by_id(file_id)
         if not file_record or not file_record.get('is_active', True):
             raise HTTPException(status_code=404, detail="File not found")
 
         file_url = file_record.get('url', '')
-        storage = get_storage_provider()
+        storage_provider = file_record.get('storage_provider')
 
-        # Check if file is in cloud storage (gs://, b2://, or other remote URL)
-        if file_url.startswith('gs://') or file_url.startswith('b2://') or file_url.startswith('https://') or file_url.startswith('http://'):
+        # Prefer the authoritative storage_provider column - falls back to
+        # sniffing the url prefix only for legacy rows written before this
+        # column existed. See download_file() above for the full rationale.
+        is_cloud = bool(storage_provider) and storage_provider != 'local'
+        if not storage_provider:
+            is_cloud = file_url.startswith('gs://') or file_url.startswith('b2://') or file_url.startswith('https://') or file_url.startswith('http://')
+
+        if is_cloud:
+            # Pass the record's own provider so a file stored under a
+            # different provider than the currently-configured default
+            # still resolves correctly (common during a provider migration).
+            storage = StorageFactory.get_instance(storage_provider)
             # Get file from storage provider
             try:
                 # For images, try thumbnail first

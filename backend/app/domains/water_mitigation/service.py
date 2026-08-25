@@ -1367,7 +1367,8 @@ class WaterMitigationService:
             "original_name": filename,
             "content_type": "application/pdf",
             "size": storage_info["file_size"],
-            "url": storage_info["file_path"],
+            "url": storage_info["file_url"],
+            "storage_provider": storage_info["storage_provider"],
             "category": "report",
             "is_active": True
         })

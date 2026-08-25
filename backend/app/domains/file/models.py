@@ -29,6 +29,9 @@ class File(Base):
     size = Column(Integer, nullable=False)  # File size in bytes
     url = Column(Text, nullable=False)  # File URL/path
     thumbnail_url = Column(Text)  # Thumbnail URL for images
+    storage_provider = Column(String(50))  # local | gcs | b2 | gdrive - authoritative
+    # source of truth for where `url` lives; download code should check this
+    # column, not re-derive it from parsing the url string
 
     # Context information
     context = Column(String(50), nullable=False)  # work-order, estimate, invoice, etc.

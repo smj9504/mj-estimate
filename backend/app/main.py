@@ -406,6 +406,14 @@ _NEEDED_COLUMNS = [
     ("claim_payments", "gross_amount", "DECIMAL(15,2)"),
     ("claim_payments", "source", "VARCHAR(50) DEFAULT 'admin'"),
     ("claim_payments", "contractor_company_id", "UUID"),
+    # Storage provider defense-in-depth: authoritative source of truth for
+    # which provider a stored url lives on, so download code never has to
+    # re-derive it by parsing the url string (a prior bug where a
+    # prefix-less url was misread as "local" caused false 404s on files
+    # that were genuinely in cloud storage)
+    ("files", "storage_provider", "VARCHAR(50)"),
+    ("contract_instances", "filled_pdf_provider", "VARCHAR(50)"),
+    ("contract_instances", "signed_pdf_provider", "VARCHAR(50)"),
 ]
 
 

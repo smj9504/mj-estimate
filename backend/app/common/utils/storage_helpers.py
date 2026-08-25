@@ -38,7 +38,17 @@ def upload_bytes_to_storage(
         content_type: MIME type
 
     Returns:
-        Dict with keys: file_path, storage_provider, storage_file_id, file_size
+        Dict with keys:
+            file_path: prefix-less blob path (e.g. "water-mitigation/job/reports/x.pdf") -
+                       kept for callers that already store storage_provider separately
+                       and resolve it via that column.
+            file_url: same path WITH the provider prefix (e.g. "b2://bucket/water-mitigation/...")
+                      or a plain "gs://"/"b2://"-free local path when STORAGE_PROVIDER=local.
+                      Callers that only have a single free-text URL/path column (no dedicated
+                      storage_provider column) MUST store this instead of file_path, since
+                      downstream preview/download code detects cloud storage by checking for
+                      this prefix.
+            storage_provider, storage_file_id, file_size
     """
     storage = StorageFactory.get_instance()
     storage_provider_type = os.getenv("STORAGE_PROVIDER", "local").lower()
@@ -60,6 +70,7 @@ def upload_bytes_to_storage(
 
     return {
         "file_path": upload_result.file_path,
+        "file_url": upload_result.file_url,
         "storage_provider": storage_provider_type,
         "storage_file_id": upload_result.file_id,
         "file_size": len(file_bytes),

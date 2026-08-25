@@ -797,7 +797,8 @@ async def generate_completion_report(
             'original_name': filename,
             'content_type': 'application/pdf',
             'size': len(pdf_bytes),
-            'url': storage_info.get('file_path', ''),
+            'url': storage_info.get('file_url', ''),
+            'storage_provider': storage_info.get('storage_provider'),
             'is_active': True,
         }
         created_file = file_service.repository.create(file_record_data)

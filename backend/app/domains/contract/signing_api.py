@@ -406,8 +406,9 @@ async def get_contract_pdf_public(token: str):
             )
 
         filled_url = contract.get('filled_pdf_url', '')
+        filled_prov = contract.get('filled_pdf_provider')
         file_url = contract.get('file_url', '')
-        storage_prov = contract.get('storage_provider')
+        template_prov = contract.get('storage_provider')  # template's own provider
 
         from app.domains.contract.api import (
             _resolve_contract_pdf,
@@ -416,7 +417,7 @@ async def get_contract_pdf_public(token: str):
         # 1) Try filled PDF first
         if filled_url:
             pdf_bytes = _resolve_contract_pdf(
-                filled_url, storage_prov
+                filled_url, filled_prov
             )
             if pdf_bytes:
                 return Response(
@@ -436,7 +437,7 @@ async def get_contract_pdf_public(token: str):
             )
 
         template_bytes = _resolve_contract_pdf(
-            template_url, storage_prov
+            template_url, template_prov
         )
         if not template_bytes:
             raise HTTPException(
@@ -506,10 +507,11 @@ async def send_signed_copy(token: str, data: dict):
 
         # Get signed PDF
         signed_url = contract.get('signed_pdf_url') or contract.get('filled_pdf_url')
+        signed_provider = contract.get('signed_pdf_provider') or contract.get('filled_pdf_provider')
         pdf_attachment = None
         if signed_url:
             from app.domains.contract.api import _resolve_contract_pdf
-            pdf_bytes = _resolve_contract_pdf(signed_url, contract.get('storage_provider'))
+            pdf_bytes = _resolve_contract_pdf(signed_url, signed_provider)
             if pdf_bytes:
                 title_safe = (contract.get('title') or 'Contract').replace(' ', '_')
                 pdf_attachment = {
@@ -754,11 +756,12 @@ def _send_signed_notification(service, token: str, signer_name: str):
 
     # Get signed PDF bytes
     signed_url = contract.get('signed_pdf_url') or contract.get('filled_pdf_url')
+    signed_provider = contract.get('signed_pdf_provider') or contract.get('filled_pdf_provider')
     pdf_attachment = None
     if signed_url:
         try:
             from app.domains.contract.api import _resolve_contract_pdf
-            pdf_bytes = _resolve_contract_pdf(signed_url, contract.get('storage_provider'))
+            pdf_bytes = _resolve_contract_pdf(signed_url, signed_provider)
             if pdf_bytes:
                 title_safe = (contract.get('title') or 'Contract').replace(' ', '_')
                 pdf_attachment = {

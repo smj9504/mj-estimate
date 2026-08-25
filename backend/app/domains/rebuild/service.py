@@ -575,7 +575,7 @@ class RebuildService:
                 'doc_type': doc_type,
                 'title': title,
                 'file_id': file_id,
-                'file_url': storage_info["file_path"],
+                'file_url': storage_info["file_url"],
                 'file_name': file_name,
                 'mime_type': 'application/pdf',
                 'status': 'final',
@@ -827,7 +827,7 @@ class RebuildService:
                 except Exception:
                     pass
 
-            return storage_info["file_path"]
+            return storage_info["file_url"]
 
         except Exception as e:
             logger.error(f"Error generating filled PDF: {e}")

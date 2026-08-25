@@ -219,6 +219,7 @@ class CrewUploadService:
                     size=file_size,
                     url=file_url,
                     thumbnail_url=result.thumbnail_url,
+                    storage_provider=storage.provider_name,
                     context=link.context,
                     context_id=str(link.context_id),
                     category='crew-upload',

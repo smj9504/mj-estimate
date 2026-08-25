@@ -55,7 +55,7 @@ class SmtpService:
         smtp_config = self._get_smtp_config(account_id)
 
         # Build message
-        msg = self._build_message(
+        msg, failed_attachments = self._build_message(
             from_address=from_address,
             to_addresses=to_addresses,
             cc_addresses=cc_addresses,
@@ -69,6 +69,16 @@ class SmtpService:
             email_address=smtp_config.get("email_address", from_address),
             company_name=smtp_config.get("company_name", ""),
         )
+
+        # Fail loudly instead of silently sending without attachments -
+        # a "sent" email missing a supplement estimate is worse than a
+        # blocked send, since the PA would silently never receive the file.
+        if failed_attachments:
+            names = ", ".join(failed_attachments)
+            raise ValueError(
+                f"Failed to attach the following file(s), email not sent: {names}. "
+                f"The file(s) may be missing from storage - try re-uploading."
+            )
 
         # Check message size before sending (Gmail limit: 25MB)
         MAX_EMAIL_SIZE_MB = 25
@@ -299,8 +309,12 @@ class SmtpService:
         sender_phone: str = "",
         email_address: str = "",
         company_name: str = "",
-    ) -> MIMEMultipart:
-        """Build MIME message with spam-prevention headers and signature"""
+    ) -> tuple[MIMEMultipart, List[str]]:
+        """Build MIME message with spam-prevention headers and signature.
+
+        Returns (message, failed_attachment_filenames) - callers must check
+        the failure list rather than assume every requested attachment made it in.
+        """
         # Append email signature if sender info is available
         if sender_name:
             body_html = self._append_signature(
@@ -319,6 +333,7 @@ class SmtpService:
 
         # Use multipart/alternative when no attachments, multipart/mixed when attachments exist
         has_attachments = bool(attachments)
+        failed_attachments: List[str] = []
         if has_attachments:
             msg = MIMEMultipart("mixed")
             body_part = MIMEMultipart("alternative")
@@ -326,7 +341,8 @@ class SmtpService:
             body_part.attach(MIMEText(body_html, "html", "utf-8"))
             msg.attach(body_part)
             for attachment in attachments:
-                self._attach_file(msg, attachment)
+                if not self._attach_file(msg, attachment):
+                    failed_attachments.append(attachment.get("filename", "attachment"))
         else:
             msg = MIMEMultipart("alternative")
             msg.attach(MIMEText(plain_text, "plain", "utf-8"))
@@ -348,7 +364,7 @@ class SmtpService:
         # Always set Reply-To for deliverability
         msg["Reply-To"] = reply_to or from_address
 
-        return msg
+        return msg, failed_attachments
 
     def _append_signature(
         self,
@@ -376,15 +392,17 @@ class SmtpService:
         )
         return body_html + signature_html
 
-    def _attach_file(self, msg: MIMEMultipart, attachment: Dict[str, Any]) -> None:
-        """Attach a file to the message.
+    def _attach_file(self, msg: MIMEMultipart, attachment: Dict[str, Any]) -> bool:
+        """Attach a file to the message. Returns True if attached, False on failure.
 
         Supports two modes:
         - file_id: looks up File model and reads from storage
         - data: raw bytes passed directly (for on-the-fly generated PDFs)
+
+        Callers must check the return value - a failure here must not result
+        in silently sending the email without the attachment.
         """
         filename = attachment.get("filename", "attachment")
-        mime_type = attachment.get("mime_type", "application/octet-stream")
 
         # Mode 1: Raw bytes provided directly
         raw_data = attachment.get("data")
@@ -393,11 +411,12 @@ class SmtpService:
             part["Content-Disposition"] = f'attachment; filename="{filename}"'
             msg.attach(part)
             logger.info(f"Attached file (raw): {filename} ({len(raw_data)} bytes)")
-            return
+            return True
 
         file_id = attachment.get("file_id")
         if not file_id:
-            return
+            logger.warning(f"Attachment '{filename}' has no file_id or raw data")
+            return False
 
         try:
             from app.domains.file.service import get_storage_provider
@@ -412,7 +431,7 @@ class SmtpService:
                 file_rec = session.query(FileModel).filter(FileModel.id == file_id).first()
                 if not file_rec:
                     logger.warning(f"File record not found for ID: {file_id}")
-                    return
+                    return False
                 file_url = file_rec.url or ''
             finally:
                 session.close()
@@ -435,10 +454,13 @@ class SmtpService:
                 part["Content-Disposition"] = f'attachment; filename="{filename}"'
                 msg.attach(part)
                 logger.info(f"Attached file: {filename} ({len(file_data)} bytes)")
+                return True
             else:
-                logger.warning(f"No file data for file_id={file_id}")
+                logger.warning(f"No file data for file_id={file_id} (url={file_url})")
+                return False
         except Exception as e:
-            logger.warning(f"Could not attach file {file_id}: {e}")
+            logger.warning(f"Could not attach file '{filename}' (file_id={file_id}): {type(e).__name__}: {e}")
+            return False
 
 
 def test_smtp_connection(account_id: Optional[str] = None) -> Dict[str, Any]:

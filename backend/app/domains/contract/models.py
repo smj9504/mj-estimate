@@ -104,9 +104,14 @@ class ContractInstance(Base, BaseModel):
 
     # Filled PDF (generated with prefilled data from template field mappings)
     filled_pdf_url = Column(Text)
+    filled_pdf_provider = Column(String(50))  # local | gcs | b2 - authoritative
+    # source of truth for filled_pdf_url; download code should check this,
+    # not re-derive it from parsing the url string
 
     # Signed PDF (generated after all signatures collected)
     signed_pdf_url = Column(Text)
+    signed_pdf_provider = Column(String(50))  # local | gcs | b2 - authoritative
+    # source of truth for signed_pdf_url; same rationale as filled_pdf_provider
 
     # Email tracking: JSON list of emails the signing link was sent to
     sent_to_emails = Column(Text)  # JSON: ["client@example.com"]

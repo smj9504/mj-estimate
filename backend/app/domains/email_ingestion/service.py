@@ -690,7 +690,9 @@ class EmailIngestionService:
                 file_url = file_result.get("url", "")
         except Exception as e:
             logger.warning(f"Storage upload failed, saving file record directly: {e}")
-            # Fallback: create file record without storage provider
+            # Fallback: storage.upload() never ran, so this url is a plain
+            # local-style path, not a real cloud location - mark it 'local'
+            # so download code doesn't mistake it for a genuine cloud file.
             file_url = f"/uploads/claim-negotiation/{claim_id}/{attachment.filename}"
             file_record = File(
                 id=file_id,
@@ -699,6 +701,7 @@ class EmailIngestionService:
                 content_type="application/pdf",
                 size=len(attachment.data),
                 url=file_url,
+                storage_provider="local",
                 context="claim-negotiation",
                 context_id=claim_id,
                 category="insurance-estimate",

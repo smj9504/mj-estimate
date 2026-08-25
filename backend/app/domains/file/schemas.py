@@ -21,6 +21,7 @@ class FileBase(BaseModel):
     size: int = Field(..., description="File size in bytes")
     url: str = Field(..., description="File URL/path")
     thumbnail_url: Optional[str] = Field(None, description="Thumbnail URL for images")
+    storage_provider: Optional[str] = Field(None, description="Authoritative storage provider (local | gcs | b2 | gdrive) for url")
     context: str = Field(..., description="Context (work-order, estimate, etc.)")
     context_id: str = Field(..., description="Related entity ID")
     category: str = Field("general", description="File category")

@@ -131,6 +131,7 @@ class FileService(BaseService[File, str]):
                 size=result.storage_metadata.get('size', 0) if result.storage_metadata else 0,
                 url=result.file_url,
                 thumbnail_url=result.thumbnail_url,
+                storage_provider=self.storage.provider_name,
                 context=context,
                 context_id=context_id,
                 category=category,

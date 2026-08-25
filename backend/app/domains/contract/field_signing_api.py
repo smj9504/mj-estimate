@@ -306,10 +306,11 @@ async def send_email_with_template(token: str, data: SendEmailRequest):
 
         # Get signed PDF
         signed_url = contract.get('signed_pdf_url') or contract.get('filled_pdf_url')
+        signed_provider = contract.get('signed_pdf_provider') or contract.get('filled_pdf_provider')
         pdf_attachment = None
         if signed_url:
             from app.domains.contract.api import _resolve_contract_pdf
-            pdf_bytes = _resolve_contract_pdf(signed_url, contract.get('storage_provider'))
+            pdf_bytes = _resolve_contract_pdf(signed_url, signed_provider)
             if pdf_bytes:
                 title_safe = (contract.get('title') or 'Contract').replace(' ', '_')
                 pdf_attachment = {
