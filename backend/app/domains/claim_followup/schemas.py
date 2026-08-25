@@ -20,7 +20,7 @@ DEPRECIATION_PHASES = [
 
 
 class FollowUpTaskBase(BaseModel):
-    task_type: str = Field(..., description="docs_sent | payment_check | estimate_request | supplement_sent | depreciation_recovery | general")
+    task_type: str = Field(..., description="docs_sent | payment_check | estimate_request | supplement_estimate_prep | supplement_sent | depreciation_recovery | general")
     title: str
     description: Optional[str] = None
     due_date: Optional[datetime] = None

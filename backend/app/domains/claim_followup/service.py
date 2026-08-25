@@ -243,9 +243,20 @@ class ClaimFollowUpService:
                 return result
 
             # Normal resolve flow
+            task_before = repo.get_by_id(task_id)
             result = repo.resolve_task(task_id, resolution_notes)
             if not result:
                 return None
+
+            # Resolving the "prepare supplement estimate" step means it's
+            # ready to send — create the follow-on supplement_sent task.
+            if task_before and task_before.get('task_type') == 'supplement_estimate_prep':
+                claim_id_for_supp = result.get('claim_id')
+                if claim_id_for_supp:
+                    self._auto_create_supplement_task(
+                        session, str(claim_id_for_supp),
+                        result.get('property_address', '') or '',
+                    )
 
             # Save payment info on the task and sync to WM job
             if payment_status or payment_note:
@@ -920,8 +931,9 @@ class ClaimFollowUpService:
                 related_entity_id=supplement.id,
             ))
 
-            # Auto-create supplement_sent follow-up task
-            self._auto_create_supplement_task(session, claim_id, address)
+            # Auto-create supplement_estimate_prep follow-up task
+            # (drafting the supplement estimate comes before sending it)
+            self._auto_create_supplement_estimate_prep_task(session, claim_id, address)
 
             logger.info(f"Auto-created supplement for claim {claim_id}")
         except IntegrityError:
@@ -929,8 +941,56 @@ class ClaimFollowUpService:
         except Exception as e:
             logger.error(f"Error auto-creating supplement: {e}")
 
+    def _auto_create_supplement_estimate_prep_task(self, session, claim_id: str, address: str = ''):
+        """Auto-create a supplement_estimate_prep follow-up task if one doesn't exist.
+
+        This precedes supplement_sent: it tracks drafting the supplement
+        estimate itself, before it is submitted to the PA/insurance.
+        """
+        try:
+            from app.domains.claim_followup.models import FollowUpTask as FollowUpTaskModel
+
+            existing = session.query(FollowUpTaskModel).filter(
+                FollowUpTaskModel.claim_id == claim_id,
+                FollowUpTaskModel.task_type.in_(['supplement_estimate_prep', 'supplement_sent']),
+                FollowUpTaskModel.status.notin_(['cancelled']),
+            ).first()
+            if existing:
+                return
+
+            # Get assigned_to from existing tasks on this claim
+            source = session.query(FollowUpTaskModel).filter(
+                FollowUpTaskModel.claim_id == claim_id,
+            ).order_by(FollowUpTaskModel.created_at.desc()).first()
+
+            task = FollowUpTaskModel(
+                claim_id=claim_id,
+                task_type='supplement_estimate_prep',
+                title=f'Prepare Supplement Estimate - {address}' if address else 'Prepare Supplement Estimate',
+                description='Insurance estimate received. Prepare supplement estimate for review before sending to PA.',
+                status='pending',
+                priority='high',
+                next_followup_date=datetime.now(timezone.utc) + timedelta(days=3),
+                assigned_to_name=source.assigned_to_name if source else None,
+                assigned_to_email=source.assigned_to_email if source else None,
+                assigned_to_phone=source.assigned_to_phone if source else None,
+                assigned_to_role=source.assigned_to_role if source else 'adjuster',
+                auto_followup_enabled=False,
+                followup_interval_days=3,
+                max_followup_count=5,
+            )
+            session.add(task)
+            logger.info(f"Auto-created supplement_estimate_prep task for claim {claim_id}")
+        except Exception as e:
+            logger.error(f"Error auto-creating supplement estimate prep task: {e}")
+
     def _auto_create_supplement_task(self, session, claim_id: str, address: str = ''):
-        """Auto-create a supplement_sent follow-up task if one doesn't exist."""
+        """Auto-create a supplement_sent follow-up task if one doesn't exist.
+
+        Called once the supplement estimate is ready to be sent — see
+        resolve_supplement_estimate_prep, which transitions from
+        supplement_estimate_prep into this task.
+        """
         try:
             from app.domains.claim_followup.models import FollowUpTask as FollowUpTaskModel
 
@@ -951,7 +1011,7 @@ class ClaimFollowUpService:
                 claim_id=claim_id,
                 task_type='supplement_sent',
                 title=f'Supplement - {address}' if address else 'Supplement Follow-up',
-                description='Insurance estimate received. Prepare supplement estimate and send to PA.',
+                description='Supplement estimate prepared. Send to PA and follow up.',
                 status='pending',
                 priority='high',
                 next_followup_date=datetime.now(timezone.utc) + timedelta(days=5),

@@ -31,6 +31,7 @@ class FollowUpTask(Base, BaseModel):
     - docs_sent: Documents sent to adjuster (Invoice + COS + EWA + Photo Report)
     - payment_check: Checking if insurance payment was received
     - estimate_request: Requesting rebuild estimate from insurance
+    - supplement_estimate_prep: Drafting the supplement estimate (before it is sent)
     - supplement_sent: Supplement estimate sent to public adjuster
     - general: General follow-up
     """
@@ -61,7 +62,7 @@ class FollowUpTask(Base, BaseModel):
     task_type = Column(
         String(50),
         nullable=False,
-        comment="wm_docs_sent | supplement_sent | depreciation_recovery | estimate_request | payment_check | wm_payment_check | docs_sent | general | dispute | appraisal | attorney_referral"
+        comment="wm_docs_sent | supplement_estimate_prep | supplement_sent | depreciation_recovery | estimate_request | payment_check | wm_payment_check | docs_sent | general | dispute | appraisal | attorney_referral"
     )
     title = Column(String(500), nullable=False)
     description = Column(Text)

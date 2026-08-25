@@ -93,6 +93,7 @@ const useIsMobile = () => {
 
 const TASK_TYPE_OPTIONS: { value: TaskType; label: string }[] = [
   { value: 'wm_docs_sent', label: 'WM Docs (Invoice/COS/EWA/Photo)' },
+  { value: 'supplement_estimate_prep', label: 'Prepare Supplement Estimate' },
   { value: 'supplement_sent', label: 'Supplement Sent' },
   { value: 'depreciation_recovery', label: 'Depreciation Recovery Docs' },
   { value: 'estimate_request', label: 'Estimate Request' },
@@ -108,6 +109,7 @@ const TASK_TYPE_OPTIONS: { value: TaskType; label: string }[] = [
 
 const TASK_TYPE_ICONS: Record<string, React.ReactNode> = {
   wm_docs_sent: <SendOutlined />,
+  supplement_estimate_prep: <FileTextOutlined />,
   supplement_sent: <FileTextOutlined />,
   depreciation_recovery: <DollarOutlined />,
   estimate_request: <AuditOutlined />,
@@ -125,7 +127,8 @@ const STAGE_ORDER: TaskType[] = [
   'wm_docs_sent',
   'wm_payment_check',    // WM Payment first
   'payment_check',       // Rebuild Payment second
-  'supplement_sent',     // Supplement after initial payments
+  'supplement_estimate_prep', // Draft supplement estimate...
+  'supplement_sent',     // ...then send it, after initial payments
   'estimate_request',
   'dispute',
   'appraisal',
@@ -138,6 +141,7 @@ const STAGE_ORDER: TaskType[] = [
 const STAGE_LABELS: Record<string, string> = {
   wm_docs_sent: 'WM Docs',
   estimate_request: 'Est. Request',
+  supplement_estimate_prep: 'Prep Supplement',
   supplement_sent: 'Supplement',
   payment_check: 'Rebuild Payment',
   wm_payment_check: 'WM Payment',
