@@ -308,6 +308,7 @@ const formatCurrency = (val?: number) => {
 };
 
 export const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
+  const navigate = useNavigate();
   const [estimates, setEstimates] = useState<any[]>([]);
   const [supplements, setSupplements] = useState<any[]>([]);
   const [bidItems, setBidItems] = useState<any[]>([]);
@@ -843,10 +844,13 @@ export const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) 
                   return (
                     <div
                       key={sup.id}
+                      onClick={() => navigate(`/supplements/${sup.id}`)}
                       style={{
                         padding: '6px 10px', marginBottom: 4, borderRadius: 6,
-                        border: '1px solid #f0f0f0', background: '#fafafa',
+                        border: '1px solid #f0f0f0', background: '#fafafa', cursor: 'pointer',
                       }}
+                      onMouseEnter={e => { e.currentTarget.style.background = '#f0f5ff'; e.currentTarget.style.borderColor = '#adc6ff'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = '#fafafa'; e.currentTarget.style.borderColor = '#f0f0f0'; }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
@@ -884,6 +888,7 @@ export const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) 
                                 href={`${fileService.getDownloadUrl(item.custom_document_file_id)}?inline=true`}
                                 target="_blank"
                                 rel="noopener noreferrer"
+                                onClick={e => e.stopPropagation()}
                               >
                                 <Button type="text" size="small" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />} style={{ fontSize: 11 }}>
                                   PDF

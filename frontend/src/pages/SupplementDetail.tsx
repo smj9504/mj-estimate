@@ -26,7 +26,7 @@ import { listEstimates as listPackingEstimates } from '../services/packingEstima
 import { companyService } from '../services/companyService';
 import type {
   SupplementRequest, BidItemEstimate, BidItemEstimateCreate,
-  SupplementFollowUp,
+  SupplementFollowUp, BidItemType,
 } from '../types/supplement';
 import type { ClaimNegotiation, NegotiationSection } from '../types/client';
 
@@ -106,6 +106,31 @@ const REQUIRED_ESTIMATE_OPTIONS = [
   { key: 'kitchen', label: 'Kitchen' },
   { key: 'flooring', label: 'Flooring' },
 ];
+
+// Maps a Required Estimates checkbox key to the Bid Item Estimate `estimate_type`
+// it corresponds to, so checking a box can auto-create the matching bid item.
+// Only 'pack_in_out' differs in name from its bid item type ('packing').
+const REQUIRED_ESTIMATE_TO_BID_TYPE: Record<string, BidItemType> = {
+  xactimate: 'xactimate',
+  pack_in_out: 'packing',
+  cabinet: 'cabinet',
+  bathroom: 'bathroom',
+  roofing: 'roofing',
+  kitchen: 'kitchen',
+  flooring: 'flooring',
+};
+
+// A bid item is considered "auto-created and still empty" (safe to silently
+// remove when its checkbox is unchecked) if it has no amount, no PDF, no
+// description, and no link to another domain's estimate.
+const isEmptyBidItem = (item: BidItemEstimate): boolean =>
+  !item.custom_amount
+  && !item.custom_document_file_id
+  && !item.description
+  && !item.bathroom_estimate_id
+  && !item.cabinet_estimate_id
+  && !item.pack_calculation_id
+  && !item.roofing_estimate_id;
 
 const ESTIMATE_ID_FIELD_MAP: Record<string, string> = {
   bathroom: 'bathroom_estimate_id',
@@ -257,6 +282,33 @@ const SupplementDetail: React.FC = () => {
   useEffect(() => {
     if (supplement?.id) loadFollowups(supplement.id);
   }, [supplement?.id, loadFollowups]);
+
+  // Backfill bid items for required estimates that were checked before this
+  // auto-create behavior existed (or checked outside this page). Runs once
+  // per supplement load; guarded by a ref so the create → refetch it causes
+  // doesn't loop.
+  const backfilledSupplementRef = React.useRef<string | null>(null);
+  useEffect(() => {
+    if (!supplement?.id) return;
+    if (backfilledSupplementRef.current === supplement.id) return;
+    backfilledSupplementRef.current = supplement.id;
+
+    const checkedKeys = Object.entries(supplement.required_estimates || {})
+      .filter(([, v]) => v).map(([k]) => k);
+    const bidItems = supplement.bid_items || [];
+    const missingTypes = checkedKeys
+      .map(key => REQUIRED_ESTIMATE_TO_BID_TYPE[key])
+      .filter((type): type is BidItemType => !!type)
+      .filter(type => !bidItems.some(i => i.estimate_type === type));
+
+    if (missingTypes.length === 0) return;
+
+    Promise.all(missingTypes.map(type => supplementService.createBidItem(supplement.id, {
+      supplement_id: supplement.id,
+      estimate_type: type,
+      title: BID_TYPE_LABELS[type] || type,
+    }))).then(refreshSupplement);
+  }, [supplement]);
 
   // Manual IMAP reply check (button only — heavy operation)
   const [checkingReplies, setCheckingReplies] = useState(false);
@@ -908,10 +960,47 @@ const SupplementDetail: React.FC = () => {
                 if (hasAnyChecked && supplement.status === 'identified') {
                   updateData.status = 'in_progress';
                 }
+                const previouslyChecked = Object.entries(supplement.required_estimates || {})
+                  .filter(([, v]) => v).map(([k]) => k);
+                const newlyChecked = editedRequiredEstimates.filter(k => !previouslyChecked.includes(k));
+                const newlyUnchecked = previouslyChecked.filter(k => !editedRequiredEstimates.includes(k));
+
                 updateMutation.mutate(updateData, {
-                  onSuccess: () => {
+                  onSuccess: async () => {
                     setRequiredEstimatesDirty(false);
                     queryClient.invalidateQueries({ queryKey: ['supplements-pending-review'] });
+
+                    // Auto-create a blank bid item for each newly checked
+                    // required estimate that doesn't already have one.
+                    const bidItems = supplement.bid_items || [];
+                    const toCreate = newlyChecked
+                      .map(key => REQUIRED_ESTIMATE_TO_BID_TYPE[key])
+                      .filter((type): type is BidItemType => !!type)
+                      .filter(type => !bidItems.some(i => i.estimate_type === type));
+
+                    // Auto-remove bid items for unchecked estimates, but only
+                    // if they're still empty (untouched since auto-creation).
+                    const toRemove = newlyUnchecked
+                      .map(key => REQUIRED_ESTIMATE_TO_BID_TYPE[key])
+                      .filter((type): type is BidItemType => !!type)
+                      .map(type => bidItems.find(i => i.estimate_type === type))
+                      .filter((item): item is BidItemEstimate => !!item && isEmptyBidItem(item));
+
+                    if (toCreate.length === 0 && toRemove.length === 0) return;
+
+                    try {
+                      await Promise.all([
+                        ...toCreate.map(type => supplementService.createBidItem(supplement.id, {
+                          supplement_id: supplement.id,
+                          estimate_type: type,
+                          title: BID_TYPE_LABELS[type] || type,
+                        })),
+                        ...toRemove.map(item => supplementService.deleteBidItem(supplement.id, item.id)),
+                      ]);
+                      refreshSupplement();
+                    } catch {
+                      message.error('Failed to sync bid items with required estimates');
+                    }
                   },
                 });
               }}
