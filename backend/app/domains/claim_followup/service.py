@@ -271,8 +271,12 @@ class ClaimFollowUpService:
 
             claim_id = result.get('claim_id')
 
-            # Process outcome
-            if outcome and claim_id:
+            # Process outcome — payment stages (payment_check, wm_payment_check)
+            # resolve via payment_status only and must never re-trigger the
+            # insurance-estimate outcome flow (it would re-create rebuild
+            # projects / payment tasks and overwrite claim estimate data).
+            task_type = (task_before or {}).get('task_type')
+            if outcome and claim_id and task_type not in ('payment_check', 'wm_payment_check'):
                 self._process_resolve_outcome(
                     session, claim_id, result, outcome, resolution_notes,
                     estimate_data=estimate_data,

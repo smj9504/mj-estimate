@@ -122,6 +122,13 @@ const TASK_TYPE_ICONS: Record<string, React.ReactNode> = {
   attorney_referral: <AlertOutlined />,
 };
 
+// Stages that resolve with a payment status only (no estimate outcome).
+const PAYMENT_TASK_TYPES: TaskType[] = ['payment_check', 'wm_payment_check'];
+
+// Stages that resolve via the insurance-estimate outcome form
+// (estimate received / WM-only / requested / denied).
+const ESTIMATE_OUTCOME_TASK_TYPES: TaskType[] = ['estimate_request', 'wm_docs_sent'];
+
 // Ordered stages for the pipeline view
 const STAGE_ORDER: TaskType[] = [
   'wm_docs_sent',
@@ -141,7 +148,7 @@ const STAGE_ORDER: TaskType[] = [
 const STAGE_LABELS: Record<string, string> = {
   wm_docs_sent: 'WM Docs',
   estimate_request: 'Est. Request',
-  supplement_estimate_prep: 'Prep Supplement',
+  supplement_estimate_prep: 'Supplement Prep',
   supplement_sent: 'Supplement',
   payment_check: 'Rebuild Payment',
   wm_payment_check: 'WM Payment',
@@ -1226,7 +1233,11 @@ const ClaimFollowUpDashboard: React.FC = () => {
     if (task.resolution_notes) {
       resolveForm.setFieldsValue({ resolution_notes: task.resolution_notes });
     }
-    if (task.claim_id) {
+    // Only estimate-intake stages need the insurance-estimate autofill.
+    // Payment / supplement / other stages resolve independently and must
+    // not be forced into the "Insurance Estimate Received" flow.
+    const isEstimateIntakeStage = ['estimate_request', 'wm_docs_sent'].includes(task.task_type);
+    if (isEstimateIntakeStage && task.claim_id) {
       try {
         const estimates = await supplementService.listInsuranceEstimates(task.claim_id);
         if (estimates.length > 0) {
@@ -1786,6 +1797,11 @@ const ClaimFollowUpDashboard: React.FC = () => {
     return <Space size={4} wrap>{tags}</Space>;
   };
 
+  // Which resolve-form sections apply depends on the task's stage — each
+  // stage resolves differently, so we don't ask for irrelevant inputs.
+  const isPaymentTask = !!selectedTask && PAYMENT_TASK_TYPES.includes(selectedTask.task_type);
+  const isEstimateOutcomeTask = !!selectedTask && ESTIMATE_OUTCOME_TASK_TYPES.includes(selectedTask.task_type);
+
   return (
     <div style={{ padding: '0 4px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
@@ -2102,7 +2118,15 @@ const ClaimFollowUpDashboard: React.FC = () => {
             <Col xs={24} sm={12}>
               <Form.Item name="task_type" label="Task Type" rules={[{ required: true }]}>
                 <Select options={TASK_TYPE_OPTIONS} placeholder="Select type"
-                  onChange={() => createForm.setFieldValue('custom_task_type', undefined)} />
+                  onChange={(value) => {
+                    createForm.setFieldValue('custom_task_type', undefined);
+                    // Prefill title from the stage label so picking a type
+                    // is enough — no need to also type a title by hand.
+                    if (value !== '__custom__' && !createForm.getFieldValue('title')) {
+                      const label = TASK_TYPE_OPTIONS.find(o => o.value === value)?.label;
+                      if (label) createForm.setFieldValue('title', label);
+                    }
+                  }} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -2120,7 +2144,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
             {({ getFieldValue }) => getFieldValue('task_type') === '__custom__' && (
               <Form.Item name="custom_task_type" label="Custom Stage Name"
                 rules={[{ required: true, message: 'Enter a custom stage name' }]}>
-                <Input placeholder="e.g., Check with PA, Talk to homeowner, Waiting for approval" />
+                <Input placeholder="e.g., Check with PA, Talk to homeowner, Waiting for approval"
+                  onChange={(e) => {
+                    if (!createForm.getFieldValue('title')) {
+                      createForm.setFieldValue('title', e.target.value);
+                    }
+                  }} />
               </Form.Item>
             )}
           </Form.Item>
@@ -2234,17 +2263,35 @@ const ClaimFollowUpDashboard: React.FC = () => {
         confirmLoading={resolveMutation.isPending}
       >
         <Form form={resolveForm} layout="vertical">
-          <Form.Item name="outcome" label="Outcome" rules={[{ required: true, message: 'Select an outcome' }]}>
-            <Select placeholder="What was the result?" onChange={(v) => { setResolveOutcome(v); setResolveDeniedAction(undefined); resolveForm.setFieldsValue({ denied_action: undefined }); }}>
-              <Select.Option value="estimate_received">Insurance Estimate Received</Select.Option>
-              <Select.Option value="wm_estimate_only">WM Estimate Only (Rebuild Unknown)</Select.Option>
-              <Select.Option value="estimate_requested">Insurance Requested Our Estimate</Select.Option>
-              <Select.Option value="denied">Claim Denied</Select.Option>
-              <Select.Option value="other">Other</Select.Option>
-            </Select>
-          </Form.Item>
+          {isPaymentTask && (
+            <div style={{ marginBottom: 12, padding: '6px 8px', background: '#fafafa', borderRadius: 4 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Payment stage — just record the payment status below. No estimate info needed here.
+              </Text>
+            </div>
+          )}
 
-          {resolveOutcome === 'denied' && (
+          {!isPaymentTask && !isEstimateOutcomeTask && (
+            <div style={{ marginBottom: 12, padding: '6px 8px', background: '#fafafa', borderRadius: 4 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Add resolution notes if needed, then click Resolve to complete this stage.
+              </Text>
+            </div>
+          )}
+
+          {isEstimateOutcomeTask && (
+            <Form.Item name="outcome" label="Outcome" rules={[{ required: true, message: 'Select an outcome' }]}>
+              <Select placeholder="What was the result?" onChange={(v) => { setResolveOutcome(v); setResolveDeniedAction(undefined); resolveForm.setFieldsValue({ denied_action: undefined }); }}>
+                <Select.Option value="estimate_received">Insurance Estimate Received</Select.Option>
+                <Select.Option value="wm_estimate_only">WM Estimate Only (Rebuild Unknown)</Select.Option>
+                <Select.Option value="estimate_requested">Insurance Requested Our Estimate</Select.Option>
+                <Select.Option value="denied">Claim Denied</Select.Option>
+                <Select.Option value="other">Other</Select.Option>
+              </Select>
+            </Form.Item>
+          )}
+
+          {isEstimateOutcomeTask && resolveOutcome === 'denied' && (
             <Form.Item
               name="denied_action"
               label="Next Action"
@@ -2559,7 +2606,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
           )}
 
           {/* Payment Status for payment tasks */}
-          {selectedTask && ['payment_check', 'wm_payment_check'].includes(selectedTask.task_type) && (
+          {isPaymentTask && (
             <div style={{ background: '#e6f7ff', borderRadius: 6, padding: '10px 12px', marginBottom: 12, border: '1px solid #91d5ff' }}>
               <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Payment Status</Text>
               <Form.Item name="payment_status" style={{ marginBottom: 8 }} rules={[{ required: true, message: 'Select payment status' }]}>
