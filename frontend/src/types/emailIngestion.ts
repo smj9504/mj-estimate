@@ -102,9 +102,6 @@ export interface IngestionLog {
 
 export type IngestionStatus =
   | 'pending'
-  | 'processing'
-  | 'classified'
-  | 'matched'
   | 'uploaded'
   | 'skipped'
   | 'failed'

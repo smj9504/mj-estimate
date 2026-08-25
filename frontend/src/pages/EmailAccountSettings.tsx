@@ -208,7 +208,6 @@ const EmailAccountSettings: React.FC = () => {
       sender_phone: account.sender_phone || undefined,
       can_send: account.can_send !== false,
       is_active: account.is_active,
-      auto_schedule: account.auto_schedule,
     });
     setModalOpen(true);
   };
@@ -451,13 +450,12 @@ const EmailAccountSettings: React.FC = () => {
             <Switch />
           </Form.Item>
 
-          <Form.Item name="auto_schedule" label="Auto Schedule (optional)">
-            <Select allowClear placeholder="Manual only">
-              <Select.Option value="0 9 * * *">Daily at 9:00 AM</Select.Option>
-              <Select.Option value="0 9,15 * * *">Twice daily (9 AM, 3 PM)</Select.Option>
-              <Select.Option value="0 9 * * 1-5">Weekdays at 9:00 AM</Select.Option>
-            </Select>
-          </Form.Item>
+          <Alert
+            message="Emails are checked automatically once a day (6:00 AM ET)."
+            description='Need results sooner? Use the "Poll Now" button on the account list.'
+            type="info"
+            showIcon
+          />
         </Form>
       </Modal>
     </div>

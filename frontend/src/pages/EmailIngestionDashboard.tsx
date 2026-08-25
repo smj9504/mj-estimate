@@ -10,6 +10,7 @@ import {
   Form,
   Input,
   Select,
+  Switch,
   message,
   Typography,
   Row,
@@ -34,9 +35,9 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { emailIngestionService } from '../services/emailIngestionService';
-import { clientService } from '../services/clientService';
+import { clientService, claimService } from '../services/clientService';
 import type { IngestionLog, IngestionStats, EmailAccount } from '../types/emailIngestion';
-import type { ClientListItem } from '../types/client';
+import type { ClientListItem, Claim } from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 
@@ -44,9 +45,6 @@ const { Title, Text } = Typography;
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'orange',
-  processing: 'blue',
-  classified: 'cyan',
-  matched: 'geekblue',
   uploaded: 'green',
   skipped: 'default',
   failed: 'red',
@@ -85,6 +83,14 @@ const EmailIngestionDashboard: React.FC = () => {
     queryKey: ['client-search', clientSearch],
     queryFn: () => clientService.search(clientSearch, 20),
     enabled: clientSearch.length >= 2,
+  });
+
+  // Existing-claim lookup, once a client is chosen and "select existing claim" is toggled on
+  const [assignClientId, setAssignClientId] = useState<string | undefined>(undefined);
+  const { data: clientClaims } = useQuery({
+    queryKey: ['client-claims', assignClientId],
+    queryFn: () => claimService.listByClient(assignClientId!),
+    enabled: !!assignClientId,
   });
 
   // Mutations
@@ -198,10 +204,19 @@ const EmailIngestionDashboard: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 120,
+      width: 150,
       render: (_: any, record: IngestionLog) => (
         <Space size="small">
-          {(record.status === 'pending' || record.status === 'classified') && (
+          {record.file_id && (
+            <Tooltip title="Preview PDF">
+              <Button
+                size="small"
+                icon={<FileTextOutlined />}
+                onClick={() => window.open(`/api/files/download/${record.file_id}?inline=true`, '_blank')}
+              />
+            </Tooltip>
+          )}
+          {record.status === 'pending' && (
             <>
               <Tooltip title="Assign to Client/Claim">
                 <Button
@@ -349,7 +364,7 @@ const EmailIngestionDashboard: React.FC = () => {
       <Modal
         title="Assign to Client / Claim"
         open={assignModalOpen}
-        onCancel={() => { setAssignModalOpen(false); assignForm.resetFields(); }}
+        onCancel={() => { setAssignModalOpen(false); assignForm.resetFields(); setAssignClientId(undefined); }}
         onOk={() => assignForm.submit()}
         confirmLoading={assignMutation.isPending}
       >
@@ -366,6 +381,18 @@ const EmailIngestionDashboard: React.FC = () => {
             <div style={{ marginBottom: 16, padding: 12, background: '#f5f5f5', borderRadius: 6 }}>
               <Text strong>Email: </Text>{selectedLog.subject}<br />
               <Text strong>File: </Text>{selectedLog.attachment_name}
+              {selectedLog.file_id && (
+                <>
+                  {' '}
+                  <a
+                    href={`/api/files/download/${selectedLog.file_id}?inline=true`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    (Preview PDF)
+                  </a>
+                </>
+              )}
             </div>
           )}
           <Form.Item name="client_id" label="Client" rules={[{ required: true }]}>
@@ -374,6 +401,7 @@ const EmailIngestionDashboard: React.FC = () => {
               placeholder="Search client..."
               filterOption={false}
               onSearch={setClientSearch}
+              onChange={(value) => setAssignClientId(value)}
               notFoundContent={clientSearch.length < 2 ? 'Type to search...' : 'No clients found'}
             >
               {(clientResults as any)?.clients?.map((c: ClientListItem) => (
@@ -383,14 +411,33 @@ const EmailIngestionDashboard: React.FC = () => {
               ))}
             </Select>
           </Form.Item>
-          <Form.Item name="create_claim" valuePropName="checked" initialValue={true}>
-            <Select placeholder="Claim action">
-              <Select.Option value={true}>Create new claim</Select.Option>
-              <Select.Option value={false}>Select existing claim</Select.Option>
-            </Select>
+          <Form.Item name="create_claim" label="Claim Action" valuePropName="checked" initialValue={true}>
+            <Switch checkedChildren="Create new claim" unCheckedChildren="Select existing claim" />
           </Form.Item>
-          <Form.Item name="claim_number" label="Claim Number (for new claim)">
-            <Input placeholder="e.g. CLM-2026-001" />
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.create_claim !== cur.create_claim}>
+            {({ getFieldValue }) => getFieldValue('create_claim') ? (
+              <Form.Item name="claim_number" label="Claim Number (for new claim)">
+                <Input placeholder="e.g. CLM-2026-001" />
+              </Form.Item>
+            ) : (
+              <Form.Item name="claim_id" label="Existing Claim" rules={[{ required: true, message: 'Please select a claim' }]}>
+                <Select
+                  showSearch
+                  placeholder={assignClientId ? 'Select claim...' : 'Select a client first'}
+                  disabled={!assignClientId}
+                  filterOption={(input, option) =>
+                    (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+                  }
+                  notFoundContent={assignClientId ? 'No claims for this client' : 'Select a client first'}
+                >
+                  {clientClaims?.claims?.map((claim: Claim) => (
+                    <Select.Option key={claim.id} value={claim.id} label={`${claim.claim_number} (${claim.status})`}>
+                      {claim.claim_number} ({claim.status})
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            )}
           </Form.Item>
         </Form>
       </Modal>

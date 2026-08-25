@@ -21,26 +21,31 @@ INSURANCE_DOMAINS = {
     "xactware.com", "verisk.com",  # Xactimate platform
 }
 
-# Keywords indicating insurance estimate in email subject/body
+# Keywords indicating insurance estimate in email subject/body, each with a
+# weight reflecting how strong a signal it is on its own. Strong/specific
+# terms (claim #, policy #, xactimate) count more than generic ones
+# (estimate, adjuster) so that e.g. a short notification email with just
+# "Claim #12345 - estimate attached" can clear the threshold on 2 strong
+# hits instead of needing 3 keyword matches regardless of strength.
 EMAIL_KEYWORDS = [
-    r"estimate",
-    r"claim\s*(number|#|no\.?)",
-    r"loss\s*(date|report)",
-    r"xactimate",
-    r"xact\s*analysis",
-    r"scope\s*of\s*(loss|work|repair)",
-    r"insurance\s*(estimate|claim|report)",
-    r"adjuster",
-    r"supplement",
-    r"reinspection",
-    r"re-inspection",
-    r"appraisal",
-    r"coverage\s*(determination|decision)",
-    r"proof\s*of\s*loss",
-    r"acv|rcv|actual\s*cash\s*value|replacement\s*cost",
-    r"depreciation",
-    r"deductible",
-    r"policy\s*(number|#|no\.?)",
+    (r"estimate", 1),
+    (r"claim\s*(number|#|no\.?)", 2),
+    (r"loss\s*(date|report)", 1),
+    (r"xactimate", 2),
+    (r"xact\s*analysis", 2),
+    (r"scope\s*of\s*(loss|work|repair)", 1),
+    (r"insurance\s*(estimate|claim|report)", 2),
+    (r"adjuster", 1),
+    (r"supplement", 1),
+    (r"reinspection", 1),
+    (r"re-inspection", 1),
+    (r"appraisal", 1),
+    (r"coverage\s*(determination|decision)", 1),
+    (r"proof\s*of\s*loss", 1),
+    (r"acv|rcv|actual\s*cash\s*value|replacement\s*cost", 1),
+    (r"depreciation", 1),
+    (r"deductible", 1),
+    (r"policy\s*(number|#|no\.?)", 2),
 ]
 
 # Keywords in PDF text indicating insurance estimate
@@ -66,7 +71,7 @@ PDF_KEYWORDS = [
 ]
 
 # Compiled patterns for performance
-_email_patterns = [re.compile(kw, re.IGNORECASE) for kw in EMAIL_KEYWORDS]
+_email_patterns = [(re.compile(kw, re.IGNORECASE), weight) for kw, weight in EMAIL_KEYWORDS]
 _pdf_patterns = [re.compile(kw, re.IGNORECASE) for kw in PDF_KEYWORDS]
 
 
@@ -94,21 +99,29 @@ def classify_by_sender(sender: str) -> Tuple[bool, int, str]:
 
 def classify_by_email_content(subject: str, body: str) -> Tuple[bool, int, str]:
     """
-    Check email subject and body for insurance estimate keywords.
+    Check email subject and body for insurance estimate keywords, weighted
+    by how strong a signal each keyword is (see EMAIL_KEYWORDS).
     Returns (is_match, confidence, reason)
     """
     text = f"{subject} {body}".lower()
     matches = []
+    total_weight = 0
 
-    for pattern in _email_patterns:
-        found = pattern.findall(text)
-        if found:
+    for pattern, weight in _email_patterns:
+        if pattern.findall(text):
             matches.append(pattern.pattern)
+            total_weight += weight
 
-    if len(matches) >= 3:
-        return True, 85, f"Email contains {len(matches)} insurance keywords: {', '.join(matches[:5])}"
-    elif len(matches) >= 1:
-        return False, 40, f"Email has some keywords ({len(matches)}), not enough for classification"
+    # total_weight >= 3 is reachable either by 3+ generic keywords (the old
+    # bar - weight 1 each) or by as few as 2 strong ones (e.g. claim # +
+    # policy #, weight 2 each), so short notification emails with only
+    # strong signals now clear it without weakening the old generic-keyword case.
+    if total_weight >= 3:
+        return True, 85, f"Email contains {len(matches)} insurance keywords (weight {total_weight}): {', '.join(matches[:5])}"
+    elif total_weight >= 2:
+        return False, 55, f"Email has some keywords ({len(matches)}, weight {total_weight}), not enough alone for classification"
+    elif total_weight >= 1:
+        return False, 40, f"Email has some keywords ({len(matches)}, weight {total_weight}), not enough for classification"
 
     return False, 0, "No insurance keywords found in email"
 
