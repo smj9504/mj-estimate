@@ -6,6 +6,17 @@ claude-*
 *.claude
 .anthropic/
 
+# Share this skill with the team (unit price update workflow).
+# Directory negation only reopens each level named below — every other
+# .claude file/dir (settings.json, agents/, other skills/, etc.) stays
+# ignored via the .claude/ rule above.
+!.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/update-unit-prices/
+!.claude/skills/update-unit-prices/**
+
 # Dependencies
 node_modules/
 __pycache__/
