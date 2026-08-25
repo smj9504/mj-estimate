@@ -5,21 +5,27 @@ All rates are baseline values that get adjusted by material, finish, and labor m
 
 # Per-LF base rates by tier (supply only, before labor multiplier)
 # Validated against real DMV contractor quotes (2025-2026)
+# 2026-08 update: tiered increase reflecting Section 232 cabinet tariffs
+# (25% on imports, effective 2025-10-14) plus manufacturer list-price
+# increases (2.7%-5.5% avg, effective Feb-Mar 2026). Stock/RTA lines have
+# the highest import exposure (Vietnam/China), Custom is mostly
+# domestic-built and only sees lumber-tariff/labor pass-through.
+# Stock +5%, Semi-Custom +3%, Custom +1%.
 BASE_RATES = {
     "Stock": {
-        "base_lf": 180,      # $/LF for base cabinets (market $180-$280)
-        "wall_lf": 150,      # $/LF for wall cabinets (market $140-$220)
-        "tall_each": 480,    # $/EA for pantry cabinet (market $450-$650)
+        "base_lf": 189,      # $/LF for base cabinets (market $180-$280), +5%
+        "wall_lf": 158,      # $/LF for wall cabinets (market $140-$220), +5%
+        "tall_each": 504,    # $/EA for pantry cabinet (market $450-$650), +5%
     },
     "Semi-Custom": {
-        "base_lf": 310,      # market $280-$400
-        "wall_lf": 275,      # market $240-$350
-        "tall_each": 750,    # market $650-$900
+        "base_lf": 319,      # market $280-$400, +3%
+        "wall_lf": 283,      # market $240-$350, +3%
+        "tall_each": 773,    # market $650-$900, +3%
     },
     "Custom": {
-        "base_lf": 575,      # market $500-$700
-        "wall_lf": 500,      # market $450-$600
-        "tall_each": 1350,   # market $1200-$1600
+        "base_lf": 581,      # market $500-$700, +1%
+        "wall_lf": 505,      # market $450-$600, +1%
+        "tall_each": 1364,   # market $1200-$1600, +1%
     },
 }
 

@@ -64,16 +64,20 @@ def build_company_info(company, override=None) -> dict:
 # ============================================
 # DEFAULT PRICES
 # ============================================
+# 2026-08 update: same category-tiered increase as seed_prices.py
+# (labor/supervisor +3%, box/protective/specialty +5%, transport +4%,
+# storage +1%, debris/waste +2%) applied here for consistency, even
+# though this dict is only a DB-fallback rarely hit in practice.
 DEFAULT_PRICES = {
-    'labor': 68.20, 'labor_fragile': 82.60, 'labor_specialty': 124.02, 'supervisor': 82.60,
-    'box_small': 2.95, 'box_medium': 3.91, 'box_large': 5.28, 'box_xlarge': 6.40,
-    'box_dish': 9.98, 'box_wardrobe': 18.48, 'box_mirror': 10.29, 'box_tv': 30.24,
-    'blanket': 18.26, 'bubble_12': 23.98, 'bubble_antistatic': 42.00,
-    'packing_paper': 18.00, 'shrink_wrap': 29.83,
-    'poly_bags': 24.00, 'furniture_bags': 8.57, 'appliance_tape': 29.90,
-    'packing_tape': 8.59, 'inventory_tags': 60.11, 'box_liners': 6.50,
-    'truck_26': 197.35, 'storage_sf': 2.20,
-    'waste_removal': 67.63,
+    'labor': 70.25, 'labor_fragile': 85.08, 'labor_specialty': 127.74, 'supervisor': 85.08,
+    'box_small': 3.10, 'box_medium': 4.11, 'box_large': 5.54, 'box_xlarge': 6.72,
+    'box_dish': 10.48, 'box_wardrobe': 19.40, 'box_mirror': 10.80, 'box_tv': 31.75,
+    'blanket': 19.17, 'bubble_12': 25.18, 'bubble_antistatic': 44.10,
+    'packing_paper': 18.90, 'shrink_wrap': 31.32,
+    'poly_bags': 25.20, 'furniture_bags': 9.00, 'appliance_tape': 31.40,
+    'packing_tape': 9.02, 'inventory_tags': 63.12, 'box_liners': 6.83,
+    'truck_26': 205.24, 'storage_sf': 2.22,
+    'waste_removal': 68.98,
 }
 
 

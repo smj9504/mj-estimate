@@ -59,10 +59,11 @@ CONTAMINATION_MULTIPLIERS = {
 }
 
 # Special items: fixed-cost line items (not affected by density/floor/region)
+# 2026-08: +5% (specialty-tier increase, see seed_prices.py header for rationale)
 SPECIAL_ITEM_COSTS = {
-    "piano":      {"name": "Piano — Specialty Handling & Crating",       "unit": "EA", "price": 450.00},
-    "pool_table": {"name": "Pool Table — Disassembly, Felt Wrap & Crate", "unit": "EA", "price": 385.00},
-    "gun_safe":   {"name": "Gun Safe — Crane/Dolly Service",             "unit": "EA", "price": 275.00},
+    "piano":      {"name": "Piano — Specialty Handling & Crating",       "unit": "EA", "price": 472.50},
+    "pool_table": {"name": "Pool Table — Disassembly, Felt Wrap & Crate", "unit": "EA", "price": 404.25},
+    "gun_safe":   {"name": "Gun Safe — Crane/Dolly Service",             "unit": "EA", "price": 288.75},
 }
 
 SIZE_TO_PRICE_CODE = {
@@ -75,77 +76,80 @@ SIZE_TO_PRICE_CODE = {
 # DEFAULT PRICES FALLBACK TABLE
 # Used when DB prices are not seeded — ensures calculations always
 # produce meaningful results independent of database state.
+# 2026-08: kept in sync with seed_prices.DEFAULT_PACKING_PRICES
+# (same category-tiered increase: labor/room +3%, box/protective/
+# specialty +5%, transport +4%, storage +1%, debris +2%).
 # ============================================
 DEFAULT_PRICES = {
     # Labor
-    "2825": {"price": 57.31, "name": "Pack-Out Labor", "unit": "HR"},
-    "2826": {"price": 52.18, "name": "Pack-Back Labor", "unit": "HR"},
-    "2911": {"price": 87.14, "name": "Supervisor / Fragile Specialist", "unit": "HR"},
-    "2912": {"price": 124.02, "name": "Specialty Item Handler", "unit": "HR"},
+    "2825": {"price": 59.03, "name": "Pack-Out Labor", "unit": "HR"},
+    "2826": {"price": 53.75, "name": "Pack-Back Labor", "unit": "HR"},
+    "2911": {"price": 89.75, "name": "Supervisor / Fragile Specialist", "unit": "HR"},
+    "2912": {"price": 127.74, "name": "Specialty Item Handler", "unit": "HR"},
     # Transport
-    "2932": {"price": 172.36, "name": "Transport - Small Van", "unit": "EA"},
-    "2933": {"price": 179.25, "name": "Transport - Medium Van", "unit": "EA"},
-    "2934": {"price": 197.36, "name": "Transport - Large Van", "unit": "EA"},
+    "2932": {"price": 179.25, "name": "Transport - Small Van", "unit": "EA"},
+    "2933": {"price": 186.42, "name": "Transport - Medium Van", "unit": "EA"},
+    "2934": {"price": 205.25, "name": "Transport - Large Van", "unit": "EA"},
     # Storage
-    "2840": {"price": 2.18, "name": "Storage (per SF/month)", "unit": "SF"},
-    "2841": {"price": 42.00, "name": "Storage Setup Fee", "unit": "EA"},
+    "2840": {"price": 2.20, "name": "Storage (per SF/month)", "unit": "SF"},
+    "2841": {"price": 42.42, "name": "Storage Setup Fee", "unit": "EA"},
     # Room-size base rates (used by calculate_room_base via SIZE_TO_PRICE_CODE)
-    "2833": {"price": 185.00, "name": "Room Rate - Small", "unit": "EA"},
-    "2834": {"price": 285.00, "name": "Room Rate - Standard", "unit": "EA"},
-    "2835": {"price": 415.00, "name": "Room Rate - Large", "unit": "EA"},
+    "2833": {"price": 190.55, "name": "Room Rate - Small", "unit": "EA"},
+    "2834": {"price": 293.55, "name": "Room Rate - Standard", "unit": "EA"},
+    "2835": {"price": 427.45, "name": "Room Rate - Large", "unit": "EA"},
     # Materials - Boxes
     # Code assignments aligned with MATERIAL_CODES mapping.
-    "3026": {"price": 4.82, "name": "Small Box (1.5 cu ft)", "unit": "EA"},
-    "3025": {"price": 5.96, "name": "Medium Box (3.0 cu ft)", "unit": "EA"},
-    "3027": {"price": 7.14, "name": "Large Box (4.5 cu ft)", "unit": "EA"},
-    "3028": {"price": 8.93, "name": "XL Box (6.0 cu ft)", "unit": "EA"},
-    "3029": {"price": 4.82, "name": "Book Box (1.5 cu ft)", "unit": "EA"},
-    "3030": {"price": 9.64, "name": "Dish Pack Box", "unit": "EA"},
-    "3031": {"price": 5.36, "name": "Lamp Box", "unit": "EA"},
-    "3033": {"price": 9.64, "name": "Mirror/Picture Box", "unit": "EA"},
-    "3039": {"price": 12.86, "name": "Wardrobe Box", "unit": "EA"},
-    "3032": {"price": 3.57, "name": "File Box", "unit": "EA"},
+    "3026": {"price": 5.06, "name": "Small Box (1.5 cu ft)", "unit": "EA"},
+    "3025": {"price": 6.26, "name": "Medium Box (3.0 cu ft)", "unit": "EA"},
+    "3027": {"price": 7.50, "name": "Large Box (4.5 cu ft)", "unit": "EA"},
+    "3028": {"price": 9.38, "name": "XL Box (6.0 cu ft)", "unit": "EA"},
+    "3029": {"price": 5.06, "name": "Book Box (1.5 cu ft)", "unit": "EA"},
+    "3030": {"price": 10.12, "name": "Dish Pack Box", "unit": "EA"},
+    "3031": {"price": 5.63, "name": "Lamp Box", "unit": "EA"},
+    "3033": {"price": 10.12, "name": "Mirror/Picture Box", "unit": "EA"},
+    "3039": {"price": 13.50, "name": "Wardrobe Box", "unit": "EA"},
+    "3032": {"price": 3.75, "name": "File Box", "unit": "EA"},
     # Materials - Protective
-    "2915": {"price": 14.29, "name": "Moving Blanket", "unit": "EA"},
-    "3023": {"price": 8.93, "name": "Bubble Wrap Roll 12in", "unit": "EA"},
-    "3018": {"price": 12.50, "name": "Bubble Wrap Roll 24in", "unit": "EA"},
-    "3089": {"price": 32.14, "name": "Packing Paper (50-lb bundle)", "unit": "EA"},
-    "3035": {"price": 4.46, "name": "Packing Tape Roll", "unit": "EA"},
-    "2936": {"price": 8.93, "name": "Stretch/Shrink Wrap Roll", "unit": "EA"},
-    "2916": {"price": 8.57, "name": "Furniture Pad", "unit": "EA"},
-    "3022": {"price": 2.68, "name": "Corner Protector Set", "unit": "EA"},
-    "2917": {"price": 5.36, "name": "Chair Cover", "unit": "EA"},
-    "2918": {"price": 8.93, "name": "Sofa Cover", "unit": "EA"},
-    "3041": {"price": 1.79, "name": "Foam Sheet", "unit": "EA"},
-    "3043": {"price": 3.21, "name": "Dust Cover", "unit": "EA"},
+    "2915": {"price": 15.00, "name": "Moving Blanket", "unit": "EA"},
+    "3023": {"price": 9.38, "name": "Bubble Wrap Roll 12in", "unit": "EA"},
+    "3018": {"price": 13.13, "name": "Bubble Wrap Roll 24in", "unit": "EA"},
+    "3089": {"price": 33.75, "name": "Packing Paper (50-lb bundle)", "unit": "EA"},
+    "3035": {"price": 4.68, "name": "Packing Tape Roll", "unit": "EA"},
+    "2936": {"price": 9.38, "name": "Stretch/Shrink Wrap Roll", "unit": "EA"},
+    "2916": {"price": 9.00, "name": "Furniture Pad", "unit": "EA"},
+    "3022": {"price": 2.81, "name": "Corner Protector Set", "unit": "EA"},
+    "2917": {"price": 5.63, "name": "Chair Cover", "unit": "EA"},
+    "2918": {"price": 9.38, "name": "Sofa Cover", "unit": "EA"},
+    "3041": {"price": 1.88, "name": "Foam Sheet", "unit": "EA"},
+    "3043": {"price": 3.37, "name": "Dust Cover", "unit": "EA"},
     # Materials - Specialty
-    "3050": {"price": 4.46, "name": "Anti-Static Wrap", "unit": "EA"},
-    "3051": {"price": 5.36, "name": "Acid-Free Tissue", "unit": "EA"},
-    "3052": {"price": 17.86, "name": "Wine Cell Box (12-cell)", "unit": "EA"},
-    "3053": {"price": 8.93, "name": "Electronics Box", "unit": "EA"},
-    "3054": {"price": 12.50, "name": "TV Box", "unit": "EA"},
-    "3055": {"price": 3.57, "name": "Lamp Box", "unit": "EA"},
-    "3056": {"price": 5.36, "name": "Rug Wrap", "unit": "EA"},
-    "3057": {"price": 7.14, "name": "Piano Board", "unit": "EA"},
-    "3058": {"price": 0.71, "name": "Marker/Label Set", "unit": "EA"},
-    "3059": {"price": 2.14, "name": "Hazmat Label", "unit": "EA"},
-    "3060": {"price": 16.07, "name": "Instrument Case Wrap", "unit": "EA"},
-    "3061": {"price": 1.43, "name": "Silica Gel Pack", "unit": "EA"},
-    "3062": {"price": 7.14, "name": "Gun Sleeve", "unit": "EA"},
-    "3063": {"price": 2.50, "name": "Tool Roll", "unit": "EA"},
-    "3064": {"price": 3.57, "name": "Bike Box/Bag", "unit": "EA"},
-    "3065": {"price": 7.14, "name": "Plant Pot Wrap", "unit": "EA"},
+    "3050": {"price": 4.68, "name": "Anti-Static Wrap", "unit": "EA"},
+    "3051": {"price": 5.63, "name": "Acid-Free Tissue", "unit": "EA"},
+    "3052": {"price": 18.75, "name": "Wine Cell Box (12-cell)", "unit": "EA"},
+    "3053": {"price": 9.38, "name": "Electronics Box", "unit": "EA"},
+    "3054": {"price": 13.13, "name": "TV Box", "unit": "EA"},
+    "3055": {"price": 3.75, "name": "Lamp Box", "unit": "EA"},
+    "3056": {"price": 5.63, "name": "Rug Wrap", "unit": "EA"},
+    "3057": {"price": 7.50, "name": "Piano Board", "unit": "EA"},
+    "3058": {"price": 0.75, "name": "Marker/Label Set", "unit": "EA"},
+    "3059": {"price": 2.25, "name": "Hazmat Label", "unit": "EA"},
+    "3060": {"price": 16.87, "name": "Instrument Case Wrap", "unit": "EA"},
+    "3061": {"price": 1.50, "name": "Silica Gel Pack", "unit": "EA"},
+    "3062": {"price": 7.50, "name": "Gun Sleeve", "unit": "EA"},
+    "3063": {"price": 2.63, "name": "Tool Roll", "unit": "EA"},
+    "3064": {"price": 3.75, "name": "Bike Box/Bag", "unit": "EA"},
+    "3065": {"price": 7.50, "name": "Plant Pot Wrap", "unit": "EA"},
     # Debris / Cleaning
-    "3080": {"price": 250.00, "name": "Debris Hauling", "unit": "EA"},
-    "3081": {"price": 45.00, "name": "Cleaning Fee", "unit": "HR"},
+    "3080": {"price": 255.00, "name": "Debris Hauling", "unit": "EA"},
+    "3081": {"price": 45.90, "name": "Cleaning Fee", "unit": "HR"},
     # Materials - Additional size variants and mattress bags
-    "3039S": {"price": 7.14, "name": "Wardrobe Box - Small", "unit": "EA"},
-    "3039L": {"price": 10.71, "name": "Wardrobe Box - Large", "unit": "EA"},
-    "3899": {"price": 14.29, "name": "TV Box", "unit": "EA"},
-    "3876": {"price": 8.93, "name": "Mattress Bag - Twin", "unit": "EA"},
-    "3905": {"price": 10.71, "name": "Mattress Bag - Full", "unit": "EA"},
-    "3877": {"price": 12.50, "name": "Mattress Bag - Queen", "unit": "EA"},
-    "3878": {"price": 14.29, "name": "Mattress Bag - King", "unit": "EA"},
+    "3039S": {"price": 7.50, "name": "Wardrobe Box - Small", "unit": "EA"},
+    "3039L": {"price": 11.25, "name": "Wardrobe Box - Large", "unit": "EA"},
+    "3899": {"price": 15.00, "name": "TV Box", "unit": "EA"},
+    "3876": {"price": 9.20, "name": "Mattress Bag - Twin", "unit": "EA"},
+    "3905": {"price": 11.03, "name": "Mattress Bag - Full", "unit": "EA"},
+    "3877": {"price": 12.88, "name": "Mattress Bag - Queen", "unit": "EA"},
+    "3878": {"price": 14.72, "name": "Mattress Bag - King", "unit": "EA"},
 }
 
 # Content hints -> material mapping
@@ -222,15 +226,17 @@ STORAGE_UNIT_LABELS = {
 # Storage setup fee by unit size (scales with unit size)
 # Covers: inventory placement, shelving, padlock, first-access coordination
 # Based on: base $85 for 10×10 (Xactimate reference), power-law scaling (^0.65)
+# 2026-08: +1% (storage-tier increase — national self-storage rates are
+# trending down, so increase kept minimal; see seed_prices.py header)
 STORAGE_SETUP_BY_SIZE = {
-    25:  42.00,   # 5×5   — ~0.5 hr setup
-    50:  54.00,   # 5×10  — ~0.75 hr setup
-    75:  68.00,   # 5×15  — ~0.75-1.0 hr setup
-    100: 85.00,   # 10×10 — ~1.0-1.5 hr setup (Xactimate reference)
-    150: 109.00,  # 10×15 — ~1.5-2.0 hr setup
-    200: 131.00,  # 10×20 — ~2.0-2.5 hr setup
-    250: 152.00,  # 10×25 — ~2.5-3.0 hr setup
-    300: 172.00,  # 10×30 — ~3.0-4.0 hr setup
+    25:  42.42,   # 5×5   — ~0.5 hr setup
+    50:  54.54,   # 5×10  — ~0.75 hr setup
+    75:  68.68,   # 5×15  — ~0.75-1.0 hr setup
+    100: 85.85,   # 10×10 — ~1.0-1.5 hr setup (Xactimate reference)
+    150: 110.09,  # 10×15 — ~1.5-2.0 hr setup
+    200: 132.31,  # 10×20 — ~2.0-2.5 hr setup
+    250: 153.52,  # 10×25 — ~2.5-3.0 hr setup
+    300: 173.72,  # 10×30 — ~3.0-4.0 hr setup
 }
 
 
@@ -307,7 +313,7 @@ def snap_to_storage_unit(raw_sf: float) -> int:
 
 def get_storage_setup_fee(unit_sf: int) -> float:
     """Get storage setup fee for a given unit size."""
-    return STORAGE_SETUP_BY_SIZE.get(unit_sf, 85.00)
+    return STORAGE_SETUP_BY_SIZE.get(unit_sf, 85.85)
 
 
 def build_storage_section_detail(
@@ -580,6 +586,8 @@ class EstimateCalculator:
 
     # ============================================
     # CONDITIONAL SUPPLEMENTS
+    # 2026-08: +3% (labor-tier increase — these are all additional
+    # handling/staging time charges; see seed_prices.py header)
     # ============================================
 
     SUPPLEMENT_DEFINITIONS = [
@@ -587,14 +595,14 @@ class EstimateCalculator:
             "key": "hidden_damage",
             "name": "Unforeseen Conditions — Concealed Contamination",
             "description": "Per IICRC S500 §12.3 — additional handling for concealed water/mold damage",
-            "flat_amount": 150.00,
+            "flat_amount": 154.50,
             "trigger": "contamination",
         },
         {
             "key": "high_value_documentation",
             "name": "High-Value Contents Documentation",
             "description": "Serial number recording, appraisal photo, condition report — flat fee per job",
-            "flat_amount": 85.00,
+            "flat_amount": 87.55,
             "trigger": "high_value",
             "min_items": 3,
         },
@@ -602,14 +610,14 @@ class EstimateCalculator:
             "key": "difficult_access",
             "name": "Difficult Access Supplement",
             "description": "Narrow stairwell / no elevator — additional carry time",
-            "flat_amount": 120.00,
+            "flat_amount": 123.60,
             "trigger": "upper_floor",
         },
         {
             "key": "heavy_contents",
             "name": "Heavy Contents Supplement",
             "description": "Above-average contents volume requiring additional sort/stage time",
-            "flat_amount": 95.00,
+            "flat_amount": 97.85,
             "trigger": "heavy_density",
         },
     ]
@@ -697,15 +705,15 @@ class EstimateCalculator:
         if storage_sf <= 50:
             # Small job: 14'-15' van
             code = "2932"
-            fallback = 172.36
+            fallback = 179.25
         elif storage_sf <= 150:
             # Medium job: 16'-20' van
             code = "2933"
-            fallback = 179.25
+            fallback = 186.42
         else:
             # Large job: 21'-27' van
             code = "2934"
-            fallback = 197.36
+            fallback = 205.25
         return code, self.get_price(code) or fallback
 
     def estimate_storage_sf_from_rooms(
@@ -1006,7 +1014,7 @@ class EstimateCalculator:
         storage_cost = 0
         if not is_on_site and request.storage_months > 0:
             setup_fee = get_storage_setup_fee(storage_sf)
-            sf_rate = self.get_price("2840") or 2.18
+            sf_rate = self.get_price("2840") or 2.20
             storage_cost = (
                 storage_sf * sf_rate * request.storage_months
                 + setup_fee
@@ -1104,9 +1112,9 @@ class EstimateCalculator:
              "detail": f"On-site supervision across {len(request.rooms)} rooms, inventory documentation, quality control",
              "amount": round(supervisor_hours * supervisor_rate, 2)},
             {"name": "Specialized Handling", "qty": _po_specialized_hours, "unit": "HR",
-             "rate": round(self.get_price("2912") or 124.02, 2),
+             "rate": round(self.get_price("2912") or 127.74, 2),
              "detail": "Electronics, fragile items, artwork — includes extra care packaging and custom crating as needed",
-             "amount": round(_po_specialized_hours * (self.get_price("2912") or 124.02), 2)},
+             "amount": round(_po_specialized_hours * (self.get_price("2912") or 127.74), 2)},
         ]}
         # Recalculate Pack-Out Labor section total to match sub-lines
         sections["Pack-Out Labor"] = sum(l["amount"] for l in section_details["Pack-Out Labor"]["lines"])
@@ -1130,7 +1138,7 @@ class EstimateCalculator:
             if request.include_packback:
                 section_details["Transport Back"] = {"lines": _t_lines}
             if storage_cost > 0:
-                _sf_rate = self.get_price("2840") or 2.18
+                _sf_rate = self.get_price("2840") or 2.20
                 _setup_fee = get_storage_setup_fee(storage_sf)
                 section_details["Storage"] = build_storage_section_detail(
                     storage_sf, _sf_rate, request.storage_months,
@@ -1146,7 +1154,7 @@ class EstimateCalculator:
             _pb_total_crew = _pb_crew_base + _pb_reassembly + _pb_appliance + _pb_waste
             _spec_ratio = _po_specialized_hours / max(1, _po_crew_hours + _po_specialized_hours)
             _pb_specialized = max(1, round(_pb_total_crew * _spec_ratio))
-            _specialty_rate = self.get_price("2912") or 124.02
+            _specialty_rate = self.get_price("2912") or 127.74
 
             pb_lines = [
                 {"name": "Pack-Back Crew Labor", "qty": _pb_total_crew, "unit": "HR",
@@ -1211,7 +1219,7 @@ class EstimateCalculator:
         # Build Storage section_details when storage is included but cost is 0
         if "Storage" not in section_details:
             if not is_on_site and storage_sf > 0:
-                _sf_rate = self.get_price("2840") or 2.18
+                _sf_rate = self.get_price("2840") or 2.20
                 _setup_fee = get_storage_setup_fee(storage_sf)
                 section_details["Storage"] = build_storage_section_detail(
                     storage_sf, _sf_rate, request.storage_months or 0,
@@ -1862,9 +1870,9 @@ class EstimateCalculator:
         labor_hours = {k: round(v / crew, 1) for k, v in person_hours.items()}
         total_labor_hours = sum(labor_hours.values())
 
-        labor_rate = self.get_price("2825") or 57.31      # Standard (per person/hr)
-        fragile_rate = self.get_price("2911") or 87.14     # Fragile / Supervisor
-        specialty_rate = self.get_price("2912") or 124.02  # Specialty (fallback)
+        labor_rate = self.get_price("2825") or 59.03      # Standard (per person/hr)
+        fragile_rate = self.get_price("2911") or 89.75     # Fragile / Supervisor
+        specialty_rate = self.get_price("2912") or 127.74  # Specialty (fallback)
 
         # Regional labor premium (Northeast +30%, West +20%, etc.)
         region_str = request.region.value if hasattr(request.region, 'value') else str(getattr(request, 'region', 'midwest'))
@@ -1959,7 +1967,7 @@ class EstimateCalculator:
         storage_cost = 0
         if not is_on_site and request.storage_months > 0:
             setup_fee = get_storage_setup_fee(storage_sf)
-            sf_rate = self.get_price("2840") or 2.18
+            sf_rate = self.get_price("2840") or 2.20
             storage_cost = (
                 storage_sf * sf_rate * request.storage_months
                 + setup_fee
@@ -2173,7 +2181,7 @@ class EstimateCalculator:
             if "Transport Back" in sections:
                 section_details["Transport Back"] = {"lines": _transport_lines(truck_trips, truck_rate)}
             if storage_cost > 0:
-                _sf_rate = self.get_price("2840") or 2.18
+                _sf_rate = self.get_price("2840") or 2.20
                 _setup_fee = get_storage_setup_fee(storage_sf)
                 section_details["Storage"] = build_storage_section_detail(
                     storage_sf, _sf_rate, request.storage_months,
