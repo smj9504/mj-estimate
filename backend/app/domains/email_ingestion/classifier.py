@@ -144,7 +144,7 @@ def extract_pdf_text_first_pages(pdf_data: bytes, max_pages: int = 3) -> str:
     """
     Extract text from the first N pages of a PDF.
     Uses pdfplumber for better text extraction.
-    Falls back to PyPDF2 if pdfplumber not available.
+    Falls back to pypdf if pdfplumber not available.
     """
     text = ""
 
@@ -165,9 +165,9 @@ def extract_pdf_text_first_pages(pdf_data: bytes, max_pages: int = 3) -> str:
     except Exception as e:
         logger.warning(f"pdfplumber extraction failed: {e}")
 
-    # Fallback to PyPDF2
+    # Fallback to pypdf (the maintained successor to PyPDF2; same PdfReader API)
     try:
-        from PyPDF2 import PdfReader
+        from pypdf import PdfReader
         import io
 
         reader = PdfReader(io.BytesIO(pdf_data))
@@ -176,9 +176,9 @@ def extract_pdf_text_first_pages(pdf_data: bytes, max_pages: int = 3) -> str:
             if page_text:
                 text += page_text + "\n"
     except ImportError:
-        logger.warning("Neither pdfplumber nor PyPDF2 available for PDF text extraction")
+        logger.warning("Neither pdfplumber nor pypdf available for PDF text extraction")
     except Exception as e:
-        logger.warning(f"PyPDF2 extraction failed: {e}")
+        logger.warning(f"pypdf extraction failed: {e}")
 
     return text
 

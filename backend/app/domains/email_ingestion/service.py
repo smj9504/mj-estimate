@@ -390,13 +390,17 @@ class EmailIngestionService:
             }
 
             for fetched_email in emails:
-                # Check if already processed
-                if log_repo.exists_by_message_id(fetched_email.message_id):
-                    stats["duplicates"] += 1
-                    continue
-
-                # Process each PDF attachment
+                # Process each PDF attachment. Dedup is per-attachment (not
+                # per-email) so that if one attachment in a multi-PDF email
+                # previously failed, it gets retried here while attachments
+                # that already succeeded are correctly skipped.
                 for attachment in fetched_email.pdf_attachments:
+                    if log_repo.exists_by_message_id_and_hash(
+                        fetched_email.message_id, attachment.sha256_hash
+                    ):
+                        stats["duplicates"] += 1
+                        continue
+
                     try:
                         result = self._process_attachment(
                             session=session,
@@ -538,13 +542,36 @@ class EmailIngestionService:
             session.commit()
             return {"status": "skipped"}
 
+        # Step 2.5: Persist the PDF now that it's classified as an estimate, so a
+        # reviewer can preview/assign it later even if matching fails below.
+        pending_file_id = self._store_attachment_file(session, account_id, attachment, fetched_email)
+        if pending_file_id is None:
+            log_data = {
+                "email_account_id": account_id,
+                "message_id": fetched_email.message_id,
+                "subject": fetched_email.subject,
+                "sender": fetched_email.sender,
+                "received_at": fetched_email.received_at,
+                "attachment_name": attachment.filename,
+                "attachment_hash": attachment.sha256_hash,
+                "status": "failed",
+                "is_insurance_estimate": True,
+                "classification_reason": reason,
+                "error_message": "Failed to store attachment in file storage",
+            }
+            log_repo.create(log_data)
+            session.commit()
+            return {"status": "failed"}
+
         # Step 3: Match to client/claim
         pdf_text = extract_pdf_text_first_pages(attachment.data)
         email_text = f"Subject: {fetched_email.subject}\n{fetched_email.body_text}"
-        match_result = match_email_to_client(session, email_text, pdf_text)
+        match_result = match_email_to_client(session, email_text, pdf_text, sender=fetched_email.sender)
 
         if not match_result.client_id:
-            # No match - create pending log for manual review
+            # No match - create pending log for manual review. The PDF is already
+            # stored (pending_file_id), so a reviewer can preview it and assign it
+            # later via manual_assign without losing the original file.
             log_data = {
                 "email_account_id": account_id,
                 "message_id": fetched_email.message_id,
@@ -556,6 +583,7 @@ class EmailIngestionService:
                 "status": "pending",
                 "is_insurance_estimate": True,
                 "classification_reason": reason,
+                "file_id": pending_file_id,
             }
             log_repo.create(log_data)
             session.commit()
@@ -584,15 +612,41 @@ class EmailIngestionService:
                 "matched_client_id": match_result.client_id,
                 "matched_claim_id": claim_id,
                 "skip_reason": "Same file already uploaded to this claim",
+                "file_id": pending_file_id,
             }
             log_repo.create(log_data)
             session.commit()
             return {"status": "duplicate"}
 
-        # Step 6: Upload file and create negotiation
-        file_id, negotiation_id = self._upload_and_create_negotiation(
-            session, claim_id, attachment, fetched_email
-        )
+        # Step 6: Attach the already-stored file to the claim and create negotiation
+        try:
+            file_id, negotiation_id = self._upload_and_create_negotiation(
+                session, claim_id, attachment, fetched_email, existing_file_id=pending_file_id
+            )
+        except Exception as e:
+            logger.error(f"Failed to finalize negotiation for claim {claim_id}: {e}")
+            log_data = {
+                "email_account_id": account_id,
+                "message_id": fetched_email.message_id,
+                "subject": fetched_email.subject,
+                "sender": fetched_email.sender,
+                "received_at": fetched_email.received_at,
+                "attachment_name": attachment.filename,
+                "attachment_hash": attachment.sha256_hash,
+                "status": "failed",
+                "is_insurance_estimate": True,
+                "classification_reason": reason,
+                "matched_client_id": match_result.client_id,
+                "matched_claim_id": claim_id,
+                "match_method": match_result.method,
+                "match_confidence": match_result.confidence,
+                "claim_created": claim_created,
+                "file_id": pending_file_id,
+                "error_message": str(e),
+            }
+            log_repo.create(log_data)
+            session.commit()
+            return {"status": "failed"}
 
         # Step 7: Create success log
         log_data = {
@@ -639,80 +693,119 @@ class EmailIngestionService:
 
         return str(claim.id), True
 
-    def _upload_and_create_negotiation(
-        self, session, claim_id, attachment, fetched_email
-    ) -> tuple:
-        """Upload PDF file and create ClaimNegotiation entry"""
-        from app.domains.file.models import File
-        from app.domains.client.models import ClaimNegotiation
-        from app.domains.client.repository import get_claim_negotiation_repository
-
-        # Upload file using storage system
-        import uuid
-        file_id = str(uuid.uuid4())
+    def _run_upload(self, file_service, **upload_kwargs) -> Dict[str, Any]:
+        """Run the async FileService.upload_file from sync code, whether or not
+        an event loop is already running in this thread."""
+        import asyncio
 
         try:
-            from app.domains.file.service import FileService
-            file_service = FileService()
-
-            import asyncio
             loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    file_result = pool.submit(
-                        asyncio.run,
-                        file_service.upload_file(
-                            file_data=io.BytesIO(attachment.data),
-                            original_filename=attachment.filename,
-                            content_type="application/pdf",
-                            context="claim-negotiation",
-                            context_id=claim_id,
-                            category="insurance-estimate",
-                            description=f"Auto-ingested from email: {fetched_email.subject}",
-                        )
-                    ).result()
-                    file_id = file_result.get("id", file_id)
-                    file_url = file_result.get("url", "")
-            else:
-                file_result = asyncio.run(
-                    file_service.upload_file(
-                        file_data=io.BytesIO(attachment.data),
-                        original_filename=attachment.filename,
-                        content_type="application/pdf",
-                        context="claim-negotiation",
-                        context_id=claim_id,
-                        category="insurance-estimate",
-                        description=f"Auto-ingested from email: {fetched_email.subject}",
-                    )
-                )
-                file_id = file_result.get("id", file_id)
-                file_url = file_result.get("url", "")
-        except Exception as e:
-            logger.warning(f"Storage upload failed, saving file record directly: {e}")
-            # Fallback: storage.upload() never ran, so this url is a plain
-            # local-style path, not a real cloud location - mark it 'local'
-            # so download code doesn't mistake it for a genuine cloud file.
-            file_url = f"/uploads/claim-negotiation/{claim_id}/{attachment.filename}"
-            file_record = File(
-                id=file_id,
-                filename=attachment.filename,
-                original_name=attachment.filename,
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                return pool.submit(
+                    asyncio.run, file_service.upload_file(**upload_kwargs)
+                ).result()
+        return asyncio.run(file_service.upload_file(**upload_kwargs))
+
+    def _store_attachment_file(
+        self, session, account_id: str, attachment, fetched_email
+    ) -> Optional[str]:
+        """Upload the attachment to storage right after classification, so the
+        PDF survives even if matching fails and the log ends up 'pending'.
+        Returns the new File's id, or None if the storage upload failed.
+
+        FileService.upload_file() only flushes the new File row - it does not
+        commit. Callers (normally the /api/files/upload endpoint) are expected
+        to commit the repository's session themselves, so we must do the same
+        on our own FileService instance here or the row never persists.
+        """
+        from app.domains.file.service import FileService
+
+        file_service = FileService(self.database)
+        try:
+            file_result = self._run_upload(
+                file_service,
+                file_data=io.BytesIO(attachment.data),
+                original_filename=attachment.filename,
                 content_type="application/pdf",
-                size=len(attachment.data),
-                url=file_url,
-                storage_provider="local",
-                context="claim-negotiation",
-                context_id=claim_id,
-                category="insurance-estimate",
-                description=f"Auto-ingested from email: {fetched_email.subject}",
+                context="email-ingestion",
+                context_id=account_id,
+                category="pending-estimate",
+                description=f"Email ingestion pending review: {fetched_email.subject}",
             )
-            session.add(file_record)
+            file_service.repository.session.commit()
+            return file_result.get("id")
+        except Exception as e:
+            logger.error(f"Failed to store email attachment {attachment.filename}: {e}")
+            file_service.repository.session.rollback()
+            return None
+
+    def _upload_and_create_negotiation(
+        self,
+        session,
+        claim_id,
+        attachment,
+        fetched_email,
+        existing_file_id: Optional[str] = None,
+    ) -> tuple:
+        """Attach a PDF to a claim and create a ClaimNegotiation entry.
+
+        If existing_file_id is given, the file was already uploaded (via
+        _store_attachment_file) and is simply re-pointed at the claim instead
+        of being re-uploaded. Raises on failure instead of silently recording
+        a fake local URL - callers must catch and log the error themselves.
+
+        Either `attachment` (with .filename/.data) or `existing_file_id` must
+        be provided.
+        """
+        if attachment is None and not existing_file_id:
+            raise ValueError("_upload_and_create_negotiation requires either attachment or existing_file_id")
+        from app.domains.file.models import File
+        from app.domains.client.repository import get_claim_negotiation_repository
+
+        if existing_file_id:
+            file_record = session.query(File).filter(File.id == existing_file_id).first()
+            if not file_record:
+                raise ValueError(f"Expected file {existing_file_id} not found")
+            file_record.context = "claim-negotiation"
+            file_record.context_id = claim_id
+            file_record.category = "insurance-estimate"
             session.flush()
+            file_id = file_record.id
+            file_url = file_record.url
+        else:
+            from app.domains.file.service import FileService
+
+            # Own FileService instance -> own session -> must commit it
+            # ourselves (upload_file() only flushes; see _store_attachment_file).
+            file_service = FileService(self.database)
+            try:
+                file_result = self._run_upload(
+                    file_service,
+                    file_data=io.BytesIO(attachment.data),
+                    original_filename=attachment.filename,
+                    content_type="application/pdf",
+                    context="claim-negotiation",
+                    context_id=claim_id,
+                    category="insurance-estimate",
+                    description=f"Auto-ingested from email: {fetched_email.subject}",
+                )
+                file_service.repository.session.commit()
+            except Exception:
+                file_service.repository.session.rollback()
+                raise
+            file_id = file_result.get("id")
+            file_url = file_result.get("url", "")
 
         # Create ClaimNegotiation
         neg_repo = get_claim_negotiation_repository(session)
         next_rev = neg_repo.get_next_revision_number(claim_id)
+
+        document_name = attachment.filename if attachment is not None else file_record.original_name
 
         negotiation_data = {
             "claim_id": claim_id,
@@ -720,8 +813,8 @@ class EmailIngestionService:
             "revision_type": "initial" if next_rev == 1 else "supplement",
             "date_received": fetched_email.received_at or datetime.now(timezone.utc),
             "received_from": fetched_email.sender,
-            "document_url": file_url if 'file_url' in dir() else "",
-            "document_name": attachment.filename,
+            "document_url": file_url,
+            "document_name": document_name,
             "notes": f"Auto-ingested from email: {fetched_email.subject}",
         }
         neg_result = neg_repo.create_and_update_claim(negotiation_data)
@@ -788,7 +881,10 @@ class EmailIngestionService:
             session.close()
 
     def manual_assign(self, log_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Manually assign a pending log to a client/claim and process it"""
+        """Manually assign a pending log to a client/claim, then actually
+        upload the previously-stored PDF and create the ClaimNegotiation."""
+        from types import SimpleNamespace
+
         session = self._get_session()
         try:
             from app.domains.email_ingestion.repository import get_email_ingestion_log_repository
@@ -801,6 +897,9 @@ class EmailIngestionService:
 
             if not log:
                 raise ValueError("Log not found")
+
+            if not log.file_id:
+                raise ValueError("No stored PDF found for this log; cannot upload")
 
             client_id = str(data["client_id"])
             claim_id = data.get("claim_id")
@@ -815,7 +914,7 @@ class EmailIngestionService:
                     client_id=client_id,
                     claim_number=claim_number,
                     status="open",
-                    notes=f"Created during manual email assignment",
+                    notes="Created during manual email assignment",
                 )
                 session.add(claim)
                 session.flush()
@@ -825,6 +924,30 @@ class EmailIngestionService:
             if claim_id:
                 claim_id = str(claim_id)
 
+            # Reconstruct just the fields _upload_and_create_negotiation needs,
+            # without building a real FetchedEmail (no attachment data required
+            # since the file was already uploaded in _store_attachment_file).
+            fetched_email_stub = SimpleNamespace(
+                subject=log.subject,
+                sender=log.sender,
+                received_at=log.received_at,
+            )
+
+            try:
+                file_id, negotiation_id = self._upload_and_create_negotiation(
+                    session,
+                    claim_id,
+                    attachment=None,
+                    fetched_email=fetched_email_stub,
+                    existing_file_id=log.file_id,
+                )
+            except Exception as e:
+                logger.error(f"manual_assign failed to finalize negotiation for log {log_id}: {e}")
+                log.status = "failed"
+                log.error_message = str(e)
+                session.commit()
+                raise
+
             # Update log
             log.matched_client_id = client_id
             log.matched_claim_id = claim_id
@@ -833,7 +956,9 @@ class EmailIngestionService:
             log.claim_created = claim_created
             log.reviewed_by = reviewed_by
             log.reviewed_at = datetime.now(timezone.utc)
-            log.status = "matched"
+            log.status = "uploaded"
+            log.file_id = file_id
+            log.negotiation_id = negotiation_id
 
             session.commit()
 
