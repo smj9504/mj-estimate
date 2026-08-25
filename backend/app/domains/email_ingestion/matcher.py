@@ -17,22 +17,10 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from app.domains.client.address_utils import normalize_address
 from app.domains.client.models import Client, Claim
 
 logger = logging.getLogger(__name__)
-
-
-# Common address abbreviations for normalization
-ADDRESS_ABBREVIATIONS = {
-    "street": "st", "avenue": "ave", "boulevard": "blvd", "drive": "dr",
-    "road": "rd", "lane": "ln", "court": "ct", "place": "pl",
-    "circle": "cir", "terrace": "ter", "trail": "trl", "way": "way",
-    "highway": "hwy", "parkway": "pkwy", "north": "n", "south": "s",
-    "east": "e", "west": "w", "northeast": "ne", "northwest": "nw",
-    "southeast": "se", "southwest": "sw", "apartment": "apt",
-    "suite": "ste", "unit": "unit", "building": "bldg", "floor": "fl",
-    "number": "#",
-}
 
 
 @dataclass
@@ -46,40 +34,6 @@ class MatchResult:
     policy_number_extracted: Optional[str] = None
     address_extracted: Optional[str] = None
     needs_new_claim: bool = False
-
-
-def normalize_address(address: str) -> str:
-    """
-    Normalize an address for comparison.
-    - Lowercase
-    - Remove punctuation (except #)
-    - Standardize abbreviations
-    - Collapse whitespace
-    - Remove zip+4 extension
-    """
-    if not address:
-        return ""
-
-    addr = address.lower().strip()
-
-    # Remove common punctuation (keep #)
-    addr = re.sub(r"[.,;:!?()\[\]{}'\"]", "", addr)
-
-    # Standardize abbreviations
-    words = addr.split()
-    normalized_words = []
-    for word in words:
-        normalized_words.append(ADDRESS_ABBREVIATIONS.get(word, word))
-
-    addr = " ".join(normalized_words)
-
-    # Remove zip+4 (keep first 5 digits of zip)
-    addr = re.sub(r"(\d{5})-\d{4}", r"\1", addr)
-
-    # Collapse whitespace
-    addr = re.sub(r"\s+", " ", addr).strip()
-
-    return addr
 
 
 def extract_claim_number(text: str) -> Optional[str]:
@@ -130,6 +84,34 @@ def extract_address(text: str) -> Optional[str]:
             addr = match.group(1).strip()
             if len(addr) > 10:  # Reasonable minimum for an address
                 return addr
+
+    return None
+
+
+def extract_sender_email(sender: str) -> Optional[str]:
+    """Extract the bare email address from an email From header, e.g.
+    '"Jane Adjuster" <jane@carrier.com>' -> 'jane@carrier.com'."""
+    if not sender:
+        return None
+    match = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", sender)
+    return match.group(0).lower() if match else None
+
+
+def extract_name_guess(text: str) -> Optional[str]:
+    """Best-effort guess at a person's name from email/PDF body text, for
+    emails with no claim/policy/address markers (e.g. a client forwarding
+    their own estimate). Deliberately conservative - only matches a
+    capitalized 2-3 word sequence after a clear "Insured:" label or a
+    letter sign-off, to avoid mistaking arbitrary text for a name."""
+    patterns = [
+        r"insured[ \t]*:?[ \t]*([A-Z][a-z]+(?:[ \t]+[A-Z][a-z]+){1,2})",
+        r"(?:regards|sincerely|thank you|thanks)[,\s]*\n[ \t]*([A-Z][a-z]+(?:[ \t]+[A-Z][a-z]+){0,2})",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
 
     return None
 
@@ -265,12 +247,15 @@ def match_by_name(
     email_addr: Optional[str] = None,
     phone: Optional[str] = None,
 ) -> Optional[MatchResult]:
-    """Match by client name + optional email/phone"""
-    if not name or len(name) < 2:
+    """Match by client name and/or exact email/phone. At least one of
+    name (2+ chars), email_addr, or phone must be given."""
+    has_name = bool(name and len(name) >= 2)
+    if not has_name and not email_addr and not phone:
         return None
 
-    filters = [Client.display_name.ilike(f"%{name}%")]
-
+    filters = []
+    if has_name:
+        filters.append(Client.display_name.ilike(f"%{name}%"))
     if email_addr:
         filters.append(Client.email == email_addr)
     if phone:
@@ -301,10 +286,15 @@ def match_email_to_client(
     db: Session,
     email_text: str,
     pdf_text: str,
+    sender: Optional[str] = None,
 ) -> MatchResult:
     """
     Main matching function. Tries matching strategies in priority order.
     Returns MatchResult (may have empty client_id if no match found).
+
+    `sender` is the email's From header, used as a last-resort matching
+    signal (Strategy 4) for emails with no claim/policy/address markers -
+    e.g. a client forwarding their own estimate directly.
     """
     combined_text = f"{email_text}\n{pdf_text}"
 
@@ -333,6 +323,17 @@ def match_email_to_client(
         if result:
             result.claim_number_extracted = claim_number
             result.policy_number_extracted = policy_number
+            return result
+
+    # Strategy 4: Name / sender email (lowest confidence, last resort)
+    sender_email = extract_sender_email(sender) if sender else None
+    name_guess = extract_name_guess(combined_text)
+    if name_guess or sender_email:
+        result = match_by_name(db, name_guess or "", email_addr=sender_email)
+        if result:
+            result.claim_number_extracted = claim_number
+            result.policy_number_extracted = policy_number
+            result.address_extracted = address
             return result
 
     # No match found

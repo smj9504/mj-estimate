@@ -67,6 +67,22 @@ class ClientService(BaseService[Dict[str, Any], str]):
             logger.error(f"Error searching clients: {e}")
             raise
 
+    def create(self, entity_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a client, keeping normalized_address in sync with address
+        so email-ingestion's address-based matching can use an exact-match
+        index lookup instead of always falling back to a fuzzy ILIKE scan."""
+        if entity_data.get("address"):
+            from app.domains.client.address_utils import normalize_address
+            entity_data["normalized_address"] = normalize_address(entity_data["address"])
+        return super().create(entity_data)
+
+    def update(self, entity_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Recompute normalized_address whenever address changes."""
+        if "address" in update_data:
+            from app.domains.client.address_utils import normalize_address
+            update_data["normalized_address"] = normalize_address(update_data["address"]) if update_data["address"] else None
+        return super().update(entity_id, update_data)
+
 
 class ClaimService(BaseService[Dict[str, Any], str]):
     """Service for claim operations"""
