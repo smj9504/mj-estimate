@@ -288,37 +288,45 @@ BATHTUB_EXTRAS = {
 # Shower door / enclosure
 # Material price by type × opening width (inches)
 # Sources: Angi 2026, HomeGuide 2026, ThisOldHouse 2026
-# 2026-08-26: +5-6% (Tier B — material, follow-up pass)
+# 2026-08-26 2nd follow-up (user feedback: door pricing still low even after
+# the +5-6% Tier B bump). Fresh research: framed $400-900 installed, semi-
+# frameless $500-1550, frameless $600-1900 (or $1000-2500/$1000-3000+ per
+# other sources) — "frameless runs 40-60% above framed" is the market norm,
+# but our combined (material+install) framed-vs-frameless gap had already
+# grown wider than that, so weighted the increase toward framed/semi-
+# frameless (still below top of their ranges) and kept frameless's bump
+# smaller (already relatively ahead) to avoid stretching the ratio further:
+# framed +12%, semi-frameless +10%, frameless +8%, fixed_panel +10%.
 SHOWER_DOOR_PRICES = {
     # Curtain - flat rate
     "curtain": {"any": 49},
     # Framed sliding/bypass - budget ($400-$900 installed)
     "framed_sliding": {
-        48: 305, 60: 382, 72: 459,
+        48: 342, 60: 428, 72: 514,
     },
     # Semi-frameless sliding ($700-$1,500 installed)
     "semi_frameless_sliding": {
-        48: 492, 60: 595, 72: 704,
+        48: 541, 60: 655, 72: 774,
     },
     # Frameless sliding ($1,000-$2,500 installed, Angi 2026)
     "frameless_sliding": {
-        48: 973, 60: 1136, 72: 1352,
+        48: 1051, 60: 1227, 72: 1460,
     },
     # Framed pivot ($400-$1,100 installed)
     "framed_pivot": {
-        28: 274, 32: 328, 36: 383,
+        28: 307, 32: 367, 36: 429,
     },
     # Semi-frameless pivot
     "semi_frameless_pivot": {
-        28: 437, 32: 518, 36: 595,
+        28: 481, 32: 570, 36: 655,
     },
     # Frameless pivot ($1,000-$3,500 installed, Angi 2026)
     "frameless_pivot": {
-        28: 973, 32: 1190, 36: 1461,
+        28: 1051, 32: 1285, 36: 1578,
     },
     # Fixed panel / half wall glass
     "fixed_panel": {
-        24: 437, 30: 595, 36: 757,
+        24: 481, 30: 655, 36: 833,
     },
 }
 
@@ -347,13 +355,14 @@ SHOWER_DOOR_TYPES = [
     "frameless_neo_angle",
 ]
 
-# Legacy compat — still referenced by enclosure dropdown (2026-08-26: +5-6%)
+# Legacy compat — still referenced by enclosure dropdown
+# 2026-08-26 2nd follow-up: same +12%/+10%/+8% weighting as SHOWER_DOOR_PRICES
 SHOWER_ENCLOSURE_PRICES = {
     "curtain": 49,
-    "sliding": 383,
-    "pivot": 595,
-    "frameless": 1785,
-    "half_wall_glass": 1298,
+    "sliding": 429,
+    "pivot": 655,
+    "frameless": 1928,
+    "half_wall_glass": 1428,
 }
 
 SHOWER_INSERT_PRICES = {
@@ -385,22 +394,23 @@ NEO_ANGLE_BASE_INSTALL = 572
 # Neo-angle shower door (3-panel enclosure)
 # door + 2 fixed side panels
 # Higher than regular: precision angles, custom glass
-# 2026-08-26: +5-6% (Tier B — material)
+# 2026-08-26 2nd follow-up: same +12%/+10%/+8% weighting as SHOWER_DOOR_PRICES
+# (still low even after the earlier +5-6% Tier B pass)
 NEO_ANGLE_DOOR_PRICES = {
     # Framed (most common, budget) — by size
     "framed_neo_angle": {
-        32: 383, 36: 460, 38: 541,
-        42: 649, 48: 812,
+        32: 429, 36: 515, 38: 606,
+        42: 727, 48: 909,
     },
     # Semi-frameless
     "semi_frameless_neo_angle": {
-        32: 595, 36: 704, 38: 812,
-        42: 973, 48: 1190,
+        32: 655, 36: 774, 38: 893,
+        42: 1070, 48: 1309,
     },
     # Frameless ($1,200-$3,500+ installed, Angi 2026)
     "frameless_neo_angle": {
-        32: 1136, 36: 1352, 38: 1569,
-        42: 1893, 48: 2271,
+        32: 1227, 36: 1460, 38: 1695,
+        42: 2044, 48: 2453,
     },
 }
 

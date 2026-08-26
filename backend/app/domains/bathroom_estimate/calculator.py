@@ -832,18 +832,23 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     _shower_tile_types = (
         "custom_tile", "curbless", "neo_angle_custom")
     _s_wall_mat = shower_spec.get("wall_material", "tile")
-    if (estimate.replace_shower
-            and shower_spec.get("type") in _shower_tile_types
-            and _s_wall_mat == "tile"):
-        tile_spec = shower_spec.get("tile_spec", {})
+    _s_is_tile_shower = (
+        estimate.replace_shower
+        and shower_spec.get("type") in _shower_tile_types)
+    # Floor tile + pan/pre-slope are needed whenever the shower TYPE is a
+    # real tiled-floor build (custom_tile/curbless/neo_angle_custom), even
+    # if the WALLS are a non-tile prefab surround (wall_material != "tile")
+    # — floor and walls are independent selections in the sketch UI, and a
+    # prefab-wall + tiled-pan-floor combo is a normal, user-reachable one.
+    tile_spec = shower_spec.get("tile_spec", {})
+    _s_layout = shower_spec.get("layout", "alcove")
+    if _s_is_tile_shower and _s_wall_mat == "tile":
         shower_wall_sf = tile_spec.get("sf", 0)
         if not shower_wall_sf:
             sw = shower_spec.get("width_in", 0) or 0
             sd = shower_spec.get("depth_in", 0) or 0
             sh = shower_spec.get(
                 "tile_height_in", 0) or 0
-            _s_layout = shower_spec.get(
-                "layout", "alcove")
             if sw and sd and sh:
                 if _s_layout in (
                         "neo_angle",
@@ -889,7 +894,13 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  shower_wall_sf, "SF", round(st_total / shower_wall_sf, 2), "tile",
                  notes=" | ".join(st_parts))
 
-        # Shower floor tile
+    # Shower floor tile + pan/pre-slope — needed whenever the shower TYPE is
+    # a real tiled-floor build, independent of wall_material (fixed 2026-08-26:
+    # previously nested inside the wall-tile `if` above, so picking a non-tile
+    # wall surround on a custom_tile/curbless shower silently dropped floor
+    # tile, mortar pre-slope, and pan liner costs even though a real floor
+    # still needs them)
+    if _s_is_tile_shower:
         shower_floor_sf = 0
         sf_w = shower_spec.get("width_in", 0) or 0
         sf_d = shower_spec.get("depth_in", 0) or 0
