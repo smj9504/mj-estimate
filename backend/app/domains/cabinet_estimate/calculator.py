@@ -266,7 +266,9 @@ def _calc_location_cabinets(
     # ── Glass door premiums ──
     glass_boxes = [b for b in boxes if b.has_glass_door]
     if glass_boxes:
-        glass_premium = GLASS_DOOR_PREMIUM.get(tier, 100)
+        glass_premium = GLASS_DOOR_PREMIUM.get(
+            tier, GLASS_DOOR_PREMIUM["Stock"],
+        )
         for box in glass_boxes:
             glass_total = round(
                 glass_premium * box.qty, 2,
@@ -292,9 +294,14 @@ def _calc_location_cabinets(
     # ── Installation ──
     if include_install:
         if base_lf > 0:
+            install_base_rate = SCOPE_ITEMS[
+                "install_base_per_lf"
+            ].get(
+                tier,
+                SCOPE_ITEMS["install_base_per_lf"]["Stock"],
+            )
             install_base = round(
-                base_lf
-                * SCOPE_ITEMS["install_base_per_lf"], 2,
+                base_lf * install_base_rate, 2,
             )
             line_items.append(LineItem(
                 description=(
@@ -302,9 +309,7 @@ def _calc_location_cabinets(
                 ),
                 quantity=round(base_lf, 2),
                 unit="LF",
-                unit_price=SCOPE_ITEMS[
-                    "install_base_per_lf"
-                ],
+                unit_price=install_base_rate,
                 total=install_base,
                 category="install",
                 location=loc,
@@ -315,10 +320,14 @@ def _calc_location_cabinets(
             h_label = _WALL_TIER_LABELS.get(
                 htier, htier,
             )
+            install_wall_rate = SCOPE_ITEMS[
+                "install_wall_per_lf"
+            ].get(
+                tier,
+                SCOPE_ITEMS["install_wall_per_lf"]["Stock"],
+            )
             install_wall = round(
-                tier_lf
-                * SCOPE_ITEMS["install_wall_per_lf"],
-                2,
+                tier_lf * install_wall_rate, 2,
             )
             line_items.append(LineItem(
                 description=(
@@ -327,18 +336,20 @@ def _calc_location_cabinets(
                 ),
                 quantity=round(tier_lf, 2),
                 unit="LF",
-                unit_price=SCOPE_ITEMS[
-                    "install_wall_per_lf"
-                ],
+                unit_price=install_wall_rate,
                 total=install_wall,
                 category="install",
                 location=loc,
             ))
         if tall_count > 0:
+            install_tall_rate = SCOPE_ITEMS[
+                "install_tall_per_each"
+            ].get(
+                tier,
+                SCOPE_ITEMS["install_tall_per_each"]["Stock"],
+            )
             install_tall = round(
-                tall_count
-                * SCOPE_ITEMS["install_tall_per_each"],
-                2,
+                tall_count * install_tall_rate, 2,
             )
             line_items.append(LineItem(
                 description=(
@@ -346,9 +357,7 @@ def _calc_location_cabinets(
                 ),
                 quantity=tall_count,
                 unit="EA",
-                unit_price=SCOPE_ITEMS[
-                    "install_tall_per_each"
-                ],
+                unit_price=install_tall_rate,
                 total=install_tall,
                 category="install",
                 location=loc,
@@ -602,7 +611,7 @@ def calculate_estimate(
         supply_price = (
             island_prefab_price
             if island_prefab_price is not None
-            else size_info.get(tier, 900)
+            else size_info.get(tier, size_info.get("Stock", 900))
         )
         size_label = size_info.get(
             "label", island_prefab_size,
@@ -667,7 +676,10 @@ def calculate_estimate(
     if not is_prefab and island_end_panel_sqft > 0:
         ep_mat = ISLAND_PANEL_PRICING[
             "end_panel_per_sf"
-        ].get(tier, 20)
+        ].get(
+            tier,
+            ISLAND_PANEL_PRICING["end_panel_per_sf"]["Stock"],
+        )
         ep_inst = ISLAND_PANEL_PRICING["install_per_sf"]
         ep_sqft = round(island_end_panel_sqft, 2)
         ep_mat_total = round(ep_sqft * ep_mat, 2)
@@ -697,7 +709,10 @@ def calculate_estimate(
     if not is_prefab and island_back_panel_sqft > 0:
         bp_mat = ISLAND_PANEL_PRICING[
             "back_panel_per_sf"
-        ].get(tier, 16)
+        ].get(
+            tier,
+            ISLAND_PANEL_PRICING["back_panel_per_sf"]["Stock"],
+        )
         bp_inst = ISLAND_PANEL_PRICING["install_per_sf"]
         bp_sqft = round(island_back_panel_sqft, 2)
         bp_mat_total = round(bp_sqft * bp_mat, 2)
