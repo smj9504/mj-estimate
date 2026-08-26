@@ -181,6 +181,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             icon: <ContactsOutlined />,
             label: 'Clients',
           },
+          {
+            key: '/supplements',
+            icon: <FileTextOutlined />,
+            label: 'Supplements',
+          },
         ],
       },
 
@@ -190,11 +195,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         icon: <CalculatorOutlined />,
         label: 'Estimates',
         children: [
-          {
-            key: '/supplements',
-            icon: <FileTextOutlined />,
-            label: 'Supplements',
-          },
           {
             key: '/reconstruction-estimate/pack-calculator-new/list',
             icon: <RocketOutlined />,
