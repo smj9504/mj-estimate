@@ -58,6 +58,7 @@ SCOPE_PROMPT_TEMPLATE = """Write the field report sections for this plumbing ser
 - **Pipe material:** {pipe_material}
 - **What was opened/torn out to access the issue:** {wall_access_type}
 - **Fixture detached for access (if any):** {detached_fixture}
+- **Was the detached fixture reinstalled by this technician?** {fixture_reinstalled}
 
 ## GROUND RULES — WHAT YOU CAN AND CANNOT KNOW
 
@@ -95,7 +96,10 @@ the actions the technician performed.
   "toilet", "vanity", "dishwasher"). Use the value given in JOB DETAILS if one was
   provided; otherwise infer it from the incident, location, and access context. Use ""
   if nothing was detached.
-All four must stay consistent with the narrative sections below.
+All four must stay consistent with the narrative sections below. Note: whether the
+detached fixture was reinstalled is NOT inferred — it is given directly in JOB DETAILS
+above as "Was the detached fixture reinstalled by this technician?" and must be followed
+exactly wherever fixture_detached is non-empty.
 
 ### SITE FINDINGS (-> site_findings)
 
@@ -179,9 +183,11 @@ Cover these steps, in this order:
    here once access was made, e.g. "once exposed, the line was found split at the pipe
    body." If Site Findings already stated the specific failure mode (component was
    exposed), don't repeat it here.
-5. **Test the repair, reset the detached fixture, and temporarily seal the opened cavity**
-   with plastic sheeting and tape before leaving — reset only if step 3 applied, sealing
-   only if something was cut open in step 4.
+5. **Test the repair, reset the detached fixture (if applicable), and temporarily seal the
+   opened cavity** with plastic sheeting and tape before leaving — reset only if step 3
+   applied AND fixture_reinstalled is "yes"; sealing only if something was cut open in
+   step 4. If step 3 applied but fixture_reinstalled is "no," state instead that the
+   fixture remains detached, pending replacement or reinstallation by others.
 
 **Opening step — supply isolation, phrased neutrally.** Lead with the action itself (never
 "Upon arrival"). The sentence has to hold true whether the water was already off when the
@@ -226,9 +232,16 @@ evidentiary basis for the restoration scope that follows. Estimate from the scop
 - access panel and under-sink cabinet -> omit dimensions entirely; nothing was cut open.
 
 **Fixture detach & reset** — if a fixture was detached, Work Performed must state that it
-was detached before the work area was accessed AND that it was reset/reinstalled near the
-end (new wax ring, supply-line reconnection, or re-caulking, as applicable). Never mention
-the detach without the reset.
+was detached before the work area was accessed.
+- If the detached fixture WAS reinstalled by this technician (fixture_reinstalled is
+  "yes"), also state that it was reset/reinstalled near the end (new wax ring,
+  supply-line reconnection, or re-caulking, as applicable). Never mention the detach
+  without the reset in this case.
+- If it was NOT reinstalled by this technician (fixture_reinstalled is "no" — e.g. it is
+  being replaced, or another trade will reinstall it), say so plainly instead: the fixture
+  remains detached/removed, pending replacement or reinstallation by others. Do NOT
+  describe a reset, reinstall, new wax ring, or re-caulking of that fixture anywhere in
+  the report.
 
 ### WARRANTY (-> warranty_info)
 - One sentence: 30-day workmanship warranty from date of service.
@@ -260,7 +273,11 @@ age-related, neglect, deferred maintenance.
    imply the water was either still running or already off.
 5. If water reached another level or room, it is described as active/fresh/wet and tied to
    this incident.
-6. If a fixture was detached, Work Performed describes BOTH detaching and resetting it.
+6. If a fixture was detached AND fixture_reinstalled is "yes", Work Performed describes
+   BOTH detaching and resetting it. If fixture_reinstalled is "no", Work Performed
+   describes the detach only and states the fixture remains removed pending
+   replacement/reinstallation by others — it must NOT describe a reset, reinstall, new
+   wax ring, or re-caulking of that fixture.
 7. If anything was cut open, Work Performed states approximate dimensions.
 8. work_performed is 3-4 sentences, not a list of micro-steps.
 9. Work Performed does not contradict Site Findings.
@@ -302,6 +319,7 @@ INVOICE_PROMPT_TEMPLATE = """Price a realistic itemized invoice for the plumbing
 - **Wall / access type:** {wall_access_type}
 - **Protection installed:** {protection_installed}
 - **Fixture detached for access:** {fixture_detached}
+- **Detached fixture reinstalled by this technician:** {fixture_reinstalled}
 - **State:** {state} — regional pricing context only; see the tax rule below
 - **Estimated hours on site:** {hours_estimate}
 
@@ -312,10 +330,13 @@ INVOICE_PROMPT_TEMPLATE = """Price a realistic itemized invoice for the plumbing
    WORK PERFORMED above, e.g. "Labor - Isolation, Protection & Access" and
    "Labor - Repair, Testing & Seal-up".
 3. **Fixture detach & reset labor** — one additional HR line, required ONLY if "Fixture
-   detached for access" above names a real fixture (i.e. it is not empty and not "none").
-   Name it for that fixture, e.g. "Labor - Toilet Detach & Reset" or
-   "Labor - Vanity Detach & Reinstall". Typically 0.5-1.5 HR, kept separate from the
-   other labor phases.
+   detached for access" above names a real fixture (i.e. it is not empty and not "none")
+   AND "Detached fixture reinstalled by this technician" is "yes". Name it for that
+   fixture, e.g. "Labor - Toilet Detach & Reset" or "Labor - Vanity Detach & Reinstall".
+   Typically 0.5-1.5 HR, kept separate from the other labor phases. If a fixture was
+   detached but will NOT be reinstalled by this technician, instead use a "Labor -
+   [Fixture] Detach" line (detach-only labor, no reset/reinstall wording) — still
+   separate from the other labor phases.
 4. **Materials** — exactly one line, quantity 1, unit LOT.
 
 ## PRICING
@@ -335,8 +356,10 @@ round or placeholder number. Reference anchors, scaled to quantity and scope:
 - Wax ring ~$8-15 · Toilet/appliance supply line ~$8-15 · Braided connector ~$10-20
 - Protection plastic sheeting + tape ~$15-30
 Include the temporary protection materials if protection was installed, and the fixture
-reset materials (wax ring, caulk, supply line) if a fixture was detached. The description
-must list the actual items with approximate quantities.
+reset materials (wax ring, caulk, supply line) ONLY if a fixture was detached AND will be
+reinstalled by this technician. If the detached fixture will NOT be reinstalled by this
+technician, do not include any reset/reinstall materials for it. The description must list
+the actual items with approximate quantities.
 **The Materials total must not equal $185.00 or any other line's total** — a match reads
 as an unpriced placeholder rather than a real estimate. If your first pass lands on a
 round number or a coincidental match, recompute it from the components.
@@ -393,6 +416,7 @@ def generate_plumber_report(
     pipe_material: str,
     state: str,
     detached_fixture: str = "",
+    fixture_reinstalled: bool = True,
 ) -> Optional[dict]:
     """
     2-step AI pipeline for plumber report generation.
@@ -401,6 +425,11 @@ def generate_plumber_report(
             warranty, notes, plus AI-inferred failed_component, hours_estimate,
             protection_needed, and fixture_detached. pipe_material is a given
             input, not inferred — the technician knows what's actually there.
+            fixture_reinstalled is also a given input (not inferred): whether
+            the detached fixture was put back by this technician, or is being
+            left detached (e.g. for replacement, or reinstall by another
+            trade) — defaults to True to preserve prior behavior for callers
+            that don't pass it.
     Step 2 (fast model): Invoice -> invoice_items priced at realistic DMV market
             rates from Step 1's inferred scope (no fixed target).
 
@@ -427,6 +456,7 @@ def generate_plumber_report(
         pipe_material=pipe_material,
         wall_access_type=wall_access_type,
         detached_fixture=detached_fixture or "none specified — infer from context if applicable",
+        fixture_reinstalled="yes" if fixture_reinstalled else "no",
     )
 
     scope_data = _call_ai_json(scope_prompt, "work_performed", strong=True)
@@ -445,6 +475,7 @@ def generate_plumber_report(
         wall_access_type=wall_access_type,
         protection_installed=scope_data.get("protection_needed") or "yes",
         fixture_detached=detached_fixture or scope_data.get("fixture_detached") or "none",
+        fixture_reinstalled="yes" if fixture_reinstalled else "no",
         state=state_normalized,
         hours_estimate=scope_data.get("hours_estimate") or "3",
     )

@@ -44,6 +44,7 @@ class AIGenerateRequest(BaseModel):
     pipe_material: str
     state: str
     detached_fixture: str = ""
+    fixture_reinstalled: bool = True
 
     @field_validator("state")
     @classmethod
@@ -70,6 +71,7 @@ async def generate_ai_report(request: AIGenerateRequest):
             pipe_material=request.pipe_material,
             state=request.state,
             detached_fixture=request.detached_fixture,
+            fixture_reinstalled=request.fixture_reinstalled,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

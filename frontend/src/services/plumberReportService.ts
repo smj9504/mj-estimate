@@ -280,6 +280,7 @@ class PlumberReportService {
     pipe_material: string;
     state: string;
     detached_fixture?: string;
+    fixture_reinstalled?: boolean;
   }): Promise<{
     site_findings: string;
     work_performed: string;

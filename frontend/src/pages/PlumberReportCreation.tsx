@@ -818,6 +818,7 @@ const PlumberReportCreation: React.FC = () => {
         pipe_material: values.pipe_material,
         state: resolvedAiState,
         detached_fixture: values.detached_fixture || '',
+        fixture_reinstalled: values.fixture_reinstalled !== false,
       });
 
       // The backend runs both steps — update UI to reflect completion
@@ -1836,6 +1837,25 @@ const PlumberReportCreation: React.FC = () => {
             label="Anything Detached to Access the Area? (optional)"
           >
             <Input placeholder="e.g. toilet, vanity, dishwasher — leave blank if nothing was detached" />
+          </Form.Item>
+          <Form.Item
+            noStyle
+            shouldUpdate={(prev, cur) => prev.detached_fixture !== cur.detached_fixture}
+          >
+            {({ getFieldValue }) =>
+              (getFieldValue('detached_fixture') || '').trim() ? (
+                <Form.Item
+                  name="fixture_reinstalled"
+                  valuePropName="checked"
+                  initialValue={true}
+                >
+                  <Checkbox>
+                    Reinstalled by this technician (uncheck if it will be replaced or
+                    reinstalled by someone else)
+                  </Checkbox>
+                </Form.Item>
+              ) : null
+            }
           </Form.Item>
         </Form>
       </Modal>
