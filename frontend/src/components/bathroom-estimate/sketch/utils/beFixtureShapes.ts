@@ -27,7 +27,7 @@ const bathtubAlcove: FixtureShape = {
   paths: [
     { d: 'M0,0 L1,0 L1,1 L0,1 Z', fill: F, stroke: S, strokeWidth: 2 },
     { d: 'M0.06,0.06 L0.94,0.06 L0.94,0.94 L0.06,0.94 Z', fill: FL, stroke: S, strokeWidth: 1 },
-    { d: 'M0.5,0.85 m-0.04,0 a0.04,0.04 0 1,0 0.08,0 a0.04,0.04 0 1,0 -0.08,0', fill: S, stroke: S, strokeWidth: 0.5 },
+    // Faucet
     { d: 'M0.46,0.03 L0.54,0.03 L0.54,0.1 L0.46,0.1 Z', fill: SL, stroke: S, strokeWidth: 0.5 },
   ],
 };
@@ -41,8 +41,6 @@ const bathtubDropIn: FixtureShape = {
     { d: 'M0.05,0.05 L0.95,0.05 L0.95,0.95 L0.05,0.95 Z', fill: FL, stroke: SL, strokeWidth: 0.6 },
     // Tub basin (rounded rectangle)
     { d: 'M0.15,0.12 Q0.15,0.08 0.2,0.08 L0.8,0.08 Q0.85,0.08 0.85,0.12 L0.85,0.88 Q0.85,0.92 0.8,0.92 L0.2,0.92 Q0.15,0.92 0.15,0.88 Z', fill: FL, stroke: S, strokeWidth: 1.5 },
-    // Drain
-    { d: 'M0.5,0.82 m-0.035,0 a0.035,0.035 0 1,0 0.07,0 a0.035,0.035 0 1,0 -0.07,0', fill: S, stroke: S, strokeWidth: 0.5 },
     // Faucet
     { d: 'M0.46,0.03 L0.54,0.03 L0.54,0.07 L0.46,0.07 Z', fill: SL, stroke: S, strokeWidth: 0.5 },
   ],
@@ -57,8 +55,6 @@ const bathtubCorner: FixtureShape = {
     { d: 'M0.04,0.04 L0.96,0.04 L0.96,0.56 L0.56,0.96 L0.04,0.96 Z', fill: FL, stroke: SL, strokeWidth: 0.6 },
     // Tub basin (curved pentagon - chamfered corner with rounded edges)
     { d: 'M0.1,0.1 Q0.5,0.08 0.85,0.1 Q0.87,0.35 0.85,0.48 L0.48,0.85 Q0.35,0.87 0.1,0.85 Q0.08,0.5 0.1,0.1 Z', fill: FL, stroke: S, strokeWidth: 1.5 },
-    // Drain
-    { d: 'M0.38,0.55 m-0.04,0 a0.04,0.04 0 1,0 0.08,0 a0.04,0.04 0 1,0 -0.08,0', fill: S, stroke: S, strokeWidth: 0.5 },
     // Faucet on diagonal deck
     { d: 'M0.7,0.52 m-0.025,0 a0.025,0.025 0 1,0 0.05,0 a0.025,0.025 0 1,0 -0.05,0', fill: SL, stroke: S, strokeWidth: 0.8 },
     // Deck tile hatching - right side
@@ -83,8 +79,6 @@ const bathtubCornerDropIn: FixtureShape = {
     { d: 'M0.04,0.04 L0.96,0.04 L0.96,0.56 L0.56,0.96 L0.04,0.96 Z', fill: FL, stroke: SL, strokeWidth: 0.6 },
     // Tub basin (pentagon - chamfered bottom-right corner)
     { d: 'M0.08,0.08 L0.88,0.08 L0.88,0.48 L0.48,0.88 L0.08,0.88 Z', fill: FL, stroke: S, strokeWidth: 1.5 },
-    // Drain (center of basin)
-    { d: 'M0.4,0.55 m-0.035,0 a0.035,0.035 0 1,0 0.07,0 a0.035,0.035 0 1,0 -0.07,0', fill: S, stroke: S, strokeWidth: 0.5 },
     // Faucet (on the diagonal deck edge)
     { d: 'M0.72,0.52 m-0.025,0 a0.025,0.025 0 1,0 0.05,0 a0.025,0.025 0 1,0 -0.05,0', fill: SL, stroke: S, strokeWidth: 0.8 },
     // Deck tile hatching - right side
@@ -106,7 +100,8 @@ const bathtubFreestanding: FixtureShape = {
   paths: [
     { d: 'M0.1,0.5 Q0.1,0.05 0.5,0.05 Q0.9,0.05 0.9,0.5 Q0.9,0.95 0.5,0.95 Q0.1,0.95 0.1,0.5 Z', fill: F, stroke: S, strokeWidth: 2 },
     { d: 'M0.18,0.5 Q0.18,0.12 0.5,0.12 Q0.82,0.12 0.82,0.5 Q0.82,0.88 0.5,0.88 Q0.18,0.88 0.18,0.5 Z', fill: FL, stroke: S, strokeWidth: 1 },
-    { d: 'M0.5,0.78 m-0.035,0 a0.035,0.035 0 1,0 0.07,0 a0.035,0.035 0 1,0 -0.07,0', fill: S, stroke: S, strokeWidth: 0.5 },
+    // Freestanding floor-mounted faucet (at one end, just outside the basin)
+    { d: 'M0.5,0.95 m-0.045,0 a0.045,0.045 0 1,0 0.09,0 a0.045,0.045 0 1,0 -0.09,0', fill: SL, stroke: S, strokeWidth: 0.8 },
   ],
 };
 
@@ -130,14 +125,16 @@ function buildShowerShape(
   const hasLeft = panelConfig === 'left' || panelConfig === 'both';
   const hasRight = panelConfig === 'right' || panelConfig === 'both';
 
-  // ── Interior (tile grid, drain, showerhead) ──
+  // ── Interior (tile grid, showerhead, wall-mounted faucet/valve) ──
   paths.push(
     { d: 'M0.33,0.05 L0.33,0.95', fill: N, stroke: SL, strokeWidth: 0.3 },
     { d: 'M0.66,0.05 L0.66,0.95', fill: N, stroke: SL, strokeWidth: 0.3 },
     { d: 'M0.05,0.33 L0.95,0.33', fill: N, stroke: SL, strokeWidth: 0.3 },
     { d: 'M0.05,0.66 L0.95,0.66', fill: N, stroke: SL, strokeWidth: 0.3 },
-    { d: 'M0.5,0.5 m-0.06,0 a0.06,0.06 0 1,0 0.12,0 a0.06,0.06 0 1,0 -0.12,0', fill: SL, stroke: S, strokeWidth: 0.8 },
+    // Showerhead (centered on back wall)
     { d: 'M0.44,0.03 L0.56,0.03 L0.56,0.08 L0.44,0.08 Z', fill: SL, stroke: S, strokeWidth: 0.5 },
+    // Valve/faucet handle (below showerhead, back wall, realistic control height)
+    { d: 'M0.5,0.22 m-0.045,0 a0.045,0.045 0 1,0 0.09,0 a0.045,0.045 0 1,0 -0.09,0', fill: SL, stroke: S, strokeWidth: 0.8 },
   );
 
   // ── Walls ──
@@ -233,7 +230,7 @@ function buildShowerShape(
  * Plan view (neo_angle, walls on top + left):
  *   (0,0)───────(1,0)
  *     │              \
- *     │   drain  ⊕    \  ← angled glass panel
+ *     │   valve  ⊕    \  ← angled glass panel
  *     │                 (1,0.5) ← corner point
  *     │                /
  *     │              /  ← angled glass panel (with door)
@@ -257,14 +254,14 @@ function buildNeoAngleShowerShape(
   // The "cut corner" is at bottom-right for neo_angle, bottom-left for neo_angle_right.
 
   // ── Interior details ──
-  // Drain at center of pentagonal area
-  const drainX = isRight ? 0.55 : 0.45;
-  const drainY = 0.45;
+  // Valve handle position, offset from center toward the corner (realistic control placement)
+  const valveX = isRight ? 0.55 : 0.45;
+  const valveY = 0.22;
   paths.push(
     // Showerhead (centered on back wall)
     { d: 'M0.44,0.03 L0.56,0.03 L0.56,0.08 L0.44,0.08 Z', fill: SL, stroke: S, strokeWidth: 0.5 },
-    // Drain
-    { d: `M${drainX},${drainY} m-0.06,0 a0.06,0.06 0 1,0 0.12,0 a0.06,0.06 0 1,0 -0.12,0`, fill: SL, stroke: S, strokeWidth: 0.8 },
+    // Valve/faucet handle (below showerhead, back wall)
+    { d: `M${valveX},${valveY} m-0.045,0 a0.045,0.045 0 1,0 0.09,0 a0.045,0.045 0 1,0 -0.09,0`, fill: SL, stroke: S, strokeWidth: 0.8 },
     // Tile grid lines (adapted for pentagon)
     { d: 'M0.33,0.05 L0.33,0.85', fill: N, stroke: SL, strokeWidth: 0.3 },
     { d: 'M0.66,0.05 L0.66,0.85', fill: N, stroke: SL, strokeWidth: 0.3 },
