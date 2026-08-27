@@ -600,6 +600,19 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
                   style={{ width: '50%' }}
                 />
               </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text type="secondary" style={{ fontSize: 11 }}>Has Faucet on This Wall:</Text>
+                <Switch
+                  size="small"
+                  checked={p.hasFaucet ?? true}
+                  onChange={(v) => updateFixtureProperties(fixture.id, { hasFaucet: v })}
+                />
+              </div>
+              {p.hasFaucet === false && (
+                <Text type="secondary" style={{ fontSize: 10, display: 'block' }}>
+                  No valve replacement will be added — faucet is elsewhere
+                </Text>
+              )}
             </div>
           )}
 

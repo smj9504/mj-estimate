@@ -371,6 +371,7 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
       material: 'acrylic',
       surround_tile: !!p.hasSurround,
       surround_tile_sf: p.hasSurround ? surroundSF : 0,
+      has_faucet: p.hasFaucet ?? true,
       tub_length_in: Math.max(tubW, tubD),
       tub_depth_in: Math.min(tubW, tubD),
       surround_height_in: surrHeight,

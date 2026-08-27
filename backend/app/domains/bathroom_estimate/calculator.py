@@ -377,7 +377,16 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             demo_parts.append(
                 f"Existing wall tile removal {existing_tile_wall_sf:.0f}SF ${cost:,.2f}")
 
-    has_tile_demo = demo_floor or demo_walls or demo_ceiling or existing_tile_wall_sf > 0
+    # Tub deck/rim tile demo for detach & reset (deck must come off to free
+    # the tub, and — unlike the tub itself — the tile is destroyed on
+    # removal, so it counts toward tile demo/debris even with no other demo).
+    _dr_deck_demo_sf = 0
+    if getattr(estimate, 'detach_reset_tub', False):
+        _dr_tub_spec_demo = estimate.bathtub_spec or {}
+        if _dr_tub_spec_demo.get("deck_tile"):
+            _dr_deck_demo_sf = _dr_tub_spec_demo.get("deck_tile_sf", 0) or 0
+
+    has_tile_demo = demo_floor or demo_walls or demo_ceiling or existing_tile_wall_sf > 0 or _dr_deck_demo_sf > 0
 
     if demo_total > 0:
         has_fixture_replace = (estimate.replace_tub or estimate.replace_shower
@@ -425,6 +434,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             debris_cy += demo_wall_sf * 0.005
         if existing_tile_wall_sf > 0:
             debris_cy += existing_tile_wall_sf * 0.005
+        if _dr_deck_demo_sf > 0:
+            debris_cy += _dr_deck_demo_sf * 0.005
         if demo_ceiling:
             debris_cy += demo_ceiling_sf * 0.003  # thinner than tile
 
@@ -1172,7 +1183,15 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         if not _has_tub_surround and sk_tub:
             _has_tub_surround = sk_tub.get("properties", {}).get("hasSurround", False)
 
+        # Some tubs have no faucet/valve on the surround wall at all (spout
+        # elsewhere, deck-mount, etc.) — opening that tile shouldn't trigger
+        # a valve replacement recommendation. Defaults true (existing behavior).
+        _has_faucet_on_wall = tub_spec.get("has_faucet", True)
+        if "has_faucet" not in tub_spec and sk_tub:
+            _has_faucet_on_wall = sk_tub.get("properties", {}).get("hasFaucet", True)
+
         _valve_eligible = (_has_tub_surround
+                           and _has_faucet_on_wall
                            and _tub_type_v not in ("freestanding", "none", None))
         _valve_enabled = hc.get("auto_tub_valve", True)
         # Label as "tub/shower combo" only when a separate shower is also
@@ -1374,12 +1393,22 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                     f"Curb: ${curb_cost:,.2f}")
 
         # --- Showerhead ---
-        sh_type = shower_spec.get("showerhead_type", "standard")
-        sh_price = SHOWERHEAD_PRICES.get(sh_type, SHOWERHEAD_PRICES["standard"])
-        grade_mult = TRIM_GRADE_MULTIPLIER.get(shower_spec.get("trim_grade", "mid"), 1.0)
-        sh_cost = round(sh_price * grade_mult, 2)
-        shower_total += sh_cost
-        shower_parts.append(f"Showerhead: {sh_type} ${sh_cost:,.2f}")
+        # Action choice: 'replace' (buy new, default — matches prior behavior)
+        # or 'detach_reset' (reuse the existing showerhead, labor only).
+        _sh_action = shower_spec.get("showerhead_action", "replace")
+        if _sh_action == "detach_reset":
+            sh_dr_cost = round(BATHTUB_EXTRAS["showerhead_install"] * labor_mult, 2)
+            shower_total += sh_dr_cost
+            shower_parts.append(
+                f"Showerhead: detach & reset (existing) — labor only "
+                f"${sh_dr_cost:,.2f}")
+        elif _sh_action != "none":
+            sh_type = shower_spec.get("showerhead_type", "standard")
+            sh_price = SHOWERHEAD_PRICES.get(sh_type, SHOWERHEAD_PRICES["standard"])
+            grade_mult = TRIM_GRADE_MULTIPLIER.get(shower_spec.get("trim_grade", "mid"), 1.0)
+            sh_cost = round(sh_price * grade_mult, 2)
+            shower_total += sh_cost
+            shower_parts.append(f"Showerhead: {sh_type} ${sh_cost:,.2f}")
 
         # --- Valve (skip if plumber already repaired shower plumbing) ---
         _sh_valve_enabled = hc.get("auto_shower_valve", True)
@@ -1454,6 +1483,32 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         door_width = shower_spec.get("door_width_in", 0) or 0
         s_w_door = shower_spec.get("width_in", 36) or 36
 
+        # Fixed glass panel — computed here (before the door is priced) so
+        # its cost can fold into the door line below: a fixed side panel is
+        # installed as part of the same glass-shop job as the door, not
+        # billed as its own separate line.
+        panel_cfg = shower_spec.get("fixed_panel_config", "none")
+        panel_layout = shower_spec.get("layout", "alcove")
+        panel_s_w = shower_spec.get("width_in", 36) or 36
+        panel_s_d = shower_spec.get("depth_in", 36) or 36
+        panel_width_in = 0
+        panel_count = 0
+        if panel_layout in ("corner", "corner_right"):
+            # Corner: one full side is glass (no additional front panels)
+            panel_width_in += panel_s_d
+            panel_count += 1
+        else:
+            # Alcove: front fixed panels from config
+            if panel_cfg in ("left", "both"):
+                panel_width_in += panel_s_w * 0.25
+                panel_count += 1
+            if panel_cfg in ("right", "both"):
+                panel_width_in += panel_s_w * 0.25
+                panel_count += 1
+        panel_sf = round(panel_width_in * 72 / 144, 1) if panel_count > 0 and panel_width_in > 0 else 0
+        panel_cost = round(25.00 * panel_sf * labor_mult, 2) if panel_sf > 0 else 0
+        panel_merged = False
+
         # Map sketch door types → pricing keys
         # Sketch uses simplified names; pricing has grade-specific keys
         _DOOR_TYPE_MAP = {
@@ -1485,6 +1540,10 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 f"Door: ${mat_price:,.2f} | "
                 f"Install: ${door_install:,.2f} | "
                 f"{na_sz}\" neo-angle")
+            if panel_cost > 0:
+                door_combined += panel_cost
+                door_note += f" | Fixed panel ({panel_count}): {panel_sf} SF ${panel_cost:,.2f}"
+                panel_merged = True
             _add(
                 line_items, 5,
                 f"Neo-angle door - {door_label}",
@@ -1507,6 +1566,9 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 "_", " ").title()
 
             if door_type == "curtain":
+                # A fixed glass panel doesn't pair with a curtain — leave
+                # panel_merged False so it falls through to the standalone
+                # fallback line below instead of being silently dropped.
                 _add(
                     line_items, 5,
                     "Shower curtain rod + curtain",
@@ -1523,6 +1585,10 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 if door_width:
                     door_note += (
                         f" | {door_width}\" opening")
+                if panel_cost > 0:
+                    door_combined += panel_cost
+                    door_note += f" | Fixed panel ({panel_count}): {panel_sf} SF ${panel_cost:,.2f}"
+                    panel_merged = True
                 _add(
                     line_items, 5,
                     f"Shower door - {door_label}",
@@ -1534,11 +1600,24 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             if enclosure and enclosure != "curtain":
                 enc_price = SHOWER_ENCLOSURE_PRICES.get(
                     enclosure, SHOWER_ENCLOSURE_PRICES["sliding"])
+                enc_note = None
+                if panel_cost > 0:
+                    enc_price += panel_cost
+                    enc_note = f"Fixed panel ({panel_count}): {panel_sf} SF ${panel_cost:,.2f}"
+                    panel_merged = True
                 _add(line_items, 5, f"Shower enclosure - {enclosure.replace('_', ' ')}",
-                     1, "EA", enc_price, "fixture")
+                     1, "EA", enc_price, "fixture", notes=enc_note)
             elif enclosure == "curtain":
                 _add(line_items, 5, "Shower curtain rod + curtain", 1, "EA",
                      SHOWER_ENCLOSURE_PRICES["curtain"], "fixture")
+
+        # Fallback: a fixed panel exists but no door/enclosure line above
+        # could absorb it (e.g. curtain, or no door configured at all) —
+        # keep it as its own line rather than silently dropping the cost.
+        if panel_cost > 0 and not panel_merged:
+            _add(line_items, 5, f"Fixed glass panel ({panel_count})",
+                 panel_count, "EA", panel_cost, "fixture",
+                 notes=f"{panel_sf} SF tempered glass, installed")
 
     # --- Shower curb tile ---
     if estimate.replace_shower and shower_spec.get("type") in ("custom_tile", "curbless"):
@@ -1551,35 +1630,6 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 _add(line_items, 4, "Shower curb tile",
                      curb_sf, "SF", round(12.00 * labor_mult, 2), "tile",
                      notes=f"Top + front/back faces, {curb_h}\" curb height")
-
-    # --- Fixed glass panel (shower) ---
-    if estimate.replace_shower:
-        panel_cfg = shower_spec.get("fixed_panel_config", "none")
-        layout = shower_spec.get("layout", "alcove")
-        s_w = shower_spec.get("width_in", 36) or 36
-        s_d = shower_spec.get("depth_in", 36) or 36
-        panel_width_in = 0
-        panel_count = 0
-
-        if layout in ("corner", "corner_right"):
-            # Corner: one full side is glass (no additional front panels)
-            panel_width_in += s_d
-            panel_count += 1
-        else:
-            # Alcove: front fixed panels from config
-            if panel_cfg in ("left", "both"):
-                panel_width_in += s_w * 0.25
-                panel_count += 1
-            if panel_cfg in ("right", "both"):
-                panel_width_in += s_w * 0.25
-                panel_count += 1
-
-        if panel_count > 0 and panel_width_in > 0:
-            panel_sf = round(panel_width_in * 72 / 144, 1)  # 72" standard height
-            panel_cost = round(25.00 * panel_sf * labor_mult, 2)
-            _add(line_items, 5, f"Fixed glass panel ({panel_count})",
-                 panel_count, "EA", panel_cost, "fixture",
-                 notes=f"{panel_sf} SF tempered glass, installed")
 
     # Tile edge trim (Schluter/metal) for custom tile showers
     if (estimate.replace_shower
@@ -1840,6 +1890,23 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              f"Detach & Reset - Bathtub ({tub_type_label}, {tub_mat_label})",
              1, "EA", round(DETACH_RESET_COSTS[dr_key] * labor_mult, 2), "fixture",
              notes=f"Labor only: remove, store, reinstall | Existing {tub_type_label} {tub_mat_label} tub")
+
+        # Tub deck/rim tile — D&R still requires demoing the deck to free the
+        # tub for removal, then re-tiling it after reset (unlike the tub
+        # itself, the deck tile is destroyed on removal and can't be reused).
+        # _dr_deck_demo_sf computed earlier alongside has_tile_demo/debris.
+        if _dr_deck_demo_sf > 0:
+            _dr_deck_sides = _dr_tub_spec.get("deck_tile_sides", 2)
+            _add(line_items, 1,
+                 f"Tub deck tile removal ({_dr_deck_sides} sides)",
+                 _dr_deck_demo_sf, "SF",
+                 round(DEMO_RATES["deck_tile_per_sf"] * labor_mult, 2), "demo",
+                 notes="Deck must come off to free the tub for detach & reset")
+            _add(line_items, 4,
+                 f"Tub deck tile reinstall ({_dr_deck_sides} sides)",
+                 _dr_deck_demo_sf, "SF",
+                 round(14.00 * labor_mult, 2), "tile",
+                 notes="Includes bullnose edge trim | New tile — original destroyed on removal")
 
     if getattr(estimate, 'detach_reset_shower', False):
         shower_spec_dr = estimate.shower_spec or {}

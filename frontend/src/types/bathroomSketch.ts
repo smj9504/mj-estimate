@@ -180,6 +180,13 @@ export interface BEFixtureProperties {
   surroundHeight?: number;
   /** Number of walls with surround tile (1-3, default 3 for alcove) */
   surroundWallCount?: number;
+  /**
+   * Whether the surround wall actually has a tub faucet/valve mounted on
+   * it (default true). Some tubs have the faucet on a different wall or a
+   * deck-mount spout — set false so opening the surround tile doesn't
+   * trigger the "replace the valve while the wall is open" line item.
+   */
+  hasFaucet?: boolean;
 
   // --- Shower ---
   showerFloorType?: ShowerFloorType;
@@ -512,7 +519,7 @@ export const TILE_ZONE_COLORS: Record<TileZoneType, string> = {
   wall_full: 'rgba(52, 168, 83, 0.25)',
   tub_surround: 'rgba(251, 188, 4, 0.30)',
   tub_deck: 'rgba(234, 67, 53, 0.30)',
-  tub_front_panel: 'rgba(255, 112, 67, 0.30)',
+  tub_front_panel: 'rgba(0, 150, 136, 0.30)',
   shower_walls: 'rgba(156, 39, 176, 0.30)',
   shower_floor: 'rgba(0, 188, 212, 0.30)',
   shower_niche: 'rgba(255, 193, 7, 0.35)',

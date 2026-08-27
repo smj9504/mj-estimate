@@ -26,6 +26,8 @@ export interface ShowerSpec {
   /** Bench length along the wall in inches (width is fixed at 16″) */
   bench_length?: number;
   showerhead_type?: string;
+  /** Showerhead action: 'replace' (buy new, default), 'detach_reset' (reuse existing, labor only), 'none' */
+  showerhead_action?: 'replace' | 'detach_reset' | 'none';
   valve_replace?: boolean;
   trim_grade?: string;
   tile_spec?: {
@@ -53,6 +55,10 @@ export interface BathtubSpec {
   surround_tile_sf?: number;       // surround tile area SF
   surround_tile_material?: string; // porcelain, ceramic, etc.
   surround_tile_pattern?: string;  // straight, diagonal, herringbone
+  // Whether the surround wall has a tub faucet/valve on it (default true).
+  // Set false when the faucet is elsewhere (different wall, deck-mount) so
+  // opening the surround tile doesn't auto-add a valve replacement line item.
+  has_faucet?: boolean;
 }
 
 export interface VanityItemSpec {

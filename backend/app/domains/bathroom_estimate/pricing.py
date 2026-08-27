@@ -46,6 +46,8 @@ DEMO_RATES = {
     # 2026-08-26: +6-7% (Tier B — near-market category, follow-up pass)
     "floor_tile_per_sf": 3.25,        # tile removal + haul ($2-$4/SF avg)
     "wall_tile_per_sf": 4.05,         # wall tile removal ($3-$5/SF)
+    "deck_tile_per_sf": 3.75,         # tub deck/rim tile removal — horizontal, easier access than
+                                       # a wall, but bonded to a mortar bed/bullnose edge like a floor
     "ceiling_per_sf": 2.20,           # ceiling demo
 
     # Per-fixture demo (labor, disconnect + remove + haul)

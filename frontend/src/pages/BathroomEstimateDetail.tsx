@@ -1347,11 +1347,37 @@ const BathroomEstimateDetail: React.FC = () => {
                           <InputNumber style={{ width: '100%' }} min={0} placeholder="e.g. 60" />
                         </Form.Item>
                       </Col>
-                      <Col xs={12} sm={12} md={6}>
-                        <Form.Item label="Showerhead" name={['shower_spec', 'showerhead_type']}>
-                          <Select options={selectOpts(pricingInfo?.showerhead_types)} allowClear />
-                        </Form.Item>
-                      </Col>
+                      <Form.Item noStyle shouldUpdate={(prev: any, cur: any) =>
+                        prev?.shower_spec?.showerhead_action !== cur?.shower_spec?.showerhead_action}>
+                        {() => {
+                          const shAction = form.getFieldValue(['shower_spec', 'showerhead_action']) || 'replace';
+                          return (
+                            <>
+                              <Col xs={12} sm={12} md={6}>
+                                <Text style={{ display: 'block', marginBottom: 4 }}>Showerhead</Text>
+                                <Radio.Group
+                                  value={shAction}
+                                  onChange={(e) => form.setFieldsValue({
+                                    shower_spec: { ...form.getFieldValue('shower_spec'), showerhead_action: e.target.value }
+                                  })}
+                                  size="small"
+                                >
+                                  <Radio.Button value="replace">Replace</Radio.Button>
+                                  <Radio.Button value="detach_reset">D&R</Radio.Button>
+                                  <Radio.Button value="none">None</Radio.Button>
+                                </Radio.Group>
+                              </Col>
+                              {shAction === 'replace' && (
+                                <Col xs={12} sm={12} md={6}>
+                                  <Form.Item label="Showerhead Type" name={['shower_spec', 'showerhead_type']}>
+                                    <Select options={selectOpts(pricingInfo?.showerhead_types)} allowClear />
+                                  </Form.Item>
+                                </Col>
+                              )}
+                            </>
+                          );
+                        }}
+                      </Form.Item>
                       <Col xs={12} sm={12} md={6}>
                         <Form.Item label="Trim Grade" name={['shower_spec', 'trim_grade']}>
                           <Select options={selectOpts(pricingInfo?.trim_grades)} allowClear />
