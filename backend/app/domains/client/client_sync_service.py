@@ -291,20 +291,34 @@ class ClientSyncService:
         """Match or create Claim from WM Job data."""
         claim_number = (job.claim_number or '').strip()
 
-        # Priority 1: WM Job already linked to a Claim - but only reuse it while
-        # the job's claim_number still agrees with it. If claim_number has since
-        # diverged (corrected in the Sheet, or the property now has a second
-        # incident/claim), fall through to Priority 2 so the job gets matched
-        # or a new Claim gets created instead of silently sticking to the stale
-        # one (which was leaving second claims for the same client uncreated).
+        # Priority 1: WM Job already linked to a Claim - reuse it whenever the
+        # job's claim_number still agrees, OR the linked Claim already has real
+        # follow-up history (a claim_number mismatch there is almost always a
+        # typo/correction in the Sheet, not a genuinely new incident - and
+        # silently re-pointing the job would orphan all of that history behind
+        # a second, empty Claim). Only a claim with NO history is allowed to
+        # fall through to Priority 2, where a mismatch may legitimately mean a
+        # second incident/claim for the same property.
         if job.claim_id:
             claim = self.db.query(Claim).filter(Claim.id == job.claim_id).first()
-            if claim and (
-                not claim_number
-                or claim_number.lower() == (claim.claim_number or '').strip().lower()
-            ):
-                self._update_claim_from_job(claim, job)
-                return claim, 'updated'
+            if claim:
+                number_matches = (
+                    not claim_number
+                    or claim_number.lower() == (claim.claim_number or '').strip().lower()
+                )
+                if number_matches:
+                    self._update_claim_from_job(claim, job)
+                    return claim, 'updated'
+                if self._claim_has_history(claim):
+                    logger.warning(
+                        f"WM Job {job.id}: Sheet claim_number '{claim_number}' differs from "
+                        f"linked Claim {claim.id}'s '{claim.claim_number}', but that Claim has "
+                        f"existing follow-up history - keeping the link and updating the number "
+                        f"instead of creating a new Claim."
+                    )
+                    claim.claim_number = claim_number
+                    self._update_claim_from_job(claim, job)
+                    return claim, 'updated'
 
         # Priority 2: Match by claim_number within this client's claims
         if claim_number:
@@ -328,6 +342,28 @@ class ClientSyncService:
         # No match → create new Claim
         claim = self._create_claim_from_job(job, client)
         return claim, 'created'
+
+    def _claim_has_history(self, claim: Claim) -> bool:
+        """
+        Check whether a Claim has any real follow-up activity (tasks or
+        logged activity), as opposed to being an empty shell. Used to decide
+        whether a claim_number mismatch is safe to treat as a new incident.
+        """
+        # Import locally to avoid a circular import between client and
+        # claim_followup domains.
+        from app.domains.claim_followup.models import FollowUpTask
+        from app.domains.client.models import ClaimActivity
+
+        has_task = self.db.query(FollowUpTask.id).filter(
+            FollowUpTask.claim_id == claim.id
+        ).first()
+        if has_task:
+            return True
+
+        has_activity = self.db.query(ClaimActivity.id).filter(
+            ClaimActivity.claim_id == claim.id
+        ).first()
+        return has_activity is not None
 
     def _create_claim_from_job(self, job: WaterMitigationJob, client: Client) -> Claim:
         """Create a new Claim from WM Job data."""
