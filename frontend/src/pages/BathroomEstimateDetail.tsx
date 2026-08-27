@@ -2725,7 +2725,7 @@ const BathroomEstimateDetail: React.FC = () => {
                           </div>
                           <div>
                             <Text type="secondary" style={{ fontSize: 12 }}>Notes</Text>
-                            <Input value={editingItem.notes || ''}
+                            <TextArea rows={4} value={editingItem.notes || ''}
                               onChange={(e) => setEditingItem({ ...editingItem, notes: e.target.value })} />
                           </div>
                         </div>
@@ -2743,7 +2743,7 @@ const BathroomEstimateDetail: React.FC = () => {
                         const qtyEl = document.getElementById('add-li-qty') as HTMLInputElement;
                         const rateEl = document.getElementById('add-li-rate') as HTMLInputElement;
                         const unitEl = document.getElementById('add-li-unit') as HTMLInputElement;
-                        const notesEl = document.getElementById('add-li-notes') as HTMLInputElement;
+                        const notesEl = document.getElementById('add-li-notes') as HTMLTextAreaElement;
                         const desc = descEl?.value?.trim();
                         if (!desc) { message.warning('Description is required'); return; }
                         const qty = parseFloat(qtyEl?.value) || 1;
@@ -2784,7 +2784,7 @@ const BathroomEstimateDetail: React.FC = () => {
                         </Row>
                         <div>
                           <Text type="secondary" style={{ fontSize: 12 }}>Notes</Text>
-                          <Input id="add-li-notes" placeholder="Optional notes" />
+                          <TextArea id="add-li-notes" rows={4} placeholder="Optional notes" />
                         </div>
                       </div>
                     </Modal>

@@ -2386,12 +2386,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             _add(line_items, 6,
                  f"Tile base - {tile_label} (supply + install)",
                  bb_lf, "LF",
-                 tb_rate * labor_mult, "finish",
-                 notes=bb_notes)
-            _add(line_items, 6,
-                 "Tile base supplies (thinset, grout)",
-                 bb_lf, "LF",
-                 1.50 * labor_mult, "finish")
+                 (tb_rate + 1.50) * labor_mult, "finish",
+                 notes=f"{bb_notes} | Includes tile base supplies (thinset, grout)")
         elif bb_lf > 0:
             bb_rate = BASEBOARD_PRICES.get(bb_mat, BASEBOARD_PRICES["mdf"])
             bb_label = {"pvc": "PVC", "mdf": "MDF"}.get(
