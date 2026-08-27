@@ -1048,10 +1048,11 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                     return m1 || m2;
                   });
                   const isTile = matchWall?.finish === 'tile';
+                  const hasExistingTile = matchWall?.existingFinish === 'tile';
                   const isThisWallSelected = matchWall && selectedId === matchWall.id;
                   const edgeColor = isThisWallSelected
                     ? '#1890ff'
-                    : isTile ? '#1976d2' : (room.parentRoomId ? '#d48806' : '#555');
+                    : hasExistingTile ? '#d4380d' : isTile ? '#1976d2' : (room.parentRoomId ? '#d48806' : '#555');
                   const edgeWidth = isThisWallSelected ? 3.5 : (isRoomSelected ? 2.5 : 2);
                   return (
                     <React.Fragment key={`re-${room.id}-${idx}`}>
@@ -1059,6 +1060,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                         points={[pt.x, pt.y, npt.x, npt.y]}
                         stroke={edgeColor}
                         strokeWidth={edgeWidth}
+                        dash={hasExistingTile ? [8, 4] : undefined}
                         lineCap="round"
                         hitStrokeWidth={12}
                         listening={activeTool === 'select'}
@@ -1086,6 +1088,18 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                           <Text
                             x={isH ? mx - 8 : mx + 4} y={isH ? my + 4 : my - 6}
                             text="T" fontSize={9} fill="#1976d2" fontStyle="bold"
+                            listening={false}
+                          />
+                        );
+                      })()}
+                      {hasExistingTile && !isThisWallSelected && (() => {
+                        const mx = (pt.x + npt.x) / 2;
+                        const my = (pt.y + npt.y) / 2;
+                        const isH = Math.abs(npt.y - pt.y) < Math.abs(npt.x - pt.x);
+                        return (
+                          <Text
+                            x={isH ? mx - 8 : mx + 12} y={isH ? my - 10 : my - 6}
+                            text="⚠" fontSize={10} fill="#d4380d" fontStyle="bold"
                             listening={false}
                           />
                         );
@@ -1780,13 +1794,15 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             const mid = wallMidpoint(wall);
             const isWallSelected = selectedId === wall.id;
             const isTileWall = wall.finish === 'tile';
-            const wallColor = isWallSelected ? '#1890ff' : isTileWall ? '#1976d2' : '#555';
+            const hasExistingTile = wall.existingFinish === 'tile';
+            const wallColor = isWallSelected ? '#1890ff' : hasExistingTile ? '#d4380d' : isTileWall ? '#1976d2' : '#555';
             return (
               <Group key={wall.id}>
                 <Line
                   points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
                   stroke={wallColor}
                   strokeWidth={isWallSelected ? 3 : 2}
+                  dash={hasExistingTile ? [8, 4] : undefined}
                   lineCap="round"
                   onMouseDown={(e) => { e.cancelBubble = true; }}
                   onClick={(e) => {

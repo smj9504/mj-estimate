@@ -125,6 +125,8 @@ export interface WallsSpec {
   insulation_ceiling_sf?: number;
   insulation_type?: string;
   insulation_r_value?: number;
+  /** SF of wall marked as already tiled in the sketch — needs demo before any new finish */
+  existing_tile_wall_sf?: number;
 }
 
 export interface AccessoriesSpec {

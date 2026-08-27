@@ -362,7 +362,22 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             demo_total += cost
             demo_parts.append(f"Cement board {cb_repair_sf:.0f}SF ${cost:,.2f}")
 
-    has_tile_demo = demo_floor or demo_walls or demo_ceiling
+    # Existing wall tile removal (walls marked 'already tiled' in sketch,
+    # outside the shower/tub surround zones). Skip if the manual "demo
+    # walls" flag already covers the full bathroom wall area — that would
+    # double count this SF.
+    existing_tile_wall_sf = 0
+    if not _manual_wall_demo:
+        existing_tile_wall_sf = (estimate.walls_spec or {}).get(
+            "existing_tile_wall_sf", 0) or 0
+        if existing_tile_wall_sf > 0:
+            cost = round(
+                existing_tile_wall_sf * DEMO_RATES["wall_tile_per_sf"] * labor_mult, 2)
+            demo_total += cost
+            demo_parts.append(
+                f"Existing wall tile removal {existing_tile_wall_sf:.0f}SF ${cost:,.2f}")
+
+    has_tile_demo = demo_floor or demo_walls or demo_ceiling or existing_tile_wall_sf > 0
 
     if demo_total > 0:
         has_fixture_replace = (estimate.replace_tub or estimate.replace_shower
@@ -408,6 +423,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             debris_cy += demo_floor_sf * 0.005  # 0.5 CY per 100 SF
         if demo_walls:
             debris_cy += demo_wall_sf * 0.005
+        if existing_tile_wall_sf > 0:
+            debris_cy += existing_tile_wall_sf * 0.005
         if demo_ceiling:
             debris_cy += demo_ceiling_sf * 0.003  # thinner than tile
 
@@ -1144,7 +1161,9 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              1, "EA", tub_combined, "fixture",
              notes=" | ".join(tub_parts))
 
-    # ── Tub/shower combo valve (surround tile → wall open) ──
+    # ── Tub spout/diverter valve (surround tile → wall open) ──
+    # Triggered whenever the tub has surround tile being opened up, regardless
+    # of whether a separate shower is also being replaced (estimate.replace_shower).
     # Controllable via hidden_costs.auto_tub_valve (default: True)
     _tub_action = estimate.replace_tub or getattr(estimate, 'detach_reset_tub', False)
     if _tub_action:
@@ -1156,11 +1175,30 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         _valve_eligible = (_has_tub_surround
                            and _tub_type_v not in ("freestanding", "none", None))
         _valve_enabled = hc.get("auto_tub_valve", True)
+        # Label as "tub/shower combo" only when a separate shower is also
+        # being replaced; otherwise this is a standalone tub with tiled
+        # surround (e.g. tub alongside its own glass shower enclosure).
+        _is_combo = bool(estimate.replace_shower)
+        _valve_item_label = (
+            "Shower valve + trim kit replacement (tub/shower combo)"
+            if _is_combo else
+            "Tub spout/diverter valve replacement (surround tile — wall open)"
+        )
+        _valve_body_only_label = (
+            "Shower valve replacement (tub/shower combo)"
+            if _is_combo else
+            "Tub spout/diverter valve replacement (surround tile — wall open)"
+        )
+        _valve_excluded_warning = (
+            "Tub/shower combo valve excluded by user — "
+            if _is_combo else
+            "Tub spout/diverter valve excluded by user — "
+        )
 
         if _valve_eligible and plumber_fixed_tub:
             warnings.append(
-                "Tub/shower combo valve: plumber already replaced "
-                "(water damage repair) — excluded from estimate"
+                (f"{_valve_item_label}: plumber already replaced "
+                 f"(water damage repair) — excluded from estimate")
             )
         elif _valve_eligible and _valve_enabled:
             _excl_trim = hc.get("exclude_trim_kit", False)
@@ -1172,7 +1210,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 sh_head_cost = round(BATHTUB_EXTRAS["showerhead_install"] * labor_mult, 2)
                 valve_total = valve_cost + sh_head_cost
                 _add(line_items, 5,
-                     "Shower valve replacement (tub/shower combo)",
+                     _valve_body_only_label,
                      1, "EA", valve_total, "plumbing",
                      notes=f"Valve body only ${valve_cost:,.2f} (trim kit excluded) | "
                            f"Shower head + arm ${sh_head_cost:,.2f} | "
@@ -1182,14 +1220,14 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 sh_head_cost = round(BATHTUB_EXTRAS["showerhead_install"] * labor_mult, 2)
                 valve_total = valve_cost + sh_head_cost
                 _add(line_items, 5,
-                     "Shower valve + trim kit replacement (tub/shower combo)",
+                     _valve_item_label,
                      1, "EA", valve_total, "plumbing",
                      notes=f"Pressure-balance valve body + trim ${valve_cost:,.2f} | "
                            f"Shower head + arm ${sh_head_cost:,.2f} | "
                            f"Replace while wall is open to prevent future leak")
         elif _valve_eligible and not _valve_enabled:
             warnings.append(
-                "Tub/shower combo valve excluded by user — "
+                _valve_excluded_warning +
                 "trim only (valve body retained). "
                 "⚠ Strongly recommend replacing valve body while wall is open; "
                 "future leak would require removing new tile."

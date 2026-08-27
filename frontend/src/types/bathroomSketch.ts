@@ -79,6 +79,9 @@ export interface BEDimensions {
 
 export type WallFinish = 'paint' | 'tile';
 
+/** Current/existing wall surface material (before any work) */
+export type ExistingWallFinish = 'drywall' | 'tile';
+
 export interface BEWall {
   id: string;
   start: BEPoint;
@@ -89,8 +92,14 @@ export interface BEWall {
   heightInches: number;
   /** Label (e.g. "A", "B", "North") */
   label?: string;
-  /** Wall surface finish: paint or tile (default paint) */
+  /** Wall surface finish to install: paint or tile (default paint) */
   finish?: WallFinish;
+  /**
+   * Current/existing wall material, if not standard drywall (default drywall).
+   * When 'tile', the wall is already tiled and that tile must be demoed
+   * before any new finish can go on — drives an automatic tile-demo line item.
+   */
+  existingFinish?: ExistingWallFinish;
 }
 
 // =====================

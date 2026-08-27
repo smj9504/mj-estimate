@@ -1146,7 +1146,7 @@ const WallPropertiesPanel: React.FC<{ wall: BEWall; ppf: number; api: BESketchSt
       </div>
 
       <div style={{ marginBottom: 8 }}>
-        <Text type="secondary">Finish:</Text>
+        <Text type="secondary">Finish (to install):</Text>
         <Select
           size="small"
           value={wall.finish ?? 'paint'}
@@ -1155,6 +1155,19 @@ const WallPropertiesPanel: React.FC<{ wall: BEWall; ppf: number; api: BESketchSt
         >
           <Option value="paint">🎨 Paint</Option>
           <Option value="tile">🔲 Tile</Option>
+        </Select>
+      </div>
+
+      <div style={{ marginBottom: 8 }}>
+        <Text type="secondary">Existing Wall Material:</Text>
+        <Select
+          size="small"
+          value={wall.existingFinish ?? 'drywall'}
+          onChange={(v) => api.updateWall(wall.id, { existingFinish: v === 'drywall' ? undefined : v })}
+          style={{ width: '100%', marginTop: 4 }}
+        >
+          <Option value="drywall">Drywall</Option>
+          <Option value="tile">🔲 Already tiled (needs demo)</Option>
         </Select>
       </div>
 
@@ -1175,6 +1188,11 @@ const WallPropertiesPanel: React.FC<{ wall: BEWall; ppf: number; api: BESketchSt
         <Tag color={wall.finish === 'tile' ? 'blue' : 'default'} style={{ marginLeft: 6, fontSize: 10 }}>
           {wall.finish === 'tile' ? 'Tile' : 'Paint'}
         </Tag>
+        {wall.existingFinish === 'tile' && (
+          <Tag color="volcano" style={{ marginLeft: 4, fontSize: 10 }}>
+            Existing tile — demo required
+          </Tag>
+        )}
       </div>
     </div>
   );

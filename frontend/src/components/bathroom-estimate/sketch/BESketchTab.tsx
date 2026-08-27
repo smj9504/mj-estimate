@@ -45,6 +45,8 @@ export interface SketchFixtureSync {
   paint_wall_sf?: number;
   /** Tile wall SF (walls marked as 'tile' finish in sketch) */
   tile_wall_sf?: number;
+  /** SF of wall marked as already tiled (existingFinish='tile') — needs demo */
+  existing_tile_wall_sf?: number;
 
   // Walls spec sync
   walls_spec?: Record<string, any>;
@@ -204,6 +206,11 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
     let paintWallSF = 0;
     const roomWalls = walls.filter(w => bathroom.wallIds.includes(w.id));
 
+    // Walls marked as already tiled (existingFinish='tile') → demo SF,
+    // computed at full height regardless of finish ratio above (this tile
+    // has to come off before any new finish can go on).
+    let existingTileWallSF = 0;
+
     if (roomWalls.length > 0) {
       // Walls exist: use per-wall finish
       let totalWallLen = 0;
@@ -214,6 +221,9 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
         const wLen = Math.sqrt(wDx * wDx + wDy * wDy) / ppf; // ft
         totalWallLen += wLen;
         if (w.finish === 'tile') tileWallLen += wLen;
+        if (w.existingFinish === 'tile') {
+          existingTileWallSF += wLen * (w.heightInches / 12);
+        }
       }
       const tileRatio = totalWallLen > 0 ? tileWallLen / totalWallLen : 0;
       tileWallSF = Math.round(availableWallSF * tileRatio * 10) / 10;
@@ -222,19 +232,24 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
       // No explicit walls: all paint by default
       paintWallSF = Math.round(availableWallSF * 10) / 10;
     }
+    existingTileWallSF = Math.round(existingTileWallSF * 10) / 10;
 
     sync.paint_wall_sf = paintWallSF;
     sync.tile_wall_sf = tileWallSF;
+    sync.existing_tile_wall_sf = existingTileWallSF;
 
     // Determine wall_finish mode
     const hasAnyTile = tileWallSF > 0;
     const hasAnyPaint = paintWallSF > 0;
+    const wallsSpecBase: Record<string, any> = existingTileWallSF > 0
+      ? { existing_tile_wall_sf: existingTileWallSF }
+      : {};
     if (hasAnyTile && hasAnyPaint) {
-      sync.walls_spec = { wall_finish: 'paint_and_tile', paint_wall_sf: paintWallSF, tile_wall_sf: tileWallSF };
+      sync.walls_spec = { ...wallsSpecBase, wall_finish: 'paint_and_tile', paint_wall_sf: paintWallSF, tile_wall_sf: tileWallSF };
     } else if (hasAnyTile) {
-      sync.walls_spec = { wall_finish: 'tile', tile_wall_sf: tileWallSF };
+      sync.walls_spec = { ...wallsSpecBase, wall_finish: 'tile', tile_wall_sf: tileWallSF };
     } else {
-      sync.walls_spec = { wall_finish: 'paint' };
+      sync.walls_spec = { ...wallsSpecBase, wall_finish: 'paint' };
     }
   }
 
