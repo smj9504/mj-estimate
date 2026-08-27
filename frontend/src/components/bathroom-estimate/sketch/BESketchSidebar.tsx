@@ -47,6 +47,7 @@ import {
 } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { BATHROOM_PRESETS, type BathroomPreset } from './utils/bePresets';
+import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import BETileCalculationPanel from './BETileCalculationPanel';
 import BEDrywallRepairPanel from './BEDrywallRepairPanel';
 import BEInsulationPanel from './BEInsulationPanel';
@@ -630,16 +631,32 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
                 </div>
                 <div style={{ flex: 1 }}>
                   <Text type="secondary" style={{ fontSize: 10 }}>Sides</Text>
-                  <InputNumber
-                    size="small"
-                    value={p.deckTileSides ?? 2}
-                    min={1}
-                    max={4}
-                    style={{ width: '100%' }}
-                    onChange={(v) => v && updateFixtureProperties(fixture.id, { deckTileSides: v })}
-                  />
+                  {(() => {
+                    const wPx = (fixture.dimensions.width / 12) * data.settings.pixelsPerFoot;
+                    const hPx = (fixture.dimensions.height / 12) * data.settings.pixelsPerFoot;
+                    const room = data.rooms.find((r) => r.id === fixture.roomId) ?? data.rooms[0];
+                    const autoWalls = findFixtureWallSides(fixture, room, wPx, hPx);
+                    const autoSides = autoWalls
+                      ? 4 - [autoWalls.north, autoWalls.south, autoWalls.east, autoWalls.west].filter(Boolean).length
+                      : BATHTUB_SURROUND_DEFAULTS[p.bathtubSubType ?? 'drop_in'].deckTileSides;
+                    return (
+                      <InputNumber
+                        size="small"
+                        value={p.deckTileSides ?? autoSides}
+                        min={1}
+                        max={4}
+                        style={{ width: '100%' }}
+                        onChange={(v) => v && updateFixtureProperties(fixture.id, { deckTileSides: v })}
+                      />
+                    );
+                  })()}
                 </div>
               </div>
+              {p.deckTileSides == null && (
+                <Text type="secondary" style={{ fontSize: 10, display: 'block', marginTop: -4, marginBottom: 6 }}>
+                  Auto-detected from walls in this room — set a value to override
+                </Text>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                 <Text type="secondary">Front Panel Tile:</Text>
                 <Switch
@@ -1163,13 +1180,47 @@ const WallPropertiesPanel: React.FC<{ wall: BEWall; ppf: number; api: BESketchSt
         <Select
           size="small"
           value={wall.existingFinish ?? 'drywall'}
-          onChange={(v) => api.updateWall(wall.id, { existingFinish: v === 'drywall' ? undefined : v })}
+          onChange={(v) => api.updateWall(wall.id, {
+            existingFinish: v === 'drywall' ? undefined : v,
+            existingTileFromInches: v === 'drywall' ? undefined : wall.existingTileFromInches,
+            existingTileToInches: v === 'drywall' ? undefined : wall.existingTileToInches,
+          })}
           style={{ width: '100%', marginTop: 4 }}
         >
           <Option value="drywall">Drywall</Option>
           <Option value="tile">🔲 Already tiled (needs demo)</Option>
         </Select>
       </div>
+
+      {wall.existingFinish === 'tile' && (
+        <div style={{ marginBottom: 8 }}>
+          <Text type="secondary">Existing tile band (in from floor):</Text>
+          <div style={{ display: 'flex', gap: 8, marginTop: 4, alignItems: 'center' }}>
+            <InputNumber
+              size="small"
+              placeholder="0"
+              value={wall.existingTileFromInches ?? undefined}
+              min={0}
+              max={wall.heightInches}
+              onChange={(v) => api.updateWall(wall.id, { existingTileFromInches: v ?? undefined })}
+              style={{ width: 70 }}
+            />
+            <Text type="secondary" style={{ fontSize: 11 }}>to</Text>
+            <InputNumber
+              size="small"
+              placeholder={`${wall.heightInches}`}
+              value={wall.existingTileToInches ?? undefined}
+              min={0}
+              max={wall.heightInches}
+              onChange={(v) => api.updateWall(wall.id, { existingTileToInches: v ?? undefined })}
+              style={{ width: 70 }}
+            />
+          </div>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            e.g. 0-36 for wainscot — blank both = full wall height
+          </Text>
+        </div>
+      )}
 
       <div style={{ marginBottom: 4 }}>
         <Text type="secondary">Label:</Text>
@@ -1188,11 +1239,16 @@ const WallPropertiesPanel: React.FC<{ wall: BEWall; ppf: number; api: BESketchSt
         <Tag color={wall.finish === 'tile' ? 'blue' : 'default'} style={{ marginLeft: 6, fontSize: 10 }}>
           {wall.finish === 'tile' ? 'Tile' : 'Paint'}
         </Tag>
-        {wall.existingFinish === 'tile' && (
-          <Tag color="volcano" style={{ marginLeft: 4, fontSize: 10 }}>
-            Existing tile — demo required
-          </Tag>
-        )}
+        {wall.existingFinish === 'tile' && (() => {
+          const from = wall.existingTileFromInches ?? 0;
+          const to = wall.existingTileToInches ?? wall.heightInches;
+          const isFullHeight = from <= 0 && to >= wall.heightInches;
+          return (
+            <Tag color="volcano" style={{ marginLeft: 4, fontSize: 10 }}>
+              Existing tile {isFullHeight ? '(full ht)' : `(${from}-${to}in)`} — demo required
+            </Tag>
+          );
+        })()}
       </div>
     </div>
   );

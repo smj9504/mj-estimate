@@ -21,7 +21,8 @@ import {
   ExpandOutlined,
 } from '@ant-design/icons';
 import type { BESketchData } from '../../../types/bathroomSketch';
-import { EMPTY_BE_SKETCH } from '../../../types/bathroomSketch';
+import { EMPTY_BE_SKETCH, BATHTUB_SURROUND_DEFAULTS } from '../../../types/bathroomSketch';
+import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { useBESketchState } from './hooks/useBESketchState';
 import BESketchToolbar from './BESketchToolbar';
 import BESketchCanvas from './BESketchCanvas';
@@ -222,7 +223,13 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
         totalWallLen += wLen;
         if (w.finish === 'tile') tileWallLen += wLen;
         if (w.existingFinish === 'tile') {
-          existingTileWallSF += wLen * (w.heightInches / 12);
+          // Existing tile may only cover a vertical band of the wall (e.g. a
+          // 0-36" wainscot, or a 24-96" band above a chair rail) — use that
+          // band if given, else the full wall height.
+          const tileFrom = Math.max(0, w.existingTileFromInches ?? 0);
+          const tileTo = Math.min(w.heightInches, w.existingTileToInches ?? w.heightInches);
+          const tileHeightIn = Math.max(0, tileTo - tileFrom);
+          existingTileWallSF += wLen * (tileHeightIn / 12);
         }
       }
       const tileRatio = totalWallLen > 0 ? tileWallLen / totalWallLen : 0;
@@ -324,14 +331,32 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
     if (surrWallCount >= 3) surrPerimeter += tubD;
     const surroundSF = Math.round((surrPerimeter * surrHeight) / 144 * 100) / 100;
 
-    // Calculate deck tile SF
-    const deckW = p.deckWidth ?? 0;
-    const deckSides = p.deckTileSides ?? 0;
+    // Calculate deck tile SF. If the user hasn't explicitly set a side
+    // count, auto-detect which sides are actually against a room wall
+    // (same logic used to render the deck zone on canvas) so the SF sent
+    // to the estimate matches what's drawn — a tub flush to one wall gets
+    // deck tile only on its exposed sides, not a fixed back/left/right guess.
+    const tubDefaults = BATHTUB_SURROUND_DEFAULTS[subType];
+    const deckW = p.deckWidth ?? tubDefaults.deckWidth;
+    const tubWPx = (tubW / 12) * ppf;
+    const tubDPx = (tubD / 12) * ppf;
+    const autoWalls = p.deckTileSides == null
+      ? findFixtureWallSides(bathtub, bathroom, tubWPx, tubDPx)
+      : null;
+    const deckSides = p.deckTileSides
+      ?? (autoWalls ? (4 - [autoWalls.north, autoWalls.south, autoWalls.east, autoWalls.west].filter(Boolean).length) : tubDefaults.deckTileSides);
     let deckLen = 0;
-    if (deckSides >= 1) deckLen += tubW;
-    if (deckSides >= 2) deckLen += tubD;
-    if (deckSides >= 3) deckLen += tubD;
-    if (deckSides >= 4) deckLen += tubW;
+    if (autoWalls) {
+      if (!autoWalls.north) deckLen += tubW;
+      if (!autoWalls.south) deckLen += tubW;
+      if (!autoWalls.east) deckLen += tubD;
+      if (!autoWalls.west) deckLen += tubD;
+    } else {
+      if (deckSides >= 1) deckLen += tubW;
+      if (deckSides >= 2) deckLen += tubD;
+      if (deckSides >= 3) deckLen += tubD;
+      if (deckSides >= 4) deckLen += tubW;
+    }
     const cornerCount = Math.max(0, deckSides - 1);
     const deckSF = Math.round((deckLen * deckW + cornerCount * deckW * deckW) / 144 * 100) / 100;
 

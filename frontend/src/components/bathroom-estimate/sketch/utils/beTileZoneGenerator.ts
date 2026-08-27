@@ -54,6 +54,60 @@ function rotateBoundary(boundary: BEPoint[], center: BEPoint, angleDeg: number):
   return boundary.map((p) => rotatePoint(p, center, angleDeg));
 }
 
+/** Shortest distance from a point to a line segment */
+function pointToSegmentDist(pt: BEPoint, a: BEPoint, b: BEPoint): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(pt.x - a.x, pt.y - a.y);
+  const t = Math.max(0, Math.min(1, ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / lenSq));
+  const projX = a.x + t * dx;
+  const projY = a.y + t * dy;
+  return Math.hypot(pt.x - projX, pt.y - projY);
+}
+
+/** How close (in px) a fixture edge midpoint must be to a room boundary edge to count as "against that wall" */
+const WALL_ADJACENCY_PX = 18;
+
+/**
+ * Determine which sides of a rectangular fixture (in its own local frame —
+ * 'north' = the side toward -y before rotation, i.e. the side drawn at
+ * cy - hPx/2, and so on) are flush against a wall of the given room.
+ * Returns null if no room is available (caller should fall back to a
+ * manual/default side count instead of assuming 0 exposed sides).
+ */
+export function findFixtureWallSides(
+  fix: BEFixture,
+  room: BERoom | undefined,
+  wPx: number,
+  hPx: number,
+): { north: boolean; south: boolean; east: boolean; west: boolean } | null {
+  if (!room || room.boundary.length < 2) return null;
+
+  const cx = fix.position.x;
+  const cy = fix.position.y;
+  // Local-frame edge midpoints before rotation
+  const localMidpoints = {
+    north: { x: cx, y: cy - hPx / 2 },
+    south: { x: cx, y: cy + hPx / 2 },
+    west: { x: cx - wPx / 2, y: cy },
+    east: { x: cx + wPx / 2, y: cy },
+  };
+
+  const result = { north: false, south: false, east: false, west: false };
+  for (const side of Object.keys(localMidpoints) as Array<keyof typeof localMidpoints>) {
+    const mid = rotatePoint(localMidpoints[side], fix.position, fix.rotation);
+    let closest = Infinity;
+    for (let i = 0; i < room.boundary.length; i++) {
+      const a = room.boundary[i];
+      const b = room.boundary[(i + 1) % room.boundary.length];
+      closest = Math.min(closest, pointToSegmentDist(mid, a, b));
+    }
+    result[side] = closest <= WALL_ADJACENCY_PX;
+  }
+  return result;
+}
+
 /**
  * Generate all tile zones from current fixtures and rooms.
  * Called whenever fixtures or rooms change.
@@ -99,6 +153,8 @@ export function generateTileZones(
     const ppf = pixelsPerFoot;
     const wPx = (fix.dimensions.width / 12) * ppf;
     const hPx = (fix.dimensions.height / 12) * ppf;
+    const fixRoom = rooms.find((r) => r.id === fix.roomId)
+      ?? rooms.find((r) => pointInPolygon(fix.position, r.boundary));
 
     if (fix.type === 'bathtub') {
       // Surround tile
@@ -109,7 +165,7 @@ export function generateTileZones(
 
       // Deck tile (for drop_in and corner_garden)
       if (fix.properties.deckWidth && fix.properties.deckWidth > 0) {
-        const deckZone = generateBathtubDeckZone(fix, ppf);
+        const deckZone = generateBathtubDeckZone(fix, ppf, fixRoom);
         if (deckZone) zones.push(deckZone);
       }
 
@@ -245,12 +301,28 @@ function isChamferedTub(fix: BEFixture): boolean {
  */
 const CHAMFER_RATIO = 0.4;
 
-function generateBathtubDeckZone(fix: BEFixture, ppf: number): BETileZone | null {
+function generateBathtubDeckZone(fix: BEFixture, ppf: number, room?: BERoom): BETileZone | null {
   const deckWidth = fix.properties.deckWidth ?? 10; // inches
   const tubWidth = fix.dimensions.width;
   const tubDepth = fix.dimensions.height;
-  const deckTileSides = fix.properties.deckTileSides ?? 2;
   const chamfered = isChamferedTub(fix);
+
+  const wPx = (tubWidth / 12) * ppf;
+  const hPx = (tubDepth / 12) * ppf;
+  const deckPx = (deckWidth / 12) * ppf;
+  const cx = fix.position.x;
+  const cy = fix.position.y;
+
+  // If the user hasn't explicitly set a side count, auto-detect which sides
+  // are actually against a room wall (those are excluded — no deck needed
+  // where the tub is flush to a wall) and expose the rest. Falls back to the
+  // legacy fixed-order (back→left→right→front) count when no room is known
+  // or the field was set explicitly, so manual override always still works.
+  const autoWalls = fix.properties.deckTileSides == null
+    ? findFixtureWallSides(fix, room, wPx, hPx)
+    : null;
+  const deckTileSides = fix.properties.deckTileSides
+    ?? (autoWalls ? (4 - [autoWalls.north, autoWalls.south, autoWalls.east, autoWalls.west].filter(Boolean).length) : 2);
 
   // ── Area calculation ──
   let areaSF: number;
@@ -262,8 +334,17 @@ function generateBathtubDeckZone(fix: BEFixture, ppf: number): BETileZone | null
     const totalExposed = frontLen + diagLen + rightLen;
     // Deck area = exposed perimeter × deckWidth + corner triangle adjustments
     areaSF = (totalExposed * deckWidth) / 144;
+  } else if (autoWalls && !chamfered) {
+    // Auto-detected: sum exact exposed edges (each wall-adjacent side excluded)
+    let deckLengthInches = 0;
+    if (!autoWalls.north) deckLengthInches += tubWidth;
+    if (!autoWalls.south) deckLengthInches += tubWidth;
+    if (!autoWalls.east) deckLengthInches += tubDepth;
+    if (!autoWalls.west) deckLengthInches += tubDepth;
+    const cornerCount = Math.max(0, deckTileSides - 1);
+    areaSF = (deckLengthInches * deckWidth + cornerCount * deckWidth * deckWidth) / 144;
   } else {
-    // Rectangular tubs: standard calculation
+    // Rectangular tubs, no room to auto-detect against: legacy fixed-order calculation
     let deckLengthInches = 0;
     if (deckTileSides >= 1) deckLengthInches += tubWidth;
     if (deckTileSides >= 2) deckLengthInches += tubDepth;
@@ -274,12 +355,6 @@ function generateBathtubDeckZone(fix: BEFixture, ppf: number): BETileZone | null
   }
 
   // ── Visual boundary ──
-  const wPx = (tubWidth / 12) * ppf;
-  const hPx = (tubDepth / 12) * ppf;
-  const deckPx = (deckWidth / 12) * ppf;
-  const cx = fix.position.x;
-  const cy = fix.position.y;
-
   let rawBoundary: BEPoint[];
   if (chamfered && deckTileSides <= 2) {
     // Chamfered L-shape: follows the pentagonal tub outline + deck offset
@@ -295,6 +370,21 @@ function generateBathtubDeckZone(fix: BEFixture, ppf: number): BETileZone | null
       { x: cx + wPx / 2 + deckPx, y: cy + hPx / 2 - cutH + perpY },                // right → chamfer start
       { x: cx + wPx / 2 - cutW + perpX, y: cy + hPx / 2 + deckPx },                // chamfer end → bottom
       { x: cx - wPx / 2, y: cy + hPx / 2 + deckPx },                               // bottom-left (deck bottom)
+    ];
+  } else if (autoWalls && !chamfered) {
+    // Auto-detected: offset each exposed edge outward by deckPx, keep
+    // wall-adjacent edges flush (no offset) — a simple per-side rectangle
+    // expansion, which is exact for the axis-aligned case (rotation is
+    // applied afterward for angled placements).
+    const left = cx - wPx / 2 - (autoWalls.west ? 0 : deckPx);
+    const right = cx + wPx / 2 + (autoWalls.east ? 0 : deckPx);
+    const top = cy - hPx / 2 - (autoWalls.north ? 0 : deckPx);
+    const bottom = cy + hPx / 2 + (autoWalls.south ? 0 : deckPx);
+    rawBoundary = [
+      { x: left, y: top },
+      { x: right, y: top },
+      { x: right, y: bottom },
+      { x: left, y: bottom },
     ];
   } else if (deckTileSides <= 1) {
     rawBoundary = [

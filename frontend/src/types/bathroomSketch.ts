@@ -100,6 +100,15 @@ export interface BEWall {
    * before any new finish can go on — drives an automatic tile-demo line item.
    */
   existingFinish?: ExistingWallFinish;
+  /**
+   * Vertical band (in inches, measured from the floor) covered by the
+   * existing tile. Only meaningful when existingFinish='tile'. Both omitted
+   * or 0 means the tile covers the full wall height (heightInches).
+   * Examples: {to: 36} = wainscot from the floor; {from: 24, to: 96} = a
+   * band starting 24" up (e.g. tile above a chair rail, drywall below).
+   */
+  existingTileFromInches?: number;
+  existingTileToInches?: number;
 }
 
 // =====================
