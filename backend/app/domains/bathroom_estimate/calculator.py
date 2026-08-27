@@ -1861,15 +1861,22 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 continue
             _dr_sink_t = _dv.get("sink_type", "cabinet")
             _dr_v_width = _dv.get("width", 36)
-            # Find closest width key (round down to nearest defined size)
+            # Find the smallest defined tier >= width (round up to next size)
             _dr_v_cost = _dr_van_costs.get(_dr_v_width)
             if _dr_v_cost is None:
                 _sorted_keys = sorted(_dr_van_costs.keys())
-                _dr_v_cost = _dr_van_costs[_sorted_keys[-1]]  # default: largest
+                _dr_v_cost = None
                 for _k in _sorted_keys:
                     if _k >= _dr_v_width:
                         _dr_v_cost = _dr_van_costs[_k]
                         break
+                if _dr_v_cost is None:
+                    # Wider than the largest defined tier — extrapolate from
+                    # the rate between the two largest tiers instead of
+                    # silently capping at the largest tier's price.
+                    _top_k, _prev_k = _sorted_keys[-1], _sorted_keys[-2]
+                    _per_inch = (_dr_van_costs[_top_k] - _dr_van_costs[_prev_k]) / (_top_k - _prev_k)
+                    _dr_v_cost = round(_dr_van_costs[_top_k] + (_dr_v_width - _top_k) * _per_inch)
             _dr_label = {
                 "pedestal_sink": "Detach & Reset - Pedestal sink",
                 "wall_mount_sink": "Detach & Reset - Wall-mount sink",
