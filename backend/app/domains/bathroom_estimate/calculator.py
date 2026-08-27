@@ -380,11 +380,23 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     # Tub deck/rim tile demo for detach & reset (deck must come off to free
     # the tub, and — unlike the tub itself — the tile is destroyed on
     # removal, so it counts toward tile demo/debris even with no other demo).
+    # Folded into the "Demo & removal" line below rather than its own line
+    # item, since the deck coming off is just up-front demo scope needed
+    # before the D&R tub work further down can happen.
     _dr_deck_demo_sf = 0
     if getattr(estimate, 'detach_reset_tub', False):
         _dr_tub_spec_demo = estimate.bathtub_spec or {}
         if _dr_tub_spec_demo.get("deck_tile"):
             _dr_deck_demo_sf = _dr_tub_spec_demo.get("deck_tile_sf", 0) or 0
+            if _dr_deck_demo_sf > 0:
+                _dr_deck_sides_demo = _dr_tub_spec_demo.get("deck_tile_sides", 2)
+                cost = round(
+                    _dr_deck_demo_sf * DEMO_RATES["deck_tile_per_sf"] * labor_mult, 2)
+                demo_total += cost
+                demo_parts.append(
+                    f"Tub deck tile removal ({_dr_deck_sides_demo} sides) "
+                    f"{_dr_deck_demo_sf:.0f}SF ${cost:,.2f} — deck must come "
+                    f"off to free the tub for detach & reset")
 
     has_tile_demo = demo_floor or demo_walls or demo_ceiling or existing_tile_wall_sf > 0 or _dr_deck_demo_sf > 0
 
@@ -1906,14 +1918,11 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         # Tub deck/rim tile — D&R still requires demoing the deck to free the
         # tub for removal, then re-tiling it after reset (unlike the tub
         # itself, the deck tile is destroyed on removal and can't be reused).
-        # _dr_deck_demo_sf computed earlier alongside has_tile_demo/debris.
+        # _dr_deck_demo_sf computed earlier alongside has_tile_demo/debris;
+        # its removal cost is folded into the "Demo & removal" line's notes
+        # there too — only the re-tile/install line item is added here.
         if _dr_deck_demo_sf > 0:
             _dr_deck_sides = _dr_tub_spec.get("deck_tile_sides", 2)
-            _add(line_items, 1,
-                 f"Tub deck tile removal ({_dr_deck_sides} sides)",
-                 _dr_deck_demo_sf, "SF",
-                 round(DEMO_RATES["deck_tile_per_sf"] * labor_mult, 2), "demo",
-                 notes="Deck must come off to free the tub for detach & reset")
             _add(line_items, 4,
                  f"Tub deck tile replacement ({_dr_deck_sides} sides)",
                  _dr_deck_demo_sf, "SF",
@@ -2283,10 +2292,12 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             floor_sf * PAINT_PREP["floor_protection_per_sf"] * labor_mult, 2)
         prep_total = mask_cost + fp_cost
         _add(line_items, 6,
-             "Paint prep - masking & floor protection",
+             "Paint prep - masking & floor protection (paint phase)",
              floor_sf, "SF", round(prep_total / floor_sf, 2), "finish",
              notes=f"Masking (tape, plastic) ${mask_cost:,.2f} | "
-                   f"Floor protection (drop cloth) ${fp_cost:,.2f}")
+                   f"Floor protection (drop cloth, re-protects the new "
+                   f"floor from paint drips — separate from the pre-demo "
+                   f"protection under Demo & Disposal) ${fp_cost:,.2f}")
 
     # Baseboard — perimeter minus fixture wall-contact widths from sketch
     # Auto-default to PVC when replacing floor (baseboard must be removed/replaced)
@@ -2515,8 +2526,13 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             "Property built before 1978 - EPA RRP rule applies. "
             "Certified renovator required.")
 
-    _add(line_items, 1, "Floor/surface protection", 1, "LS",
-         HIDDEN_COSTS["floor_protection"], "demo")
+    _add(line_items, 1, "Floor/surface protection (pre-demo)", 1, "LS",
+         HIDDEN_COSTS["floor_protection"], "demo",
+         notes="Ram board/plastic laid before demo begins — protects the "
+               "existing floor from construction debris & foot traffic. "
+               "Separate from the paint-phase floor protection under "
+               "Finish (Paint & Trim), which re-protects the new floor "
+               "later, specifically from paint drips/overspray.")
 
     if hc.get("mobilization", False):
         _add(line_items, 1, "Mobilization / setup", 1, "LS",
