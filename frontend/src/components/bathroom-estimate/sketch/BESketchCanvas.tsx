@@ -17,12 +17,14 @@ import type Konva from 'konva';
 import type {
   BEPoint,
   BEWall,
+  BERoom,
   BEFixture,
   BEFixtureType,
   BathtubSubType,
 } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { getFixtureShape } from './utils/beFixtureShapes';
+import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 
 interface BESketchCanvasProps {
   api: BESketchStateAPI;
@@ -2036,6 +2038,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             <FixtureNode
               key={fix.id}
               fixture={fix}
+              room={rooms.find((r) => r.id === fix.roomId) ?? rooms[0]}
               ppf={ppf}
               gridPx={gridPx}
               isSelected={selectedId === fix.id}
@@ -2142,6 +2145,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
 
 interface FixtureNodeProps {
   fixture: BEFixture;
+  room: BERoom | undefined;
   ppf: number;
   gridPx: number;
   isSelected: boolean;
@@ -2156,6 +2160,7 @@ interface FixtureNodeProps {
 
 const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
   fixture: fix,
+  room,
   ppf,
   gridPx,
   isSelected,
@@ -2172,6 +2177,9 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
 
   const wPx = (fix.dimensions.width / 12) * ppf;
   const hPx = (fix.dimensions.height / 12) * ppf;
+  // Only the drop-in tub deck rim needs this (see getFixtureShape) — skip the
+  // room-boundary scan for every other fixture type.
+  const wallSides = fix.type === 'bathtub' ? findFixtureWallSides(fix, room, wPx, hPx) : null;
   const shape = getFixtureShape(
     fix.type,
     fix.properties.bathtubSubType as BathtubSubType | undefined,
@@ -2182,6 +2190,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
     fix.properties.showerDoorWidth ? fix.properties.showerDoorWidth / fix.dimensions.width : undefined,
     fix.properties.vanitySubType,
     fix.properties.lightType,
+    wallSides,
   );
 
   // Attach transformer to the standalone Rect; re-sync on dimension/rotation change

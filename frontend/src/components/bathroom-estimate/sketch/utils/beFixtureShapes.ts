@@ -20,6 +20,85 @@ const F = 'none';     // fill — transparent (blueprint style)
 const FL = 'none';    // fill light — transparent
 const N = 'none';     // no fill
 
+// ── Wall-aware deck rim helper ──
+
+/**
+ * Which fixture-local sides (before rotation) are flush against a room wall.
+ * Mirrors the shape returned by findFixtureWallSides in beTileZoneGenerator —
+ * kept as a separate local type so this file stays a pure shape/render utility
+ * with no dependency on the tile-zone module.
+ */
+export interface WallSides {
+  north: boolean;
+  south: boolean;
+  east: boolean;
+  west: boolean;
+}
+
+/**
+ * Trace only the exposed (non-wall) edges of a box from (inset,inset) to
+ * (1-inset,1-inset) as an SVG path, rounding a corner only where both
+ * adjacent edges are exposed. A side flagged true in wallSides is omitted
+ * entirely — a tub deck has no rim where it butts into a room wall, so no
+ * line should be drawn there. wallSides=null means "no room context", i.e.
+ * treat every side as exposed (matches prior unconditional behavior, used
+ * e.g. for palette preview icons that aren't placed in a room).
+ */
+function buildExposedRimPath(wallSides: WallSides | null, inset: number, r: number): string {
+  const north = !wallSides?.north;
+  const east = !wallSides?.east;
+  const south = !wallSides?.south;
+  const west = !wallSides?.west;
+
+  const lo = inset;
+  const hi = 1 - inset;
+
+  const roundTR = north && east;
+  const roundBR = east && south;
+  const roundBL = south && west;
+  const roundTL = west && north;
+
+  const nStart: [number, number] = roundTL ? [lo + r, lo] : [lo, lo];
+  const nEnd: [number, number] = roundTR ? [hi - r, lo] : [hi, lo];
+  const eStart: [number, number] = roundTR ? [hi, lo + r] : [hi, lo];
+  const eEnd: [number, number] = roundBR ? [hi, hi - r] : [hi, hi];
+  const sStart: [number, number] = roundBR ? [hi - r, hi] : [hi, hi];
+  const sEnd: [number, number] = roundBL ? [lo + r, hi] : [lo, hi];
+  const wStart: [number, number] = roundBL ? [lo, hi - r] : [lo, hi];
+  const wEnd: [number, number] = roundTL ? [lo, lo + r] : [lo, lo];
+
+  const pt = (p: [number, number]) => `${p[0]},${p[1]}`;
+  const parts: string[] = [];
+  let open = false;
+
+  const drawEdge = (present: boolean, start: [number, number], end: [number, number]) => {
+    if (!present) { open = false; return; }
+    parts.push(open ? `L${pt(end)}` : `M${pt(start)} L${pt(end)}`);
+    open = true;
+  };
+  const drawCorner = (rounded: boolean, cx: number, cy: number, end: [number, number], edgeAfterPresent: boolean) => {
+    if (rounded) {
+      parts.push(`Q${cx},${cy} ${pt(end)}`);
+      open = true;
+    } else if (!edgeAfterPresent) {
+      open = false;
+    }
+  };
+
+  drawEdge(north, nStart, nEnd);
+  drawCorner(roundTR, hi, lo, eStart, east);
+  drawEdge(east, eStart, eEnd);
+  drawCorner(roundBR, hi, hi, sStart, south);
+  drawEdge(south, sStart, sEnd);
+  drawCorner(roundBL, lo, hi, wStart, west);
+  drawEdge(west, wStart, wEnd);
+  drawCorner(roundTL, lo, lo, nStart, north);
+
+  if (north && east && south && west) parts.push('Z');
+
+  return parts.join(' ');
+}
+
 // ── Bathtub ──
 
 const bathtubAlcove: FixtureShape = {
@@ -32,27 +111,31 @@ const bathtubAlcove: FixtureShape = {
   ],
 };
 
-const bathtubDropIn: FixtureShape = {
-  label: 'Drop-in',
-  paths: [
-    // Outer platform/deck
-    { d: 'M0,0 L1,0 L1,1 L0,1 Z', fill: F, stroke: S, strokeWidth: 2 },
-    // Inner deck edge
-    { d: 'M0.05,0.05 L0.95,0.05 L0.95,0.95 L0.05,0.95 Z', fill: FL, stroke: SL, strokeWidth: 0.6 },
-    // Tub basin (rounded rectangle)
-    { d: 'M0.15,0.12 Q0.15,0.08 0.2,0.08 L0.8,0.08 Q0.85,0.08 0.85,0.12 L0.85,0.88 Q0.85,0.92 0.8,0.92 L0.2,0.92 Q0.15,0.92 0.15,0.88 Z', fill: FL, stroke: S, strokeWidth: 1.5 },
-    // Faucet
-    { d: 'M0.46,0.03 L0.54,0.03 L0.54,0.07 L0.46,0.07 Z', fill: SL, stroke: S, strokeWidth: 0.5 },
-  ],
-};
+function buildBathtubDropIn(wallSides: WallSides | null): FixtureShape {
+  return {
+    label: 'Drop-in',
+    paths: [
+      // Outer platform/deck rim — only on sides exposed to the room (no rim where deck meets a wall)
+      { d: buildExposedRimPath(wallSides, 0, 0.08), fill: F, stroke: S, strokeWidth: 2 },
+      // Inner deck edge — same exposure pattern
+      { d: buildExposedRimPath(wallSides, 0.05, 0.08), fill: FL, stroke: SL, strokeWidth: 0.6 },
+      // Tub basin (rounded rectangle)
+      { d: 'M0.15,0.12 Q0.15,0.08 0.2,0.08 L0.8,0.08 Q0.85,0.08 0.85,0.12 L0.85,0.88 Q0.85,0.92 0.8,0.92 L0.2,0.92 Q0.15,0.92 0.15,0.88 Z', fill: FL, stroke: S, strokeWidth: 1.5 },
+      // Faucet
+      { d: 'M0.46,0.03 L0.54,0.03 L0.54,0.07 L0.46,0.07 Z', fill: SL, stroke: S, strokeWidth: 0.5 },
+    ],
+  };
+}
 
 const bathtubCorner: FixtureShape = {
   label: 'Corner Tub',
   paths: [
-    // Outer platform with chamfered corner
-    { d: 'M0,0 L1,0 L1,0.6 L0.6,1 L0,1 Z', fill: F, stroke: S, strokeWidth: 2 },
-    // Inner platform edge
-    { d: 'M0.04,0.04 L0.96,0.04 L0.96,0.56 L0.56,0.96 L0.04,0.96 Z', fill: FL, stroke: SL, strokeWidth: 0.6 },
+    // Outer platform rim — corner tubs sit against the top+left room walls by
+    // definition, so no rim is drawn there; only the exposed right/bottom/
+    // chamfer edges get a rounded rim.
+    { d: 'M1,0 L1,0.54 Q1,0.6 0.958,0.642 L0.642,0.958 Q0.6,1 0.54,1 L0,1', fill: F, stroke: S, strokeWidth: 2 },
+    // Inner platform edge (same exposed sides)
+    { d: 'M0.96,0.04 L0.96,0.51 Q0.96,0.56 0.925,0.595 L0.595,0.925 Q0.56,0.96 0.51,0.96 L0.04,0.96', fill: FL, stroke: SL, strokeWidth: 0.6 },
     // Tub basin (curved pentagon - chamfered corner with rounded edges)
     { d: 'M0.1,0.1 Q0.5,0.08 0.85,0.1 Q0.87,0.35 0.85,0.48 L0.48,0.85 Q0.35,0.87 0.1,0.85 Q0.08,0.5 0.1,0.1 Z', fill: FL, stroke: S, strokeWidth: 1.5 },
     // Faucet on diagonal deck
@@ -73,10 +156,12 @@ const bathtubCorner: FixtureShape = {
 const bathtubCornerDropIn: FixtureShape = {
   label: 'Corner Drop-in',
   paths: [
-    // Outer platform with chamfered corner (bottom-right cut at 45°)
-    { d: 'M0,0 L1,0 L1,0.6 L0.6,1 L0,1 Z', fill: F, stroke: S, strokeWidth: 2 },
-    // Inner platform edge
-    { d: 'M0.04,0.04 L0.96,0.04 L0.96,0.56 L0.56,0.96 L0.04,0.96 Z', fill: FL, stroke: SL, strokeWidth: 0.6 },
+    // Outer platform rim (bottom-right chamfer cut at 45°) — corner tubs sit
+    // against the top+left room walls by definition, so no rim is drawn
+    // there; only the exposed right/bottom/chamfer edges get a rounded rim.
+    { d: 'M1,0 L1,0.54 Q1,0.6 0.958,0.642 L0.642,0.958 Q0.6,1 0.54,1 L0,1', fill: F, stroke: S, strokeWidth: 2 },
+    // Inner platform edge (same exposed sides)
+    { d: 'M0.96,0.04 L0.96,0.51 Q0.96,0.56 0.925,0.595 L0.595,0.925 Q0.56,0.96 0.51,0.96 L0.04,0.96', fill: FL, stroke: SL, strokeWidth: 0.6 },
     // Tub basin (pentagon - chamfered bottom-right corner)
     { d: 'M0.08,0.08 L0.88,0.08 L0.88,0.48 L0.48,0.88 L0.08,0.88 Z', fill: FL, stroke: S, strokeWidth: 1.5 },
     // Faucet (on the diagonal deck edge)
@@ -522,11 +607,10 @@ const recessedCan: FixtureShape = {
 
 // ── Lookup ──
 
-const BATHTUB_SHAPES: Record<BathtubSubType, FixtureShape> = {
+const BATHTUB_SHAPES: Partial<Record<BathtubSubType, FixtureShape>> = {
   standard_alcove: bathtubAlcove,
   corner_garden: bathtubCorner,
   corner_drop_in: bathtubCornerDropIn,
-  drop_in: bathtubDropIn,
   freestanding: bathtubFreestanding,
 };
 
@@ -540,10 +624,15 @@ export function getFixtureShape(
   showerDoorRatio?: number,
   vanitySubType?: VanitySubType,
   lightType?: string,
+  wallSides?: WallSides | null,
 ): FixtureShape {
   switch (type) {
     case 'bathtub':
-      return BATHTUB_SHAPES[subType ?? 'standard_alcove'];
+      // drop_in's deck can be against 0-4 walls depending on placement, so its rim is
+      // built dynamically from wallSides; other subtypes have a fixed wall arrangement
+      // (or no deck at all) baked into their static shape.
+      if ((subType ?? 'standard_alcove') === 'drop_in') return buildBathtubDropIn(wallSides ?? null);
+      return BATHTUB_SHAPES[subType ?? 'standard_alcove']!;
     case 'shower':
       return buildShowerShape(
         showerLayout ?? 'alcove',
