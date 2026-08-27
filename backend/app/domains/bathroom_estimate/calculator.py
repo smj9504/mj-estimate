@@ -503,13 +503,15 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     _auto_valve_count = 0
     _auto_supply_count = 0
 
-    # Vanity: 2 valves (hot/cold) per vanity
+    # Vanity: 2 valves (hot/cold) per sink (double-sink vanity = 2x)
     if estimate.replace_vanity or getattr(estimate, 'detach_reset_vanity', False):
         _van_items = (estimate.vanity_spec or {}).get("items") or [estimate.vanity_spec or {}]
-        _van_count = len([v for v in _van_items if v and isinstance(v, dict)])
-        _auto_valve_count += _van_count * 2
-        _auto_supply_count += _van_count * 2
-        _plumb_fixtures.append(f"vanity x{_van_count}")
+        _van_sink_count = sum(
+            (v.get("sinks", 1) or 1) for v in _van_items if v and isinstance(v, dict)
+        )
+        _auto_valve_count += _van_sink_count * 2
+        _auto_supply_count += _van_sink_count * 2
+        _plumb_fixtures.append(f"vanity sink x{_van_sink_count}")
     # Bathtub: 2 valves (hot/cold)
     if estimate.replace_tub or getattr(estimate, 'detach_reset_tub', False):
         _auto_valve_count += 2
@@ -546,9 +548,11 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     _ptrap_fixtures = []
     if estimate.replace_vanity or getattr(estimate, 'detach_reset_vanity', False):
         _pt_van_items = (estimate.vanity_spec or {}).get("items") or [estimate.vanity_spec or {}]
-        _pt_van_count = len([v for v in _pt_van_items if v and isinstance(v, dict)])
-        _auto_ptrap_count += _pt_van_count
-        _ptrap_fixtures.append(f"vanity x{_pt_van_count}")
+        _pt_van_sink_count = sum(
+            (v.get("sinks", 1) or 1) for v in _pt_van_items if v and isinstance(v, dict)
+        )
+        _auto_ptrap_count += _pt_van_sink_count
+        _ptrap_fixtures.append(f"vanity sink x{_pt_van_sink_count}")
     if estimate.replace_tub or getattr(estimate, 'detach_reset_tub', False):
         _auto_ptrap_count += 1
         _ptrap_fixtures.append("bathtub")
@@ -1780,7 +1784,10 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             )
 
             # Build breakdown note with allowance info
-            parts = [
+            parts = []
+            if sink_count > 1:
+                parts.append(f"Sinks: {sink_count} (double-sink vanity)")
+            parts += [
                 f"Cabinet: {src_label} ({v_width}\") "
                 f"${v_price:,.2f} allowance",
                 f"Top: {top_label} ${top_rate}/in "
@@ -1832,9 +1839,10 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             else:
                 parts.append("Mirror: not included")
 
+            _van_title_sinks = f" ({sink_count} sinks)" if sink_count > 1 else ""
             _add(line_items, 5,
                  f"Vanity{label} complete"
-                 f" - {src_label} ({v_width}\")",
+                 f" - {src_label} ({v_width}\"){_van_title_sinks}",
                  1, "EA", combined, "fixture",
                  notes=" | ".join(parts))
 
