@@ -1907,7 +1907,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  round(DEMO_RATES["deck_tile_per_sf"] * labor_mult, 2), "demo",
                  notes="Deck must come off to free the tub for detach & reset")
             _add(line_items, 4,
-                 f"Tub deck tile reinstall ({_dr_deck_sides} sides)",
+                 f"Tub deck tile replacement ({_dr_deck_sides} sides)",
                  _dr_deck_demo_sf, "SF",
                  round(14.00 * labor_mult, 2), "tile",
                  notes="Includes bullnose edge trim | New tile — original destroyed on removal")
