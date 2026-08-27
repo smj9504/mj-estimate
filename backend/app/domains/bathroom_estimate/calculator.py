@@ -1194,22 +1194,26 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                            and _has_faucet_on_wall
                            and _tub_type_v not in ("freestanding", "none", None))
         _valve_enabled = hc.get("auto_tub_valve", True)
-        # Label as "tub/shower combo" only when a separate shower is also
-        # being replaced; otherwise this is a standalone tub with tiled
-        # surround (e.g. tub alongside its own glass shower enclosure).
+        # This is always the bathtub's OWN surround-wall valve (the tub's
+        # wall typically carries its own valve + showerhead, whether or not
+        # a separate walk-in shower elsewhere is also being replaced).
+        # Labeled "Bathtub surround" — not "tub/shower combo" — since that
+        # older wording read as "one physical combo unit" and got confused
+        # with the shower's own trim-kit line when tub + shower are two
+        # separate fixtures in the same job.
         _is_combo = bool(estimate.replace_shower)
         _valve_item_label = (
-            "Shower valve + trim kit replacement (tub/shower combo)"
+            "Bathtub surround valve + trim kit replacement"
             if _is_combo else
             "Tub spout/diverter valve replacement (surround tile — wall open)"
         )
         _valve_body_only_label = (
-            "Shower valve replacement (tub/shower combo)"
+            "Bathtub surround valve replacement"
             if _is_combo else
             "Tub spout/diverter valve replacement (surround tile — wall open)"
         )
         _valve_excluded_warning = (
-            "Tub/shower combo valve excluded by user — "
+            "Bathtub surround valve excluded by user — "
             if _is_combo else
             "Tub spout/diverter valve excluded by user — "
         )
