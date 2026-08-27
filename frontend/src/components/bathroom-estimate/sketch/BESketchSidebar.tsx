@@ -603,9 +603,11 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
             </div>
           )}
 
-          {(p.bathtubSubType === 'drop_in' || p.bathtubSubType === 'corner_garden' || p.bathtubSubType === 'corner_drop_in') && (
+          {(p.bathtubSubType === 'drop_in' || p.bathtubSubType === 'corner_garden' || p.bathtubSubType === 'corner_drop_in' || p.bathtubSubType === 'standard_alcove') && (
             <>
-              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>Deck / Platform:</Text>
+              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>
+                {p.bathtubSubType === 'standard_alcove' ? 'Deck / Rim Tile (optional):' : 'Deck / Platform:'}
+              </Text>
               <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                 <div style={{ flex: 1 }}>
                   <Text type="secondary" style={{ fontSize: 10 }}>Width″</Text>
@@ -637,8 +639,8 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
                     const room = data.rooms.find((r) => r.id === fixture.roomId) ?? data.rooms[0];
                     const autoWalls = findFixtureWallSides(fixture, room, wPx, hPx);
                     const autoSides = autoWalls
-                      ? 4 - [autoWalls.north, autoWalls.south, autoWalls.east, autoWalls.west].filter(Boolean).length
-                      : BATHTUB_SURROUND_DEFAULTS[p.bathtubSubType ?? 'drop_in'].deckTileSides;
+                      ? Math.max(1, 4 - [autoWalls.north, autoWalls.south, autoWalls.east, autoWalls.west].filter(Boolean).length)
+                      : Math.max(1, BATHTUB_SURROUND_DEFAULTS[p.bathtubSubType ?? 'drop_in'].deckTileSides ?? 2);
                     return (
                       <InputNumber
                         size="small"

@@ -270,8 +270,15 @@ export interface BETileZone {
   type: TileZoneType;
   /** Zone label */
   label: string;
-  /** Zone boundary points (for rendering overlay) */
+  /** Zone boundary points (for rendering overlay). Label/centroid anchor. */
   boundary: BEPoint[];
+  /**
+   * When a zone is really several disjoint strips (e.g. a tub deck/rim that
+   * only covers the exposed edges, not the whole tub footprint), the visual
+   * pieces to actually paint. Falls back to a single fill of `boundary`
+   * when omitted, so existing zones render unchanged.
+   */
+  subBoundaries?: BEPoint[][];
   /** Area in SF */
   areaSF: number;
   /** Which fixture generated this zone */
@@ -546,10 +553,11 @@ export const BATHTUB_SURROUND_DEFAULTS: Record<BathtubSubType, {
   surroundHeight: number;
   deckWidth: number;
   deckHeight: number;
-  deckTileSides: number;
+  /** Undefined (not 0) means "let auto wall-detection decide" once deck tile is enabled */
+  deckTileSides?: number;
   hasFrontPanel: boolean;
 }> = {
-  standard_alcove: { surroundWallCount: 3, surroundHeight: 60, deckWidth: 0, deckHeight: 0, deckTileSides: 0, hasFrontPanel: false },
+  standard_alcove: { surroundWallCount: 3, surroundHeight: 60, deckWidth: 0, deckHeight: 0, hasFrontPanel: false },
   corner_garden: { surroundWallCount: 2, surroundHeight: 48, deckWidth: 12, deckHeight: 18, deckTileSides: 2, hasFrontPanel: true },
   corner_drop_in: { surroundWallCount: 2, surroundHeight: 60, deckWidth: 12, deckHeight: 18, deckTileSides: 2, hasFrontPanel: true },
   drop_in: { surroundWallCount: 3, surroundHeight: 60, deckWidth: 10, deckHeight: 20, deckTileSides: 1, hasFrontPanel: true },

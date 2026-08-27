@@ -14,6 +14,7 @@ import type {
   BEPoint,
 } from '../../../../types/bathroomSketch';
 import { DEFAULT_TILE_SPEC, TILE_ZONE_COLORS } from '../../../../types/bathroomSketch';
+import { clipPolygon, getShowerUnitPolygon } from './beGeometry';
 
 let _zoneCounter = 0;
 function zoneId(): string {
@@ -171,7 +172,7 @@ export function generateTileZones(
 
       // Front panel tile (vertical face of deck/platform)
       if (fix.properties.hasFrontPanel && fix.properties.deckHeight && fix.properties.deckHeight > 0) {
-        const frontPanelZone = generateBathtubFrontPanelZone(fix, ppf);
+        const frontPanelZone = generateBathtubFrontPanelZone(fix, ppf, fixRoom);
         if (frontPanelZone) zones.push(frontPanelZone);
       }
     }
@@ -355,9 +356,14 @@ function generateBathtubDeckZone(fix: BEFixture, ppf: number, room?: BERoom): BE
   }
 
   // ── Visual boundary ──
+  // `boundary` = outer footprint (label anchor / legacy consumers).
+  // `subBoundaries` = the actual strips to paint, so the deck renders as a
+  // rim/frame around the tub rather than a solid fill over the whole tub.
   let rawBoundary: BEPoint[];
+  let rawSubBoundaries: BEPoint[][] | undefined;
   if (chamfered && deckTileSides <= 2) {
-    // Chamfered L-shape: follows the pentagonal tub outline + deck offset
+    // Chamfered L-shape: follows the pentagonal tub outline + deck offset.
+    // Already a thin frame around the exposed corner, so a single fill is fine.
     const cutW = wPx * CHAMFER_RATIO;
     const cutH = hPx * CHAMFER_RATIO;
     // Perpendicular outward offset for chamfer line
@@ -371,59 +377,66 @@ function generateBathtubDeckZone(fix: BEFixture, ppf: number, room?: BERoom): BE
       { x: cx + wPx / 2 - cutW + perpX, y: cy + hPx / 2 + deckPx },                // chamfer end → bottom
       { x: cx - wPx / 2, y: cy + hPx / 2 + deckPx },                               // bottom-left (deck bottom)
     ];
-  } else if (autoWalls && !chamfered) {
-    // Auto-detected: offset each exposed edge outward by deckPx, keep
-    // wall-adjacent edges flush (no offset) — a simple per-side rectangle
-    // expansion, which is exact for the axis-aligned case (rotation is
-    // applied afterward for angled placements).
-    const left = cx - wPx / 2 - (autoWalls.west ? 0 : deckPx);
-    const right = cx + wPx / 2 + (autoWalls.east ? 0 : deckPx);
-    const top = cy - hPx / 2 - (autoWalls.north ? 0 : deckPx);
-    const bottom = cy + hPx / 2 + (autoWalls.south ? 0 : deckPx);
-    rawBoundary = [
-      { x: left, y: top },
-      { x: right, y: top },
-      { x: right, y: bottom },
-      { x: left, y: bottom },
-    ];
-  } else if (deckTileSides <= 1) {
-    rawBoundary = [
-      { x: cx - wPx / 2, y: cy + hPx / 2 },
-      { x: cx + wPx / 2, y: cy + hPx / 2 },
-      { x: cx + wPx / 2, y: cy + hPx / 2 + deckPx },
-      { x: cx - wPx / 2, y: cy + hPx / 2 + deckPx },
-    ];
-  } else if (deckTileSides === 2) {
-    rawBoundary = [
-      { x: cx + wPx / 2, y: cy - hPx / 2 },
-      { x: cx + wPx / 2 + deckPx, y: cy - hPx / 2 },
-      { x: cx + wPx / 2 + deckPx, y: cy + hPx / 2 + deckPx },
-      { x: cx - wPx / 2, y: cy + hPx / 2 + deckPx },
-      { x: cx - wPx / 2, y: cy + hPx / 2 },
-      { x: cx + wPx / 2, y: cy + hPx / 2 },
-    ];
-  } else if (deckTileSides === 3) {
-    rawBoundary = [
-      { x: cx - wPx / 2 - deckPx, y: cy - hPx / 2 },
-      { x: cx + wPx / 2 + deckPx, y: cy - hPx / 2 },
-      { x: cx + wPx / 2 + deckPx, y: cy + hPx / 2 + deckPx },
-      { x: cx - wPx / 2 - deckPx, y: cy + hPx / 2 + deckPx },
-    ];
   } else {
+    // Rectangular tub: build one thin strip per exposed edge, extending
+    // deckPx past the corner on either end so adjoining strips meet cleanly.
+    const exposed = autoWalls
+      ? { north: !autoWalls.north, south: !autoWalls.south, east: !autoWalls.east, west: !autoWalls.west }
+      : legacyExposedSides(deckTileSides);
+    const left = cx - wPx / 2;
+    const right = cx + wPx / 2;
+    const top = cy - hPx / 2;
+    const bottom = cy + hPx / 2;
+    const strips: BEPoint[][] = [];
+    if (exposed.north) {
+      strips.push([
+        { x: left - (exposed.west ? deckPx : 0), y: top - deckPx },
+        { x: right + (exposed.east ? deckPx : 0), y: top - deckPx },
+        { x: right + (exposed.east ? deckPx : 0), y: top },
+        { x: left - (exposed.west ? deckPx : 0), y: top },
+      ]);
+    }
+    if (exposed.south) {
+      strips.push([
+        { x: left - (exposed.west ? deckPx : 0), y: bottom },
+        { x: right + (exposed.east ? deckPx : 0), y: bottom },
+        { x: right + (exposed.east ? deckPx : 0), y: bottom + deckPx },
+        { x: left - (exposed.west ? deckPx : 0), y: bottom + deckPx },
+      ]);
+    }
+    if (exposed.west) {
+      strips.push([
+        { x: left - deckPx, y: top - (exposed.north ? deckPx : 0) },
+        { x: left, y: top - (exposed.north ? deckPx : 0) },
+        { x: left, y: bottom + (exposed.south ? deckPx : 0) },
+        { x: left - deckPx, y: bottom + (exposed.south ? deckPx : 0) },
+      ]);
+    }
+    if (exposed.east) {
+      strips.push([
+        { x: right, y: top - (exposed.north ? deckPx : 0) },
+        { x: right + deckPx, y: top - (exposed.north ? deckPx : 0) },
+        { x: right + deckPx, y: bottom + (exposed.south ? deckPx : 0) },
+        { x: right, y: bottom + (exposed.south ? deckPx : 0) },
+      ]);
+    }
+    rawSubBoundaries = strips.length > 0 ? strips : undefined;
     rawBoundary = [
-      { x: cx - wPx / 2 - deckPx, y: cy - hPx / 2 - deckPx },
-      { x: cx + wPx / 2 + deckPx, y: cy - hPx / 2 - deckPx },
-      { x: cx + wPx / 2 + deckPx, y: cy + hPx / 2 + deckPx },
-      { x: cx - wPx / 2 - deckPx, y: cy + hPx / 2 + deckPx },
+      { x: left - (exposed.west ? deckPx : 0), y: top - (exposed.north ? deckPx : 0) },
+      { x: right + (exposed.east ? deckPx : 0), y: top - (exposed.north ? deckPx : 0) },
+      { x: right + (exposed.east ? deckPx : 0), y: bottom + (exposed.south ? deckPx : 0) },
+      { x: left - (exposed.west ? deckPx : 0), y: bottom + (exposed.south ? deckPx : 0) },
     ];
   }
   const boundary = rotateBoundary(rawBoundary, fix.position, fix.rotation);
+  const subBoundaries = rawSubBoundaries?.map((s) => rotateBoundary(s, fix.position, fix.rotation));
 
   return {
     id: zoneId(),
     type: 'tub_deck',
     label: `Tub Deck${chamfered ? ' (chamfer)' : ` (${deckTileSides} sides)`}`,
     boundary,
+    subBoundaries,
     areaSF: Math.round(areaSF * 100) / 100,
     fixtureId: fix.id,
     tileSpec: { ...DEFAULT_TILE_SPEC, size: '12x12', pattern: 'straight', materialCostPerSF: 6.00, laborCostPerSF: 12.00 },
@@ -431,12 +444,38 @@ function generateBathtubDeckZone(fix: BEFixture, ppf: number, room?: BERoom): BE
   };
 }
 
-function generateBathtubFrontPanelZone(fix: BEFixture, ppf: number): BETileZone | null {
+/**
+ * Legacy fixed-order exposed-side mapping, used only when there's no room
+ * to auto-detect wall adjacency against. Matches the historical boundary
+ * cases this replaces: 1 side = south(front); 2 = south+east; 3 =
+ * south+east+west (north stays flush, i.e. the assumed wall side); 4 = all.
+ */
+function legacyExposedSides(deckTileSides: number): { north: boolean; south: boolean; east: boolean; west: boolean } {
+  return {
+    south: deckTileSides >= 1,
+    east: deckTileSides >= 2,
+    west: deckTileSides >= 3,
+    north: deckTileSides >= 4,
+  };
+}
+
+function generateBathtubFrontPanelZone(fix: BEFixture, ppf: number, room?: BERoom): BETileZone | null {
   const deckHeight = fix.properties.deckHeight ?? 18; // inches (vertical face height)
   const tubWidth = fix.dimensions.width;
   const tubDepth = fix.dimensions.height;
-  const deckTileSides = fix.properties.deckTileSides ?? 2;
   const chamfered = isChamferedTub(fix);
+
+  const wPx = (tubWidth / 12) * ppf;
+  const hPx = (tubDepth / 12) * ppf;
+
+  // Front panel is the vertical face directly below the deck, so it shares
+  // the same exposed-side detection: same auto wall-adjacency check when
+  // the side count isn't explicitly set, same legacy fallback otherwise.
+  const autoWalls = fix.properties.deckTileSides == null
+    ? findFixtureWallSides(fix, room, wPx, hPx)
+    : null;
+  const deckTileSides = fix.properties.deckTileSides
+    ?? (autoWalls ? (4 - [autoWalls.north, autoWalls.south, autoWalls.east, autoWalls.west].filter(Boolean).length) : 2);
 
   // ── Area calculation ──
   let panelLengthInches: number;
@@ -446,6 +485,12 @@ function generateBathtubFrontPanelZone(fix: BEFixture, ppf: number): BETileZone 
     const rightLen = tubDepth * (1 - CHAMFER_RATIO);
     const diagLen = Math.sqrt((tubWidth * CHAMFER_RATIO) ** 2 + (tubDepth * CHAMFER_RATIO) ** 2);
     panelLengthInches = frontLen + diagLen + rightLen;
+  } else if (autoWalls && !chamfered) {
+    panelLengthInches = 0;
+    if (!autoWalls.north) panelLengthInches += tubWidth;
+    if (!autoWalls.south) panelLengthInches += tubWidth;
+    if (!autoWalls.east) panelLengthInches += tubDepth;
+    if (!autoWalls.west) panelLengthInches += tubDepth;
   } else {
     panelLengthInches = 0;
     if (deckTileSides >= 1) panelLengthInches += tubWidth;
@@ -456,13 +501,12 @@ function generateBathtubFrontPanelZone(fix: BEFixture, ppf: number): BETileZone 
   const areaSF = (panelLengthInches * deckHeight) / 144;
 
   // ── Visual boundary: follows exposed edge outline ──
-  const wPx = (tubWidth / 12) * ppf;
-  const hPx = (tubDepth / 12) * ppf;
   const cx = fix.position.x;
   const cy = fix.position.y;
   const ind = 6; // visual indicator thickness
 
   let rawBoundary: BEPoint[];
+  let rawSubBoundaries: BEPoint[][] | undefined;
   if (chamfered && deckTileSides <= 2) {
     const cutW = wPx * CHAMFER_RATIO;
     const cutH = hPx * CHAMFER_RATIO;
@@ -482,21 +526,65 @@ function generateBathtubFrontPanelZone(fix: BEFixture, ppf: number): BETileZone 
       { x: cx + wPx / 2, y: cy + hPx / 2 - cutH },                             // inner chamfer start
     ];
   } else {
-    // Simple strip below tub for non-chamfered
+    // Rectangular tub: one thin vertical-face strip per exposed edge,
+    // mirroring the deck's strip layout directly below/beside it.
+    const exposed = autoWalls
+      ? { north: !autoWalls.north, south: !autoWalls.south, east: !autoWalls.east, west: !autoWalls.west }
+      : legacyExposedSides(deckTileSides);
+    const left = cx - wPx / 2;
+    const right = cx + wPx / 2;
+    const top = cy - hPx / 2;
+    const bottom = cy + hPx / 2;
+    const strips: BEPoint[][] = [];
+    if (exposed.north) {
+      strips.push([
+        { x: left - (exposed.west ? ind : 0), y: top - ind },
+        { x: right + (exposed.east ? ind : 0), y: top - ind },
+        { x: right + (exposed.east ? ind : 0), y: top },
+        { x: left - (exposed.west ? ind : 0), y: top },
+      ]);
+    }
+    if (exposed.south) {
+      strips.push([
+        { x: left - (exposed.west ? ind : 0), y: bottom + 2 },
+        { x: right + (exposed.east ? ind : 0), y: bottom + 2 },
+        { x: right + (exposed.east ? ind : 0), y: bottom + 2 + ind },
+        { x: left - (exposed.west ? ind : 0), y: bottom + 2 + ind },
+      ]);
+    }
+    if (exposed.west) {
+      strips.push([
+        { x: left - ind, y: top - (exposed.north ? ind : 0) },
+        { x: left, y: top - (exposed.north ? ind : 0) },
+        { x: left, y: bottom + (exposed.south ? ind : 0) },
+        { x: left - ind, y: bottom + (exposed.south ? ind : 0) },
+      ]);
+    }
+    if (exposed.east) {
+      strips.push([
+        { x: right, y: top - (exposed.north ? ind : 0) },
+        { x: right + ind, y: top - (exposed.north ? ind : 0) },
+        { x: right + ind, y: bottom + (exposed.south ? ind : 0) },
+        { x: right, y: bottom + (exposed.south ? ind : 0) },
+      ]);
+    }
+    rawSubBoundaries = strips.length > 0 ? strips : undefined;
     rawBoundary = [
-      { x: cx - wPx / 2, y: cy + hPx / 2 + 2 },
-      { x: cx + wPx / 2, y: cy + hPx / 2 + 2 },
-      { x: cx + wPx / 2, y: cy + hPx / 2 + 2 + ind },
-      { x: cx - wPx / 2, y: cy + hPx / 2 + 2 + ind },
+      { x: left - (exposed.west ? ind : 0), y: top - (exposed.north ? ind : 0) },
+      { x: right + (exposed.east ? ind : 0), y: top - (exposed.north ? ind : 0) },
+      { x: right + (exposed.east ? ind : 0), y: bottom + (exposed.south ? ind : 0) },
+      { x: left - (exposed.west ? ind : 0), y: bottom + (exposed.south ? ind : 0) },
     ];
   }
   const boundary = rotateBoundary(rawBoundary, fix.position, fix.rotation);
+  const subBoundaries = rawSubBoundaries?.map((s) => rotateBoundary(s, fix.position, fix.rotation));
 
   return {
     id: zoneId(),
     type: 'tub_front_panel',
     label: `Front Panel${chamfered ? ' (chamfer)' : ` (${deckTileSides} sides)`}`,
     boundary,
+    subBoundaries,
     areaSF: Math.round(areaSF * 100) / 100,
     fixtureId: fix.id,
     tileSpec: { ...DEFAULT_TILE_SPEC, size: '4x4', pattern: 'straight', materialCostPerSF: 6.00, laborCostPerSF: 14.00, wastePct: 15 },
@@ -721,6 +809,17 @@ function generateShowerBenchZone(fix: BEFixture, ppf: number): BETileZone | null
       { x: cx - wPx / 2 + 3, y: cy - hPx / 2 + 3 + bLenPx },
     ];
   }
+
+  // Clip against the shower's own footprint — a neo-angle shower is a
+  // pentagon (one diagonal-cut corner), so an unclipped rectangle can
+  // overshoot past the glass on the side nearest the cut corner.
+  const showerPoly = getShowerUnitPolygon(fix.properties.showerLayout).map((p) => ({
+    x: cx + (p.x - 0.5) * wPx,
+    y: cy + (p.y - 0.5) * hPx,
+  }));
+  const clipped = clipPolygon(rawBoundary, showerPoly);
+  if (clipped.length >= 3) rawBoundary = clipped;
+
   const boundary = rotateBoundary(rawBoundary, fix.position, fix.rotation);
 
   return {

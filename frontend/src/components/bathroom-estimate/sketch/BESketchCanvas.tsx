@@ -25,6 +25,7 @@ import type {
 import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { getFixtureShape } from './utils/beFixtureShapes';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
+import { clipPolygon, getShowerUnitPolygon, type Pt2 } from './utils/beGeometry';
 
 interface BESketchCanvasProps {
   api: BESketchStateAPI;
@@ -59,6 +60,19 @@ function fmtInches(totalInches: number): string {
   if (ft === 0) return inchPart || '0"';
   if (!inchPart) return `${ft}'`;
   return `${ft}' ${inchPart}`;
+}
+
+/**
+ * The shower's own footprint polygon in the fixture's local (center-origin)
+ * pixel frame — a unit square for alcove/corner layouts, but a pentagon with
+ * one diagonal-cut corner for neo-angle layouts.
+ */
+function getShowerLocalPolygon(
+  layout: 'alcove' | 'corner' | 'corner_right' | 'neo_angle' | 'neo_angle_right' | undefined,
+  wPx: number,
+  hPx: number,
+): Pt2[] {
+  return getShowerUnitPolygon(layout).map((p) => ({ x: (p.x - 0.5) * wPx, y: (p.y - 0.5) * hPx }));
 }
 
 /**
@@ -1279,13 +1293,45 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         {settings.showTileZones && tileZones.length > 0 && (
           <Layer listening={false}>
             {tileZones.map((zone) => {
-              const pts = zone.boundary.flatMap((p) => [p.x, p.y]);
-              const cx = zone.boundary.reduce((s, p) => s + p.x, 0) / zone.boundary.length;
-              const cy = zone.boundary.reduce((s, p) => s + p.y, 0) / zone.boundary.length;
+              // Zones with subBoundaries (e.g. a tub deck/rim) paint as
+              // several disjoint strips instead of one solid fill covering
+              // the whole fixture footprint — the rim, not the tub itself.
+              const pieces = zone.subBoundaries && zone.subBoundaries.length > 0
+                ? zone.subBoundaries
+                : [zone.boundary];
+              // Anchor the label on the largest strip (by shoelace area) so
+              // it sits over actual painted tile instead of the fixture's
+              // full footprint center — keeps it from overlapping labels of
+              // other zones (e.g. front panel) that sit near that center.
+              const polyCentroid = (poly: BEPoint[]) => ({
+                x: poly.reduce((s, p) => s + p.x, 0) / poly.length,
+                y: poly.reduce((s, p) => s + p.y, 0) / poly.length,
+              });
+              const polyArea = (poly: BEPoint[]) => Math.abs(poly.reduce(
+                (s, p, i) => s + p.x * poly[(i + 1) % poly.length].y - poly[(i + 1) % poly.length].x * p.y, 0,
+              )) / 2;
+              const labelAnchorPoly = pieces.length > 1
+                ? pieces.reduce((a, b) => (polyArea(b) > polyArea(a) ? b : a))
+                : pieces[0];
+              const { x: cx, y: cy } = polyCentroid(labelAnchorPoly);
+              // Front panel sits as a thin strip right where a deck's south
+              // strip also lands — nudge its label further out so the two
+              // don't render on top of each other.
+              const labelYOffset = zone.type === 'tub_front_panel' ? 10 : -6;
               return (
                 <Group key={zone.id}>
-                  <Line points={pts} closed fill={zone.color} stroke="rgba(0,0,0,0.15)" strokeWidth={1} dash={[4, 4]} />
-                  <Text x={cx - 20} y={cy - 6} text={`${zone.label}\n${zone.areaSF} SF`} fontSize={9} fill="#555" />
+                  {pieces.map((piece, i) => (
+                    <Line
+                      key={`${zone.id}-${i}`}
+                      points={piece.flatMap((p) => [p.x, p.y])}
+                      closed
+                      fill={zone.color}
+                      stroke="rgba(0,0,0,0.15)"
+                      strokeWidth={1}
+                      dash={[4, 4]}
+                    />
+                  ))}
+                  <Text x={cx - 20} y={cy + labelYOffset} text={`${zone.label}\n${zone.areaSF} SF`} fontSize={9} fill="#555" />
                 </Group>
               );
             })}
@@ -2337,16 +2383,25 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
           bx = -wPx / 2 + 2;
           by = -hPx / 2 + 2;
         }
+        // Clip the bench rectangle against the shower's own footprint —
+        // a neo-angle shower's footprint is a pentagon (one diagonal-cut
+        // corner), so an unclipped rectangle can overshoot past the glass.
+        const benchRect: Pt2[] = [
+          { x: bx, y: by },
+          { x: bx + bw, y: by },
+          { x: bx + bw, y: by + bh },
+          { x: bx, y: by + bh },
+        ];
+        const showerPoly = getShowerLocalPolygon(fix.properties.showerLayout, wPx, hPx);
+        const clipped = clipPolygon(benchRect, showerPoly);
+        if (clipped.length < 3) return null;
         return (
-          <Rect
-            x={bx}
-            y={by}
-            width={bw}
-            height={bh}
+          <Line
+            points={clipped.flatMap((p) => [p.x, p.y])}
+            closed
             fill="rgba(0, 0, 0, 0.08)"
             stroke="#888"
             strokeWidth={1}
-            cornerRadius={2}
             listening={false}
           />
         );

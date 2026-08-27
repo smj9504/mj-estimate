@@ -344,7 +344,7 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
       ? findFixtureWallSides(bathtub, bathroom, tubWPx, tubDPx)
       : null;
     const deckSides = p.deckTileSides
-      ?? (autoWalls ? (4 - [autoWalls.north, autoWalls.south, autoWalls.east, autoWalls.west].filter(Boolean).length) : tubDefaults.deckTileSides);
+      ?? (autoWalls ? (4 - [autoWalls.north, autoWalls.south, autoWalls.east, autoWalls.west].filter(Boolean).length) : (tubDefaults.deckTileSides ?? 2));
     let deckLen = 0;
     if (autoWalls) {
       if (!autoWalls.north) deckLen += tubW;
