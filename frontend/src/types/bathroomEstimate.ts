@@ -405,6 +405,10 @@ export interface BathroomPricingInfo {
   exhaust_fan_switch_types: string[];
   paint_grades: string[];
   baseboard_materials: string[];
+  // Rate tables the Cost Guide quotes. Most entries are a flat rate;
+  // exhaust_fan is keyed by CFM and exhaust_fan_switch by switch type.
+  plumbing_rates: Record<string, number>;
+  electrical_rates: Record<string, number | Record<string, number>>;
 }
 
 // Phase labels for display

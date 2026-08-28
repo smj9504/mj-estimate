@@ -439,6 +439,7 @@ export interface RoofingPricingInfo {
   decking_rates: Record<string, number>;
   pitch_multipliers: Record<string, number>;
   waste_factors: Record<string, number>;
+  permit_fees: Record<string, number>;
 }
 
 // ── Phase Labels ──

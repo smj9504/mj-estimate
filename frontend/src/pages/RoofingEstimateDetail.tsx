@@ -152,6 +152,10 @@ const generateMaterialWarrantyText = (brand?: string, type?: string): string | n
   );
 };
 
+// Permit allowance by state. The live values come from pricing-info; this copy
+// only covers the window before that query resolves.
+const FALLBACK_PERMIT_FEES: Record<string, number> = { MD: 350, VA: 300, DC: 425 };
+
 const RoofingEstimateDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -187,6 +191,14 @@ const RoofingEstimateDetail: React.FC = () => {
     queryKey: ['roofing-pricing-info'],
     queryFn: () => roofingEstimateService.getPricingInfo(),
   });
+
+  const permitOptions = useMemo(
+    () =>
+      Object.entries(pricingInfo?.permit_fees ?? FALLBACK_PERMIT_FEES).map(
+        ([state, fee]) => ({ label: `${state} — $${fee}`, value: state })
+      ),
+    [pricingInfo]
+  );
 
   const { data: companies = [] } = useQuery({
     queryKey: ['companies'],
@@ -1732,9 +1744,7 @@ const RoofingEstimateDetail: React.FC = () => {
                       <Select options={[
                         { label: 'No Permit', value: 'none' },
                         { label: 'By State (auto)', value: 'state' },
-                        { label: 'MD — $350', value: 'MD' },
-                        { label: 'VA — $300', value: 'VA' },
-                        { label: 'DC — $425', value: 'DC' },
+                        ...permitOptions,
                         { label: 'Custom Amount', value: 'custom' },
                       ]} />
                     </Form.Item>

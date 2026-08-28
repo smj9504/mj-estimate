@@ -392,3 +392,5 @@ class PricingInfoResponse(BaseModel):
     decking_rates: Dict[str, float]
     pitch_multipliers: Dict[str, float]
     waste_factors: Dict[str, float]
+    # Building permit allowance by state
+    permit_fees: Dict[str, float]

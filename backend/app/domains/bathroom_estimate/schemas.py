@@ -392,3 +392,8 @@ class PricingInfoResponse(BaseModel):
     exhaust_fan_switch_types: List[str]
     paint_grades: List[str]
     baseboard_materials: List[str]
+    # Rate tables the Cost Guide quotes. Mixed shapes: most entries are
+    # a flat rate, a few are keyed sub-tables (exhaust fan by CFM,
+    # switch by type), so these stay loosely typed.
+    plumbing_rates: Dict[str, Any]
+    electrical_rates: Dict[str, Any]

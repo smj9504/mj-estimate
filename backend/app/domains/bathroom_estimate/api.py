@@ -21,6 +21,7 @@ from .pricing import (
     BATHTUB_MATERIALS,
     BATHTUB_TYPES,
     BUILDING_TYPES,
+    ELECTRICAL_RATES,
     ENCLOSURE_TYPES,
     SHOWER_DOOR_TYPES,
     TILE_SIZES,
@@ -29,6 +30,7 @@ from .pricing import (
     FAUCET_TYPES,
     MIRROR_TYPES,
     PAINT_GRADES,
+    PLUMBING_RATES,
     SHOWER_TYPES,
     SHOWERHEAD_TYPES,
     TILE_MATERIALS,
@@ -91,6 +93,8 @@ def get_pricing_info():
         "exhaust_fan_switch_types": EXHAUST_FAN_SWITCH_TYPES,
         "paint_grades": PAINT_GRADES,
         "baseboard_materials": BASEBOARD_MATERIALS,
+        "plumbing_rates": PLUMBING_RATES,
+        "electrical_rates": ELECTRICAL_RATES,
     }
 
 

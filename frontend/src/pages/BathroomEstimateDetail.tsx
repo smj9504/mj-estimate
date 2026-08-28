@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Alert,
   Button,
@@ -69,6 +69,22 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const formatLabel = (s: string) => s?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || '';
 
+// ── Cost Guide rate fallbacks ──
+// The guide quotes live rates from GET /bathroom-estimates/pricing-info so they
+// cannot drift from what the backend charges. These copies only cover the
+// window before that query resolves.
+const FALLBACK_PLUMBING_RATES: Record<string, number> = {
+  shutoff_valve_each: 204, supply_line_each: 72, drain_modification: 386,
+  pressure_balance_valve: 466, rough_inspection_fee: 163,
+};
+const FALLBACK_ELECTRICAL_RATES: Record<string, number | Record<string, number>> = {
+  gfci_outlet_each: 181, vanity_light_install: 227, ceiling_fixture_install: 236,
+  exhaust_fan: { 50: 357, 80: 466, 110: 599, 150: 756 },
+  exhaust_fan_switch: { standard: 39, timer: 83, humidity: 138 },
+  heated_floor_per_sf: 13.25, heated_floor_thermostat: 211,
+  heated_floor_circuit: 421, electrical_inspection_fee: 137,
+};
+
 const BathroomEstimateDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -88,6 +104,55 @@ const BathroomEstimateDetail: React.FC = () => {
     queryKey: ['bathroom-pricing-info'],
     queryFn: () => bathroomEstimateService.getPricingInfo(),
   });
+
+  // Cost Guide rows and scenario totals, computed from the live rate tables.
+  const costGuide = useMemo(() => {
+    const p = pricingInfo?.plumbing_rates ?? FALLBACK_PLUMBING_RATES;
+    const eRates = pricingInfo?.electrical_rates ?? FALLBACK_ELECTRICAL_RATES;
+    const e = (key: string): number => {
+      const v = eRates[key];
+      return typeof v === 'number' ? v : 0;
+    };
+    const eTable = (key: string): Record<string, number> => {
+      const v = eRates[key];
+      return typeof v === 'object' && v !== null ? v : {};
+    };
+    const fan = Object.values(eTable('exhaust_fan'));
+    const fan80 = eTable('exhaust_fan')['80'] ?? 0;
+    const sw = Object.values(eTable('exhaust_fan_switch'));
+    const heatedFloorBase = e('heated_floor_thermostat') + e('heated_floor_circuit');
+    const range = (vals: number[]) =>
+      vals.length ? `$${Math.min(...vals)}-${Math.max(...vals)}` : '—';
+
+    // Each scenario adds to the one above it, matching the wording of its row.
+    const basic =
+      p.shutoff_valve_each * 3 + p.supply_line_each * 3 + e('gfci_outlet_each') + fan80;
+    const standard = basic + p.pressure_balance_valve + e('vanity_light_install');
+    const full =
+      standard + e('gfci_outlet_each') + e('heated_floor_per_sf') * 50 + heatedFloorBase +
+      p.rough_inspection_fee + e('electrical_inspection_fee');
+    const approx = (n: number) => `~$${(Math.round(n / 10) * 10).toLocaleString('en-US')}`;
+
+    return {
+      plumbing: [
+        { key: '1', item: 'Shutoff Valve', when: '15yr+ homes nearly always. Toilet×1 + Vanity×2 = 3', cost: `$${p.shutoff_valve_each}/EA` },
+        { key: '2', item: 'Supply Line', when: 'Replace with valve. Same count as valves', cost: `$${p.supply_line_each}/EA` },
+        { key: '3', item: 'Drain Modification', when: 'Tub→Shower conversion, vanity relocation', cost: `$${p.drain_modification}/EA` },
+        { key: '4', item: 'Pressure Balance Valve', when: 'All shower remodels (code required)', cost: `$${p.pressure_balance_valve}/EA` },
+        { key: '5', item: 'Rough Inspection', when: 'Any plumbing work (county inspection)', cost: `$${p.rough_inspection_fee}/EA` },
+      ],
+      electrical: [
+        { key: '1', item: 'GFCI Outlet', when: 'Min 1 per bath (code). Dual sink = 2', cost: `$${e('gfci_outlet_each')}/EA` },
+        { key: '2', item: 'Vanity Light', when: 'Vanity replacement typically includes lighting', cost: `$${e('vanity_light_install')}/EA` },
+        { key: '3', item: 'Ceiling Fixture', when: 'Existing light replacement or addition', cost: `$${e('ceiling_fixture_install')}/EA` },
+        { key: '4', item: 'Exhaust Fan', when: 'No window = code required. Recommend 80CFM', cost: range(fan) },
+        { key: '5', item: 'Fan Switch', when: 'Upgrade: standard / timer / humidity sensor', cost: range(sw) },
+        { key: '6', item: 'Heated Floor', when: 'Optional (client request)', cost: `$${e('heated_floor_per_sf')}/SF+$${heatedFloorBase}` },
+        { key: '7', item: 'Elec. Inspection', when: 'Any electrical work (county inspection)', cost: `$${e('electrical_inspection_fee')}/EA` },
+      ],
+      scenarios: { basic: approx(basic), standard: approx(standard), full: approx(full) },
+    };
+  }, [pricingInfo]);
 
   const { data: history } = useQuery({
     queryKey: ['bathroom-estimate-history', id],
@@ -680,13 +745,7 @@ const BathroomEstimateDetail: React.FC = () => {
           <Table
             size="small"
             pagination={false}
-            dataSource={[
-              { key: '1', item: 'Shutoff Valve', when: '15yr+ homes nearly always. Toilet×1 + Vanity×2 = 3', cost: '$204/EA' },
-              { key: '2', item: 'Supply Line', when: 'Replace with valve. Same count as valves', cost: '$72/EA' },
-              { key: '3', item: 'Drain Modification', when: 'Tub→Shower conversion, vanity relocation', cost: '$386/EA' },
-              { key: '4', item: 'Pressure Balance Valve', when: 'All shower remodels (code required)', cost: '$466/EA' },
-              { key: '5', item: 'Rough Inspection', when: 'Any plumbing work (county inspection)', cost: '$163/EA' },
-            ]}
+            dataSource={costGuide.plumbing}
             columns={[
               { title: 'Item', dataIndex: 'item', width: 170 },
               { title: 'When Needed', dataIndex: 'when' },
@@ -698,15 +757,7 @@ const BathroomEstimateDetail: React.FC = () => {
           <Table
             size="small"
             pagination={false}
-            dataSource={[
-              { key: '1', item: 'GFCI Outlet', when: 'Min 1 per bath (code). Dual sink = 2', cost: '$181/EA' },
-              { key: '2', item: 'Vanity Light', when: 'Vanity replacement typically includes lighting', cost: '$227/EA' },
-              { key: '3', item: 'Ceiling Fixture', when: 'Existing light replacement or addition', cost: '$236/EA' },
-              { key: '4', item: 'Exhaust Fan', when: 'No window = code required. Recommend 80CFM', cost: '$357-756' },
-              { key: '5', item: 'Fan Switch', when: 'Upgrade: standard / timer / humidity sensor', cost: '$39-138' },
-              { key: '6', item: 'Heated Floor', when: 'Optional (client request)', cost: '$13.25/SF+$632' },
-              { key: '7', item: 'Elec. Inspection', when: 'Any electrical work (county inspection)', cost: '$137/EA' },
-            ]}
+            dataSource={costGuide.electrical}
             columns={[
               { title: 'Item', dataIndex: 'item', width: 140 },
               { title: 'When Needed', dataIndex: 'when' },
@@ -716,9 +767,9 @@ const BathroomEstimateDetail: React.FC = () => {
           <Divider style={{ margin: '12px 0' }} />
           <Title level={5}>Common Scenarios</Title>
           <div style={{ fontSize: 13, lineHeight: 1.8 }}>
-            <p style={{ margin: '4px 0' }}><Tag color="blue">Basic</Tag> Toilet + Vanity only: Valve×3 + Supply×3 + GFCI + Fan 80CFM = <strong>~$1,480</strong></p>
-            <p style={{ margin: '4px 0' }}><Tag color="green">Standard</Tag> + Shower: + Pressure Balance + Vanity Light = <strong>~$2,170</strong></p>
-            <p style={{ margin: '4px 0' }}><Tag color="orange">Full</Tag> + Heated Floor 50SF: + GFCI×2 + Heated + Inspections = <strong>~$3,940</strong></p>
+            <p style={{ margin: '4px 0' }}><Tag color="blue">Basic</Tag> Toilet + Vanity only: Valve×3 + Supply×3 + GFCI + Fan 80CFM = <strong>{costGuide.scenarios.basic}</strong></p>
+            <p style={{ margin: '4px 0' }}><Tag color="green">Standard</Tag> + Shower: + Pressure Balance + Vanity Light = <strong>{costGuide.scenarios.standard}</strong></p>
+            <p style={{ margin: '4px 0' }}><Tag color="orange">Full</Tag> + Heated Floor 50SF: + GFCI×2 + Heated + Inspections = <strong>{costGuide.scenarios.full}</strong></p>
           </div>
           <Divider style={{ margin: '12px 0' }} />
           <Title level={5}>Auto-Set Rules</Title>

@@ -25,6 +25,7 @@ from .pricing import (
     GUTTER_SIZES,
     GUTTER_STYLES,
     GUTTER_TYPES,
+    PERMIT_FEES,
     PIPE_BOOT_TYPES,
     PITCH_MULTIPLIERS,
     ROOF_COMPLEXITIES,
@@ -74,6 +75,7 @@ def get_pricing_info():
         "decking_rates": DECKING_RATES,
         "pitch_multipliers": PITCH_MULTIPLIERS,
         "waste_factors": WASTE_FACTORS,
+        "permit_fees": PERMIT_FEES,
     }
 
 
