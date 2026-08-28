@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from app.common.utils.storage_helpers import download_from_storage, is_cloud_ref
 from app.core.database_factory import get_database
 
 logger = logging.getLogger(__name__)
@@ -624,6 +625,9 @@ class AdjusterEmailService:
                     f"Email was NOT sent. Please check the documents and try again."
                 )
 
+            # Block send if the payload is still too big for SMTP to accept
+            self._assert_within_email_limit(attachments)
+
             # Send via claim_followup email service
             from app.domains.claim_followup.service import ClaimFollowUpService
             email_service = ClaimFollowUpService()
@@ -731,6 +735,7 @@ class AdjusterEmailService:
             if selected_docs:
                 attachments, _failed = self._collect_attachments(session, job, selected_docs)
                 attachments = self._compress_attachments_if_needed(attachments)
+                self._assert_within_email_limit(attachments)
 
             # Send via claim_followup email service
             from app.domains.claim_followup.service import ClaimFollowUpService
@@ -940,26 +945,24 @@ class AdjusterEmailService:
             )
 
             if storage_provider != 'local':
-                # Cloud storage (GCS, GDrive, S3, etc.)
-                # Try file_path first, then storage_file_id as fallback
-                download_key = file_path_str or storage_file_id
-                if not download_key:
+                # Cloud storage (GCS, B2, GDrive, ...). Try file_path first,
+                # then storage_file_id as fallback. The record's own provider
+                # is passed through so a document written under an earlier
+                # provider still resolves after a migration.
+                download_keys = []
+                for key in (file_path_str, storage_file_id):
+                    if key and key not in download_keys:
+                        download_keys.append(key)
+                if not download_keys:
                     logger.warning(f"WMDocument {doc.id}: no file_path or storage_file_id for cloud download")
                     return None
-                try:
-                    from app.domains.storage.factory import StorageFactory
-                    storage = StorageFactory.get_instance()
-                    file_data = storage.download(download_key)
-                    logger.info(f"Downloaded WMDocument {doc.id} from {storage_provider}: {download_key}")
-                except Exception as e:
-                    logger.warning(f"Cloud download failed for WMDocument {doc.id}: {e}")
-                    # If file_path failed, try storage_file_id as fallback
-                    if download_key == file_path_str and storage_file_id and storage_file_id != file_path_str:
-                        try:
-                            file_data = storage.download(storage_file_id)
-                            logger.info(f"Fallback download succeeded with storage_file_id: {storage_file_id}")
-                        except Exception as e2:
-                            logger.warning(f"Fallback download also failed: {e2}")
+                for key in download_keys:
+                    try:
+                        file_data = download_from_storage(key, storage_provider)
+                        logger.info(f"Downloaded WMDocument {doc.id} from {storage_provider}: {key}")
+                        break
+                    except Exception as e:
+                        logger.warning(f"Cloud download failed for WMDocument {doc.id} ({key}): {e}")
             else:
                 # Local filesystem
                 local_path = Path(file_path_str)
@@ -1219,15 +1222,21 @@ class AdjusterEmailService:
                 logger.warning(f"W9: File record not found for w9_file_id={w9_file_id} (type={type(w9_file_id).__name__})")
                 return None
 
-            # Read file data
+            # Read file data. The record's own storage_provider column is
+            # authoritative here: a W-9 uploaded before the move to B2 still
+            # carries its original "gs://" url, and handing that straight to
+            # today's provider is a guaranteed miss - "gs://bucket/key" is not
+            # a valid B2 object key. download_from_storage() tries the
+            # record's provider first, then today's provider with the bare key.
             file_url = file_rec.url or ''
+            record_provider = getattr(file_rec, 'storage_provider', None)
             file_data = None
-            logger.info(f"W9: file_url={file_url}")
+            logger.info(
+                f"W9: file_url={file_url}, storage_provider={record_provider}"
+            )
 
-            if file_url.startswith(('gs://', 'https://', 'http://')):
-                from app.domains.file.service import get_storage_provider
-                storage = get_storage_provider()
-                file_data = storage.download(file_url)
+            if is_cloud_ref(file_url) or (record_provider and record_provider != 'local'):
+                file_data = download_from_storage(file_url, record_provider)
             else:
                 file_path = Path(file_url)
                 if file_path.exists():
@@ -1369,7 +1378,10 @@ class AdjusterEmailService:
     # base64 encoding overhead (~33% increase) in MIME messages.
     _EMAIL_SIZE_LIMIT = 23 * 1024 * 1024
 
-    # Compression levels: try gentle first, then stronger if still over limit
+    # Compression levels: try gentle first, then stronger if still over limit.
+    # max_image_px / jpeg_quality drive the PyMuPDF fallback and are the
+    # equivalent of the Ghostscript dpi settings for a full-page photo
+    # (max_image_px ~= color_dpi x 8 inches).
     _COMPRESSION_LEVELS = [
         {
             "name": "printer",
@@ -1377,6 +1389,8 @@ class AdjusterEmailService:
             "color_dpi": 300,
             "gray_dpi": 300,
             "mono_dpi": 600,
+            "max_image_px": 2400,
+            "jpeg_quality": 80,
         },
         {
             "name": "ebook",
@@ -1384,6 +1398,17 @@ class AdjusterEmailService:
             "color_dpi": 150,
             "gray_dpi": 150,
             "mono_dpi": 300,
+            "max_image_px": 1200,
+            "jpeg_quality": 65,
+        },
+        {
+            "name": "screen",
+            "settings": "/screen",    # 72 dpi — last resort before refusing
+            "color_dpi": 100,
+            "gray_dpi": 100,
+            "mono_dpi": 200,
+            "max_image_px": 900,
+            "jpeg_quality": 55,
         },
     ]
 
@@ -1405,7 +1430,12 @@ class AdjusterEmailService:
             f"compressing PDF attachments..."
         )
 
-        result = list(attachments)  # shallow copy
+        # Swap each attachment's bytes in place rather than building a second
+        # list: an over-limit payload is hundreds of MB, and dropping the
+        # original as soon as its smaller version exists keeps peak memory
+        # near one copy instead of two. Every caller rebinds to the return
+        # value, so sharing the list is not observable.
+        result = attachments
 
         for level in self._COMPRESSION_LEVELS:
             current_total = sum(len(a["data"]) for a in result)
@@ -1418,13 +1448,11 @@ class AdjusterEmailService:
             )
 
             # Sort by size descending — compress largest PDFs first
-            indexed = sorted(
-                enumerate(result),
-                key=lambda x: len(x[1]["data"]),
-                reverse=True,
+            largest_first = sorted(
+                result, key=lambda a: len(a["data"]), reverse=True
             )
 
-            for idx, att in indexed:
+            for att in largest_first:
                 current_total = sum(len(a["data"]) for a in result)
                 if current_total <= self._EMAIL_SIZE_LIMIT:
                     break
@@ -1438,7 +1466,7 @@ class AdjusterEmailService:
                     continue
 
                 original_size = len(att["data"])
-                compressed = self._compress_pdf_gs(att["data"], level)
+                compressed = self._compress_pdf(att["data"], level)
                 if compressed and len(compressed) < original_size:
                     saved = original_size - len(compressed)
                     logger.info(
@@ -1447,7 +1475,7 @@ class AdjusterEmailService:
                         f"{len(compressed) / 1024 / 1024:.1f}MB "
                         f"(saved {saved / 1024 / 1024:.1f}MB)"
                     )
-                    result[idx] = {**att, "data": compressed}
+                    att["data"] = compressed
 
         final_size = sum(len(a["data"]) for a in result)
         logger.info(
@@ -1457,9 +1485,55 @@ class AdjusterEmailService:
         )
         return result
 
+    # Ghostscript ships under a different binary name per platform
+    # ('gs' on Linux/macOS, 'gswin64c'/'gswin32c' on Windows) and isn't
+    # installed at all on Render's Python runtime. Resolve it once and fall
+    # back to the pure-Python downsampler when it's missing.
+    _GS_BINARIES = ("gs", "gswin64c", "gswin32c")
+    _gs_binary: Optional[str] = None
+    _gs_lookup_done = False
+
+    @classmethod
+    def _find_ghostscript(cls) -> Optional[str]:
+        """Path to the Ghostscript binary, or None if it isn't installed."""
+        if not cls._gs_lookup_done:
+            import shutil
+            cls._gs_lookup_done = True
+            for name in cls._GS_BINARIES:
+                found = shutil.which(name)
+                if found:
+                    cls._gs_binary = found
+                    logger.info(f"Using Ghostscript for PDF compression: {found}")
+                    break
+            else:
+                logger.info(
+                    f"Ghostscript not found (tried {', '.join(cls._GS_BINARIES)}) - "
+                    f"falling back to the PyMuPDF image downsampler"
+                )
+        return cls._gs_binary
+
+    @classmethod
+    def _compress_pdf(
+        cls, pdf_bytes: bytes, level: Dict[str, Any]
+    ) -> Optional[bytes]:
+        """Compress a PDF at the given quality level.
+
+        Prefers Ghostscript (best ratio, rewrites the whole file) and falls
+        back to re-encoding the embedded images with PyMuPDF + Pillow, which
+        needs no system binary.
+        """
+        gs_binary = cls._find_ghostscript()
+        if gs_binary:
+            compressed = cls._compress_pdf_gs(pdf_bytes, level, gs_binary)
+            # Ghostscript can hand back a *larger* file for a PDF that is
+            # already well optimized; the image pass may still win there.
+            if compressed and len(compressed) < len(pdf_bytes):
+                return compressed
+        return cls._compress_pdf_images(pdf_bytes, level)
+
     @staticmethod
     def _compress_pdf_gs(
-        pdf_bytes: bytes, level: Dict[str, Any]
+        pdf_bytes: bytes, level: Dict[str, Any], gs_binary: str
     ) -> Optional[bytes]:
         """Compress a PDF using Ghostscript at the given quality level."""
         import subprocess
@@ -1476,7 +1550,7 @@ class AdjusterEmailService:
             dst_path = src_path.replace(".pdf", "_compressed.pdf")
 
             cmd = [
-                "gswin64c", "-sDEVICE=pdfwrite",
+                gs_binary, "-sDEVICE=pdfwrite",
                 "-dCompatibilityLevel=1.4",
                 f"-dPDFSETTINGS={level['settings']}",
                 "-dNOPAUSE", "-dQUIET", "-dBATCH",
@@ -1498,7 +1572,7 @@ class AdjusterEmailService:
             compressed = Path(dst_path).read_bytes()
             return compressed
         except Exception as e:
-            logger.warning(f"PDF compression error: {e}")
+            logger.warning(f"Ghostscript compression error: {e}")
             return None
         finally:
             for p in [src_path, dst_path]:
@@ -1507,3 +1581,137 @@ class AdjusterEmailService:
                         Path(p).unlink(missing_ok=True)
                     except Exception:
                         pass
+
+    @classmethod
+    def _compress_pdf_images(
+        cls, pdf_bytes: bytes, level: Dict[str, Any]
+    ) -> Optional[bytes]:
+        """Shrink a PDF by re-encoding its embedded images (no Ghostscript).
+
+        Photo reports are almost entirely full-resolution camera JPEGs, so
+        downsampling those recovers essentially all of the size. Returns None
+        when nothing could be shrunk.
+        """
+        try:
+            import fitz  # PyMuPDF
+        except ImportError as e:
+            logger.warning(f"PyMuPDF unavailable, cannot compress PDF: {e}")
+            return None
+
+        max_px = level.get("max_image_px", 1200)
+        quality = level.get("jpeg_quality", 65)
+
+        doc = None
+        try:
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            handled = set()
+            replaced = 0
+
+            for page in doc:
+                for img in page.get_images(full=True):
+                    xref = img[0]
+                    if xref in handled:
+                        continue
+                    handled.add(xref)
+
+                    try:
+                        info = doc.extract_image(xref)
+                    except Exception:
+                        continue
+                    original = (info or {}).get("image")
+                    if not original:
+                        continue
+                    # A soft mask carries transparency a flat JPEG can't
+                    # represent - leave those images alone.
+                    if info.get("smask"):
+                        continue
+
+                    shrunk = cls._shrink_image_bytes(original, max_px, quality)
+                    if shrunk and len(shrunk) < len(original):
+                        try:
+                            page.replace_image(xref, stream=shrunk)
+                            replaced += 1
+                        except Exception as e:
+                            logger.debug(f"Could not replace image {xref}: {e}")
+
+            if not replaced:
+                return None
+
+            return doc.tobytes(garbage=4, deflate=True)
+        except Exception as e:
+            logger.warning(f"PyMuPDF compression error: {e}")
+            return None
+        finally:
+            if doc is not None:
+                try:
+                    doc.close()
+                except Exception:
+                    pass
+
+    @staticmethod
+    def _shrink_image_bytes(
+        img_bytes: bytes, max_px: int, quality: int
+    ) -> Optional[bytes]:
+        """Re-encode one embedded image as a smaller JPEG."""
+        import io as _io
+
+        try:
+            from PIL import Image
+
+            img = Image.open(_io.BytesIO(img_bytes))
+            img.load()
+
+            # JPEG has no alpha channel - flatten onto white first.
+            if img.mode in ("RGBA", "LA", "P"):
+                rgba = img.convert("RGBA")
+                flat = Image.new("RGB", rgba.size, (255, 255, 255))
+                flat.paste(rgba, mask=rgba.split()[3])
+                img = flat
+            elif img.mode != "RGB":
+                img = img.convert("RGB")
+
+            longest = max(img.width, img.height)
+            if longest > max_px:
+                ratio = max_px / longest
+                img = img.resize(
+                    (
+                        max(1, int(img.width * ratio)),
+                        max(1, int(img.height * ratio)),
+                    ),
+                    Image.LANCZOS,
+                )
+
+            buf = _io.BytesIO()
+            img.save(buf, format="JPEG", quality=quality, optimize=True)
+            return buf.getvalue()
+        except Exception as e:
+            logger.debug(f"Image shrink failed: {e}")
+            return None
+
+    def _assert_within_email_limit(
+        self, attachments: List[Dict[str, Any]]
+    ) -> None:
+        """Refuse to send a payload SMTP will reject anyway.
+
+        Without this the send hangs on a doomed multi-hundred-MB upload and
+        comes back with an opaque SMTP error, so say plainly what's too big.
+        """
+        total = sum(len(att["data"]) for att in attachments)
+        if total <= self._EMAIL_SIZE_LIMIT:
+            return
+
+        largest = sorted(
+            attachments, key=lambda a: len(a["data"]), reverse=True
+        )[:3]
+        detail = ", ".join(
+            f"{a.get('filename', 'attachment')} "
+            f"({len(a['data']) / 1024 / 1024:.1f}MB)"
+            for a in largest
+        )
+        raise ValueError(
+            f"Attachments total {total / 1024 / 1024:.1f}MB, which is over the "
+            f"{self._EMAIL_SIZE_LIMIT / 1024 / 1024:.0f}MB email limit even after "
+            f"compression. Email was NOT sent. Largest: {detail}. "
+            f"Reduce the number of photos in the Photo Report, or send the "
+            f"largest documents in a separate email."
+        )

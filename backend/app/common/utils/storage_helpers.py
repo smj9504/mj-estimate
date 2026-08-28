@@ -75,3 +75,101 @@ def upload_bytes_to_storage(
         "storage_file_id": upload_result.file_id,
         "file_size": len(file_bytes),
     }
+
+
+# ---------------------------------------------------------------------------
+# Reading files back out of storage
+# ---------------------------------------------------------------------------
+
+# Provider prefixes that appear in stored `url` / `file_path` columns.
+_CLOUD_PREFIXES = ("gs://", "b2://", "s3://")
+
+# Which provider a bare prefix implies, for legacy rows written before the
+# storage_provider column existed.
+_PREFIX_PROVIDERS = {"gs://": "gcs", "b2://": "b2", "s3://": "s3"}
+
+
+def strip_storage_prefix(file_ref: str) -> str:
+    """Reduce a stored reference to the bare object key.
+
+    "gs://mj-estimate-storage/company/x/w9/W9.pdf" -> "company/x/w9/W9.pdf"
+
+    Object keys are preserved across a bucket-to-bucket migration, so the bare
+    key is what lets a row written by one provider resolve against another.
+    """
+    for prefix in _CLOUD_PREFIXES:
+        if file_ref.startswith(prefix):
+            parts = file_ref[len(prefix):].split("/", 1)
+            return parts[1] if len(parts) == 2 else parts[0]
+    return file_ref
+
+
+def is_cloud_ref(file_ref: str) -> bool:
+    """True if the reference points at cloud storage rather than local disk."""
+    return bool(file_ref) and file_ref.startswith(
+        _CLOUD_PREFIXES + ("http://", "https://")
+    )
+
+
+def download_from_storage(
+    file_ref: str,
+    storage_provider: Optional[str] = None,
+) -> bytes:
+    """Download a stored file, tolerating a storage-provider migration.
+
+    Rows written under an older provider keep that provider's URL forever
+    (e.g. a "gs://" W-9 uploaded before the move to B2), so handing the raw
+    URL to today's provider fails: "gs://bucket/key" is not a valid B2 key.
+
+    Resolution order:
+      1. the record's own provider (explicit column, else inferred from the
+         URL prefix) with the URL as stored - correct while the old provider
+         is still configured;
+      2. the currently-configured provider with the bare object key - correct
+         once the objects have been copied into the new bucket, which keeps
+         their keys.
+
+    Raises:
+        FileNotFoundError: if no attempt produced the file.
+    """
+    if not file_ref:
+        raise FileNotFoundError("No file reference to download")
+
+    default_provider = os.getenv("STORAGE_PROVIDER", "local").lower()
+    record_provider = (storage_provider or "").lower()
+    if not record_provider:
+        for prefix, provider in _PREFIX_PROVIDERS.items():
+            if file_ref.startswith(prefix):
+                record_provider = provider
+                break
+
+    bare_key = strip_storage_prefix(file_ref)
+
+    attempts = []
+    if record_provider and record_provider != "local":
+        attempts.append((record_provider, file_ref))
+    if default_provider != "local":
+        attempts.append((default_provider, bare_key))
+
+    errors = []
+    tried = set()
+    for provider_type, key in attempts:
+        if (provider_type, key) in tried:
+            continue
+        tried.add((provider_type, key))
+        try:
+            if provider_type == default_provider:
+                # Reuse the cached singleton for the common case.
+                storage = StorageFactory.get_instance()
+            else:
+                # Build a throwaway instance so a one-off cross-provider read
+                # doesn't swap out the cached default for everyone else.
+                storage = StorageFactory.create(provider_type)
+            return storage.download(key)
+        except Exception as e:
+            errors.append(f"{provider_type}:{key} ({e})")
+            logger.warning(f"Storage download attempt failed - {provider_type}: {key} ({e})")
+
+    raise FileNotFoundError(
+        f"Could not download {file_ref} from storage. Tried: {'; '.join(errors) or 'nothing'}"
+    )

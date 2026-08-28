@@ -246,6 +246,26 @@ MJ Estimate/
 
 ## Migration Between Providers
 
+### Reading files written by a previous provider
+
+Rows keep the URL of whichever provider wrote them, forever - a W-9 uploaded
+before the B2 migration still has a `gs://mj-estimate-storage/...` url. Handing
+that url to today's provider always fails, because `gs://bucket/key` is not a
+valid B2 object key. Use `download_from_storage()` rather than calling
+`storage.download()` directly:
+
+```python
+from app.common.utils.storage_helpers import download_from_storage
+
+# Pass the record's own storage_provider column when it has one.
+data = download_from_storage(file_record.url, file_record.storage_provider)
+```
+
+It tries the record's own provider with the url as stored (which is why the
+legacy `GCS_*` settings are kept configured), then today's provider with the
+bare object key - keys survive a bucket-to-bucket copy, so that second attempt
+covers files that were moved but whose rows were never rewritten.
+
 ### Migrate from Local to Google Drive
 
 ```python

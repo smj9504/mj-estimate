@@ -1514,6 +1514,9 @@ export const adjusterEmailService = {
     return response.data;
   },
 
+  // Downloads every selected document from cloud storage, compresses the
+  // PDFs down to the email size limit and then uploads them over SMTP —
+  // comfortably past the default 30s timeout for a photo-heavy job.
   send: async (jobId: string, payload: SendToAdjusterPayload): Promise<{
     success: boolean;
     email_id: string;
@@ -1521,7 +1524,11 @@ export const adjusterEmailService = {
     status: string;
     documents_sent_date: string;
   }> => {
-    const response = await api.post(`${BASE_URL}/jobs/${jobId}/send-to-adjuster`, payload);
+    const response = await api.post(
+      `${BASE_URL}/jobs/${jobId}/send-to-adjuster`,
+      payload,
+      { timeout: 300000 }
+    );
     return response.data;
   },
 
@@ -1538,12 +1545,17 @@ export const adjusterEmailService = {
     return response.data;
   },
 
+  // Same as send() above — re-attaching documents makes this a long call.
   sendFollowUp: async (jobId: string, payload: SendToAdjusterPayload): Promise<{
     success: boolean;
     email_id: string;
     attachments_count: number;
   }> => {
-    const response = await api.post(`${BASE_URL}/jobs/${jobId}/send-followup`, payload);
+    const response = await api.post(
+      `${BASE_URL}/jobs/${jobId}/send-followup`,
+      payload,
+      { timeout: 300000 }
+    );
     return response.data;
   },
 };
