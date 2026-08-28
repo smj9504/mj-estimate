@@ -266,6 +266,32 @@ legacy `GCS_*` settings are kept configured), then today's provider with the
 bare object key - keys survive a bucket-to-bucket copy, so that second attempt
 covers files that were moved but whose rows were never rewritten.
 
+### Retiring the old provider (GCS -> B2)
+
+`backend/migrate_gcs_to_b2.py` copies every still-referenced GCS object
+into B2 under the same key and repoints the rows, after which the `GCS_*`
+settings can be dropped. It is row-driven (only objects the DB still points at),
+byte-for-byte (it bypasses `StorageOptimizer`, which would rewrite both the bytes
+and the key), idempotent, and never deletes from GCS.
+
+```bash
+cd backend
+
+# 1. Report only - shows, per object, whether it's in GCS, already in B2, or gone
+python migrate_gcs_to_b2.py
+
+# 2. Copy the objects. Rows still say gs://, and the app resolves through both
+#    providers, so it keeps working at every point in between.
+python migrate_gcs_to_b2.py --execute
+
+# 3. Repoint the rows once the copies are verified
+python migrate_gcs_to_b2.py --execute --update-db
+```
+
+Only rows whose objects all landed in B2 are repointed - a row whose object is
+missing from both buckets is left on `gs://` and reported, rather than being
+pointed at something that isn't there. Add `--table`/`--limit` to narrow a run.
+
 ### Migrate from Local to Google Drive
 
 ```python
