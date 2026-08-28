@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
@@ -98,6 +98,39 @@ const ApplianceSelector: React.FC<ApplianceSelectorProps> = ({ value = [], onCha
   );
 };
 
+// ── Price-table fallbacks ──
+// The rates shown on this form are served by GET /cabinet-estimates/pricing-info
+// so they can never drift from what the backend actually charges. These copies
+// only cover the window before that query resolves.
+const FALLBACK_APPLIANCES: ApplianceOption[] = [
+  { type: 'dishwasher', label: 'Dishwasher', cost: 449 },
+  { type: 'refrigerator', label: 'Refrigerator', cost: 165 },
+  { type: 'range_gas', label: 'Range (Gas) - Freestanding', cost: 307 },
+  { type: 'range_electric', label: 'Range (Electric) - Freestanding', cost: 138 },
+  { type: 'range_gas_slide', label: 'Range (Gas) - Slide-in', cost: 305 },
+  { type: 'range_electric_slide', label: 'Range (Electric) - Slide-in', cost: 139 },
+  { type: 'range_dropin', label: 'Range - Drop-in', cost: 300 },
+  { type: 'cooktop_gas', label: 'Cooktop (Gas)', cost: 165 },
+  { type: 'cooktop_electric', label: 'Cooktop (Electric)', cost: 136 },
+  { type: 'wall_oven', label: 'Wall Oven', cost: 167 },
+  { type: 'microwave_otr', label: 'Microwave (Over-the-Range)', cost: 94 },
+  { type: 'hood_vent', label: 'Range Hood', cost: 202 },
+  { type: 'hood_wood_42', label: 'Wood Range Hood (42"+)', cost: 526 },
+  { type: 'garbage_disposal', label: 'Garbage Disposal', cost: 305 },
+];
+const FALLBACK_COUNTERTOP_RATES: Record<string, number> = {
+  Laminate: 35, 'Butcher Block': 70, 'Solid Surface': 95,
+  Granite: 95, Quartz: 110, Quartzite: 130, Marble: 160,
+};
+const FALLBACK_CT_BACKSPLASH_PER_LF: Record<string, number> = {
+  Laminate: 12, 'Solid Surface': 22, 'Butcher Block': 18,
+  Granite: 28, Quartz: 32, Quartzite: 38, Marble: 45,
+};
+const FALLBACK_SCOPE_RATES: Record<string, number> = {
+  sink_single_supply: 305, sink_double_supply: 458,
+  drywall_patch_per_sf: 2.75, drywall_rr_per_sf: 5.0,
+};
+
 const CabinetEstimateDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -123,6 +156,45 @@ const CabinetEstimateDetail: React.FC = () => {
     queryFn: () => cabinetEstimateService.getPricingInfo(),
     staleTime: 1000 * 60 * 30,
   });
+
+  // Rates quoted in the form labels, straight from pricing-info.
+  const priceInfo = useMemo(() => {
+    const flatRate = (key: string): number => {
+      const v = pricingInfo?.scope_items?.[key];
+      return typeof v === 'number' ? v : FALLBACK_SCOPE_RATES[key];
+    };
+    const ctRates: Record<string, number> = pricingInfo?.countertop_materials
+      ? Object.fromEntries(
+          Object.entries(pricingInfo.countertop_materials).map(([k, v]) => [k, v.rate])
+        )
+      : FALLBACK_COUNTERTOP_RATES;
+    return {
+      applianceOptions: pricingInfo?.appliance_rr_pricing
+        ? Object.entries(pricingInfo.appliance_rr_pricing).map(([type, v]) => ({
+            type, label: v.label, cost: v.cost,
+          }))
+        : FALLBACK_APPLIANCES,
+      countertopOptions: Object.entries(ctRates)
+        .sort((a, b) => a[1] - b[1])
+        .map(([value, rate]) => ({ label: `${value} ($${rate}/SF)`, value })),
+      ctBacksplashPerLf:
+        pricingInfo?.countertop_backsplash_per_lf ?? FALLBACK_CT_BACKSPLASH_PER_LF,
+      sinkOptions: [
+        { label: `Single Bowl ($${flatRate('sink_single_supply')})`, value: 'single' },
+        { label: `Double Bowl ($${flatRate('sink_double_supply')})`, value: 'double' },
+      ],
+      drywallOptions: [
+        {
+          label: `Patch & Repair ($${flatRate('drywall_patch_per_sf').toFixed(2)}/SF) — nail holes, minor damage`,
+          value: 'patch',
+        },
+        {
+          label: `R&R Sheetrock ($${flatRate('drywall_rr_per_sf').toFixed(2)}/SF) — full replace`,
+          value: 'rr',
+        },
+      ],
+    };
+  }, [pricingInfo]);
 
   // ── Fetch companies ──
   const { data: companies } = useQuery({
@@ -801,15 +873,7 @@ const CabinetEstimateDetail: React.FC = () => {
                                 <Select
                                   placeholder="Same as perimeter"
                                   allowClear
-                                  options={[
-                                    { label: 'Laminate ($35/SF)', value: 'Laminate' },
-                                    { label: 'Butcher Block ($70/SF)', value: 'Butcher Block' },
-                                    { label: 'Solid Surface ($95/SF)', value: 'Solid Surface' },
-                                    { label: 'Granite ($95/SF)', value: 'Granite' },
-                                    { label: 'Quartz ($110/SF)', value: 'Quartz' },
-                                    { label: 'Quartzite ($130/SF)', value: 'Quartzite' },
-                                    { label: 'Marble ($160/SF)', value: 'Marble' },
-                                  ]}
+                                  options={priceInfo.countertopOptions}
                                 />
                               </Form.Item>
                             </Col>
@@ -883,10 +947,7 @@ const CabinetEstimateDetail: React.FC = () => {
                         {({ getFieldValue }) =>
                           getFieldValue('include_plumbing') ? (
                             <Form.Item name="sink_type" label="Sink Type" preserve style={{ marginBottom: 0, marginLeft: 24 }}>
-                              <Select size="small" style={{ width: 180 }} options={[
-                                { label: 'Single Bowl ($305)', value: 'single' },
-                                { label: 'Double Bowl ($458)', value: 'double' },
-                              ]} />
+                              <Select size="small" style={{ width: 180 }} options={priceInfo.sinkOptions} />
                             </Form.Item>
                           ) : null
                         }
@@ -960,29 +1021,13 @@ const CabinetEstimateDetail: React.FC = () => {
                   <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_appliance_rr !== cur.include_appliance_rr}>
                     {({ getFieldValue }) => {
                       if (!getFieldValue('include_appliance_rr')) return null;
-                      const APPLIANCE_OPTIONS = [
-                        { type: 'dishwasher', label: 'Dishwasher', cost: 449 },
-                        { type: 'refrigerator', label: 'Refrigerator', cost: 165 },
-                        { type: 'range_gas', label: 'Range (Gas) - Freestanding', cost: 307 },
-                        { type: 'range_electric', label: 'Range (Electric) - Freestanding', cost: 138 },
-                        { type: 'range_gas_slide', label: 'Range (Gas) - Slide-in', cost: 305 },
-                        { type: 'range_electric_slide', label: 'Range (Electric) - Slide-in', cost: 139 },
-                        { type: 'range_dropin', label: 'Range - Drop-in', cost: 300 },
-                        { type: 'cooktop_gas', label: 'Cooktop (Gas)', cost: 165 },
-                        { type: 'cooktop_electric', label: 'Cooktop (Electric)', cost: 136 },
-                        { type: 'wall_oven', label: 'Wall Oven', cost: 167 },
-                        { type: 'microwave_otr', label: 'Microwave (OTR)', cost: 94 },
-                        { type: 'hood_vent', label: 'Range Hood', cost: 202 },
-                        { type: 'hood_wood_42', label: 'Wood Range Hood (42"+)', cost: 526 },
-                        { type: 'garbage_disposal', label: 'Garbage Disposal', cost: 305 },
-                      ];
                       return (
                         <div style={{ borderTop: '1px solid #f0f0f0', margin: '8px 0 12px', paddingTop: 8 }}>
                           <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
                             Select appliances to detach & reset:
                           </Text>
                           <Form.Item name="appliance_list" noStyle preserve>
-                            <ApplianceSelector options={APPLIANCE_OPTIONS} />
+                            <ApplianceSelector options={priceInfo.applianceOptions} />
                           </Form.Item>
                         </div>
                       );
@@ -1014,15 +1059,7 @@ const CabinetEstimateDetail: React.FC = () => {
                             <Form.Item name="countertop_material" label="Material" preserve>
                               <Select
                                 placeholder="Select material"
-                                options={[
-                                  { label: 'Laminate ($35/SF)', value: 'Laminate' },
-                                  { label: 'Butcher Block ($70/SF)', value: 'Butcher Block' },
-                                  { label: 'Solid Surface ($95/SF)', value: 'Solid Surface' },
-                                  { label: 'Granite ($95/SF)', value: 'Granite' },
-                                  { label: 'Quartz ($110/SF)', value: 'Quartz' },
-                                  { label: 'Quartzite ($130/SF)', value: 'Quartzite' },
-                                  { label: 'Marble ($160/SF)', value: 'Marble' },
-                                ]}
+                                options={priceInfo.countertopOptions}
                               />
                             </Form.Item>
                           </Col>
@@ -1079,10 +1116,7 @@ const CabinetEstimateDetail: React.FC = () => {
                                   <Col xs={12}>
                                     <Form.Item label="Unit Price">
                                       <Text type="secondary">
-                                        ${({
-                                          Laminate: 12, 'Solid Surface': 22, 'Butcher Block': 18,
-                                          Granite: 28, Quartz: 32, Quartzite: 38, Marble: 45,
-                                        } as Record<string, number>)[getFieldValue('countertop_material') || ''] || '—'}/LF
+                                        ${priceInfo.ctBacksplashPerLf[getFieldValue('countertop_material') || ''] || '—'}/LF
                                       </Text>
                                     </Form.Item>
                                   </Col>
@@ -1122,10 +1156,7 @@ const CabinetEstimateDetail: React.FC = () => {
                                 <Select
                                   size="small"
                                   style={{ width: 280 }}
-                                  options={[
-                                    { label: 'Patch & Repair ($2.75/SF) — nail holes, minor damage', value: 'patch' },
-                                    { label: 'R&R Sheetrock ($5.00/SF) — full replace', value: 'rr' },
-                                  ]}
+                                  options={priceInfo.drywallOptions}
                                 />
                               </Form.Item>
                               <Form.Item name="drywall_repair_sqft" label="Area (SF)" preserve>

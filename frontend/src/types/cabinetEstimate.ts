@@ -316,4 +316,7 @@ export interface PricingInfo {
   prefab_island_pricing: Record<string, any>;
   prefab_island_install: Record<string, number>;
   tall_cabinet_types: Record<string, Record<string, number>>;
+  appliance_rr_pricing: Record<string, { label: string; cost: number }>;
+  countertop_materials: Record<string, { label: string; rate: number }>;
+  countertop_backsplash_per_lf: Record<string, number>;
 }

@@ -395,3 +395,9 @@ class PricingInfoResponse(BaseModel):
     prefab_island_pricing: Dict[str, Any]
     prefab_island_install: Dict[str, float]
     tall_cabinet_types: Dict[str, Dict[str, float]]
+    # {key: {label, cost}} - detach & reset price per appliance
+    appliance_rr_pricing: Dict[str, Dict[str, Any]]
+    # {material: {label, rate}} - countertop supply+install per SF
+    countertop_materials: Dict[str, Dict[str, Any]]
+    # {material: rate} - 4" matching backsplash piece per LF
+    countertop_backsplash_per_lf: Dict[str, float]

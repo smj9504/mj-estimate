@@ -13,8 +13,11 @@ from app.core.interfaces import DatabaseSession
 from app.domains.auth.dependencies import get_current_user
 
 from .pricing import (
+    APPLIANCE_RR_PRICING,
     BACKSPLASH_TYPES,
     BASE_RATES,
+    COUNTERTOP_BACKSPLASH_PER_LF,
+    COUNTERTOP_MATERIALS,
     CROWN_MOLDING_PRICING,
     DOOR_STYLES,
     FINISH_MULTIPLIER,
@@ -73,6 +76,9 @@ def get_pricing_info():
         "prefab_island_pricing": PREFAB_ISLAND_PRICING,
         "prefab_island_install": PREFAB_ISLAND_INSTALL,
         "tall_cabinet_types": TALL_CABINET_TYPES,
+        "appliance_rr_pricing": APPLIANCE_RR_PRICING,
+        "countertop_materials": COUNTERTOP_MATERIALS,
+        "countertop_backsplash_per_lf": COUNTERTOP_BACKSPLASH_PER_LF,
     }
 
 
