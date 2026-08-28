@@ -1732,9 +1732,9 @@ const RoofingEstimateDetail: React.FC = () => {
                       <Select options={[
                         { label: 'No Permit', value: 'none' },
                         { label: 'By State (auto)', value: 'state' },
-                        { label: 'MD — $275', value: 'MD' },
-                        { label: 'VA — $250', value: 'VA' },
-                        { label: 'DC — $350', value: 'DC' },
+                        { label: 'MD — $350', value: 'MD' },
+                        { label: 'VA — $300', value: 'VA' },
+                        { label: 'DC — $425', value: 'DC' },
                         { label: 'Custom Amount', value: 'custom' },
                       ]} />
                     </Form.Item>

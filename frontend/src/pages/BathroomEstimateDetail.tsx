@@ -681,11 +681,11 @@ const BathroomEstimateDetail: React.FC = () => {
             size="small"
             pagination={false}
             dataSource={[
-              { key: '1', item: 'Shutoff Valve', when: '15yr+ homes nearly always. Toilet×1 + Vanity×2 = 3', cost: '$135/EA' },
-              { key: '2', item: 'Supply Line', when: 'Replace with valve. Same count as valves', cost: '$65/EA' },
-              { key: '3', item: 'Drain Modification', when: 'Tub→Shower conversion, vanity relocation', cost: '$350/EA' },
-              { key: '4', item: 'Pressure Balance Valve', when: 'All shower remodels (code required)', cost: '$425/EA' },
-              { key: '5', item: 'Rough Inspection', when: 'Any plumbing work (county inspection)', cost: '$150/EA' },
+              { key: '1', item: 'Shutoff Valve', when: '15yr+ homes nearly always. Toilet×1 + Vanity×2 = 3', cost: '$204/EA' },
+              { key: '2', item: 'Supply Line', when: 'Replace with valve. Same count as valves', cost: '$72/EA' },
+              { key: '3', item: 'Drain Modification', when: 'Tub→Shower conversion, vanity relocation', cost: '$386/EA' },
+              { key: '4', item: 'Pressure Balance Valve', when: 'All shower remodels (code required)', cost: '$466/EA' },
+              { key: '5', item: 'Rough Inspection', when: 'Any plumbing work (county inspection)', cost: '$163/EA' },
             ]}
             columns={[
               { title: 'Item', dataIndex: 'item', width: 170 },
@@ -699,13 +699,13 @@ const BathroomEstimateDetail: React.FC = () => {
             size="small"
             pagination={false}
             dataSource={[
-              { key: '1', item: 'GFCI Outlet', when: 'Min 1 per bath (code). Dual sink = 2', cost: '$210/EA' },
-              { key: '2', item: 'Vanity Light', when: 'Vanity replacement typically includes lighting', cost: '$185/EA' },
-              { key: '3', item: 'Ceiling Fixture', when: 'Existing light replacement or addition', cost: '$195/EA' },
-              { key: '4', item: 'Exhaust Fan', when: 'No window = code required. Recommend 80CFM', cost: '$325-695' },
-              { key: '5', item: 'Fan Switch', when: 'Upgrade: standard / timer / humidity sensor', cost: '$35-125' },
-              { key: '6', item: 'Heated Floor', when: 'Optional (client request)', cost: '$12/SF+$525' },
-              { key: '7', item: 'Elec. Inspection', when: 'Any electrical work (county inspection)', cost: '$125/EA' },
+              { key: '1', item: 'GFCI Outlet', when: 'Min 1 per bath (code). Dual sink = 2', cost: '$181/EA' },
+              { key: '2', item: 'Vanity Light', when: 'Vanity replacement typically includes lighting', cost: '$227/EA' },
+              { key: '3', item: 'Ceiling Fixture', when: 'Existing light replacement or addition', cost: '$236/EA' },
+              { key: '4', item: 'Exhaust Fan', when: 'No window = code required. Recommend 80CFM', cost: '$357-756' },
+              { key: '5', item: 'Fan Switch', when: 'Upgrade: standard / timer / humidity sensor', cost: '$39-138' },
+              { key: '6', item: 'Heated Floor', when: 'Optional (client request)', cost: '$13.25/SF+$632' },
+              { key: '7', item: 'Elec. Inspection', when: 'Any electrical work (county inspection)', cost: '$137/EA' },
             ]}
             columns={[
               { title: 'Item', dataIndex: 'item', width: 140 },
@@ -716,9 +716,9 @@ const BathroomEstimateDetail: React.FC = () => {
           <Divider style={{ margin: '12px 0' }} />
           <Title level={5}>Common Scenarios</Title>
           <div style={{ fontSize: 13, lineHeight: 1.8 }}>
-            <p style={{ margin: '4px 0' }}><Tag color="blue">Basic</Tag> Toilet + Vanity only: Valve×3 + Supply×3 + GFCI + Fan 80CFM = <strong>~$1,420</strong></p>
-            <p style={{ margin: '4px 0' }}><Tag color="green">Standard</Tag> + Shower: + Pressure Balance + Vanity Light = <strong>~$2,030</strong></p>
-            <p style={{ margin: '4px 0' }}><Tag color="orange">Full</Tag> + Heated Floor 50SF: + GFCI×2 + Heated + Inspections = <strong>~$3,680</strong></p>
+            <p style={{ margin: '4px 0' }}><Tag color="blue">Basic</Tag> Toilet + Vanity only: Valve×3 + Supply×3 + GFCI + Fan 80CFM = <strong>~$1,480</strong></p>
+            <p style={{ margin: '4px 0' }}><Tag color="green">Standard</Tag> + Shower: + Pressure Balance + Vanity Light = <strong>~$2,170</strong></p>
+            <p style={{ margin: '4px 0' }}><Tag color="orange">Full</Tag> + Heated Floor 50SF: + GFCI×2 + Heated + Inspections = <strong>~$3,940</strong></p>
           </div>
           <Divider style={{ margin: '12px 0' }} />
           <Title level={5}>Auto-Set Rules</Title>
