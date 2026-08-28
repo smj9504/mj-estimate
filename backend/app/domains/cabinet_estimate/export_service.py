@@ -17,6 +17,7 @@ SECTION_ORDER = [
     ("Installation", ["install"]),
     ("Plumbing & Fixtures", ["plumbing"]),
     ("Countertop", ["countertop"]),
+    ("Backsplash", ["backsplash"]),
     ("Finishing", ["finishing"]),
     ("General Conditions", ["misc"]),
 ]

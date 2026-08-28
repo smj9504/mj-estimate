@@ -53,6 +53,35 @@ WALL_HEIGHT_MULTIPLIER = {
     "extra_tall": 1.25,   # 42"H — 20-30% more material
 }
 
+# Tall cabinet size multipliers (applied to the per-EA tall supply rate).
+# Tall cabinets are quoted per unit, but a 36"W pantry carries twice the
+# material of an 18"W one, so the per-EA rate scales with the box size.
+# Baseline is the common 24"W x 84"H unit (1.00). The curve is
+# 0.4 + 0.6 x (size / baseline) — proportional to material, with a floor for
+# the fixed cost every box carries (doors, hardware, top/bottom/back).
+TALL_WIDTH_MULTIPLIER = {
+    18: 0.85,
+    24: 1.00,        # baseline
+    30: 1.15,
+    33: 1.22,
+    36: 1.30,
+}
+
+TALL_HEIGHT_MULTIPLIER = {
+    84: 1.00,        # baseline
+    90: 1.05,
+    96: 1.10,
+}
+
+# Width each TALL_CABINET_TYPES price is calibrated for. Appliance cabinets are
+# wide by nature, so their size scaling is applied relative to this rather than
+# to the 24" generic baseline - a cabinet at its typical width keeps the quoted
+# price instead of picking up a second width premium.
+TALL_TYPE_BASE_WIDTH = {
+    "oven_cabinet": 33,
+    "refrigerator_cabinet": 36,
+}
+
 # Material multiplier (applied to cabinet supply cost)
 MATERIAL_MULTIPLIER = {
     "Plywood": 1.00,
@@ -375,6 +404,24 @@ DEFAULT_OVERVIEW = (
     "provided with soft-closing undermount drawer tracks "
     "and hinges."
 )
+
+
+def size_tier_value(table: dict, size: float) -> tuple:
+    """Look up a size-keyed price/multiplier table.
+
+    Returns (value, matched_size). matched_size is None on an exact hit;
+    otherwise it is the nearest size actually present, so the caller can warn
+    that the quote is an approximation. Falling back to the nearest tier keeps
+    an odd size close to its real cost - taking the table maximum, as this
+    used to, overcharged every size below the largest one.
+    """
+    if not table:
+        return 0, None
+    if size in table:
+        return table[size], None
+    # On an exact tie, round up to the larger size rather than under-quote.
+    nearest = min(table, key=lambda k: (abs(k - size), -k))
+    return table[nearest], nearest
 
 
 def get_labor_multiplier(zip_code: str) -> float:

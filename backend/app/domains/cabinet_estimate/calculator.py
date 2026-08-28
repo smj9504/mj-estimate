@@ -24,8 +24,12 @@ from .pricing import (
     PREFAB_ISLAND_PRICING,
     SPECIALTY_PREMIUM,
     TALL_CABINET_TYPES,
+    TALL_HEIGHT_MULTIPLIER,
+    TALL_TYPE_BASE_WIDTH,
+    TALL_WIDTH_MULTIPLIER,
     WALL_HEIGHT_MULTIPLIER,
     get_labor_multiplier,
+    size_tier_value,
 )
 
 logger = logging.getLogger(__name__)
@@ -166,6 +170,30 @@ def _calc_location_cabinets(
             location=loc,
         ))
 
+    # Tall cabinets are per-EA, so the box size has to come in through a
+    # multiplier - the LF-based rates already carry it for base/wall.
+    def _tall_size_mult(box: BoxInput, base_width: int = 24) -> float:
+        w_mult, w_approx = size_tier_value(
+            TALL_WIDTH_MULTIPLIER, box.width_inches,
+        )
+        base_w_mult, _ = size_tier_value(
+            TALL_WIDTH_MULTIPLIER, base_width,
+        )
+        h_mult, h_approx = size_tier_value(
+            TALL_HEIGHT_MULTIPLIER, box.height_inches,
+        )
+        if w_approx is not None:
+            warnings.append(
+                f"{box.code}: {box.width_inches}\"W priced at the "
+                f"{w_approx}\"W rate (nearest listed size)"
+            )
+        if h_approx is not None:
+            warnings.append(
+                f"{box.code}: {box.height_inches:g}\"H priced at the "
+                f"{h_approx}\"H rate (nearest listed size)"
+            )
+        return round((w_mult / base_w_mult) * h_mult, 4)
+
     # Tall cabinets: split by type
     generic_tall = [
         b for b in tall_boxes
@@ -178,19 +206,26 @@ def _calc_location_cabinets(
         and b.specialty_type in TALL_CABINET_TYPES
     ]
 
-    generic_tall_count = sum(b.qty for b in generic_tall)
-    if generic_tall_count > 0:
+    # Group by size so boxes of the same size share one line
+    generic_by_size: dict = {}
+    for b in generic_tall:
+        key = (b.width_inches, b.height_inches)
+        generic_by_size.setdefault(key, []).append(b)
+
+    for (w, h), size_boxes in generic_by_size.items():
+        size_qty = sum(b.qty for b in size_boxes)
+        if size_qty <= 0:
+            continue
+        size_mult = _tall_size_mult(size_boxes[0])
         tall_unit = round(
-            rates["tall_each"] * total_mult, 2,
+            rates["tall_each"] * total_mult * size_mult, 2,
         )
-        tall_total = round(
-            generic_tall_count * tall_unit, 2,
-        )
+        tall_total = round(size_qty * tall_unit, 2)
         line_items.append(LineItem(
             description=(
-                f"{prefix}Tall Cabinets - {tier}"
+                f"{prefix}Tall Cabinets {w}\"W x {h:g}\"H - {tier}"
             ),
-            quantity=generic_tall_count,
+            quantity=size_qty,
             unit="EA",
             unit_price=tall_unit,
             total=tall_total,
@@ -204,7 +239,12 @@ def _calc_location_cabinets(
         ]
         type_unit = round(
             type_prices.get(tier, rates["tall_each"])
-            * total_mult, 2,
+            * total_mult * _tall_size_mult(
+                box,
+                TALL_TYPE_BASE_WIDTH.get(
+                    box.specialty_type, 24,
+                ),
+            ), 2,
         )
         type_total = round(box.qty * type_unit, 2)
         type_label = (
@@ -212,7 +252,9 @@ def _calc_location_cabinets(
         )
         line_items.append(LineItem(
             description=(
-                f"{prefix}{type_label} - {tier}"
+                f"{prefix}{type_label} "
+                f"{box.width_inches}\"W x {box.height_inches:g}\"H "
+                f"- {tier}"
             ),
             quantity=box.qty,
             unit="EA",
@@ -234,7 +276,16 @@ def _calc_location_cabinets(
         )
         # Support size-based premiums (dict keyed by width_inches)
         if isinstance(premium_entry, dict):
-            premium = premium_entry.get(box.width_inches, max(premium_entry.values()))
+            premium, approx_width = size_tier_value(
+                premium_entry, box.width_inches,
+            )
+            if approx_width is not None:
+                warnings.append(
+                    f"{box.code}: {box.width_inches}\"W "
+                    f"{box.specialty_type.replace('_', ' ')} premium "
+                    f"priced at the {approx_width}\"W rate "
+                    f"(nearest listed size)"
+                )
         else:
             premium = premium_entry
         if premium > 0:
@@ -957,7 +1008,7 @@ def calculate_estimate(
                 unit="SF",
                 unit_price=bs_combined_unit,
                 total=bs_total,
-                category="supply",
+                category="backsplash",
                 location="perimeter",
                 notes=(
                     "Incl. miscellaneous materials "

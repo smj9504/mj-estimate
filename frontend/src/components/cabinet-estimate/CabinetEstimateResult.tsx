@@ -17,6 +17,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   install: 'geekblue',
   plumbing: 'purple',
   countertop: 'gold',
+  backsplash: 'magenta',
   finishing: 'lime',
   misc: 'default',
 };
