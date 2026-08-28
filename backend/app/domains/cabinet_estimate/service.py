@@ -352,68 +352,40 @@ class CabinetEstimateService:
         if not source:
             return None
 
-        # Copy estimate fields
+        # Every input column is copied so a clone recalculates to the
+        # same numbers; only the calculated results (subtotal/total/O&P
+        # amounts, adjustment_factor, methodology_notes, warning_flags)
+        # are left out - calculate() regenerates them.
+        copy_fields = [
+            "claim_id", "company_id", "property_address", "zip_code",
+            "layout_type", "kitchen_size_sqft", "ceiling_height",
+            "has_soffit", "tier", "box_material", "finish", "door_style",
+            "include_demo", "include_install", "include_delivery",
+            "include_plumbing", "sink_type", "include_countertop_reset",
+            "include_hardware", "include_crown_molding",
+            "include_backsplash", "backsplash_type", "backsplash_sqft",
+            "include_toe_kick", "include_countertop",
+            "include_drywall_repair", "drywall_repair_type",
+            "drywall_repair_sqft", "include_painting", "painting_sqft",
+            "include_appliance_rr", "appliance_list", "include_dumpster",
+            "include_electrical", "include_permit",
+            "outlet_relocation_count", "delivery_floor", "island_type",
+            "island_prefab_size", "island_prefab_price",
+            "island_end_panel_sqft", "island_back_panel_sqft",
+            "countertop_material", "countertop_sqft",
+            "include_countertop_backsplash", "countertop_backsplash_lf",
+            "island_countertop_material", "island_countertop_sqft",
+            "overview_text", "target_total", "overhead_pct", "profit_pct",
+        ]
+
         new_data = {
-            "claim_id": source.claim_id,
-            "company_id": source.company_id,
             "created_by_id": created_by_id,
             "status": "draft",
-            "property_address": source.property_address,
-            "zip_code": source.zip_code,
-            "layout_type": source.layout_type,
-            "kitchen_size_sqft": source.kitchen_size_sqft,
-            "ceiling_height": source.ceiling_height,
-            "has_soffit": source.has_soffit,
-            "tier": source.tier,
-            "box_material": source.box_material,
-            "finish": source.finish,
-            "door_style": source.door_style,
-            "include_demo": source.include_demo,
-            "include_install": source.include_install,
-            "include_delivery": source.include_delivery,
-            "include_plumbing": source.include_plumbing,
-            "include_countertop_reset": source.include_countertop_reset,
-            "include_hardware": source.include_hardware,
-            "include_crown_molding": getattr(
-                source, 'include_crown_molding', False
-            ),
-            "include_backsplash": getattr(
-                source, 'include_backsplash', False
-            ),
-            "backsplash_type": getattr(
-                source, 'backsplash_type', None
-            ),
-            "backsplash_sqft": getattr(
-                source, 'backsplash_sqft', None
-            ),
-            "island_end_panel_sqft": getattr(
-                source, 'island_end_panel_sqft', 0
-            ),
-            "island_back_panel_sqft": getattr(
-                source, 'island_back_panel_sqft', 0
-            ),
-            "include_electrical": getattr(
-                source, 'include_electrical', False
-            ),
-            "include_permit": getattr(
-                source, 'include_permit', False
-            ),
-            "outlet_relocation_count": getattr(
-                source, 'outlet_relocation_count', 0
-            ),
-            "countertop_material": source.countertop_material,
-            "countertop_sqft": source.countertop_sqft,
-            "island_countertop_material": getattr(
-                source, 'island_countertop_material',
-                None,
-            ),
-            "island_countertop_sqft": getattr(
-                source, 'island_countertop_sqft', None,
-            ),
-            "overhead_pct": source.overhead_pct,
-            "profit_pct": source.profit_pct,
-            "notes": f"Cloned from estimate",
+            "notes": "Cloned from estimate",
         }
+        for field in copy_fields:
+            new_data[field] = getattr(source, field, None)
+
         result = self.estimate_repo.create(new_data)
         new_id = result["id"]
 

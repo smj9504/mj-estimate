@@ -252,6 +252,10 @@ class RoofingEstimateService:
             "pricing_method", "material_markup_pct", "labor_markup_pct",
             "include_overhead_profit", "overhead_pct", "profit_pct",
             "contingency_pct", "overview_text",
+            # Structure/add-on inputs and the reverse-pricing target.
+            "manual_structures", "roof_penetrations",
+            "skylight_replacements", "add_ons", "warranty_info",
+            "target_total",
         ]
 
         new_data = {"created_by_id": created_by_id, "status": "draft"}

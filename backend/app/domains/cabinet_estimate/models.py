@@ -20,6 +20,8 @@ from app.core.base_models import BaseModel
 from app.core.database_factory import Base
 from app.core.database_types import UUIDType
 
+from .pricing import DEFAULT_OVERHEAD_PCT, DEFAULT_PROFIT_PCT
+
 
 class CabinetEstimate(Base, BaseModel):
     """Cabinet estimate for a claim"""
@@ -144,9 +146,9 @@ class CabinetEstimate(Base, BaseModel):
 
     # Calculated totals
     subtotal = Column(Float, default=0)
-    overhead_pct = Column(Float, default=0.10)
+    overhead_pct = Column(Float, default=DEFAULT_OVERHEAD_PCT)
     overhead_amount = Column(Float, default=0)
-    profit_pct = Column(Float, default=0.10)
+    profit_pct = Column(Float, default=DEFAULT_PROFIT_PCT)
     profit_amount = Column(Float, default=0)
     adjustment_factor = Column(Float, nullable=True)
     total = Column(Float, default=0)

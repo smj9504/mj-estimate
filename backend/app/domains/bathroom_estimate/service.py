@@ -206,6 +206,18 @@ class BathroomEstimateService:
             "accessories_spec", "plumbing_spec", "electrical_spec",
             "substrate_spec", "hidden_costs", "sketch_data", "overview_text",
             "include_overhead_profit", "overhead_pct", "profit_pct",
+            # Demo detail, cement board / insulation scope and the
+            # reverse-pricing target.
+            "demo_scope", "demo_floor_sf", "demo_wall_sf",
+            "demo_ceiling_sf", "replace_floor", "water_damage_source",
+            "demo_cement_board", "demo_cement_board_sf",
+            "replace_cement_board", "replace_cement_board_sf",
+            "demo_insulation_walls", "demo_insulation_walls_sf",
+            "demo_insulation_ceiling", "demo_insulation_ceiling_sf",
+            "install_insulation_walls", "install_insulation_walls_sf",
+            "install_insulation_ceiling",
+            "install_insulation_ceiling_sf",
+            "target_total",
         ]
 
         new_data = {"created_by_id": created_by_id, "status": "draft"}

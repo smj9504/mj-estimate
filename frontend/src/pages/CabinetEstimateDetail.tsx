@@ -804,7 +804,7 @@ const CabinetEstimateDetail: React.FC = () => {
                                   options={[
                                     { label: 'Laminate ($35/SF)', value: 'Laminate' },
                                     { label: 'Butcher Block ($70/SF)', value: 'Butcher Block' },
-                                    { label: 'Solid Surface ($75/SF)', value: 'Solid Surface' },
+                                    { label: 'Solid Surface ($95/SF)', value: 'Solid Surface' },
                                     { label: 'Granite ($95/SF)', value: 'Granite' },
                                     { label: 'Quartz ($110/SF)', value: 'Quartz' },
                                     { label: 'Quartzite ($130/SF)', value: 'Quartzite' },
@@ -884,8 +884,8 @@ const CabinetEstimateDetail: React.FC = () => {
                           getFieldValue('include_plumbing') ? (
                             <Form.Item name="sink_type" label="Sink Type" preserve style={{ marginBottom: 0, marginLeft: 24 }}>
                               <Select size="small" style={{ width: 180 }} options={[
-                                { label: 'Single Bowl ($280)', value: 'single' },
-                                { label: 'Double Bowl ($420)', value: 'double' },
+                                { label: 'Single Bowl ($305)', value: 'single' },
+                                { label: 'Double Bowl ($458)', value: 'double' },
                               ]} />
                             </Form.Item>
                           ) : null
@@ -961,20 +961,20 @@ const CabinetEstimateDetail: React.FC = () => {
                     {({ getFieldValue }) => {
                       if (!getFieldValue('include_appliance_rr')) return null;
                       const APPLIANCE_OPTIONS = [
-                        { type: 'dishwasher', label: 'Dishwasher', cost: 412 },
-                        { type: 'refrigerator', label: 'Refrigerator', cost: 150 },
-                        { type: 'range_gas', label: 'Range (Gas) - Freestanding', cost: 282 },
-                        { type: 'range_electric', label: 'Range (Electric) - Freestanding', cost: 125 },
-                        { type: 'range_gas_slide', label: 'Range (Gas) - Slide-in', cost: 282 },
-                        { type: 'range_electric_slide', label: 'Range (Electric) - Slide-in', cost: 125 },
-                        { type: 'range_dropin', label: 'Range - Drop-in', cost: 275 },
-                        { type: 'cooktop_gas', label: 'Cooktop (Gas)', cost: 150 },
-                        { type: 'cooktop_electric', label: 'Cooktop (Electric)', cost: 125 },
-                        { type: 'wall_oven', label: 'Wall Oven', cost: 150 },
-                        { type: 'microwave_otr', label: 'Microwave (OTR)', cost: 85 },
-                        { type: 'hood_vent', label: 'Range Hood', cost: 185 },
-                        { type: 'hood_wood_42', label: 'Wood Range Hood (42"+)', cost: 478 },
-                        { type: 'garbage_disposal', label: 'Garbage Disposal', cost: 282 },
+                        { type: 'dishwasher', label: 'Dishwasher', cost: 449 },
+                        { type: 'refrigerator', label: 'Refrigerator', cost: 165 },
+                        { type: 'range_gas', label: 'Range (Gas) - Freestanding', cost: 307 },
+                        { type: 'range_electric', label: 'Range (Electric) - Freestanding', cost: 138 },
+                        { type: 'range_gas_slide', label: 'Range (Gas) - Slide-in', cost: 305 },
+                        { type: 'range_electric_slide', label: 'Range (Electric) - Slide-in', cost: 139 },
+                        { type: 'range_dropin', label: 'Range - Drop-in', cost: 300 },
+                        { type: 'cooktop_gas', label: 'Cooktop (Gas)', cost: 165 },
+                        { type: 'cooktop_electric', label: 'Cooktop (Electric)', cost: 136 },
+                        { type: 'wall_oven', label: 'Wall Oven', cost: 167 },
+                        { type: 'microwave_otr', label: 'Microwave (OTR)', cost: 94 },
+                        { type: 'hood_vent', label: 'Range Hood', cost: 202 },
+                        { type: 'hood_wood_42', label: 'Wood Range Hood (42"+)', cost: 526 },
+                        { type: 'garbage_disposal', label: 'Garbage Disposal', cost: 305 },
                       ];
                       return (
                         <div style={{ borderTop: '1px solid #f0f0f0', margin: '8px 0 12px', paddingTop: 8 }}>
@@ -1017,7 +1017,7 @@ const CabinetEstimateDetail: React.FC = () => {
                                 options={[
                                   { label: 'Laminate ($35/SF)', value: 'Laminate' },
                                   { label: 'Butcher Block ($70/SF)', value: 'Butcher Block' },
-                                  { label: 'Solid Surface ($75/SF)', value: 'Solid Surface' },
+                                  { label: 'Solid Surface ($95/SF)', value: 'Solid Surface' },
                                   { label: 'Granite ($95/SF)', value: 'Granite' },
                                   { label: 'Quartz ($110/SF)', value: 'Quartz' },
                                   { label: 'Quartzite ($130/SF)', value: 'Quartzite' },
@@ -1123,8 +1123,8 @@ const CabinetEstimateDetail: React.FC = () => {
                                   size="small"
                                   style={{ width: 280 }}
                                   options={[
-                                    { label: 'Patch & Repair ($2.50/SF) — nail holes, minor damage', value: 'patch' },
-                                    { label: 'R&R Sheetrock ($4.50/SF) — full replace', value: 'rr' },
+                                    { label: 'Patch & Repair ($2.75/SF) — nail holes, minor damage', value: 'patch' },
+                                    { label: 'R&R Sheetrock ($5.00/SF) — full replace', value: 'rr' },
                                   ]}
                                 />
                               </Form.Item>

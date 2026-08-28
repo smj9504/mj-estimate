@@ -262,12 +262,8 @@ SCOPE_ITEMS = {
     "countertop_reset": 610,         # +11%
     # Toe kick (runs along base cabinets, market $3-$10/LF)
     "toe_kick_per_lf": 13,           # +10%
-    # Countertop supply+install (per SF, by material)
-    "countertop_laminate_per_sf": 45,
-    "countertop_granite_per_sf": 85,
-    "countertop_quartz_per_sf": 95,
-    "countertop_marble_per_sf": 120,
-    "countertop_butcher_block_per_sf": 55,
+    # Countertop supply+install rates live in COUNTERTOP_MATERIALS,
+    # the only table the calculator reads - do not duplicate them here.
     # Drywall - Patch & Repair (nail holes, screw holes, minor damage)
     "drywall_patch_per_sf": 2.75,    # +10%
     # Drywall - R&R (remove & replace sheetrock behind cabinets)
@@ -278,8 +274,7 @@ SCOPE_ITEMS = {
     # Backsplash misc materials (grout, thinset, tape)
     # Per SF instead of flat fee
     "backsplash_misc_per_sf": 4.91,  # +9%
-    # Appliance R&R — per-unit detach & reset costs
-    # (disconnect, move out, move back, reconnect)
+    # Appliance detach & reset costs live in APPLIANCE_RR_PRICING.
     # Dumpster / trash disposal (by size)
     "dumpster_10yard": 382,          # +9%
     "dumpster_15yard": 468,          # +10%
