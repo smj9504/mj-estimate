@@ -306,7 +306,9 @@ export interface PricingInfo {
   layout_types: string[];
   cab_types: string[];
   specialty_types: string[];
-  scope_items: Record<string, number>;
+  // Install labor keys are tier-keyed ({ Stock, 'Semi-Custom', Custom });
+  // every other entry is a flat rate.
+  scope_items: Record<string, number | Record<string, number>>;
   backsplash_types: BacksplashTypeInfo[];
   glass_door_premiums: Record<string, number>;
   crown_molding_pricing: Record<string, number>;

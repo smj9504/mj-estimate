@@ -3,7 +3,7 @@ Cabinet Estimate Pydantic schemas
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -385,7 +385,9 @@ class PricingInfoResponse(BaseModel):
     layout_types: List[str]
     cab_types: List[str]
     specialty_types: List[str]
-    scope_items: Dict[str, float]
+    # Most entries are a flat rate, but the install labor keys are
+    # tier-keyed ({"Stock": ..., "Semi-Custom": ..., "Custom": ...}).
+    scope_items: Dict[str, Union[float, Dict[str, float]]]
     backsplash_types: List[Dict[str, Any]]
     glass_door_premiums: Dict[str, float]
     crown_molding_pricing: Dict[str, float]
