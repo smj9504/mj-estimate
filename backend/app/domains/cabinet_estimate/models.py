@@ -233,8 +233,14 @@ class CabinetEstimateLineItem(Base, BaseModel):
     description = Column(String(500), nullable=False)
     quantity = Column(Float, nullable=False)
     unit = Column(String(10), nullable=False)  # LF, EA, SF, HR
-    unit_price = Column(Float, nullable=False)
+    unit_price = Column(Float, nullable=False)   # material + labor combined
     total = Column(Float, nullable=False)
+    # Breakdown of the two figures above. The estimate and its PDF quote the
+    # combined numbers; these are the internal split.
+    material_unit_price = Column(Float, default=0)
+    labor_unit_price = Column(Float, default=0)
+    material_total = Column(Float, default=0)
+    labor_total = Column(Float, default=0)
     category = Column(
         String(50), nullable=True,
     )  # supply / labor / scope / premium

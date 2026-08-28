@@ -83,6 +83,26 @@ const CabinetEstimateResult: React.FC<CabinetEstimateResultProps> = ({ estimate 
       render: (val: number) => fmtMoney(val),
     },
     {
+      title: 'Material',
+      dataIndex: 'material_total',
+      key: 'material_total',
+      width: 110,
+      align: 'right' as const,
+      render: (val?: number) => (
+        <Text type={val ? undefined : 'secondary'}>{fmtMoney(val || 0)}</Text>
+      ),
+    },
+    {
+      title: 'Labor',
+      dataIndex: 'labor_total',
+      key: 'labor_total',
+      width: 110,
+      align: 'right' as const,
+      render: (val?: number) => (
+        <Text type={val ? undefined : 'secondary'}>{fmtMoney(val || 0)}</Text>
+      ),
+    },
+    {
       title: 'Total',
       dataIndex: 'total',
       key: 'total',
@@ -91,6 +111,22 @@ const CabinetEstimateResult: React.FC<CabinetEstimateResultProps> = ({ estimate 
       render: (val: number) => <Text strong>{fmtMoney(val)}</Text>,
     },
   ];
+
+  const materialTotal = estimate.line_items.reduce(
+    (s, li) => s + (li.material_total || 0), 0);
+  const laborTotal = estimate.line_items.reduce(
+    (s, li) => s + (li.labor_total || 0), 0);
+  // Only worth showing once a calculation has actually filled the split in
+  const hasSplit = materialTotal > 0 || laborTotal > 0;
+
+  const splitLine = hasSplit ? (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16, fontSize: 12 }}>
+      <Text type="secondary">
+        Material {fmtMoney(materialTotal)}{' + '}Labor {fmtMoney(laborTotal)}
+        {' '}(shown combined on the estimate PDF)
+      </Text>
+    </div>
+  ) : null;
 
   // If island exists, group and show subtotals per location
   const renderGroupedTable = () => {
@@ -149,6 +185,7 @@ const CabinetEstimateResult: React.FC<CabinetEstimateResultProps> = ({ estimate 
               <Title level={5} style={{ margin: 0 }}>TOTAL</Title>
               <Title level={5} style={{ margin: 0 }}>{fmtMoney(estimate.total)}</Title>
             </div>
+            {splitLine}
             {(estimate.overhead_pct > 0 || estimate.profit_pct > 0) && (
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16, fontSize: 12 }}>
                 <Text type="secondary">
@@ -194,6 +231,7 @@ const CabinetEstimateResult: React.FC<CabinetEstimateResultProps> = ({ estimate 
         )}
       />
       <div style={{ textAlign: 'right', padding: '8px 16px 0' }}>
+        {splitLine}
         {(estimate.overhead_pct > 0 || estimate.profit_pct > 0) && (
           <Text type="secondary" style={{ fontSize: 12 }}>
             O&P included: Overhead {(estimate.overhead_pct * 100).toFixed(0)}% ({fmtMoney(estimate.overhead_amount)})

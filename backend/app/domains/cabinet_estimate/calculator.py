@@ -18,6 +18,7 @@ from .pricing import (
     DEFAULT_PROFIT_PCT,
     GLASS_DOOR_PREMIUM,
     ISLAND_PANEL_PRICING,
+    MATERIAL_SHARE,
     SCOPE_ITEMS,
     COUNTERTOP_BACKSPLASH_PER_LF,
     PREFAB_ISLAND_INSTALL,
@@ -53,11 +54,19 @@ class LineItem:
     description: str
     quantity: float
     unit: str           # LF, EA, SF, HR
-    unit_price: float
+    unit_price: float   # material + labor combined
     total: float
     category: str       # supply / labor / scope / premium
     location: str = "perimeter"  # perimeter / island / shared
     notes: Optional[str] = None
+    # Share of unit_price that is non-labor cost (material/equipment/fees).
+    # The split itself is filled in once O&P is baked in, so that
+    # material + labor always adds back up to the price shown on the estimate.
+    material_share: float = 0.0
+    material_unit_price: float = 0.0
+    labor_unit_price: float = 0.0
+    material_total: float = 0.0
+    labor_total: float = 0.0
 
 
 @dataclass
@@ -137,6 +146,7 @@ def _calc_location_cabinets(
             unit="LF",
             unit_price=base_unit,
             total=base_total,
+            material_share=MATERIAL_SHARE["cabinet_supply"],
             category="supply",
             location=loc,
         ))
@@ -166,6 +176,7 @@ def _calc_location_cabinets(
             unit="LF",
             unit_price=wall_unit,
             total=wall_total,
+            material_share=MATERIAL_SHARE["cabinet_supply"],
             category="supply",
             location=loc,
         ))
@@ -229,6 +240,7 @@ def _calc_location_cabinets(
             unit="EA",
             unit_price=tall_unit,
             total=tall_total,
+            material_share=MATERIAL_SHARE["cabinet_supply"],
             category="supply",
             location=loc,
         ))
@@ -260,6 +272,7 @@ def _calc_location_cabinets(
             unit="EA",
             unit_price=type_unit,
             total=type_total,
+            material_share=MATERIAL_SHARE["cabinet_supply"],
             category="supply",
             location=loc,
             notes=f"{box.code} — {type_label}",
@@ -302,6 +315,7 @@ def _calc_location_cabinets(
                 unit="EA",
                 unit_price=premium,
                 total=item_total,
+                material_share=MATERIAL_SHARE["cabinet_supply"],
                 category="premium",
                 location=loc,
                 notes=(
@@ -332,6 +346,7 @@ def _calc_location_cabinets(
                 unit="EA",
                 unit_price=glass_premium,
                 total=glass_total,
+                material_share=MATERIAL_SHARE["cabinet_supply"],
                 category="premium",
                 location=loc,
                 notes=f"{tier} tier glass door insert",
@@ -362,6 +377,7 @@ def _calc_location_cabinets(
                 unit="LF",
                 unit_price=install_base_rate,
                 total=install_base,
+                material_share=MATERIAL_SHARE["cabinet_install"],
                 category="install",
                 location=loc,
             ))
@@ -389,6 +405,7 @@ def _calc_location_cabinets(
                 unit="LF",
                 unit_price=install_wall_rate,
                 total=install_wall,
+                material_share=MATERIAL_SHARE["cabinet_install"],
                 category="install",
                 location=loc,
             ))
@@ -410,6 +427,7 @@ def _calc_location_cabinets(
                 unit="EA",
                 unit_price=install_tall_rate,
                 total=install_tall,
+                material_share=MATERIAL_SHARE["cabinet_install"],
                 category="install",
                 location=loc,
             ))
@@ -488,6 +506,7 @@ def _calc_location_cabinets(
                 unit="EA",
                 unit_price=hw_supply_unit,
                 total=hw_supply_total,
+                material_share=MATERIAL_SHARE["cabinet_supply"],
                 category="supply",
                 location=loc,
                 notes="Mid-grade brushed nickel",
@@ -503,6 +522,7 @@ def _calc_location_cabinets(
                 unit="EA",
                 unit_price=hw_install_unit,
                 total=hw_install_total,
+                material_share=MATERIAL_SHARE["cabinet_install"],
                 category="install",
                 location=loc,
             ))
@@ -530,6 +550,7 @@ def _calc_location_cabinets(
             unit="LF",
             unit_price=molding_mat,
             total=molding_mat_total,
+            material_share=MATERIAL_SHARE["cabinet_supply"],
             category="supply",
             location=loc,
         ))
@@ -541,6 +562,7 @@ def _calc_location_cabinets(
             unit="LF",
             unit_price=molding_inst,
             total=molding_inst_total,
+            material_share=MATERIAL_SHARE["cabinet_install"],
             category="install",
             location=loc,
         ))
@@ -558,11 +580,34 @@ def _calc_location_cabinets(
             unit_price=tk_unit,
             total=tk_total,
             notes="Supply, install, and paint to match",
+            material_share=MATERIAL_SHARE["toe_kick"],
             category="install",
             location=loc,
         ))
 
     return line_items, base_lf, wall_lf, tall_count
+
+
+def _apply_material_labor_split(line_items: List[LineItem]) -> None:
+    """Fill in each item's material/labor breakdown from its material_share.
+
+    Run this after every step that moves prices (O&P, reverse pricing) so the
+    two halves always add back up to the unit price and total the estimate
+    shows - the labor side is taken as the remainder rather than rounded
+    independently, which is what guarantees it.
+    """
+    for item in line_items:
+        share = min(max(item.material_share, 0.0), 1.0)
+        item.material_unit_price = round(item.unit_price * share, 2)
+        item.labor_unit_price = round(
+            item.unit_price - item.material_unit_price, 2,
+        )
+        # Split the total off the total itself, not off quantity x unit price:
+        # reverse pricing nudges a line's total to hit the target exactly, so
+        # the two can differ by a cent or two and that drift would otherwise
+        # land in - and could go negative on - the labor half.
+        item.material_total = round(item.total * share, 2)
+        item.labor_total = round(item.total - item.material_total, 2)
 
 
 def calculate_estimate(
@@ -676,6 +721,7 @@ def calculate_estimate(
             unit="EA",
             unit_price=round(supply_price, 2),
             total=round(supply_price, 2),
+            material_share=MATERIAL_SHARE["cabinet_supply"],
             category="supply",
             location="island",
             notes=(
@@ -695,6 +741,7 @@ def calculate_estimate(
                 unit="EA",
                 unit_price=round(inst_cost, 2),
                 total=round(inst_cost, 2),
+                material_share=MATERIAL_SHARE["cabinet_install"],
                 category="install",
                 location="island",
             ))
@@ -743,6 +790,7 @@ def calculate_estimate(
             unit="SF",
             unit_price=ep_mat,
             total=ep_mat_total,
+            material_share=MATERIAL_SHARE["cabinet_supply"],
             category="supply",
             location="island",
             notes="Finished panel to match cabinet",
@@ -753,6 +801,7 @@ def calculate_estimate(
             unit="SF",
             unit_price=ep_inst,
             total=ep_inst_total,
+            material_share=MATERIAL_SHARE["cabinet_install"],
             category="install",
             location="island",
         ))
@@ -777,6 +826,7 @@ def calculate_estimate(
             unit="SF",
             unit_price=bp_mat,
             total=bp_mat_total,
+            material_share=MATERIAL_SHARE["cabinet_supply"],
             category="supply",
             location="island",
             notes="Finished panel to match cabinet",
@@ -789,6 +839,7 @@ def calculate_estimate(
             unit="SF",
             unit_price=bp_inst,
             total=bp_inst_total,
+            material_share=MATERIAL_SHARE["cabinet_install"],
             category="install",
             location="island",
         ))
@@ -813,6 +864,7 @@ def calculate_estimate(
                 unit="LF",
                 unit_price=SCOPE_ITEMS["demo_per_lf"],
                 total=p_demo_cost,
+                material_share=MATERIAL_SHARE["demo"],
                 category="demo",
                 location="perimeter",
             ))
@@ -832,6 +884,7 @@ def calculate_estimate(
                 unit="LF",
                 unit_price=SCOPE_ITEMS["demo_per_lf"],
                 total=i_demo_cost,
+                material_share=MATERIAL_SHARE["demo"],
                 category="demo",
                 location="island",
             ))
@@ -860,6 +913,7 @@ def calculate_estimate(
             unit="EA",
             unit_price=delivery_cost,
             total=delivery_cost,
+            material_share=MATERIAL_SHARE["delivery"],
             category="misc",
             location="shared",
             notes=(
@@ -878,6 +932,7 @@ def calculate_estimate(
                 "(sink, disposal, DW supply/drain)",
                 SCOPE_ITEMS["plumbing_disconnect"],
                 None,
+                0.0,
             ),
             (
                 "Plumbing Reconnect "
@@ -885,6 +940,7 @@ def calculate_estimate(
                 "DW drain/supply, faucet hookup)",
                 SCOPE_ITEMS["plumbing_reconnect"],
                 "Includes all fixture hookups",
+                0.0,
             ),
             (
                 (
@@ -906,6 +962,7 @@ def calculate_estimate(
                     "16-gauge stainless steel, "
                     "sound-dampened"
                 ),
+                1.0,
             ),
             (
                 "Pull-Down Kitchen Faucet "
@@ -913,6 +970,7 @@ def calculate_estimate(
                 "- supply only",
                 SCOPE_ITEMS["faucet_supply"],
                 None,
+                1.0,
             ),
             (
                 "Garbage Disposal 3/4 HP "
@@ -920,15 +978,17 @@ def calculate_estimate(
                 "- supply only",
                 SCOPE_ITEMS["disposal_supply"],
                 None,
+                1.0,
             ),
         ]
-        for desc, cost, notes in plumbing_items:
+        for desc, cost, notes, share in plumbing_items:
             line_items.append(LineItem(
                 description=desc,
                 quantity=1,
                 unit="EA",
                 unit_price=cost,
                 total=cost,
+                material_share=share,
                 category="plumbing",
                 location="shared",
                 notes=notes,
@@ -942,6 +1002,7 @@ def calculate_estimate(
             unit="EA",
             unit_price=SCOPE_ITEMS["countertop_reset"],
             total=SCOPE_ITEMS["countertop_reset"],
+            material_share=MATERIAL_SHARE["countertop_reset"],
             category="countertop",
             location="shared",
         ))
@@ -961,6 +1022,7 @@ def calculate_estimate(
         unit="EA",
         unit_price=site_prot_cost,
         total=site_prot_cost,
+        material_share=MATERIAL_SHARE["site_protection"],
         category="misc",
         location="shared",
     ))
@@ -975,6 +1037,7 @@ def calculate_estimate(
         unit="EA",
         unit_price=cleanup_cost,
         total=cleanup_cost,
+        material_share=MATERIAL_SHARE["cleanup"],
         category="misc",
         location="shared",
     ))
@@ -999,6 +1062,11 @@ def calculate_estimate(
             bs_total = round(
                 bs_sqft * bs_combined_unit, 2,
             )
+            # Real split - this table quotes material and install separately
+            bs_material_share = round(
+                (bs_info["material_per_sf"] + misc_per_sf)
+                / bs_combined_unit, 4,
+            ) if bs_combined_unit else 0.0
             line_items.append(LineItem(
                 description=(
                     f"Backsplash - {bs_info['label']} "
@@ -1008,6 +1076,7 @@ def calculate_estimate(
                 unit="SF",
                 unit_price=bs_combined_unit,
                 total=bs_total,
+                material_share=bs_material_share,
                 category="backsplash",
                 location="perimeter",
                 notes=(
@@ -1035,6 +1104,7 @@ def calculate_estimate(
             unit="SF",
             unit_price=ct_rate,
             total=ct_total,
+            material_share=MATERIAL_SHARE["countertop"],
             category="countertop",
             location="perimeter",
         ))
@@ -1058,6 +1128,7 @@ def calculate_estimate(
             unit="SF",
             unit_price=ict_rate,
             total=ict_total,
+            material_share=MATERIAL_SHARE["countertop"],
             category="countertop",
             location="island",
         ))
@@ -1084,6 +1155,7 @@ def calculate_estimate(
             unit="LF",
             unit_price=cb_rate,
             total=cb_total,
+            material_share=MATERIAL_SHARE["countertop"],
             category="countertop",
             location="perimeter",
         ))
@@ -1094,6 +1166,7 @@ def calculate_estimate(
         dw_type = drywall_repair_type or "patch"
         if dw_type == "rr":
             dw_rate = SCOPE_ITEMS["drywall_rr_per_sf"]
+            dw_share = MATERIAL_SHARE["drywall_rr"]
             dw_desc = (
                 "R&R Sheetrock "
                 "(behind cabinets)"
@@ -1102,6 +1175,7 @@ def calculate_estimate(
             dw_rate = SCOPE_ITEMS[
                 "drywall_patch_per_sf"
             ]
+            dw_share = MATERIAL_SHARE["drywall_patch"]
             dw_desc = (
                 "Drywall Patch & Repair "
                 "(nail holes, minor damage)"
@@ -1113,6 +1187,7 @@ def calculate_estimate(
             unit="SF",
             unit_price=dw_rate,
             total=dw_total,
+            material_share=dw_share,
             category="finishing",
             location="perimeter",
         ))
@@ -1135,6 +1210,7 @@ def calculate_estimate(
             unit="SF",
             unit_price=prep_rate,
             total=prep_total,
+            material_share=MATERIAL_SHARE["paint_prep"],
             category="finishing",
             location="perimeter",
         ))
@@ -1144,6 +1220,7 @@ def calculate_estimate(
             unit="SF",
             unit_price=paint_rate,
             total=paint_total,
+            material_share=MATERIAL_SHARE["paint_finish"],
             category="finishing",
             location="perimeter",
         ))
@@ -1178,6 +1255,7 @@ def calculate_estimate(
                 unit="SET",
                 unit_price=app_total,
                 total=app_total,
+                material_share=MATERIAL_SHARE["appliance_rr"],
                 category="misc",
                 location="shared",
             ))
@@ -1197,6 +1275,7 @@ def calculate_estimate(
             unit="EA",
             unit_price=elec_cost,
             total=elec_cost,
+            material_share=MATERIAL_SHARE["electrical"],
             category="misc",
             location="shared",
             notes="Licensed electrician",
@@ -1216,6 +1295,7 @@ def calculate_estimate(
             unit="EA",
             unit_price=outlet_unit,
             total=outlet_total,
+            material_share=MATERIAL_SHARE["outlet_relocation"],
             category="misc",
             location="shared",
             notes=(
@@ -1236,6 +1316,7 @@ def calculate_estimate(
             unit="EA",
             unit_price=permit_cost,
             total=permit_cost,
+            material_share=MATERIAL_SHARE["permit"],
             category="misc",
             location="shared",
             notes=(
@@ -1282,6 +1363,7 @@ def calculate_estimate(
             unit="EA",
             unit_price=dump_cost,
             total=dump_cost,
+            material_share=MATERIAL_SHARE["dumpster"],
             category="demo",
             location="shared",
             notes=(
@@ -1319,6 +1401,8 @@ def calculate_estimate(
     )
     total = subtotal
 
+    _apply_material_labor_split(line_items)
+
     # ── 13b. Target total adjustment (reverse pricing) ──
     adjustment_factor = None
     if (
@@ -1355,6 +1439,8 @@ def calculate_estimate(
                 sum(item.total for item in line_items), 2,
             )
             total = subtotal
+
+        _apply_material_labor_split(line_items)
 
     # ── 14. Methodology notes ──
     methodology_lines = [

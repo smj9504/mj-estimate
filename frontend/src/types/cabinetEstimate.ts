@@ -54,6 +54,12 @@ export interface EstimateLineItem {
   unit: string;
   unit_price: number;
   total: number;
+  // Breakdown of unit_price / total. The estimate PDF quotes the combined
+  // figures; these are the internal material vs labor split.
+  material_unit_price?: number;
+  labor_unit_price?: number;
+  material_total?: number;
+  labor_total?: number;
   category?: string;
   location?: string;
   notes?: string;

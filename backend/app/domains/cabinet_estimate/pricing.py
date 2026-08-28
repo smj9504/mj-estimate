@@ -344,6 +344,35 @@ APPLIANCE_RR_PRICING = {
     "garbage_disposal": {"label": "Garbage Disposal", "cost": 305},
 }
 
+# ── Material / labor split ──
+# Share of a line item that is NON-LABOR cost - material, equipment, and hard
+# fees. The remainder is crew time. Lines whose rate table already separates
+# supply from install (hardware, crown molding, island panels, backsplash,
+# plumbing) derive their own share from the real components and ignore this
+# table; the values here are for rates quoted as a single supply-and-install
+# number, so they are working assumptions. Adjust them here if they do not
+# match how you bid - nothing else needs to change.
+MATERIAL_SHARE = {
+    "cabinet_supply": 1.00,      # boxes, doors, panels, prefab island
+    "cabinet_install": 0.00,     # install labor only
+    "demo": 0.00,
+    "dumpster": 1.00,            # haul-off/disposal fee, no crew time in it
+    "delivery": 0.00,            # freight/handling, billed as labor time
+    "toe_kick": 0.35,            # trim stock vs. cut, fit and paint
+    "countertop": 0.55,          # slab + fabrication vs. template and install
+    "countertop_reset": 0.00,
+    "drywall_patch": 0.20,       # compound and tape vs. labor
+    "drywall_rr": 0.30,          # sheetrock + compound vs. labor
+    "paint_prep": 0.15,
+    "paint_finish": 0.30,        # primer and paint vs. labor
+    "site_protection": 0.40,     # ram board, plastic, tape vs. labor
+    "cleanup": 0.05,
+    "appliance_rr": 0.00,        # detach and reset is crew time
+    "electrical": 0.20,
+    "outlet_relocation": 0.25,
+    "permit": 1.00,              # a fee, not crew time
+}
+
 # Default O&P percentages (mixed material+labor project standard: 25-35%)
 DEFAULT_OVERHEAD_PCT = 0.15
 DEFAULT_PROFIT_PCT = 0.15

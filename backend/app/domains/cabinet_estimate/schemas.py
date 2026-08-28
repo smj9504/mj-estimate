@@ -124,6 +124,11 @@ class LineItemResponse(BaseModel):
     unit: str
     unit_price: float
     total: float
+    # Breakdown of unit_price / total. The PDF quotes the combined figures.
+    material_unit_price: float = 0
+    labor_unit_price: float = 0
+    material_total: float = 0
+    labor_total: float = 0
     category: Optional[str] = None
     location: str = "perimeter"
     notes: Optional[str] = None
