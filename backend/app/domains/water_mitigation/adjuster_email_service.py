@@ -1378,13 +1378,18 @@ class AdjusterEmailService:
     # base64 encoding overhead (~33% increase) in MIME messages.
     _EMAIL_SIZE_LIMIT = 23 * 1024 * 1024
 
-    # Render's production instance has a 512MB hard memory cap. Compressing
-    # a PDF needs the original bytes, the reopened fitz.Document, and the
-    # reassembled output alive at once - for a payload already this large,
-    # that working set alone can exceed 512MB and take the whole instance
-    # down (OOM-killed mid-request, not a clean failure). Refuse before
-    # attempting compression rather than finding out the hard way.
-    _MAX_COMPRESSIBLE_SIZE = 150 * 1024 * 1024
+    # Render's production instance has a 512MB hard memory cap, shared with
+    # the rest of the running app (DB connections, request handlers for
+    # other users, etc.) - not 512MB free for this one compression job.
+    # Compressing a PDF needs the original bytes, the reopened
+    # fitz.Document, and the reassembled output alive at once, and a
+    # photo-heavy report can multiply that further as each embedded JPEG is
+    # decoded to raw pixels before being re-encoded smaller. 80MB leaves
+    # real headroom for that working set instead of just fitting the raw
+    # attachment bytes; refuse before attempting compression rather than
+    # finding out the hard way (this OOM-killed the whole instance once
+    # already at a 150MB threshold - see git history on this file).
+    _MAX_COMPRESSIBLE_SIZE = 80 * 1024 * 1024
 
     # Compression levels: try gentle first, then stronger if still over limit.
     # max_image_px / jpeg_quality drive the PyMuPDF fallback and are the
