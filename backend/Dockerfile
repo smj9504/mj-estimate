@@ -34,9 +34,12 @@ RUN playwright install --with-deps chromium
 
 # Copy application code
 COPY . .
+RUN chmod +x start.sh
 
 # Expose port
 EXPOSE 8000
 
-# Default command (can be overridden by docker-compose)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# start.sh runs pending migrations, then execs uvicorn against the ASGI
+# launcher (see app/asgi.py). docker-compose overrides this CMD for local
+# dev (hot-reload via `--reload`, no migration step needed there).
+CMD ["./start.sh"]

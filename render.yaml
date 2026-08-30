@@ -14,12 +14,15 @@ services:
     dockerContext: ./backend
     plan: starter  # Change to 'free' for testing, 'starter' ($7/mo) for production with always-on
     region: singapore  # Asia - closest to Korea
-    # The Dockerfile's CMD runs app.main directly; override to use the
-    # ASGI launcher so Render's 5s health-check timeout doesn't hit
-    # during slow Python imports (~10-17s), and to run the migration
-    # step that the Python-buildpack buildCommand used to handle.
-    dockerCommand: |
-      sh -c "alembic upgrade head || (echo 'Migration failed, stamping as head...' && alembic stamp head); uvicorn app.asgi:app --host 0.0.0.0 --port $PORT --log-level info --timeout-keep-alive 30 --workers 1"
+    # dockerCommand is intentionally omitted: Dockerfile's CMD runs
+    # backend/start.sh, which runs the alembic migration and then execs
+    # uvicorn against the ASGI launcher (app/asgi.py - keeps Render's 5s
+    # health-check from timing out during slow Python imports, ~10-17s).
+    # A real shell script instead of an inline dockerCommand/preDeployCommand
+    # string, because a previous attempt at inlining `sh -c "migrate; serve"`
+    # here produced `sh: 1: <the whole string>: not found` - the quoting
+    # Render expects for that field is unclear, so the logic now lives
+    # in a file this repo controls and can test locally instead.
     envVars:
       - key: ENVIRONMENT
         value: production
