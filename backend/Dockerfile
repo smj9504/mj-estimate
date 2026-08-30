@@ -1,8 +1,13 @@
 # Backend Dockerfile
+# 3.12 matches the Python version the app already runs on elsewhere (local
+# dev venv, Render's prior Python-buildpack deploy) - some code (e.g.
+# pdf_service.py's f-strings with a backslash in the expression part) only
+# parses starting with 3.12 (PEP 701). Verified locally: importing the app
+# under 3.11 raised SyntaxError at container start.
 # Pinned to bookworm (Debian 12), not the plain `slim` tag: that tag tracks
 # whatever Debian is current (now trixie), and both apt package names below
 # and Playwright's `--with-deps` fallback list assume bookworm/ubuntu22.04.
-FROM python:3.11-slim-bookworm
+FROM python:3.12-slim-bookworm
 
 # Set working directory
 WORKDIR /app
