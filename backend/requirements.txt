@@ -48,7 +48,7 @@ google-cloud-storage==2.14.0
 boto3==1.35.36
 
 # PDF Generation
-playwright==1.40.0  # Headless Chromium for the best-quality PDF path (sketch_pdf_service.py); WeasyPrint below is its fallback
+# playwright==1.40.0  # Headless Chromium for the best-quality PDF path (sketch_pdf_service.py) - disabled again: OOM'd Render's 512MB starter plan in production (see backend/Dockerfile). WeasyPrint below is its fallback and is what actually runs.
 weasyprint==68.1
 cairosvg>=2.7.0  # SVG to PNG rasterization for PDF rendering (MagicPlan floor plans)
 jinja2==3.1.2

@@ -1378,6 +1378,14 @@ class AdjusterEmailService:
     # base64 encoding overhead (~33% increase) in MIME messages.
     _EMAIL_SIZE_LIMIT = 23 * 1024 * 1024
 
+    # Render's production instance has a 512MB hard memory cap. Compressing
+    # a PDF needs the original bytes, the reopened fitz.Document, and the
+    # reassembled output alive at once - for a payload already this large,
+    # that working set alone can exceed 512MB and take the whole instance
+    # down (OOM-killed mid-request, not a clean failure). Refuse before
+    # attempting compression rather than finding out the hard way.
+    _MAX_COMPRESSIBLE_SIZE = 150 * 1024 * 1024
+
     # Compression levels: try gentle first, then stronger if still over limit.
     # max_image_px / jpeg_quality drive the PyMuPDF fallback and are the
     # equivalent of the Ghostscript dpi settings for a full-page photo
@@ -1423,6 +1431,22 @@ class AdjusterEmailService:
         total_size = sum(len(att["data"]) for att in attachments)
         if total_size <= self._EMAIL_SIZE_LIMIT:
             return attachments
+
+        if total_size > self._MAX_COMPRESSIBLE_SIZE:
+            largest = sorted(
+                attachments, key=lambda a: len(a["data"]), reverse=True
+            )[:3]
+            detail = ", ".join(
+                f"{a.get('filename', 'attachment')} "
+                f"({len(a['data']) / 1024 / 1024:.1f}MB)"
+                for a in largest
+            )
+            raise ValueError(
+                f"Attachments total {total_size / 1024 / 1024:.1f}MB, too large "
+                f"to compress safely. Email was NOT sent. Largest: {detail}. "
+                f"Reduce the number of photos in the Photo Report, or send the "
+                f"largest documents in a separate email."
+            )
 
         logger.info(
             f"Total attachment size {total_size / 1024 / 1024:.1f}MB "
@@ -1633,6 +1657,12 @@ class AdjusterEmailService:
                             replaced += 1
                         except Exception as e:
                             logger.debug(f"Could not replace image {xref}: {e}")
+                    # `info`/`original`/`shrunk` hold full-resolution camera
+                    # JPEGs (several MB each) that would otherwise stay
+                    # reachable via this frame until the whole page/doc loop
+                    # finishes - a photo report with 50+ images means 50+ of
+                    # these piling up before any get collected.
+                    del info, original, shrunk
 
             if not replaced:
                 return None

@@ -32,11 +32,6 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Playwright's headless Chromium is used for the highest-quality PDF
-# rendering path (sketch_pdf_service.py); WeasyPrint above is its fallback.
-# `playwright install-deps` pulls the OS libraries Chromium needs to launch.
-RUN playwright install --with-deps chromium
-
 # Copy application code
 COPY . .
 RUN chmod +x start.sh
