@@ -1,5 +1,8 @@
 # Backend Dockerfile
-FROM python:3.11-slim
+# Pinned to bookworm (Debian 12), not the plain `slim` tag: that tag tracks
+# whatever Debian is current (now trixie), and both apt package names below
+# and Playwright's `--with-deps` fallback list assume bookworm/ubuntu22.04.
+FROM python:3.11-slim-bookworm
 
 # Set working directory
 WORKDIR /app
@@ -8,14 +11,12 @@ WORKDIR /app
 # ghostscript gives the email attachment compressor its best path; without it
 # the code falls back to downsampling images with PyMuPDF (as it must on
 # Render, whose Python runtime can't install system packages).
-# libgdk-pixbuf-xlib-2.0-0 replaces the older libgdk-pixbuf2.0-0 name on
-# recent Debian bases (the python:3.11-slim image moved to trixie).
 RUN apt-get update && apt-get install -y \
     gcc \
     ghostscript \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
-    libgdk-pixbuf-xlib-2.0-0 \
+    libgdk-pixbuf2.0-0 \
     libffi-dev \
     shared-mime-info \
     && rm -rf /var/lib/apt/lists/*
