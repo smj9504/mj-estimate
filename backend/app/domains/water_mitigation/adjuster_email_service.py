@@ -1012,7 +1012,14 @@ class AdjusterEmailService:
                 return None
 
             logger.info(f"Photo report attachment: no saved WMDocument, auto-generating from saved config for job {job.id}")
-            result = service.generate_and_save_photo_report(job.id, config=config, commit=False)
+            # compress=True so the PDF this saves is already email-sized
+            # (50% quality, 1200px cap) instead of the full 95%-quality
+            # original - the email attachment path used to always start
+            # from the heaviest possible version and then try to shrink it
+            # back down under 512MB of RAM.
+            result = service.generate_and_save_photo_report(
+                job.id, config=config, commit=False, compress=True,
+            )
             return {
                 "filename": f"Photo Report - {address_short}.pdf",
                 "data": result["pdf_bytes"],
