@@ -1,0 +1,14 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.env.*
+!.env.production.example
+!.env.storage.example
+uploads/
+secrets/
+*.db
+*.sqlite
+.git/

@@ -168,6 +168,7 @@ temp/
 
 # Docker
 .dockerignore
+!backend/.dockerignore
 
 # Reference files (ignore all except EWA templates needed for deployment)
 reference/*

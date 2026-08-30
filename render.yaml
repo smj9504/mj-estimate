@@ -5,26 +5,22 @@ services:
   # Backend API Service
   - type: web
     name: mjestimate-backend
-    runtime: python
-    # Python version is specified in backend/runtime.txt (python-3.12.0)
-    # This is required for Pillow and pydantic-core compatibility
+    runtime: docker
+    # Uses backend/Dockerfile, which installs ghostscript for fast PDF
+    # attachment compression (see adjuster_email_service.py). The Python
+    # buildpack runtime can't install system packages, so PDF compression
+    # fell back to a much slower pure-Python image downsampler.
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     plan: starter  # Change to 'free' for testing, 'starter' ($7/mo) for production with always-on
     region: singapore  # Asia - closest to Korea
-    rootDir: backend
-    # Option 1: Simple build (recommended for most cases)
-    buildCommand: |
-      pip install --upgrade pip
-      pip install -r requirements.txt
-      alembic upgrade head || (echo "Migration failed, stamping as head..." && alembic stamp head)
-    # Option 2: Use custom build script for advanced caching
-    # buildCommand: chmod +x build.sh && ./build.sh
-    # app.asgi is a lightweight launcher that binds the port instantly and
-    # responds to /health while the heavy app.main loads in a background thread.
-    # This prevents Render's 5s health-check timeout during slow Python imports (~10-17s).
-    startCommand: uvicorn app.asgi:app --host 0.0.0.0 --port $PORT --log-level info --timeout-keep-alive 30 --workers 1
+    # The Dockerfile's CMD runs app.main directly; override to use the
+    # ASGI launcher so Render's 5s health-check timeout doesn't hit
+    # during slow Python imports (~10-17s), and to run the migration
+    # step that the Python-buildpack buildCommand used to handle.
+    dockerCommand: |
+      sh -c "alembic upgrade head || (echo 'Migration failed, stamping as head...' && alembic stamp head); uvicorn app.asgi:app --host 0.0.0.0 --port $PORT --log-level info --timeout-keep-alive 30 --workers 1"
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.12.0"
       - key: ENVIRONMENT
         value: production
       - key: DEBUG
