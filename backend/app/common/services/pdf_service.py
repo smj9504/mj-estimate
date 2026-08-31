@@ -97,8 +97,18 @@ def _ensure_pypdf():
         from pypdf import PdfReader as _PR
         from pypdf import PdfWriter as _PW
         from pypdf.generic import RectangleObject as _RO
+        from reportlab import rl_config
         from reportlab.lib.pagesizes import letter as _letter
         from reportlab.pdfgen import canvas as _canvas
+
+        # ReportLab defaults to wrapping every embedded image and content
+        # stream in ASCII85, a text-safe encoding that costs a flat 25% in
+        # size. Binary streams are valid PDF and every reader handles them,
+        # so turning it off makes photo-heavy reports ~20% smaller for free
+        # (no quality change at all). Set here rather than at module import
+        # because reportlab itself is lazy-loaded.
+        rl_config.useA85 = 0
+
         PdfReader = _PR
         PdfWriter = _PW
         RectangleObject = _RO
@@ -2980,13 +2990,29 @@ def generate_water_mitigation_report_pdf(
         IMAGE_QUALITY = 50  # Balanced quality (25=low, 95=original)
         IMAGE_MAX_SIZE = 1200  # Maximum dimension in pixels
     else:
-        IMAGE_QUALITY = 95  # High quality for original
-        IMAGE_MAX_SIZE = None  # No resizing for output quality
+        # 85 is the usual "high quality" JPEG setting - visually
+        # indistinguishable from 95 at any normal viewing size, but roughly
+        # a third of the bytes. 95 was spending most of the file on detail
+        # no adjuster can see, and re-encoding an already-compressed phone
+        # photo at 95 can even make it *larger* than the original.
+        IMAGE_QUALITY = 85
+        IMAGE_MAX_SIZE = None  # No extra cap beyond the dpi budget below
 
-    # Hard cap on decoded pixel dimensions regardless of `compress`, so a
-    # handful of full-resolution originals can't blow up process memory.
-    # Photos are printed at most a few inches wide on the page, so 2400px
-    # is already far beyond what the PDF can visually use.
+    # ReportLab embeds a JPEG byte-for-byte, so the report's size is just
+    # the sum of the images we hand it - which makes resolution the single
+    # biggest lever we have.
+    #
+    # TARGET_DPI is resolved against the size each photo is actually drawn
+    # at (see max_px in the photo loop), not against the original pixel
+    # count. A 2x2 grid prints each photo under 4.5in, so a flat 2400px cap
+    # was ~630dpi there - twice print quality and four times what a screen
+    # shows. 300dpi is full print quality; a full-page photo still gets the
+    # whole MAX_DECODE_SIZE budget because its cell is that much bigger.
+    TARGET_DPI = 300
+
+    # Absolute ceiling on decoded pixel dimensions, so a handful of
+    # full-resolution originals can't blow up process memory even on a
+    # single-photo-per-page layout.
     MAX_DECODE_SIZE = 2400
 
     # Get storage provider from settings
@@ -3740,6 +3766,11 @@ def generate_water_mitigation_report_pdf(
             photo_width = (content_width - h_gap * (cols - 1)) / cols  # Full width minus gaps
             photo_height = content_height / rows - 0.15 * inch  # Reduced vertical gap for more height per photo
 
+            # Space one photo gets, minus the strip reserved for its caption.
+            # Used both to size the drawn image and to budget its pixels.
+            caption_reserve = 0.35 * inch
+            available_photo_height = photo_height - caption_reserve
+
             # Draw photos in grid
             for idx, photo_item in enumerate(page_photos):
                 row = idx // cols
@@ -3754,14 +3785,40 @@ def generate_water_mitigation_report_pdf(
                 img = None
                 try:
                     img = Image.open(photo_item['file_path'])
+                    source_format = (img.format or '').upper()
+
+                    # Pixel budget for THIS photo. Image.open() reads only
+                    # the header, so the dimensions are known before any
+                    # decode: work out how big it will actually be drawn
+                    # (same fit-to-cell maths as below, aspect ratio is
+                    # preserved by thumbnail()) and keep only enough pixels
+                    # to hit TARGET_DPI at that size. On a 2x2 grid that is
+                    # ~1150px; the old flat 2400px cap was ~630dpi there,
+                    # i.e. four times the pixels a screen can show and
+                    # twice what a printer can.
+                    fit_scale = min(
+                        photo_width / img.width,
+                        available_photo_height / img.height,
+                    )
+                    drawn_longest_inches = (
+                        max(img.width, img.height) * fit_scale / inch
+                    )
+                    max_px = max(
+                        800,
+                        min(
+                            MAX_DECODE_SIZE,
+                            int(drawn_longest_inches * TARGET_DPI),
+                        ),
+                    )
+
                     # Use draft mode to decode oversized JPEGs at a reduced
                     # resolution directly (avoids fully decoding a huge
                     # original into memory before we downscale it).
-                    if img.width > MAX_DECODE_SIZE or img.height > MAX_DECODE_SIZE:
-                        img.draft('RGB', (MAX_DECODE_SIZE, MAX_DECODE_SIZE))
+                    if img.width > max_px or img.height > max_px:
+                        img.draft('RGB', (max_px, max_px))
                     was_downscaled = False
-                    if img.width > MAX_DECODE_SIZE or img.height > MAX_DECODE_SIZE:
-                        img.thumbnail((MAX_DECODE_SIZE, MAX_DECODE_SIZE), Image.Resampling.LANCZOS)
+                    if img.width > max_px or img.height > max_px:
+                        img.thumbnail((max_px, max_px), Image.Resampling.LANCZOS)
                         was_downscaled = True
 
                     # Apply compression if enabled (resize and reduce quality)
@@ -3783,11 +3840,13 @@ def generate_water_mitigation_report_pdf(
                         compressed_temp.close()
                         actual_photo_path = compressed_temp.name
                         temp_files.append(compressed_temp.name)
-                    elif was_downscaled:
-                        # Not compressing, but the original exceeded the
-                        # decode-size cap — persist the downscaled version so
-                        # drawImage/reportlab doesn't re-read the huge
-                        # original file from disk.
+                    elif was_downscaled or source_format != 'JPEG':
+                        # Not compressing, but this photo still can't go in
+                        # as-is: either it exceeded the dpi budget above, or
+                        # it isn't a JPEG. ReportLab embeds a JPEG file
+                        # byte-for-byte but has to re-encode anything else
+                        # losslessly (a PNG photo becomes tens of MB), so
+                        # write out a JPEG copy in both cases.
                         downscale_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
                         save_img = img.convert('RGB') if img.mode in ('RGBA', 'P') else img
                         save_img.save(downscale_temp.name, format='JPEG', quality=IMAGE_QUALITY, optimize=True)
@@ -3801,11 +3860,9 @@ def generate_water_mitigation_report_pdf(
 
                     # All photos use full cell width for maximum size
                     # This ensures portrait and landscape photos have the same width
+                    # (caption_reserve / available_photo_height come from the
+                    # per-page block above, where they also drive the dpi budget)
                     target_photo_width = photo_width
-
-                    # Reserve space for caption below image
-                    caption_reserve = 0.35 * inch
-                    available_photo_height = photo_height - caption_reserve
 
                     # Calculate scaling to fit within available space while maintaining aspect ratio
                     width_scale = target_photo_width / img_width
