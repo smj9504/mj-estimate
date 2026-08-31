@@ -180,6 +180,16 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = os.getenv("SMTP_FROM_EMAIL", "noreply@mjestimate.com")
     SMTP_FROM_NAME: str = os.getenv("SMTP_FROM_NAME", "SimpleWorks")
     EMAIL_ENABLED: bool = os.getenv("EMAIL_ENABLED", "false").lower() == "true"
+    # When true, sending through a personal Gmail/Outlook/Yahoo EmailAccount
+    # is routed through the system's send-only fallback (e.g. Resend)
+    # instead of that account's own SMTP server - see SmtpService.send().
+    # Default off: the exact cause of past spam-folder deliveries through
+    # enter.construction wasn't confirmed to be IP/domain-reputation
+    # related (SPF/DKIM/DMARC all passed), so direct sending is the
+    # default again until re-enabled.
+    ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK: bool = (
+        os.getenv("ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK", "false").lower() == "true"
+    )
 
     # Google Sheets Integration
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")

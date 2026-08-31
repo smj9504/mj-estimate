@@ -56,30 +56,17 @@ class SmtpService:
         # Get SMTP connection details
         smtp_config = self._get_smtp_config(account_id)
 
-        # A personal Gmail/Outlook/Yahoo mailbox (as opposed to a custom
-        # send-only account like Resend) has no domain-level SPF/DKIM/DMARC
-        # the sender controls, so mail through it lands in spam far more
-        # often. Route the actual SMTP connection through the system's
-        # verified send-only account instead, keep the user's chosen
-        # mailbox as Reply-To (so replies still land there), and show
-        # "<person> - <company>" as the From display name so the adjuster
-        # still sees who is actually emailing them, not just the company.
-        personal_sender_name = None
-        personal_company_name = None
-        if smtp_config.get("provider_type") in ("gmail", "outlook", "yahoo"):
-            personal_email = from_address
-            personal_sender_name = smtp_config.get("sender_name")
-            personal_company_name = smtp_config.get("company_name")
-            fallback_config = self._get_smtp_config(None)
-            from_address = fallback_config.get("email_address") or from_address
-            reply_to = reply_to or personal_email
+        is_personal_account = smtp_config.get("provider_type") in ("gmail", "outlook", "yahoo")
+        personal_sender_name = smtp_config.get("sender_name") if is_personal_account else None
+        personal_company_name = smtp_config.get("company_name") if is_personal_account else None
 
+        # "<person> - <company>" as the From display name so the adjuster
+        # sees who is actually emailing them, not just a company name -
+        # this applies regardless of which SMTP server ends up sending it.
+        if is_personal_account:
             # A caller-provided display_name_override (water mitigation
             # passes the job's assigned company name) is treated as the
-            # company half of the pairing, not the final display name -
-            # the person's name from the account still needs to be
-            # prepended so the adjuster sees a real sender, not just a
-            # company name.
+            # company half of the pairing, not the final display name.
             company_part = display_name_override or personal_company_name
             if personal_sender_name and company_part:
                 display_name_override = f"{personal_sender_name} - {company_part}"
@@ -89,6 +76,21 @@ class SmtpService:
                     or company_part
                     or smtp_config.get("display_name", "")
                 )
+
+        # A personal Gmail/Outlook/Yahoo mailbox (as opposed to a custom
+        # send-only account like Resend) has no domain-level SPF/DKIM/DMARC
+        # the sender controls, which was suspected to be why mail through
+        # it landed in spam more often - though enter.construction's SPF/
+        # DKIM/DMARC all passed on inspection, so the actual cause wasn't
+        # confirmed to be reputation-related. Routing through the fallback
+        # is now opt-in via this flag rather than automatic, pending that
+        # investigation; when on, the user's mailbox is kept as Reply-To
+        # and signature contact so replies/identity still point at them.
+        if is_personal_account and settings.ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK:
+            personal_email = from_address
+            fallback_config = self._get_smtp_config(None)
+            from_address = fallback_config.get("email_address") or from_address
+            reply_to = reply_to or personal_email
             signature_email_override = signature_email_override or personal_email
             signature_phone_override = signature_phone_override or smtp_config.get("sender_phone")
             smtp_config = fallback_config
