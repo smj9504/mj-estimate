@@ -1488,6 +1488,7 @@ export interface AdjusterEmailInfo {
   email_accounts: { id: string; email_address: string; display_name: string }[];
   documents: DocumentReadiness;
   preset_emails?: PresetEmail[];
+  reply_to?: { name: string; email: string; phone: string };
 }
 
 export interface SendToAdjusterPayload {

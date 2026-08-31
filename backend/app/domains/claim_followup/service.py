@@ -1655,7 +1655,10 @@ class ClaimFollowUpService:
                     subject=data['subject'],
                     body_html=data['body_html'],
                     attachments=raw_attachments,
+                    reply_to=data.get('reply_to'),
                     skip_signature=manual_from,
+                    signature_email_override=data.get('signature_email'),
+                    signature_phone_override=data.get('signature_phone'),
                 )
                 session.commit()
                 return {'id': None, 'status': 'sent', 'smtp_message_id': smtp_result.get('message_id')}
@@ -1703,7 +1706,10 @@ class ClaimFollowUpService:
                     subject=data['subject'],
                     body_html=_with_open_tracking_pixel(data['body_html'], email_id),
                     attachments=raw_attachments,
+                    reply_to=data.get('reply_to'),
                     skip_signature=manual_from,
+                    signature_email_override=data.get('signature_email'),
+                    signature_phone_override=data.get('signature_phone'),
                 )
                 email_repo.mark_sent(email_id, smtp_result.get('message_id'))
             except Exception as smtp_error:

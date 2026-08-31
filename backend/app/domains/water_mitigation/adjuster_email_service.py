@@ -366,15 +366,63 @@ class AdjusterEmailService:
                 session, company_id=job.company_id
             )
 
+            # Reply-To / signature identity: the job's assigned company, not
+            # the sending account. A send-only account (e.g. documents@
+            # scopit.work via Resend) has no real inbox, so replies from the
+            # adjuster need to land in the assigned company's own mailbox,
+            # and the signature should show that company's contact info
+            # rather than the sending address.
+            reply_to_info = {"name": "", "email": "", "phone": ""}
+            if job.company_id:
+                from app.domains.company.models import Company
+                reply_company = session.query(Company).filter(
+                    Company.id == job.company_id
+                ).first()
+                if reply_company:
+                    reply_to_info = {
+                        "name": reply_company.name or "",
+                        "email": reply_company.email or "",
+                        "phone": reply_company.phone or "",
+                    }
+
             return {
                 "adjuster": adjuster_info,
                 "pa": pa_info,
                 "job": job_info,
                 "email_accounts": email_accounts,
                 "preset_emails": preset_emails,
+                "reply_to": reply_to_info,
             }
         finally:
             session.close()
+
+    def _get_reply_identity(self, session, job, data: Dict[str, Any]) -> Dict[str, Optional[str]]:
+        """Resolve Reply-To + signature contact info for an adjuster email.
+
+        Explicit request values win; otherwise falls back to the job's
+        assigned company (email/phone) so replies land in a real mailbox
+        and the signature shows a real contact, even when sending through
+        a send-only account (e.g. Resend) that has neither.
+        """
+        result = {
+            "reply_to": data.get("reply_to"),
+            "signature_email": data.get("signature_email"),
+            "signature_phone": data.get("signature_phone"),
+        }
+        if all(result.values()) or not job.company_id:
+            return result
+
+        from app.domains.company.models import Company
+        company = session.query(Company).filter(
+            Company.id == job.company_id
+        ).first()
+        if not company:
+            return result
+
+        result["reply_to"] = result["reply_to"] or company.email or None
+        result["signature_email"] = result["signature_email"] or company.email or None
+        result["signature_phone"] = result["signature_phone"] or company.phone or None
+        return result
 
     def _get_email_accounts(self, session, company_id=None) -> List[Dict[str, str]]:
         """Get available email accounts for sending.
@@ -647,6 +695,9 @@ class AdjusterEmailService:
             }
             if data.get("from_address"):
                 send_payload["from_address"] = data["from_address"]
+            send_payload.update(
+                {k: v for k, v in self._get_reply_identity(session, job, data).items() if v}
+            )
             email_result = email_service.send_email(send_payload)
 
             # Update job: documents_sent_date
@@ -755,6 +806,9 @@ class AdjusterEmailService:
             }
             if data.get("from_address"):
                 send_payload["from_address"] = data["from_address"]
+            send_payload.update(
+                {k: v for k, v in self._get_reply_identity(session, job, data).items() if v}
+            )
             email_result = email_service.send_email(send_payload)
 
             # Log claim activity (but do NOT update documents_sent_date or status)
