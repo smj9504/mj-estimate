@@ -249,7 +249,7 @@ const PhotoSelectorModal: React.FC<PhotoSelectorModalProps> = ({
                   }}
                   styles={{ body: { padding: 8 } }}
                   cover={
-                    <div style={{ position: 'relative', height: 150, overflow: 'hidden' }}>
+                    <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', background: '#fafafa' }}>
                       <Image
                         src={getImageUrl(photo)}
                         alt={photo.caption || 'Photo'}

@@ -1095,7 +1095,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                             hoverable
                             styles={{ body: { padding: 8 } }}
                             cover={
-                              <div style={{ position: 'relative', height: 150, overflow: 'hidden' }}>
+                              <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', background: '#fafafa' }}>
                                 <Image
                                   src={photo.thumbnail_url || `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photo.id}/preview?size=thumbnail`}
                                   alt={photo.caption || 'Photo'}
