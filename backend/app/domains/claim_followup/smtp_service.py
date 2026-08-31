@@ -174,9 +174,19 @@ class SmtpService:
                 )
 
             provider = account.get("provider_type", "gmail")
-            preset = SMTP_PROVIDERS.get(
-                provider, SMTP_PROVIDERS["gmail"]
-            )
+            # A custom account with its own smtp_server (e.g. Resend, which
+            # has no IMAP endpoint and so can't use a gmail/outlook/yahoo
+            # preset) overrides the provider preset lookup.
+            if provider == "custom" and account.get("smtp_server"):
+                preset = {
+                    "server": account["smtp_server"],
+                    "port": account.get("smtp_port") or 587,
+                    "use_tls": True,
+                }
+            else:
+                preset = SMTP_PROVIDERS.get(
+                    provider, SMTP_PROVIDERS["gmail"]
+                )
 
             # OAuth or password auth
             auth_method = account.get("auth_method", "password")

@@ -43,6 +43,13 @@ class EmailAccount(Base, BaseModel):
     imap_port = Column(Integer, nullable=False, default=993)
     use_ssl = Column(Boolean, nullable=False, default=True)
 
+    # Custom SMTP connection (send-only providers like Resend that have no
+    # IMAP endpoint - imap_server/imap_port above stay dummy values and
+    # auto_schedule stays null so polling never runs for these accounts).
+    # Null means "use the provider_type preset in SMTP_PROVIDERS" as before.
+    smtp_server = Column(String(255), nullable=True)
+    smtp_port = Column(Integer, nullable=True)
+
     # Credentials (password is Fernet-encrypted)
     username = Column(String(255), nullable=False)
     encrypted_password = Column(Text, nullable=False)

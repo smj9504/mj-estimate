@@ -19,6 +19,8 @@ export interface EmailAccount {
   can_send?: boolean;
   is_active: boolean;
   auto_schedule?: string;
+  smtp_server?: string;
+  smtp_port?: number;
   last_synced_at?: string;
   created_at?: string;
   updated_at?: string;
@@ -46,6 +48,8 @@ export interface EmailAccountCreate {
   can_send?: boolean;
   is_active?: boolean;
   auto_schedule?: string;
+  smtp_server?: string;
+  smtp_port?: number;
 }
 
 export interface EmailAccountUpdate {
@@ -63,6 +67,8 @@ export interface EmailAccountUpdate {
   can_send?: boolean;
   is_active?: boolean;
   auto_schedule?: string;
+  smtp_server?: string;
+  smtp_port?: number;
 }
 
 export interface EmailAccountTestResult {

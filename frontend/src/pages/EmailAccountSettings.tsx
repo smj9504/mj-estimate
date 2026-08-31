@@ -208,6 +208,8 @@ const EmailAccountSettings: React.FC = () => {
       sender_phone: account.sender_phone || undefined,
       can_send: account.can_send !== false,
       is_active: account.is_active,
+      smtp_server: account.smtp_server || undefined,
+      smtp_port: account.smtp_port || undefined,
     });
     setModalOpen(true);
   };
@@ -430,6 +432,18 @@ const EmailAccountSettings: React.FC = () => {
                 </Form.Item>
                 <Form.Item name="use_ssl" label="Use SSL" valuePropName="checked">
                   <Switch />
+                </Form.Item>
+                <Alert
+                  message="Send-only provider (e.g. Resend)?"
+                  description="Fill in SMTP Server/Port below to send through it. IMAP fields above can be left as placeholders — leave Auto-Schedule off so this account is never polled for incoming mail."
+                  type="info"
+                  style={{ marginBottom: 12 }}
+                />
+                <Form.Item name="smtp_server" label="SMTP Server (optional — overrides provider preset)">
+                  <Input placeholder="smtp.resend.com" />
+                </Form.Item>
+                <Form.Item name="smtp_port" label="SMTP Port">
+                  <InputNumber style={{ width: '100%' }} placeholder="587" />
                 </Form.Item>
               </>
             ) : (

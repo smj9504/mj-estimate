@@ -35,6 +35,10 @@ class EmailAccountBase(BaseModel):
     can_send: bool = True
     is_active: bool = True
     auto_schedule: Optional[str] = None
+    # Send-only providers (e.g. Resend) have no IMAP endpoint; set these to
+    # override the provider_type preset when provider_type == "custom".
+    smtp_server: Optional[str] = None
+    smtp_port: Optional[int] = None
 
 
 class EmailAccountCreate(EmailAccountBase):
@@ -56,6 +60,8 @@ class EmailAccountUpdate(BaseModel):
     can_send: Optional[bool] = None
     is_active: Optional[bool] = None
     auto_schedule: Optional[str] = None
+    smtp_server: Optional[str] = None
+    smtp_port: Optional[int] = None
 
 
 class EmailAccountResponse(BaseModel):
@@ -75,6 +81,8 @@ class EmailAccountResponse(BaseModel):
     can_send: bool = True
     is_active: bool
     auto_schedule: Optional[str] = None
+    smtp_server: Optional[str] = None
+    smtp_port: Optional[int] = None
     last_synced_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
