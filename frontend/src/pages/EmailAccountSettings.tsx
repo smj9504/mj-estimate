@@ -210,15 +210,27 @@ const EmailAccountSettings: React.FC = () => {
       is_active: account.is_active,
       smtp_server: account.smtp_server || undefined,
       smtp_port: account.smtp_port || undefined,
+      send_only: account.provider_type === 'custom' && !!account.smtp_server,
     });
     setModalOpen(true);
   };
 
   const handleSubmit = (values: any) => {
+    const { send_only, ...payload } = values;
+    // Send-only custom accounts (Resend etc.) have no real mailbox to poll,
+    // so the IMAP fields are never shown/edited by the user - fill dummy
+    // values (satisfies the NOT NULL columns) and force auto_schedule off
+    // so poll_all_accounts never tries to connect to a nonexistent inbox.
+    if (payload.provider_type === 'custom' && send_only) {
+      payload.imap_server = payload.imap_server || 'unused.invalid';
+      payload.imap_port = payload.imap_port || 993;
+      payload.use_ssl = true;
+      payload.auto_schedule = undefined;
+    }
     if (editingAccount) {
-      updateMutation.mutate({ id: editingAccount.id, payload: values });
+      updateMutation.mutate({ id: editingAccount.id, payload });
     } else {
-      createMutation.mutate(values);
+      createMutation.mutate(payload);
     }
   };
 
@@ -421,25 +433,43 @@ const EmailAccountSettings: React.FC = () => {
             <Input.Password placeholder={editingAccount ? '(unchanged)' : 'App Password for Gmail'} />
           </Form.Item>
 
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider_type !== cur.provider_type}>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider_type !== cur.provider_type || prev.send_only !== cur.send_only}>
             {({ getFieldValue }) => getFieldValue('provider_type') === 'custom' ? (
               <>
-                <Form.Item name="imap_server" label="IMAP Server" rules={[{ required: true }]}>
-                  <Input placeholder="imap.example.com" />
-                </Form.Item>
-                <Form.Item name="imap_port" label="Port" rules={[{ required: true }]}>
-                  <InputNumber style={{ width: '100%' }} />
-                </Form.Item>
-                <Form.Item name="use_ssl" label="Use SSL" valuePropName="checked">
+                <Form.Item
+                  name="send_only"
+                  label="Send-only (no inbox — e.g. Resend)"
+                  valuePropName="checked"
+                  tooltip="This account only sends mail; there's no mailbox to poll for replies."
+                >
                   <Switch />
                 </Form.Item>
-                <Alert
-                  message="Send-only provider (e.g. Resend)?"
-                  description="Fill in SMTP Server/Port below to send through it. IMAP fields above can be left as placeholders — leave Auto-Schedule off so this account is never polled for incoming mail."
-                  type="info"
-                  style={{ marginBottom: 12 }}
-                />
-                <Form.Item name="smtp_server" label="SMTP Server (optional — overrides provider preset)">
+
+                {getFieldValue('send_only') ? (
+                  <Alert
+                    message="Auto-Schedule stays off for send-only accounts — there's no inbox to poll."
+                    type="info"
+                    style={{ marginBottom: 12 }}
+                  />
+                ) : (
+                  <>
+                    <Form.Item name="imap_server" label="IMAP Server" rules={[{ required: true }]}>
+                      <Input placeholder="imap.example.com" />
+                    </Form.Item>
+                    <Form.Item name="imap_port" label="Port" rules={[{ required: true }]}>
+                      <InputNumber style={{ width: '100%' }} />
+                    </Form.Item>
+                    <Form.Item name="use_ssl" label="Use SSL" valuePropName="checked">
+                      <Switch />
+                    </Form.Item>
+                  </>
+                )}
+
+                <Form.Item
+                  name="smtp_server"
+                  label="SMTP Server"
+                  rules={getFieldValue('send_only') ? [{ required: true }] : []}
+                >
                   <Input placeholder="smtp.resend.com" />
                 </Form.Item>
                 <Form.Item name="smtp_port" label="SMTP Port">
