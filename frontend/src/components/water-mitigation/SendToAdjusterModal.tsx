@@ -355,10 +355,11 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
             {!selectedAccountId && !manualFromEmail && (
               <Text type="warning" style={{ fontSize: 12 }}>Select an account or enter email address</Text>
             )}
-            {info.reply_to?.name && (
+            {selectedAccountId && !manualFromEmail && (
               <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-                Will show as "{info.reply_to.name}" in From, and replies go to{' '}
-                {info.reply_to.email || 'the assigned company'} (not the From address above).
+                Sent via a verified relay for deliverability, but shows your name
+                {info.reply_to?.name ? ` and "${info.reply_to.name}"` : ''} in From, and
+                replies go to the account selected above.
               </Text>
             )}
           </div>
