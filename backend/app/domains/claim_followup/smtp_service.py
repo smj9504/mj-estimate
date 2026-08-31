@@ -56,6 +56,36 @@ class SmtpService:
         # Get SMTP connection details
         smtp_config = self._get_smtp_config(account_id)
 
+        # A personal Gmail/Outlook/Yahoo mailbox (as opposed to a custom
+        # send-only account like Resend) has no domain-level SPF/DKIM/DMARC
+        # the sender controls, so mail through it lands in spam far more
+        # often. Route the actual SMTP connection through the system's
+        # verified send-only account instead, keep the user's chosen
+        # mailbox as Reply-To (so replies still land there), and show the
+        # company name as the From display name rather than the mailbox's
+        # own display name.
+        personal_sender_name = None
+        personal_company_name = None
+        if smtp_config.get("provider_type") in ("gmail", "outlook", "yahoo"):
+            personal_email = from_address
+            personal_sender_name = smtp_config.get("sender_name")
+            personal_company_name = smtp_config.get("company_name")
+            fallback_config = self._get_smtp_config(None)
+            from_address = fallback_config.get("email_address") or from_address
+            reply_to = reply_to or personal_email
+            # Company name takes priority over the mailbox's own display
+            # name (e.g. "Mila Song") - callers that already pass a company
+            # name via display_name_override (water mitigation etc.) keep
+            # using it; otherwise fall back to the account's linked company.
+            display_name_override = (
+                display_name_override
+                or personal_company_name
+                or smtp_config.get("display_name", "")
+            )
+            signature_email_override = signature_email_override or personal_email
+            signature_phone_override = signature_phone_override or smtp_config.get("sender_phone")
+            smtp_config = fallback_config
+
         # Build message
         msg, failed_attachments = self._build_message(
             from_address=from_address,
@@ -66,13 +96,13 @@ class SmtpService:
             attachments=attachments,
             reply_to=reply_to,
             display_name=display_name_override or smtp_config.get("display_name", ""),
-            sender_name="" if skip_signature else smtp_config.get("sender_name", ""),
+            sender_name="" if skip_signature else (personal_sender_name or smtp_config.get("sender_name", "")),
             sender_phone=signature_phone_override or smtp_config.get("sender_phone", ""),
             # A send-only account's own address (e.g. documents@scopit.work)
             # isn't a real mailbox - the signature should show the assigned
             # company's contact email instead when the caller provides one.
             email_address=signature_email_override or smtp_config.get("email_address", from_address),
-            company_name=smtp_config.get("company_name", ""),
+            company_name=personal_company_name or smtp_config.get("company_name", ""),
         )
 
         # Fail loudly instead of silently sending without attachments -
@@ -227,6 +257,7 @@ class SmtpService:
                 "username": account["username"],
                 "password": password,
                 "oauth_access_token": oauth_token,
+                "provider_type": provider,
                 "display_name": account.get("display_name", ""),
                 "sender_name": account.get("sender_name", ""),
                 "sender_phone": account.get("sender_phone", ""),
