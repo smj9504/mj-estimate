@@ -2272,8 +2272,19 @@ const BathroomEstimateDetail: React.FC = () => {
                           </Form.Item>
                         </Col>
                         <Col xs={24} sm={16} md={12}>
-                          <Form.Item name={['hidden_costs', 'auto_shower_valve']} valuePropName="checked" style={{ marginBottom: 2 }}>
-                            <Checkbox><Text style={{ fontSize: 12 }}>Shower valve + trim (standalone shower)</Text></Checkbox>
+                          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.replace_shower !== cur.replace_shower}>
+                            {() => {
+                              const hasShower = !!form.getFieldValue('replace_shower');
+                              return (
+                                <Form.Item name={['hidden_costs', 'auto_shower_valve']} valuePropName="checked" style={{ marginBottom: 2 }}>
+                                  <Checkbox disabled={!hasShower}>
+                                    <Text style={{ fontSize: 12 }} type={hasShower ? undefined : 'secondary'}>
+                                      Shower valve + trim (standalone shower){!hasShower && ' — shower 없음'}
+                                    </Text>
+                                  </Checkbox>
+                                </Form.Item>
+                              );
+                            }}
                           </Form.Item>
                         </Col>
                         <Col xs={24} sm={16} md={12}>
