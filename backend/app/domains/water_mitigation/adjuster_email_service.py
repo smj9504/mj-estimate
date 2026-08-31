@@ -435,7 +435,8 @@ class AdjusterEmailService:
         try:
             from app.domains.email_ingestion.models import EmailAccount
             accounts = session.query(EmailAccount).filter(
-                EmailAccount.is_active == True
+                EmailAccount.is_active == True,
+                EmailAccount.can_send == True,
             ).all()
 
             result = []

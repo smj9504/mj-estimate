@@ -61,9 +61,9 @@ class SmtpService:
         # the sender controls, so mail through it lands in spam far more
         # often. Route the actual SMTP connection through the system's
         # verified send-only account instead, keep the user's chosen
-        # mailbox as Reply-To (so replies still land there), and show the
-        # company name as the From display name rather than the mailbox's
-        # own display name.
+        # mailbox as Reply-To (so replies still land there), and show
+        # "<person> - <company>" as the From display name so the adjuster
+        # still sees who is actually emailing them, not just the company.
         personal_sender_name = None
         personal_company_name = None
         if smtp_config.get("provider_type") in ("gmail", "outlook", "yahoo"):
@@ -73,15 +73,22 @@ class SmtpService:
             fallback_config = self._get_smtp_config(None)
             from_address = fallback_config.get("email_address") or from_address
             reply_to = reply_to or personal_email
-            # Company name takes priority over the mailbox's own display
-            # name (e.g. "Mila Song") - callers that already pass a company
-            # name via display_name_override (water mitigation etc.) keep
-            # using it; otherwise fall back to the account's linked company.
-            display_name_override = (
-                display_name_override
-                or personal_company_name
-                or smtp_config.get("display_name", "")
-            )
+
+            # A caller-provided display_name_override (water mitigation
+            # passes the job's assigned company name) is treated as the
+            # company half of the pairing, not the final display name -
+            # the person's name from the account still needs to be
+            # prepended so the adjuster sees a real sender, not just a
+            # company name.
+            company_part = display_name_override or personal_company_name
+            if personal_sender_name and company_part:
+                display_name_override = f"{personal_sender_name} - {company_part}"
+            else:
+                display_name_override = (
+                    personal_sender_name
+                    or company_part
+                    or smtp_config.get("display_name", "")
+                )
             signature_email_override = signature_email_override or personal_email
             signature_phone_override = signature_phone_override or smtp_config.get("sender_phone")
             smtp_config = fallback_config
