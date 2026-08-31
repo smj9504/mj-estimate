@@ -15,7 +15,7 @@ from html import escape as html_escape
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 
 # Month names constant to avoid Windows locale/encoding issues with strftime %B
 MONTH_NAMES = [
@@ -208,6 +208,35 @@ class PDFService:
         self.env.filters['format_quantity'] = self._format_quantity
         self.env.filters['format_date'] = self._format_date
         self.env.filters['markdown_to_html'] = self._markdown_to_html
+
+    def _load_invoice_template(self, template_variant: Optional[str]):
+        """Resolve an invoice template variant to a Jinja2 template.
+
+        Valid variants are 'a' (default), 'b' (formal) and 'c' (modern).
+        Unknown variants fall back to the default template instead of
+        raising TemplateNotFound, so a stale/invalid variant value never
+        turns into a 500 on PDF/HTML generation.
+        """
+        logger = logging.getLogger(__name__)
+
+        default_path = "invoice/general_invoice.html"
+        variant_suffix = (
+            f"_{template_variant}"
+            if template_variant and template_variant != "a"
+            else ""
+        )
+        template_path = f"invoice/general_invoice{variant_suffix}.html"
+
+        try:
+            return self.env.get_template(template_path), template_path
+        except TemplateNotFound:
+            if template_path == default_path:
+                raise
+            logger.warning(
+                f"Invoice template '{template_path}' not found for variant "
+                f"'{template_variant}', falling back to {default_path}"
+            )
+            return self.env.get_template(default_path), default_path
     
     @staticmethod
     def _format_currency(value: float) -> str:
@@ -392,14 +421,14 @@ class PDFService:
         
         return text
     
-    def generate_invoice_pdf(self, data: Dict[str, Any], output_path: str, template_variant: str = "modern") -> str:
+    def generate_invoice_pdf(self, data: Dict[str, Any], output_path: str, template_variant: str = "a") -> str:
         """
         Generate invoice PDF from data
 
         Args:
             data: Invoice data dictionary
             output_path: Path to save the PDF
-            template_variant: Template variant to use (default: "modern")
+            template_variant: Template variant ('a', 'b', or 'c'; default: 'a')
 
         Returns:
             Path to the generated PDF
@@ -427,10 +456,9 @@ class PDFService:
             context['company']['logo'] = None
 
         # Load template - select based on variant
-        variant_suffix = f"_{template_variant}" if template_variant and template_variant != "a" else ""
-        template_path = f"invoice/general_invoice{variant_suffix}.html"
-        logger.info(f"Loading template: {template_path} (variant={template_variant})")
-        template = self.env.get_template(template_path)
+        logger.info(f"Loading invoice template (variant={template_variant})")
+        template, template_path = self._load_invoice_template(template_variant)
+        logger.info(f"Loaded template: {template_path}")
         html_content = template.render(**context)
         logger.info(f"Template rendered, HTML length: {len(html_content)}")
 
@@ -617,9 +645,7 @@ print(os.path.getsize(output_path))
 
         # Load template
         try:
-            variant_suffix = f"_{template_variant}" if template_variant and template_variant != "a" else ""
-            template_path = f"invoice/general_invoice{variant_suffix}.html"
-            template = self.env.get_template(template_path)
+            template, template_path = self._load_invoice_template(template_variant)
             logger.info(f"Using {template_path} template (variant={template_variant})")
         except Exception as e:
             logger.error(f"Could not load template: {e}")
