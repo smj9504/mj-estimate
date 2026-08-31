@@ -1657,6 +1657,7 @@ class ClaimFollowUpService:
                     attachments=raw_attachments,
                     reply_to=data.get('reply_to'),
                     skip_signature=manual_from,
+                    display_name_override=data.get('display_name'),
                     signature_email_override=data.get('signature_email'),
                     signature_phone_override=data.get('signature_phone'),
                 )
@@ -1708,6 +1709,7 @@ class ClaimFollowUpService:
                     attachments=raw_attachments,
                     reply_to=data.get('reply_to'),
                     skip_signature=manual_from,
+                    display_name_override=data.get('display_name'),
                     signature_email_override=data.get('signature_email'),
                     signature_phone_override=data.get('signature_phone'),
                 )

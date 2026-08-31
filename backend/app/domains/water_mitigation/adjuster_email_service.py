@@ -397,14 +397,17 @@ class AdjusterEmailService:
             session.close()
 
     def _get_reply_identity(self, session, job, data: Dict[str, Any]) -> Dict[str, Optional[str]]:
-        """Resolve Reply-To + signature contact info for an adjuster email.
+        """Resolve From display name + Reply-To + signature contact info for
+        an adjuster email.
 
         Explicit request values win; otherwise falls back to the job's
-        assigned company (email/phone) so replies land in a real mailbox
-        and the signature shows a real contact, even when sending through
-        a send-only account (e.g. Resend) that has neither.
+        assigned company (name/email/phone) so the email reads as coming
+        from that company, replies land in a real mailbox, and the
+        signature shows a real contact - even when sending through a
+        send-only account (e.g. Resend) that has none of these itself.
         """
         result = {
+            "display_name": data.get("display_name"),
             "reply_to": data.get("reply_to"),
             "signature_email": data.get("signature_email"),
             "signature_phone": data.get("signature_phone"),
@@ -419,6 +422,7 @@ class AdjusterEmailService:
         if not company:
             return result
 
+        result["display_name"] = result["display_name"] or company.name or None
         result["reply_to"] = result["reply_to"] or company.email or None
         result["signature_email"] = result["signature_email"] or company.email or None
         result["signature_phone"] = result["signature_phone"] or company.phone or None

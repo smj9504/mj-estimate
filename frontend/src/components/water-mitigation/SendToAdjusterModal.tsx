@@ -355,10 +355,10 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
             {!selectedAccountId && !manualFromEmail && (
               <Text type="warning" style={{ fontSize: 12 }}>Select an account or enter email address</Text>
             )}
-            {info.reply_to?.email && (
+            {info.reply_to?.name && (
               <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-                Replies will go to {info.reply_to.name ? `${info.reply_to.name} ` : ''}
-                ({info.reply_to.email}), not the From address above.
+                Will show as "{info.reply_to.name}" in From, and replies go to{' '}
+                {info.reply_to.email || 'the assigned company'} (not the From address above).
               </Text>
             )}
           </div>
