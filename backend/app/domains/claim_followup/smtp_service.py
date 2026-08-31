@@ -377,7 +377,15 @@ class SmtpService:
         msg["MIME-Version"] = "1.0"
 
         # Always set Reply-To for deliverability
-        msg["Reply-To"] = reply_to or from_address
+        effective_reply_to = reply_to or from_address
+        msg["Reply-To"] = effective_reply_to
+
+        # Some spam filters treat the presence of List-Unsubscribe as a
+        # signal of a legitimate, well-behaved sender even for 1:1
+        # transactional mail with no real subscription to cancel - a
+        # mailto is the only mechanism that makes sense here (there's no
+        # list/webhook to back a one-click HTTP unsubscribe URL).
+        msg["List-Unsubscribe"] = f"<mailto:{effective_reply_to}?subject=unsubscribe>"
 
         return msg, failed_attachments
 
