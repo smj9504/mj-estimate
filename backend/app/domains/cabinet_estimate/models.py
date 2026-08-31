@@ -181,6 +181,13 @@ class CabinetEstimate(Base, BaseModel):
         order_by="CabinetEstimateHistory.version_number.desc()",
         lazy="select",
     )
+    sketch = relationship(
+        "CabinetSketch",
+        back_populates="estimate",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
 
 
 class CabinetBox(Base, BaseModel):

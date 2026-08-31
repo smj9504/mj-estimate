@@ -35,11 +35,13 @@ import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { cabinetEstimateService } from '../services/cabinetEstimateService';
 import { clientService, claimService } from '../services/clientService';
 import { companyService } from '../services/companyService';
-import CabinetBoxEditor from '../components/cabinet-estimate/CabinetBoxEditor';
+import CabinetBoxEditor, { CABINET_PRESETS } from '../components/cabinet-estimate/CabinetBoxEditor';
 import CabinetEstimateResult from '../components/cabinet-estimate/CabinetEstimateResult';
 import CabinetPurchaseOrder from '../components/cabinet-estimate/CabinetPurchaseOrder';
 import CabinetEstimateHistory from '../components/cabinet-estimate/CabinetEstimateHistory';
+import CabinetSketchEditor from '../components/cabinet-estimate/sketch/CabinetSketchEditor';
 import type { CabinetBoxCreate, CabinetEstimate, CabinetEstimateUpdate } from '../types/cabinetEstimate';
+import type { CabType } from '../types/cabinetEstimate';
 import type { Claim } from '../types/client';
 
 const RegisterBidItemModal = React.lazy(() => import('../components/supplement/RegisterBidItemModal'));
@@ -1374,6 +1376,29 @@ const CabinetEstimateDetail: React.FC = () => {
               </Col>
             </Row>
           </Form>
+        </Tabs.TabPane>
+
+        <Tabs.TabPane tab="Sketch" key="sketch">
+          <CabinetSketchEditor
+            estimateId={id!}
+            onCabinetPlaced={(code, cabType) => {
+              const preset = CABINET_PRESETS[code];
+              if (!preset) return;
+              const newBox: CabinetBoxCreate = {
+                code,
+                cab_type: cabType,
+                location: 'perimeter',
+                width_inches: preset.width,
+                height_inches: preset.height,
+                is_specialty: !!preset.specialty,
+                specialty_type: preset.specialty || null,
+                has_glass_door: false,
+                qty: 1,
+                display_order: perimeterBoxes.length,
+              };
+              setPerimeterBoxes((prev) => [...prev, newBox]);
+            }}
+          />
         </Tabs.TabPane>
 
         <Tabs.TabPane tab="Estimate Result" key="result" disabled={estimate.status === 'draft'}>

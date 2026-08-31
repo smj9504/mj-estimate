@@ -18,7 +18,7 @@ import type { CabinetBoxCreate, CabinetLocation, CabType, SpecialtyType } from '
 const { Text } = Typography;
 
 // Common cabinet codes with default dimensions
-const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number; height: number; specialty?: SpecialtyType; label: string }> = {
+export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number; height: number; specialty?: SpecialtyType; label: string }> = {
   // Base
   'B9':  { cab_type: 'base', width: 9,  height: 34.5, label: 'Base 9"' },
   'B12': { cab_type: 'base', width: 12, height: 34.5, label: 'Base 12"' },
@@ -127,7 +127,7 @@ const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number; height
 
 const CUSTOM_VALUE = '__custom__';
 
-type SectionType = 'base' | 'wall' | 'tall';
+export type SectionType = 'base' | 'wall' | 'tall';
 
 const SECTION_CONFIG: { type: SectionType; label: string; color: string; unit: string }[] = [
   { type: 'base', label: 'Base Cabinets', color: 'blue', unit: 'LF' },
@@ -135,7 +135,7 @@ const SECTION_CONFIG: { type: SectionType; label: string; color: string; unit: s
   { type: 'tall', label: 'Tall Cabinets', color: 'orange', unit: 'EA' },
 ];
 
-function getOptionsForType(cabType: SectionType) {
+export function getOptionsForType(cabType: SectionType) {
   const entries = Object.entries(CABINET_PRESETS).filter(([, v]) => v.cab_type === cabType);
 
   if (cabType === 'base') {
