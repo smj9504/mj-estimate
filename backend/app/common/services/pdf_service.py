@@ -2985,9 +2985,14 @@ def generate_water_mitigation_report_pdf(
 
     # Hard cap on decoded pixel dimensions regardless of `compress`, so a
     # handful of full-resolution originals can't blow up process memory.
-    # Photos are printed at most a few inches wide on the page, so 2400px
-    # is already far beyond what the PDF can visually use.
-    MAX_DECODE_SIZE = 2400
+    # Photos are printed at most a few inches wide on the page, so even
+    # 1800px is well beyond what the PDF can visually use (300dpi at the
+    # widest photo slot on the page is nowhere near this many pixels) -
+    # lowered from 2400 after a 150MB photo-heavy report OOM-killed the
+    # Render instance while attaching it to an email (this cap alone
+    # doesn't change the fully-visible print quality, just the amount of
+    # invisible-at-print-size resolution getting carried around).
+    MAX_DECODE_SIZE = 1800
 
     # Get storage provider from settings
     from app.core.config import settings

@@ -791,20 +791,6 @@ class AdjusterEmailService:
     # Attachment Collection
     # ================================================================
 
-    # TEMPORARY: RSS memory logging around each attachment step to find
-    # exactly which one OOM-kills the 512MB Render instance - the process
-    # is SIGKILLed with no Python exception, so this is the only visibility
-    # into where memory actually goes (see git history for the repeated
-    # "Ran out of memory" incidents this is investigating).
-    @staticmethod
-    def _log_rss_static(label: str) -> None:
-        try:
-            import psutil
-            rss_mb = psutil.Process().memory_info().rss / 1024 / 1024
-            logger.info(f"[MEM] {label}: RSS={rss_mb:.1f}MB")
-        except Exception:
-            pass
-
     def _collect_attachments(
         self, session, job, selected_docs: List[str]
     ) -> tuple:
@@ -815,10 +801,7 @@ class AdjusterEmailService:
         """
         from .models import WMDocument, WMScopeInvoice
 
-        _log_rss = self._log_rss_static
-
         logger.info(f"Collecting attachments for selected_docs={selected_docs}")
-        _log_rss("_collect_attachments start")
         attachments = []
         failed_docs = []
         address_short = (job.property_address or "property").split(",")[0].strip()
@@ -858,7 +841,6 @@ class AdjusterEmailService:
                     attachments.append(att)
                 else:
                     failed_docs.append("photo_report")
-        _log_rss("after photo_report")
 
         # 2. Invoice
         if "invoice" in selected_docs:
@@ -867,7 +849,6 @@ class AdjusterEmailService:
                 attachments.append(att)
             else:
                 failed_docs.append("invoice")
-        _log_rss("after invoice")
 
         # 3. W9
         if "w9" in selected_docs:
@@ -876,7 +857,6 @@ class AdjusterEmailService:
                 attachments.append(att)
             else:
                 failed_docs.append("w9")
-        _log_rss("after w9")
 
         # 4. COS
         if "cos" in selected_docs:
@@ -898,7 +878,6 @@ class AdjusterEmailService:
                     failed_docs.append("cos")
             else:
                 failed_docs.append("cos")
-        _log_rss("after cos")
 
         # 5. EWA
         if "ewa" in selected_docs:
@@ -920,7 +899,6 @@ class AdjusterEmailService:
                     failed_docs.append("ewa")
             else:
                 failed_docs.append("ewa")
-        _log_rss("after ewa")
 
         # 6. Sketch
         if "sketch" in selected_docs:
@@ -929,7 +907,6 @@ class AdjusterEmailService:
                 attachments.append(att)
             else:
                 failed_docs.append("sketch")
-        _log_rss("after sketch")
 
         if failed_docs:
             logger.warning(
@@ -981,11 +958,7 @@ class AdjusterEmailService:
                     return None
                 for key in download_keys:
                     try:
-                        self._log_rss_static(f"before download {doc.id}")
                         file_data = download_from_storage(key, storage_provider)
-                        self._log_rss_static(
-                            f"after download {doc.id} ({len(file_data) / 1024:.0f}KB)"
-                        )
                         logger.info(f"Downloaded WMDocument {doc.id} from {storage_provider}: {key}")
                         break
                     except Exception as e:
