@@ -257,8 +257,13 @@ const EmailAccountSettings: React.FC = () => {
       title: 'Provider',
       dataIndex: 'provider_type',
       key: 'provider_type',
-      width: 100,
-      render: (v: string) => <Tag>{v.toUpperCase()}</Tag>,
+      width: 130,
+      render: (v: string, record: EmailAccount) => (
+        <Space size={4}>
+          <Tag>{v.toUpperCase()}</Tag>
+          {v === 'custom' && record.smtp_server && <Tag color="purple">Send-only</Tag>}
+        </Space>
+      ),
     },
     {
       title: 'Auth',
@@ -289,33 +294,42 @@ const EmailAccountSettings: React.FC = () => {
       title: 'Actions',
       key: 'actions',
       width: 200,
-      render: (_: any, record: EmailAccount) => (
+      render: (_: any, record: EmailAccount) => {
+        // Send-only accounts (Resend etc.) have no inbox - Test Connection
+        // and Poll Now both try to open an IMAP session, which always fails
+        // for these since there's nothing to authenticate against.
+        const isSendOnly = record.provider_type === 'custom' && !!record.smtp_server;
+        return (
         <Space size="small">
-          <Tooltip title="Test Connection">
-            <Button
-              size="small"
-              icon={<ApiOutlined />}
-              loading={testingId === record.id && testMutation.isPending}
-              onClick={() => {
-                setTestingId(record.id);
-                testMutation.mutate(record.id);
-              }}
-            />
-          </Tooltip>
-          <Tooltip title="Poll Now">
-            <Button
-              size="small"
-              icon={<SyncOutlined />}
-              onClick={async () => {
-                try {
-                  const result = await emailIngestionService.pollAccount(record.id);
-                  message.success(`Found ${result.emails_found} emails, uploaded ${result.uploaded}`);
-                } catch {
-                  message.error('Polling failed');
-                }
-              }}
-            />
-          </Tooltip>
+          {!isSendOnly && (
+            <Tooltip title="Test Connection">
+              <Button
+                size="small"
+                icon={<ApiOutlined />}
+                loading={testingId === record.id && testMutation.isPending}
+                onClick={() => {
+                  setTestingId(record.id);
+                  testMutation.mutate(record.id);
+                }}
+              />
+            </Tooltip>
+          )}
+          {!isSendOnly && (
+            <Tooltip title="Poll Now">
+              <Button
+                size="small"
+                icon={<SyncOutlined />}
+                onClick={async () => {
+                  try {
+                    const result = await emailIngestionService.pollAccount(record.id);
+                    message.success(`Found ${result.emails_found} emails, uploaded ${result.uploaded}`);
+                  } catch {
+                    message.error('Polling failed');
+                  }
+                }}
+              />
+            </Tooltip>
+          )}
           <Tooltip title="Edit">
             <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
           </Tooltip>
@@ -323,7 +337,8 @@ const EmailAccountSettings: React.FC = () => {
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
-      ),
+        );
+      },
     },
   ];
 
