@@ -3534,6 +3534,10 @@ def generate_water_mitigation_report_pdf(
 
     total_pages = 1  # Start at 1 for cover page
 
+    # Build the full list of (section, page) work items up front so photo
+    # downloads can be pipelined one page ahead of rendering (see
+    # _download_page below) - the section loop no longer downloads inline.
+    page_jobs = []
     for section_data in config.get('sections', []):
         section_title = section_data.get('title', 'Section')
         section_summary = section_data.get('summary', '')
@@ -3541,14 +3545,10 @@ def generate_water_mitigation_report_pdf(
         max_photos = photos_per_page_map.get(layout, 4)
         rows, cols = grid_layouts.get(layout, (2, 2))
 
-        logger.info(f"Processing section: {section_title} (layout: {layout})")
-        _log_rss(f"section start: {section_title}")
-
         # Collect photo METADATA only for this section — do NOT download
         # yet. Downloading every photo in the section up front (sometimes
         # 20-30+ full-resolution originals) spikes memory/disk before a
-        # single page is even drawn. Actual download happens per-page,
-        # just before each photo is drawn, and is released immediately after.
+        # single page is even drawn.
         section_photos = []
         for photo_meta in section_data.get('photos', []):
             photo_id = photo_meta.get('photo_id')
@@ -3579,63 +3579,107 @@ def generate_water_mitigation_report_pdf(
             logger.warning(f"No photos found for section: {section_title}")
             continue
 
-        # Split photos into pages
         for page_num, i in enumerate(range(0, len(section_photos), max_photos), start=1):
-            page_photo_meta = section_photos[i:i + max_photos]
+            page_jobs.append({
+                'section_title': section_title,
+                'section_summary': section_summary,
+                'layout': layout,
+                'rows': rows,
+                'cols': cols,
+                'page_num': page_num,
+                'page_photo_meta': section_photos[i:i + max_photos],
+            })
 
-            # Resolve (download if needed) only THIS page's photos now.
-            # Remote downloads for the page run in parallel (bounded to this
-            # page's photo count, same as before) since each is an independent
-            # blocking network call - this cuts wall-clock time without
-            # raising peak memory, as all of this page's photos were already
-            # being held at once.
-            local_photos = []
-            remote_pms = []
-            for pm in page_photo_meta:
-                if pm['storage_provider'] == 'local':
-                    local_photos.append({
-                        'file_path': pm['storage_path'],
-                        'is_temp': False,
-                        'caption': pm['caption'],
-                        'captured_date': pm['captured_date'],
-                        'show_date': pm['show_date'],
-                    })
-                else:
-                    remote_pms.append(pm)
-
-            def _download_photo(pm):
-                try:
-                    from app.domains.storage.factory import StorageFactory
-                    storage = StorageFactory.get_instance(pm['storage_provider'])
-                    return pm, storage.download(pm['storage_path'])
-                except Exception as e:
-                    logger.error(f"Failed to download photo: {e}")
-                    return pm, None
-
-            downloaded = []
-            if remote_pms:
-                with ThreadPoolExecutor(max_workers=len(remote_pms)) as executor:
-                    downloaded = list(executor.map(_download_photo, remote_pms))
-
-            page_photos = list(local_photos)
-            for pm, photo_data in downloaded:
-                if not photo_data:
-                    continue
-                _photo_download_count += 1
-                if _photo_download_count % 5 == 0:
-                    _log_rss(f"after {_photo_download_count} photo downloads")
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-                temp_file.write(photo_data)
-                temp_file.close()
-                del photo_data
-                temp_files.append(temp_file.name)
-                page_photos.append({
-                    'file_path': temp_file.name,
-                    'is_temp': True,
+    def _download_page_photos(page_photo_meta):
+        """Resolve (download if needed) one page's photos. Runs on the
+        prefetch thread, one page ahead of rendering (see the pipeline
+        loop below) so page N's network wait overlaps page N-1's
+        ReportLab/Pillow work instead of happening after it."""
+        local_photos = []
+        remote_pms = []
+        for pm in page_photo_meta:
+            if pm['storage_provider'] == 'local':
+                local_photos.append({
+                    'file_path': pm['storage_path'],
+                    'is_temp': False,
                     'caption': pm['caption'],
                     'captured_date': pm['captured_date'],
                     'show_date': pm['show_date'],
                 })
+            else:
+                remote_pms.append(pm)
+
+        def _download_photo(pm):
+            try:
+                from app.domains.storage.factory import StorageFactory
+                storage = StorageFactory.get_instance(pm['storage_provider'])
+                return pm, storage.download(pm['storage_path'])
+            except Exception as e:
+                logger.error(f"Failed to download photo: {e}")
+                return pm, None
+
+        downloaded = []
+        if remote_pms:
+            with ThreadPoolExecutor(max_workers=len(remote_pms)) as executor:
+                downloaded = list(executor.map(_download_photo, remote_pms))
+
+        page_photos = list(local_photos)
+        for pm, photo_data in downloaded:
+            if not photo_data:
+                continue
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+            temp_file.write(photo_data)
+            temp_file.close()
+            del photo_data
+            temp_files.append(temp_file.name)
+            page_photos.append({
+                'file_path': temp_file.name,
+                'is_temp': True,
+                'caption': pm['caption'],
+                'captured_date': pm['captured_date'],
+                'show_date': pm['show_date'],
+            })
+        return page_photos
+
+    # One-page-ahead prefetch: a single background thread downloads page
+    # N+1 while page N is being decoded/drawn on the main thread, hiding
+    # network latency behind CPU work instead of paying both in sequence.
+    # At most one extra page's worth of temp files/bytes is held at a
+    # time (same bound as before, just shifted by one page).
+    _prefetch_pool = ThreadPoolExecutor(max_workers=1)
+    _prefetch_future = (
+        _prefetch_pool.submit(_download_page_photos, page_jobs[0]['page_photo_meta'])
+        if page_jobs else None
+    )
+
+    try:
+        for job_idx, page_job in enumerate(page_jobs):
+            section_title = page_job['section_title']
+            section_summary = page_job['section_summary']
+            layout = page_job['layout']
+            rows, cols = page_job['rows'], page_job['cols']
+            page_num = page_job['page_num']
+
+            if page_num == 1:
+                logger.info(f"Processing section: {section_title} (layout: {layout})")
+                _log_rss(f"section start: {section_title}")
+
+            try:
+                page_photos = _prefetch_future.result()
+            except Exception as e:
+                logger.error(f"Page photo prefetch failed: {e}")
+                page_photos = []
+            _photo_download_count += len(page_photos)
+            if _photo_download_count and _photo_download_count % 5 < len(page_photos):
+                _log_rss(f"after {_photo_download_count} photo downloads")
+
+            # Kick off the next page's download now, before spending time
+            # decoding/drawing this page's photos below.
+            next_job = page_jobs[job_idx + 1] if job_idx + 1 < len(page_jobs) else None
+            _prefetch_future = (
+                _prefetch_pool.submit(_download_page_photos, next_job['page_photo_meta'])
+                if next_job else None
+            )
 
             if not page_photos:
                 continue
@@ -4000,6 +4044,8 @@ def generate_water_mitigation_report_pdf(
             # Add page to writer
             page_reader = PdfReader(page_buffer)
             writer.add_page(page_reader.pages[0])
+    finally:
+        _prefetch_pool.shutdown(wait=False, cancel_futures=True)
 
     _log_rss(f"all {total_pages} pages built, before writer.write()")
 
