@@ -819,14 +819,9 @@ class AdjusterEmailService:
                 .first()
             )
             if doc:
-                att = self._attachment_from_wm_document(doc, f"Photo Report - {address_short}.pdf")
-                if not att:
-                    logger.warning(
-                        f"Photo report doc exists (id={doc.id}, type={doc.document_type}, "
-                        f"path={doc.file_path}, storage_id={getattr(doc, 'storage_file_id', None)}) "
-                        f"but file download failed - falling back to regenerating from saved config"
-                    )
-                    att = self._generate_photo_report_attachment(session, job, address_short)
+                att = self._photo_report_attachment_from_saved_doc(
+                    session, job, doc, address_short
+                )
                 if att:
                     attachments.append(att)
                 else:
@@ -984,13 +979,67 @@ class AdjusterEmailService:
             logger.warning(f"Error reading WMDocument {doc.id}: {e}")
             return None
 
-    def _generate_photo_report_attachment(
-        self, session, job, address_short: str
+    def _photo_report_attachment_from_saved_doc(
+        self, session, job, doc, address_short: str
     ) -> Optional[Dict[str, Any]]:
-        """No saved Photo Report yet - generate one on the fly using the
-        job's saved report config (same one shown/edited in the Documents
-        tab), persisting it as a WMDocument so it doesn't need to be
-        regenerated next time."""
+        """Attach the saved Photo Report, re-rendering it if it's too big.
+
+        A saved report can be far larger than an email allows - one built
+        before the report generator's size defaults were tightened, or a
+        deliberately full-quality one the user generated for print.
+        Downloading hundreds of MB into a 512MB instance only to refuse the
+        send afterwards helps nobody, so check the size the record already
+        carries and re-render at email size instead, leaving whatever the
+        user saved untouched.
+        """
+        saved_size = getattr(doc, "file_size", None) or 0
+
+        if saved_size > self._EMAIL_SIZE_LIMIT:
+            logger.info(
+                f"Saved photo report is {saved_size / 1024 / 1024:.1f}MB, over the "
+                f"{self._EMAIL_SIZE_LIMIT / 1024 / 1024:.0f}MB email limit - rendering an "
+                f"email-sized copy from the saved report config instead"
+            )
+            att = self._generate_photo_report_attachment(
+                session, job, address_short, persist=False
+            )
+            if att:
+                return att
+            if saved_size > self._MAX_COMPRESSIBLE_SIZE:
+                # No config to re-render from, and compression can't rescue
+                # a file this size either - downloading it would trade a
+                # clear error for an OOM that takes the instance down.
+                logger.error(
+                    f"Saved photo report for job {job.id} is "
+                    f"{saved_size / 1024 / 1024:.1f}MB and there's no report config to "
+                    f"re-render it from - not downloading it. Rebuild the report in the "
+                    f"Documents tab (or use the Compress option) before sending."
+                )
+                return None
+
+        att = self._attachment_from_wm_document(
+            doc, f"Photo Report - {address_short}.pdf"
+        )
+        if att:
+            return att
+
+        logger.warning(
+            f"Photo report doc exists (id={doc.id}, type={doc.document_type}, "
+            f"path={doc.file_path}, storage_id={getattr(doc, 'storage_file_id', None)}) "
+            f"but file download failed - falling back to regenerating from saved config"
+        )
+        return self._generate_photo_report_attachment(session, job, address_short)
+
+    def _generate_photo_report_attachment(
+        self, session, job, address_short: str, persist: bool = True
+    ) -> Optional[Dict[str, Any]]:
+        """Generate a Photo Report on the fly from the job's saved report
+        config (the same one shown/edited in the Documents tab).
+
+        Persists it as a WMDocument by default so it doesn't need to be
+        regenerated next time; pass persist=False when the job already has
+        a saved report that just happens to be too big to email, so the
+        smaller copy doesn't replace the one the user saved."""
         try:
             from .models import WMDocument
             from .service import WaterMitigationService
@@ -1004,21 +1053,25 @@ class AdjusterEmailService:
                     .all()
                 )
                 logger.warning(
-                    f"Photo report WMDocument not found for job {job.id} and no report "
-                    f"config saved - can't auto-generate. Please build the photo report "
-                    f"in the Documents tab first. "
+                    f"No report config saved for job {job.id} - can't generate a photo "
+                    f"report for the email. Please build the photo report in the "
+                    f"Documents tab first. "
                     f"Existing documents: {[(str(d.id)[:8], d.document_type, d.is_active, d.filename) for d in all_docs]}"
                 )
                 return None
 
-            logger.info(f"Photo report attachment: no saved WMDocument, auto-generating from saved config for job {job.id}")
-            # compress=True so the PDF this saves is already email-sized
-            # (50% quality, 1200px cap) instead of the full 95%-quality
-            # original - the email attachment path used to always start
-            # from the heaviest possible version and then try to shrink it
-            # back down under 512MB of RAM.
+            logger.info(
+                f"Photo report attachment: generating from saved config for job {job.id} "
+                f"(persist={persist})"
+            )
+            # compress=True so the PDF is already email-sized (50% quality,
+            # 1200px cap) instead of the full-quality original - the email
+            # attachment path used to always start from the heaviest
+            # possible version and then try to shrink it back down under
+            # 512MB of RAM.
             result = service.generate_and_save_photo_report(
                 job.id, config=config, commit=False, compress=True,
+                persist=persist,
             )
             return {
                 "filename": f"Photo Report - {address_short}.pdf",
