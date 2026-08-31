@@ -83,10 +83,20 @@ class SmtpService:
         # it landed in spam more often - though enter.construction's SPF/
         # DKIM/DMARC all passed on inspection, so the actual cause wasn't
         # confirmed to be reputation-related. Routing through the fallback
-        # is now opt-in via this flag rather than automatic, pending that
-        # investigation; when on, the user's mailbox is kept as Reply-To
-        # and signature contact so replies/identity still point at them.
-        if is_personal_account and settings.ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK:
+        # is opt-in via an admin-toggleable setting rather than automatic,
+        # pending that investigation; when on, the user's mailbox is kept
+        # as Reply-To and signature contact so replies/identity still
+        # point at them. DB setting (admin UI) overrides the env var
+        # default so this can be flipped without a redeploy.
+        from app.domains.admin.settings_service import (
+            ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK_KEY,
+            get_bool_setting,
+        )
+        route_through_fallback = get_bool_setting(
+            ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK_KEY,
+            default=settings.ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK,
+        )
+        if is_personal_account and route_through_fallback:
             personal_email = from_address
             fallback_config = self._get_smtp_config(None)
             from_address = fallback_config.get("email_address") or from_address

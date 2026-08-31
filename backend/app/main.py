@@ -148,6 +148,7 @@ from app.domains.cabinet_estimate.api import router as cabinet_estimate_router
 from app.domains.cabinet_estimate.models import (
     CabinetEstimate, CabinetBox, CabinetEstimateLineItem, CabinetEstimateHistory
 )
+from app.domains.cabinet_estimate.sketch_models import CabinetSketch
 from app.domains.bathroom_estimate.api import router as bathroom_estimate_router
 from app.domains.bathroom_estimate.models import (
     BathroomEstimate, BathroomEstimateLineItem, BathroomEstimateHistory
@@ -215,6 +216,10 @@ from app.domains.insurance_extraction.models import (
 # Email Ingestion system models
 from app.domains.email_ingestion.models import EmailAccount, EmailIngestionLog
 from app.domains.email_ingestion.api import router as email_ingestion_router
+
+# Admin system settings
+from app.domains.admin.models import SystemSetting
+from app.domains.admin.settings_api import router as admin_settings_router
 
 # Claim Follow-up system models
 from app.domains.claim_followup.models import (
@@ -1046,6 +1051,9 @@ if material_detection_available:
 
 # Email Ingestion endpoints
 app.include_router(email_ingestion_router, prefix="/api/email-ingestion", tags=["Email Ingestion"])
+
+# Admin system settings endpoints (router already declares its own /api/admin/settings prefix)
+app.include_router(admin_settings_router)
 
 # Claim Follow-up endpoints
 app.include_router(claim_followup_router, prefix="/api/claim-followup", tags=["Claim Follow-up"])
