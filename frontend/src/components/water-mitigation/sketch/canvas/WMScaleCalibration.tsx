@@ -28,11 +28,49 @@
 
 import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { Stage, Layer, Line, Circle, Text as KonvaText, Image as KonvaImage } from 'react-konva';
+import type Konva from 'konva';
 import { Button, InputNumber, Space, Typography, Alert, theme } from 'antd';
-import { AimOutlined, CheckOutlined, CloseOutlined, UndoOutlined } from '@ant-design/icons';
+import {
+  AimOutlined,
+  CheckOutlined,
+  CloseOutlined,
+  UndoOutlined,
+  ZoomInOutlined,
+  ZoomOutOutlined,
+  ExpandOutlined,
+  DragOutlined,
+} from '@ant-design/icons';
 import { useIsCoarsePointer } from '../hooks/useWMResponsive';
 
 const { Text } = Typography;
+
+/** Zoom limits shared by wheel, pinch, and the on-screen zoom buttons. */
+const MIN_STAGE_SCALE = 0.5;
+const MAX_STAGE_SCALE = 10;
+
+type WMPointerEvent = MouseEvent | TouchEvent;
+
+function isTouchEvt(evt: WMPointerEvent): evt is TouchEvent {
+  return 'touches' in evt;
+}
+
+function getClientPoint(evt: WMPointerEvent): { x: number; y: number } | null {
+  if (isTouchEvt(evt)) {
+    const t = evt.touches[0] ?? evt.changedTouches[0];
+    return t ? { x: t.clientX, y: t.clientY } : null;
+  }
+  return { x: evt.clientX, y: evt.clientY };
+}
+
+/** Distance and midpoint between the first two touch points. */
+function getPinchGeometry(evt: TouchEvent) {
+  const [a, b] = [evt.touches[0], evt.touches[1]];
+  if (!a || !b) return null;
+  return {
+    dist: Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY),
+    center: { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 },
+  };
+}
 
 // ============================================================================
 // Types
@@ -190,16 +228,94 @@ const WMScaleCalibration: React.FC<WMScaleCalibrationProps> = ({
     ? viewportScale / logicalToViewportRatio
     : null;
 
-  // Get stage pointer position
+  // ------------------------------------------------------------------
+  // Zoom / pan — the image is often too small to read the measurement
+  // numbers printed on it (e.g. a sketch photo), so calibration needs the
+  // same zoom/pan the main sketch editor has, not just a fixed contain-fit.
+  // ------------------------------------------------------------------
+  const [stageScale, setStageScale] = useState(1);
+  const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
+  const stageScaleRef = useRef(stageScale);
+  stageScaleRef.current = stageScale;
+  const stagePosRef = useRef(stagePos);
+  stagePosRef.current = stagePos;
+
+  const containerRef = canvasAreaRef;
+  const [panMode, setPanMode] = useState(false);
+  const isPanningRef = useRef(false);
+  const lastPointerRef = useRef({ x: 0, y: 0 });
+  const pinchRef = useRef<{ dist: number; center: { x: number; y: number } } | null>(null);
+  const gestureConsumedRef = useRef(false);
+
+  /** Rescale the stage while keeping the point under `anchor` pinned in place. */
+  const zoomAroundPoint = useCallback(
+    (nextScale: number, anchor: { x: number; y: number }) => {
+      const oldScale = stageScaleRef.current;
+      const oldPos = stagePosRef.current;
+      const newScale = Math.max(MIN_STAGE_SCALE, Math.min(MAX_STAGE_SCALE, nextScale));
+      if (newScale === oldScale) return;
+
+      const pointTo = {
+        x: (anchor.x - oldPos.x) / oldScale,
+        y: (anchor.y - oldPos.y) / oldScale,
+      };
+      const newPos = {
+        x: anchor.x - pointTo.x * newScale,
+        y: anchor.y - pointTo.y * newScale,
+      };
+
+      stageScaleRef.current = newScale;
+      stagePosRef.current = newPos;
+      setStageScale(newScale);
+      setStagePos(newPos);
+    },
+    []
+  );
+
+  const zoomByStep = useCallback(
+    (direction: 'in' | 'out') => {
+      const center = { x: canvasWidth / 2, y: canvasHeight / 2 };
+      const factor = direction === 'in' ? 1.25 : 1 / 1.25;
+      zoomAroundPoint(stageScaleRef.current * factor, center);
+    },
+    [canvasWidth, canvasHeight, zoomAroundPoint]
+  );
+
+  const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
+    e.evt.preventDefault();
+    const stage = stageRef.current;
+    if (!stage) return;
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return;
+    const scaleBy = 1.08;
+    const oldScale = stageScaleRef.current;
+    zoomAroundPoint(e.evt.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy, pointer);
+  }, [zoomAroundPoint]);
+
+  const handleResetView = useCallback(() => {
+    stageScaleRef.current = 1;
+    stagePosRef.current = { x: 0, y: 0 };
+    setStageScale(1);
+    setStagePos({ x: 0, y: 0 });
+  }, []);
+
+  // Get stage pointer position, converted through the current zoom/pan
+  // transform so calibration points stay anchored to the actual image pixel
+  // regardless of how far the user has zoomed in.
   const getPointerPos = useCallback((): Point | null => {
     const stage = stageRef.current;
     if (!stage) return null;
-    const pos = stage.getPointerPosition();
+    const pos = stage.getRelativePointerPosition();
     if (!pos) return null;
     return { x: pos.x, y: pos.y };
   }, []);
 
   const handleStageClick = useCallback(() => {
+    if (gestureConsumedRef.current) {
+      gestureConsumedRef.current = false;
+      return;
+    }
+    if (panMode) return;
     const pos = getPointerPos();
     if (!pos) return;
 
@@ -214,12 +330,74 @@ const WMScaleCalibration: React.FC<WMScaleCalibrationProps> = ({
       setPointB(null);
       setRealFeet(null);
     }
-  }, [pointA, pointB, getPointerPos]);
+  }, [pointA, pointB, panMode, getPointerPos]);
 
-  const handleStageMouseMove = useCallback(() => {
+  const handleStageMouseMove = useCallback((e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    // Two-finger gesture: pinch-zoom + pan
+    if (isTouchEvt(e.evt) && e.evt.touches.length >= 2) {
+      e.evt.preventDefault();
+      isPanningRef.current = false;
+      gestureConsumedRef.current = true;
+
+      const geo = getPinchGeometry(e.evt);
+      if (!geo) return;
+      const el = containerRef.current;
+      const rect = el?.getBoundingClientRect();
+      const center = rect
+        ? { x: geo.center.x - rect.left, y: geo.center.y - rect.top }
+        : geo.center;
+      const prev = pinchRef.current;
+      if (!prev || prev.dist === 0) {
+        pinchRef.current = { dist: geo.dist, center };
+        return;
+      }
+      const dx = center.x - prev.center.x;
+      const dy = center.y - prev.center.y;
+      if (dx || dy) {
+        const panned = { x: stagePosRef.current.x + dx, y: stagePosRef.current.y + dy };
+        stagePosRef.current = panned;
+        setStagePos(panned);
+      }
+      zoomAroundPoint(stageScaleRef.current * (geo.dist / prev.dist), center);
+      pinchRef.current = { dist: geo.dist, center };
+      return;
+    }
+
+    if (isPanningRef.current) {
+      const client = getClientPoint(e.evt);
+      if (!client) return;
+      if (isTouchEvt(e.evt)) e.evt.preventDefault();
+      const dx = client.x - lastPointerRef.current.x;
+      const dy = client.y - lastPointerRef.current.y;
+      lastPointerRef.current = client;
+      const next = { x: stagePosRef.current.x + dx, y: stagePosRef.current.y + dy };
+      stagePosRef.current = next;
+      setStagePos(next);
+      return;
+    }
+
     const pos = getPointerPos();
     if (pos) setHoverPoint(pos);
-  }, [getPointerPos]);
+  }, [getPointerPos, containerRef, zoomAroundPoint]);
+
+  const handleStageMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    const isMiddleClick = !isTouchEvt(e.evt) && e.evt.button === 1;
+    if (panMode || isMiddleClick) {
+      const client = getClientPoint(e.evt);
+      if (!client) return;
+      e.evt.preventDefault();
+      isPanningRef.current = true;
+      lastPointerRef.current = client;
+    }
+  }, [panMode]);
+
+  const handleStageMouseUp = useCallback(() => {
+    if (isPanningRef.current) {
+      isPanningRef.current = false;
+      gestureConsumedRef.current = true;
+    }
+    pinchRef.current = null;
+  }, []);
 
   const handleReset = useCallback(() => {
     setPointA(null);
@@ -280,6 +458,16 @@ const WMScaleCalibration: React.FC<WMScaleCalibrationProps> = ({
           </div>
         </div>
         <Space>
+          <Button
+            size="small"
+            type={panMode ? 'primary' : 'default'}
+            icon={<DragOutlined />}
+            onClick={() => setPanMode((v) => !v)}
+            style={panMode ? undefined : { color: '#fff', borderColor: 'rgba(255,255,255,0.5)' }}
+            ghost={!panMode}
+          >
+            Pan
+          </Button>
           {(pointA || pointB) && (
             <Button
               size="small"
@@ -312,17 +500,27 @@ const WMScaleCalibration: React.FC<WMScaleCalibrationProps> = ({
           ref={stageRef}
           width={canvasWidth}
           height={canvasHeight}
+          scaleX={stageScale}
+          scaleY={stageScale}
+          x={stagePos.x}
+          y={stagePos.y}
           onClick={handleStageClick}
           onMouseMove={handleStageMouseMove}
+          onMouseDown={handleStageMouseDown}
+          onMouseUp={handleStageMouseUp}
+          onWheel={handleWheel}
           // Konva dispatches `tap`, not `click`, for touch input — without
           // these the calibration points cannot be placed with a finger.
           onTap={handleStageClick}
           onTouchMove={handleStageMouseMove}
+          onTouchStart={handleStageMouseDown}
+          onTouchEnd={handleStageMouseUp}
           style={{
-            cursor: 'crosshair',
+            cursor: panMode ? 'grab' : 'crosshair',
             display: 'block',
-            // Let the two calibration taps through instead of letting the
-            // browser treat them as scroll/zoom gestures.
+            // Let taps/drags through instead of letting the browser treat
+            // them as scroll/zoom gestures — pinch-zoom and pan are handled
+            // manually so the calibration points stay precise.
             touchAction: 'none',
           }}
         >
@@ -458,6 +656,44 @@ const WMScaleCalibration: React.FC<WMScaleCalibrationProps> = ({
             )}
           </Layer>
         </Stage>
+
+        {/* Zoom controls — floating, bottom-right of canvas area */}
+        <Space
+          direction="vertical"
+          size={4}
+          style={{
+            position: 'absolute',
+            right: 12,
+            bottom: 12,
+            zIndex: 10,
+            background: 'rgba(255,255,255,0.9)',
+            borderRadius: 8,
+            padding: 4,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          }}
+        >
+          <Button size="small" icon={<ZoomInOutlined />} onClick={() => zoomByStep('in')} />
+          <Button size="small" icon={<ZoomOutOutlined />} onClick={() => zoomByStep('out')} />
+          <Button size="small" icon={<ExpandOutlined />} onClick={handleResetView} title="Reset zoom" />
+        </Space>
+
+        {/* Zoom level indicator */}
+        <div
+          style={{
+            position: 'absolute',
+            left: 12,
+            bottom: 12,
+            zIndex: 10,
+            background: 'rgba(0,0,0,0.6)',
+            color: '#fff',
+            fontSize: 11,
+            padding: '2px 8px',
+            borderRadius: 4,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {Math.round(stageScale * 100)}%
+        </div>
       </div>
 
       {/* Bottom panel — dimension input + apply */}
@@ -556,7 +792,7 @@ const WMScaleCalibration: React.FC<WMScaleCalibrationProps> = ({
           }}
         >
           <Alert
-            message="Tip: Click two ends of a wall or door with a known dimension (e.g. a standard 3ft door)."
+            message="Tip: Scroll/pinch to zoom in on the measurement numbers, use the Pan button (or middle-click drag) to move around, then click two ends of a known dimension."
             type="info"
             showIcon
             style={{ fontSize: 12, padding: '6px 12px' }}
