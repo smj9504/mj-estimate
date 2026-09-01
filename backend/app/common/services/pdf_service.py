@@ -17,6 +17,23 @@ from typing import Any, Dict, List, Optional
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 
+# ── Local disk cache for remote-storage photos used in report PDFs ──
+# storage_path is stable per uploaded photo (a re-uploaded/replaced photo
+# gets a new path), so caching by path alone is safe here — unlike the
+# sketch background image, these photos aren't cropped/re-uploaded in
+# place. Avoids re-downloading the same job's photos every time a report
+# is previewed or regenerated.
+import hashlib
+import tempfile as _tempfile
+_PHOTO_CACHE_DIR = Path(_tempfile.gettempdir()) / "mj_report_photo_cache"
+_PHOTO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _photo_cache_path(storage_provider: str, storage_path: str) -> Path:
+    key = hashlib.sha256(f"{storage_provider}:{storage_path}".encode("utf-8")).hexdigest()
+    return _PHOTO_CACHE_DIR / key
+
+
 # Month names constant to avoid Windows locale/encoding issues with strftime %B
 MONTH_NAMES = [
     "", "January", "February", "March", "April", "May", "June",
@@ -3639,10 +3656,22 @@ def generate_water_mitigation_report_pdf(
                 remote_pms.append(pm)
 
         def _download_photo(pm):
+            cache_path = _photo_cache_path(pm['storage_provider'], pm['storage_path'])
+            try:
+                if cache_path.exists():
+                    return pm, cache_path.read_bytes()
+            except Exception as e:
+                logger.warning(f"Failed to read cached photo, re-downloading: {e}")
+
             try:
                 from app.domains.storage.factory import StorageFactory
                 storage = StorageFactory.get_instance(pm['storage_provider'])
-                return pm, storage.download(pm['storage_path'])
+                photo_data = storage.download(pm['storage_path'])
+                try:
+                    cache_path.write_bytes(photo_data)
+                except Exception as e:
+                    logger.warning(f"Failed to cache downloaded photo: {e}")
+                return pm, photo_data
             except Exception as e:
                 logger.error(f"Failed to download photo: {e}")
                 return pm, None

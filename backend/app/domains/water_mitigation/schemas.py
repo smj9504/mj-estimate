@@ -404,6 +404,7 @@ class GenerateReportRequest(BaseModel):
     compress: bool = False  # Compress PDF (reduce image quality for smaller file size)
     template_variant: str = "a"  # Template variant: 'a' (default), 'b' (formal), 'c' (modern)
     show_photo_dates: bool = True  # Show the captured-date overlay on each photo
+    persist: bool = True  # Upload PDF to storage + upsert WMDocument. False for preview-only calls.
 
 
 class GenerateReportResponse(BaseModel):

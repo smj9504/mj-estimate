@@ -1272,12 +1272,19 @@ class WaterMitigationService:
         template_variant: str = "a",
         show_photo_dates: bool = True,
         commit: bool = True,
+        persist: bool = True,
     ) -> Dict[str, Any]:
         """Render the photo report PDF, upload it to storage, and upsert the
         WMDocument record so it shows up in the Documents tab and can be
         reused (e.g. as an email attachment) without regenerating.
 
+        Set persist=False for preview-only calls: the PDF is still rendered
+        and returned, but the storage upload + WMDocument upsert (and their
+        implicit commit) are skipped, since a preview isn't meant to leave
+        a lasting record until the user actually saves it.
+
         Returns dict with: pdf_bytes, filename, file_id, document_id.
+        file_id/document_id are None when persist=False.
         """
         import tempfile
         from pathlib import Path
@@ -1352,6 +1359,14 @@ class WaterMitigationService:
             pass
 
         logger.info(f"Report generated: {len(pdf_bytes)} bytes")
+
+        if not persist:
+            return {
+                "pdf_bytes": pdf_bytes,
+                "filename": filename,
+                "file_id": None,
+                "document_id": None,
+            }
 
         storage_info = upload_bytes_to_storage(
             file_bytes=pdf_bytes,

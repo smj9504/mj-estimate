@@ -3454,6 +3454,7 @@ async def generate_photo_report(
             compress=request.compress,
             template_variant=request.template_variant,
             show_photo_dates=request.show_photo_dates,
+            persist=request.persist,
         )
 
         # Return the PDF bytes directly for preview/download.
@@ -3476,7 +3477,7 @@ async def generate_photo_report(
             media_type="application/pdf",
             headers={
                 "Content-Disposition": content_disposition,
-                "X-File-Id": str(result["file_id"]),
+                "X-File-Id": str(result["file_id"]) if result["file_id"] else "",
                 "X-Config-Id": str(config_id) if config_id else ""
             }
         )

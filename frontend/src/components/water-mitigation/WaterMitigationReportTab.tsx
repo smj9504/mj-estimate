@@ -318,6 +318,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
         report_date: reportDate ? reportDate.format('YYYY-MM-DD') : undefined,
         template_variant: pdfTemplateVariant,
         show_photo_dates: showPhotoDates,
+        persist: false, // preview only — don't upload/save a Document for every preview
       };
 
       const blob = await waterMitigationService.report.generateReport(jobId, requestData);
