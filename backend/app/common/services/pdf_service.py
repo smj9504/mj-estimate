@@ -2969,7 +2969,7 @@ def generate_water_mitigation_report_pdf(
     import tempfile
     from datetime import datetime
 
-    from PIL import Image
+    from PIL import Image, ImageOps
     from pypdf import PdfReader, PdfWriter
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER, TA_LEFT
@@ -3837,6 +3837,16 @@ def generate_water_mitigation_report_pdf(
                     # original into memory before we downscale it).
                     if img.width > MAX_DECODE_SIZE or img.height > MAX_DECODE_SIZE:
                         img.draft('RGB', (MAX_DECODE_SIZE, MAX_DECODE_SIZE))
+                    # Apply EXIF orientation (phone/CompanyCam photos are
+                    # frequently stored with the sensor's raw landscape
+                    # buffer plus a rotate-90 EXIF tag). Without this,
+                    # width/height and the pixel data itself stay in the
+                    # unrotated orientation, producing a squashed/rotated
+                    # image once placed into the aspect-ratio-preserving
+                    # slot below.
+                    pre_transpose_size = img.size
+                    img = ImageOps.exif_transpose(img)
+                    was_transposed = img.size != pre_transpose_size
                     was_downscaled = False
                     if img.width > MAX_DECODE_SIZE or img.height > MAX_DECODE_SIZE:
                         img.thumbnail((MAX_DECODE_SIZE, MAX_DECODE_SIZE), Image.Resampling.LANCZOS)
@@ -3861,11 +3871,13 @@ def generate_water_mitigation_report_pdf(
                         compressed_temp.close()
                         actual_photo_path = compressed_temp.name
                         temp_files.append(compressed_temp.name)
-                    elif was_downscaled:
-                        # Not compressing, but the original exceeded the
-                        # decode-size cap — persist the downscaled version so
-                        # drawImage/reportlab doesn't re-read the huge
-                        # original file from disk.
+                    elif was_downscaled or was_transposed:
+                        # Not compressing, but either the original exceeded
+                        # the decode-size cap or its EXIF orientation
+                        # required rotating the pixel data — in both cases
+                        # the on-disk original no longer matches img_width/
+                        # img_height below, so persist the corrected version
+                        # instead of letting drawImage re-read the raw file.
                         downscale_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
                         save_img = img.convert('RGB') if img.mode in ('RGBA', 'P') else img
                         save_img.save(downscale_temp.name, format='JPEG', quality=IMAGE_QUALITY, optimize=True)
