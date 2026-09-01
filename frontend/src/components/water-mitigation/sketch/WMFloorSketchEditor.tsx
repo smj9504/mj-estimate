@@ -63,6 +63,7 @@ import {
   CloseOutlined,
   MenuUnfoldOutlined,
   MoreOutlined,
+  PictureOutlined,
 } from '@ant-design/icons';
 import { Stage, Layer } from 'react-konva';
 import type Konva from 'konva';
@@ -96,6 +97,7 @@ import {
 import wmSketchService from '../../../services/wmSketchService';
 import WMBackgroundImageLayer, { type ImageLoadStatus } from './canvas/WMBackgroundImageLayer';
 import WMOverlayLayer from './canvas/WMOverlayLayer';
+import WMReferencePhotoViewer from './WMReferencePhotoViewer';
 import { useWMSketchState } from './hooks/useWMSketchState';
 import { useWMCalculations } from './hooks/useWMCalculations';
 import { useWMSketchPersistence } from './hooks/useWMSketchPersistence';
@@ -141,6 +143,8 @@ export interface WMFloorSketchEditorProps {
   onScaleChanged?: (scalePixelsPerFoot: number) => void;
   onImportFromMagicPlan?: () => void;
   isMagicPlanImporting?: boolean;
+  /** Job ID — enables the optional floating reference-photo viewer (job photos, e.g. CompanyCam) */
+  jobId?: string;
 }
 
 // ============================================================================
@@ -558,8 +562,14 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   onScaleChanged,
   onImportFromMagicPlan,
   isMagicPlanImporting,
+  jobId,
 }) => {
   const { token } = theme.useToken();
+
+  // Floating reference-photo viewer — lets the user look at job photos
+  // (e.g. CompanyCam demolition shots) while drawing, without putting the
+  // photo into the sketch canvas itself.
+  const [showReferencePhotos, setShowReferencePhotos] = useState(false);
 
   // ------------------------------------------------------------------
   // Responsive layout
@@ -3214,6 +3224,29 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
               </div>
             </Space>
           </div>
+
+          {/* Reference photo viewer toggle — job photos shown in a floating
+              window, never drawn into the sketch canvas itself. Offset left
+              of the top-right corner so it never overlaps the touch-only
+              zoom/panels cluster rendered further down. */}
+          {jobId && (
+            <Tooltip title={showReferencePhotos ? 'Hide reference photos' : 'Show reference photos'} placement="left">
+              <Button
+                data-testid="wm-sketch-toggle-reference-photos"
+                aria-label="Toggle reference photos"
+                shape="circle"
+                size={useTouchUI ? 'large' : 'middle'}
+                type={showReferencePhotos ? 'primary' : 'default'}
+                icon={<PictureOutlined />}
+                onClick={() => setShowReferencePhotos((v) => !v)}
+                style={{ position: 'absolute', top: 8, right: useTouchUI ? 56 : 8, zIndex: 21 }}
+              />
+            </Tooltip>
+          )}
+
+          {jobId && showReferencePhotos && (
+            <WMReferencePhotoViewer jobId={jobId} onClose={() => setShowReferencePhotos(false)} />
+          )}
 
           <Stage
             ref={stageRef}

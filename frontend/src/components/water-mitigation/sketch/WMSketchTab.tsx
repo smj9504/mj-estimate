@@ -739,6 +739,7 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
             onScaleChanged={handleScaleChanged}
             onImportFromMagicPlan={handleOpenMagicPlanModal}
             isMagicPlanImporting={mpImporting}
+            jobId={jobId}
           />
         ) : (
           <div
