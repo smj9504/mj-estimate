@@ -51,7 +51,7 @@ class AdjusterEmailService:
                 .filter(
                     WMDocument.job_id == job_id,
                     WMDocument.is_active == True,
-                    WMDocument.document_type.in_(['report', 'photo_report']),
+                    WMDocument.document_type.in_(['report', 'photo_report', 'Photo Report']),
                 )
                 .order_by(WMDocument.created_at.desc())
                 .first()
@@ -869,7 +869,7 @@ class AdjusterEmailService:
                 .filter(
                     WMDocument.job_id == str(job.id),
                     WMDocument.is_active == True,
-                    WMDocument.document_type.in_(['report', 'photo_report']),
+                    WMDocument.document_type.in_(['report', 'photo_report', 'Photo Report']),
                 )
                 .order_by(WMDocument.created_at.desc())
                 .first()

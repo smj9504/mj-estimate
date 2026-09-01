@@ -174,6 +174,7 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
       'Sketch': { label: 'Sketch', color: 'cyan' },
       'Photo': { label: 'Photo', color: 'magenta' },
       'photo_report': { label: 'Photo Report', color: 'magenta' },
+      'Photo Report': { label: 'Photo Report', color: 'magenta' },
       'Other': { label: 'Other', color: 'default' },
       'annotated_pdf': { label: 'Annotated PDF', color: 'purple' },
     };
@@ -387,7 +388,7 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
                     checked={selectedIds.includes(doc.id)}
                     onChange={(e) => handleSelectOne(doc.id, e.target.checked)}
                   />
-                  {doc.document_type === 'Photo' || doc.document_type === 'photo_report' ? (
+                  {doc.document_type === 'Photo' || doc.document_type === 'photo_report' || doc.document_type === 'Photo Report' ? (
                     <FileImageOutlined style={{ fontSize: 32, color: '#eb2f96' }} />
                   ) : doc.document_type === 'Sketch' ? (
                     <FileOutlined style={{ fontSize: 32, color: '#13c2c2' }} />

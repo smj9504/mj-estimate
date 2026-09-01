@@ -2880,7 +2880,7 @@ async def upload_document(
     """
     try:
         # Validate document_type
-        valid_types = ['COS', 'EWA', 'Invoice', 'Sketch', 'Photo', 'Other']
+        valid_types = ['COS', 'EWA', 'Invoice', 'Sketch', 'Photo', 'Photo Report', 'Other']
         if document_type not in valid_types:
             raise HTTPException(
                 status_code=400,
@@ -2930,7 +2930,7 @@ async def bulk_upload_documents(
     For Invoice type, invoice_amount can be provided (applies to all).
     """
     try:
-        valid_types = ['COS', 'EWA', 'Invoice', 'Sketch', 'Photo', 'Other']
+        valid_types = ['COS', 'EWA', 'Invoice', 'Sketch', 'Photo', 'Photo Report', 'Other']
         if document_type not in valid_types:
             raise HTTPException(
                 status_code=400,

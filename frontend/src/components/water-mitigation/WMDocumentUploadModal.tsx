@@ -28,6 +28,7 @@ const UPLOAD_DOCUMENT_TYPES = [
   { value: 'Invoice', label: 'Invoice' },
   { value: 'Sketch', label: 'Sketch' },
   { value: 'Photo', label: 'Photo' },
+  { value: 'Photo Report', label: 'Photo Report' },
   { value: 'Other', label: 'Other' },
 ];
 
