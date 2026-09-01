@@ -1270,6 +1270,7 @@ class WaterMitigationService:
         report_date: Optional[str] = None,
         compress: bool = False,
         template_variant: str = "a",
+        show_photo_dates: bool = True,
         commit: bool = True,
     ) -> Dict[str, Any]:
         """Render the photo report PDF, upload it to storage, and upsert the
@@ -1341,6 +1342,7 @@ class WaterMitigationService:
             report_date=report_date,
             compress=compress,
             template_variant=template_variant,
+            show_photo_dates=show_photo_dates,
         )
 
         pdf_bytes = Path(temp_path).read_bytes()

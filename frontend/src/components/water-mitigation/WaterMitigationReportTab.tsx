@@ -150,6 +150,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [autoUpdatePhotoDates, setAutoUpdatePhotoDates] = useState(true);
+  const [showPhotoDates, setShowPhotoDates] = useState(true);
   // Default report date: mitigation end date + 1, fallback to today
   const [reportDate, setReportDate] = useState<dayjs.Dayjs | null>(
     mitigationEndDate ? dayjs(mitigationEndDate).add(1, 'day') : dayjs()
@@ -316,6 +317,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
         config_id: config.id,
         report_date: reportDate ? reportDate.format('YYYY-MM-DD') : undefined,
         template_variant: pdfTemplateVariant,
+        show_photo_dates: showPhotoDates,
       };
 
       const blob = await waterMitigationService.report.generateReport(jobId, requestData);
@@ -498,6 +500,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
         report_date: reportDate ? reportDate.format('YYYY-MM-DD') : undefined,
         compress: compress,
         template_variant: pdfTemplateVariant,
+        show_photo_dates: showPhotoDates,
       };
 
       const blob = await waterMitigationService.report.generateReport(jobId, requestData);
@@ -838,6 +841,16 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                       disabled={!mitigationStartDate || !mitigationEndDate}
                     >
                       Update Photo Dates
+                    </Checkbox>
+                  ),
+                },
+                {
+                  key: 'showPhotoDates', label: (
+                    <Checkbox
+                      checked={showPhotoDates}
+                      onChange={(e) => setShowPhotoDates(e.target.checked)}
+                    >
+                      Show Date on Photos
                     </Checkbox>
                   ),
                 },

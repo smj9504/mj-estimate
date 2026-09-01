@@ -2934,6 +2934,7 @@ def generate_water_mitigation_report_pdf(
     report_date: Optional[str] = None,
     compress: bool = False,
     template_variant: str = "a",
+    show_photo_dates: bool = True,
 ) -> str:
     """
     Generate professional Water Mitigation photo report PDF using ReportLab
@@ -2952,6 +2953,8 @@ def generate_water_mitigation_report_pdf(
         company_data: Company information (name, logo, etc.) - if not provided, will use job.company
         report_date: Custom report date in ISO format (YYYY-MM-DD). If not provided, uses current date.
         compress: If True, compress images for smaller file size (quality=50, max 1200px)
+        show_photo_dates: If False, suppresses the captured-date overlay on every photo,
+            overriding each photo's individual show_date setting.
 
     Returns:
         Path to the generated PDF
@@ -3598,7 +3601,7 @@ def generate_water_mitigation_report_pdf(
                 'storage_provider': photo_storage,
                 'caption': photo_meta.get('caption', ''),
                 'captured_date': photo.get('captured_date'),
-                'show_date': photo_meta.get('show_date', True),
+                'show_date': show_photo_dates and photo_meta.get('show_date', True),
             })
 
         if not section_photos:

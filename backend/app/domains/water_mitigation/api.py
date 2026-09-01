@@ -3453,6 +3453,7 @@ async def generate_photo_report(
             report_date=request.report_date,
             compress=request.compress,
             template_variant=request.template_variant,
+            show_photo_dates=request.show_photo_dates,
         )
 
         # Return the PDF bytes directly for preview/download.

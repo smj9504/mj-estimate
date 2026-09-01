@@ -172,7 +172,7 @@ const FileCardItem = memo<FileCardItemProps>(({
         }
       }}
       cover={
-        <div style={{ position: 'relative', width: '100%', aspectRatio: '1', overflow: 'hidden', background: '#f5f5f5' }}>
+        <div style={{ position: 'relative', width: '100%', aspectRatio: '3 / 4', overflow: 'hidden', background: '#f5f5f5' }}>
           {isImage ? (
             <>
               <LazyImage
@@ -506,7 +506,7 @@ const FileGrid: React.FC<FileGridProps> = ({
 
       .file-image {
         width: 100%;
-        aspect-ratio: 1;
+        aspect-ratio: 3 / 4;
         object-fit: cover;
         cursor: pointer;
       }
@@ -555,7 +555,7 @@ const FileGrid: React.FC<FileGridProps> = ({
 
       .file-document-icon {
         width: 100%;
-        aspect-ratio: 1;
+        aspect-ratio: 3 / 4;
         display: flex;
         align-items: center;
         justify-content: center;

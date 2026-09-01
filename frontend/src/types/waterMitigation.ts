@@ -340,6 +340,7 @@ export interface GenerateReportRequest {
   compress?: boolean;  // Compress PDF (reduce image quality for smaller file size)
   report_date?: string;  // Custom report date (ISO format: YYYY-MM-DD)
   template_variant?: string;  // Template variant: 'a' (default), 'b' (formal), 'c' (modern)
+  show_photo_dates?: boolean;  // Show the captured-date overlay on each photo
 }
 
 export interface GenerateReportResponse {
