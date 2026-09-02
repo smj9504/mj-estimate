@@ -196,14 +196,22 @@ const WMLegendOverlay: React.FC<WMLegendOverlayProps> = ({
     <div
       style={{
         position: 'absolute',
+        // Anchored between the top and bottom of the canvas container (not
+        // just `bottom: 8`) so its own max-height below can be expressed as
+        // a real available-space percentage instead of a guessed pixel cap
+        // — on a short viewport (laptop chrome eating vertical space) the
+        // legend now shrinks with the canvas instead of dominating it.
+        top: 8,
         bottom: 8,
         right: 8,
         zIndex: 20,
-        pointerEvents: 'auto',
+        pointerEvents: 'none',
         display: 'flex',
         flexDirection: 'column',
+        justifyContent: 'flex-end',
         alignItems: 'flex-end',
         gap: 4,
+        overflow: 'hidden',
       }}
     >
       {/* Toggle button */}
@@ -219,13 +227,19 @@ const WMLegendOverlay: React.FC<WMLegendOverlayProps> = ({
           color: '#595959',
           lineHeight: '18px',
           boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+          pointerEvents: 'auto',
+          flexShrink: 0,
         }}
         title={visible ? 'Hide legend' : 'Show legend'}
       >
         {visible ? 'Hide Legend' : 'Show Legend'}
       </button>
 
-      {/* Legend box */}
+      {/* Legend box — capped to the remaining space in this wrapper (which
+          spans the canvas container's full height) with its own scroll, so
+          a long legend never grows taller than the canvas itself and
+          dominates a short viewport (laptop browser chrome eating vertical
+          space, in particular). */}
       {visible && (
         <div
           style={{
@@ -234,8 +248,15 @@ const WMLegendOverlay: React.FC<WMLegendOverlayProps> = ({
             borderRadius: 6,
             padding: '8px 12px',
             minWidth: 160,
+            maxWidth: 220,
+            flexShrink: 1,
+            minHeight: 0,
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
             boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
             backdropFilter: 'blur(4px)',
+            pointerEvents: 'auto',
           }}
         >
           <div
@@ -247,12 +268,13 @@ const WMLegendOverlay: React.FC<WMLegendOverlayProps> = ({
               borderBottom: '1px solid #e8e8e8',
               paddingBottom: 4,
               fontFamily: "'Inter', 'Segoe UI', sans-serif",
+              flexShrink: 0,
             }}
           >
             Legend
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, overflowY: 'auto', minHeight: 0 }}>
             {rows.map((row, i) => (
               <div
                 key={i}
