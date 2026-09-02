@@ -46,6 +46,7 @@ from .schemas import (
     JobStatusUpdate,
     JobUpdate,
     PhotoListResponse,
+    PhotoLocationUpdate,
     ReportConfigCreate,
     ReportConfigResponse,
     ReportConfigUpdate,
@@ -422,6 +423,8 @@ async def list_photos(
     category_filter: Optional[str] = None,
     uncategorized_only: bool = False,
     source_filter: Optional[str] = None,
+    level_filter: Optional[str] = None,
+    room_filter: Optional[str] = None,
     page: int = 1,
     page_size: int = 50,
     skip: Optional[int] = None,
@@ -436,6 +439,8 @@ async def list_photos(
         category_filter: Comma-separated list of categories to filter by (OR logic)
         uncategorized_only: If True, only return photos without category
         source_filter: Filter by source (companycam, magicplan, manual_upload)
+        level_filter: Comma-separated list of location levels to filter by (OR logic)
+        room_filter: Comma-separated list of location rooms to filter by (OR logic)
         page: Page number (1-indexed)
         page_size: Number of items per page (default: 50, max: 200)
         skip: Explicit offset override. Required when callers use a variable
@@ -453,7 +458,7 @@ async def list_photos(
         list_photos._cache = {}
         list_photos._cache_ts = {}
 
-    cache_key = f"{job_id}:{page}:{page_size}:{skip}:{sort_by}:{sort_order}:{category_filter}:{uncategorized_only}:{source_filter}"
+    cache_key = f"{job_id}:{page}:{page_size}:{skip}:{sort_by}:{sort_order}:{category_filter}:{uncategorized_only}:{source_filter}:{level_filter}:{room_filter}"
     cached = list_photos._cache.get(cache_key)
     cached_ts = list_photos._cache_ts.get(cache_key, 0)
     if cached and (_time.time() - cached_ts) < 30:
@@ -472,6 +477,19 @@ async def list_photos(
         if not categories:
             categories = None
 
+    # Parse location filters
+    levels = None
+    if level_filter:
+        levels = [lvl.strip() for lvl in level_filter.split(',') if lvl.strip()]
+        if not levels:
+            levels = None
+
+    rooms = None
+    if room_filter:
+        rooms = [r.strip() for r in room_filter.split(',') if r.strip()]
+        if not rooms:
+            rooms = None
+
     # Get paginated photos with filters applied at database level (more efficient)
     photos, total = service.photo_repo.find_by_job_paginated(
         job_id=job_id,
@@ -482,7 +500,9 @@ async def list_photos(
         sort_order=sort_order,
         category_filter=categories,
         uncategorized_only=uncategorized_only,
-        source_filter=source_filter
+        source_filter=source_filter,
+        level_filter=levels,
+        room_filter=rooms
     )
 
     # Calculate total pages (handle None total for performance optimization)
@@ -1572,6 +1592,105 @@ def bulk_set_categories(
         db.rollback()
         logger.error(f"Failed to bulk set categories: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/photos/{photo_id}/location")
+def update_photo_location(
+    photo_id: UUID,
+    body: PhotoLocationUpdate,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """Update a photo's location tag (level + room).
+
+    Either field may be omitted/None to clear it; fields not present in
+    the request body are left unchanged.
+    """
+    try:
+        photo = service.photo_repo.get_by_id(str(photo_id))
+        if not photo:
+            raise HTTPException(status_code=404, detail="Photo not found")
+
+        update_data = body.model_dump(exclude_unset=True)
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No fields provided")
+
+        updated = service.photo_repo.update(str(photo_id), update_data)
+
+        db.commit()
+        _invalidate_photo_list_cache()
+
+        return service.photo_repo._convert_to_dict(updated)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to update photo location: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BulkSetLocationsRequest(BaseModel):
+    """Set individual location tags for multiple photos at once"""
+    updates: List[Dict[str, str]]  # [{"photo_id": "...", "location_level": "...", "location_room": "..."}]
+
+
+@router.post("/photos/bulk-set-locations")
+def bulk_set_locations(
+    request: BulkSetLocationsRequest,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """
+    Set individual location tags for multiple photos in a single request.
+    Each item has its own photo_id and level/room (either may be omitted).
+    """
+    try:
+        applied = 0
+        failed = 0
+        for item in request.updates:
+            photo_id = item.get("photo_id")
+            if not photo_id:
+                failed += 1
+                continue
+            update_data = {}
+            if "location_level" in item:
+                update_data["location_level"] = item.get("location_level") or None
+            if "location_room" in item:
+                update_data["location_room"] = item.get("location_room") or None
+            if not update_data:
+                failed += 1
+                continue
+            updated = service.photo_repo.update(photo_id, update_data)
+            if updated:
+                applied += 1
+            else:
+                failed += 1
+
+        db.commit()
+        _invalidate_photo_list_cache()
+
+        return {
+            "applied": applied,
+            "failed": failed,
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to bulk set locations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/jobs/{job_id}/photos/location-suggestions")
+def get_photo_location_suggestions(
+    job_id: UUID,
+    service: WaterMitigationService = Depends(get_wm_service)
+):
+    """Distinct room-name tags previously used on this job's photos, for autocomplete.
+
+    Level suggestions aren't served here - the frontend sources those from
+    the job's floor sketches (WMFloorSketch.floor_label) directly.
+    """
+    rooms = service.photo_repo.get_distinct_rooms_for_job(job_id)
+    return {"rooms": rooms}
 
 
 @router.get("/photos/duplicates")
@@ -3454,6 +3573,7 @@ async def generate_photo_report(
             compress=request.compress,
             template_variant=request.template_variant,
             show_photo_dates=request.show_photo_dates,
+            show_photo_locations=request.show_photo_locations,
             persist=request.persist,
         )
 

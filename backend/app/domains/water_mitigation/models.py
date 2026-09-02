@@ -199,6 +199,7 @@ class WMPhoto(Base, BaseModel):
         Index('ix_wm_photos_job_trashed', 'job_id', 'is_trashed'),
         Index('ix_wm_photos_category', 'category'),
         Index('ix_wm_photos_captured_date', 'captured_date'),
+        Index('ix_wm_photos_location_level', 'location_level'),
         {'extend_existing': True}
     )
 
@@ -226,6 +227,13 @@ class WMPhoto(Base, BaseModel):
     description = Column(Text)
     captured_date = Column(DateTime(timezone=True))
     category = Column(String(100), default='')  # Photo category - empty by default
+
+    # Location tag - which floor/room the photo was taken in.
+    # Free text, not FK'd to WMFloorSketch: location_level is sourced from
+    # (but not enforced against) that job's WMFloorSketch.floor_label values,
+    # so a later floor rename/delete doesn't cascade or orphan tagged photos.
+    location_level = Column(String(100), nullable=True)  # e.g. "Basement", "1st Floor"
+    location_room = Column(String(100), nullable=True)  # e.g. "Kitchen", "Master Bedroom"
 
     upload_status = Column(String(50), default='completed')
     uploaded_by_id = Column(UUIDType(), ForeignKey("staff.id"))

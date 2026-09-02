@@ -79,6 +79,8 @@ interface Photo {
   description?: string;
   thumbnail_url?: string;  // CompanyCam CDN thumbnail URL (fast)
   preview_url?: string;    // Preview URL from API
+  location_level?: string;
+  location_room?: string;
 }
 
 // Helper function to format date for display
@@ -151,6 +153,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [autoUpdatePhotoDates, setAutoUpdatePhotoDates] = useState(true);
   const [showPhotoDates, setShowPhotoDates] = useState(true);
+  const [showPhotoLocations, setShowPhotoLocations] = useState(true);
   // Default report date: mitigation end date + 1, fallback to today
   const [reportDate, setReportDate] = useState<dayjs.Dayjs | null>(
     mitigationEndDate ? dayjs(mitigationEndDate).add(1, 'day') : dayjs()
@@ -318,6 +321,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
         report_date: reportDate ? reportDate.format('YYYY-MM-DD') : undefined,
         template_variant: pdfTemplateVariant,
         show_photo_dates: showPhotoDates,
+        show_photo_locations: showPhotoLocations,
         persist: false, // preview only — don't upload/save a Document for every preview
       };
 
@@ -490,6 +494,18 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     }
   };
 
+  // Report-only override of a photo's location tag — purely local state,
+  // no API call. It's stored inline in the report config's `sections`
+  // (saved whenever the config itself is saved), same as caption/show_date.
+  const handlePhotoLocationOverrideChange = (photoId: string, value: string) => {
+    setSections(sections.map(s => ({
+      ...s,
+      photos: s.photos.map(p =>
+        p.photo_id === photoId ? { ...p, location_override: value || undefined } : p
+      ),
+    })));
+  };
+
   const handleDownloadPdf = async (compress: boolean = false) => {
     if (!config?.id) return;
 
@@ -502,6 +518,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
         compress: compress,
         template_variant: pdfTemplateVariant,
         show_photo_dates: showPhotoDates,
+        show_photo_locations: showPhotoLocations,
       };
 
       const blob = await waterMitigationService.report.generateReport(jobId, requestData);
@@ -733,7 +750,8 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
             photo_id: photo.id,
             caption: photo.caption || '',
             show_date: true,
-            show_description: true
+            show_description: true,
+            show_location: true
           };
           bestSection.photos.push(photoMeta);
           totalAssigned++;
@@ -852,6 +870,16 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                       onChange={(e) => setShowPhotoDates(e.target.checked)}
                     >
                       Show Date on Photos
+                    </Checkbox>
+                  ),
+                },
+                {
+                  key: 'showPhotoLocations', label: (
+                    <Checkbox
+                      checked={showPhotoLocations}
+                      onChange={(e) => setShowPhotoLocations(e.target.checked)}
+                    >
+                      Show Location on Photos
                     </Checkbox>
                   ),
                 },
@@ -1164,6 +1192,18 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                                   </Select.Option>
                                 ))}
                               </Select>
+                              <Input
+                                size="small"
+                                key={photoMeta.photo_id}
+                                defaultValue={photoMeta.location_override ?? ''}
+                                placeholder={
+                                  [photo.location_level, photo.location_room].filter(Boolean).join(' – ')
+                                  || 'Location override'
+                                }
+                                onBlur={(e) => handlePhotoLocationOverrideChange(photoMeta.photo_id, e.target.value)}
+                                style={{ width: '100%', fontSize: 10, marginBottom: 4 }}
+                                onClick={(e) => e.stopPropagation()}
+                              />
                               {photo.taken_date && (
                                 <div style={{ color: '#8c8c8c', fontSize: 10 }}>
                                   {new Date(photo.taken_date).toLocaleDateString()}

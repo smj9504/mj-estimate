@@ -10,7 +10,7 @@
  *   <WMReferencePhotoViewer jobId={jobId} onClose={() => setShowPhotos(false)} />
  */
 
-import React, { useState, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { Spin, Empty, Select, Typography, Tooltip } from 'antd';
 import {
   CloseOutlined,
@@ -20,6 +20,7 @@ import {
   DragOutlined,
 } from '@ant-design/icons';
 import { useWaterMitigationPhotos, type WMPhoto } from '../../../hooks/useWaterMitigationPhotos';
+import wmSketchService from '../../../services/wmSketchService';
 
 const { Text } = Typography;
 
@@ -43,10 +44,40 @@ const WMReferencePhotoViewer: React.FC<WMReferencePhotoViewerProps> = ({ jobId, 
   }, [photos]);
 
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>(undefined);
-  const filteredPhotos = useMemo(
-    () => (categoryFilter ? photos.filter((p) => p.category === categoryFilter) : photos),
-    [photos, categoryFilter]
-  );
+
+  // Level list sourced from the job's floor sketches, so it always matches
+  // the same floor names used when sketching (not an independent list).
+  const [levelOptions, setLevelOptions] = useState<string[]>([]);
+  useEffect(() => {
+    wmSketchService.getFloorSketches(jobId)
+      .then((floors) => {
+        const sorted = [...floors].sort((a, b) => a.floor_order - b.floor_order);
+        setLevelOptions(sorted.map((f) => f.floor_label));
+      })
+      .catch(() => {});
+  }, [jobId]);
+
+  const [levelFilter, setLevelFilter] = useState<string | undefined>(undefined);
+  const [roomFilter, setRoomFilter] = useState<string | undefined>(undefined);
+
+  // Room options are scoped to the currently-selected level (progressive
+  // disclosure - narrows as the user picks a level first).
+  const roomOptions = useMemo(() => {
+    const scoped = levelFilter
+      ? photos.filter((p) => p.location_level === levelFilter)
+      : photos;
+    const set = new Set<string>();
+    scoped.forEach((p) => { if (p.location_room) set.add(p.location_room); });
+    return Array.from(set).sort();
+  }, [photos, levelFilter]);
+
+  const filteredPhotos = useMemo(() => {
+    let result = photos;
+    if (categoryFilter) result = result.filter((p) => p.category === categoryFilter);
+    if (levelFilter) result = result.filter((p) => p.location_level === levelFilter);
+    if (roomFilter) result = result.filter((p) => p.location_room === roomFilter);
+    return result;
+  }, [photos, categoryFilter, levelFilter, roomFilter]);
 
   const [activeIndex, setActiveIndex] = useState(0);
   const activePhoto: WMPhoto | undefined = filteredPhotos[activeIndex];
@@ -151,6 +182,32 @@ const WMReferencePhotoViewer: React.FC<WMReferencePhotoViewerProps> = ({ jobId, 
         <Text style={{ color: '#fff', fontSize: 12, fontWeight: 600, flex: 1 }}>
           Reference Photos {filteredPhotos.length > 0 ? `(${activeIndex + 1}/${filteredPhotos.length})` : ''}
         </Text>
+        {levelOptions.length > 0 && (
+          <div onPointerDown={(e) => e.stopPropagation()}>
+            <Select
+              size="small"
+              value={levelFilter}
+              onChange={(v) => { setLevelFilter(v); setRoomFilter(undefined); setActiveIndex(0); }}
+              placeholder="Level"
+              allowClear
+              style={{ width: 70 }}
+              options={levelOptions.map((lvl) => ({ value: lvl, label: lvl }))}
+            />
+          </div>
+        )}
+        {levelFilter && roomOptions.length > 0 && (
+          <div onPointerDown={(e) => e.stopPropagation()}>
+            <Select
+              size="small"
+              value={roomFilter}
+              onChange={(v) => { setRoomFilter(v); setActiveIndex(0); }}
+              placeholder="Room"
+              allowClear
+              style={{ width: 70 }}
+              options={roomOptions.map((r) => ({ value: r, label: r }))}
+            />
+          </div>
+        )}
         {categories.length > 0 && (
           <div onPointerDown={(e) => e.stopPropagation()}>
             <Select
@@ -159,7 +216,7 @@ const WMReferencePhotoViewer: React.FC<WMReferencePhotoViewerProps> = ({ jobId, 
               onChange={(v) => { setCategoryFilter(v); setActiveIndex(0); }}
               placeholder="All"
               allowClear
-              style={{ width: 100 }}
+              style={{ width: 80 }}
               options={categories.map((c) => ({ value: c, label: c }))}
             />
           </div>

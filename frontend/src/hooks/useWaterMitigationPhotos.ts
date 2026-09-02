@@ -16,6 +16,8 @@ export interface WMPhoto {
   description?: string;
   thumbnail_url?: string;  // CompanyCam CDN thumbnail URL (fast)
   preview_url?: string;    // Preview URL from API
+  location_level?: string;  // Location tag: floor/level (e.g. "Basement", "1st Floor")
+  location_room?: string;   // Location tag: room name (e.g. "Kitchen")
 }
 
 interface UseWaterMitigationPhotosOptions {
@@ -41,6 +43,8 @@ const mapPhotoResponse = (photo: any, baseURL: string): WMPhoto => ({
   // Prepend baseURL for relative paths (production: backend on different domain)
   thumbnail_url: resolveUrl(photo.thumbnail_url || photo.storage_thumbnail_url, baseURL),
   preview_url: resolveUrl(photo.preview_url, baseURL),
+  location_level: photo.location_level,
+  location_room: photo.location_room,
 });
 
 export const useWaterMitigationPhotos = (

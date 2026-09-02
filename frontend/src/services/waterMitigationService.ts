@@ -401,6 +401,29 @@ export const waterMitigationService = {
       return response.data;
     },
 
+    // Update a photo's location tag (level + room). Pass undefined to leave a field unchanged.
+    updateLocation: async (photoId: string, locationLevel?: string, locationRoom?: string): Promise<any> => {
+      const response = await api.patch(`${BASE_URL}/photos/${photoId}/location`, {
+        location_level: locationLevel,
+        location_room: locationRoom,
+      });
+      return response.data;
+    },
+
+    // Bulk set individual location tags for multiple photos (single request)
+    bulkSetLocations: async (
+      updates: { photo_id: string; location_level?: string; location_room?: string }[]
+    ): Promise<{ applied: number; failed: number }> => {
+      const response = await api.post(`${BASE_URL}/photos/bulk-set-locations`, { updates });
+      return response.data;
+    },
+
+    // Distinct room-name tags previously used on this job's photos, for autocomplete
+    getLocationSuggestions: async (jobId: string): Promise<{ rooms: string[] }> => {
+      const response = await api.get(`${BASE_URL}/jobs/${jobId}/photos/location-suggestions`);
+      return response.data;
+    },
+
     // Bulk update photo dates (preserves time, only changes date)
     bulkUpdateDate: async (photoIds: string[], newDate: string): Promise<any> => {
       const response = await api.post(`${BASE_URL}/photos/bulk-update-date`, {

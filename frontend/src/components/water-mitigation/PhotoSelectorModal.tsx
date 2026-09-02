@@ -152,7 +152,8 @@ const PhotoSelectorModal: React.FC<PhotoSelectorModalProps> = ({
         photo_id: photoId,
         caption: photos.find(p => p.id === photoId)?.caption,
         show_date: true,
-        show_description: true
+        show_description: true,
+        show_location: true
       };
     });
     onOk(selectedPhotoMetadata);

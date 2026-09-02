@@ -298,6 +298,8 @@ export interface PhotoMetadata {
   caption?: string;
   show_date: boolean;
   show_description: boolean;
+  location_override?: string;  // Report-only override of the photo's own location tag. Undefined = use the photo's own tag.
+  show_location: boolean;      // Default true — per-photo toggle mirroring show_date
 }
 
 export interface ReportSection {
@@ -341,6 +343,7 @@ export interface GenerateReportRequest {
   report_date?: string;  // Custom report date (ISO format: YYYY-MM-DD)
   template_variant?: string;  // Template variant: 'a' (default), 'b' (formal), 'c' (modern)
   show_photo_dates?: boolean;  // Show the captured-date overlay on each photo
+  show_photo_locations?: boolean;  // Show the level/room location tag in each photo's caption
   persist?: boolean;  // Upload PDF to storage + save as a Document. Default true; set false for preview-only calls.
 }
 

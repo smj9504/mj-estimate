@@ -290,8 +290,18 @@ class PhotoResponse(BaseModel):
     # MagicPlan metadata (floor, room info)
     magicplan_metadata: Optional[Dict[str, Any]] = None
 
+    # Location tag (user-editable, independent of magicplan_metadata)
+    location_level: Optional[str] = None
+    location_room: Optional[str] = None
+
     class Config:
         from_attributes = True
+
+
+class PhotoLocationUpdate(BaseModel):
+    """Update a photo's location tag (level + room)"""
+    location_level: Optional[str] = None
+    location_room: Optional[str] = None
 
 
 class PhotoListResponse(BaseModel):
@@ -345,6 +355,10 @@ class PhotoMetadata(BaseModel):
     caption: Optional[str] = None
     show_date: bool = True
     show_description: bool = True
+    # Report-only override of the photo's own location_level/location_room tag.
+    # None/omitted means "use the photo's own tag".
+    location_override: Optional[str] = None
+    show_location: bool = True
 
     class Config:
         from_attributes = True
@@ -404,6 +418,7 @@ class GenerateReportRequest(BaseModel):
     compress: bool = False  # Compress PDF (reduce image quality for smaller file size)
     template_variant: str = "a"  # Template variant: 'a' (default), 'b' (formal), 'c' (modern)
     show_photo_dates: bool = True  # Show the captured-date overlay on each photo
+    show_photo_locations: bool = True  # Show the level/room location tag in each photo's caption
     persist: bool = True  # Upload PDF to storage + upsert WMDocument. False for preview-only calls.
 
 

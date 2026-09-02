@@ -1271,6 +1271,7 @@ class WaterMitigationService:
         compress: bool = False,
         template_variant: str = "a",
         show_photo_dates: bool = True,
+        show_photo_locations: bool = True,
         commit: bool = True,
         persist: bool = True,
     ) -> Dict[str, Any]:
@@ -1350,6 +1351,7 @@ class WaterMitigationService:
             compress=compress,
             template_variant=template_variant,
             show_photo_dates=show_photo_dates,
+            show_photo_locations=show_photo_locations,
         )
 
         pdf_bytes = Path(temp_path).read_bytes()

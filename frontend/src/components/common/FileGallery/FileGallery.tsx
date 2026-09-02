@@ -58,7 +58,8 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   className,
   onUpload,
   onDelete,
-  onFileClick
+  onFileClick,
+  renderCardExtraAction
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>(defaultViewMode);
   const [selectedCategory, setSelectedCategory] = useState<string | string[]>(defaultCategory);
@@ -716,7 +717,8 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       fileCategory,
       showImagePreview,
       showDocumentDetails,
-      context
+      context,
+      renderCardExtraAction
     };
 
     // FileList-specific props
@@ -873,7 +875,8 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       fileCategory,
       showImagePreview,
       showDocumentDetails,
-      context
+      context,
+      renderCardExtraAction
     };
 
     let content;
