@@ -3,6 +3,7 @@ Invoice domain service with comprehensive business logic and validation.
 """
 
 import logging
+from copy import deepcopy
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -235,6 +236,58 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
         
         return self.execute_in_transaction(_update_operation, invoice_id, validated_data)
     
+    def duplicate(self, invoice_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Duplicate an existing invoice, including its items.
+
+        Args:
+            invoice_id: ID of the invoice to duplicate
+
+        Returns:
+            Newly created invoice dictionary with items, or None if the
+            source invoice does not exist
+        """
+        try:
+            original = self.get_with_items(invoice_id)
+            if not original:
+                return None
+
+            invoice_data = deepcopy(original)
+
+            # Remove identity/system fields so a new record is created
+            for field in ['id', 'created_at', 'updated_at', 'invoice_number']:
+                invoice_data.pop(field, None)
+
+            # Remove derived fields injected by get_with_items() that are not
+            # columns on the Invoice model (they come from a company join)
+            for field in [
+                'company_name', 'company_address', 'company_city',
+                'company_state', 'company_zip', 'company_phone',
+                'company_email', 'company_logo',
+            ]:
+                invoice_data.pop(field, None)
+
+            # Reset document-specific state for the copy
+            # (create_with_items() recalculates totals and balance_due)
+            invoice_data['invoice_number'] = self._generate_invoice_number()
+            invoice_data['status'] = 'draft'
+            invoice_data['payments'] = []
+            invoice_data['has_receipt'] = False
+            invoice_data['receipt_number'] = None
+            invoice_data['receipt_generated_at'] = None
+
+            # Strip item identity fields; create_with_items() maps items via
+            # an explicit field whitelist, so extra keys are harmless, but
+            # dropping them avoids any accidental reuse of the old item IDs
+            for item in invoice_data.get('items', []):
+                for field in ['id', 'invoice_id', 'created_at', 'updated_at']:
+                    item.pop(field, None)
+
+            return self.create_with_items(invoice_data)
+        except Exception as e:
+            logger.error(f"Error duplicating invoice {invoice_id}: {e}")
+            raise
+
     def mark_as_paid(self, invoice_id: str, payment_date: datetime = None) -> Optional[Dict[str, Any]]:
         """
         Mark invoice as paid.
