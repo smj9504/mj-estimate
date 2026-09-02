@@ -143,9 +143,14 @@ def _format_date_en(dt: datetime) -> str:
 # EWA Template Configuration
 # Coordinates are in points (1/72 inch) from bottom-left corner
 # Letter size: 612 x 792 points
-# Project root is backend/app/common/services -> ../../../../.. -> mj-react-app
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
-EWA_TEMPLATES_DIR = PROJECT_ROOT / "reference" / "ewa_templates"
+# Templates live under backend/reference/ (not the repo root's reference/)
+# so they're included in the Docker build context - render.yaml sets
+# `dockerContext: ./backend`, so anything outside backend/ never reaches
+# the production image and this path would silently resolve to nothing
+# there even though it works fine in a local checkout of the full repo.
+# backend/app/common/services -> ../../../.. -> backend
+BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+EWA_TEMPLATES_DIR = BACKEND_ROOT / "reference" / "ewa_templates"
 
 # Company-specific EWA template configurations
 # Each company can have different template PDF and field positions
