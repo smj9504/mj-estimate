@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from sqlalchemy import and_, desc, func, or_, text
+from sqlalchemy.exc import DataError, ProgrammingError
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database_factory import get_database
@@ -111,13 +112,36 @@ class XactLineItemRepository:
         q = q.filter(XactLineItem.embedding.isnot(None))
         # pgvector cosine distance: <=> operator
         q = q.order_by(XactLineItem.embedding.cosine_distance(embedding))
-        return q.limit(limit).all()
+        try:
+            return q.limit(limit).all()
+        except (ProgrammingError, DataError):
+            # The column is still jsonb (migration xv20260904vec01 not applied
+            # yet), so `<=>` does not exist. Callers treat an empty result as
+            # "no vector hits" and fall back to text search, which is far
+            # better than a 500 from a half-migrated database.
+            self.session.rollback()
+            logger.warning(
+                "vector_search unavailable (embedding column is not vector); "
+                "returning empty so callers fall back to text search"
+            )
+            return []
 
     def get_items_without_embedding(self, category: Optional[str] = None, limit: int = 500) -> List[XactLineItem]:
         q = self.session.query(XactLineItem).filter(
             XactLineItem.is_active == True,
-            XactLineItem.embedding.is_(None),
         )
+        if PGVECTOR_AVAILABLE:
+            q = q.filter(XactLineItem.embedding.is_(None))
+        else:
+            # On a pre-migration jsonb column every row holds JSON `null`,
+            # which is NOT SQL NULL - is_(None) matches nothing and the sync
+            # would report "all items already embedded" while embedding none.
+            q = q.filter(
+                or_(
+                    XactLineItem.embedding.is_(None),
+                    func.jsonb_typeof(XactLineItem.embedding) == "null",
+                )
+            )
         if category:
             q = q.filter(XactLineItem.category == category)
         return q.limit(limit).all()
