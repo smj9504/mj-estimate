@@ -16,9 +16,16 @@ WORKDIR /app
 # ghostscript gives the email attachment compressor its best path; without it
 # the code falls back to downsampling images with PyMuPDF (as it must on
 # Render, whose Python runtime can't install system packages).
+# tesseract-ocr + poppler-utils back the scanned-PDF OCR fallback
+# (ocr_fallback_extractor.py, xactimate_reference_parser.py). Both import
+# pytesseract/pdf2image inside try/except, so without these binaries OCR
+# silently returns empty text instead of raising - the pip packages alone
+# are not enough.
 RUN apt-get update && apt-get install -y \
     gcc \
     ghostscript \
+    tesseract-ocr \
+    poppler-utils \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
     libgdk-pixbuf2.0-0 \
