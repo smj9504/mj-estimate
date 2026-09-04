@@ -17,6 +17,7 @@ from PIL import Image
 from PIL.ExifTags import TAGS
 from sqlalchemy.sql import func
 
+from app.common.utils.address import fill_missing_address_parts
 from app.core.config import settings
 from app.core.interfaces import DatabaseSession
 from app.domains.storage.factory import StorageFactory
@@ -66,9 +67,55 @@ class WaterMitigationService:
         self.report_config_repo = WMReportConfigRepository(session)
 
     # Job operations
+    @staticmethod
+    def _apply_address_split(job_data: Dict[str, Any]) -> None:
+        """
+        Normalize the property address fields in place.
+
+        Callers send the address in one of two shapes:
+          - split (street + city/state/zipcode), from the address autocomplete
+          - a single free-form property_address string, from manual entry or
+            an external sync
+
+        Either way both shapes end up stored: the split columns are what
+        Client sync, contracts and scope invoices read, while property_address
+        stays the full string that search and legacy matching rely on.
+        Explicit values always win; parsing only fills the blanks.
+        """
+        address_keys = (
+            'property_address', 'property_street',
+            'property_city', 'property_state', 'property_zipcode',
+        )
+        if not any(k in job_data for k in address_keys):
+            return
+
+        parts = fill_missing_address_parts(
+            job_data.get('property_address'),
+            street=job_data.get('property_street'),
+            city=job_data.get('property_city'),
+            state=job_data.get('property_state'),
+            zipcode=job_data.get('property_zipcode'),
+        )
+        job_data['property_street'] = parts['street']
+        job_data['property_city'] = parts['city']
+        job_data['property_state'] = parts['state']
+        job_data['property_zipcode'] = parts['zipcode']
+
+        # Recompose the full address from the parts so the two stay in sync,
+        # in the usual US form: "street, city ST zip".
+        locality = ' '.join(
+            p for p in (parts['city'], parts['state'], parts['zipcode']) if p
+        )
+        composed = ', '.join(
+            p for p in (parts['street'], locality) if p
+        )
+        if composed:
+            job_data['property_address'] = composed
+
     def create_job(self, data: JobCreate, created_by_id: Optional[UUID] = None) -> Dict[str, Any]:
         """Create new job"""
         job_data = data.dict()
+        self._apply_address_split(job_data)
         job_data['created_by_id'] = created_by_id
         job_data['updated_by_id'] = created_by_id
 
@@ -106,6 +153,7 @@ class WaterMitigationService:
             return None
 
         update_data = data.dict(exclude_unset=True)
+        self._apply_address_split(update_data)
         update_data['updated_by_id'] = updated_by_id
 
         updated_job = self.job_repo.update(job_id, update_data)

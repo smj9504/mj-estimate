@@ -46,6 +46,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
+import { resolveAddressParts } from '../utils/addressUtils';
 import { bathroomEstimateService } from '../services/bathroomEstimateService';
 import { clientService, claimService } from '../services/clientService';
 import { companyService } from '../services/companyService';
@@ -191,11 +192,15 @@ const BathroomEstimateDetail: React.FC = () => {
     setSelectedClientId(clientId);
     const client = (clientResults?.clients as any[])?.find((c: any) => c.id === clientId);
     if (client) {
+      // Older client rows keep the whole address in `address` with city/state/
+      // zip empty, so split it out rather than dumping the full string into
+      // the Property Address field.
+      const addr = resolveAddressParts(client);
       form.setFieldsValue({
-        property_address: client.address || '',
-        city: client.city || '',
-        state: client.state || '',
-        zip_code: client.zipcode || '',
+        property_address: addr.street,
+        city: addr.city,
+        state: addr.state,
+        zip_code: addr.zip,
       });
     }
     await loadClaimsForClient(clientId);

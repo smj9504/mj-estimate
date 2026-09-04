@@ -52,6 +52,10 @@ export interface WaterMitigationJob {
 
   // Property & Homeowner Information
   property_address: string;
+  property_street?: string;
+  property_city?: string;
+  property_state?: string;
+  property_zipcode?: string;
   homeowner_name?: string;
   homeowner_phone?: string;
   homeowner_email?: string;
@@ -122,6 +126,10 @@ export interface JobCreateRequest {
 
   // Property & Homeowner Information
   property_address: string;
+  property_street?: string;
+  property_city?: string;
+  property_state?: string;
+  property_zipcode?: string;
   homeowner_name?: string;
   homeowner_phone?: string;
   homeowner_email?: string;
@@ -174,6 +182,10 @@ export interface JobUpdate {
 
   // Property & Homeowner Information
   property_address?: string;
+  property_street?: string;
+  property_city?: string;
+  property_state?: string;
+  property_zipcode?: string;
   homeowner_name?: string;
   homeowner_phone?: string;
   homeowner_email?: string;

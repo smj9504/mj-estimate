@@ -3566,7 +3566,16 @@ async def generate_photo_report(
         else:
             raise HTTPException(status_code=400, detail="Either config_id or config must be provided")
 
-        result = service.generate_and_save_photo_report(
+        import asyncio
+
+        # Run in thread: this downloads every job photo and renders the PDF
+        # synchronously, which can take long enough to stall the event loop
+        # (and /health with it) - the same failure mode that was hitting the
+        # adjuster email send. No concurrent access to `db`/`service` happens
+        # after this call, so handing the request-scoped session to the
+        # worker thread here is safe.
+        result = await asyncio.to_thread(
+            service.generate_and_save_photo_report,
             job_id,
             config=config_dict,
             report_date=request.report_date,
@@ -5122,9 +5131,18 @@ async def send_to_adjuster(job_id: UUID, data: SendToAdjusterRequest):
     Attaches selected documents (photo_report, invoice, w9, cos, ewa, sketch).
     BCC can include PA email for copy.
     """
+    import asyncio
+
     service = get_adjuster_email_service()
     try:
-        result = service.send_to_adjuster(str(job_id), data.dict())
+        # Run in thread: this does blocking storage downloads, PDF
+        # compression, and an SMTP send - running it directly on the event
+        # loop stalls every other request (including /health) for the
+        # duration, which has caused Render to kill the instance as
+        # unresponsive mid-send.
+        result = await asyncio.to_thread(
+            service.send_to_adjuster, str(job_id), data.dict()
+        )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -5169,9 +5187,16 @@ async def send_followup_email(job_id: UUID, data: FollowUpEmailRequest):
     """Send follow-up email to adjuster. Does NOT update documents_sent_date.
     Optionally re-attach selected documents.
     """
+    import asyncio
+
     service = get_adjuster_email_service()
     try:
-        result = service.send_followup(str(job_id), data.dict())
+        # See send_to_adjuster above: offload the blocking SMTP send so it
+        # can't stall the event loop (and the health check) long enough for
+        # Render to kill the instance mid-send.
+        result = await asyncio.to_thread(
+            service.send_followup, str(job_id), data.dict()
+        )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

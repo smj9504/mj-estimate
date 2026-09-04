@@ -6,13 +6,14 @@ Uses the Invoice domain without modifying it.
 """
 
 import logging
-import re
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import List, Optional, Tuple, Dict, Any
 from uuid import UUID
 
 from sqlalchemy.orm import Session, joinedload
+
+from app.common.utils.address import parse_us_address
 
 from app.domains.water_mitigation.models import (
     WaterMitigationJob,
@@ -35,82 +36,15 @@ logger = logging.getLogger(__name__)
 class ScopeInvoiceService:
     """Service for generating invoices from WM scope items"""
 
-    # US State abbreviations for address parsing
-    US_STATES = {
-        'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
-        'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
-        'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
-        'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
-        'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
-        'DC', 'PR', 'VI', 'GU', 'AS', 'MP'
-    }
-
     def __init__(self, db: Session):
         self.db = db
 
+    @staticmethod
     def _parse_us_address(
-        self, full_address: Optional[str]
+        full_address: Optional[str]
     ) -> Dict[str, Optional[str]]:
-        """
-        Parse a US address string into components.
-
-        Handles formats like:
-        - "12312 La Plata, Silver Spring MD 20904"
-        - "123 Main St, Anytown, MD 20001"
-        - "456 Oak Ave, Washington, DC 20500"
-
-        Returns:
-            Dict with keys: street, city, state, zipcode
-        """
-        result = {
-            "street": None,
-            "city": None,
-            "state": None,
-            "zipcode": None
-        }
-
-        if not full_address or not full_address.strip():
-            return result
-
-        address = full_address.strip()
-
-        # Pattern 1: "Street, City STATE ZIP" or "Street, City, STATE ZIP"
-        # ZIP code pattern (5 digits or 5+4 format)
-        zip_pattern = r'\b(\d{5}(?:-\d{4})?)\s*$'
-        zip_match = re.search(zip_pattern, address)
-
-        if zip_match:
-            result["zipcode"] = zip_match.group(1)
-            address = address[:zip_match.start()].strip()
-
-        # Find state abbreviation (2 capital letters before ZIP or at end)
-        # Look for state pattern: word boundary + 2-letter state code
-        state_pattern = r'\b([A-Z]{2})\s*$'
-        state_match = re.search(state_pattern, address)
-
-        if state_match:
-            potential_state = state_match.group(1)
-            if potential_state in self.US_STATES:
-                result["state"] = potential_state
-                address = address[:state_match.start()].strip()
-                # Remove trailing comma if present
-                address = address.rstrip(',').strip()
-
-        # Now split remaining address by comma
-        # The last part should be the city, everything before is the street
-        parts = [p.strip() for p in address.split(',') if p.strip()]
-
-        if len(parts) >= 2:
-            # Last part is city, rest is street
-            result["city"] = parts[-1]
-            result["street"] = ', '.join(parts[:-1])
-        elif len(parts) == 1:
-            # Only one part - could be just street or street with city
-            # Try to find city by looking for common patterns
-            # For now, treat the whole thing as street address
-            result["street"] = parts[0]
-
-        return result
+        """Parse a US address string into street/city/state/zipcode."""
+        return parse_us_address(full_address)
 
     def generate_invoice_from_scope(
         self,
