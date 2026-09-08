@@ -87,6 +87,24 @@ Look for labels like "PIN", "WOOD", "%WME" on the display to find the correct re
 If the display shows "LO" text next to the PIN/WOOD section, that means moisture is below measurable range = VERY DRY.
 If the display shows "HI" text next to the PIN/WOOD section, that means moisture is above measurable range = VERY WET.
 
+★★★ HOW TO TELL PIN MOISTURE FROM RH% (MOST COMMON ERROR) ★★★
+On General-brand and similar meters the LCD is laid out as:
+  - a SMALL number labeled with °F → temperature, IGNORE
+  - a SMALL number labeled "RH" or "%" → relative humidity, IGNORE
+  - a LARGE number (or the text "LO"/"HI") in the CENTER → PIN/WOOD moisture, USE THIS
+The PIN value is always the LARGEST, most prominent element on the display.
+
+Disambiguation rules — apply in this order:
+1. If "LO" or "HI" text appears in the PIN/center area, report exactly "LO" or "HI"
+   as meter_reading. NEVER report a number when LO/HI is displayed — the LO/HI text
+   ALWAYS wins over any number visible elsewhere on the screen.
+2. PIN moisture readings on wood/drywall are physically 0-40%. A value of 40-100 is
+   ALMOST CERTAINLY the RH% reading, NOT the PIN moisture — re-examine the display.
+3. A value with a decimal point (e.g. "64.9", "63.2") is almost always RH% or temperature.
+   PIN moisture is typically shown as a whole number.
+4. If you genuinely cannot isolate the PIN/WOOD value, set meter_reading to null and
+   describe what you see in surface_description — do NOT guess with the RH% number.
+
 ★★★ BAR INDICATOR ★★★
 Many meters have a bar/scale at the bottom with "WET" on one end and "DRY" on the other:
 - Bar on DRY side = green (dry)
@@ -273,11 +291,22 @@ Fields:
 """
 
 
+# PIN/WOOD moisture readings are physically bounded — meters display "HI"
+# above this instead of a number. A value at or above this threshold means the
+# AI almost certainly read the RH% (relative humidity) field by mistake.
+IMPLAUSIBLE_PIN_THRESHOLD = 40.0
+
+
 def _derive_color_from_reading(reading: str) -> str | None:
     """
     Derive meter color from numeric/text reading.
 
-    Returns "green", "yellow", "red", or None if unparseable.
+    Returns "green", "yellow", "red", "implausible", or None if unparseable.
+
+    "implausible" signals the reading is out of the physical range of a PIN
+    moisture meter (>= IMPLAUSIBLE_PIN_THRESHOLD), which almost always means
+    the RH% value was read instead of the PIN/WOOD value. Callers must not
+    treat it as a color.
     """
     if not reading:
         return None
@@ -299,6 +328,9 @@ def _derive_color_from_reading(reading: str) -> str | None:
         if not numeric_match:
             return None
         value = float(numeric_match.group())
+        if value >= IMPLAUSIBLE_PIN_THRESHOLD:
+            # Out of PIN range → RH% misread, not a usable moisture value
+            return "implausible"
         if value <= 13:
             return "green"
         elif value <= 23:
@@ -326,6 +358,7 @@ def validate_and_correct(ai_result: dict) -> dict:
 
     corrections = []
     original_category = category
+    needs_manual_meter_review = False
 
     # Rule 0: Mold detected → uncategorized
     if metadata.get("mold_visible"):
@@ -351,6 +384,31 @@ def validate_and_correct(ai_result: dict) -> dict:
 
         # If we have a numeric/text reading, derive color from it
         derived_color = _derive_color_from_reading(meter_reading)
+
+        # Rule 0.4: Implausible PIN value (>= 40) → the AI read the RH% field
+        # instead of the PIN/WOOD moisture value. Discard the number entirely
+        # and fall through to the LO/HI text fallback below; never let an RH%
+        # reading drive the day-1/2/3 decision.
+        implausible_reading = False
+        if derived_color == "implausible":
+            implausible_reading = True
+            derived_color = None
+            corrections.append({
+                "rule": "implausible_pin_reading",
+                "reason": (
+                    f"미터기 수치 {meter_reading}"
+                    f" (>= {IMPLAUSIBLE_PIN_THRESHOLD:.0f})는 PIN 습도 범위 밖"
+                    f" → RH% 오독으로 판단, 수치 무시"
+                ),
+                "from": str(meter_reading),
+                "to": "discarded"
+            })
+            metadata["meter_reading"] = None
+            metadata["rh_misread_suspected"] = True
+            meter_reading = None
+            # AI's own meter_color is derived from the same misread number,
+            # so it cannot be trusted either.
+            ai_color = ""
 
         # Fallback: check if surface_description mentions LO/HI/DRY
         # (AI sometimes puts reading info in surface_description instead)
@@ -389,6 +447,24 @@ def validate_and_correct(ai_result: dict) -> dict:
             metadata["meter_color"] = ai_color
         else:
             color = None
+            metadata["meter_color"] = None
+
+        # An RH% misread that no LO/HI text could resolve leaves us with no
+        # trustworthy reading. Don't let the AI's number-derived day-N guess
+        # stand — send it to manual review.
+        if implausible_reading and not color:
+            if category in ("day-1", "day-2", "day-3"):
+                corrections.append({
+                    "rule": "unresolved_rh_misread",
+                    "reason": (
+                        "RH% 오독 후 PIN 값 확인 불가"
+                        " → 수동 확인 필요"
+                    ),
+                    "from": category,
+                    "to": "uncategorized"
+                })
+                category = "uncategorized"
+            needs_manual_meter_review = True
 
         # Rule 1: Meter color + demolition state → correct category
         if color:
@@ -496,6 +572,10 @@ def validate_and_correct(ai_result: dict) -> dict:
         result["corrections"] = corrections
 
     # Flag for Phase 2 verification if needed
+    # PIN 값을 신뢰할 수 없는 경우 (RH% 오독 후 복구 실패)
+    if needs_manual_meter_review:
+        result["needs_verification"] = True
+
     # meter 사진인데 demolition 판단이 애매한 경우
     if (
         metadata.get("meter_visible")
