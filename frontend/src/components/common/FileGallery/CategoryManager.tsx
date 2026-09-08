@@ -169,21 +169,21 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
 
   return (
     <div className="category-manager" style={{
-      marginTop: 12,
+      marginTop: 8,
       background: '#fafafa',
       borderRadius: '8px',
-      padding: '12px 16px',
+      padding: '6px 12px',
       border: '1px solid #f0f0f0'
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         {/* Filter Icon and Label */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
+          gap: '6px',
           flexShrink: 0
         }}>
-          <FilterOutlined style={{ fontSize: '16px', color: '#667eea' }} />
+          <FilterOutlined style={{ fontSize: '14px', color: '#5b4fc4' }} />
           <span style={{
             fontSize: '13px',
             fontWeight: 600,
@@ -194,7 +194,7 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
             {getSelectedCount() > 0 && (
               <span style={{
                 marginLeft: '6px',
-                background: '#667eea',
+                background: '#5b4fc4',
                 color: 'white',
                 borderRadius: '10px',
                 padding: '2px 8px',
@@ -233,7 +233,7 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
             scrollbarWidth: 'none',
             msOverflowStyle: 'none',
             flex: 1,
-            padding: '4px 0'
+            padding: '2px 0'
           }}
         >
           {categories.map(category => {
@@ -247,7 +247,7 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
                 style={{
                   cursor: 'pointer',
                   borderRadius: '16px',
-                  padding: '6px 14px',
+                  padding: '3px 12px',
                   fontSize: '12px',
                   fontWeight: selected ? 600 : 400,
                   border: selected ? `2px solid ${color}` : '1px solid #d9d9d9',

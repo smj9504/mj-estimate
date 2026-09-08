@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useTransition, useCallback } from 'react';
+import React, { useState, useMemo, useTransition, useCallback, useRef, useLayoutEffect } from 'react';
 import { Card, Typography, Space, Button, Empty, Spin, Alert, Modal, message, Select, Checkbox, DatePicker, Slider, Tooltip } from 'antd';
 import { AppstoreOutlined, UnorderedListOutlined, BorderOutlined, UploadOutlined, CheckSquareOutlined, DeleteOutlined, TagOutlined, CalendarOutlined, PlusOutlined, MinusOutlined, LoadingOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
@@ -13,6 +13,16 @@ import FileCard from './FileCard';
 import './FileGallery.css';
 
 const { Title } = Typography;
+
+// Measured against the real toolbar: view-mode selector (~173px) + Select All
+// (~114px) + the selection group with its bulk actions (~504px) + the upload
+// button (~148px) plus gaps needs roughly 975px of usable width. Below that the
+// bulk actions dock to a bottom bar instead of wrapping the toolbar.
+const INLINE_BULK_ACTIONS_WIDTH = 1000;
+
+// Below this the grid-size slider (~165px of secondary chrome) is dropped so
+// the primary controls keep their single row.
+const GRID_SLIDER_WIDTH = 1180;
 
 const FileGallery: React.FC<FileGalleryProps> = ({
   context,
@@ -68,6 +78,41 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   const [dateChangeModalVisible, setDateChangeModalVisible] = useState(false);
   const [newDate, setNewDate] = useState<Dayjs | null>(null);
   const [gridSize, setGridSize] = useState<number>(6); // Grid columns per row (2-8 range)
+
+  // Layout awareness is measured on the gallery's own container, not the
+  // viewport — this component often sits inside a narrow content pane, where
+  // window width would report "desktop" for a toolbar that cannot fit one row.
+  const galleryRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(0);
+  const [containerLeft, setContainerLeft] = useState<number>(0);
+
+  useLayoutEffect(() => {
+    const el = galleryRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      setContainerWidth(prev => (Math.abs(prev - rect.width) > 1 ? rect.width : prev));
+      setContainerLeft(prev => (Math.abs(prev - rect.left) > 1 ? rect.left : prev));
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    // The gallery's left edge moves when the app sidebar collapses, which the
+    // element's own resize may not report.
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, []);
+
+  // Width 0 means the observer has not reported yet; assume roomy so the
+  // toolbar does not flash the compact layout on first paint.
+  const measured = containerWidth > 0;
+  const isCompactToolbar = measured && containerWidth < INLINE_BULK_ACTIONS_WIDTH;
+  const hasRoomForGridSlider = !measured || containerWidth >= GRID_SLIDER_WIDTH;
   // Use Set for O(1) lookup performance
   const [internalSelectedFiles, setInternalSelectedFiles] = useState<Set<string>>(new Set());
 
@@ -456,23 +501,76 @@ const FileGallery: React.FC<FileGalleryProps> = ({
     };
   };
 
+  // Bulk action controls — rendered inline beside the selection badge on wide
+  // screens, and inside the fixed bottom bar on compact ones. One definition,
+  // two placements, so they can never drift apart.
+  const renderBulkActionControls = (compact: boolean) => (
+    <>
+      {showBulkCategoryUpdate && (
+        <Select
+          placeholder={compact ? 'Category' : 'Set Category'}
+          size={compact ? 'middle' : 'small'}
+          style={compact ? { flex: '1 1 96px', minWidth: 0 } : { minWidth: 150 }}
+          onChange={handleBulkCategoryUpdate}
+          value={undefined}
+          suffixIcon={<TagOutlined style={{ color: '#667eea' }} />}
+        >
+          <Select.Option key="uncategorized" value="">
+            Clear Category
+          </Select.Option>
+          {categories.filter(cat => cat !== 'uncategorized').map(cat => (
+            <Select.Option key={cat} value={cat}>
+              {cat.charAt(0).toUpperCase() + cat.slice(1).replace(/-/g, ' ')}
+            </Select.Option>
+          ))}
+        </Select>
+      )}
+
+      {context === 'water-mitigation' && (
+        <Button
+          size={compact ? 'middle' : 'small'}
+          icon={<CalendarOutlined style={{}} />}
+          onClick={() => setDateChangeModalVisible(true)}
+          style={{
+            borderRadius: '6px',
+            borderColor: '#667eea',
+            color: '#667eea'
+          }}
+        >
+          {compact ? 'Date' : 'Change Date'}
+        </Button>
+      )}
+
+      <Button
+        danger
+        size={compact ? 'middle' : 'small'}
+        icon={<DeleteOutlined style={{}} />}
+        onClick={handleBulkDelete}
+        style={{ borderRadius: '6px' }}
+      >
+        {compact ? 'Delete' : 'Delete (' + currentSelectedFiles.length + ')'}
+      </Button>
+    </>
+  );
+
   const renderHeader = () => {
     const filteredFileIds = filteredFiles.map(f => f.id);
     const allFilteredSelected = filteredFileIds.length > 0 && filteredFileIds.every(id => currentSelectedFiles.includes(id));
     const hasSelection = currentSelectedFiles.length > 0;
+    const showInlineBulkActions = hasSelection && showBulkActions && !isCompactToolbar;
 
     return (
-      <div className="file-gallery-header" style={{ marginBottom: 16 }}>
+      <div className="file-gallery-header">
         {/* Main Toolbar */}
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
-          gap: '12px'
+          gap: '8px 12px'
         }}>
-          {/* Left Section - View Mode & Selection */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          {/* Left Section - View Mode, Selection & Bulk Actions */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px 12px', flexWrap: 'wrap' }}>
             {allowViewModeChange && (
               <ViewModeSelector
                 value={viewMode}
@@ -480,8 +578,8 @@ const FileGallery: React.FC<FileGalleryProps> = ({
               />
             )}
 
-            {/* Grid Size Control - only show for grid/card modes */}
-            {allowViewModeChange && (viewMode === 'grid' || viewMode === 'card') && (
+            {/* Grid Size Control - grid/card modes on wide screens only */}
+            {allowViewModeChange && hasRoomForGridSlider && (viewMode === 'grid' || viewMode === 'card') && (
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -523,21 +621,37 @@ const FileGallery: React.FC<FileGalleryProps> = ({
               </Button>
             )}
 
-            {/* Selection Count Badge */}
-            {hasSelection && (
+            {/* Selection count + bulk actions, joined as a single control group.
+                On compact widths the bottom bar carries the count instead, so
+                the toolbar does not show it twice. */}
+            {hasSelection && !isCompactToolbar && (
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                color: 'white',
-                padding: '6px 14px',
-                borderRadius: '20px',
-                fontSize: '13px',
-                fontWeight: 600,
-                boxShadow: '0 2px 8px rgba(102, 126, 234, 0.35)'
+                gap: '8px',
+                padding: showInlineBulkActions ? '4px' : 0,
+                background: showInlineBulkActions ? '#f0f5ff' : 'transparent',
+                border: showInlineBulkActions ? '1px solid #d6e4ff' : '1px solid transparent',
+                borderRadius: showInlineBulkActions ? '24px' : 0,
+                flexWrap: 'wrap'
               }}>
-                <CheckSquareOutlined style={{ marginRight: 6 }} />
-                {currentSelectedFiles.length} selected
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  color: 'white',
+                  padding: '5px 14px',
+                  borderRadius: '20px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                  boxShadow: '0 2px 8px rgba(102, 126, 234, 0.35)'
+                }}>
+                  <CheckSquareOutlined style={{ marginRight: 6 }} />
+                  {currentSelectedFiles.length} selected
+                </div>
+
+                {showInlineBulkActions && renderBulkActionControls(false)}
               </div>
             )}
           </div>
@@ -557,79 +671,13 @@ const FileGallery: React.FC<FileGalleryProps> = ({
                   boxShadow: '0 2px 8px rgba(102, 126, 234, 0.35)'
                 }}
               >
-                Upload {fileCategory === 'image' ? 'Photos' : fileCategory === 'document' ? 'Documents' : 'Files'}
+                {isCompactToolbar
+                  ? 'Upload'
+                  : 'Upload ' + (fileCategory === 'image' ? 'Photos' : fileCategory === 'document' ? 'Documents' : 'Files')}
               </Button>
             )}
           </div>
         </div>
-
-        {/* Bulk Actions Bar - Shows when files are selected and showBulkActions is true */}
-        {hasSelection && showBulkActions && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            marginTop: '12px',
-            padding: '12px 16px',
-            background: '#f0f5ff',
-            borderRadius: '8px',
-            border: '1px solid #d6e4ff',
-            flexWrap: 'wrap'
-          }}>
-            <span style={{
-              fontSize: '13px',
-              color: '#1890ff',
-              fontWeight: 500,
-              marginRight: '8px'
-            }}>
-              Bulk Actions:
-            </span>
-
-            {showBulkCategoryUpdate && (
-              <Select
-                placeholder="📁 Set Category"
-                style={{ minWidth: 160 }}
-                onChange={handleBulkCategoryUpdate}
-                value={undefined}
-                suffixIcon={<TagOutlined style={{ color: '#667eea' }} />}
-              >
-                <Select.Option key="uncategorized" value="">
-                  📋 Clear Category
-                </Select.Option>
-                {categories.filter(cat => cat !== 'uncategorized').map(cat => (
-                  <Select.Option key={cat} value={cat}>
-                    {cat.charAt(0).toUpperCase() + cat.slice(1).replace(/-/g, ' ')}
-                  </Select.Option>
-                ))}
-              </Select>
-            )}
-
-            {context === 'water-mitigation' && (
-              <Button
-                icon={<CalendarOutlined style={{}} />}
-                onClick={() => setDateChangeModalVisible(true)}
-                style={{
-                  borderRadius: '6px',
-                  borderColor: '#667eea',
-                  color: '#667eea'
-                }}
-              >
-                Change Date
-              </Button>
-            )}
-
-            <Button
-              danger
-              icon={<DeleteOutlined style={{}} />}
-              onClick={handleBulkDelete}
-              style={{
-                borderRadius: '6px'
-              }}
-            >
-              Delete ({currentSelectedFiles.length})
-            </Button>
-          </div>
-        )}
 
         {/* Category Filter */}
         {showCategories && (
@@ -647,13 +695,15 @@ const FileGallery: React.FC<FileGalleryProps> = ({
               <div style={{
                 position: 'absolute',
                 top: '50%',
-                right: 16,
+                right: 12,
                 transform: 'translateY(-50%)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
-                color: '#667eea',
-                fontSize: 12
+                color: '#5b4fc4',
+                fontSize: 12,
+                background: '#fafafa',
+                paddingLeft: 8
               }}>
                 <LoadingOutlined style={{ animation: 'spin 1s linear infinite' }} />
                 <span>Filtering...</span>
@@ -667,6 +717,34 @@ const FileGallery: React.FC<FileGalleryProps> = ({
             {/* Search component will be added here */}
           </div>
         )}
+      </div>
+    );
+  };
+
+  // Compact widths: bulk actions dock to a fixed bottom bar so they stay in
+  // thumb reach while the photo grid keeps the full viewport above it.
+  const renderMobileBulkActionBar = () => {
+    if (!showBulkActions || currentSelectedFiles.length === 0 || !isCompactToolbar) {
+      return null;
+    }
+
+    return (
+      <div
+        className="file-gallery-bulk-bar"
+        role="group"
+        aria-label={'Bulk actions for ' + currentSelectedFiles.length + ' selected files'}
+        style={{
+          ['--bulk-bar-left' as string]: containerLeft + 'px',
+          ['--bulk-bar-width' as string]: containerWidth + 'px'
+        }}
+      >
+        <div className="file-gallery-bulk-bar__count">
+          <CheckSquareOutlined style={{ marginRight: 6 }} />
+          {currentSelectedFiles.length} selected
+        </div>
+        <div className="file-gallery-bulk-bar__actions">
+          {renderBulkActionControls(true)}
+        </div>
       </div>
     );
   };
@@ -921,14 +999,16 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   };
 
   return (
-    <div className={`file-gallery ${className || ''}`} style={{ height, display: 'flex', flexDirection: 'column' }}>
+    <div ref={galleryRef} className={`file-gallery ${className || ''}`} style={{ height, display: 'flex', flexDirection: 'column' }}>
       {renderHeader()}
 
-      <div style={{ flex: 1, overflow: 'auto', marginTop: 16 }}>
+      <div className="file-gallery-body">
         <Spin spinning={isFilterFetching} tip="Loading photos...">
           {renderFileView()}
         </Spin>
       </div>
+
+      {renderMobileBulkActionBar()}
 
       {/* Upload Modal */}
       <Modal

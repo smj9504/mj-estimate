@@ -1,5 +1,6 @@
 /* FileGallery Main Styles */
 .file-gallery {
+  position: relative;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -9,9 +10,17 @@
 }
 
 .file-gallery-header {
-  padding: 16px 24px;
+  padding: 12px 16px 10px;
   border-bottom: 1px solid #f0f0f0;
   background: #fafafa;
+}
+
+/* Scroll region for the photo grid. Sits directly under the filter row —
+   the grid's own 8px padding is the only separation it needs. */
+.file-gallery-body {
+  flex: 1;
+  overflow: auto;
+  padding-top: 4px;
 }
 
 .file-gallery-content {
@@ -48,7 +57,7 @@
 }
 
 .date-group {
-  margin-bottom: 32px;
+  margin-bottom: 20px;
 }
 
 .date-group:last-child {
@@ -58,11 +67,10 @@
 .date-group-header {
   display: flex;
   align-items: center;
-  margin-bottom: 16px;
-  padding-bottom: 8px;
-  border-bottom: 2px solid #f0f0f0;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #f0f0f0;
   background: #fafafa;
-  padding: 12px 16px;
+  padding: 6px 12px;
   border-radius: 6px;
   transition: background-color 0.2s ease;
 }
@@ -90,26 +98,147 @@
 
 /* Category Manager Styles */
 .category-manager {
-  padding: 12px 0;
+  padding: 0;
 }
 
 .category-manager .ant-tag {
-  margin: 2px 4px;
+  margin: 0;
   border-radius: 12px;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .category-manager .ant-tag:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+.category-manager .ant-tag:focus-visible {
+  outline: 2px solid #1890ff;
+  outline-offset: 2px;
+}
+
+/* Compact-width bulk action bar --------------------------------------------
+   Docks the bulk actions to the bottom of the viewport on phones and small
+   tablets, keeping them in thumb reach without stealing a row from the grid. */
+.file-gallery-bulk-bar {
+  position: fixed;
+  left: var(--bulk-bar-left, 0px);
+  width: var(--bulk-bar-width, 100%);
+  /* Sits directly on top of the app's own bottom nav (56px + safe area). */
+  bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  z-index: 89;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #fff;
+  border-top: 1px solid #d6e4ff;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+  animation: bulk-bar-in 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Where the app chrome has no bottom nav (tablet widths), the bar returns to
+   the bottom edge and takes the safe-area inset itself. */
+@media (min-width: 769px) {
+  .file-gallery-bulk-bar {
+    bottom: 0;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+.file-gallery-bulk-bar__count {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.file-gallery-bulk-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* The select absorbs leftover width; the two buttons keep their label width.
+   Without a floor the select collapses to an unreadable stub. */
+/* The select absorbs leftover width and is the only control allowed to shrink,
+   down to a floor where its placeholder still reads. */
+.file-gallery-bulk-bar__actions .ant-select {
+  min-width: 96px;
+}
+
+.file-gallery-bulk-bar__actions > .ant-btn {
+  flex: 0 0 auto;
+}
+
+/* Touch targets stay at 36px minimum inside the bar. Ant renders the select as
+   a wrapper around .ant-select-selector, so both need the floor. */
+.file-gallery-bulk-bar__actions .ant-btn,
+.file-gallery-bulk-bar__actions .ant-select,
+.file-gallery-bulk-bar__actions .ant-select .ant-select-selector {
+  min-height: 36px;
+}
+
+.file-gallery-bulk-bar__actions .ant-select .ant-select-selector {
+  display: flex;
+  align-items: center;
+}
+
+@keyframes bulk-bar-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* The bar overlays the grid — give the scroll region room to clear it. */
+.file-gallery:has(.file-gallery-bulk-bar) .file-gallery-body {
+  padding-bottom: 76px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-gallery-bulk-bar {
+    animation: none;
+  }
+
+  .category-manager .ant-tag {
+    transition: none;
+  }
+}
+
+/* Phone widths: stack the count above the actions so nothing is squeezed. */
+@media (max-width: 560px) {
+  .file-gallery-bulk-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .file-gallery-bulk-bar__count {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .file-gallery:has(.file-gallery-bulk-bar) .file-gallery-body {
+    padding-bottom: 124px;
+  }
 }
 
 /* Grid View Styles */
 .file-grid {
   display: grid;
   gap: 16px;
-  padding: 8px;
+  padding: 0 2px 8px;
 }
 
 /* Responsive grid columns */
@@ -374,7 +503,7 @@
 /* Responsive Design */
 @media (max-width: 768px) {
   .file-gallery-header {
-    padding: 12px 16px;
+    padding: 10px 12px 8px;
   }
 
   .file-gallery-content {
@@ -387,7 +516,7 @@
   }
 
   .date-group-header {
-    padding: 8px 12px;
+    padding: 6px 10px;
   }
 
   .date-group-header h5 {
@@ -399,7 +528,7 @@
   }
 
   .date-group {
-    margin-bottom: 24px;
+    margin-bottom: 16px;
   }
 
   .file-image {
@@ -435,7 +564,7 @@
   }
 
   .file-gallery-header {
-    padding: 8px 12px;
+    padding: 8px 10px 6px;
   }
 
   .file-gallery-content {
@@ -453,6 +582,11 @@
   .file-gallery-header {
     background: #262626;
     border-bottom-color: #434343;
+  }
+
+  .file-gallery-bulk-bar {
+    background: #1f1f1f;
+    border-top-color: #434343;
   }
 
   .file-document-icon {
