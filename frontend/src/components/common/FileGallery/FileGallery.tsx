@@ -69,7 +69,8 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   onUpload,
   onDelete,
   onFileClick,
-  renderCardExtraAction
+  renderCardExtraAction,
+  renderBulkExtraAction
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>(defaultViewMode);
   const [selectedCategory, setSelectedCategory] = useState<string | string[]>(defaultCategory);
@@ -539,6 +540,11 @@ const FileGallery: React.FC<FileGalleryProps> = ({
         >
           {compact ? 'Date' : 'Change Date'}
         </Button>
+      )}
+
+      {renderBulkExtraAction?.(
+        files.filter(f => currentSelectedFiles.includes(f.id)),
+        { compact, clearSelection: () => handleFileSelectionChange(new Set()) }
       )}
 
       <Button

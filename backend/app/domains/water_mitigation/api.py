@@ -1629,9 +1629,21 @@ def update_photo_location(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class BulkSetLocationItem(BaseModel):
+    """One photo's location tag in a bulk set request.
+
+    A field that is absent is left unchanged; a field sent as "" or null is
+    cleared. Level and room are independent, so callers can bulk-set one
+    without disturbing the other.
+    """
+    photo_id: UUID
+    location_level: Optional[str] = None
+    location_room: Optional[str] = None
+
+
 class BulkSetLocationsRequest(BaseModel):
     """Set individual location tags for multiple photos at once"""
-    updates: List[Dict[str, str]]  # [{"photo_id": "...", "location_level": "...", "location_room": "..."}]
+    updates: List[BulkSetLocationItem]
 
 
 @router.post("/photos/bulk-set-locations")
@@ -1648,19 +1660,18 @@ def bulk_set_locations(
         applied = 0
         failed = 0
         for item in request.updates:
-            photo_id = item.get("photo_id")
-            if not photo_id:
-                failed += 1
-                continue
+            # Only fields the caller actually sent are touched. An explicitly
+            # sent "" or null clears that tag; an omitted field is left alone.
+            sent = item.model_fields_set
             update_data = {}
-            if "location_level" in item:
-                update_data["location_level"] = item.get("location_level") or None
-            if "location_room" in item:
-                update_data["location_room"] = item.get("location_room") or None
+            if "location_level" in sent:
+                update_data["location_level"] = (item.location_level or "").strip() or None
+            if "location_room" in sent:
+                update_data["location_room"] = (item.location_room or "").strip() or None
             if not update_data:
                 failed += 1
                 continue
-            updated = service.photo_repo.update(photo_id, update_data)
+            updated = service.photo_repo.update(str(item.photo_id), update_data)
             if updated:
                 applied += 1
             else:

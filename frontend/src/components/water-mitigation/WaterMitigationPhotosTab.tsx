@@ -11,6 +11,7 @@ import FileGallery from '../common/FileGallery/FileGallery';
 import type { FileItem } from '../common/FileGallery/types';
 import CompanyCamDateSelectModal from './CompanyCamDateSelectModal';
 import WMPhotoLocationModal from './WMPhotoLocationModal';
+import WMBulkPhotoLocationModal from './WMBulkPhotoLocationModal';
 import wmSketchService from '../../services/wmSketchService';
 import api from '../../services/api';
 import { useWakeLock } from '../../hooks';
@@ -354,6 +355,10 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
 
   // ─── Photo location tagging (Level + Room) ───
   const [locationModalFile, setLocationModalFile] = useState<FileItem | null>(null);
+  const [bulkLocationPhotos, setBulkLocationPhotos] = useState<FileItem[] | null>(null);
+  // FileGallery owns the selection state; it hands us a clearSelection callback
+  // when the bulk action is rendered, which we fire only on a successful save.
+  const bulkLocationClearRef = useRef<(() => void) | null>(null);
   const [levelOptions, setLevelOptions] = useState<string[]>([]);
   const [roomSuggestions, setRoomSuggestions] = useState<string[]>([]);
 
@@ -1613,6 +1618,23 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
           // Enhanced styling
           className="wm-photo-gallery"
 
+          // Bulk location tagging for the current selection - opens
+          // WMBulkPhotoLocationModal (set many at once, or fix them one by one)
+          renderBulkExtraAction={(selected, { compact, clearSelection }) => (
+            <Button
+              size={compact ? 'middle' : 'small'}
+              icon={<EnvironmentOutlined />}
+              onClick={() => {
+                setBulkLocationPhotos(selected);
+                bulkLocationClearRef.current = clearSelection;
+              }}
+              disabled={selected.length === 0}
+              style={{ borderRadius: '6px', borderColor: '#667eea', color: '#667eea' }}
+            >
+              {compact ? 'Location' : 'Set Location'}
+            </Button>
+          )}
+
           // Per-photo location tag (Level + Room) - opens WMPhotoLocationModal
           renderCardExtraAction={(file) => (
             <Tooltip title={
@@ -1625,6 +1647,18 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
           )}
         />
       </div>
+
+      <WMBulkPhotoLocationModal
+        open={!!bulkLocationPhotos}
+        photos={bulkLocationPhotos ?? []}
+        levelOptions={levelOptions}
+        roomSuggestions={roomSuggestions}
+        onClose={() => setBulkLocationPhotos(null)}
+        onSaved={() => {
+          handleLocationSaved();
+          bulkLocationClearRef.current?.();
+        }}
+      />
 
       <WMPhotoLocationModal
         open={!!locationModalFile}

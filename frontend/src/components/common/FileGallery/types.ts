@@ -106,6 +106,15 @@ export interface FileGalleryProps {
   // file card's action bar. Purely additive/opt-in - omitting it leaves
   // every existing consumer of FileGallery unchanged.
   renderCardExtraAction?: (file: FileItem) => ReactNode;
+
+  // Optional extra control(s) rendered in the bulk-actions bar alongside
+  // Set Category / Change Date / Delete, receiving the currently selected
+  // files. Lets a consumer add its own bulk operation without FileGallery
+  // needing to know anything domain-specific. Omitting it changes nothing.
+  renderBulkExtraAction?: (
+    selected: FileItem[],
+    opts: { compact: boolean; clearSelection: () => void }
+  ) => ReactNode;
 }
 
 export interface UploadProgress {
