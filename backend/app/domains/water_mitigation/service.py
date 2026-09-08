@@ -195,6 +195,11 @@ class WaterMitigationService:
         if new_status == 'Sent to adjuster' and previous_status != 'Sent to adjuster':
             self._create_followup_for_sent_to_adjuster(job, job_id)
 
+        # Auto-create supplement (estimate_request) when the insurance company
+        # asks us to provide the estimate
+        if new_status == 'Estimate requested' and previous_status != 'Estimate requested':
+            self._create_estimate_request_for_job(job, job_id, status_update.notes)
+
         # Log activity on claim
         self._log_claim_activity(job, job_id, previous_status, new_status)
 
@@ -283,6 +288,85 @@ class WaterMitigationService:
         except Exception as e:
             logger.error(f"Error auto-creating follow-up for WM Job {job_id}: {e}")
             # Don't fail the status update if follow-up creation fails
+
+    def _create_estimate_request_for_job(
+        self,
+        job: Dict[str, Any],
+        job_id: UUID,
+        notes: Optional[str] = None
+    ):
+        """Auto-create a SupplementRequest (request_type='estimate_request')
+        when the insurance company asks us to provide the estimate."""
+        try:
+            claim_id = job.get('claim_id') if isinstance(job, dict) else getattr(job, 'claim_id', None)
+            if not claim_id:
+                logger.warning(f"WM Job {job_id} has no linked claim, skipping estimate request creation")
+                return
+
+            from app.domains.supplement.models import SupplementRequest
+            from app.domains.client.models import Claim, ClaimActivity
+
+            # Skip if an active estimate request already exists for this claim
+            existing = self.session.query(SupplementRequest).filter(
+                SupplementRequest.claim_id == str(claim_id),
+                SupplementRequest.request_type == 'estimate_request',
+                SupplementRequest.status.notin_(['approved', 'denied', 'withdrawn']),
+            ).first()
+            if existing:
+                logger.info(f"Estimate request already exists for claim {claim_id}, skipping")
+                return
+
+            property_address = job.get('property_address', '') if isinstance(job, dict) else getattr(job, 'property_address', '')
+
+            # PA info from the linked claim (falls back to the job's adjuster)
+            claim = self.session.query(Claim).filter(Claim.id == claim_id).first()
+            submitted_to = (getattr(claim, 'pa_name', '') or '') if claim else ''
+            submitted_to_email = (getattr(claim, 'pa_email', '') or '') if claim else ''
+            if not submitted_to:
+                submitted_to = job.get('adjuster_name', '') if isinstance(job, dict) else getattr(job, 'adjuster_name', '') or ''
+            if not submitted_to_email:
+                submitted_to_email = job.get('adjuster_email', '') if isinstance(job, dict) else getattr(job, 'adjuster_email', '') or ''
+
+            est_req = SupplementRequest(
+                claim_id=str(claim_id),
+                request_type='estimate_request',
+                title=(
+                    f"Estimate Request - {property_address}"
+                    if property_address else "Estimate Request"
+                ),
+                reason=(
+                    notes
+                    or 'Insurance company requested our estimate for this water mitigation job.'
+                ),
+                original_amount=0,
+                supplement_amount=0,
+                our_estimate_amount=0,
+                status='identified',
+                priority='high',
+                submitted_to=submitted_to,
+                submitted_to_email=submitted_to_email,
+            )
+            self.session.add(est_req)
+            self.session.flush()
+
+            self.session.add(ClaimActivity(
+                claim_id=claim_id,
+                activity_type='estimate_request_created',
+                title='Estimate request created',
+                description=(
+                    f'Insurance requested our estimate ({property_address}). '
+                    'Auto-created estimate request from WM job status change.'
+                ),
+                related_entity_type='supplement',
+                related_entity_id=est_req.id,
+            ))
+            self.session.commit()
+
+            logger.info(f"Auto-created estimate request for WM Job {job_id} (claim {claim_id})")
+
+        except Exception as e:
+            logger.error(f"Error auto-creating estimate request for WM Job {job_id}: {e}")
+            # Don't fail the status update if supplement creation fails
 
     def toggle_job_active(
         self,

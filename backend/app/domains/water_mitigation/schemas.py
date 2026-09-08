@@ -16,6 +16,7 @@ class JobStatus:
     SENT_TO_ADJUSTER = "Sent to adjuster"
     FOLLOW_UP = "Follow up"
     PAPERWORK_RECEIVED = "Paperwork received"
+    ESTIMATE_REQUESTED = "Estimate requested"
     CHECK_RECEIVED = "Check received"
     COMPLETE = "Complete"
 
@@ -27,6 +28,7 @@ class JobStatus:
             cls.SENT_TO_ADJUSTER,
             cls.FOLLOW_UP,
             cls.PAPERWORK_RECEIVED,
+            cls.ESTIMATE_REQUESTED,
             cls.CHECK_RECEIVED,
             cls.COMPLETE
         ]

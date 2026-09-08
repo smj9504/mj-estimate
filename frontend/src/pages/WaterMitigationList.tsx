@@ -52,6 +52,7 @@ const STATUS_COLORS: Record<JobStatus, string> = {
   'Sent to adjuster': 'geekblue',
   'Follow up': 'orange',
   'Paperwork received': 'purple',
+  'Estimate requested': 'magenta',
   'Check received': 'green',
   'Complete': 'success'
 };
