@@ -5022,35 +5022,82 @@ async def get_financial_comparison(
         if job.claim_id:
             claim = db.query(Claim).filter(Claim.id == job.claim_id).first()
             if claim:
-                # 1) Try to find WM section in latest ClaimNegotiation sections_data
+                # 1) Prefer the latest water_mitigation negotiation. Revision numbers
+                # are tracked independently per estimate_category, so an unfiltered
+                # "highest revision" query can return the reconstruction row instead.
                 latest_neg = (
                     db.query(ClaimNegotiation)
-                    .filter(ClaimNegotiation.claim_id == job.claim_id)
+                    .filter(
+                        ClaimNegotiation.claim_id == job.claim_id,
+                        ClaimNegotiation.estimate_category == 'water_mitigation',
+                    )
                     .order_by(ClaimNegotiation.revision_number.desc())
                     .first()
                 )
+                # Fall back to any negotiation (e.g. a combined estimate that
+                # contains a WM section, or legacy rows with no category).
+                if not latest_neg:
+                    latest_neg = (
+                        db.query(ClaimNegotiation)
+                        .filter(ClaimNegotiation.claim_id == job.claim_id)
+                        .order_by(ClaimNegotiation.revision_number.desc())
+                        .first()
+                    )
                 if latest_neg and latest_neg.sections_data:
                     sections = latest_neg.sections_data
                     if isinstance(sections, list):
+                        def _as_wm_section(sec):
+                            return {
+                                "section_name": sec.get('section_name', ''),
+                                "rcv": float(sec.get('rcv') or 0),
+                                "depreciation": float(sec.get('depreciation') or 0),
+                                "net_acv": float(sec.get('net_acv') or 0),
+                                "line_item_total": float(sec.get('line_item_total') or 0),
+                                "overhead_amount": float(sec.get('overhead_amount') or 0),
+                                "profit_amount": float(sec.get('profit_amount') or 0),
+                                "deductible": float(sec.get('deductible') or 0),
+                            }
+
                         for sec in sections:
                             name = (sec.get('section_name') or '').lower()
                             if 'water' in name and 'mitig' in name:
-                                wm_section = {
-                                    "section_name": sec.get('section_name', ''),
-                                    "rcv": float(sec.get('rcv') or 0),
-                                    "depreciation": float(sec.get('depreciation') or 0),
-                                    "net_acv": float(sec.get('net_acv') or 0),
-                                    "line_item_total": float(sec.get('line_item_total') or 0),
-                                    "overhead_amount": float(sec.get('overhead_amount') or 0),
-                                    "profit_amount": float(sec.get('profit_amount') or 0),
-                                    "deductible": float(sec.get('deductible') or 0),
-                                }
+                                wm_section = _as_wm_section(sec)
                                 break
+
+                        # A WM-category estimate holds only WM sections, so any
+                        # single section it carries is the WM amount even when the
+                        # carrier titled it something else ("Dwelling", "Estimate").
+                        if (
+                            wm_section is None
+                            and latest_neg.estimate_category == 'water_mitigation'
+                            and len(sections) == 1
+                        ):
+                            wm_section = _as_wm_section(sections[0])
+
+                # Resolve the uploaded estimate PDF (document_url holds a File id)
+                document_file_id = None
+                document_name = None
+                if latest_neg and latest_neg.document_url:
+                    from app.domains.file.models import File as FileModel
+                    file_rec = (
+                        db.query(FileModel)
+                        .filter(
+                            FileModel.id == latest_neg.document_url,
+                            FileModel.is_active == True,  # noqa: E712
+                        )
+                        .first()
+                    )
+                    if file_rec:
+                        document_file_id = str(file_rec.id)
+                        document_name = latest_neg.document_name or file_rec.original_name
 
                 insurance_estimate = {
                     "wm_cost_status": claim.wm_cost_status,
                     "wm_estimate_amount": float(claim.wm_estimate_amount) if claim.wm_estimate_amount else None,
                     "wm_section": wm_section,
+                    "estimate_category": latest_neg.estimate_category if latest_neg else None,
+                    "document_file_id": document_file_id,
+                    "document_name": document_name,
                     # Claim-level totals for reference
                     "claim_rcv": float(claim.current_rcv or 0),
                     "claim_acv": float(claim.current_acv or 0),
@@ -5085,6 +5132,268 @@ async def get_financial_comparison(
     except Exception as e:
         logger.error(f"Error getting financial comparison: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Insurance Estimate Upload (WM side)
+# ============================================================
+
+# Keywords used to pick the water-mitigation slice out of a combined
+# (rebuild + WM) insurance estimate. Kept in sync with the follow-up
+# dashboard's ESTIMATE_CATEGORIES.water_mitigation.sectionKeywords.
+WM_SECTION_KEYWORDS = [
+    'water mitigation', 'water mit', 'mitigation', 'emergency service',
+    'dry out', 'dryout', 'drying', 'dehumidifier', 'extraction',
+    'water extraction', 'remediation',
+]
+
+
+def _score_wm_section(section: Dict[str, Any]) -> int:
+    """Score how strongly a parsed section looks like water mitigation."""
+    name = (section.get('section_name') or '').lower()
+    if not name:
+        return 0
+    # An explicit "water mitigation" title beats every other signal.
+    if 'water' in name and 'mitig' in name:
+        return 100
+    return sum(10 for kw in WM_SECTION_KEYWORDS if kw in name)
+
+
+def _pick_wm_section(sections: List[Dict[str, Any]]) -> Optional[int]:
+    """Return the index of the most WM-looking section, or None."""
+    if not sections:
+        return None
+    best_idx, best_score = None, 0
+    for idx, sec in enumerate(sections):
+        score = _score_wm_section(sec)
+        if score > best_score:
+            best_idx, best_score = idx, score
+    # A single-section estimate is a WM-only document by definition.
+    if best_idx is None and len(sections) == 1:
+        return 0
+    return best_idx
+
+
+@router.post("/jobs/{job_id}/insurance-estimate/parse")
+async def parse_wm_insurance_estimate(
+    job_id: UUID,
+    file: UploadFile = File(...),
+):
+    """Parse an insurance estimate PDF and pre-select its water-mitigation section.
+
+    Does not persist anything - the client reviews/adjusts the detected
+    section and then calls the save endpoint below.
+    """
+    import tempfile
+
+    if not file.filename or not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    tmp_path = None
+    try:
+        file_content = await file.read()
+
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+        try:
+            with os.fdopen(tmp_fd, "wb") as tmp_f:
+                tmp_f.write(file_content)
+        except Exception:
+            try:
+                os.close(tmp_fd)
+            except OSError:
+                pass
+            raise
+
+        from app.domains.client.negotiation_pdf_service import extract_summary_from_pdf
+        result = extract_summary_from_pdf(tmp_path)
+        sections = result.get("sections") or []
+
+        wm_index = _pick_wm_section(sections)
+        is_combined = len(sections) > 1
+
+        return {
+            "sections": sections,
+            "totals": result.get("totals") or {},
+            "validation": result.get("validation") or {},
+            "wm_section_index": wm_index,
+            "is_combined": is_combined,
+            "file_name": file.filename,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error parsing WM insurance estimate: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if tmp_path and os.path.isfile(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+@router.post("/jobs/{job_id}/insurance-estimate")
+async def save_wm_insurance_estimate(
+    job_id: UUID,
+    file: UploadFile = File(...),
+    wm_amount: float = Form(...),
+    wm_section: Optional[str] = Form(None),
+    is_combined: bool = Form(False),
+    sections_data: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    db: DatabaseSession = Depends(get_db_session),
+):
+    """Upload an insurance estimate for a WM job and record the WM amount.
+
+    Stores the PDF and creates a ClaimNegotiation row with
+    estimate_category='water_mitigation', so the estimate also surfaces on
+    the client and follow-up screens. Handles both WM-only estimates and
+    combined (rebuild + WM) estimates, where only the WM slice is recorded.
+    """
+    import io
+    import json
+
+    from sqlalchemy import func
+
+    from app.domains.client.models import Claim, ClaimNegotiation
+    from app.domains.file.service import FileService
+    from .models import WaterMitigationJob
+
+    if not file.filename or not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    job = db.query(WaterMitigationJob).filter(
+        WaterMitigationJob.id == job_id
+    ).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.claim_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This job is not linked to a claim. Link the job to a claim "
+                "before uploading an insurance estimate."
+            ),
+        )
+
+    claim = db.query(Claim).filter(Claim.id == job.claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Linked claim not found")
+
+    # Parse optional JSON payloads from the multipart form
+    parsed_wm_section = None
+    if wm_section:
+        try:
+            parsed_wm_section = json.loads(wm_section)
+        except Exception:
+            logger.warning("Invalid wm_section JSON; ignoring")
+    parsed_all_sections = None
+    if sections_data:
+        try:
+            parsed_all_sections = json.loads(sections_data)
+        except Exception:
+            logger.warning("Invalid sections_data JSON; ignoring")
+
+    # --- Store the PDF ---
+    file_content = await file.read()
+    address_part = (job.property_address or '').strip()
+
+    next_revision = (
+        db.query(func.max(ClaimNegotiation.revision_number))
+        .filter(
+            ClaimNegotiation.claim_id == str(job.claim_id),
+            ClaimNegotiation.estimate_category == 'water_mitigation',
+        )
+        .scalar() or 0
+    ) + 1
+
+    ext = os.path.splitext(file.filename)[1] or '.pdf'
+    if address_part:
+        safe_address = (
+            address_part.replace('/', '-').replace('\\', '-')
+            .replace(':', '').replace('"', '')
+        )
+        upload_filename = f"{safe_address}-WM-Estimate-v{next_revision}{ext}"
+    else:
+        upload_filename = f"WM-Estimate-v{next_revision}{ext}"
+
+    file_id = None
+    try:
+        from app.core.database_factory import get_database
+        fs = FileService(get_database())
+        try:
+            file_record = await fs.upload_file(
+                file_data=io.BytesIO(file_content),
+                original_filename=upload_filename,
+                content_type=file.content_type or "application/pdf",
+                context="negotiation",
+                context_id=str(job.claim_id),
+            )
+            fs.repository.db_session.commit()
+            file_id = str(file_record.get("id", ""))
+        finally:
+            fs.repository.db_session.close()
+    except Exception as e:
+        logger.error(f"WM insurance estimate upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to store the estimate PDF")
+
+    # --- Record the negotiation (WM category) ---
+    # Store only the WM slice so the comparison card reads the right amount,
+    # even when the source PDF also covers rebuild.
+    wm_sections = [parsed_wm_section] if parsed_wm_section else None
+    dep = float((parsed_wm_section or {}).get('depreciation') or 0)
+    net_acv = float((parsed_wm_section or {}).get('net_acv') or 0)
+
+    if is_combined:
+        default_note = 'Water Mitigation portion of a combined insurance estimate'
+    else:
+        default_note = 'Water Mitigation insurance estimate'
+
+    negotiation = ClaimNegotiation(
+        claim_id=str(job.claim_id),
+        revision_number=next_revision,
+        revision_type='initial' if next_revision == 1 else 'supplement',
+        estimate_category='water_mitigation',
+        rcv_amount=wm_amount,
+        acv_amount=net_acv or wm_amount,
+        depreciation_amount=dep,
+        deductible=float((parsed_wm_section or {}).get('deductible') or 0),
+        date_received=datetime.now(),
+        received_from='Insurance Company',
+        document_url=file_id,
+        document_name=upload_filename,
+        sections_data=wm_sections,
+        extraction_metadata={
+            'source': 'wm_job_upload',
+            'job_id': str(job_id),
+            'is_combined': is_combined,
+            # Keep the full parse for reference when the PDF covered rebuild too.
+            'all_sections': parsed_all_sections if is_combined else None,
+        },
+        notes=notes or default_note,
+    )
+    db.add(negotiation)
+
+    # Keep the claim's WM fields in sync - the comparison card and the
+    # follow-up screen both fall back to these.
+    claim.wm_cost_status = 'included_in_rebuild' if is_combined else 'separate_estimate'
+    claim.wm_estimate_amount = wm_amount
+    if file_id:
+        claim.wm_estimate_file_id = file_id
+        claim.wm_estimate_file_name = upload_filename
+
+    db.commit()
+    db.refresh(negotiation)
+
+    return {
+        "success": True,
+        "negotiation_id": str(negotiation.id),
+        "revision_number": negotiation.revision_number,
+        "wm_amount": wm_amount,
+        "file_id": file_id,
+        "file_name": upload_filename,
+        "is_combined": is_combined,
+    }
 
 
 # ============================================================

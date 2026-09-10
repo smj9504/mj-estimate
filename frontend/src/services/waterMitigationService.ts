@@ -1455,6 +1455,9 @@ export interface WMFinancialComparison {
       profit_amount: number;
       deductible: number;
     } | null;
+    estimate_category: string | null;
+    document_file_id: string | null;
+    document_name: string | null;
     claim_rcv: number;
     claim_acv: number;
     claim_depreciation: number;
@@ -1470,9 +1473,93 @@ export interface WMFinancialComparison {
   };
 }
 
+/** One summary section parsed out of an insurance estimate PDF */
+export interface WMEstimateSection {
+  section_name: string;
+  rcv?: number;
+  depreciation?: number;
+  net_acv?: number;
+  deductible?: number;
+  line_item_total?: number;
+  overhead_amount?: number;
+  profit_amount?: number;
+  [key: string]: any;
+}
+
+export interface WMEstimateParseResult {
+  sections: WMEstimateSection[];
+  totals: {
+    rcv_amount?: number;
+    acv_amount?: number;
+    depreciation_amount?: number;
+    deductible?: number;
+  };
+  validation?: { is_valid: boolean; warnings: string[] };
+  /** Index of the auto-detected water mitigation section, if any */
+  wm_section_index: number | null;
+  /** True when the PDF covers rebuild + WM rather than WM alone */
+  is_combined: boolean;
+  file_name: string;
+}
+
 export const financialComparisonService = {
   get: async (jobId: string): Promise<WMFinancialComparison> => {
     const response = await api.get(`${BASE_URL}/jobs/${jobId}/financial-comparison`);
+    return response.data;
+  },
+
+  /** Parse an insurance estimate PDF without saving it */
+  parseInsuranceEstimate: async (
+    jobId: string,
+    file: File,
+  ): Promise<WMEstimateParseResult> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post(
+      `${BASE_URL}/jobs/${jobId}/insurance-estimate/parse`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 },
+    );
+    return response.data;
+  },
+
+  /** Save the estimate PDF + the confirmed WM amount */
+  saveInsuranceEstimate: async (
+    jobId: string,
+    params: {
+      file: File;
+      wmAmount: number;
+      wmSection?: WMEstimateSection | null;
+      isCombined?: boolean;
+      allSections?: WMEstimateSection[] | null;
+      notes?: string;
+    },
+  ): Promise<{
+    success: boolean;
+    negotiation_id: string;
+    revision_number: number;
+    wm_amount: number;
+    file_id: string | null;
+    file_name: string;
+    is_combined: boolean;
+  }> => {
+    const formData = new FormData();
+    formData.append('file', params.file);
+    formData.append('wm_amount', String(params.wmAmount));
+    formData.append('is_combined', String(!!params.isCombined));
+    if (params.wmSection) {
+      formData.append('wm_section', JSON.stringify(params.wmSection));
+    }
+    if (params.allSections) {
+      formData.append('sections_data', JSON.stringify(params.allSections));
+    }
+    if (params.notes) formData.append('notes', params.notes);
+
+    const response = await api.post(
+      `${BASE_URL}/jobs/${jobId}/insurance-estimate`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 },
+    );
     return response.data;
   },
 };
