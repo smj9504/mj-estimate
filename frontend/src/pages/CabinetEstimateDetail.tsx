@@ -133,6 +133,16 @@ const FALLBACK_SCOPE_RATES: Record<string, number> = {
   drywall_patch_per_sf: 2.75, drywall_rr_per_sf: 5.0,
 };
 
+// Island panel heights offered in the End/Back Panel selectors, in feet.
+// Islands are built at base-cabinet (34.5"), work (36") or bar (42") height;
+// 84" covers a full-height panel.
+const ISLAND_PANEL_HEIGHTS: { label: string; value: number }[] = [
+  { label: '34.5" (Base Cabinet)', value: 2.875 },
+  { label: '36" (Counter Height)', value: 3 },
+  { label: '42" (Bar Height)', value: 3.5 },
+  { label: '84" (Full Height)', value: 7 },
+];
+
 const CabinetEstimateDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -149,8 +159,12 @@ const CabinetEstimateDetail: React.FC = () => {
   // Watch island panel SF values for reactive LF display
   const endPanelSf = Form.useWatch('island_end_panel_sqft', form) || 0;
   const backPanelSf = Form.useWatch('island_back_panel_sqft', form) || 0;
-  const [endPanelHeight, setEndPanelHeight] = useState<'base' | 'tall'>('base');
-  const [backPanelHeight, setBackPanelHeight] = useState<'base' | 'tall'>('base');
+  // Island panel heights, in feet — the LF <-> SF conversion below is the
+  // only place height is used; the backend stores panels as plain SF.
+  // 34.5" is the base-cabinet panel, 36"/42" are work- and bar-height
+  // islands, 84" is a full-height panel.
+  const [endPanelHeight, setEndPanelHeight] = useState<number>(2.875);
+  const [backPanelHeight, setBackPanelHeight] = useState<number>(2.875);
 
   // ── Fetch pricing options ──
   const { data: pricingInfo } = useQuery({
@@ -750,11 +764,10 @@ const CabinetEstimateDetail: React.FC = () => {
                                 min={0} max={30} step={0.5}
                                 style={{ width: '100%' }}
                                 placeholder="0"
-                                value={endPanelSf > 0 ? Math.round(endPanelSf / (endPanelHeight === 'tall' ? 7 : 2.875) * 10) / 10 : undefined}
+                                value={endPanelSf > 0 ? Math.round(endPanelSf / endPanelHeight * 10) / 10 : undefined}
                                 onChange={(lf) => {
-                                  const h = endPanelHeight === 'tall' ? 7 : 2.875;
                                   form.setFieldsValue({
-                                    island_end_panel_sqft: lf ? Math.round(lf * h * 10) / 10 : 0,
+                                    island_end_panel_sqft: lf ? Math.round(lf * endPanelHeight * 10) / 10 : 0,
                                   });
                                 }}
                               />
@@ -765,21 +778,18 @@ const CabinetEstimateDetail: React.FC = () => {
                               <Select
                                 value={endPanelHeight}
                                 size="middle"
-                                onChange={(h) => {
-                                  const oldH = endPanelHeight === 'tall' ? 7 : 2.875;
-                                  const newH = h === 'tall' ? 7 : 2.875;
-                                  setEndPanelHeight(h);
-                                  if (endPanelSf > 0) {
-                                    const lf = endPanelSf / oldH;
+                                onChange={(newH: number) => {
+                                  // Keep the LF the user entered; restate it
+                                  // as SF at the new height.
+                                  const lf = endPanelSf > 0 ? endPanelSf / endPanelHeight : 0;
+                                  setEndPanelHeight(newH);
+                                  if (lf > 0) {
                                     form.setFieldsValue({
                                       island_end_panel_sqft: Math.round(lf * newH * 10) / 10,
                                     });
                                   }
                                 }}
-                                options={[
-                                  { label: 'Base (34.5")', value: 'base' },
-                                  { label: 'Tall (84")', value: 'tall' },
-                                ]}
+                                options={ISLAND_PANEL_HEIGHTS}
                               />
                             </Form.Item>
                           </Col>
@@ -800,11 +810,10 @@ const CabinetEstimateDetail: React.FC = () => {
                                 min={0} max={30} step={0.5}
                                 style={{ width: '100%' }}
                                 placeholder="0"
-                                value={backPanelSf > 0 ? Math.round(backPanelSf / (backPanelHeight === 'tall' ? 7 : 2.875) * 10) / 10 : undefined}
+                                value={backPanelSf > 0 ? Math.round(backPanelSf / backPanelHeight * 10) / 10 : undefined}
                                 onChange={(lf) => {
-                                  const h = backPanelHeight === 'tall' ? 7 : 2.875;
                                   form.setFieldsValue({
-                                    island_back_panel_sqft: lf ? Math.round(lf * h * 10) / 10 : 0,
+                                    island_back_panel_sqft: lf ? Math.round(lf * backPanelHeight * 10) / 10 : 0,
                                   });
                                 }}
                               />
@@ -815,21 +824,18 @@ const CabinetEstimateDetail: React.FC = () => {
                               <Select
                                 value={backPanelHeight}
                                 size="middle"
-                                onChange={(h) => {
-                                  const oldH = backPanelHeight === 'tall' ? 7 : 2.875;
-                                  const newH = h === 'tall' ? 7 : 2.875;
-                                  setBackPanelHeight(h);
-                                  if (backPanelSf > 0) {
-                                    const lf = backPanelSf / oldH;
+                                onChange={(newH: number) => {
+                                  // Keep the LF the user entered; restate it
+                                  // as SF at the new height.
+                                  const lf = backPanelSf > 0 ? backPanelSf / backPanelHeight : 0;
+                                  setBackPanelHeight(newH);
+                                  if (lf > 0) {
                                     form.setFieldsValue({
                                       island_back_panel_sqft: Math.round(lf * newH * 10) / 10,
                                     });
                                   }
                                 }}
-                                options={[
-                                  { label: 'Base (34.5")', value: 'base' },
-                                  { label: 'Tall (84")', value: 'tall' },
-                                ]}
+                                options={ISLAND_PANEL_HEIGHTS}
                               />
                             </Form.Item>
                           </Col>
