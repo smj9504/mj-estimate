@@ -11,7 +11,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Stage, Layer } from 'react-konva';
+import { Stage, Layer, Line } from 'react-konva';
 import Konva from 'konva';
 import { Button, Select, Space, Tag, Tooltip, message } from 'antd';
 import {
@@ -20,6 +20,7 @@ import {
   RedoOutlined,
   SaveOutlined,
   SelectOutlined,
+  TableOutlined,
   UndoOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -37,6 +38,41 @@ import { pixelsToFeet, generateOverlayId, snapToWallEndpoint, constrainToAxis } 
 
 const CANVAS_HEIGHT = 560;
 
+/**
+ * 1-foot reference grid, drawn in its own non-listening Layer behind the
+ * content so it never intercepts the stage clicks that drive wall drawing,
+ * cabinet placement, and empty-canvas deselect.
+ *
+ * Mirrors WMFloorSketchEditor's GridLayer (same 1-ft step and hairline
+ * color); the BE canvas's 3-tier minor/major grid exists to serve pan/zoom
+ * and snap-to-grid, neither of which this canvas has.
+ */
+const CabinetGridLayer: React.FC<{
+  width: number;
+  height: number;
+  scalePixelsPerFoot: number;
+}> = React.memo(({ width, height, scalePixelsPerFoot }) => {
+  const lines = useMemo(() => {
+    const step = scalePixelsPerFoot;
+    if (step < 8) return []; // grid too dense to be useful
+    const out: React.ReactNode[] = [];
+    for (let x = 0; x <= width; x += step) {
+      out.push(
+        <Line key={`v${x}`} points={[x, 0, x, height]} stroke="#e8e8e8" strokeWidth={0.5} listening={false} />
+      );
+    }
+    for (let y = 0; y <= height; y += step) {
+      out.push(
+        <Line key={`h${y}`} points={[0, y, width, y]} stroke="#e8e8e8" strokeWidth={0.5} listening={false} />
+      );
+    }
+    return out;
+  }, [width, height, scalePixelsPerFoot]);
+
+  if (lines.length === 0) return null;
+  return <Layer listening={false}>{lines}</Layer>;
+});
+
 export interface CabinetSketchEditorProps {
   estimateId: string;
   /** Fired once per placed cabinet — lets the parent page bump the matching List View qty. */
@@ -48,6 +84,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [stageWidth, setStageWidth] = useState(900);
+  const [showGrid, setShowGrid] = useState(true);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -363,6 +400,14 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
             Draw Wall
           </Button>
         </Tooltip>
+        <Tooltip title={`${showGrid ? 'Hide' : 'Show'} 1 ft reference grid`}>
+          <Button
+            type={showGrid ? 'primary' : 'default'}
+            ghost={showGrid}
+            icon={<TableOutlined />}
+            onClick={() => setShowGrid((v) => !v)}
+          />
+        </Tooltip>
 
         <Select
           placeholder="+ Place cabinet…"
@@ -420,6 +465,14 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
           onMouseMove={handleStageMouseMove}
           style={{ cursor: state.activeTool === 'wall' || state.activeTool === 'place_cabinet' ? 'crosshair' : 'default' }}
         >
+          {showGrid && (
+            <CabinetGridLayer
+              width={stageWidth}
+              height={CANVAS_HEIGHT}
+              scalePixelsPerFoot={scalePixelsPerFoot}
+            />
+          )}
+
           <Layer>
             {state.overlayData.walls.map((wall) => (
               <CabinetWallRenderer
