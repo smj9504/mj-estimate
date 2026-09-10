@@ -404,7 +404,12 @@ const CabinetEstimateDetail: React.FC = () => {
   // ── Save handler ──
   const handleSave = useCallback(async () => {
     try {
-      const { backsplash_height_inches: _, ...values } = await form.validateFields();
+      await form.validateFields();
+      // Read from the form store, not validateFields(): conditionally
+      // rendered sections (e.g. Island Countertop, which hides when the
+      // island has no boxes) are unmounted, and validateFields() only
+      // returns mounted fields - their values would be dropped silently.
+      const { backsplash_height_inches: _, ...values } = form.getFieldsValue(true);
       const payload: CabinetEstimateUpdate = {
         ...values,
         overhead_pct: (values.overhead_pct ?? 0) / 100,
@@ -420,7 +425,10 @@ const CabinetEstimateDetail: React.FC = () => {
   // ── Save & Calculate (single API call) ──
   const handleCalculate = useCallback(async () => {
     try {
-      const { backsplash_height_inches: _, ...values } = await form.validateFields();
+      await form.validateFields();
+      // See handleSave: unmounted conditional sections are missing from
+      // validateFields(), so read the full store instead.
+      const { backsplash_height_inches: _, ...values } = form.getFieldsValue(true);
       const payload: CabinetEstimateUpdate = {
         ...values,
         overhead_pct: (values.overhead_pct ?? 0) / 100,

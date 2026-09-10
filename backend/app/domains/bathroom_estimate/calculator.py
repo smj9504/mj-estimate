@@ -481,14 +481,18 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  DEMO_RATES["debris_bag"] * labor_mult,
                  "demo",
                  notes="Heavy-duty contractor bags + haul-away")
-        elif debris_cy <= 5:
+        # Dumpster tiers allow for the container's rated volume being
+        # usable capacity for loose bath demo debris (tile, board, fixtures).
+        # The bag cutoff stays at 1.5 CY so fixture jobs never fall back
+        # to contractor bags.
+        elif debris_cy <= 7:
             _add(line_items, 1,
                  f"Dumpster rental (10yard, {debris_cy:.1f} CY est.)",
                  1, "EA",
                  DEMO_RATES["dumpster_10yard"]
                  + DEMO_RATES["dump_tip_fee"],
                  "demo")
-        elif debris_cy <= 10:
+        elif debris_cy <= 13:
             _add(line_items, 1,
                  f"Dumpster rental (15yard, {debris_cy:.1f} CY est.)",
                  1, "EA",

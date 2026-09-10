@@ -1529,13 +1529,16 @@ def calculate_estimate(
             demo_cuft += backsplash_sqft * 0.3
         demo_cuyd = (demo_cuft * 1.3) / 27
 
-        if demo_cuyd <= 5:
+        # Thresholds allow for the fact that a container's rated volume is
+        # usable capacity for loose demo debris - cabinets are broken down
+        # flat when loaded. A typical kitchen (~9-11 cu yd) fits a 15 yard.
+        if demo_cuyd <= 7:
             dump_size = 10
             dump_key = "dumpster_10yard"
-        elif demo_cuyd <= 8:
+        elif demo_cuyd <= 11:
             dump_size = 15
             dump_key = "dumpster_15yard"
-        elif demo_cuyd <= 12:
+        elif demo_cuyd <= 16:
             dump_size = 20
             dump_key = "dumpster_20yard"
         else:
