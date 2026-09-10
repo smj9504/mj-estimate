@@ -453,7 +453,15 @@ def _calc_location_cabinets(
                 category="install",
                 location=loc,
             ))
-        for htier, tier_lf in wall_by_tier.items():
+        # wall_by_tier is keyed by (height_tier, is_standard_width).
+        # Install labor doesn't vary with width, so merge the width split
+        # back out - otherwise the same tier yields two identical lines.
+        install_wall_by_tier: dict[str, float] = {}
+        for (htier, _std), tier_lf in wall_by_tier.items():
+            install_wall_by_tier[htier] = (
+                install_wall_by_tier.get(htier, 0) + tier_lf
+            )
+        for htier, tier_lf in install_wall_by_tier.items():
             if tier_lf <= 0:
                 continue
             h_label = _WALL_TIER_LABELS.get(
@@ -990,10 +998,11 @@ def calculate_estimate(
             + floor_surcharge,
             SCOPE_ITEMS["delivery_min"],
         ), 2)
+        # Customer-facing note: state what the charge covers, not how it
+        # is computed - the rate breakdown is internal pricing.
         floor_note = (
-            f", +${floor_surcharge} "
-            f"({delivery_floor}F carry-up)"
-            if floor_extra > 0 else ""
+            f"Includes {delivery_floor}F carry-up"
+            if floor_extra > 0 else None
         )
         line_items.append(LineItem(
             description="Cabinet Delivery",
@@ -1004,12 +1013,7 @@ def calculate_estimate(
             material_share=MATERIAL_SHARE["delivery"],
             category="misc",
             location="shared",
-            notes=(
-                f"${SCOPE_ITEMS['delivery_base']}"
-                f" + "
-                f"${SCOPE_ITEMS['delivery_per_lf']}/LF"
-                f"{floor_note}"
-            ),
+            notes=floor_note,
         ))
 
     # Plumbing
@@ -1034,7 +1038,6 @@ def calculate_estimate(
             ),
             (
                 "Garbage Disposal 3/4 HP "
-                "(InSinkErator Badger 5XP) "
                 "- supply only",
                 SCOPE_ITEMS["disposal_supply"],
                 "One disposer, on the main sink",
