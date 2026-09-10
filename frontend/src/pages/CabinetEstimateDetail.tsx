@@ -611,6 +611,17 @@ const CabinetEstimateDetail: React.FC = () => {
                         <AddressAutocomplete
                           placeholder="123 Main St, Bethesda, MD 20815"
                           onSelect={(addr) => form.setFieldsValue({
+                            // AddressAutocomplete puts only the street in the
+                            // input, expecting city/state to have their own
+                            // fields. This estimate stores one composite
+                            // address, so rebuild the full address here -
+                            // otherwise the city/state are dropped and the
+                            // screen and PDF show a street-only address.
+                            property_address: [
+                              addr.streetAddress,
+                              addr.city,
+                              [addr.state, addr.zip].filter(Boolean).join(' '),
+                            ].filter(Boolean).join(', '),
                             zip_code: addr.zip,
                           })}
                         />
