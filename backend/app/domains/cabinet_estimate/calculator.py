@@ -21,6 +21,7 @@ from .pricing import (
     MATERIAL_SHARE,
     SCOPE_ITEMS,
     COUNTERTOP_BACKSPLASH_PER_LF,
+    NON_STANDARD_WIDTH_MULTIPLIER,
     PREFAB_ISLAND_INSTALL,
     PREFAB_ISLAND_PRICING,
     RANGE_END_PANEL_EACH,
@@ -31,6 +32,7 @@ from .pricing import (
     TALL_WIDTH_MULTIPLIER,
     WALL_HEIGHT_MULTIPLIER,
     get_labor_multiplier,
+    is_standard_width,
     size_tier_value,
 )
 
@@ -137,15 +139,35 @@ def _calc_location_cabinets(
         "extra_tall": "Extra Tall (42\"H)",
     }
 
+    # A box milled off the standard 3" grid costs more to build, so it is
+    # quoted on its own line at a higher per-LF rate rather than being
+    # averaged into the standard run. Supply only — see
+    # NON_STANDARD_WIDTH_MULTIPLIER.
+    _NON_STD_SUFFIX = " (Non-Standard Width)"
+
     # ── Cabinet supply ──
-    if base_lf > 0:
-        base_unit = round(rates["base_lf"] * total_mult, 2)
-        base_total = round(base_lf * base_unit, 2)
+    base_by_std: dict[bool, float] = {}
+    for b in base_boxes:
+        std = is_standard_width(b.width_inches)
+        base_by_std[std] = base_by_std.get(std, 0) + (
+            b.width_inches * b.qty
+        ) / 12
+
+    for std in (True, False):
+        std_lf = base_by_std.get(std, 0)
+        if std_lf <= 0:
+            continue
+        w_mult = 1.0 if std else NON_STANDARD_WIDTH_MULTIPLIER
+        base_unit = round(
+            rates["base_lf"] * total_mult * w_mult, 2,
+        )
+        base_total = round(std_lf * base_unit, 2)
         line_items.append(LineItem(
             description=(
                 f"{prefix}Base Cabinets - {tier}"
+                f"{'' if std else _NON_STD_SUFFIX}"
             ),
-            quantity=round(base_lf, 2),
+            quantity=round(std_lf, 2),
             unit="LF",
             unit_price=base_unit,
             total=base_total,
@@ -154,26 +176,29 @@ def _calc_location_cabinets(
             location=loc,
         ))
 
-    # Wall cabinets: split by height tier for pricing
-    wall_by_tier: dict[str, float] = {}
+    # Wall cabinets: split by height tier, then by standard/non-standard width
+    wall_by_tier: dict[tuple[str, bool], float] = {}
     for b in wall_boxes:
         htier = _wall_height_tier(b.height_inches)
-        wall_by_tier[htier] = wall_by_tier.get(
-            htier, 0,
+        key = (htier, is_standard_width(b.width_inches))
+        wall_by_tier[key] = wall_by_tier.get(
+            key, 0,
         ) + (b.width_inches * b.qty) / 12
 
-    for htier, tier_lf in wall_by_tier.items():
+    for (htier, std), tier_lf in wall_by_tier.items():
         if tier_lf <= 0:
             continue
         h_mult = WALL_HEIGHT_MULTIPLIER.get(htier, 1.0)
+        w_mult = 1.0 if std else NON_STANDARD_WIDTH_MULTIPLIER
         wall_unit = round(
-            rates["wall_lf"] * total_mult * h_mult, 2,
+            rates["wall_lf"] * total_mult * h_mult * w_mult, 2,
         )
         wall_total = round(tier_lf * wall_unit, 2)
         h_label = _WALL_TIER_LABELS.get(htier, htier)
         line_items.append(LineItem(
             description=(
                 f"{prefix}Wall Cabinets {h_label} - {tier}"
+                f"{'' if std else _NON_STD_SUFFIX}"
             ),
             quantity=round(tier_lf, 2),
             unit="LF",
@@ -206,7 +231,20 @@ def _calc_location_cabinets(
                 f"{box.code}: {box.height_inches:g}\"H priced at the "
                 f"{h_approx}\"H rate (nearest listed size)"
             )
-        return round((w_mult / base_w_mult) * h_mult, 4)
+        # Off-grid widths cost more to build. Checked against the standard
+        # 3" lineup rather than the multiplier table, which lists only the
+        # few sizes the curve is calibrated on.
+        nonstd_mult = 1.0
+        if not is_standard_width(box.width_inches):
+            nonstd_mult = NON_STANDARD_WIDTH_MULTIPLIER
+            warnings.append(
+                f"{box.code}: {box.width_inches}\"W is off the standard 3\" "
+                f"lineup — supply priced at "
+                f"{NON_STANDARD_WIDTH_MULTIPLIER}x"
+            )
+        return round(
+            (w_mult / base_w_mult) * h_mult * nonstd_mult, 4,
+        )
 
     # Tall cabinets: split by type
     generic_tall = [

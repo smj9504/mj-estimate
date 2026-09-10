@@ -73,6 +73,26 @@ TALL_HEIGHT_MULTIPLIER = {
     96: 1.10,
 }
 
+# Stock cabinets are built on a 3" grid running 9"-48"; this lineup has been
+# the industry standard since the 1950s and is consistent across manufacturers.
+# Anything between those steps is a custom order or a factory modification.
+STANDARD_WIDTHS = {9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48}
+
+# Supply-cost multiplier for a box whose width is off the 3" grid.
+# Market research puts the custom-width premium at 1.25-1.55x ("sticking to
+# standard widths saves 20-35%"; modifications add 15-35% to the invoice).
+# 1.6 is set from the user's field experience in this market, which runs
+# higher than the published ranges - see the 2026-09-10 conversation.
+# Applied to cabinet SUPPLY only: a non-standard box costs more to build, but
+# hanging it takes the same crew time, so install/hardware are unaffected.
+NON_STANDARD_WIDTH_MULTIPLIER = 1.6
+
+
+def is_standard_width(width_inches: float) -> bool:
+    """True when a box width sits on the standard 3" cabinet grid."""
+    return width_inches in STANDARD_WIDTHS
+
+
 # Width each TALL_CABINET_TYPES price is calibrated for. Appliance cabinets are
 # wide by nature, so their size scaling is applied relative to this rather than
 # to the 24" generic baseline - a cabinet at its typical width keeps the quoted

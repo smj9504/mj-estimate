@@ -55,13 +55,14 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   // Base - Range Base (opening for the range; panels/build priced separately)
   'RB30S': { cab_type: 'base', width: 30, height: 34.5, specialty: 'range_base_slide_in', label: 'Range Base 30" (Slide-in)' },
   'RB36S': { cab_type: 'base', width: 36, height: 34.5, specialty: 'range_base_slide_in', label: 'Range Base 36" (Slide-in)' },
+  'RB40S': { cab_type: 'base', width: 40, height: 34.5, specialty: 'range_base_slide_in', label: 'Range Base 40" (Slide-in)' },
   'RB30D': { cab_type: 'base', width: 30, height: 34.5, specialty: 'range_base_drop_in', label: 'Range Base 30" (Drop-in)' },
   'RB36D': { cab_type: 'base', width: 36, height: 34.5, specialty: 'range_base_drop_in', label: 'Range Base 36" (Drop-in)' },
+  'RB40D': { cab_type: 'base', width: 40, height: 34.5, specialty: 'range_base_drop_in', label: 'Range Base 40" (Drop-in)' },
   // Wall - Standard (30"H)
   'W0930': { cab_type: 'wall', width: 9,  height: 30, label: '9"W x 30"H' },
   'W1230': { cab_type: 'wall', width: 12, height: 30, label: '12"W x 30"H' },
   'W1530': { cab_type: 'wall', width: 15, height: 30, label: '15"W x 30"H' },
-  'W1630': { cab_type: 'wall', width: 16, height: 30, label: '16"W x 30"H' },
   'W1830': { cab_type: 'wall', width: 18, height: 30, label: '18"W x 30"H' },
   'W2130': { cab_type: 'wall', width: 21, height: 30, label: '21"W x 30"H' },
   'W2430': { cab_type: 'wall', width: 24, height: 30, label: '24"W x 30"H' },
@@ -124,6 +125,10 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'T2496': { cab_type: 'tall', width: 24, height: 96, label: 'Tall 24"x96"' },
   'T3096': { cab_type: 'tall', width: 30, height: 96, label: 'Tall 30"x96"' },
   'T3696': { cab_type: 'tall', width: 36, height: 96, label: 'Tall 36"x96"' },
+  // Tall - Pantry, non-standard width (38")
+  'T3884': { cab_type: 'tall', width: 38, height: 84, label: 'Tall 38"x84"' },
+  'T3890': { cab_type: 'tall', width: 38, height: 90, label: 'Tall 38"x90"' },
+  'T3896': { cab_type: 'tall', width: 38, height: 96, label: 'Tall 38"x96"' },
   // Tall - Oven (widths 30/33 x heights 84/90/96)
   'OC3084': { cab_type: 'tall', width: 30, height: 84, specialty: 'oven_cabinet', label: 'Oven Cabinet 30"x84"' },
   'OC3090': { cab_type: 'tall', width: 30, height: 90, specialty: 'oven_cabinet', label: 'Oven Cabinet 30"x90"' },
