@@ -93,6 +93,57 @@ def is_standard_width(width_inches: float) -> bool:
     return width_inches in STANDARD_WIDTHS
 
 
+# Sink sized off its base cabinet: the trade rule is sink = cabinet width
+# minus ~3" for the rim, rails and clips. A 30" base therefore tops out at
+# a 27" sink, and a 42" base takes 39-40" (40" workstation sinks are sold
+# as "fits a standard 42-inch sink base"), NOT 36" - quoting 36" there
+# under-sizes the sink by 3-4".
+# Prices are supply-only and derived from the two figures this table was
+# already calibrated on - $305 for a 30" single (Kraus KHU100-30) and $458
+# for a 33" double (KHU102-33), which sit at ~76-81% of those models'
+# retail ($399.95 / $564.95), i.e. a contractor-supply basis. The other
+# widths are scaled from those two anchors on the same basis.
+# A 42" CORNER sink base behaves like a 30" cabinet (~27" max), but the
+# catalog has no corner sink base, so it is not represented here.
+SINK_BY_BASE = {
+    #  base:  (sink width, single $, double $)
+    30: (27, 265, 395),
+    33: (30, 305, 458),
+    36: (33, 350, 520),
+    42: (39, 430, 640),
+}
+
+# Base widths below the smallest entry fall back to the 30" row; anything
+# wider than the largest falls back to the 42" row.
+SINK_BASE_FALLBACK = (30, 42)
+
+
+def sink_for_base(base_width: int) -> tuple:
+    """Pick (sink_width, single_price, double_price) for a sink base.
+
+    Snaps to the nearest listed base width rather than interpolating -
+    sinks are sold in discrete sizes, so an odd base still takes a
+    stock sink.
+    """
+    if not SINK_BY_BASE:
+        return 30, 305, 458
+    if base_width in SINK_BY_BASE:
+        return SINK_BY_BASE[base_width]
+    lo, hi = SINK_BASE_FALLBACK
+    if base_width < lo:
+        return SINK_BY_BASE[lo]
+    if base_width > hi:
+        return SINK_BY_BASE[hi]
+    nearest = min(SINK_BY_BASE, key=lambda k: (abs(k - base_width), k))
+    return SINK_BY_BASE[nearest]
+
+
+# A double bowl needs roughly 30" of sink to be usable; below that the two
+# bowls are too narrow to be practical. Warn, never block - the user may
+# have a specific model in mind.
+DOUBLE_BOWL_MIN_SINK_WIDTH = 30
+
+
 # Width each TALL_CABINET_TYPES price is calibrated for. Appliance cabinets are
 # wide by nature, so their size scaling is applied relative to this rather than
 # to the 24" generic baseline - a cabinet at its typical width keeps the quoted
@@ -309,10 +360,44 @@ SCOPE_ITEMS = {
     "delivery_floor_surcharge": 82,  # +9%
     # Plumbing
     "plumbing_disconnect": 248,      # +10%
-    # Reconnect includes all hookups: sink drain, P-trap,
-    # disposal, DW drain/supply, faucet lines
-    "plumbing_reconnect": 500,       # +11%
-    # Sink (supply only — install included in reconnect)
+    # Reconnect = trip/setup + the core sink hookup (drain + supply).
+    # Market: a simple drop-in reconnect at the same hole/drain runs
+    # $150-$250, and the minimum service fee ($100-$175) already covers
+    # 1-2 hours. Everything else that happens under that same sink is
+    # itemized below at MARGINAL labor - the crew is already on site, so
+    # a part is not re-charged the standalone installed rate (a P-trap is
+    # $313-$393 installed alone but only $25-$65 in parts).
+    # Was a $500 catch-all covering P-trap/disposal/DW/faucet; those are
+    # now their own lines, so this was re-based to avoid double-charging.
+    "plumbing_reconnect": 225,
+    # Each sink beyond the first. The trip is already paid on the first
+    # one, so this is the hookup alone: a simple reconnect at an existing
+    # hole/drain is $150-$250 all-in, less the trip portion it no longer
+    # carries. (The $400-$1,500 island rough-in figures do NOT apply -
+    # that is running new supply/drain to a new fixture location, not
+    # reconnecting plumbing that is already there.)
+    "plumbing_reconnect_additional_sink": 110,
+    # ── Under-sink components (material + marginal labor, 1 sink) ──
+    # No published figure exists for marginal add-on labor, so it is
+    # derived: residential plumbers run $80-$130/hr, and these parts take
+    # 15-25 min each for a crew already under the sink -> ~$25-$45.
+    "p_trap_assembly": 80,           # $45 part + $35 labor; 1 per sink
+    "supply_line_each": 43,          # $18 braided riser + $25; 2 per sink
+    "angle_stop_each": 65,           # $25 valve + $40; 2 per sink
+    "aav_vent": 80,                  # $35 AAV + $45; when vented that way
+    "air_gap": 62,                   # $22 fitting + $40 (market $80-$150)
+    "soap_dispenser": 65,            # $30 + $35 (market $25-$50 install)
+    # Instant hot: unit $286-$1,178 (mid ~$340); install is a 2-3 hr job
+    # at $45-$200/hr, so ~$200 at a mid-market rate.
+    "instant_hot_dispenser": 540,    # $340 unit + $200 labor
+    # DW hookup parts. The dishwasher's own detach/reset is NOT here -
+    # it lives in APPLIANCE_RR_PRICING["dishwasher"], and so does the
+    # disposer, so plumbing must not re-charge either one.
+    "dw_supply_line": 43,            # $18 line + $25
+    "dw_angle_stop": 65,             # $25 valve + $40
+    # Sink (supply only — install included in reconnect).
+    # Kept as the 30" single / 33" double baseline for compatibility;
+    # the actual sink is sized off the sink base width via SINK_BY_BASE.
     # Single 30": Kraus KHU100-30
     "sink_single_supply": 305,       # +9%
     # Double 33": Kraus KHU102-33

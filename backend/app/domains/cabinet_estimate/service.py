@@ -177,6 +177,19 @@ class CabinetEstimateService:
             include_delivery=estimate.include_delivery,
             include_plumbing=estimate.include_plumbing,
             sink_type=getattr(estimate, 'sink_type', 'single') or 'single',
+            include_aav=getattr(estimate, 'include_aav', False) or False,
+            include_air_gap=getattr(
+                estimate, 'include_air_gap', False,
+            ) or False,
+            include_soap_dispenser=getattr(
+                estimate, 'include_soap_dispenser', False,
+            ) or False,
+            include_instant_hot=getattr(
+                estimate, 'include_instant_hot', False,
+            ) or False,
+            include_dw_hookup=getattr(
+                estimate, 'include_dw_hookup', False,
+            ) or False,
             include_countertop_reset=estimate.include_countertop_reset,
             include_hardware=(
                 estimate.include_hardware

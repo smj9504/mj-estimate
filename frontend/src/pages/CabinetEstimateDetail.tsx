@@ -293,6 +293,11 @@ const CabinetEstimateDetail: React.FC = () => {
         include_delivery: estimate.include_delivery,
         include_plumbing: estimate.include_plumbing,
         sink_type: estimate.sink_type || 'single',
+        include_aav: estimate.include_aav ?? false,
+        include_air_gap: estimate.include_air_gap ?? false,
+        include_soap_dispenser: estimate.include_soap_dispenser ?? false,
+        include_instant_hot: estimate.include_instant_hot ?? false,
+        include_dw_hookup: estimate.include_dw_hookup ?? false,
         include_countertop_reset: estimate.include_countertop_reset,
         include_hardware: estimate.include_hardware,
         include_crown_molding: estimate.include_crown_molding,
@@ -954,9 +959,32 @@ const CabinetEstimateDetail: React.FC = () => {
                       <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_plumbing !== cur.include_plumbing}>
                         {({ getFieldValue }) =>
                           getFieldValue('include_plumbing') ? (
-                            <Form.Item name="sink_type" label="Sink Type" preserve style={{ marginBottom: 0, marginLeft: 24 }}>
-                              <Select size="small" style={{ width: 180 }} options={priceInfo.sinkOptions} />
-                            </Form.Item>
+                            <div style={{ marginLeft: 24 }}>
+                              <Form.Item name="sink_type" label="Sink Type" preserve style={{ marginBottom: 4 }}>
+                                <Select size="small" style={{ width: 180 }} options={priceInfo.sinkOptions} />
+                              </Form.Item>
+                              {/* P-trap, supply lines and angle stops always
+                                  come with the plumbing scope; these are the
+                                  extras that depend on the kitchen. */}
+                              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>
+                                Under-sink extras (1 sink)
+                              </Text>
+                              <Form.Item name="include_dw_hookup" valuePropName="checked" preserve style={{ marginBottom: 0 }}>
+                                <Checkbox style={{ fontSize: 12 }}>DW supply line + angle stop</Checkbox>
+                              </Form.Item>
+                              <Form.Item name="include_aav" valuePropName="checked" preserve style={{ marginBottom: 0 }}>
+                                <Checkbox style={{ fontSize: 12 }}>AAV / loop vent</Checkbox>
+                              </Form.Item>
+                              <Form.Item name="include_air_gap" valuePropName="checked" preserve style={{ marginBottom: 0 }}>
+                                <Checkbox style={{ fontSize: 12 }}>Air gap</Checkbox>
+                              </Form.Item>
+                              <Form.Item name="include_soap_dispenser" valuePropName="checked" preserve style={{ marginBottom: 0 }}>
+                                <Checkbox style={{ fontSize: 12 }}>Soap dispenser</Checkbox>
+                              </Form.Item>
+                              <Form.Item name="include_instant_hot" valuePropName="checked" preserve style={{ marginBottom: 0 }}>
+                                <Checkbox style={{ fontSize: 12 }}>Instant hot water dispenser</Checkbox>
+                              </Form.Item>
+                            </div>
                           ) : null
                         }
                       </Form.Item>

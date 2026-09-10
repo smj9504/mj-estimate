@@ -76,6 +76,14 @@ class CabinetEstimate(Base, BaseModel):
     include_delivery = Column(Boolean, default=True)
     include_plumbing = Column(Boolean, default=False)
     sink_type = Column(String(20), default="single")  # single / double
+    # Under-sink components, quoted for a single sink. P-trap, supply
+    # lines and angle stops always come with the plumbing scope; these
+    # are the ones that depend on the specific kitchen.
+    include_aav = Column(Boolean, default=False)
+    include_air_gap = Column(Boolean, default=False)
+    include_soap_dispenser = Column(Boolean, default=False)
+    include_instant_hot = Column(Boolean, default=False)
+    include_dw_hookup = Column(Boolean, default=False)
     include_countertop_reset = Column(Boolean, default=False)
     include_hardware = Column(Boolean, default=True)
 

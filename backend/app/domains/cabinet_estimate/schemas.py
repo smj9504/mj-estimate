@@ -161,6 +161,11 @@ class CabinetEstimateBase(BaseModel):
     include_delivery: bool = True
     include_plumbing: bool = False
     sink_type: Optional[str] = "single"
+    include_aav: bool = False
+    include_air_gap: bool = False
+    include_soap_dispenser: bool = False
+    include_instant_hot: bool = False
+    include_dw_hookup: bool = False
     include_countertop_reset: bool = False
     include_hardware: bool = True
     include_crown_molding: bool = False
@@ -227,6 +232,11 @@ class CabinetEstimateUpdate(BaseModel):
     include_delivery: Optional[bool] = None
     include_plumbing: Optional[bool] = None
     sink_type: Optional[str] = None
+    include_aav: Optional[bool] = None
+    include_air_gap: Optional[bool] = None
+    include_soap_dispenser: Optional[bool] = None
+    include_instant_hot: Optional[bool] = None
+    include_dw_hookup: Optional[bool] = None
     include_countertop_reset: Optional[bool] = None
     include_hardware: Optional[bool] = None
     include_crown_molding: Optional[bool] = None
@@ -287,6 +297,11 @@ class CabinetEstimateResponse(BaseModel):
     include_delivery: bool = True
     include_plumbing: bool = False
     sink_type: Optional[str] = "single"
+    include_aav: bool = False
+    include_air_gap: bool = False
+    include_soap_dispenser: bool = False
+    include_instant_hot: bool = False
+    include_dw_hookup: bool = False
     include_countertop_reset: bool = False
     include_hardware: bool = True
     include_crown_molding: bool = False

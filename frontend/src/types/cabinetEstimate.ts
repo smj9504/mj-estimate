@@ -94,6 +94,12 @@ export interface CabinetEstimate {
   include_delivery: boolean;
   include_plumbing: boolean;
   sink_type?: 'single' | 'double';
+  /** Under-sink components, quoted for a single sink. */
+  include_aav?: boolean;
+  include_air_gap?: boolean;
+  include_soap_dispenser?: boolean;
+  include_instant_hot?: boolean;
+  include_dw_hookup?: boolean;
   include_countertop_reset: boolean;
   include_hardware: boolean;
   include_crown_molding: boolean;
@@ -164,6 +170,12 @@ export interface CabinetEstimateCreate {
   include_delivery?: boolean;
   include_plumbing?: boolean;
   sink_type?: 'single' | 'double';
+  /** Under-sink components, quoted for a single sink. */
+  include_aav?: boolean;
+  include_air_gap?: boolean;
+  include_soap_dispenser?: boolean;
+  include_instant_hot?: boolean;
+  include_dw_hookup?: boolean;
   include_countertop_reset?: boolean;
   include_hardware?: boolean;
   include_crown_molding?: boolean;
@@ -221,6 +233,12 @@ export interface CabinetEstimateUpdate {
   include_delivery?: boolean;
   include_plumbing?: boolean;
   sink_type?: 'single' | 'double';
+  /** Under-sink components, quoted for a single sink. */
+  include_aav?: boolean;
+  include_air_gap?: boolean;
+  include_soap_dispenser?: boolean;
+  include_instant_hot?: boolean;
+  include_dw_hookup?: boolean;
   include_countertop_reset?: boolean;
   include_hardware?: boolean;
   include_crown_molding?: boolean;

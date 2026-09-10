@@ -33,7 +33,9 @@ from .pricing import (
     WALL_HEIGHT_MULTIPLIER,
     get_labor_multiplier,
     is_standard_width,
+    sink_for_base,
     size_tier_value,
+    DOUBLE_BOWL_MIN_SINK_WIDTH,
 )
 
 logger = logging.getLogger(__name__)
@@ -698,6 +700,13 @@ def calculate_estimate(
     include_delivery: bool = True,
     include_plumbing: bool = False,
     sink_type: Optional[str] = "single",
+    # Under-sink components, quoted for a single sink. The core hookup is
+    # in plumbing_reconnect; these are the extras, at marginal labor.
+    include_aav: bool = False,
+    include_air_gap: bool = False,
+    include_soap_dispenser: bool = False,
+    include_instant_hot: bool = False,
+    include_dw_hookup: bool = False,
     include_countertop_reset: bool = False,
     include_hardware: bool = True,
     include_crown_molding: bool = False,
@@ -1015,51 +1024,139 @@ def calculate_estimate(
             ),
             (
                 "Plumbing Reconnect "
-                "(sink drain, P-trap, disposal, "
-                "DW drain/supply, faucet hookup)",
+                "(trip + sink drain & supply hookup)",
                 SCOPE_ITEMS["plumbing_reconnect"],
-                "Includes all fixture hookups",
+                (
+                    "Core hookup and trip charge; parts below are "
+                    "itemized at marginal labor"
+                ),
                 0.0,
-            ),
-            (
-                (
-                    "Undermount SS Double Bowl "
-                    "Sink 33\" (Kraus KHU102-33) "
-                    "- supply only"
-                    if sink_type == "double"
-                    else "Undermount SS Single Bowl "
-                    "Sink 30\" (Kraus KHU100-30) "
-                    "- supply only"
-                ),
-                SCOPE_ITEMS.get(
-                    "sink_double_supply"
-                    if sink_type == "double"
-                    else "sink_single_supply",
-                    280,
-                ),
-                (
-                    "16-gauge stainless steel, "
-                    "sound-dampened"
-                ),
-                1.0,
-            ),
-            (
-                "Pull-Down Kitchen Faucet "
-                "(Moen/Delta mid-range) "
-                "- supply only",
-                SCOPE_ITEMS["faucet_supply"],
-                None,
-                1.0,
             ),
             (
                 "Garbage Disposal 3/4 HP "
                 "(InSinkErator Badger 5XP) "
                 "- supply only",
                 SCOPE_ITEMS["disposal_supply"],
-                None,
+                "One disposer, on the main sink",
                 1.0,
             ),
         ]
+
+        # ── Sinks, sized off their base cabinets ──
+        # A sink is bought to fit its base (width - ~3"), so group the
+        # sink bases by width and quote the matching sink for each.
+        sink_bases: dict[int, int] = {}
+        for b in boxes:
+            if b.specialty_type == "sink_base":
+                sink_bases[b.width_inches] = (
+                    sink_bases.get(b.width_inches, 0) + b.qty
+                )
+        # No sink base drawn: fall back to a single 30" base so the
+        # plumbing scope still quotes a sink.
+        if not sink_bases:
+            sink_bases = {30: 1}
+
+        sink_count = sum(sink_bases.values())
+        is_double = sink_type == "double"
+        # Quoted with the other per-sink items so a base row with qty > 1
+        # yields that many sinks, not one.
+        sink_lines: list = []
+
+        for base_w in sorted(sink_bases):
+            qty = sink_bases[base_w]
+            sink_w, single_price, double_price = sink_for_base(base_w)
+            price = double_price if is_double else single_price
+            bowl = "Double Bowl" if is_double else "Single Bowl"
+            if is_double and sink_w < DOUBLE_BOWL_MIN_SINK_WIDTH:
+                warnings.append(
+                    f"{sink_w}\"W double bowl in a {base_w}\"W sink base: "
+                    f"bowls under {DOUBLE_BOWL_MIN_SINK_WIDTH}\" are "
+                    f"cramped — a single bowl is usually the better fit"
+                )
+            sink_lines.append((
+                f"Undermount SS {bowl} Sink {sink_w}\" "
+                f"- supply only",
+                price,
+                qty,
+                1.0,
+                (
+                    f"16-gauge stainless steel, sound-dampened; "
+                    f"sized for a {base_w}\"W sink base"
+                ),
+            ))
+
+        # Under-sink components, per sink: 1 P-trap, 2 supply lines,
+        # 2 angle stops. Material share is the part's share of
+        # part + marginal labor.
+        under_sink = list(sink_lines)
+        if sink_count > 1:
+            # The trip is in plumbing_reconnect; each extra sink adds its
+            # own drain and supply hookup, not another trip.
+            under_sink.append((
+                "Additional Sink Hookup (drain & supply)",
+                SCOPE_ITEMS["plumbing_reconnect_additional_sink"],
+                sink_count - 1, 0.0,
+                "Second and later sinks; trip already charged above",
+            ))
+        under_sink += [
+            (
+                "Pull-Down Kitchen Faucet "
+                "(Moen/Delta mid-range) - supply only",
+                SCOPE_ITEMS["faucet_supply"], 1 * sink_count, 1.0,
+                "One faucet per sink",
+            ),
+            (
+                "P-Trap Assembly (sink drain)",
+                SCOPE_ITEMS["p_trap_assembly"], 1 * sink_count, 0.56,
+                "Part + marginal labor; crew already on site",
+            ),
+            (
+                "Supply Line - Braided (hot/cold)",
+                SCOPE_ITEMS["supply_line_each"], 2 * sink_count, 0.42,
+                None,
+            ),
+            (
+                "Angle Stop Valve (hot/cold)",
+                SCOPE_ITEMS["angle_stop_each"], 2 * sink_count, 0.38,
+                None,
+            ),
+        ]
+        if include_aav:
+            under_sink.append((
+                "Air Admittance Valve / Loop Vent",
+                SCOPE_ITEMS["aav_vent"], 1, 0.44,
+                "Island or where a stack vent is impractical",
+            ))
+        if include_air_gap:
+            under_sink.append((
+                "Dishwasher Air Gap (countertop)",
+                SCOPE_ITEMS["air_gap"], 1, 0.35,
+                "Countertop penetration, reset",
+            ))
+        if include_soap_dispenser:
+            under_sink.append((
+                "Soap Dispenser (countertop)",
+                SCOPE_ITEMS["soap_dispenser"], 1, 0.46,
+                "Countertop penetration, reset",
+            ))
+        if include_instant_hot:
+            under_sink.append((
+                "Instant Hot Water Dispenser",
+                SCOPE_ITEMS["instant_hot_dispenser"], 1, 0.63,
+                "Unit + tank mount, 2-3 hr install",
+            ))
+        if include_dw_hookup:
+            under_sink.extend([
+                (
+                    "DW Supply Line - Braided",
+                    SCOPE_ITEMS["dw_supply_line"], 1, 0.42, None,
+                ),
+                (
+                    "DW Angle Stop Valve",
+                    SCOPE_ITEMS["dw_angle_stop"], 1, 0.38, None,
+                ),
+            ])
+
         for desc, cost, notes, share in plumbing_items:
             line_items.append(LineItem(
                 description=desc,
@@ -1067,6 +1164,19 @@ def calculate_estimate(
                 unit="EA",
                 unit_price=cost,
                 total=cost,
+                material_share=share,
+                category="plumbing",
+                location="shared",
+                notes=notes,
+            ))
+
+        for desc, unit_cost, qty, share, notes in under_sink:
+            line_items.append(LineItem(
+                description=desc,
+                quantity=qty,
+                unit="EA",
+                unit_price=unit_cost,
+                total=round(unit_cost * qty, 2),
                 material_share=share,
                 category="plumbing",
                 location="shared",
