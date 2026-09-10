@@ -160,6 +160,9 @@ class CabinetEstimateService:
                 has_glass_door=getattr(
                     b, 'has_glass_door', False,
                 ) or False,
+                range_panel_count=getattr(
+                    b, 'range_panel_count', None,
+                ),
                 qty=b.qty,
             )
             for b in estimate.boxes
@@ -409,6 +412,9 @@ class CabinetEstimateService:
                 "has_glass_door": getattr(
                     box, 'has_glass_door', False,
                 ) or False,
+                "range_panel_count": getattr(
+                    box, 'range_panel_count', None,
+                ),
                 "qty": box.qty,
                 "display_order": i,
             })

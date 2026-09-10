@@ -23,6 +23,7 @@ from .pricing import (
     COUNTERTOP_BACKSPLASH_PER_LF,
     PREFAB_ISLAND_INSTALL,
     PREFAB_ISLAND_PRICING,
+    RANGE_END_PANEL_EACH,
     SPECIALTY_PREMIUM,
     TALL_CABINET_TYPES,
     TALL_HEIGHT_MULTIPLIER,
@@ -47,6 +48,8 @@ class BoxInput:
     specialty_type: Optional[str]
     has_glass_door: bool
     qty: int
+    # Finished end panels flanking a slide-in range opening (0-2).
+    range_panel_count: Optional[int] = None
 
 
 @dataclass
@@ -328,6 +331,35 @@ def _calc_location_cabinets(
                 f"{box.code}"
             )
 
+    # ── Slide-in range finished end panels ──
+    # Priced per panel rather than as a flat specialty premium: an opening
+    # between two cabinets exposes two ends, one at a wall exposes one.
+    for box in boxes:
+        if box.specialty_type != "range_base_slide_in":
+            continue
+        panels = box.range_panel_count
+        if panels is None:
+            panels = 2  # both flanking ends, the common case
+        panel_qty = panels * box.qty
+        if panel_qty <= 0:
+            continue
+        panel_total = round(RANGE_END_PANEL_EACH * panel_qty, 2)
+        line_items.append(LineItem(
+            description=(
+                f"Range End Panel (Finished) - {box.code}"
+            ),
+            quantity=panel_qty,
+            unit="EA",
+            unit_price=RANGE_END_PANEL_EACH,
+            total=panel_total,
+            material_share=MATERIAL_SHARE["cabinet_supply"],
+            category="premium",
+            location=loc,
+            notes=(
+                f"{panels} panel(s) per opening — slide-in range"
+            ),
+        ))
+
     # ── Glass door premiums ──
     glass_boxes = [b for b in boxes if b.has_glass_door]
     if glass_boxes:
@@ -452,6 +484,15 @@ def _calc_location_cabinets(
             elif b.specialty_type == "blind_corner":
                 # 1 door + 1 drawer
                 openings = 2
+            elif b.specialty_type == "range_base_slide_in":
+                # No cabinet under a slide-in: the flanking bases are
+                # simply spaced apart and the range fills the gap, so
+                # there is no door or drawer front to put a pull on.
+                openings = 0
+            elif b.specialty_type == "range_base_drop_in":
+                # Drop-in cabinets are open-topped for the unit to sit
+                # in, with a single drawer below (e.g. 27estore BRC-30).
+                openings = 1
             elif b.specialty_type == "sink_base":
                 # False front drawer (1) + doors
                 # ≤33": 1 false front + 2 doors = 3

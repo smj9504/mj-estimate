@@ -106,7 +106,21 @@ SPECIALTY_PREMIUM = {
     "diagonal_corner_wall": {24: 100, 27: 120},  # by width_inches
     "oven_cabinet": 0,       # priced via TALL_CABINET_TYPES
     "refrigerator_cabinet": 0,  # priced via TALL_CABINET_TYPES
+    # Range bases. A slide-in needs finished end panels on the cabinets
+    # flanking the range opening, so its premium is per-panel rather than
+    # flat - see RANGE_END_PANEL_EACH and the range_panel_count box field.
+    # A drop-in needs the cabinet itself built/cut to carry the unit, which
+    # is a one-off carpentry cost that does not scale with panel count.
+    "range_base_slide_in": 0,   # priced via RANGE_END_PANEL_EACH x panels
+    "range_base_drop_in": 420,  # custom cabinet build + cutout
 }
+
+# Finished end panel for a slide-in range opening, per panel.
+# Market: Hampton Bay BEP1.5 (24"W x 34.5"H base end panel) $75-$105
+# depending on finish; $95 sits mid-range and covers install handling.
+# A typical opening is flanked on both sides (2 panels); an opening at a
+# wall end exposes only one.
+RANGE_END_PANEL_EACH = 95
 
 # Tall cabinet type-specific pricing (replaces generic tall_each when specified)
 # These are per-EA prices by tier, reflecting actual appliance cabinet costs

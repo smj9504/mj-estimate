@@ -10,7 +10,7 @@ export type FinishType = 'Stained' | 'Painted' | 'Glazed' | 'Laminate';
 export type CabType = 'base' | 'wall' | 'tall' | 'specialty';
 export type CabinetLocation = 'perimeter' | 'island';
 export type EstimateStatus = 'draft' | 'calculated' | 'approved' | 'exported';
-export type SpecialtyType = 'sink_base' | 'lazy_susan' | 'blind_corner' | 'drawer_base' | 'diagonal_corner_wall' | 'oven_cabinet' | 'refrigerator_cabinet';
+export type SpecialtyType = 'sink_base' | 'lazy_susan' | 'blind_corner' | 'drawer_base' | 'diagonal_corner_wall' | 'oven_cabinet' | 'refrigerator_cabinet' | 'range_base_slide_in' | 'range_base_drop_in';
 export type BacksplashType = 'ceramic_tile' | 'subway_tile' | 'glass_tile' | 'stone_marble';
 
 // ── Box ──
@@ -26,6 +26,8 @@ export interface CabinetBox {
   is_specialty: boolean;
   specialty_type?: SpecialtyType | null;
   has_glass_door: boolean;
+  /** Finished end panels flanking a slide-in range opening (0-2). */
+  range_panel_count?: number | null;
   qty: number;
   display_order: number;
   created_at?: string;
@@ -40,6 +42,8 @@ export interface CabinetBoxCreate {
   is_specialty: boolean;
   specialty_type?: SpecialtyType | null;
   has_glass_door: boolean;
+  /** Finished end panels flanking a slide-in range opening (0-2). */
+  range_panel_count?: number | null;
   qty: number;
   display_order?: number;
 }

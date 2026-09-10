@@ -52,6 +52,11 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   // Base - Lazy Susan
   'LS33': { cab_type: 'base', width: 33, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan 33"' },
   'LS36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan 36"' },
+  // Base - Range Base (opening for the range; panels/build priced separately)
+  'RB30S': { cab_type: 'base', width: 30, height: 34.5, specialty: 'range_base_slide_in', label: 'Range Base 30" (Slide-in)' },
+  'RB36S': { cab_type: 'base', width: 36, height: 34.5, specialty: 'range_base_slide_in', label: 'Range Base 36" (Slide-in)' },
+  'RB30D': { cab_type: 'base', width: 30, height: 34.5, specialty: 'range_base_drop_in', label: 'Range Base 30" (Drop-in)' },
+  'RB36D': { cab_type: 'base', width: 36, height: 34.5, specialty: 'range_base_drop_in', label: 'Range Base 36" (Drop-in)' },
   // Wall - Standard (30"H)
   'W0930': { cab_type: 'wall', width: 9,  height: 30, label: '9"W x 30"H' },
   'W1230': { cab_type: 'wall', width: 12, height: 30, label: '12"W x 30"H' },
@@ -106,23 +111,33 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   // Wall - Specialty
   'WDC24': { cab_type: 'wall', width: 24, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"' },
   'WDC27': { cab_type: 'wall', width: 27, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 27"' },
-  // Tall - Pantry
+  // Tall - Pantry (widths 18/24/30/36 x heights 84/90/96)
   'T1884': { cab_type: 'tall', width: 18, height: 84, label: 'Tall 18"x84"' },
   'T2484': { cab_type: 'tall', width: 24, height: 84, label: 'Tall 24"x84"' },
   'T3084': { cab_type: 'tall', width: 30, height: 84, label: 'Tall 30"x84"' },
   'T3684': { cab_type: 'tall', width: 36, height: 84, label: 'Tall 36"x84"' },
   'T1890': { cab_type: 'tall', width: 18, height: 90, label: 'Tall 18"x90"' },
   'T2490': { cab_type: 'tall', width: 24, height: 90, label: 'Tall 24"x90"' },
+  'T3090': { cab_type: 'tall', width: 30, height: 90, label: 'Tall 30"x90"' },
+  'T3690': { cab_type: 'tall', width: 36, height: 90, label: 'Tall 36"x90"' },
+  'T1896': { cab_type: 'tall', width: 18, height: 96, label: 'Tall 18"x96"' },
+  'T2496': { cab_type: 'tall', width: 24, height: 96, label: 'Tall 24"x96"' },
   'T3096': { cab_type: 'tall', width: 30, height: 96, label: 'Tall 30"x96"' },
   'T3696': { cab_type: 'tall', width: 36, height: 96, label: 'Tall 36"x96"' },
-  // Tall - Oven
-  'OC3384': { cab_type: 'tall', width: 33, height: 84, specialty: 'oven_cabinet', label: 'Oven Cabinet 33"x84"' },
-  'OC3396': { cab_type: 'tall', width: 33, height: 96, specialty: 'oven_cabinet', label: 'Oven Cabinet 33"x96"' },
+  // Tall - Oven (widths 30/33 x heights 84/90/96)
   'OC3084': { cab_type: 'tall', width: 30, height: 84, specialty: 'oven_cabinet', label: 'Oven Cabinet 30"x84"' },
-  // Tall - Refrigerator
-  'RC3684': { cab_type: 'tall', width: 36, height: 84, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 36"x84"' },
-  'RC3696': { cab_type: 'tall', width: 36, height: 96, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 36"x96"' },
+  'OC3090': { cab_type: 'tall', width: 30, height: 90, specialty: 'oven_cabinet', label: 'Oven Cabinet 30"x90"' },
+  'OC3096': { cab_type: 'tall', width: 30, height: 96, specialty: 'oven_cabinet', label: 'Oven Cabinet 30"x96"' },
+  'OC3384': { cab_type: 'tall', width: 33, height: 84, specialty: 'oven_cabinet', label: 'Oven Cabinet 33"x84"' },
+  'OC3390': { cab_type: 'tall', width: 33, height: 90, specialty: 'oven_cabinet', label: 'Oven Cabinet 33"x90"' },
+  'OC3396': { cab_type: 'tall', width: 33, height: 96, specialty: 'oven_cabinet', label: 'Oven Cabinet 33"x96"' },
+  // Tall - Refrigerator (widths 33/36 x heights 84/90/96)
   'RC3384': { cab_type: 'tall', width: 33, height: 84, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 33"x84"' },
+  'RC3390': { cab_type: 'tall', width: 33, height: 90, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 33"x90"' },
+  'RC3396': { cab_type: 'tall', width: 33, height: 96, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 33"x96"' },
+  'RC3684': { cab_type: 'tall', width: 36, height: 84, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 36"x84"' },
+  'RC3690': { cab_type: 'tall', width: 36, height: 90, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 36"x90"' },
+  'RC3696': { cab_type: 'tall', width: 36, height: 96, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 36"x96"' },
 };
 
 const CUSTOM_VALUE = '__custom__';
@@ -256,6 +271,8 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
       is_specialty: !!preset.specialty,
       specialty_type: preset.specialty || null,
       has_glass_door: false,
+      range_panel_count:
+        preset.specialty === 'range_base_slide_in' ? 2 : null,
       qty: 1,
       display_order: boxes.length,
     };
@@ -307,6 +324,8 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
         height_inches: preset.height,
         is_specialty: !!preset.specialty,
         specialty_type: preset.specialty || null,
+        range_panel_count:
+          preset.specialty === 'range_base_slide_in' ? 2 : null,
       });
     }
   };
@@ -392,6 +411,32 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
           <Tag color="orange">{record.specialty_type.replace(/_/g, ' ')}</Tag>
         ) : <Text type="secondary">—</Text>
       ),
+    }] : []),
+    ...(cabType === 'base' ? [{
+      title: 'Panels',
+      dataIndex: 'range_panel_count',
+      width: 90,
+      render: (_: number, record: CabinetBoxCreate & { _localIdx: number }) => {
+        if (record.specialty_type !== 'range_base_slide_in') {
+          return <Text type="secondary">—</Text>;
+        }
+        const gi = getGlobalIndex(cabType, record._localIdx);
+        return (
+          <Tooltip title="Finished end panels flanking the range opening">
+            <Select
+              size="small"
+              style={{ width: 60 }}
+              value={record.range_panel_count ?? 2}
+              onChange={(v: number) => updateBox(gi, { range_panel_count: v })}
+              options={[
+                { label: '0', value: 0 },
+                { label: '1', value: 1 },
+                { label: '2', value: 2 },
+              ]}
+            />
+          </Tooltip>
+        );
+      },
     }] : []),
     ...((cabType === 'wall' || cabType === 'base') ? [{
       title: 'Glass',
