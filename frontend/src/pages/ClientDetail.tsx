@@ -57,6 +57,7 @@ import {
   CameraOutlined,
   DownOutlined,
   FileAddOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -69,7 +70,7 @@ import ClaimNotes from '../components/client/ClaimNotes';
 import ClaimPhotosSection from '../components/client/ClaimPhotosSection';
 import AccuLynxSyncButton from '../components/common/AccuLynxSyncButton'; // AccuLynx: remove this line to fully remove the feature
 import ClaimTodos from '../components/client/ClaimTodos';
-import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory } from '../components/claim-followup';
+import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory, ReceivedEmails } from '../components/claim-followup';
 import type { ClaimContact } from '../components/claim-followup/EmailComposer';
 import type {
   Client,
@@ -1831,6 +1832,16 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                   </Button>
                 </div>
                 <EmailHistory claimId={claim.id} />
+
+                {/* Received emails carrying an attachment matched to this
+                    claim. Sourced from email ingestion, which stores the
+                    attachment in `files` and links it via matched_claim_id. */}
+                <Divider style={{ margin: '16px 0 12px' }} />
+                <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+                  <InboxOutlined style={{ marginRight: 6 }} />
+                  Received Emails
+                </Text>
+                <ReceivedEmails claimId={claim.id} />
 
                 {/* Claim Todos */}
                 <Divider style={{ margin: '16px 0 12px' }} />

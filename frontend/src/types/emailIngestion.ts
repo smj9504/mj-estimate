@@ -104,6 +104,9 @@ export interface IngestionLog {
   client_name?: string;
   claim_number?: string;
   account_email?: string;
+  file_name?: string;
+  file_size?: number;
+  file_content_type?: string;
 }
 
 export type IngestionStatus =

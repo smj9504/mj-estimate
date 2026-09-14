@@ -167,12 +167,19 @@ async def poll_account(account_id: str):
 async def list_logs(
     status: Optional[str] = Query(None, description="Filter by status"),
     account_id: Optional[str] = Query(None, description="Filter by account"),
+    claim_id: Optional[str] = Query(None, description="Filter by matched claim"),
+    has_attachment: bool = Query(
+        False, description="Only rows whose attachment was stored"
+    ),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
 ):
     """Get ingestion logs with optional filters"""
     service = _get_service()
-    return service.get_logs(status=status, account_id=account_id, limit=limit, offset=offset)
+    return service.get_logs(
+        status=status, account_id=account_id, limit=limit, offset=offset,
+        claim_id=claim_id, has_attachment=has_attachment,
+    )
 
 
 @router.get("/logs/pending", response_model=List[IngestionLogResponse])

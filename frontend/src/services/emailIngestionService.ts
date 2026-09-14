@@ -92,6 +92,14 @@ export const emailIngestionService = {
     return data as IngestionLog[];
   },
 
+  /** Received emails whose attachment was stored, for one claim. */
+  async listLogsByClaim(claimId: string) {
+    const { data } = await api.get(`${BASE}/logs`, {
+      params: { claim_id: claimId, has_attachment: true, limit: 200 },
+    });
+    return data as IngestionLog[];
+  },
+
   async getStats() {
     const { data } = await api.get(`${BASE}/stats`);
     return data as IngestionStats;

@@ -137,6 +137,9 @@ class IngestionLogResponse(BaseModel):
     client_name: Optional[str] = None
     claim_number: Optional[str] = None
     account_email: Optional[str] = None
+    file_name: Optional[str] = None
+    file_size: Optional[int] = None
+    file_content_type: Optional[str] = None
 
     class Config:
         from_attributes = True

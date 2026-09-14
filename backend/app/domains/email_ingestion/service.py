@@ -831,13 +831,33 @@ class EmailIngestionService:
         account_id: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        claim_id: Optional[str] = None,
+        has_attachment: bool = False,
     ) -> List[Dict[str, Any]]:
         """Get ingestion logs with filters"""
         session = self._get_readonly_session()
         try:
             from app.domains.email_ingestion.repository import get_email_ingestion_log_repository
             repo = get_email_ingestion_log_repository(session)
-            logs = repo.get_logs_with_filters(status, account_id, limit, offset)
+            logs = repo.get_logs_with_filters(
+                status, account_id, limit, offset,
+                claim_id=claim_id, has_attachment=has_attachment,
+            )
+
+            # Attach stored-file metadata. `file_id` is a plain String column,
+            # not a FK, so there is no relationship to join through - look the
+            # rows up in one query and map them back.
+            file_ids = [log["file_id"] for log in logs if log.get("file_id")]
+            if file_ids:
+                from app.domains.file.models import File
+                files = session.query(File).filter(File.id.in_(file_ids)).all()
+                by_id = {f.id: f for f in files}
+                for log in logs:
+                    f = by_id.get(log.get("file_id"))
+                    if f:
+                        log["file_name"] = f.original_name
+                        log["file_size"] = f.size
+                        log["file_content_type"] = f.content_type
 
             # Enrich with client/claim names
             for log in logs:

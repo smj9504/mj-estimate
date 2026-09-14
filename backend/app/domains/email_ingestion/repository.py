@@ -77,6 +77,8 @@ class EmailIngestionLogRepository(SQLAlchemyRepository):
         account_id: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        claim_id: Optional[str] = None,
+        has_attachment: bool = False,
     ) -> List[Dict[str, Any]]:
         """Get logs with optional filters"""
         query = self.db_session.query(EmailIngestionLog)
@@ -85,6 +87,16 @@ class EmailIngestionLogRepository(SQLAlchemyRepository):
             query = query.filter(EmailIngestionLog.status == status)
         if account_id:
             query = query.filter(EmailIngestionLog.email_account_id == account_id)
+        if claim_id:
+            query = query.filter(EmailIngestionLog.matched_claim_id == claim_id)
+        if has_attachment:
+            # Only rows whose attachment was actually persisted to `files`.
+            # Rows that failed classification are logged without a file_id
+            # and have nothing to show or download.
+            query = query.filter(
+                EmailIngestionLog.file_id.isnot(None),
+                EmailIngestionLog.file_id != "",
+            )
 
         logs = query.order_by(
             EmailIngestionLog.created_at.desc()
