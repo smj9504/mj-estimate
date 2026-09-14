@@ -452,7 +452,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
           case 'equipment': {
             const p = equipMap.get(item.id);
             return p ? (
-              <WMEquipmentRenderer key={p.id} placement={p} isSelected={isSelected(p.id)} onSelect={selectEquipHandler} onDragEnd={dragEquipHandler} />
+              <WMEquipmentRenderer key={p.id} placement={p} isSelected={isSelected(p.id)} onSelect={selectEquipHandler} onDragEnd={dragEquipHandler} scalePixelsPerFoot={scalePixelsPerFoot} />
             ) : null;
           }
           case 'shape': {

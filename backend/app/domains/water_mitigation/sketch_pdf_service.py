@@ -39,6 +39,29 @@ logger = logging.getLogger(__name__)
 _IMAGE_CACHE_DIR = Path(tempfile.gettempdir()) / "mj_sketch_image_cache"
 _IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
+# Baseline sketch calibration; matches DEFAULT_SCALE_PIXELS_PER_FOOT in
+# frontend/src/components/water-mitigation/sketch/utils/wmDefaults.ts
+DEFAULT_SCALE_PIXELS_PER_FOOT = 20.0
+
+# Equipment icons are symbolic, not true-to-footprint, so they are clamped to
+# stay legible at extreme calibrations. Mirrors MIN/MAX_SCALE_FACTOR in
+# frontend/src/components/water-mitigation/sketch/canvas/WMEquipmentRenderer.tsx
+_EQUIP_MIN_SCALE_FACTOR = 0.5
+_EQUIP_MAX_SCALE_FACTOR = 2.0
+
+
+def _equipment_scale_factor(scale: Optional[float]) -> float:
+    """Proportional size multiplier for equipment icons at a given calibration."""
+    try:
+        s = float(scale) if scale is not None else 0.0
+    except (TypeError, ValueError):
+        return 1.0
+    if s <= 0:
+        return 1.0
+    raw = s / DEFAULT_SCALE_PIXELS_PER_FOOT
+    return min(_EQUIP_MAX_SCALE_FACTOR, max(_EQUIP_MIN_SCALE_FACTOR, raw))
+
+
 # Matches frontend EQUIPMENT_CONFIG in wmSketch.ts
 EQUIPMENT_CONFIG: Dict[str, Dict[str, str]] = {
     "air_mover":    {"display": "Air Mover",     "color": "#2196F3", "shape": "circle",   "abbreviation": "AM"},
@@ -754,7 +777,7 @@ class SketchPdfService:
 
         # Equipment icons
         for equip in overlay.get("equipment_placements", []):
-            parts.extend(self._render_equipment_from_dict(equip))
+            parts.extend(self._render_equipment_from_dict(equip, scale))
 
         # Shape annotations (doors, cabinets, fixtures)
         for shape in overlay.get("shapes", []):
@@ -1637,9 +1660,15 @@ class SketchPdfService:
         return parts
 
     def _render_equipment_from_dict(
-        self, equip: Dict[str, Any]
+        self, equip: Dict[str, Any], scale: float = DEFAULT_SCALE_PIXELS_PER_FOOT
     ) -> List[str]:
-        """SVG for an equipment icon from JSONB dict."""
+        """SVG for an equipment icon from JSONB dict.
+
+        Icons are symbolic rather than true-to-footprint, but they scale
+        proportionally with the sketch calibration so they keep a constant
+        apparent size relative to the floor plan (mirrors the canvas
+        renderer in WMEquipmentRenderer.tsx).
+        """
         sv = self._svg
         eq_mode = sv.get("equip_mode", "filled")
         eq_type = equip.get("equipment_type", "air_mover")
@@ -1648,10 +1677,11 @@ class SketchPdfService:
         abbr = cfg.get("abbreviation", "")
         display = cfg.get("display", eq_type)
         x, y = float(equip.get("x", 0)), float(equip.get("y", 0))
-        r = sv.get("equip_radius", 11)
+        sf = _equipment_scale_factor(scale)
+        r = float(sv.get("equip_radius", 11)) * sf
         es = sv.get("equip_stroke", "#fff")
         esw = sv.get("equip_stroke_width", "1.5")
-        efs = sv.get("equip_font_size", "10")
+        efs = float(sv.get("equip_font_size", 10)) * sf
         ff = sv.get("font_primary", "Arial")
         parts: List[str] = []
 
@@ -1659,13 +1689,13 @@ class SketchPdfService:
             # ── Outlined hollow icons (all same shape = circle) ──
             parts += [
                 f'<circle cx="{x:.1f}" cy="{y:.1f}" '
-                f'r="{r}" fill="none" '
+                f'r="{r:.1f}" fill="none" '
                 f'stroke="{color}" stroke-width="2.5"/>',
                 f'<circle cx="{x:.1f}" cy="{y:.1f}" '
-                f'r="{r - 4}" fill="none" '
+                f'r="{r - 4 * sf:.1f}" fill="none" '
                 f'stroke="{color}" stroke-width="0.8"/>',
-                f'<text x="{x:.1f}" y="{y + 4:.1f}" '
-                f'text-anchor="middle" font-size="{efs}" '
+                f'<text x="{x:.1f}" y="{y + 4 * sf:.1f}" '
+                f'text-anchor="middle" font-size="{efs:.1f}" '
                 f'font-family="{ff}" fill="{color}" '
                 f'font-weight="700">{abbr}</text>',
             ]
@@ -1678,11 +1708,11 @@ class SketchPdfService:
                 f'<rect x="{x - bw / 2:.1f}" '
                 f'y="{y - bh / 2:.1f}" '
                 f'width="{bw:.1f}" height="{bh:.1f}" '
-                f'rx="4" fill="{color}" '
+                f'rx="{4 * sf:.1f}" fill="{color}" '
                 f'fill-opacity="0.9" '
                 f'stroke="{es}" stroke-width="{esw}"/>',
-                f'<text x="{x:.1f}" y="{y + 4:.1f}" '
-                f'text-anchor="middle" font-size="{efs}" '
+                f'<text x="{x:.1f}" y="{y + 4 * sf:.1f}" '
+                f'text-anchor="middle" font-size="{efs:.1f}" '
                 f'font-family="{ff}" fill="#fff" '
                 f'font-weight="700">{abbr}</text>',
             ]
@@ -1695,50 +1725,52 @@ class SketchPdfService:
             if shape == "circle":
                 parts += [
                     f'<circle cx="{x:.1f}" cy="{y:.1f}" '
-                    f'r="{r}" fill="{color}" '
+                    f'r="{r:.1f}" fill="{color}" '
                     f'fill-opacity="0.88" '
                     f'stroke="{es}" '
                     f'stroke-width="{esw}"/>',
-                    f'<text x="{x:.1f}" y="{y + 4:.1f}" '
+                    f'<text x="{x:.1f}" y="{y + 4 * sf:.1f}" '
                     f'text-anchor="middle" '
-                    f'font-size="{efs}" '
+                    f'font-size="{efs:.1f}" '
                     f'font-family="{ff}" fill="#fff" '
                     f'font-weight="700">{abbr}</text>',
                 ]
             elif shape == "triangle":
                 pts = (
                     f"{x:.1f},{y - r:.1f} "
-                    f"{x - r + 1:.1f},{y + r - 3:.1f} "
-                    f"{x + r - 1:.1f},{y + r - 3:.1f}"
+                    f"{x - r + 1 * sf:.1f},{y + r - 3 * sf:.1f} "
+                    f"{x + r - 1 * sf:.1f},{y + r - 3 * sf:.1f}"
                 )
                 parts += [
                     f'<polygon points="{pts}" '
                     f'fill="{color}" fill-opacity="0.88" '
                     f'stroke="{es}" '
                     f'stroke-width="{esw}"/>',
-                    f'<text x="{x:.1f}" y="{y + 6:.1f}" '
+                    f'<text x="{x:.1f}" y="{y + 6 * sf:.1f}" '
                     f'text-anchor="middle" '
-                    f'font-size="{efs}" '
+                    f'font-size="{efs:.1f}" '
                     f'font-family="{ff}" fill="#fff" '
                     f'font-weight="700">{abbr}</text>',
                 ]
             else:
+                _cw = 10 * sf
+                _ch = 8 * sf
                 parts += [
-                    f'<rect x="{x - 10:.1f}" '
-                    f'y="{y - 8:.1f}" '
-                    f'width="20" height="14" '
+                    f'<rect x="{x - _cw:.1f}" '
+                    f'y="{y - _ch:.1f}" '
+                    f'width="{_cw * 2:.1f}" height="{14 * sf:.1f}" '
                     f'fill="{color}" fill-opacity="0.88"/>',
                     f'<ellipse cx="{x:.1f}" '
-                    f'cy="{y - 8:.1f}" rx="10" ry="4" '
+                    f'cy="{y - _ch:.1f}" rx="{_cw:.1f}" ry="{4 * sf:.1f}" '
                     f'fill="{color}" fill-opacity="0.7" '
                     f'stroke="{es}" stroke-width="1"/>',
                     f'<ellipse cx="{x:.1f}" '
-                    f'cy="{y + 6:.1f}" rx="10" ry="4" '
+                    f'cy="{y + 6 * sf:.1f}" rx="{_cw:.1f}" ry="{4 * sf:.1f}" '
                     f'fill="{color}" fill-opacity="0.95" '
                     f'stroke="{es}" stroke-width="1"/>',
-                    f'<text x="{x:.1f}" y="{y + 3:.1f}" '
+                    f'<text x="{x:.1f}" y="{y + 3 * sf:.1f}" '
                     f'text-anchor="middle" '
-                    f'font-size="{efs}" '
+                    f'font-size="{efs:.1f}" '
                     f'font-family="{ff}" fill="#fff" '
                     f'font-weight="700">{abbr}</text>',
                 ]
@@ -1746,8 +1778,8 @@ class SketchPdfService:
         label = (equip.get("label") or "").strip()
         if label:
             parts.append(
-                f'<text x="{x:.1f}" y="{y + 24:.1f}" '
-                f'text-anchor="middle" font-size="{efs}" '
+                f'<text x="{x:.1f}" y="{y + 24 * sf:.1f}" '
+                f'text-anchor="middle" font-size="{efs:.1f}" '
                 f'font-family="{ff}" '
                 f'fill="{sv.get("demo_dim_color", "#555")}">'
                 f'{html_lib.escape(label)}</text>'

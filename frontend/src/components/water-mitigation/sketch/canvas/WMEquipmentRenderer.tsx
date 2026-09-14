@@ -20,18 +20,41 @@ import React, { useCallback } from 'react';
 import { Group, Circle, Rect, Shape, Text } from 'react-konva';
 import Konva from 'konva';
 import { WMEquipmentPlacement, EQUIPMENT_CONFIG } from '../../../../types/wmSketch';
+import { DEFAULT_SCALE_PIXELS_PER_FOOT } from '../utils/wmDefaults';
 
 export interface WMEquipmentRendererProps {
   placement: WMEquipmentPlacement;
   isSelected: boolean;
   onSelect: (id: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
+  /**
+   * Sketch calibration (canvas pixels per real-world foot). Icons stay
+   * symbolic — they are not drawn at the equipment's true footprint — but
+   * they scale proportionally with it so they keep a constant apparent size
+   * relative to the floor plan when the sketch is recalibrated.
+   */
+  scalePixelsPerFoot?: number;
 }
 
-/** Pixel radius / half-size for all equipment icons */
+/** Base pixel radius, calibrated against DEFAULT_SCALE_PIXELS_PER_FOOT */
 const ICON_RADIUS = 14;
 /** Total hit area: selection ring is 4px outside the icon */
 const SELECTION_RING_PADDING = 4;
+
+/**
+ * Clamp the scale multiplier so icons stay legible at extreme calibrations:
+ * never smaller than half nor larger than double the base size.
+ */
+const MIN_SCALE_FACTOR = 0.5;
+const MAX_SCALE_FACTOR = 2;
+
+function getScaleFactor(scalePixelsPerFoot?: number): number {
+  if (!scalePixelsPerFoot || !Number.isFinite(scalePixelsPerFoot) || scalePixelsPerFoot <= 0) {
+    return 1;
+  }
+  const raw = scalePixelsPerFoot / DEFAULT_SCALE_PIXELS_PER_FOOT;
+  return Math.min(MAX_SCALE_FACTOR, Math.max(MIN_SCALE_FACTOR, raw));
+}
 
 // ---------------------------------------------------------------------------
 // Sub-renderers
@@ -40,22 +63,26 @@ const SELECTION_RING_PADDING = 4;
 interface IconProps {
   color: string;
   abbreviation: string;
+  /** Scaled half-size of the icon in canvas pixels */
+  radius: number;
+  /** Scaled label size in canvas pixels */
+  fontSize: number;
 }
 
-const AirMoverIcon: React.FC<IconProps> = ({ color, abbreviation }) => (
+const AirMoverIcon: React.FC<IconProps> = ({ color, abbreviation, radius, fontSize }) => (
   <>
     <Circle
-      radius={ICON_RADIUS}
+      radius={radius}
       fill={color}
       stroke={color}
       strokeWidth={1.5}
     />
     <Text
-      x={-ICON_RADIUS}
-      y={-7}
-      width={ICON_RADIUS * 2}
+      x={-radius}
+      y={-fontSize / 2 - 1.5}
+      width={radius * 2}
       text={abbreviation}
-      fontSize={11}
+      fontSize={fontSize}
       fontStyle="bold"
       fontFamily="'Inter', 'Segoe UI', sans-serif"
       fill="#ffffff"
@@ -65,8 +92,8 @@ const AirMoverIcon: React.FC<IconProps> = ({ color, abbreviation }) => (
   </>
 );
 
-const AirScrubberIcon: React.FC<IconProps> = ({ color, abbreviation }) => {
-  const r = ICON_RADIUS;
+const AirScrubberIcon: React.FC<IconProps> = ({ color, abbreviation, radius, fontSize }) => {
+  const r = radius;
   return (
     <>
       <Shape
@@ -84,11 +111,11 @@ const AirScrubberIcon: React.FC<IconProps> = ({ color, abbreviation }) => {
         strokeWidth={1.5}
       />
       <Text
-        x={-ICON_RADIUS}
-        y={-3}
-        width={ICON_RADIUS * 2}
+        x={-r}
+        y={-fontSize * 0.27}
+        width={r * 2}
         text={abbreviation}
-        fontSize={11}
+        fontSize={fontSize}
         fontStyle="bold"
         fontFamily="'Inter', 'Segoe UI', sans-serif"
         fill="#ffffff"
@@ -99,27 +126,27 @@ const AirScrubberIcon: React.FC<IconProps> = ({ color, abbreviation }) => {
   );
 };
 
-const DehumidifierIcon: React.FC<IconProps> = ({ color, abbreviation }) => {
-  const w = ICON_RADIUS * 2;
-  const h = ICON_RADIUS * 2;
+const DehumidifierIcon: React.FC<IconProps> = ({ color, abbreviation, radius, fontSize }) => {
+  const w = radius * 2;
+  const h = radius * 2;
   return (
     <>
       <Rect
-        x={-ICON_RADIUS}
-        y={-ICON_RADIUS}
+        x={-radius}
+        y={-radius}
         width={w}
         height={h}
-        cornerRadius={4}
+        cornerRadius={(4 * radius) / ICON_RADIUS}
         fill={color}
         stroke={color}
         strokeWidth={1.5}
       />
       <Text
-        x={-ICON_RADIUS}
-        y={-7}
+        x={-radius}
+        y={-fontSize / 2 - 1.5}
         width={w}
         text={abbreviation}
-        fontSize={11}
+        fontSize={fontSize}
         fontStyle="bold"
         fontFamily="'Inter', 'Segoe UI', sans-serif"
         fill="#ffffff"
@@ -139,8 +166,14 @@ const WMEquipmentRenderer: React.FC<WMEquipmentRendererProps> = ({
   isSelected,
   onSelect,
   onDragEnd,
+  scalePixelsPerFoot,
 }) => {
   const config = EQUIPMENT_CONFIG[placement.equipment_type];
+
+  const scaleFactor = getScaleFactor(scalePixelsPerFoot);
+  const radius = ICON_RADIUS * scaleFactor;
+  const iconFontSize = 11 * scaleFactor;
+  const labelFontSize = 9 * scaleFactor;
 
   const handleClick = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     onSelect(placement.id, e.evt.ctrlKey || e.evt.metaKey);
@@ -165,7 +198,7 @@ const WMEquipmentRenderer: React.FC<WMEquipmentRendererProps> = ({
       {/* Selection highlight ring */}
       {isSelected && (
         <Circle
-          radius={ICON_RADIUS + SELECTION_RING_PADDING}
+          radius={radius + SELECTION_RING_PADDING * scaleFactor}
           fill="rgba(24,144,255,0.15)"
           stroke="#1890ff"
           strokeWidth={2}
@@ -176,23 +209,38 @@ const WMEquipmentRenderer: React.FC<WMEquipmentRendererProps> = ({
 
       {/* Icon by shape type */}
       {config.shape === 'circle' && (
-        <AirMoverIcon color={placement.color} abbreviation={config.abbreviation} />
+        <AirMoverIcon
+          color={placement.color}
+          abbreviation={config.abbreviation}
+          radius={radius}
+          fontSize={iconFontSize}
+        />
       )}
       {config.shape === 'triangle' && (
-        <AirScrubberIcon color={placement.color} abbreviation={config.abbreviation} />
+        <AirScrubberIcon
+          color={placement.color}
+          abbreviation={config.abbreviation}
+          radius={radius}
+          fontSize={iconFontSize}
+        />
       )}
       {config.shape === 'cylinder' && (
-        <DehumidifierIcon color={placement.color} abbreviation={config.abbreviation} />
+        <DehumidifierIcon
+          color={placement.color}
+          abbreviation={config.abbreviation}
+          radius={radius}
+          fontSize={iconFontSize}
+        />
       )}
 
       {/* Optional custom label beneath icon */}
       {placement.label && (
         <Text
-          x={-30}
-          y={ICON_RADIUS + 3}
-          width={60}
+          x={-30 * scaleFactor}
+          y={radius + 3 * scaleFactor}
+          width={60 * scaleFactor}
           text={placement.label}
-          fontSize={9}
+          fontSize={labelFontSize}
           fontFamily="'Inter', 'Segoe UI', sans-serif"
           fill="#333333"
           align="center"
