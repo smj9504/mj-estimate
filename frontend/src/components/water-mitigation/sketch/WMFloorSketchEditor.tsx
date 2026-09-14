@@ -2167,8 +2167,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         }
 
         const newId = generateOverlayId();
-        // Dimensions start at 0 — user must enter real measurements in the sidebar.
-        // The raw pixel size from the drag is stored for visual rendering only.
+        // Dimensions are derived from the drag size using the canvas scale, so the
+        // area is calculated immediately. The user can still correct them in the
+        // sidebar (which re-syncs pixel_width / pixel_height).
         const zone: WMDemolitionZone = {
           id: newId,
           floor_sketch_id: fs.id,
@@ -2177,10 +2178,10 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           color: matDef?.color ?? '#B8860B',
           x,
           y,
-          dimension1_ft: 0,
-          dimension2_ft: 0,
+          dimension1_ft: dim1Ft,
+          dimension2_ft: dim2Ft,
           rotation: 0,
-          calculated_sqft: 0,
+          calculated_sqft: calcDemoZoneSqft(dim1Ft, dim2Ft),
           display_order: stateRef.current.overlayData.demolition_zones.length,
           pixel_width: wPx,
           pixel_height: hPx,
