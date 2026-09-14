@@ -354,8 +354,20 @@ class EmailIngestionService:
     # Polling & Processing
     # ============================================================
 
-    def poll_account(self, account_id: str) -> Dict[str, Any]:
-        """Poll a single email account for new insurance estimate PDFs"""
+    def poll_account(
+        self,
+        account_id: str,
+        since_date: Optional[datetime] = None,
+        limit: int = 50,
+        unseen_only: bool = False,
+    ) -> Dict[str, Any]:
+        """Poll a single email account for new insurance estimate PDFs.
+
+        `since_date` defaults to the account's last_synced_at (an incremental
+        poll). Pass an explicit date with a larger `limit` to backfill older
+        mail - dedup is by (message_id, attachment_hash), so re-scanning
+        already-processed mail is safe.
+        """
         session = self._get_session()
         try:
             from app.domains.email_ingestion.repository import (
@@ -374,8 +386,9 @@ class EmailIngestionService:
 
             # Fetch unseen emails with attachments
             emails = imap.fetch_unseen_with_attachments(
-                since_date=account.get("last_synced_at"),
-                limit=50,
+                since_date=since_date or account.get("last_synced_at"),
+                limit=limit,
+                unseen_only=unseen_only,
             )
 
             stats = {
@@ -449,7 +462,12 @@ class EmailIngestionService:
         finally:
             session.close()
 
-    def poll_all_accounts(self) -> Dict[str, Any]:
+    def poll_all_accounts(
+        self,
+        since_date: Optional[datetime] = None,
+        limit: int = 50,
+        unseen_only: bool = False,
+    ) -> Dict[str, Any]:
         """Poll all active email accounts"""
         accounts = self.get_accounts()
         results = []
@@ -458,7 +476,12 @@ class EmailIngestionService:
 
         for account in accounts:
             try:
-                result = self.poll_account(str(account["id"]))
+                result = self.poll_account(
+                    str(account["id"]),
+                    since_date=since_date,
+                    limit=limit,
+                    unseen_only=unseen_only,
+                )
                 results.append(result)
                 total_processed += result["processed"]
                 total_uploaded += result["uploaded"]

@@ -221,10 +221,20 @@ class IMAPClient:
         self,
         since_date: Optional[datetime] = None,
         limit: int = 50,
+        unseen_only: bool = False,
     ) -> List[FetchedEmail]:
         """
-        Fetch unseen emails that have attachments.
-        Returns list of FetchedEmail objects.
+        Fetch emails that have attachments.
+
+        By default this scans regardless of the \\Seen flag: whether someone
+        happened to open a message in Gmail says nothing about whether its
+        attachment belongs on a claim, and filtering on UNSEEN permanently
+        hid the majority of the inbox (76% of one account's 2026 mail was
+        already read). Dedup is handled downstream by the
+        (message_id, attachment_hash) unique index, so re-scanning already
+        processed mail is cheap and safe.
+
+        Pass unseen_only=True to restore the old narrow behaviour.
         """
         results = []
 
@@ -233,10 +243,14 @@ class IMAPClient:
             self._connection.select("INBOX")
 
             # Build search criteria
-            criteria = ["UNSEEN"]
+            criteria = []
+            if unseen_only:
+                criteria.append("UNSEEN")
             if since_date:
                 date_str = since_date.strftime("%d-%b-%Y")
                 criteria.append(f'SINCE {date_str}')
+            if not criteria:
+                criteria.append("ALL")
 
             search_query = f'({" ".join(criteria)})'
             status, message_ids = self._connection.search(None, search_query)
