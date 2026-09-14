@@ -4,6 +4,7 @@ Email Ingestion service - orchestrates polling, classification, matching, and up
 
 import io
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -16,6 +17,59 @@ logger = logging.getLogger(__name__)
 # Encryption key for email passwords
 # Generate once: Fernet.generate_key() and store in env
 _ENCRYPTION_KEY = getattr(settings, "EMAIL_ENCRYPTION_KEY", None)
+
+
+_BOUNCE_SENDER_PATTERN = re.compile(
+    r"(postmaster|mailer-daemon|mail\s*delivery\s*(subsystem|system))",
+    re.IGNORECASE,
+)
+_BOUNCE_SUBJECT_PATTERN = re.compile(
+    r"(delivery\s*(status\s*notification|failure)|undeliverable|"
+    r"returned\s*mail|failure\s*notice|mail\s*delivery\s*failed)",
+    re.IGNORECASE,
+)
+
+
+def _is_bounce_message(sender: Optional[str], subject: Optional[str]) -> bool:
+    """True for delivery-failure notifications.
+
+    A bounce quotes the original message, attachments included, so ingesting
+    one re-files every PDF we just sent. One undelivered estimate produced 12
+    such rows here.
+    """
+    if sender and _BOUNCE_SENDER_PATTERN.search(sender):
+        return True
+    return bool(subject and _BOUNCE_SUBJECT_PATTERN.search(subject))
+
+
+def _is_own_sent_attachment(session, attachment) -> bool:
+    """True if this attachment is a file we emailed out ourselves.
+
+    Matched on sha256 when the outbound row recorded one, otherwise on
+    filename. Older sent_emails rows stored only {filename, mime_type}, so
+    the filename fallback is what covers the existing backlog; sends from
+    now on carry a hash and match exactly.
+    """
+    from app.domains.claim_followup.models import SentEmail
+
+    name = (attachment.filename or "").strip().lower()
+    digest = attachment.sha256_hash or ""
+    if not name and not digest:
+        return False
+
+    rows = session.query(SentEmail.attachments).filter(
+        SentEmail.attachments.isnot(None)
+    ).all()
+    for (atts,) in rows:
+        for att in (atts or []):
+            if not isinstance(att, dict):
+                continue
+            if digest and att.get("sha256_hash") == digest:
+                return True
+            sent_name = (att.get("filename") or "").strip().lower()
+            if name and sent_name == name:
+                return True
+    return False
 
 
 def _get_fernet() -> Fernet:
@@ -404,6 +458,15 @@ class EmailIngestionService:
             }
 
             for fetched_email in emails:
+                # A bounce is our own outbound mail coming back; skip the
+                # whole message rather than filtering its attachments one by
+                # one, since none of them are new inbound documents.
+                if _is_bounce_message(
+                    fetched_email.sender, fetched_email.subject
+                ):
+                    stats["skipped"] += 1
+                    continue
+
                 # Process each PDF attachment. Dedup is per-attachment (not
                 # per-email) so that if one attachment in a multi-PDF email
                 # previously failed, it gets retried here while attachments
@@ -532,6 +595,27 @@ class EmailIngestionService:
         from app.domains.email_ingestion.matcher import match_email_to_client
 
         account_id = str(account["id"])
+
+        # Step 0: Is this a file we sent ourselves, coming back to us?
+        # Replies, forwards and bounce notifications re-attach the original
+        # PDFs, so without this the estimate we emailed out is ingested again
+        # and shows up twice on the claim - once under sent mail, once under
+        # received. Compared by hash where we have one (sends from now on)
+        # and by filename otherwise (older rows stored only name + mime type).
+        if _is_own_sent_attachment(session, attachment):
+            log_repo.create({
+                "email_account_id": account_id,
+                "message_id": fetched_email.message_id,
+                "subject": fetched_email.subject,
+                "sender": fetched_email.sender,
+                "received_at": fetched_email.received_at,
+                "attachment_name": attachment.filename,
+                "attachment_hash": attachment.sha256_hash,
+                "status": "skipped",
+                "skip_reason": "Attachment is a file we sent; already on the claim as outbound mail",
+            })
+            session.commit()
+            return {"status": "skipped"}
 
         # Step 1: Check attachment hash duplicate
         if log_repo.exists_by_attachment_hash(attachment.sha256_hash):

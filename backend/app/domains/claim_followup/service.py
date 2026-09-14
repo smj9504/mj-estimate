@@ -3,6 +3,7 @@ Claim Follow-up service.
 Orchestrates follow-up task management, email template rendering, and communication logging.
 """
 
+import hashlib
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -1655,10 +1656,22 @@ class ClaimFollowUpService:
                 except Exception as e:
                     logger.error(f"Error collecting WM attachments: {e}")
 
-            # Separate binary attachment data from metadata for DB storage
-            # Store only JSON-safe metadata in the DB (strip binary 'data' field)
+            # Separate binary attachment data from metadata for DB storage.
+            # Store only JSON-safe metadata in the DB (strip binary 'data'),
+            # but hash the bytes on the way out: this is the only point where
+            # the original content is in hand, and without it there is no way
+            # to tell later that a PDF arriving in a reply or a bounce is a
+            # file we ourselves sent. Inbound attachments always carry a
+            # sha256 (see email_ingestion EmailAttachment), so recording one
+            # here lets the two sides be compared exactly.
             attachments_metadata = [
-                {k: v for k, v in att.items() if k != 'data'}
+                {
+                    **{k: v for k, v in att.items() if k != 'data'},
+                    'sha256_hash': (
+                        hashlib.sha256(att['data']).hexdigest()
+                        if att.get('data') else None
+                    ),
+                }
                 for att in raw_attachments
             ]
 
