@@ -62,6 +62,182 @@ def _equipment_scale_factor(scale: Optional[float]) -> float:
     return min(_EQUIP_MAX_SCALE_FACTOR, max(_EQUIP_MIN_SCALE_FACTOR, raw))
 
 
+# A sketch whose drawn content covers less of the canvas than this is treated
+# as sparse, and the viewBox is tightened around the content so it is not
+# rendered as a few specks floating in an empty field. Equipment-only floors
+# (no demolition, no rooms) are the common case.
+_SPARSE_CONTENT_RATIO = 0.55
+# Breathing room around cropped content, as a multiple of the calibration.
+_CROP_PADDING_FEET = 3.0
+# Never crop tighter than this, or a lone icon would be blown up absurdly.
+_MIN_CROP_SIZE_FEET = 14.0
+
+
+def _expand(
+    bounds: Optional[List[float]], x: float, y: float
+) -> List[float]:
+    """Grow a [min_x, min_y, max_x, max_y] box to include a point."""
+    if bounds is None:
+        return [x, y, x, y]
+    if x < bounds[0]:
+        bounds[0] = x
+    if y < bounds[1]:
+        bounds[1] = y
+    if x > bounds[2]:
+        bounds[2] = x
+    if y > bounds[3]:
+        bounds[3] = y
+    return bounds
+
+
+def _rotated_box_points(
+    x: float, y: float, w: float, h: float, rotation: float
+) -> List[tuple]:
+    """Corner points of a box rotated about its top-left origin.
+
+    Mirrors the Konva/SVG ``translate(x,y) rotate(deg)`` convention used by
+    the zone and protection renderers.
+    """
+    import math
+
+    rad = math.radians(rotation or 0.0)
+    cos_r, sin_r = math.cos(rad), math.sin(rad)
+    return [
+        (x + cx * cos_r - cy * sin_r, y + cx * sin_r + cy * cos_r)
+        for cx, cy in ((0, 0), (w, 0), (w, h), (0, h))
+    ]
+
+
+def _content_bounds(overlay: Dict[str, Any], scale: float) -> Optional[List[float]]:
+    """Bounding box in canvas pixels of everything drawn on a floor.
+
+    Returns ``[min_x, min_y, max_x, max_y]``, or None when the sketch has no
+    positioned content at all. Feet-denominated elements are converted with
+    ``scale`` so the box matches what is actually rendered.
+    """
+    import math
+
+    b: Optional[List[float]] = None
+
+    for room in overlay.get("rooms", []):
+        for p in room.get("boundary", []) or []:
+            try:
+                b = _expand(b, float(p["x"]), float(p["y"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+
+    for wall in overlay.get("walls", []):
+        b = _expand(b, float(wall.get("start_x", 0)), float(wall.get("start_y", 0)))
+        b = _expand(b, float(wall.get("end_x", 0)), float(wall.get("end_y", 0)))
+
+    # Feet-sized rectangles that rotate about their top-left origin.
+    for key, w_key, h_key in (
+        ("floor_protections", "paper_width_ft", "length_ft"),
+        ("content_protections", "width_ft", "length_ft"),
+        ("content_manipulations", "width_ft", "length_ft"),
+    ):
+        for item in overlay.get(key, []):
+            for px, py in _rotated_box_points(
+                float(item.get("x", 0)),
+                float(item.get("y", 0)),
+                float(item.get(w_key, 0) or 0) * scale,
+                float(item.get(h_key, 0) or 0) * scale,
+                float(item.get("rotation", 0) or 0),
+            ):
+                b = _expand(b, px, py)
+
+    for zone in overlay.get("demolition_zones", []):
+        for px, py in _rotated_box_points(
+            float(zone.get("x", 0)),
+            float(zone.get("y", 0)),
+            float(zone.get("dimension1_ft", 0) or 0) * scale,
+            float(zone.get("dimension2_ft", 0) or 0) * scale,
+            float(zone.get("rotation", 0) or 0),
+        ):
+            b = _expand(b, px, py)
+
+    # Containment zones are lines: origin plus a length along the rotation.
+    for zone in overlay.get("containment_zones", []):
+        x1 = float(zone.get("x", 0))
+        y1 = float(zone.get("y", 0))
+        length_px = float(zone.get("length_ft", 0) or 0) * scale
+        rad = math.radians(float(zone.get("rotation", 0) or 0))
+        b = _expand(b, x1, y1)
+        b = _expand(b, x1 + length_px * math.cos(rad), y1 + length_px * math.sin(rad))
+
+    for shape in overlay.get("shapes", []):
+        for px, py in _rotated_box_points(
+            float(shape.get("x", 0)),
+            float(shape.get("y", 0)),
+            float(shape.get("width", 0) or 0),
+            float(shape.get("height", 0) or 0),
+            float(shape.get("rotation", 0) or 0),
+        ):
+            b = _expand(b, px, py)
+
+    for ta in overlay.get("text_annotations", []):
+        b = _expand(b, float(ta.get("x", 0)), float(ta.get("y", 0)))
+
+    # Equipment icons are points; pad by the drawn icon radius.
+    icon_r = 14.0 * _equipment_scale_factor(scale)
+    for equip in overlay.get("equipment_placements", []):
+        ex, ey = float(equip.get("x", 0)), float(equip.get("y", 0))
+        b = _expand(b, ex - icon_r, ey - icon_r)
+        b = _expand(b, ex + icon_r, ey + icon_r)
+
+    return b
+
+
+def _fit_viewbox(
+    overlay: Dict[str, Any],
+    canvas_w: float,
+    canvas_h: float,
+    scale: float,
+) -> tuple:
+    """Viewport to render a floor through, as ``(x, y, w, h)``.
+
+    Returns the full canvas unless the drawn content is sparse enough that
+    cropping to it meaningfully enlarges the result. The canvas aspect ratio
+    is preserved so the sketch is never stretched.
+    """
+    bounds = _content_bounds(overlay, scale)
+    if bounds is None:
+        return (0.0, 0.0, canvas_w, canvas_h)
+
+    pad = max(_CROP_PADDING_FEET * scale, 24.0)
+    min_x = bounds[0] - pad
+    min_y = bounds[1] - pad
+    width = (bounds[2] + pad) - min_x
+    height = (bounds[3] + pad) - min_y
+
+    # Don't magnify a nearly-empty sketch past a sensible floor.
+    min_size = _MIN_CROP_SIZE_FEET * scale
+    if width < min_size:
+        min_x -= (min_size - width) / 2
+        width = min_size
+    if height < min_size:
+        min_y -= (min_size - height) / 2
+        height = min_size
+
+    # Preserve the canvas aspect ratio.
+    if canvas_w > 0 and canvas_h > 0:
+        target = canvas_w / canvas_h
+        if width / height > target:
+            desired_h = width / target
+            min_y -= (desired_h - height) / 2
+            height = desired_h
+        else:
+            desired_w = height * target
+            min_x -= (desired_w - width) / 2
+            width = desired_w
+
+    # Only crop when it actually buys meaningful size.
+    if width >= canvas_w * _SPARSE_CONTENT_RATIO:
+        return (0.0, 0.0, canvas_w, canvas_h)
+
+    return (min_x, min_y, width, height)
+
+
 # Matches frontend EQUIPMENT_CONFIG in wmSketch.ts
 EQUIPMENT_CONFIG: Dict[str, Dict[str, str]] = {
     "air_mover":    {"display": "Air Mover",     "color": "#2196F3", "shape": "circle",   "abbreviation": "AM"},
@@ -666,6 +842,16 @@ class SketchPdfService:
 
         _overlay_check = getattr(floor, "overlay_data", None)
 
+        # Viewport: normally the whole canvas, but tightened around the drawn
+        # content when the sketch is sparse (e.g. equipment placed with no
+        # demolition zones), so icons aren't specks in an empty field. Decided
+        # up front because the background, grid, border and scale bar all span
+        # the viewport rather than the raw canvas.
+        vb_x, vb_y, vb_w, vb_h = _fit_viewbox(
+            _overlay_check if isinstance(_overlay_check, dict) else {},
+            canvas_w, canvas_h, scale,
+        )
+
         # Background image — always show if available.
         # When a floor plan (walls/rooms) is drawn on top, the image serves
         # as the underlying reference, matching the frontend behaviour.
@@ -678,6 +864,9 @@ class SketchPdfService:
 
         if bg_result:
             has_bg_image = True
+            # A background image is the floor's reference; cropping the
+            # viewport would silently cut it off, so always show it whole.
+            vb_x, vb_y, vb_w, vb_h = 0.0, 0.0, canvas_w, canvas_h
             bg_data_uri, img_w, img_h = bg_result
             fit = self._fit_contain(img_w, img_h, canvas_w, canvas_h)
             # Apply user-defined background offset from overlay_data
@@ -701,19 +890,21 @@ class SketchPdfService:
         if not has_bg_image:
             s = self._svg
             parts.append(
-                f'<rect width="{canvas_w}" height="{canvas_h}" '
+                f'<rect x="{vb_x:.1f}" y="{vb_y:.1f}" '
+                f'width="{vb_w:.1f}" height="{vb_h:.1f}" '
                 f'fill="{s.get("canvas_bg", "#fafafa")}" '
                 f'rx="{s.get("canvas_border_rx", "4")}"/>'
             )
 
         # Subtle grid (only when no background image)
         if not has_bg_image:
-            parts.extend(self._build_grid(canvas_w, canvas_h, scale))
+            parts.extend(self._build_grid(vb_w, vb_h, scale, vb_x, vb_y))
 
-        # Canvas border
+        # Canvas border — frames the viewport, not the raw canvas
         s = self._svg
         parts.append(
-            f'<rect width="{canvas_w}" height="{canvas_h}" fill="none" '
+            f'<rect x="{vb_x:.1f}" y="{vb_y:.1f}" '
+            f'width="{vb_w:.1f}" height="{vb_h:.1f}" fill="none" '
             f'stroke="{s.get("canvas_border_color", "#d0d0d0")}" '
             f'stroke-width="{s.get("canvas_border_width", "1.5")}" '
             f'rx="{s.get("canvas_border_rx", "2")}"/>'
@@ -787,8 +978,10 @@ class SketchPdfService:
         for ta in overlay.get("text_annotations", []):
             parts.extend(self._render_text_annotation(ta))
 
-        # Scale indicator (bottom-right)
-        parts.extend(self._build_scale_indicator(canvas_w, canvas_h, scale))
+        # Scale indicator (bottom-right of the viewport)
+        parts.extend(
+            self._build_scale_indicator(vb_w, vb_h, scale, vb_x, vb_y)
+        )
 
         # Build SVG defs (hatch patterns for variant B)
         defs = ""
@@ -808,7 +1001,7 @@ class SketchPdfService:
         return (
             f'<svg xmlns="http://www.w3.org/2000/svg" '
             f'xmlns:xlink="http://www.w3.org/1999/xlink" '
-            f'viewBox="0 0 {canvas_w:.0f} {canvas_h:.0f}" '
+            f'viewBox="{vb_x:.0f} {vb_y:.0f} {vb_w:.0f} {vb_h:.0f}" '
             f'preserveAspectRatio="xMidYMid meet" '
             f'style="width:100%;height:auto;display:block;">'
             + defs
@@ -816,24 +1009,49 @@ class SketchPdfService:
             + "</svg>"
         )
 
-    def _build_grid(self, w: float, h: float, scale: float) -> List[str]:
+    def _build_grid(
+        self,
+        w: float,
+        h: float,
+        scale: float,
+        origin_x: float = 0.0,
+        origin_y: float = 0.0,
+    ) -> List[str]:
+        """Grid spanning the viewport.
+
+        ``origin_x`` / ``origin_y`` shift the grid to cover a cropped
+        viewport; they default to the canvas origin. Lines stay aligned to
+        whole-foot multiples of the canvas origin so the grid does not appear
+        to drift when a sketch is cropped.
+        """
         s = self._svg
+        # Snap the start back to the nearest foot line at or before the origin.
+        start_x = origin_x - (origin_x % scale) if scale > 0 else origin_x
+        start_y = origin_y - (origin_y % scale) if scale > 0 else origin_y
+        end_x = origin_x + w
+        end_y = origin_y + h
         mode = s.get("grid_mode", "lines")
         g_color = s.get("grid_color", "#888")
         g_sw = s.get("grid_stroke_width", "0.5")
         g_major = s.get("grid_opacity_major", "0.18")
         g_minor = s.get("grid_opacity_minor", "0.07")
 
+        if scale <= 0:
+            return []
+
+        # Major lines every 5 feet, counted from the canvas origin so the
+        # pattern is identical whether or not the viewport is cropped.
+        def _is_major(v: float) -> bool:
+            return round(v / scale) % 5 == 0
+
         if mode == "dots":
             # ── Dot grid: small circles at intersections ──
             parts: List[str] = []
-            x = scale
-            col = 1
-            while x < w:
-                y = scale
-                row = 1
-                while y < h:
-                    is_major = col % 5 == 0 and row % 5 == 0
+            x = start_x
+            while x < end_x:
+                y = start_y
+                while y < end_y:
+                    is_major = _is_major(x) and _is_major(y)
                     r = "1.8" if is_major else "0.8"
                     op = g_major if is_major else g_minor
                     parts.append(
@@ -842,24 +1060,25 @@ class SketchPdfService:
                         f'opacity="{op}"/>'
                     )
                     y += scale
-                    row += 1
                 x += scale
-                col += 1
             return parts
 
         if mode == "crosshairs":
             # ── Corner crosshairs only (no full grid) ──
             ch_len = scale * 2
+            left, top = origin_x, origin_y
+            right, bottom = end_x, end_y
+            mid_x, mid_y = left + w / 2, top + h / 2
             parts = []
             for cx, cy in [
-                (0, 0), (w, 0), (0, h), (w, h),
-                (w / 2, 0), (w / 2, h),
-                (0, h / 2), (w, h / 2),
+                (left, top), (right, top), (left, bottom), (right, bottom),
+                (mid_x, top), (mid_x, bottom),
+                (left, mid_y), (right, mid_y),
             ]:
-                x1 = max(0, cx - ch_len / 2)
-                x2 = min(w, cx + ch_len / 2)
-                y1 = max(0, cy - ch_len / 2)
-                y2 = min(h, cy + ch_len / 2)
+                x1 = max(left, cx - ch_len / 2)
+                x2 = min(right, cx + ch_len / 2)
+                y1 = max(top, cy - ch_len / 2)
+                y2 = min(bottom, cy + ch_len / 2)
                 parts.append(
                     f'<line x1="{x1:.1f}" y1="{cy:.1f}" '
                     f'x2="{x2:.1f}" y2="{cy:.1f}" '
@@ -876,36 +1095,41 @@ class SketchPdfService:
 
         # ── Default: line grid ──
         lines: List[str] = []
-        x = scale
-        col = 1
-        while x < w:
-            opacity = g_major if col % 5 == 0 else g_minor
+        x = start_x
+        while x < end_x:
+            opacity = g_major if _is_major(x) else g_minor
             lines.append(
-                f'<line x1="{x:.1f}" y1="0" '
-                f'x2="{x:.1f}" y2="{h:.0f}" '
+                f'<line x1="{x:.1f}" y1="{origin_y:.1f}" '
+                f'x2="{x:.1f}" y2="{end_y:.1f}" '
                 f'stroke="{g_color}" stroke-width="{g_sw}" '
                 f'opacity="{opacity}"/>'
             )
             x += scale
-            col += 1
-        y = scale
-        row = 1
-        while y < h:
-            opacity = g_major if row % 5 == 0 else g_minor
+        y = start_y
+        while y < end_y:
+            opacity = g_major if _is_major(y) else g_minor
             lines.append(
-                f'<line x1="0" y1="{y:.1f}" '
-                f'x2="{w:.0f}" y2="{y:.1f}" '
+                f'<line x1="{origin_x:.1f}" y1="{y:.1f}" '
+                f'x2="{end_x:.1f}" y2="{y:.1f}" '
                 f'stroke="{g_color}" stroke-width="{g_sw}" '
                 f'opacity="{opacity}"/>'
             )
             y += scale
-            row += 1
         return lines
 
     def _build_scale_indicator(
-        self, w: float, h: float, scale: float
+        self,
+        w: float,
+        h: float,
+        scale: float,
+        origin_x: float = 0.0,
+        origin_y: float = 0.0,
     ) -> List[str]:
-        """Draw a '10 ft' scale bar in the bottom-right corner."""
+        """Draw a '10 ft' scale bar in the viewport's bottom-right corner.
+
+        ``origin_x`` / ``origin_y`` place the bar relative to a cropped
+        viewport; they default to the canvas origin.
+        """
         s = self._svg
         mode = s.get("scale_mode", "ticks")
         sc = s.get("scale_bar_color", "#888")
@@ -915,8 +1139,8 @@ class SketchPdfService:
         ff = s.get("font_primary", "Arial")
         bar_px = scale * 10  # 10 feet
         margin = 14.0
-        bx = w - margin - bar_px
-        by = h - margin - 6
+        bx = origin_x + w - margin - bar_px
+        by = origin_y + h - margin - 6
 
         if mode == "blocks":
             # ── Alternating black/white blocks (surveyor style) ──
