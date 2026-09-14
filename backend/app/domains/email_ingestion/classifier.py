@@ -21,6 +21,17 @@ INSURANCE_DOMAINS = {
     "xactware.com", "verisk.com",  # Xactimate platform
 }
 
+# Public adjusters, appraisers and third-party claims firms we actually
+# correspond with. They are not carriers, but their mail carries the same
+# estimates, appraisals and supplements, and treating them as unknown
+# senders scored them 0% - which silently dropped the single largest source
+# of estimate PDFs in the inbox (47 of 128 PDFs on the main account).
+ADJUSTER_DOMAINS = {
+    "fairclaimsadvocates.com",
+    "wardlawclaims.com",
+    "asicorp.org",
+}
+
 # Keywords indicating insurance estimate in email subject/body, each with a
 # weight reflecting how strong a signal it is on its own. Strong/specific
 # terms (claim #, policy #, xactimate) count more than generic ones
@@ -93,6 +104,13 @@ def classify_by_sender(sender: str) -> Tuple[bool, int, str]:
     for ins_domain in INSURANCE_DOMAINS:
         if domain == ins_domain or domain.endswith(f".{ins_domain}"):
             return True, 90, f"Sender domain matches insurance company: {ins_domain}"
+
+    for adj_domain in ADJUSTER_DOMAINS:
+        if domain == adj_domain or domain.endswith(f".{adj_domain}"):
+            # Slightly below carriers: these firms also send ordinary
+            # correspondence, so let the email/PDF layers corroborate rather
+            # than clearing the >=80 single-layer bar on the sender alone.
+            return True, 75, f"Sender domain matches claims firm: {adj_domain}"
 
     return False, 0, f"Sender domain {domain} not in known insurance list"
 

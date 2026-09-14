@@ -360,6 +360,7 @@ class EmailIngestionService:
         since_date: Optional[datetime] = None,
         limit: int = 50,
         unseen_only: bool = False,
+        allow_claim_creation: bool = True,
     ) -> Dict[str, Any]:
         """Poll a single email account for new insurance estimate PDFs.
 
@@ -421,6 +422,7 @@ class EmailIngestionService:
                             account=account,
                             fetched_email=fetched_email,
                             attachment=attachment,
+                            allow_claim_creation=allow_claim_creation,
                         )
                         stats["processed"] += 1
                         if result.get("status") == "uploaded":
@@ -467,6 +469,7 @@ class EmailIngestionService:
         since_date: Optional[datetime] = None,
         limit: int = 50,
         unseen_only: bool = False,
+        allow_claim_creation: bool = True,
     ) -> Dict[str, Any]:
         """Poll all active email accounts"""
         accounts = self.get_accounts()
@@ -481,6 +484,7 @@ class EmailIngestionService:
                     since_date=since_date,
                     limit=limit,
                     unseen_only=unseen_only,
+                    allow_claim_creation=allow_claim_creation,
                 )
                 results.append(result)
                 total_processed += result["processed"]
@@ -512,8 +516,15 @@ class EmailIngestionService:
         account: Dict[str, Any],
         fetched_email,
         attachment,
+        allow_claim_creation: bool = True,
     ) -> Dict[str, Any]:
-        """Process a single PDF attachment through the pipeline"""
+        """Process a single PDF attachment through the pipeline.
+
+        With allow_claim_creation=False an attachment that would otherwise
+        mint a new AUTO-<timestamp> claim is left pending for manual review
+        instead. Used when backfilling historical mail, where inventing
+        claims retroactively is worse than a reviewable queue.
+        """
         from app.domains.email_ingestion.classifier import (
             classify_email_attachment,
             extract_pdf_text_first_pages,
@@ -617,6 +628,33 @@ class EmailIngestionService:
         claim_id = match_result.claim_id
 
         if match_result.needs_new_claim and not claim_id:
+            if not allow_claim_creation:
+                # Matched a client but would need a brand-new claim. Leave it
+                # pending with the stored PDF so a reviewer can attach it to
+                # the right claim via manual_assign.
+                log_repo.create({
+                    "email_account_id": account_id,
+                    "message_id": fetched_email.message_id,
+                    "subject": fetched_email.subject,
+                    "sender": fetched_email.sender,
+                    "received_at": fetched_email.received_at,
+                    "attachment_name": attachment.filename,
+                    "attachment_hash": attachment.sha256_hash,
+                    "status": "pending",
+                    "is_insurance_estimate": True,
+                    "classification_reason": reason,
+                    "matched_client_id": match_result.client_id,
+                    "match_method": match_result.method,
+                    "match_confidence": match_result.confidence,
+                    "file_id": pending_file_id,
+                    "skip_reason": (
+                        "Matched a client but no existing claim; "
+                        "claim auto-creation disabled for this run"
+                    ),
+                })
+                session.commit()
+                return {"status": "pending"}
+
             claim_id, claim_created = self._create_claim_for_match(
                 session, match_result, fetched_email
             )
