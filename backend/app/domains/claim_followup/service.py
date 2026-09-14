@@ -14,8 +14,21 @@ logger = logging.getLogger(__name__)
 
 
 def _with_open_tracking_pixel(body_html: str, email_id: str) -> str:
-    """Append an invisible 1x1 tracking pixel that records when the email is opened."""
-    pixel_url = f"{settings.BACKEND_PUBLIC_URL}/api/claim-followup/emails/{email_id}/track-open.gif"
+    """Append an invisible 1x1 tracking pixel that records when the email is opened.
+
+    Skipped when BACKEND_PUBLIC_URL still points at localhost: the recipient's
+    mail client cannot reach it, so the pixel would never record an open and
+    would only embed a dead image in every outbound email.
+    """
+    base_url = (settings.BACKEND_PUBLIC_URL or "").rstrip("/")
+    if not base_url or "localhost" in base_url or "127.0.0.1" in base_url:
+        logger.warning(
+            "Open tracking disabled: BACKEND_PUBLIC_URL is %r, which recipients "
+            "cannot reach. Set it to the backend's public URL to track opens.",
+            settings.BACKEND_PUBLIC_URL,
+        )
+        return body_html
+    pixel_url = f"{base_url}/api/claim-followup/emails/{email_id}/track-open.gif"
     pixel_tag = f'<img src="{pixel_url}" width="1" height="1" alt="" style="display:none;" />'
     return body_html + pixel_tag
 
@@ -1520,6 +1533,15 @@ class ClaimFollowUpService:
             if reply_summary:
                 email.reply_summary = reply_summary
 
+            # A reply proves the email was read, so treat it as an open.
+            # The tracking pixel usually never fires (Gmail/Outlook/Apple Mail
+            # block remote images), which otherwise leaves a "Replied" row
+            # showing "Unread".
+            if not email.opened_at:
+                email.opened_at = now
+                email.last_opened_at = now
+                email.open_count = (email.open_count or 0) + 1
+
             # Update linked FollowUpTask status to 'responded'
             if email.followup_task_id:
                 task = session.query(FollowUpTaskModel).filter(
@@ -1689,6 +1711,15 @@ class ClaimFollowUpService:
             if data.get('scheduled_at'):
                 email_data['status'] = 'queued'
                 result = email_repo.create(email_data)
+                # Bake the tracking pixel into the stored body now, so the
+                # scheduler that later sends this row tracks opens the same way
+                # an immediate send does.
+                email_repo.update(
+                    str(result['id']),
+                    {'body_html': _with_open_tracking_pixel(
+                        data['body_html'], str(result['id'])
+                    )},
+                )
                 session.commit()
                 return result
 

@@ -454,6 +454,15 @@ class ReplyTracker:
         email_obj.reply_received_at = reply_time
         email_obj.reply_summary = reply_summary
 
+        # A reply proves the email was read, so treat it as an open. The
+        # tracking pixel usually never fires (Gmail/Outlook/Apple Mail block
+        # remote images), which otherwise leaves a "Replied" row showing
+        # "Unread".
+        if not email_obj.opened_at:
+            email_obj.opened_at = reply_time
+            email_obj.last_opened_at = reply_time
+            email_obj.open_count = (email_obj.open_count or 0) + 1
+
         # 2. Update FollowUpTask status
         if email_obj.followup_task_id:
             task = session.query(FollowUpTaskModel).filter(

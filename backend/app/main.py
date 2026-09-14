@@ -508,7 +508,7 @@ async def lifespan(app: FastAPI):
 
         try:
             start_reply_scheduler()
-            print("[STARTUP] Reply check job registered (every 10 min)")
+            print("[STARTUP] Reply check job registered (9am, 3pm ET)")
         except Exception as e:
             print(f"[STARTUP] Reply scheduler skipped: {e}")
 

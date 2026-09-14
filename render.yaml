@@ -53,6 +53,11 @@ services:
       # - GOOGLE_SHEETS_WATER_MITIGATION_ID
       # - FRONTEND_URL (Vercel URL)
       # - CORS_ORIGINS (JSON array with Vercel URL)
+      # - BACKEND_PUBLIC_URL (this service's own public URL, e.g.
+      #   https://mjestimate-backend.onrender.com). Used for the open-tracking
+      #   pixel embedded in outbound emails; if unset it defaults to
+      #   http://localhost:8000, which recipients cannot load, so email opens
+      #   are never recorded and the UI shows "Unread" forever.
       # 
       # Redis Cache (for session/auth caching):
       # Option 1: Use Upstash Redis (free tier recommended)
