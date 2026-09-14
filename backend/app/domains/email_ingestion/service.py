@@ -6,7 +6,7 @@ import io
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from cryptography.fernet import Fernet
 
@@ -42,21 +42,18 @@ def _is_bounce_message(sender: Optional[str], subject: Optional[str]) -> bool:
     return bool(subject and _BOUNCE_SUBJECT_PATTERN.search(subject))
 
 
-def _is_own_sent_attachment(session, attachment) -> bool:
-    """True if this attachment is a file we emailed out ourselves.
+def _load_sent_attachment_index(session) -> Tuple[Set[str], Set[str]]:
+    """Index of everything we have emailed out: (sha256 set, filename set).
 
-    Matched on sha256 when the outbound row recorded one, otherwise on
-    filename. Older sent_emails rows stored only {filename, mime_type}, so
-    the filename fallback is what covers the existing backlog; sends from
-    now on carry a hash and match exactly.
+    Built once per poll. Reading sent_emails.attachments per attachment
+    meant a full scan of that JSONB column for every PDF in every message,
+    which held the connection long enough that the Neon pooler dropped it
+    mid-poll.
     """
     from app.domains.claim_followup.models import SentEmail
 
-    name = (attachment.filename or "").strip().lower()
-    digest = attachment.sha256_hash or ""
-    if not name and not digest:
-        return False
-
+    hashes: Set[str] = set()
+    names: Set[str] = set()
     rows = session.query(SentEmail.attachments).filter(
         SentEmail.attachments.isnot(None)
     ).all()
@@ -64,12 +61,55 @@ def _is_own_sent_attachment(session, attachment) -> bool:
         for att in (atts or []):
             if not isinstance(att, dict):
                 continue
-            if digest and att.get("sha256_hash") == digest:
-                return True
-            sent_name = (att.get("filename") or "").strip().lower()
-            if name and sent_name == name:
-                return True
+            digest = att.get("sha256_hash")
+            if digest:
+                hashes.add(digest)
+            name = (att.get("filename") or "").strip().lower()
+            if name:
+                names.add(name)
+    return hashes, names
+
+
+def _any_attachment_qualifies(fetched_email, sent_index) -> bool:
+    """True if at least one PDF on this email classifies as claim paperwork.
+
+    Used to carry the rest of the email's attachments along. Files we sent
+    ourselves do not count - an estimate of ours bouncing back should not
+    drag the whole message in.
+    """
+    from app.domains.email_ingestion.classifier import (
+        classify_email_attachment,
+    )
+
+    for att in fetched_email.pdf_attachments:
+        if _is_own_sent_attachment(att, sent_index):
+            continue
+        ok, _conf, _reason = classify_email_attachment(
+            filename=att.filename,
+            sender=fetched_email.sender,
+            subject=fetched_email.subject,
+            body=fetched_email.body_text,
+            pdf_data=att.data,
+        )
+        if ok:
+            return True
     return False
+
+
+def _is_own_sent_attachment(attachment, sent_index) -> bool:
+    """True if this attachment is a file we emailed out ourselves.
+
+    Matched on sha256 when the outbound row recorded one, otherwise on
+    filename. Older sent_emails rows stored only {filename, mime_type}, so
+    the filename fallback is what covers the existing backlog; sends from
+    now on carry a hash and match exactly.
+    """
+    sent_hashes, sent_names = sent_index
+    digest = attachment.sha256_hash or ""
+    if digest and digest in sent_hashes:
+        return True
+    name = (attachment.filename or "").strip().lower()
+    return bool(name and name in sent_names)
 
 
 def _get_fernet() -> Fernet:
@@ -457,6 +497,11 @@ class EmailIngestionService:
                 "errors": 0,
             }
 
+            # Everything we have emailed out, read once. Looking this up per
+            # attachment scanned the whole sent_emails JSONB column for every
+            # PDF, which dropped the Neon connection partway through a poll.
+            sent_index = _load_sent_attachment_index(session)
+
             for fetched_email in emails:
                 # A bounce is our own outbound mail coming back; skip the
                 # whole message rather than filtering its attachments one by
@@ -471,6 +516,17 @@ class EmailIngestionService:
                 # per-email) so that if one attachment in a multi-PDF email
                 # previously failed, it gets retried here while attachments
                 # that already succeeded are correctly skipped.
+                # Pre-pass: does any attachment on this email look like claim
+                # paperwork? Attachments are judged one at a time, so without
+                # this the first file is evaluated before its siblings exist.
+                # When one qualifies the others are kept too - a claim packet
+                # arrives as estimate + scope + photo report + contract, and
+                # some of those are named only for the property address, which
+                # no filename rule can recognise on its own.
+                sibling_passed = _any_attachment_qualifies(
+                    fetched_email, sent_index
+                )
+
                 for attachment in fetched_email.pdf_attachments:
                     if log_repo.exists_by_message_id_and_hash(
                         fetched_email.message_id, attachment.sha256_hash
@@ -486,6 +542,8 @@ class EmailIngestionService:
                             fetched_email=fetched_email,
                             attachment=attachment,
                             allow_claim_creation=allow_claim_creation,
+                            sibling_passed=sibling_passed,
+                            sent_index=sent_index,
                         )
                         stats["processed"] += 1
                         if result.get("status") == "uploaded":
@@ -580,6 +638,8 @@ class EmailIngestionService:
         fetched_email,
         attachment,
         allow_claim_creation: bool = True,
+        sibling_passed: bool = False,
+        sent_index: Optional[Tuple[Set[str], Set[str]]] = None,
     ) -> Dict[str, Any]:
         """Process a single PDF attachment through the pipeline.
 
@@ -602,7 +662,9 @@ class EmailIngestionService:
         # and shows up twice on the claim - once under sent mail, once under
         # received. Compared by hash where we have one (sends from now on)
         # and by filename otherwise (older rows stored only name + mime type).
-        if _is_own_sent_attachment(session, attachment):
+        if _is_own_sent_attachment(
+            attachment, sent_index or _load_sent_attachment_index(session)
+        ):
             log_repo.create({
                 "email_account_id": account_id,
                 "message_id": fetched_email.message_id,
@@ -643,7 +705,7 @@ class EmailIngestionService:
             pdf_data=attachment.data,
         )
 
-        if not is_estimate:
+        if not is_estimate and not sibling_passed:
             log_data = {
                 "email_account_id": account_id,
                 "message_id": fetched_email.message_id,
@@ -661,6 +723,14 @@ class EmailIngestionService:
             session.commit()
             return {"status": "skipped"}
 
+        if not is_estimate:
+            # Kept only because a sibling attachment on the same email
+            # qualified. Files named just for the property address
+            # ("6305 Musket Ball Drive Centreville 20121.pdf") carry no
+            # recognisable document type, but arrive in the same packet as
+            # the report that does.
+            reason = f"{reason} | Kept: sibling attachment on this email qualified"
+
         # Step 2.5: Persist the PDF now that it's classified as an estimate, so a
         # reviewer can preview/assign it later even if matching fails below.
         pending_file_id = self._store_attachment_file(session, account_id, attachment, fetched_email)
@@ -674,7 +744,7 @@ class EmailIngestionService:
                 "attachment_name": attachment.filename,
                 "attachment_hash": attachment.sha256_hash,
                 "status": "failed",
-                "is_insurance_estimate": True,
+                "is_insurance_estimate": is_estimate,
                 "classification_reason": reason,
                 "error_message": "Failed to store attachment in file storage",
             }
@@ -700,7 +770,7 @@ class EmailIngestionService:
                 "attachment_name": attachment.filename,
                 "attachment_hash": attachment.sha256_hash,
                 "status": "pending",
-                "is_insurance_estimate": True,
+                "is_insurance_estimate": is_estimate,
                 "classification_reason": reason,
                 "file_id": pending_file_id,
             }
@@ -726,7 +796,7 @@ class EmailIngestionService:
                     "attachment_name": attachment.filename,
                     "attachment_hash": attachment.sha256_hash,
                     "status": "pending",
-                    "is_insurance_estimate": True,
+                    "is_insurance_estimate": is_estimate,
                     "classification_reason": reason,
                     "matched_client_id": match_result.client_id,
                     "match_method": match_result.method,
@@ -780,7 +850,7 @@ class EmailIngestionService:
                 "attachment_name": attachment.filename,
                 "attachment_hash": attachment.sha256_hash,
                 "status": "failed",
-                "is_insurance_estimate": True,
+                "is_insurance_estimate": is_estimate,
                 "classification_reason": reason,
                 "matched_client_id": match_result.client_id,
                 "matched_claim_id": claim_id,
@@ -804,7 +874,7 @@ class EmailIngestionService:
             "attachment_name": attachment.filename,
             "attachment_hash": attachment.sha256_hash,
             "status": "uploaded",
-            "is_insurance_estimate": True,
+            "is_insurance_estimate": is_estimate,
             "classification_reason": reason,
             "matched_client_id": match_result.client_id,
             "matched_claim_id": claim_id,
