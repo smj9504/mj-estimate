@@ -19,16 +19,22 @@ logger = logging.getLogger(__name__)
 def _extract_reply_body(full_text: str) -> str:
     """Extract only the new reply content, stripping quoted original message."""
     # Common reply separators (with or without leading newline)
+    # Note: the "On ... wrote:" attribution is wrapped across lines by Gmail
+    # once it grows long ("On Mon, Sep 7, 2026 at 1:07 PM Sender Name,\r\n
+    # <addr> wrote:"), so those patterns need DOTALL for `.` to cross the
+    # newline. They are bounded ({0,200}) so a stray "On" early in the reply
+    # cannot swallow the whole message looking for a far-away "wrote:".
     separators = [
-        r"\n?-{3,}\s*Original Message\s*-{3,}",
-        r"\n?On .+wrote\s*:",
-        r"\n>{2,}",
-        r"\n?_{3,}",
-        r"\n?From:\s+.+\nSent:\s+",
-        r"\n?On \d{1,2}/\d{1,2}/\d{2,4}.+wrote\s*:",  # On 06/05/2026 ... wrote:
+        (r"\n?-{3,}\s*Original Message\s*-{3,}", 0),
+        (r"\n?On .{0,200}?wrote\s*:", re.DOTALL),
+        (r"\n>{2,}", 0),
+        (r"\n?_{3,}", 0),
+        (r"\n?From:\s+.+\nSent:\s+", 0),
+        # On 06/05/2026 ... wrote:
+        (r"\n?On \d{1,2}/\d{1,2}/\d{2,4}.{0,200}?wrote\s*:", re.DOTALL),
     ]
-    for sep in separators:
-        match = re.search(sep, full_text, re.IGNORECASE)
+    for sep, extra_flags in separators:
+        match = re.search(sep, full_text, re.IGNORECASE | extra_flags)
         if match:
             result = full_text[: match.start()].strip()
             if result:
