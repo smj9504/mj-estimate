@@ -552,6 +552,7 @@ class EmailIngestionService:
 
         # Step 2: Classify
         is_estimate, confidence, reason = classify_email_attachment(
+            filename=attachment.filename,
             sender=fetched_email.sender,
             subject=fetched_email.subject,
             body=fetched_email.body_text,

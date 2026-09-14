@@ -59,6 +59,70 @@ EMAIL_KEYWORDS = [
     (r"policy\s*(number|#|no\.?)", 2),
 ]
 
+# Claim-related document types that are not estimates but still belong on a
+# claim: scopes, photo reports, contracts, authorizations, invoices, loss
+# summaries. The estimate-only classifier scored these 0-30% and dropped
+# them, so an email with 6 PDFs surfaced only the one Xactimate sketch.
+# Matched against the attachment filename, which is by far the strongest
+# signal here - these documents are named for what they are.
+DOCUMENT_FILENAME_PATTERNS = [
+    r"summary\s*of\s*loss",
+    r"\bscope\b",
+    r"photo\s*report",
+    r"\bcos\b|certificate\s*of\s*satisfaction",
+    r"\bewa\b|emergency\s*work\s*auth",
+    r"\bcoc\b|certificate\s*of\s*completion",
+    r"final[\s_-]*draft[\s_-]*con",       # contract final drafts
+    r"\bcontract\b|\bagreement\b",
+    r"\bestimate\b",                      # bathroom_/roofing_/moving_estimate
+    r"\bsupplement\b",
+    r"\bproposal\b",
+    r"\bcomparative\b",                   # WCS Comparative
+    r"\binvoice\b",
+    r"\bsketch\b",
+    r"\breport\b",                        # mitigation / EagleView reports
+    r"personal\s*items",
+    r"\bappraisal\b",
+    r"proof\s*of\s*loss",
+]
+
+# Filenames that look claim-ish but are administrative or vendor noise.
+# Checked first, and they win: a W9 attached to a claim email is still a W9,
+# and a material-order confirmation is not a claim document.
+DOCUMENT_FILENAME_EXCLUSIONS = [
+    r"\bw-?9\b",
+    r"spec\s*sheet",
+    r"^img_\d+",
+    r"\bpacking\s*slip\b",
+    r"\bshipping\b",
+]
+
+_doc_filename_patterns = [
+    re.compile(p, re.IGNORECASE) for p in DOCUMENT_FILENAME_PATTERNS
+]
+_doc_exclusion_patterns = [
+    re.compile(p, re.IGNORECASE) for p in DOCUMENT_FILENAME_EXCLUSIONS
+]
+
+
+def classify_by_filename(filename: str) -> Tuple[bool, int, str]:
+    """Recognise claim paperwork by what the attachment is called."""
+    if not filename:
+        return False, 0, "No filename"
+
+    name = filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ")
+
+    for pattern in _doc_exclusion_patterns:
+        if pattern.search(name):
+            return False, 0, f"Filename excluded as non-claim: {filename}"
+
+    for pattern in _doc_filename_patterns:
+        if pattern.search(name):
+            return True, 80, f"Filename matches claim document: {pattern.pattern}"
+
+    return False, 0, f"Filename {filename} not a recognised claim document"
+
+
 # Keywords in PDF text indicating insurance estimate
 PDF_KEYWORDS = [
     r"xactimate",
@@ -219,21 +283,37 @@ def classify_email_attachment(
     subject: str,
     body: str,
     pdf_data: bytes,
+    filename: str = "",
 ) -> Tuple[bool, int, str]:
     """
     Multi-layered classification of an email attachment.
-    Returns (is_insurance_estimate, confidence, reason)
+    Returns (is_claim_document, confidence, reason)
 
     Classification logic:
+    0. Filename document type (scope, COS, photo report, contract, ...)
     1. Sender domain check (high confidence if match)
     2. Email subject/body keywords
     3. PDF content analysis (first 2-3 pages)
 
     Final decision: any single layer with confidence >= 80 or
     combined score from multiple layers >= 70.
+
+    Note this accepts claim *paperwork*, not only insurance estimates: an
+    email that belongs to a claim usually carries the scope, the photo
+    report and the contract alongside the estimate, and keeping only the
+    estimate left the rest unreachable.
     """
     reasons = []
     max_confidence = 0
+
+    # Layer 0: Filename document type. Deliberately first and worth 80 on
+    # its own - a file called "Summary of Loss.pdf" needs no corroboration,
+    # and its text often has none (photo reports are mostly images).
+    name_match, name_conf, name_reason = classify_by_filename(filename)
+    if filename:
+        reasons.append(f"[Name:{name_conf}%] {name_reason}")
+    if name_conf > max_confidence:
+        max_confidence = name_conf
 
     # Layer 1: Sender domain
     sender_match, sender_conf, sender_reason = classify_by_sender(sender)
