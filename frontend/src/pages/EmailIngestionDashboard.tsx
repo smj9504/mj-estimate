@@ -54,7 +54,11 @@ const STATUS_COLORS: Record<string, string> = {
 const EmailIngestionDashboard: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  // Default to pending: this screen exists to work the manual-assign queue,
+  // and skipped rows (classified as not-an-estimate, no file stored) are a
+  // large share of the log - 52 of 129 at the time of writing - which buried
+  // the rows that actually need action. Clearing the filter still shows all.
+  const [statusFilter, setStatusFilter] = useState<string | undefined>('pending');
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [selectedLog, setSelectedLog] = useState<IngestionLog | null>(null);
   const [skipModalOpen, setSkipModalOpen] = useState(false);
