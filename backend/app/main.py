@@ -419,6 +419,10 @@ _NEEDED_COLUMNS = [
     ("files", "storage_provider", "VARCHAR(50)"),
     ("contract_instances", "filled_pdf_provider", "VARCHAR(50)"),
     ("contract_instances", "signed_pdf_provider", "VARCHAR(50)"),
+    # Who produced the initial estimate, and how far the contractor-prepared
+    # path has progressed when the carrier declines to write one
+    ("claims", "estimate_origin", "VARCHAR(30)"),
+    ("claims", "contractor_estimate_stage", "VARCHAR(40)"),
 ]
 
 

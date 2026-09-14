@@ -54,7 +54,7 @@ export interface ClaimNegotiation {
   claim_id: string;
   revision_number: number;
   revision_type: 'initial' | 'supplement' | 're_inspection' | 'appraisal' | 'final';
-  estimate_category?: string | null;
+  estimate_category?: EstimateCategory | null;
   acv_amount: number;
   rcv_amount: number;
   depreciation_amount: number;
@@ -71,9 +71,29 @@ export interface ClaimNegotiation {
   updated_at?: string;
 }
 
+/**
+ * Which part of the loss an insurance estimate covers. Revision numbering is
+ * scoped per category, so a WM revision and a reconstruction revision are
+ * numbered independently.
+ */
+export type EstimateCategory =
+  | 'reconstruction'
+  | 'water_mitigation'
+  | 'combined';
+
+export const ESTIMATE_CATEGORY_CONFIG: Record<
+  EstimateCategory,
+  { color: string; label: string }
+> = {
+  combined: { color: 'blue', label: 'Combined' },
+  reconstruction: { color: 'purple', label: 'Reconstruction' },
+  water_mitigation: { color: 'cyan', label: 'Water Mitigation' },
+};
+
 export interface ClaimNegotiationCreate {
   claim_id: string;
   revision_type: ClaimNegotiation['revision_type'];
+  estimate_category?: EstimateCategory | null;
   acv_amount?: number;
   rcv_amount?: number;
   depreciation_amount?: number;
@@ -92,6 +112,54 @@ export interface ClaimNegotiationCreate {
 // ============================================================
 
 export type ClaimStatus = 'open' | 'negotiating' | 'settled' | 'closed' | 'denied';
+
+/**
+ * Who produced the initial estimate. Most carriers write their own, but some
+ * decline and ask the contractor to submit one for approval instead, which
+ * inverts the usual negotiation flow.
+ */
+export type EstimateOrigin = 'carrier_provided' | 'contractor_prepared';
+
+export const ESTIMATE_ORIGIN_CONFIG: Record<
+  EstimateOrigin,
+  { color: string; label: string; description: string }
+> = {
+  carrier_provided: {
+    color: 'blue',
+    label: 'Carrier Estimate',
+    description: 'Insurance company provided the initial estimate',
+  },
+  contractor_prepared: {
+    color: 'purple',
+    label: 'Contractor-Prepared',
+    description: 'Carrier asked us to write the estimate for approval',
+  },
+};
+
+/** Progress of the contractor-prepared path. Unused on the carrier path. */
+export type ContractorEstimateStage =
+  | 'requested'
+  | 'estimate_sent'
+  | 'awaiting_approval'
+  | 'approved_initial_received';
+
+export const CONTRACTOR_ESTIMATE_STAGE_ORDER: ContractorEstimateStage[] = [
+  'requested', 'estimate_sent', 'awaiting_approval', 'approved_initial_received',
+];
+
+export const CONTRACTOR_ESTIMATE_STAGE_LABELS: Record<ContractorEstimateStage, string> = {
+  requested: 'Estimate Requested',
+  estimate_sent: 'Estimate Sent',
+  awaiting_approval: 'Awaiting Approval',
+  approved_initial_received: 'Approved Initial Received',
+};
+
+export const CONTRACTOR_ESTIMATE_STAGE_COLORS: Record<ContractorEstimateStage, string> = {
+  requested: 'default',
+  estimate_sent: 'processing',
+  awaiting_approval: 'orange',
+  approved_initial_received: 'green',
+};
 
 export interface Claim {
   id: string;
@@ -127,6 +195,8 @@ export interface Claim {
   supplement_status?: string;
   supplement_notes?: string;
   status: ClaimStatus;
+  estimate_origin?: EstimateOrigin | null;
+  contractor_estimate_stage?: ContractorEstimateStage | null;
   notes?: string;
   negotiations: ClaimNegotiation[];
   payments: ClaimPayment[];
@@ -312,6 +382,8 @@ export interface ClaimCreate {
   date_of_loss?: string;
   loss_description?: string;
   status?: ClaimStatus;
+  estimate_origin?: EstimateOrigin | null;
+  contractor_estimate_stage?: ContractorEstimateStage | null;
   notes?: string;
   initial_acv?: number;
   initial_rcv?: number;

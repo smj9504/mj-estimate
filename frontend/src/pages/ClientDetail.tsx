@@ -85,6 +85,13 @@ import type {
   CabinetEstimateSummary,
   PlumberReportSummary,
 } from '../types/client';
+import {
+  ESTIMATE_ORIGIN_CONFIG,
+  ESTIMATE_CATEGORY_CONFIG,
+  CONTRACTOR_ESTIMATE_STAGE_ORDER,
+  CONTRACTOR_ESTIMATE_STAGE_LABELS,
+  CONTRACTOR_ESTIMATE_STAGE_COLORS,
+} from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
 
 dayjs.extend(relativeTime);
@@ -409,6 +416,8 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           date_of_loss: editingClaim.date_of_loss ? dayjs(editingClaim.date_of_loss) as any : undefined,
           loss_description: editingClaim.loss_description,
           status: editingClaim.status,
+          estimate_origin: editingClaim.estimate_origin,
+          contractor_estimate_stage: editingClaim.contractor_estimate_stage,
           notes: editingClaim.notes,
           initial_acv: editingClaim.current_acv,
           initial_rcv: editingClaim.current_rcv,
@@ -476,6 +485,36 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
                   <Option key={val} value={val}>{cfg.label}</Option>
                 ))}
               </Select>
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <Row gutter={12}>
+          <Col xs={24} sm={12}>
+            <Form.Item name="estimate_origin" label="Initial Estimate From"
+              tooltip="Some carriers decline to write an estimate and ask us to submit one for approval">
+              <Select allowClear placeholder="Not determined yet">
+                {Object.entries(ESTIMATE_ORIGIN_CONFIG).map(([val, cfg]) => (
+                  <Option key={val} value={val}>{cfg.label}</Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={12}>
+            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.estimate_origin !== cur.estimate_origin}>
+              {({ getFieldValue }) =>
+                getFieldValue('estimate_origin') === 'contractor_prepared' ? (
+                  <Form.Item name="contractor_estimate_stage" label="Contractor Estimate Stage">
+                    <Select allowClear placeholder="Select stage">
+                      {CONTRACTOR_ESTIMATE_STAGE_ORDER.map((val) => (
+                        <Option key={val} value={val}>
+                          {CONTRACTOR_ESTIMATE_STAGE_LABELS[val]}
+                        </Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                ) : null
+              }
             </Form.Item>
           </Col>
         </Row>
@@ -877,7 +916,7 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
 
       <Form form={form} layout="vertical" onFinish={handleFinish} scrollToFirstError>
         <Row gutter={12}>
-          <Col xs={24} sm={12}>
+          <Col xs={24} sm={8}>
             <Form.Item name="revision_type" label="Revision Type"
               rules={[{ required: true, message: 'Revision type is required' }]}>
               <Select placeholder="Select type">
@@ -887,7 +926,17 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
               </Select>
             </Form.Item>
           </Col>
-          <Col xs={24} sm={12}>
+          <Col xs={24} sm={8}>
+            <Form.Item name="estimate_category" label="Category"
+              tooltip="Revision numbers are tracked separately per category">
+              <Select allowClear placeholder="Select category">
+                {Object.entries(ESTIMATE_CATEGORY_CONFIG).map(([val, cfg]) => (
+                  <Option key={val} value={val}>{cfg.label}</Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={8}>
             <Form.Item name="date_received" label="Date Received">
               <DatePicker style={{ width: '100%' }} format="MM/DD/YYYY" />
             </Form.Item>
@@ -1007,8 +1056,23 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
     onError: () => message.error('Failed to delete.'),
   });
 
-  // Sort by revision number for delta calculation
-  const sorted = [...negotiations].sort((a, b) => a.revision_number - b.revision_number);
+  // Sort by category then revision number. Delta compares against the previous
+  // revision *within the same category* — comparing a WM revision against a
+  // reconstruction one produces a meaningless difference.
+  const sorted = [...negotiations].sort((a, b) => {
+    const catA = a.estimate_category || '';
+    const catB = b.estimate_category || '';
+    if (catA !== catB) return catA.localeCompare(catB);
+    return a.revision_number - b.revision_number;
+  });
+
+  const prevInCategory = (record: ClaimNegotiation): ClaimNegotiation | null => {
+    const sameCat = sorted.filter(
+      (n) => (n.estimate_category || '') === (record.estimate_category || ''),
+    );
+    const idx = sameCat.findIndex((n) => n.id === record.id);
+    return idx > 0 ? sameCat[idx - 1] : null;
+  };
 
   const columns: ColumnsType<ClaimNegotiation> = [
     {
@@ -1026,6 +1090,22 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
       render: (type: ClaimNegotiation['revision_type']) => {
         const cfg = REVISION_TYPE_CONFIG[type];
         return <Tag color={cfg.color} style={{ fontSize: 11 }}>{cfg.label}</Tag>;
+      },
+    },
+    {
+      title: 'Category',
+      dataIndex: 'estimate_category',
+      key: 'estimate_category',
+      width: 110,
+      responsive: ['md'] as any,
+      render: (cat: ClaimNegotiation['estimate_category']) => {
+        if (!cat) return <Text type="secondary">—</Text>;
+        const cfg = ESTIMATE_CATEGORY_CONFIG[cat];
+        return (
+          <Tag color={cfg?.color || 'default'} style={{ fontSize: 11 }}>
+            {cfg?.label || cat}
+          </Tag>
+        );
       },
     },
     {
@@ -1060,9 +1140,8 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
       width: 90,
       responsive: ['sm'] as any,
       render: (_: any, record) => {
-        const idx = sorted.findIndex((n) => n.id === record.id);
-        if (idx <= 0) return <Text type="secondary">—</Text>;
-        const prev = sorted[idx - 1];
+        const prev = prevInCategory(record);
+        if (!prev) return <Text type="secondary">—</Text>;
         const delta = record.rcv_amount - prev.rcv_amount;
         if (delta === 0) return <Text type="secondary">$0</Text>;
         return (
@@ -1175,11 +1254,48 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <Text strong>Negotiation History</Text>
+        <Space size={6} wrap>
+          <Text strong>Negotiation History</Text>
+          {claim.estimate_origin && (
+            <Tooltip title={ESTIMATE_ORIGIN_CONFIG[claim.estimate_origin]?.description}>
+              <Tag
+                color={ESTIMATE_ORIGIN_CONFIG[claim.estimate_origin]?.color || 'default'}
+                style={{ margin: 0, fontSize: 11 }}
+              >
+                {ESTIMATE_ORIGIN_CONFIG[claim.estimate_origin]?.label || claim.estimate_origin}
+              </Tag>
+            </Tooltip>
+          )}
+          {claim.estimate_origin === 'contractor_prepared' && claim.contractor_estimate_stage && (
+            <Tag
+              color={CONTRACTOR_ESTIMATE_STAGE_COLORS[claim.contractor_estimate_stage] || 'default'}
+              style={{ margin: 0, fontSize: 11 }}
+            >
+              {CONTRACTOR_ESTIMATE_STAGE_LABELS[claim.contractor_estimate_stage]
+                || claim.contractor_estimate_stage}
+            </Tag>
+          )}
+        </Space>
         <Button size="small" icon={<PlusOutlined />} onClick={() => setNegModalOpen(true)}>
           Add Revision
         </Button>
       </div>
+
+      {claim.estimate_origin === 'contractor_prepared'
+        && claim.contractor_estimate_stage !== 'approved_initial_received' && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="Carrier asked us to prepare the estimate"
+          description={
+            claim.contractor_estimate_stage
+              ? `Current stage: ${CONTRACTOR_ESTIMATE_STAGE_LABELS[claim.contractor_estimate_stage]}. `
+                + 'The approved initial estimate from the carrier is not on file yet.'
+              : 'No stage recorded yet. Set the stage on the claim to track progress.'
+          }
+        />
+      )}
 
       <Table<ClaimNegotiation>
         rowKey="id"
