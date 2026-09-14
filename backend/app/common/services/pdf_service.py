@@ -553,10 +553,16 @@ class PDFService:
         # Write a standalone script file instead of -c inline
         script_content = """
 import sys, json, os
-os.environ['FONTCONFIG_PATH'] = os.path.join(
-    os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
-)
-os.environ.pop('FONTCONFIG_FILE', None)
+
+# Windows dev only - see app/main.py. On Linux the container's system
+# fontconfig (+ fonts, installed in backend/Dockerfile) must be left alone:
+# pointing FONTCONFIG_PATH at a non-existent anaconda dir leaves WeasyPrint
+# with no font database, so text renders in a fallback face.
+if sys.platform == 'win32':
+    os.environ['FONTCONFIG_PATH'] = os.path.join(
+        os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
+    )
+    os.environ.pop('FONTCONFIG_FILE', None)
 
 html_path = sys.argv[1]
 output_path = sys.argv[2]
@@ -600,11 +606,14 @@ print(os.path.getsize(output_path))
             # Use clean environment to avoid inheriting GLib state
             env = os.environ.copy()
             env.pop('G_SLICE', None)
-            env['FONTCONFIG_PATH'] = os.path.join(
-                os.path.expanduser('~'),
-                'anaconda3', 'Library', 'etc', 'fonts'
-            )
-            env.pop('FONTCONFIG_FILE', None)
+            # Windows dev only - see app/main.py. On Linux, leave the
+            # container's system fontconfig alone.
+            if sys.platform == 'win32':
+                env['FONTCONFIG_PATH'] = os.path.join(
+                    os.path.expanduser('~'),
+                    'anaconda3', 'Library', 'etc', 'fonts'
+                )
+                env.pop('FONTCONFIG_FILE', None)
 
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
@@ -2050,10 +2059,16 @@ print(os.path.getsize(output_path))
 
         script_content = """
 import sys, json, os
-os.environ['FONTCONFIG_PATH'] = os.path.join(
-    os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
-)
-os.environ.pop('FONTCONFIG_FILE', None)
+
+# Windows dev only - see app/main.py. On Linux the container's system
+# fontconfig (+ fonts, installed in backend/Dockerfile) must be left alone:
+# pointing FONTCONFIG_PATH at a non-existent anaconda dir leaves WeasyPrint
+# with no font database, so text renders in a fallback face.
+if sys.platform == 'win32':
+    os.environ['FONTCONFIG_PATH'] = os.path.join(
+        os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
+    )
+    os.environ.pop('FONTCONFIG_FILE', None)
 
 html_path = sys.argv[1]
 output_path = sys.argv[2]
@@ -2082,11 +2097,14 @@ print(os.path.getsize(output_path))
         try:
             env_vars = os.environ.copy()
             env_vars.pop('G_SLICE', None)
-            env_vars['FONTCONFIG_PATH'] = os.path.join(
-                os.path.expanduser('~'),
-                'anaconda3', 'Library', 'etc', 'fonts'
-            )
-            env_vars.pop('FONTCONFIG_FILE', None)
+            # Windows dev only - see app/main.py. On Linux, leave the
+            # container's system fontconfig alone.
+            if sys.platform == 'win32':
+                env_vars['FONTCONFIG_PATH'] = os.path.join(
+                    os.path.expanduser('~'),
+                    'anaconda3', 'Library', 'etc', 'fonts'
+                )
+                env_vars.pop('FONTCONFIG_FILE', None)
 
             result = subprocess.run(
                 [sys.executable, script_tmp.name,

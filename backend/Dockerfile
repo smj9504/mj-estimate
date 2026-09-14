@@ -21,6 +21,28 @@ WORKDIR /app
 # pytesseract/pdf2image inside try/except, so without these binaries OCR
 # silently returns empty text instead of raising - the pip packages alone
 # are not enough.
+#
+# fontconfig + the font packages fix "Fontconfig error: Cannot load default
+# config file" in the WeasyPrint PDF path. libpango can rasterize text but
+# has no font database and no fonts to resolve against, so every PDF was
+# rendered in a last-resort fallback face instead of the family the template
+# asked for. build.sh already installed fontconfig for the old Render
+# Python-buildpack deploy; that never got carried over when the service moved
+# to this Dockerfile (render.yaml -> dockerfilePath).
+#
+# Templates request Microsoft/Apple families (Arial, Calibri, Palatino
+# Linotype, Helvetica Neue, Trebuchet MS, Segoe UI) that are not
+# redistributable on Debian. fontconfig's 30-metric-aliases.conf maps most of
+# them to metric-compatible open substitutes, so the names in the CSS resolve
+# without touching the templates:
+#   Arial            -> Liberation Sans   (fonts-liberation2)
+#   Calibri          -> Carlito           (fonts-crosextra-carlito)
+#   Palatino Linotype-> P052 / Caladea    (fonts-urw-base35, fonts-crosextra-caladea)
+#   Helvetica        -> Nimbus Sans       (fonts-urw-base35)
+# Trebuchet MS / Segoe UI / Tahoma / Verdana have no metric alias; they fall
+# through their CSS stacks to Carlito or the generic sans-serif/serif, which
+# fonts-dejavu-core backstops. Keep dejavu last-resort so no glyph renders as
+# tofu.
 RUN apt-get update && apt-get install -y \
     gcc \
     ghostscript \
@@ -31,7 +53,14 @@ RUN apt-get update && apt-get install -y \
     libgdk-pixbuf2.0-0 \
     libffi-dev \
     shared-mime-info \
-    && rm -rf /var/lib/apt/lists/*
+    fontconfig \
+    fonts-liberation2 \
+    fonts-crosextra-carlito \
+    fonts-crosextra-caladea \
+    fonts-urw-base35 \
+    fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -f
 
 # Copy requirements file
 COPY requirements.txt .

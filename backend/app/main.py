@@ -3,19 +3,32 @@ FastAPI Backend for MJ Estimate Generator
 Main application entry point with comprehensive database abstraction system
 """
 
-# Suppress WeasyPrint GTK/Fontconfig warnings on Windows
-# These are harmless warnings from Linux libraries running on Windows
+# Suppress WeasyPrint GTK/Fontconfig warnings on Windows.
+# WINDOWS ONLY - must never touch these vars on Linux. The Docker image
+# (backend/Dockerfile) installs fontconfig + real fonts system-wide, and
+# fontconfig finds them on its own via the default /etc/fonts. Overriding
+# either var there breaks every WeasyPrint PDF:
+#   - FONTCONFIG_PATH pointed at ~/anaconda3/... which does not exist in the
+#     container, so fontconfig would look for its config in a missing dir.
+#   - the old `else` branch set FONTCONFIG_FILE='NUL' (the *Windows* null
+#     device) unconditionally, i.e. on every Linux deploy. fontconfig then
+#     tried to open a config file literally named NUL and logged
+#     "Fontconfig error: Cannot load default config file: No such file:
+#     (null)" on every render - the PDF still came out, but with no font
+#     database, so text fell back to a default face instead of the family
+#     the template asked for.
 import os
+import sys
 
-_fontconfig_path = os.path.join(
-    os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
-)
-if os.path.isdir(_fontconfig_path):
-    os.environ['FONTCONFIG_PATH'] = _fontconfig_path
-    os.environ.pop('FONTCONFIG_FILE', None)  # Remove conflicting var
-else:
-    os.environ.setdefault('FONTCONFIG_FILE', 'NUL')
-os.environ.setdefault('G_SLICE', 'always-malloc')
+if sys.platform == 'win32':
+    _fontconfig_path = os.path.join(
+        os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
+    )
+    if os.path.isdir(_fontconfig_path):
+        os.environ['FONTCONFIG_PATH'] = _fontconfig_path
+        os.environ.pop('FONTCONFIG_FILE', None)  # Remove conflicting var
+    else:
+        os.environ.setdefault('FONTCONFIG_FILE', 'NUL')
 
 # Suppress GLib warnings
 import warnings
