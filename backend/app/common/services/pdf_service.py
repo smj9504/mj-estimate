@@ -3613,6 +3613,7 @@ def generate_water_mitigation_report_pdf(
     for section_data in config.get('sections', []):
         section_title = section_data.get('title', 'Section')
         section_summary = section_data.get('summary', '')
+        section_date = section_data.get('section_date')
         layout = section_data.get('layout', 'four')
         max_photos = photos_per_page_map.get(layout, 4)
         rows, cols = grid_layouts.get(layout, (2, 2))
@@ -3663,6 +3664,7 @@ def generate_water_mitigation_report_pdf(
             page_jobs.append({
                 'section_title': section_title,
                 'section_summary': section_summary,
+                'section_date': section_date,
                 'layout': layout,
                 'rows': rows,
                 'cols': cols,
@@ -3748,6 +3750,7 @@ def generate_water_mitigation_report_pdf(
         for job_idx, page_job in enumerate(page_jobs):
             section_title = page_job['section_title']
             section_summary = page_job['section_summary']
+            section_date = page_job.get('section_date')
             layout = page_job['layout']
             rows, cols = page_job['rows'], page_job['cols']
             page_num = page_job['page_num']
@@ -3829,6 +3832,21 @@ def generate_water_mitigation_report_pdf(
                     c.setFont(FONT_TITLE, SECTION_TITLE_SIZE)
                     c.drawString(margin, title_y, section_title)
 
+                # Section date, right-aligned on the title baseline. Uses the
+                # same format_date as the per-photo overlay so both read
+                # identically ("September 01, 2026").
+                if section_date:
+                    _section_date_str = format_date(section_date)
+                    if _section_date_str:
+                        c.setFillColor(COLOR_DARK_GRAY)
+                        c.setFont(FONT_BODY, 10)
+                        _sd_x = page_width - margin
+                        if sh_mode == "filled_box":
+                            _sd_x -= 0.1 * inch
+                        c.drawRightString(
+                            _sd_x, title_y, _section_date_str
+                        )
+
                 # Section description
                 if section_summary:
                     c.setFillColor(COLOR_DARK_GRAY)
@@ -3837,7 +3855,18 @@ def generate_water_mitigation_report_pdf(
                         section_summary, max_chars=100
                     )
                     y_pos = page_height - margin - 0.65 * inch
-                    for line in summary_lines[:3]:
+                    # Cap the summary so a long one can't grow the header
+                    # into the photo grid below (header_height feeds
+                    # content_height / photo y further down). 6 lines costs
+                    # at most an extra 0.45" of header vs the old 3-line cap,
+                    # which every layout incl. 'six' still has room for.
+                    # Anything beyond the cap is ellipsized rather than
+                    # silently dropped.
+                    MAX_SUMMARY_LINES = 6
+                    visible_lines = summary_lines[:MAX_SUMMARY_LINES]
+                    if len(summary_lines) > MAX_SUMMARY_LINES and visible_lines:
+                        visible_lines[-1] = visible_lines[-1].rstrip() + '...'
+                    for line in visible_lines:
                         if line:
                             c.drawString(margin, y_pos, line)
                         y_pos -= 0.15 * inch

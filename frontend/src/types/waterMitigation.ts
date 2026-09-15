@@ -323,6 +323,10 @@ export interface ReportSection {
   photos: PhotoMetadata[];
   layout: 'single' | 'two' | 'three' | 'four' | 'six';
   display_order: number;
+  // Section-level date shown beside the section title (ISO YYYY-MM-DD).
+  // Defaults to the same category->date rule the photos follow
+  // (Day 2 -> start+1, Day 3 -> end, otherwise start); undefined = no date shown.
+  section_date?: string;
 }
 
 export interface ReportConfig {
