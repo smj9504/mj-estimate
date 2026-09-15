@@ -618,6 +618,15 @@ export const waterMitigationService = {
       return response.data;
     },
 
+    // Update document type (the tag shown next to the filename)
+    updateDocumentType: async (documentId: string, documentType: string): Promise<any> => {
+      const response = await api.patch(
+        `${BASE_URL}/documents/${documentId}/document-type`,
+        { document_type: documentType }
+      );
+      return response.data;
+    },
+
     // Update document invoice amount (also syncs to job)
     updateInvoiceAmount: async (documentId: string, invoiceAmount: number | null): Promise<any> => {
       const response = await api.patch(
@@ -1570,8 +1579,8 @@ export const financialComparisonService = {
 
 export interface DocumentReadiness {
   photo_report: { ready: boolean; document?: { id: string; filename: string; created_at: string } | null };
-  invoice: { ready: boolean; invoice_id?: string | null };
-  w9: { ready: boolean };
+  invoice: { ready: boolean; invoice_id?: string | null; document?: { id: string; filename: string; created_at: string } | null };
+  w9: { ready: boolean; document?: { id: string; filename: string; created_at: string } | null };
   cos: { ready: boolean; document?: { id: string; filename: string; created_at: string } | null };
   ewa: { ready: boolean; document?: { id: string; filename: string; created_at: string } | null };
   sketch: { ready: boolean; stale?: boolean; document?: { id: string; filename: string; created_at: string } | null };
@@ -1582,6 +1591,13 @@ export interface PresetEmail {
   name: string;
   email: string;
   role: string; // 'adjuster' | 'insurance' | 'pa' | 'other'
+}
+
+// A document manually pinned to a required email slot.
+export interface SlotOverrideDocument {
+  id: string;
+  filename: string;
+  created_at: string | null;
 }
 
 export interface AdjusterEmailInfo {
@@ -1621,6 +1637,26 @@ export const adjusterEmailService = {
   generateEmail: async (jobId: string, customNotes: string = ''): Promise<{ subject: string; body_html: string }> => {
     const response = await api.post(
       `${BASE_URL}/jobs/${jobId}/generate-adjuster-email?custom_notes=${encodeURIComponent(customNotes)}`
+    );
+    return response.data;
+  },
+
+  // Manual slot -> document mappings, for when the automatic
+  // document_type matching doesn't fill a required slot.
+  getSlotOverrides: async (jobId: string): Promise<Record<string, SlotOverrideDocument>> => {
+    const response = await api.get(`${BASE_URL}/jobs/${jobId}/document-slot-overrides`);
+    return response.data;
+  },
+
+  // Pass documentId = null to clear the mapping.
+  setSlotOverride: async (
+    jobId: string,
+    slotKey: string,
+    documentId: string | null
+  ): Promise<{ slot_key: string; document: SlotOverrideDocument | null }> => {
+    const response = await api.put(
+      `${BASE_URL}/jobs/${jobId}/document-slot-overrides/${slotKey}`,
+      { document_id: documentId }
     );
     return response.data;
   },

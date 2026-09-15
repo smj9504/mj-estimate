@@ -4,10 +4,11 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { List, Button, Popconfirm, message, Tag, Typography, Checkbox, Space, InputNumber, Tooltip, Grid } from 'antd';
+import { List, Button, Popconfirm, message, Tag, Typography, Checkbox, Space, InputNumber, Select, Tooltip, Grid } from 'antd';
 import { FilePdfOutlined, FileImageOutlined, FileOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, EditOutlined, DollarOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import waterMitigationService from '../../services/waterMitigationService';
+import { WM_DOCUMENT_TYPES, getDocumentTypeInfo } from '../../constants/wmDocumentTypes';
 import './WMDocumentInvoiceList.css';
 
 const { Text } = Typography;
@@ -54,6 +55,9 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
     const [editingAmountId, setEditingAmountId] = useState<string | null>(null);
     const [editingAmountValue, setEditingAmountValue] = useState<number | null>(null);
     const [savingAmount, setSavingAmount] = useState(false);
+    // Inline document type (tag) editing
+    const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
+    const [savingType, setSavingType] = useState(false);
 
     const invalidateDocs = useCallback(() => {
       queryClient.invalidateQueries({ queryKey: ['wm-documents', jobId] });
@@ -166,19 +170,60 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
     }
   };
 
-  const getDocumentTypeLabel = (type: string) => {
-    const labels: Record<string, { label: string; color: string }> = {
-      'COS': { label: 'Certificate of Satisfaction', color: 'green' },
-      'EWA': { label: 'Emergency Work Agreement', color: 'blue' },
-      'Invoice': { label: 'Invoice', color: 'gold' },
-      'Sketch': { label: 'Sketch', color: 'cyan' },
-      'Photo': { label: 'Photo', color: 'magenta' },
-      'photo_report': { label: 'Photo Report', color: 'magenta' },
-      'Photo Report': { label: 'Photo Report', color: 'magenta' },
-      'Other': { label: 'Other', color: 'default' },
-      'annotated_pdf': { label: 'Annotated PDF', color: 'purple' },
-    };
-    return labels[type] || { label: type, color: 'default' };
+  // --- Document Type (tag) Editing ---
+  const saveDocumentType = async (documentId: string, newType: string) => {
+    setSavingType(true);
+    try {
+      await waterMitigationService.documents.updateDocumentType(documentId, newType);
+      message.success('Document type updated');
+      invalidateDocs();
+      setEditingTypeId(null);
+    } catch (error) {
+      console.error('Failed to update document type:', error);
+      message.error('Failed to update document type');
+    } finally {
+      setSavingType(false);
+    }
+  };
+
+  const renderTypeTag = (doc: Document) => {
+    const typeInfo = getDocumentTypeInfo(doc.document_type);
+
+    if (editingTypeId === doc.id) {
+      return (
+        <Space size={4} style={{ marginLeft: 8 }}>
+          <Select
+            size="small"
+            value={doc.document_type}
+            options={WM_DOCUMENT_TYPES.map(t => ({ value: t.value, label: t.label }))}
+            onChange={(val) => saveDocumentType(doc.id, val)}
+            loading={savingType}
+            style={{ width: 220 }}
+            autoFocus
+            defaultOpen
+          />
+          <Button
+            type="text"
+            size="small"
+            icon={<CloseOutlined />}
+            onClick={() => setEditingTypeId(null)}
+            style={{ color: '#ff4d4f' }}
+          />
+        </Space>
+      );
+    }
+
+    return (
+      <Tooltip title="Click to change document type">
+        <Tag
+          color={typeInfo.color}
+          style={{ marginLeft: 8, cursor: 'pointer' }}
+          onClick={() => setEditingTypeId(doc.id)}
+        >
+          {typeInfo.label}
+        </Tag>
+      </Tooltip>
+    );
   };
 
   const formatFileSize = (bytes: number) => {
@@ -321,7 +366,6 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
         locale={{ emptyText: 'No documents yet' }}
         itemLayout={isMobile ? 'vertical' : 'horizontal'}
         renderItem={(doc) => {
-        const typeInfo = getDocumentTypeLabel(doc.document_type);
         return (
           <List.Item
             className="wm-list-item"
@@ -402,9 +446,7 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
                   <Tooltip title={doc.title && doc.title !== doc.filename ? doc.title : undefined}>
                     <Text strong style={{ wordBreak: 'break-word', overflowWrap: 'break-word', minWidth: 0 }}>{doc.filename}</Text>
                   </Tooltip>
-                  <Tag color={typeInfo.color} style={{ marginLeft: 8 }}>
-                    {typeInfo.label}
-                  </Tag>
+                  {renderTypeTag(doc)}
                   {doc.upload_source !== 'manual_upload' && doc.photo_count > 0 && (
                     <Tag style={{ marginLeft: 4 }}>
                       {doc.photo_count} photo{doc.photo_count !== 1 ? 's' : ''}

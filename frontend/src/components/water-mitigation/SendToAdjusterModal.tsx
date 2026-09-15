@@ -14,11 +14,12 @@ import {
   CloseCircleFilled, MailOutlined,
 } from '@ant-design/icons';
 import RichTextEditor from '../editor/RichTextEditor';
-import {
+import waterMitigationService, {
   adjusterEmailService,
   type AdjusterEmailInfo,
   type DocumentReadiness,
   type SendToAdjusterPayload,
+  type SlotOverrideDocument,
 } from '../../services/waterMitigationService';
 
 const { Text } = Typography;
@@ -59,6 +60,13 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
   // Document selection
   const [selectedDocs, setSelectedDocs] = useState<string[]>([...DOC_ORDER]);
 
+  // Manual slot -> document mapping, for slots the automatic
+  // document_type matching didn't fill.
+  const [jobDocuments, setJobDocuments] = useState<{ id: string; filename: string }[]>([]);
+  const [slotOverrides, setSlotOverrides] = useState<Record<string, SlotOverrideDocument>>({});
+  const [mappingSlot, setMappingSlot] = useState<string | null>(null);
+  const [savingSlot, setSavingSlot] = useState<string | null>(null);
+
   // Load info when modal opens
   const loadInfo = useCallback(async () => {
     if (!jobId) return;
@@ -95,6 +103,19 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
         return doc && typeof doc === 'object' && 'ready' in doc && doc.ready;
       });
       setSelectedDocs(readyDocs);
+
+      // Load the job's documents + existing slot mappings so a missing
+      // slot can be filled by hand. Failure here must not block sending.
+      try {
+        const [docs, overrides] = await Promise.all([
+          waterMitigationService.documents.getByJob(jobId),
+          adjusterEmailService.getSlotOverrides(jobId),
+        ]);
+        setJobDocuments(docs.map((d: any) => ({ id: d.id, filename: d.filename })));
+        setSlotOverrides(overrides || {});
+      } catch (mapErr) {
+        console.warn('Failed to load document slot mapping data:', mapErr);
+      }
     } catch (err) {
       console.error('Failed to load adjuster email info:', err);
       message.error('Failed to load email info');
@@ -114,8 +135,32 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
       setManualFromEmail('');
       setSelectedDocs([...DOC_ORDER]);
       setEmailContent({ subject: '', body_html: '' });
+      setJobDocuments([]);
+      setSlotOverrides({});
+      setMappingSlot(null);
     }
   }, [open, loadInfo]);
+
+  // Pin one of the job's documents to a required slot (or clear the pin).
+  // Reloads info afterwards so readiness reflects the new mapping.
+  const handleSetSlotDocument = async (slotKey: string, documentId: string | null) => {
+    setSavingSlot(slotKey);
+    try {
+      await adjusterEmailService.setSlotOverride(jobId, slotKey, documentId);
+      setMappingSlot(null);
+      message.success(
+        documentId
+          ? `${DOC_LABELS[slotKey]} mapped`
+          : `${DOC_LABELS[slotKey]} mapping cleared`
+      );
+      await loadInfo();
+    } catch (err: any) {
+      console.error('Failed to map document to slot:', err);
+      message.error(err?.response?.data?.detail || 'Failed to map document');
+    } finally {
+      setSavingSlot(null);
+    }
+  };
 
   const handleRegenerateEmail = async () => {
     try {
@@ -283,6 +328,43 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
                 const doc = docs?.[key as keyof DocumentReadiness];
                 const ready = doc && typeof doc === 'object' && 'ready' in doc && doc.ready;
                 const checked = selectedDocs.includes(key);
+                const mappedDoc = slotOverrides[key];
+                const isMapping = mappingSlot === key;
+
+                if (isMapping) {
+                  return (
+                    <div
+                      key={key}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '4px 8px', borderRadius: 4, background: '#fafafa',
+                      }}
+                    >
+                      <Text style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+                        {DOC_LABELS[key]}
+                      </Text>
+                      <Select
+                        size="small"
+                        autoFocus
+                        defaultOpen
+                        showSearch
+                        allowClear={!!mappedDoc}
+                        placeholder="Select a document"
+                        value={mappedDoc?.id}
+                        loading={savingSlot === key}
+                        style={{ flex: 1, minWidth: 0 }}
+                        optionFilterProp="label"
+                        options={jobDocuments.map(d => ({ value: d.id, label: d.filename }))}
+                        onChange={(val) => handleSetSlotDocument(key, val ?? null)}
+                        onClear={() => handleSetSlotDocument(key, null)}
+                        notFoundContent="No documents on this job"
+                      />
+                      <Button size="small" type="text" onClick={() => setMappingSlot(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  );
+                }
 
                 return (
                   <div
@@ -306,10 +388,23 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
                     ) : (
                       <CloseCircleFilled style={{ color: '#ff4d4f', fontSize: 14 }} />
                     )}
-                    <Text style={{ fontSize: 13 }}>{DOC_LABELS[key]}</Text>
-                    {!ready && (
-                      <Tag color="red" style={{ fontSize: 10, marginLeft: 'auto' }}>Missing</Tag>
+                    <Text style={{ fontSize: 13 }} ellipsis>
+                      {DOC_LABELS[key]}
+                    </Text>
+                    {mappedDoc && (
+                      <Tag color="blue" style={{ fontSize: 10 }}>Mapped</Tag>
                     )}
+                    {!ready && (
+                      <Tag color="red" style={{ fontSize: 10 }}>Missing</Tag>
+                    )}
+                    <Button
+                      size="small"
+                      type="link"
+                      style={{ marginLeft: 'auto', fontSize: 11, padding: 0, height: 'auto' }}
+                      onClick={(e) => { e.stopPropagation(); setMappingSlot(key); }}
+                    >
+                      {mappedDoc ? 'Change' : 'Map document'}
+                    </Button>
                   </div>
                 );
               })}

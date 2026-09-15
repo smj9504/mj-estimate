@@ -2944,6 +2944,64 @@ def delete_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.patch("/documents/{document_id}/document-type", response_model=WMDocumentResponse)
+def update_document_type(
+    document_id: UUID,
+    payload: dict,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """Update the document_type (the tag shown next to the filename).
+
+    Body: { "document_type": "EWA" }
+
+    The column is a free-form String(50) and several flows write their own
+    values (annotated_pdf, photo_report, sketch_report), so this only
+    validates that a non-empty string within the column width was sent
+    rather than restricting to a fixed vocabulary.
+    """
+    from .models import WMDocument
+
+    try:
+        document_type = payload.get('document_type')
+
+        if not isinstance(document_type, str) or not document_type.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="document_type must be a non-empty string"
+            )
+
+        document_type = document_type.strip()
+        if len(document_type) > 50:
+            raise HTTPException(
+                status_code=400,
+                detail="document_type must be 50 characters or fewer"
+            )
+
+        doc = db.query(WMDocument).filter(
+            WMDocument.id == document_id
+        ).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        previous_type = doc.document_type
+        doc.document_type = document_type
+
+        db.commit()
+        db.refresh(doc)
+        logger.info(
+            f"Updated document {document_id} type: "
+            f"{previous_type} -> {document_type}"
+        )
+        return doc
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to update document type: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.patch("/documents/{document_id}/invoice-amount", response_model=WMDocumentResponse)
 def update_document_invoice_amount(
     document_id: UUID,
@@ -5417,6 +5475,44 @@ async def get_adjuster_email_info(job_id: UUID):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Error getting adjuster email info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class DocumentSlotOverrideRequest(BaseModel):
+    document_id: Optional[str] = None  # None/null clears the override
+
+
+@router.get("/jobs/{job_id}/document-slot-overrides")
+async def get_document_slot_overrides(job_id: UUID):
+    """List the job's manual slot -> document mappings."""
+    service = get_adjuster_email_service()
+    try:
+        return service.list_slot_overrides(str(job_id))
+    except Exception as e:
+        logger.error(f"Error listing document slot overrides: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/jobs/{job_id}/document-slot-overrides/{slot_key}")
+async def set_document_slot_override(
+    job_id: UUID,
+    slot_key: str,
+    data: DocumentSlotOverrideRequest,
+):
+    """Map one of the job's documents to a required email slot.
+
+    Send document_id=null to clear the mapping and fall back to the
+    automatic document_type matching.
+    """
+    service = get_adjuster_email_service()
+    try:
+        return service.set_slot_override(
+            str(job_id), slot_key, data.document_id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error setting document slot override: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

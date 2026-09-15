@@ -1133,3 +1133,47 @@ class WMInvoiceItemConfig(Base, BaseModel):
     scope_item = relationship("WMScopeItem")
     standard_scope_item = relationship("WMStandardScopeItem")
     line_item = relationship("LineItem")
+
+
+class WMDocumentSlotOverride(Base, BaseModel):
+    """Manual mapping of a job document to a required adjuster-email slot.
+
+    The adjuster email expects six documents (photo_report, invoice, w9,
+    cos, ewa, sketch). Normally each slot is filled by matching
+    WMDocument.document_type against a hard-coded list, which fails when a
+    document is tagged differently, when several documents share a type and
+    the newest is not the one wanted, or - for w9/sketch - when readiness
+    looks somewhere other than the job's documents entirely.
+
+    A row here pins one specific document to one slot for one job and takes
+    precedence over the automatic matching. One row per (job, slot).
+    """
+    __tablename__ = "wm_document_slot_overrides"
+    __table_args__ = (
+        Index(
+            'ix_wm_doc_slot_override_job_slot',
+            'job_id', 'slot_key',
+            unique=True,
+        ),
+        {'extend_existing': True}
+    )
+
+    job_id = Column(
+        UUIDType(),
+        ForeignKey("water_mitigation_jobs.id"),
+        nullable=False,
+    )
+    slot_key = Column(
+        String(30),
+        nullable=False,
+        comment="photo_report | invoice | w9 | cos | ewa | sketch",
+    )
+    document_id = Column(
+        UUIDType(),
+        ForeignKey("wm_documents.id"),
+        nullable=False,
+    )
+
+    # Relationships
+    job = relationship("WaterMitigationJob")
+    document = relationship("WMDocument")

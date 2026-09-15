@@ -10,6 +10,7 @@ import { Modal, Select, Input, InputNumber, Upload, Button, Space, Typography, m
 import { UploadOutlined, InboxOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
 import waterMitigationService from '../../services/waterMitigationService';
+import { WM_DOCUMENT_TYPES } from '../../constants/wmDocumentTypes';
 
 const { Text } = Typography;
 const { Dragger } = Upload;
@@ -22,15 +23,14 @@ interface WMDocumentUploadModalProps {
   onSuccess: () => void;
 }
 
-const UPLOAD_DOCUMENT_TYPES = [
-  { value: 'COS', label: 'Certificate of Satisfaction (COS)' },
-  { value: 'EWA', label: 'Emergency Work Agreement (EWA)' },
-  { value: 'Invoice', label: 'Invoice' },
-  { value: 'Sketch', label: 'Sketch' },
-  { value: 'Photo', label: 'Photo' },
-  { value: 'Photo Report', label: 'Photo Report' },
-  { value: 'Other', label: 'Other' },
-];
+// Manual-upload choices, derived from the shared document-type vocabulary
+// (see constants/wmDocumentTypes). Types that are only ever produced by a
+// generator — annotated PDFs, photo/sketch reports — are not offered here.
+const GENERATED_ONLY_TYPES = ['annotated_pdf', 'photo_report', 'sketch_report'];
+
+const UPLOAD_DOCUMENT_TYPES = WM_DOCUMENT_TYPES
+  .filter(t => !GENERATED_ONLY_TYPES.includes(t.value))
+  .map(t => ({ value: t.value, label: t.label }));
 
 const WMDocumentUploadModal: React.FC<WMDocumentUploadModalProps> = ({
   open,
