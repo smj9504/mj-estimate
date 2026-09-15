@@ -343,6 +343,15 @@ class SentEmail(Base, BaseModel):
     opened_at = Column(DateTime(timezone=True), comment="When the email was first opened")
     open_count = Column(Integer, default=0, comment="Number of times the tracking pixel was loaded")
     last_opened_at = Column(DateTime(timezone=True), comment="Most recent open timestamp")
+    # Whether the outbound body actually carried the tracking pixel. NULL on
+    # rows sent before this was recorded (= unknown). False means tracking was
+    # skipped (BACKEND_PUBLIC_URL unreachable), so "not opened" on such a row
+    # says nothing about the recipient - it only means we never asked.
+    tracking_pixel_sent = Column(
+        Boolean,
+        nullable=True,
+        comment="True if the open-tracking pixel was embedded in the sent body",
+    )
 
     # Audit
     sent_by_id = Column(UUIDType(), ForeignKey("staff.id"))

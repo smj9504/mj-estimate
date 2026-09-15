@@ -14,12 +14,16 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-def _with_open_tracking_pixel(body_html: str, email_id: str) -> str:
+def _with_open_tracking_pixel(body_html: str, email_id: str) -> tuple:
     """Append an invisible 1x1 tracking pixel that records when the email is opened.
 
     Skipped when BACKEND_PUBLIC_URL still points at localhost: the recipient's
     mail client cannot reach it, so the pixel would never record an open and
     would only embed a dead image in every outbound email.
+
+    Returns (body_html, pixel_applied). The caller records pixel_applied on
+    the SentEmail row: without it, a row with no opens is ambiguous between
+    "recipient never opened it" and "we never attached the pixel".
     """
     base_url = (settings.BACKEND_PUBLIC_URL or "").rstrip("/")
     if not base_url or "localhost" in base_url or "127.0.0.1" in base_url:
@@ -28,10 +32,10 @@ def _with_open_tracking_pixel(body_html: str, email_id: str) -> str:
             "cannot reach. Set it to the backend's public URL to track opens.",
             settings.BACKEND_PUBLIC_URL,
         )
-        return body_html
+        return body_html, False
     pixel_url = f"{base_url}/api/claim-followup/emails/{email_id}/track-open.gif"
     pixel_tag = f'<img src="{pixel_url}" width="1" height="1" alt="" style="display:none;" />'
-    return body_html + pixel_tag
+    return body_html + pixel_tag, True
 
 
 class ClaimFollowUpService:
@@ -1727,11 +1731,15 @@ class ClaimFollowUpService:
                 # Bake the tracking pixel into the stored body now, so the
                 # scheduler that later sends this row tracks opens the same way
                 # an immediate send does.
+                queued_body, pixel_applied = _with_open_tracking_pixel(
+                    data['body_html'], str(result['id'])
+                )
                 email_repo.update(
                     str(result['id']),
-                    {'body_html': _with_open_tracking_pixel(
-                        data['body_html'], str(result['id'])
-                    )},
+                    {
+                        'body_html': queued_body,
+                        'tracking_pixel_sent': pixel_applied,
+                    },
                 )
                 session.commit()
                 return result
@@ -1739,6 +1747,16 @@ class ClaimFollowUpService:
             # Send immediately via SMTP
             result = email_repo.create(email_data)
             email_id = str(result['id'])
+
+            # The pixel is only added to the outbound copy, not the stored
+            # body, so record separately whether it went out - otherwise
+            # there is no way to tell afterwards.
+            outbound_body, pixel_applied = _with_open_tracking_pixel(
+                data['body_html'], email_id
+            )
+            email_repo.update(
+                email_id, {'tracking_pixel_sent': pixel_applied}
+            )
 
             try:
                 smtp = SmtpService()
@@ -1749,7 +1767,7 @@ class ClaimFollowUpService:
                     cc_addresses=data.get('cc_addresses', []),
                     bcc_addresses=data.get('bcc_addresses', []),
                     subject=data['subject'],
-                    body_html=_with_open_tracking_pixel(data['body_html'], email_id),
+                    body_html=outbound_body,
                     attachments=raw_attachments,
                     reply_to=data.get('reply_to'),
                     skip_signature=manual_from,

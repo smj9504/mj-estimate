@@ -276,6 +276,9 @@ export interface SentEmail {
   opened_at?: string;
   open_count: number;
   last_opened_at?: string;
+  // null/undefined = unknown (sent before this was recorded); false = the
+  // tracking pixel was not attached, so "Unread" means nothing on that row.
+  tracking_pixel_sent?: boolean | null;
   created_at?: string;
 }
 

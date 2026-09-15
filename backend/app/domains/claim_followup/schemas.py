@@ -358,6 +358,9 @@ class SentEmailResponse(BaseModel):
     opened_at: Optional[datetime] = None
     open_count: int = 0
     last_opened_at: Optional[datetime] = None
+    # None = unknown (sent before this was recorded), False = pixel was not
+    # attached, so "no opens" on that row is not evidence about the recipient.
+    tracking_pixel_sent: Optional[bool] = None
     created_at: Optional[datetime] = None
 
     class Config:
