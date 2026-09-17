@@ -91,6 +91,7 @@ import {
   DEFAULT_WALL_THICKNESS,
   DEFAULT_WALL_COLOR,
   DEFAULT_ROOM_COLOR,
+  NEW_ROOM_SIDE_FT,
   EA_ITEM_PIXEL_SIZES,
   getEffectiveRenderMode,
 } from '../../../types/wmSketch';
@@ -101,6 +102,7 @@ import WMReferencePhotoViewer from './WMReferencePhotoViewer';
 import { useWMSketchState } from './hooks/useWMSketchState';
 import { useWMCalculations } from './hooks/useWMCalculations';
 import { useWMSketchPersistence } from './hooks/useWMSketchPersistence';
+import { vertexMoveSelfIntersects } from './utils/sketchGeometry';
 import {
   generateOverlayId,
   pixelsToFeet,
@@ -487,66 +489,39 @@ if (typeof document !== 'undefined' && !document.getElementById(SPINNER_STYLE_ID
 // Wall ↔ Room sync helpers
 // ============================================================================
 
-const _ROOM_SYNC_EPS = 8;
+/**
+ * Tolerance (canvas px) for deciding that two points are "the same vertex".
+ *
+ * This single constant replaces the ad-hoc 5/8/10 literals that used to be
+ * scattered across the drag handlers. Those disagreed with each other: snapping
+ * ran at WALL_SNAP_THRESHOLD (15px) while room sync ran at 8px, so an endpoint
+ * snapped 12px away moved the wall but left the room boundary behind.
+ *
+ * Invariant: WALL_SNAP_THRESHOLD >= VERTEX_EPS. Anything close enough to snap
+ * together must also be close enough to be synced together.
+ */
+const VERTEX_EPS = WALL_SNAP_THRESHOLD;
 
-/** When a wall is dragged (both endpoints move by dx,dy), update rooms that share those endpoints. */
-function _syncRoomsFromWallMove(
-  rooms: WMRoom[],
-  wallEndpoints: { x: number; y: number }[],
-  dx: number,
-  dy: number,
-  updateRoom: (patch: Partial<WMRoom> & { id: string }) => void,
-  scale: number,
-) {
-  for (const room of rooms) {
-    if (!room.boundary?.length) continue;
-    let changed = false;
-    const newBoundary = room.boundary.map((bp) => {
-      const matches = wallEndpoints.some(
-        (ep) => Math.abs(bp.x - ep.x) < _ROOM_SYNC_EPS && Math.abs(bp.y - ep.y) < _ROOM_SYNC_EPS
-      );
-      if (matches) { changed = true; return { x: bp.x + dx, y: bp.y + dy }; }
-      return bp;
-    });
-    if (changed) {
-      const area = Math.abs(_polyArea(newBoundary)) / (scale * scale);
-      updateRoom({ id: room.id, boundary: newBoundary, area_sqft: area });
-    }
-  }
+/**
+ * True when two points should be treated as the same corner vertex.
+ * Euclidean, so the tolerance is identical in every direction — an
+ * axis-aligned box would reach ~1.4x further diagonally and match
+ * inconsistently depending on the corner angle.
+ */
+function _samePoint(
+  ax: number, ay: number,
+  bx: number, by: number,
+): boolean {
+  return Math.hypot(ax - bx, ay - by) <= VERTEX_EPS;
 }
 
-/** When a single wall endpoint moves from oldPt to newPt, update matching room boundary points. */
-function _syncRoomsFromPointMove(
-  rooms: WMRoom[],
-  oldPt: { x: number; y: number },
-  newPt: { x: number; y: number },
-  updateRoom: (patch: Partial<WMRoom> & { id: string }) => void,
-  scale: number,
-) {
-  for (const room of rooms) {
-    if (!room.boundary?.length) continue;
-    let changed = false;
-    const newBoundary = room.boundary.map((bp) => {
-      if (Math.abs(bp.x - oldPt.x) < _ROOM_SYNC_EPS && Math.abs(bp.y - oldPt.y) < _ROOM_SYNC_EPS) {
-        changed = true;
-        return { x: newPt.x, y: newPt.y };
-      }
-      return bp;
-    });
-    if (changed) {
-      const area = Math.abs(_polyArea(newBoundary)) / (scale * scale);
-      updateRoom({ id: room.id, boundary: newBoundary, area_sqft: area });
-    }
-  }
-}
-
-function _polyArea(pts: { x: number; y: number }[]): number {
-  let area = 0;
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    area += (pts[j].x + pts[i].x) * (pts[j].y - pts[i].y);
-  }
-  return area / 2;
-}
+// Rooms are derived from walls at CREATION time by autoDetectRooms, which
+// rebuilds each
+// boundary from the wall cycles. The old _syncRoomsFromWallMove /
+// _syncRoomsFromPointMove helpers delta-shifted room.boundary independently,
+// which is what let a room drift away from its walls — they are gone, and
+// with them _polyArea, whose only callers they were. Room areas now come from
+// polygonArea() inside the reconcile.
 
 // ============================================================================
 // Main Component
@@ -618,6 +593,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     deselect,
     selectedIds,
     batchMoveSelected,
+    moveVertex,
+    moveWall,
     setActiveMaterialType,
     setActiveEquipmentType,
     addDemolitionZone,
@@ -675,9 +652,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       const room = (state.overlayData.rooms ?? []).find((r) => r.id === roomId);
       if (room?.boundary?.length) {
         const walls = state.overlayData.walls ?? [];
-        const EPS = 10;
         const onBoundary = (px: number, py: number) =>
-          room.boundary.some((bp) => Math.abs(bp.x - px) < EPS && Math.abs(bp.y - py) < EPS);
+          room.boundary.some((bp) => _samePoint(bp.x, bp.y, px, py));
         for (const w of walls) {
           if (onBoundary(w.start_x, w.start_y) && onBoundary(w.end_x, w.end_y)) {
             removeWall(w.id);
@@ -919,6 +895,26 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     drawStateRef.current = next;
     setDrawState(next);
   }, []);
+
+  /**
+   * Marquee (drag-to-select) rectangle, in canvas coordinates.
+   *
+   * Kept separate from `drawState`, which belongs to the drawing tools and is
+   * gated on `isDrawing` throughout handleMouseUp. Reusing it here would make
+   * the select tool fall into every drawing branch.
+   */
+  const [marquee, setMarquee] = useState<
+    { startX: number; startY: number; currentX: number; currentY: number } | null
+  >(null);
+  const marqueeRef = useRef(marquee);
+  marqueeRef.current = marquee;
+  const setMarqueeSync = useCallback(
+    (next: { startX: number; startY: number; currentX: number; currentY: number } | null) => {
+      marqueeRef.current = next;
+      setMarquee(next);
+    },
+    []
+  );
   // Space key for pan mode
   const [spaceDown, setSpaceDown] = useState(false);
   spaceDownRef.current = spaceDown;
@@ -945,12 +941,20 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
    * Returns the snapped point or the original point if no snap.
    */
   const snapToWallEndpoint = useCallback(
-    (pos: { x: number; y: number }): { point: { x: number; y: number }; snapped: boolean } => {
+    (
+      pos: { x: number; y: number },
+      excludeWallId?: string,
+    ): { point: { x: number; y: number }; snapped: boolean } => {
       const walls = state.overlayData.walls ?? [];
       let closestDist = WALL_SNAP_THRESHOLD;
       let closestPt: { x: number; y: number } | null = null;
 
       for (const w of walls) {
+        // When dragging one of this wall's own endpoints, its *other* endpoints
+        // are not valid snap targets — otherwise any move under the snap
+        // threshold gets pulled straight back to where it started, and the
+        // endpoint appears frozen.
+        if (excludeWallId && w.id === excludeWallId) continue;
         for (const ep of [{ x: w.start_x, y: w.start_y }, { x: w.end_x, y: w.end_y }]) {
           const d = Math.hypot(ep.x - pos.x, ep.y - pos.y);
           if (d < closestDist) {
@@ -1071,7 +1075,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
    * @param wallsOverride optional walls array (for checking just-added walls not yet in state)
    */
   const autoDetectRooms = useCallback(
-    (wallsOverride?: WMWall[]) => {
+    (wallsOverride?: WMWall[], opts?: { silent?: boolean }) => {
       const walls = wallsOverride ?? (state.overlayData.walls ?? []);
       if (walls.length < 3) return;
 
@@ -1138,27 +1142,51 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         }
       }
 
-      // For each found cycle, check if a room with similar boundary already exists
-      for (const polygon of foundCycles) {
-        const centroid = {
-          x: polygon.reduce((s, p) => s + p.x, 0) / polygon.length,
-          y: polygon.reduce((s, p) => s + p.y, 0) / polygon.length,
-        };
+      // ----------------------------------------------------------------
+      // Reconcile rooms against the cycles the walls currently form.
+      //
+      // Rooms are DERIVED from walls: a room exists exactly as long as its
+      // walls still enclose it. Three outcomes per room — reshape, create,
+      // delete. The delete case is the one that used to be missing: this
+      // loop only ever visited cycles that still exist, so dragging a wall
+      // away from a room left that room untouched, still drawn at its old
+      // boundary with a phantom edge where the wall used to be.
+      // ----------------------------------------------------------------
+      const scale = floorSketch.scale_pixels_per_foot;
+      const centroidOf = (pts: { x: number; y: number }[]) => ({
+        x: pts.reduce((s, p) => s + p.x, 0) / pts.length,
+        y: pts.reduce((s, p) => s + p.y, 0) / pts.length,
+      });
 
-        // Check if any existing room centroid is close to this polygon's centroid
-        const alreadyExists = existingRooms.some((room) => {
+      const matchedRoomIds = new Set<string>();
+
+      for (const polygon of foundCycles) {
+        const centroid = centroidOf(polygon);
+
+        // Find the existing room this cycle corresponds to, by centroid proximity.
+        const existingRoom = existingRooms.find((room) => {
           if (!room.boundary || room.boundary.length < 3) return false;
-          const rc = {
-            x: room.boundary.reduce((s, p) => s + p.x, 0) / room.boundary.length,
-            y: room.boundary.reduce((s, p) => s + p.y, 0) / room.boundary.length,
-          };
+          if (matchedRoomIds.has(room.id)) return false;
+          const rc = centroidOf(room.boundary);
           return Math.hypot(rc.x - centroid.x, rc.y - centroid.y) < 30;
         });
 
-        if (!alreadyExists) {
-          const scale = floorSketch.scale_pixels_per_foot;
-          const areaPixels = Math.abs(polygonArea(polygon));
-          const areaSqft = areaPixels / (scale * scale);
+        const areaPixels = Math.abs(polygonArea(polygon));
+        const areaSqft = areaPixels / (scale * scale);
+
+        if (existingRoom) {
+          matchedRoomIds.add(existingRoom.id);
+          // Reshape to follow the walls. Without this the room keeps its old
+          // outline while the walls move out from under it.
+          const boundaryChanged =
+            existingRoom.boundary.length !== polygon.length ||
+            existingRoom.boundary.some(
+              (bp, i) => !_samePoint(bp.x, bp.y, polygon[i].x, polygon[i].y)
+            );
+          if (boundaryChanged) {
+            updateRoom({ id: existingRoom.id, boundary: polygon, area_sqft: areaSqft });
+          }
+        } else {
           const roomNum = existingRooms.length + foundCycles.indexOf(polygon) + 1;
           const newId = generateOverlayId();
           const room: WMRoom = {
@@ -1172,11 +1200,156 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
             wall_ids: [],
           };
           addRoom(room);
-          message.success(`Room auto-detected (${areaSqft.toFixed(0)} SF)`);
+          // Announce a genuinely new room, but stay quiet during drags: the
+          // reconcile runs on every commit, so a moved room would re-announce
+          // itself constantly.
+          if (!opts?.silent) {
+            message.success(`Room auto-detected (${areaSqft.toFixed(0)} SF)`);
+          }
+        }
+      }
+
+      // A room whose walls no longer enclose it is gone. But "no cycle found"
+      // is only weak evidence of that: this routine also runs while a wall
+      // chain is still being drawn, and after an AI merge, where no cycle
+      // exists yet. Deleting on an empty result wiped every room on the floor
+      // as soon as the user started drawing the next one.
+      //
+      // So only delete when the walls DID form cycles — i.e. detection was
+      // working and simply did not produce this room. When nothing was found,
+      // leave the rooms alone; a stale room is recoverable, a deleted one
+      // needs an undo the user may not realise they need.
+      if (foundCycles.length > 0) {
+        for (const room of existingRooms) {
+          if (matchedRoomIds.has(room.id)) continue;
+          removeRoom(room.id);
         }
       }
     },
-    [state.overlayData.walls, state.overlayData.rooms, floorSketch.scale_pixels_per_foot, floorSketch.id, addRoom]
+    [state.overlayData.walls, state.overlayData.rooms, floorSketch.scale_pixels_per_foot, floorSketch.id, addRoom, updateRoom, removeRoom]
+  );
+
+  /**
+   * Set a wall's length, keeping its angle and start point.
+   *
+   * The far endpoint is moved as a shared VERTEX rather than by editing this
+   * wall alone: walls meeting that corner follow, the whole edit is a single
+   * undo entry, and the room is re-derived afterwards. The sidebar's number
+   * field and the canvas label both go through here, so they cannot drift
+   * apart — editing the wall directly used to stretch it in isolation and
+   * leave the room drawn at its previous shape.
+   *
+   * Declared after autoDetectRooms because it depends on it.
+   */
+  const applyWallLength = useCallback(
+    (wallId: string, feet: number) => {
+      const walls = stateRef.current.overlayData.walls ?? [];
+      const w = walls.find((x) => x.id === wallId);
+      if (!w) return;
+      const scale = floorSketchRef.current.scale_pixels_per_foot;
+      const dx = w.end_x - w.start_x;
+      const dy = w.end_y - w.start_y;
+      const oldLenPx = Math.hypot(dx, dy);
+      if (oldLenPx < 1 || feet <= 0) return;
+      const ratio = (feet * scale) / oldLenPx;
+      const endX = w.start_x + dx * ratio;
+      const endY = w.start_y + dy * ratio;
+      moveVertex({ x: w.end_x, y: w.end_y }, { x: endX, y: endY }, VERTEX_EPS, scale);
+      const movedWalls = walls.map((o) => {
+        const startMatch = _samePoint(o.start_x, o.start_y, w.end_x, w.end_y);
+        const endMatch = _samePoint(o.end_x, o.end_y, w.end_x, w.end_y);
+        if (!startMatch && !endMatch) return o;
+        return {
+          ...o,
+          ...(startMatch ? { start_x: endX, start_y: endY } : {}),
+          ...(endMatch ? { end_x: endX, end_y: endY } : {}),
+        };
+      });
+      // Silent: a length edit is not a new room being discovered.
+      autoDetectRooms(movedWalls, { silent: true });
+    },
+    [moveVertex, autoDetectRooms]
+  );
+
+  /**
+   * Every element whose bounding box intersects the given canvas rectangle.
+   *
+   * Geometry is heterogeneous here, so each type needs its own box: walls are
+   * stored as two endpoints, rooms as a boundary polygon, shapes carry real
+   * width/height, demolition zones fall back through pixel_* → dimensions ×
+   * scale → polygon points, and equipment/text are single points.
+   */
+  const elementsWithin = useCallback(
+    (x1: number, y1: number, x2: number, y2: number) => {
+      const data = stateRef.current.overlayData;
+      const scale = floorSketchRef.current.scale_pixels_per_foot;
+      const out: import('../../../types/wmSketch').WMSketchSelection[] = [];
+      const boxHits = (bx1: number, by1: number, bx2: number, by2: number) =>
+        bx1 <= x2 && bx2 >= x1 && by1 <= y2 && by2 >= y1;
+      const pointHits = (px: number, py: number) =>
+        px >= x1 && px <= x2 && py >= y1 && py <= y2;
+
+      for (const z of data.demolition_zones) {
+        const w = z.pixel_width ?? (z.dimension1_ft > 0 ? z.dimension1_ft * scale : 40);
+        const h = z.pixel_height ?? (z.dimension2_ft > 0 ? z.dimension2_ft * scale : 40);
+        if (boxHits(z.x, z.y, z.x + w, z.y + h)) {
+          out.push({ element_id: z.id, element_type: 'demolition' });
+        }
+      }
+      for (const eq of data.equipment_placements) {
+        if (pointHits(eq.x, eq.y)) out.push({ element_id: eq.id, element_type: 'equipment' });
+      }
+      for (const c of data.containment_zones) {
+        const w = (c.length_ft || 0) * scale;
+        if (boxHits(c.x, c.y, c.x + w, c.y + 8)) {
+          out.push({ element_id: c.id, element_type: 'containment' });
+        }
+      }
+      for (const fp of data.floor_protections) {
+        if (pointHits(fp.x, fp.y)) {
+          out.push({ element_id: fp.id, element_type: 'floor_protection' });
+        }
+      }
+      for (const cp of data.content_protections ?? []) {
+        const w = (cp.width_ft || 0) * scale;
+        const h = (cp.length_ft || 0) * scale;
+        if (boxHits(cp.x, cp.y, cp.x + w, cp.y + h)) {
+          out.push({ element_id: cp.id, element_type: 'content_protection' });
+        }
+      }
+      for (const cm of data.content_manipulations ?? []) {
+        if (pointHits(cm.x, cm.y)) {
+          out.push({ element_id: cm.id, element_type: 'content_manipulation' });
+        }
+      }
+      for (const t of data.text_annotations ?? []) {
+        if (pointHits(t.x, t.y)) out.push({ element_id: t.id, element_type: 'text' });
+      }
+      for (const s of data.shapes ?? []) {
+        if (boxHits(s.x, s.y, s.x + s.width, s.y + s.height)) {
+          out.push({ element_id: s.id, element_type: 'shape' });
+        }
+      }
+      for (const w of data.walls ?? []) {
+        const bx1 = Math.min(w.start_x, w.end_x);
+        const by1 = Math.min(w.start_y, w.end_y);
+        const bx2 = Math.max(w.start_x, w.end_x);
+        const by2 = Math.max(w.start_y, w.end_y);
+        if (boxHits(bx1, by1, bx2, by2)) {
+          out.push({ element_id: w.id, element_type: 'wall' });
+        }
+      }
+      for (const r of data.rooms ?? []) {
+        if (!r.boundary?.length) continue;
+        const xs = r.boundary.map((p) => p.x);
+        const ys = r.boundary.map((p) => p.y);
+        if (boxHits(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys))) {
+          out.push({ element_id: r.id, element_type: 'room' });
+        }
+      }
+      return out;
+    },
+    []
   );
 
   // Helper: get canvas-space coordinates from a Konva event
@@ -1707,9 +1880,16 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       const { activeTool } = st;
 
       if (activeTool === 'select') {
-        // Deselect when clicking on empty stage
+        // Press on empty canvas: clear the selection and begin a marquee.
+        // Pressing on an element instead lets that element's own drag run.
         if (e.target === e.target.getStage()) {
           deselect();
+          setMarqueeSync({
+            startX: pos.x,
+            startY: pos.y,
+            currentX: pos.x,
+            currentY: pos.y,
+          });
         }
         return;
       }
@@ -1934,32 +2114,67 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         return;
       }
 
-      // ---- Room tool: detect room from enclosed walls ----
+      // ---- Room tool: drop a ready-made square room ----
+      /*
+       * Clicking places a NEW_ROOM_SIDE_FT square centred on the pointer,
+       * together with the four walls that enclose it.
+       *
+       * This replaced a detect-only behaviour that searched for an already
+       * enclosed area under the click and otherwise refused to do anything, so
+       * the tool could never create a room — you had to draw four walls first,
+       * and clicking anywhere else just said "No enclosed area found".
+       *
+       * The walls are real walls, built exactly as the wall tool builds them,
+       * so the new room is draggable, resizable and dimensioned like any other:
+       * rooms carry the area and the name, walls carry the geometry.
+       */
       if (activeTool === 'room') {
-        const boundary = detectRoomAtPoint(pos);
-        if (boundary) {
-          const existingRooms = st.overlayData.rooms ?? [];
-          const roomNum = existingRooms.length + 1;
-          const areaPixels = Math.abs(polygonArea(boundary));
-          const scale = fs.scale_pixels_per_foot;
-          const areaSqft = areaPixels / (scale * scale);
-          const newId = generateOverlayId();
-          const room: WMRoom = {
-            id: newId,
+        const scale = fs.scale_pixels_per_foot;
+        const half = (NEW_ROOM_SIDE_FT * scale) / 2;
+        // Clockwise from the top-left, so the boundary winds the same way as
+        // the wall ring below and the shoelace area comes out positive.
+        const corners = [
+          { x: pos.x - half, y: pos.y - half },
+          { x: pos.x + half, y: pos.y - half },
+          { x: pos.x + half, y: pos.y + half },
+          { x: pos.x - half, y: pos.y + half },
+        ];
+
+        const newWalls: WMWall[] = corners.map((from, i) => {
+          const to = corners[(i + 1) % corners.length];
+          return {
+            id: generateOverlayId(),
             floor_sketch_id: fs.id,
-            name: `Room ${roomNum}`,
-            boundary,
-            color: DEFAULT_ROOM_COLOR,
-            height_ft: 8,
-            area_sqft: areaSqft,
-            wall_ids: [],
+            start_x: from.x,
+            start_y: from.y,
+            end_x: to.x,
+            end_y: to.y,
+            thickness: DEFAULT_WALL_THICKNESS,
+            color: DEFAULT_WALL_COLOR,
+            length_ft: NEW_ROOM_SIDE_FT,
           };
-          addRoom(room);
-          selectElement({ element_id: newId, element_type: 'room' });
-          message.success(`Room ${roomNum} detected (${areaSqft.toFixed(0)} SF)`);
-        } else {
-          message.info('No enclosed area found. Draw walls that form a closed shape first.');
-        }
+        });
+        newWalls.forEach(addWall);
+
+        const roomNum = (st.overlayData.rooms ?? []).length + 1;
+        const newId = generateOverlayId();
+        const room: WMRoom = {
+          id: newId,
+          floor_sketch_id: fs.id,
+          name: `Room ${roomNum}`,
+          boundary: corners,
+          color: DEFAULT_ROOM_COLOR,
+          height_ft: 8,
+          // Exact by construction. Deriving this from the pixel polygon would
+          // round-trip through the scale and show 143 SF for a 12x12 room.
+          area_sqft: NEW_ROOM_SIDE_FT * NEW_ROOM_SIDE_FT,
+          wall_ids: newWalls.map((w) => w.id),
+        };
+        addRoom(room);
+        selectElement({ element_id: newId, element_type: 'room' });
+        message.success(
+          `${room.name} added (${NEW_ROOM_SIDE_FT}' x ${NEW_ROOM_SIDE_FT}', ${room.area_sqft} SF)`
+        );
         return;
       }
 
@@ -2014,6 +2229,14 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           removeWall(closestWall.id);
           addWall(wall1);
           addWall(wall2);
+          // Re-derive rooms from the post-split walls. Without this the room
+          // still references the original wall, so dragging one of the new
+          // segments leaves the room outline behind.
+          autoDetectRooms([
+            ...walls.filter((w) => w.id !== closestWall!.id),
+            wall1,
+            wall2,
+          ]);
           message.success('Wall split into two segments.');
         } else {
           message.info('Click closer to a wall to split it.');
@@ -2022,7 +2245,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [getCanvasPos, deselect, addEquipment, addDemolitionZone, addShape, addTextAnnotation, selectNewElement, selectElement, snapToWallEndpoint, constrainToAxis, addWall, detectRoomAtPoint, addRoom, removeWall, autoDetectRooms, setDrawStateSync, finalizePolygon]
+    [getCanvasPos, deselect, addEquipment, addDemolitionZone, addShape, addTextAnnotation, selectNewElement, selectElement, snapToWallEndpoint, constrainToAxis, addWall, addRoom, removeWall, autoDetectRooms, setDrawStateSync, finalizePolygon]
   );
 
   const handleMouseMove = useCallback(
@@ -2067,6 +2290,14 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         const next = { x: stagePosRef.current.x + dx, y: stagePosRef.current.y + dy };
         stagePosRef.current = next;
         setStagePos(next);
+        return;
+      }
+
+      // Marquee (drag-to-select) in flight
+      const mq = marqueeRef.current;
+      if (mq) {
+        const pos = getCanvasPos(e);
+        setMarqueeSync({ ...mq, currentX: pos.x, currentY: pos.y });
         return;
       }
 
@@ -2120,6 +2351,25 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     (_e: Konva.KonvaEventObject<WMPointerEvent>) => {
       if (isPanningRef.current) {
         isPanningRef.current = false;
+        return;
+      }
+
+      // Marquee commit — must run BEFORE the !isDrawing return below, which
+      // belongs to the drawing tools and would otherwise swallow this.
+      const mq = marqueeRef.current;
+      if (mq) {
+        setMarqueeSync(null);
+        const x1 = Math.min(mq.startX, mq.currentX);
+        const y1 = Math.min(mq.startY, mq.currentY);
+        const x2 = Math.max(mq.startX, mq.currentX);
+        const y2 = Math.max(mq.startY, mq.currentY);
+        // A click without movement is a deselect, not a select-all.
+        if (x2 - x1 < 4 && y2 - y1 < 4) return;
+        const hits = elementsWithin(x1, y1, x2, y2);
+        if (hits.length > 0) {
+          selectElement(hits[0]);
+          for (let i = 1; i < hits.length; i++) toggleSelectElement(hits[i]);
+        }
         return;
       }
 
@@ -2551,7 +2801,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     (id: string, type: string, ctrlKey?: boolean) => {
       const sel: import('../../../types/wmSketch').WMSketchSelection = {
         element_id: id,
-        element_type: type as 'demolition' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection' | 'content_manipulation' | 'text' | 'shape',
+        // Was a hand-written union that silently omitted 'wall' | 'room',
+        // so those selections were type-lies. Use the real alias instead.
+        element_type: type as import('../../../types/wmSketch').WMSelectionType,
       };
       if (ctrlKey) {
         toggleSelectElement(sel);
@@ -2681,6 +2933,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           setWallDrawCursor(null);
           setWallSnapEnd(null);
         }
+        // Abandon a marquee mid-drag, or the dashed box stays on screen with
+        // no pointer-up coming to clear it.
+        if (marqueeRef.current) setMarqueeSync(null);
         return;
       }
 
@@ -2729,6 +2984,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     toggleSelectElement,
     combineSelectedZones,
     ungroupZone,
+    setMarqueeSync,
   ]);
 
   // ------------------------------------------------------------------
@@ -3072,6 +3328,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       onUpdateContentManipulation={(id, updates) => updateContentManipulation({ id, ...updates })}
       onDeleteContentManipulation={removeContentManipulation}
       onUpdateWall={(id, updates) => updateWall({ id, ...updates })}
+      onWallLengthChange={applyWallLength}
       onDeleteWall={removeWall}
       onUpdateRoom={(id, updates) => updateRoom({ id, ...updates })}
       onDeleteRoom={removeRoom}
@@ -3354,151 +3611,207 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                   updateDemolitionZone({ id, polygon_points: pts, calculated_sqft: areaSqft });
                 }}
                 onWallDragEndpoint={(wallId, endpoint, x, y) => {
-                  const snap = snapToWallEndpoint({ x, y });
+                  // Exclude the dragged wall from snapping: its own endpoints are
+                  // not valid targets, or small moves snap straight back.
+                  const snap = snapToWallEndpoint({ x, y }, wallId);
                   const pt = snap.point;
-                  const wall = (state.overlayData.walls ?? []).find((w) => w.id === wallId);
+                  const walls = state.overlayData.walls ?? [];
+                  const wall = walls.find((w) => w.id === wallId);
                   if (!wall) return;
                   const oldPt = endpoint === 'start'
                     ? { x: wall.start_x, y: wall.start_y }
                     : { x: wall.end_x, y: wall.end_y };
                   const otherX = endpoint === 'start' ? wall.end_x : wall.start_x;
                   const otherY = endpoint === 'start' ? wall.end_y : wall.start_y;
+                  const scale = floorSketch.scale_pixels_per_foot;
                   const newLength = pixelsToFeet(
                     Math.hypot(pt.x - otherX, pt.y - otherY),
-                    floorSketch.scale_pixels_per_foot
+                    scale
                   );
-                  updateWall({
-                    id: wallId,
-                    ...(endpoint === 'start'
-                      ? { start_x: pt.x, start_y: pt.y }
-                      : { end_x: pt.x, end_y: pt.y }),
-                    length_ft: newLength,
+
+                  // Build the post-move wall list in one pass, then dispatch.
+                  // Every wall touching the dragged vertex follows it — without
+                  // this the corner tears apart: the dragged wall moves and its
+                  // neighbours stay behind at the old coordinate.
+                  const updatedWalls = walls.map((w) => {
+                    if (w.id === wallId) {
+                      return {
+                        ...w,
+                        ...(endpoint === 'start'
+                          ? { start_x: pt.x, start_y: pt.y }
+                          : { end_x: pt.x, end_y: pt.y }),
+                        length_ft: newLength,
+                      };
+                    }
+                    const startMatch = _samePoint(w.start_x, w.start_y, oldPt.x, oldPt.y);
+                    const endMatch = _samePoint(w.end_x, w.end_y, oldPt.x, oldPt.y);
+                    if (!startMatch && !endMatch) return w;
+                    const moved = {
+                      ...w,
+                      ...(startMatch ? { start_x: pt.x, start_y: pt.y } : {}),
+                      ...(endMatch ? { end_x: pt.x, end_y: pt.y } : {}),
+                    };
+                    // One endpoint moved, so the neighbour's length really changed.
+                    return {
+                      ...moved,
+                      length_ft: pixelsToFeet(
+                        Math.hypot(moved.end_x - moved.start_x, moved.end_y - moved.start_y),
+                        scale
+                      ),
+                    };
                   });
 
-                  // Sync room boundary points that match the moved endpoint
-                  _syncRoomsFromPointMove(
-                    state.overlayData.rooms ?? [],
-                    oldPt, pt, updateRoom, floorSketch.scale_pixels_per_foot,
-                  );
+                  // One dispatch moves every wall meeting this vertex, so the
+                  // whole drag is a single undo entry instead of one per wall.
+                  moveVertex(oldPt, pt, VERTEX_EPS, scale);
 
-                  // Auto-detect new rooms after wall endpoint is moved
-                  const updatedWalls = (state.overlayData.walls ?? []).map((w) =>
-                    w.id === wallId
-                      ? {
-                          ...w,
-                          ...(endpoint === 'start'
-                            ? { start_x: pt.x, start_y: pt.y }
-                            : { end_x: pt.x, end_y: pt.y }),
-                          length_ft: newLength,
-                        }
-                      : w
-                  );
-                  autoDetectRooms(updatedWalls);
+                  // Re-derive rooms from the moved walls. (Delta-shifting
+                  // room.boundary here as well would fight the reconcile, which
+                  // rebuilds the boundary from the walls anyway.)
+                  autoDetectRooms(updatedWalls, { silent: true });
                 }}
                 onWallDragEnd={(wallId, dx, dy) => {
-                  const wall = (state.overlayData.walls ?? []).find((w) => w.id === wallId);
-                  if (!wall) return;
-                  const EPS = 8;
-                  const endpoints = [
-                    { x: wall.start_x, y: wall.start_y },
-                    { x: wall.end_x, y: wall.end_y },
-                  ];
-                  // Move this wall
-                  updateWall({
-                    id: wallId,
-                    start_x: wall.start_x + dx, start_y: wall.start_y + dy,
-                    end_x: wall.end_x + dx, end_y: wall.end_y + dy,
-                  });
-                  // Move connected walls (share an endpoint)
-                  const walls = state.overlayData.walls ?? [];
-                  for (const w of walls) {
-                    if (w.id === wallId) continue;
-                    const startMatch = endpoints.some(
-                      (ep) => Math.abs(w.start_x - ep.x) < EPS && Math.abs(w.start_y - ep.y) < EPS
-                    );
-                    const endMatch = endpoints.some(
-                      (ep) => Math.abs(w.end_x - ep.x) < EPS && Math.abs(w.end_y - ep.y) < EPS
-                    );
-                    if (startMatch || endMatch) {
-                      updateWall({
-                        id: w.id,
-                        ...(startMatch ? { start_x: w.start_x + dx, start_y: w.start_y + dy } : {}),
-                        ...(endMatch ? { end_x: w.end_x + dx, end_y: w.end_y + dy } : {}),
-                      });
-                    }
-                  }
-                  // Sync rooms
-                  _syncRoomsFromWallMove(
-                    state.overlayData.rooms ?? [],
-                    endpoints, dx, dy, updateRoom, floorSketch.scale_pixels_per_foot,
-                  );
+                  const scale = floorSketch.scale_pixels_per_foot;
+                  /*
+                   * Only the dragged wall moves — neighbours stay pinned
+                   * (완전고정), so it separates from them at its corners.
+                   *
+                   * The ROOM, however, is not left behind: moveWall carries the
+                   * boundary points standing on this wall along with it and
+                   * recomputes area_sqft, so the outline follows and the SF
+                   * read-out stays true. A rigid translation, so length_ft is
+                   * unchanged.
+                   *
+                   * autoDetectRooms is deliberately NOT called here. It rebuilds
+                   * rooms from closed wall cycles, and a detached wall breaks
+                   * this room's cycle — which used to delete the room outright
+                   * whenever another room existed elsewhere on the floor (the
+                   * delete pass only checks that SOME cycle was found, not this
+                   * room's). Rooms now own their outline; walls reshape it.
+                   */
+                  moveWall(wallId, dx, dy, VERTEX_EPS, scale);
                 }}
                 onRoomDragEnd={(roomId, dx, dy) => {
                   const room = (state.overlayData.rooms ?? []).find((r) => r.id === roomId);
                   if (!room) return;
-                  // Move room boundary
-                  const newBoundary = room.boundary.map((p) => ({ x: p.x + dx, y: p.y + dy }));
-                  const area = Math.abs(_polyArea(newBoundary)) / (floorSketch.scale_pixels_per_foot ** 2);
-                  updateRoom({ id: roomId, boundary: newBoundary, area_sqft: area });
-                  // Move walls that have BOTH endpoints on this room's boundary
+                  // Move the walls only — the room follows from the reconcile
+                  // below. Writing room.boundary here as well would make the
+                  // room an independent copy that can drift from its walls.
                   const walls = state.overlayData.walls ?? [];
-                  const EPS = 8;
+                  // autoDetectRooms builds boundaries by snapping endpoints onto
+                  // a 10px grid, so a stored boundary point can sit up to ~14px
+                  // (diagonally) from the wall endpoint it came from — right at
+                  // the edge of VERTEX_EPS. Allow a little more here, or a room
+                  // drag silently matches no walls and leaves them behind.
+                  const BOUNDARY_MATCH_EPS = VERTEX_EPS + 10;
                   const onBoundary = (px: number, py: number) =>
-                    room.boundary.some((bp) => Math.abs(bp.x - px) < EPS && Math.abs(bp.y - py) < EPS);
-                  for (const w of walls) {
+                    room.boundary.some(
+                      (bp) => Math.hypot(bp.x - px, bp.y - py) <= BOUNDARY_MATCH_EPS
+                    );
+                  const movedWalls = walls.map((w) => {
                     const startOn = onBoundary(w.start_x, w.start_y);
                     const endOn = onBoundary(w.end_x, w.end_y);
-                    if (startOn && endOn) {
-                      // Both endpoints on this room — move entire wall
-                      updateWall({
-                        id: w.id,
-                        start_x: w.start_x + dx, start_y: w.start_y + dy,
-                        end_x: w.end_x + dx, end_y: w.end_y + dy,
-                      });
-                    } else if (startOn || endOn) {
-                      // Shared wall — duplicate it: original stays, copy moves with room
-                      const newWall: WMWall = {
-                        ...w,
-                        id: generateOverlayId(),
-                        start_x: w.start_x + dx,
-                        start_y: w.start_y + dy,
-                        end_x: w.end_x + dx,
-                        end_y: w.end_y + dy,
-                      };
-                      addWall(newWall);
-                    }
+                    if (!startOn && !endOn) return w;
+                    // A wall with a single endpoint on this room is shared with
+                    // a neighbouring room: stretch it so both rooms stay closed.
+                    // (This used to duplicate the wall instead, so every room
+                    // drag permanently multiplied the shared walls.)
+                    return {
+                      ...w,
+                      ...(startOn ? { start_x: w.start_x + dx, start_y: w.start_y + dy } : {}),
+                      ...(endOn ? { end_x: w.end_x + dx, end_y: w.end_y + dy } : {}),
+                    };
+                  });
+                  const scale = floorSketch.scale_pixels_per_foot;
+                  for (const w of movedWalls) {
+                    const prev = walls.find((o) => o.id === w.id);
+                    if (prev === w) continue;
+                    updateWall({
+                      id: w.id,
+                      start_x: w.start_x, start_y: w.start_y,
+                      end_x: w.end_x, end_y: w.end_y,
+                      length_ft: pixelsToFeet(
+                        Math.hypot(w.end_x - w.start_x, w.end_y - w.start_y),
+                        scale
+                      ),
+                    });
                   }
+                  autoDetectRooms(movedWalls, { silent: true });
                 }}
                 onRoomVertexDrag={(roomId, vertexIndex, x, y) => {
                   const room = (state.overlayData.rooms ?? []).find((r) => r.id === roomId);
                   if (!room) return;
                   const oldPt = room.boundary[vertexIndex];
                   if (!oldPt) return;
-                  const newBoundary = room.boundary.map((p, i) =>
-                    i === vertexIndex ? { x, y } : p
-                  );
                   const scale = floorSketch.scale_pixels_per_foot;
-                  const area = Math.abs(_polyArea(newBoundary)) / (scale * scale);
-                  updateRoom({ id: roomId, boundary: newBoundary, area_sqft: area });
-                  // Move wall endpoints matching the old vertex position
+                  // Move the walls meeting this vertex; the room is re-derived
+                  // from them at the end rather than edited independently.
                   const walls = state.overlayData.walls ?? [];
-                  const EPS = 10;
-                  for (const w of walls) {
-                    const startMatch = Math.abs(w.start_x - oldPt.x) < EPS && Math.abs(w.start_y - oldPt.y) < EPS;
-                    const endMatch = Math.abs(w.end_x - oldPt.x) < EPS && Math.abs(w.end_y - oldPt.y) < EPS;
-                    if (startMatch || endMatch) {
-                      updateWall({
-                        id: w.id,
-                        ...(startMatch ? { start_x: x, start_y: y } : {}),
-                        ...(endMatch ? { end_x: x, end_y: y } : {}),
-                      });
-                    }
-                  }
-                  // Update other rooms that share this vertex
-                  _syncRoomsFromPointMove(
-                    (state.overlayData.rooms ?? []).filter((r) => r.id !== roomId),
-                    oldPt, { x, y }, updateRoom, scale,
-                  );
+                  const movedWalls = walls.map((w) => {
+                    const startMatch = _samePoint(w.start_x, w.start_y, oldPt.x, oldPt.y);
+                    const endMatch = _samePoint(w.end_x, w.end_y, oldPt.x, oldPt.y);
+                    if (!startMatch && !endMatch) return w;
+                    return {
+                      ...w,
+                      ...(startMatch ? { start_x: x, start_y: y } : {}),
+                      ...(endMatch ? { end_x: x, end_y: y } : {}),
+                    };
+                  });
+                  // Single dispatch: every wall meeting this vertex moves and
+                  // its length_ft is recomputed, as one undoable step.
+                  moveVertex(oldPt, { x, y }, VERTEX_EPS, scale);
+                  // Re-derive every room (including neighbours sharing this
+                  // vertex) from the moved walls.
+                  autoDetectRooms(movedWalls, { silent: true });
+                }}
+                // Same path the sidebar's number field uses, so the two cannot
+                // drift apart.
+                onWallLengthChange={applyWallLength}
+                marquee={marquee}
+                onVertexDrag={(from, to) => {
+                  const scale = floorSketch.scale_pixels_per_foot;
+                  const walls = state.overlayData.walls ?? [];
+
+                  /*
+                   * Refuse a move that would fold a room's outline over itself.
+                   *
+                   * Dragging a CONCAVE corner into the room and past a wall on
+                   * the far side leaves a bow tie: the walls visibly cross and
+                   * the area collapses to nonsense (measured: 350 SF -> 216 SF
+                   * with the outline crossed). A convex corner cannot do this,
+                   * which is why it went unreproduced for so long.
+                   *
+                   * Rejected here rather than in the renderer's dragBound: the
+                   * vertex marker knows only its own position and the far ends
+                   * of its walls, while the room boundary being protected lives
+                   * in this state. The drag simply does not commit, so the
+                   * corner springs back.
+                   */
+                  const wouldCross = (state.overlayData.rooms ?? []).some((r) => {
+                    if (!r.boundary || r.boundary.length < 4) return false;
+                    const idx = r.boundary.findIndex((p) =>
+                      _samePoint(p.x, p.y, from.x, from.y),
+                    );
+                    if (idx === -1) return false;
+                    return vertexMoveSelfIntersects(r.boundary, idx, to);
+                  });
+                  if (wouldCross) return;
+
+                  // Single dispatch → single undo entry for the whole corner.
+                  moveVertex(from, to, VERTEX_EPS, scale);
+                  // The dispatch has not flushed yet, so re-derive the rooms
+                  // from a locally computed post-move wall list.
+                  const movedWalls = walls.map((w) => {
+                    const startMatch = _samePoint(w.start_x, w.start_y, from.x, from.y);
+                    const endMatch = _samePoint(w.end_x, w.end_y, from.x, from.y);
+                    if (!startMatch && !endMatch) return w;
+                    return {
+                      ...w,
+                      ...(startMatch ? { start_x: to.x, start_y: to.y } : {}),
+                      ...(endMatch ? { end_x: to.x, end_y: to.y } : {}),
+                    };
+                  });
+                  autoDetectRooms(movedWalls, { silent: true });
                 }}
                 onMoveGroup={moveDemolitionGroup}
                 onRotateGroup={rotateDemolitionGroup}

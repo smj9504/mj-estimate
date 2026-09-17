@@ -24,6 +24,7 @@ import type {
   EquipmentType,
 } from '../../../../types/wmSketch';
 import { EMPTY_OVERLAY_DATA } from '../../../../types/wmSketch';
+import { resolveDraggedWallCorners } from '../utils/sketchGeometry';
 
 // ============================================================================
 // Constants
@@ -123,6 +124,48 @@ type WMSketchAction =
 
   // Batch operations
   | { type: 'BATCH_MOVE_SELECTED'; payload: { draggedId: string; newX: number; newY: number } }
+  /**
+   * Move every wall endpoint sitting on `from` to `to`, and re-derive the
+   * affected room boundaries — all in ONE dispatch, so a drag costs a single
+   * undo entry instead of one per wall touched.
+   */
+  | {
+      type: 'MOVE_VERTEX';
+      payload: {
+        from: { x: number; y: number };
+        to: { x: number; y: number };
+        /** Match radius in canvas px */
+        eps: number;
+        /** Canvas px per foot, for recomputing length_ft / area_sqft */
+        scale: number;
+      };
+    }
+  /**
+   * Translate ONE wall by (dx, dy) and carry the room boundary with it.
+   *
+   * Neighbouring walls stay pinned (완전고정), so the moved wall detaches from
+   * them at its corners. What does NOT detach is the room: the boundary points
+   * that were sitting on this wall's endpoints move by the same delta, so the
+   * outline follows the wall and area_sqft is recomputed from it.
+   *
+   * Without this the room kept its pre-drag outline while the wall slid out
+   * from under it, leaving a phantom edge and a stale SF read-out — and on a
+   * floor with another room present, autoDetectRooms then deleted the room
+   * outright (its cycle was broken while the neighbour's cycle still existed,
+   * which is all the delete pass checks).
+   */
+  | {
+      type: 'MOVE_WALL';
+      payload: {
+        id: string;
+        dx: number;
+        dy: number;
+        /** Match radius in canvas px, for finding boundary points on this wall */
+        eps: number;
+        /** Canvas px per foot, for recomputing area_sqft */
+        scale: number;
+      };
+    }
 
   // Z-order
   | { type: 'BRING_TO_FRONT'; payload: string }
@@ -871,6 +914,203 @@ function wmSketchReducer(
     }
 
     // ------------------------------------------------------------------
+    // Move one vertex: every wall endpoint sitting on it follows, and the
+    // rooms touching it are reshaped — all in ONE undo entry.
+    //
+    // Previously the drag handlers dispatched UPDATE_WALL once per affected
+    // wall plus UPDATE_ROOM per room, and every one of those pushed its own
+    // undo snapshot. A single corner drag could therefore take a dozen Ctrl+Z
+    // presses to reverse, each one leaving the sketch in a half-moved state.
+    // ------------------------------------------------------------------
+    case 'MOVE_VERTEX': {
+      const { from, to, eps, scale } = action.payload;
+      const near = (x: number, y: number) => Math.hypot(x - from.x, y - from.y) <= eps;
+
+      const walls = state.overlayData.walls ?? [];
+      let wallChanged = false;
+      const nextWalls = walls.map((w) => {
+        const startMatch = near(w.start_x, w.start_y);
+        const endMatch = near(w.end_x, w.end_y);
+        if (!startMatch && !endMatch) return w;
+        wallChanged = true;
+        const moved = {
+          ...w,
+          ...(startMatch ? { start_x: to.x, start_y: to.y } : {}),
+          ...(endMatch ? { end_x: to.x, end_y: to.y } : {}),
+        };
+        // Only one end moved in the usual case, so the length really changed.
+        const lengthPx = Math.hypot(
+          moved.end_x - moved.start_x,
+          moved.end_y - moved.start_y,
+        );
+        return { ...moved, length_ft: scale > 0 ? lengthPx / scale : w.length_ft };
+      });
+
+      const rooms = state.overlayData.rooms ?? [];
+      let roomChanged = false;
+      const nextRooms = rooms.map((r) => {
+        if (!r.boundary?.length) return r;
+        let touched = false;
+        const boundary = r.boundary.map((p) => {
+          if (!near(p.x, p.y)) return p;
+          touched = true;
+          return { x: to.x, y: to.y };
+        });
+        if (!touched) return r;
+        roomChanged = true;
+        // Shoelace, in pixels, converted to square feet.
+        let area2 = 0;
+        for (let i = 0, j = boundary.length - 1; i < boundary.length; j = i++) {
+          area2 += (boundary[j].x + boundary[i].x) * (boundary[j].y - boundary[i].y);
+        }
+        const areaSqft =
+          scale > 0 ? Math.abs(area2 / 2) / (scale * scale) : r.area_sqft;
+        return { ...r, boundary, area_sqft: areaSqft };
+      });
+
+      if (!wallChanged && !roomChanged) return state;
+
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          walls: nextWalls,
+          rooms: nextRooms,
+        },
+      };
+    }
+
+    // ------------------------------------------------------------------
+    // Translate one wall, carrying the room outline that stands on it.
+    // See the note on the MOVE_WALL action type for why the room must not
+    // be left behind.
+    // ------------------------------------------------------------------
+    case 'MOVE_WALL': {
+      const { id, dx, dy, eps, scale } = action.payload;
+      if (dx === 0 && dy === 0) return state;
+
+      const walls = state.overlayData.walls ?? [];
+      const wall = walls.find((w) => w.id === id);
+      if (!wall) return state;
+
+      // The two corners this wall currently occupies. Anything sitting on them
+      // — a neighbouring wall's endpoint, or a room boundary point — belongs to
+      // this corner and must travel with it.
+      const ends = [
+        { x: wall.start_x, y: wall.start_y },
+        { x: wall.end_x, y: wall.end_y },
+      ];
+      const onThisWall = (px: number, py: number) =>
+        ends.some((e) => Math.hypot(px - e.x, py - e.y) <= eps);
+
+      /*
+       * Where each corner ENDS UP: the intersection of the dragged wall's new
+       * line with the neighbour's own line.
+       *
+       * Sliding the shared endpoint by (dx, dy) — the previous approach —
+       * kept the walls attached but tilted the neighbours, so dragging one
+       * wall quietly re-angled the two beside it. Intersecting instead lets a
+       * neighbour keep its exact bearing and only change length, which is what
+       * "길이만 움직이도록" asks for. The dragged wall's own length gives a
+       * little in return (on a square plan it does not move at all; on a
+       * splayed one it must, or the corners could not meet).
+       */
+      // Shared with the in-flight preview, so the shape under the cursor while
+      // dragging is the shape that gets committed on release. Computing these
+      // in two places is what made the preview show tilted neighbours that
+      // snapped straight the instant the mouse came up.
+      const corners = resolveDraggedWallCorners(walls, id, dx, dy, eps);
+      if (!corners) return state;
+      const newStart = corners.start;
+      const newEnd = corners.end;
+
+      const withLength = <T extends { start_x: number; start_y: number; end_x: number; end_y: number; length_ft: number }>(w: T): T => {
+        const lengthPx = Math.hypot(w.end_x - w.start_x, w.end_y - w.start_y);
+        return { ...w, length_ft: scale > 0 ? lengthPx / scale : w.length_ft };
+      };
+
+      const nextWalls = walls.map((w) => {
+        // The dragged wall spans the two resolved corners. It stays on its own
+        // (translated) line, so its ANGLE is untouched; only its length gives.
+        if (w.id === id) {
+          return withLength({
+            ...w,
+            start_x: newStart.x, start_y: newStart.y,
+            end_x: newEnd.x, end_y: newEnd.y,
+          });
+        }
+        // A neighbour keeps its far end and its bearing, and simply reaches to
+        // the new corner — so its angle is preserved and only length_ft moves.
+        const startMatch = onThisWall(w.start_x, w.start_y);
+        const endMatch = onThisWall(w.end_x, w.end_y);
+        if (!startMatch && !endMatch) return w;
+        const target = (px: number, py: number) =>
+          Math.hypot(px - wall.start_x, py - wall.start_y) <=
+          Math.hypot(px - wall.end_x, py - wall.end_y)
+            ? newStart
+            : newEnd;
+        const moved = { ...w };
+        if (startMatch) {
+          const t = target(w.start_x, w.start_y);
+          moved.start_x = t.x;
+          moved.start_y = t.y;
+        }
+        if (endMatch) {
+          const t = target(w.end_x, w.end_y);
+          moved.end_x = t.x;
+          moved.end_y = t.y;
+        }
+        return withLength(moved);
+      });
+
+      const rooms = state.overlayData.rooms ?? [];
+      let roomChanged = false;
+      const nextRooms = rooms.map((r) => {
+        if (!r.boundary?.length) return r;
+        let touched = false;
+        const boundary = r.boundary.map((p) => {
+          if (!onThisWall(p.x, p.y)) return p;
+          touched = true;
+          // Follow the corner to where the WALLS actually met, not to p+delta.
+          // The corners are intersections now, so translating the boundary
+          // instead would leave the room floating off its own walls.
+          return Math.hypot(p.x - wall.start_x, p.y - wall.start_y) <=
+            Math.hypot(p.x - wall.end_x, p.y - wall.end_y)
+            ? { x: newStart.x, y: newStart.y }
+            : { x: newEnd.x, y: newEnd.y };
+        });
+        if (!touched) return r;
+        roomChanged = true;
+        // Shoelace in pixels, converted to square feet — the same formula the
+        // vertex move uses, so the two paths cannot report different areas.
+        let area2 = 0;
+        for (let i = 0, j = boundary.length - 1; i < boundary.length; j = i++) {
+          area2 += (boundary[j].x + boundary[i].x) * (boundary[j].y - boundary[i].y);
+        }
+        const areaSqft =
+          scale > 0 ? Math.abs(area2 / 2) / (scale * scale) : r.area_sqft;
+        return { ...r, boundary, area_sqft: areaSqft };
+      });
+
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          walls: nextWalls,
+          rooms: roomChanged ? nextRooms : state.overlayData.rooms,
+        },
+      };
+    }
+
+    // ------------------------------------------------------------------
     // Batch move all selected elements (single undo entry)
     // ------------------------------------------------------------------
     case 'BATCH_MOVE_SELECTED': {
@@ -1080,6 +1320,28 @@ export interface WMSketchStateReturn {
   selectedIds: Set<string>;
   /** Move all selected elements by the delta computed from dragged element */
   batchMoveSelected: (draggedId: string, newX: number, newY: number) => void;
+  /**
+   * Move every wall endpoint at `from` to `to` and re-derive affected room
+   * boundaries, as a single undoable step.
+   */
+  moveVertex: (
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    eps: number,
+    scale: number,
+  ) => void;
+  /**
+   * Translate one wall by (dx, dy), carrying the room outline standing on it
+   * so the area follows, as a single undoable step. Neighbouring walls stay
+   * pinned.
+   */
+  moveWall: (
+    id: string,
+    dx: number,
+    dy: number,
+    eps: number,
+    scale: number,
+  ) => void;
   setActiveMaterialType: (id: string | null) => void;
   setActiveEquipmentType: (type: EquipmentType | null) => void;
 
@@ -1208,6 +1470,22 @@ export function useWMSketchState(
   const batchMoveSelected = useCallback(
     (draggedId: string, newX: number, newY: number) =>
       dispatch({ type: 'BATCH_MOVE_SELECTED', payload: { draggedId, newX, newY } }),
+    []
+  );
+
+  const moveVertex = useCallback(
+    (
+      from: { x: number; y: number },
+      to: { x: number; y: number },
+      eps: number,
+      scale: number,
+    ) => dispatch({ type: 'MOVE_VERTEX', payload: { from, to, eps, scale } }),
+    []
+  );
+
+  const moveWall = useCallback(
+    (id: string, dx: number, dy: number, eps: number, scale: number) =>
+      dispatch({ type: 'MOVE_WALL', payload: { id, dx, dy, eps, scale } }),
     []
   );
 
@@ -1487,6 +1765,8 @@ export function useWMSketchState(
     deselect,
     selectedIds,
     batchMoveSelected,
+    moveVertex,
+    moveWall,
     setActiveMaterialType,
     setActiveEquipmentType,
     addDemolitionZone,

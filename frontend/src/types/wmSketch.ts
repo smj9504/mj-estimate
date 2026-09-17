@@ -700,6 +700,12 @@ export const DEFAULT_WALL_THICKNESS = 4;
 export const DEFAULT_WALL_COLOR = '#333333';
 /** Default room fill color */
 export const DEFAULT_ROOM_COLOR = 'rgba(173, 216, 230, 0.3)';
+/**
+ * Side length, in feet, of the square room the Room tool drops on click.
+ * Square by construction, so a room built at this size has an exact
+ * NEW_ROOM_SIDE_FT^2 area rather than one derived back out of pixels.
+ */
+export const NEW_ROOM_SIDE_FT = 12;
 
 // ============================================================================
 // Overlay Data (aggregates all element types for one floor)
@@ -868,7 +874,48 @@ export interface WMFloorSummary {
  * Represents a single selected overlay element on the canvas.
  * Used by the selection / properties panel to know which element to edit.
  */
+/**
+ * Every kind of thing that can be selected on the canvas.
+ *
+ * `vertex` is the odd one out: a vertex is not a stored entity with an id of
+ * its own, it is a point where wall endpoints meet. Its `element_id` is a
+ * synthetic key built from the rounded coordinate (see makeVertexId), so the
+ * same corner always produces the same id and selection survives a re-render.
+ */
+export type WMSelectionType =
+  | 'demolition'
+  | 'equipment'
+  | 'containment'
+  | 'floor_protection'
+  | 'content_protection'
+  | 'content_manipulation'
+  | 'text'
+  | 'shape'
+  | 'wall'
+  | 'room'
+  | 'vertex';
+
 export interface WMSketchSelection {
   element_id: string;
-  element_type: 'demolition' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection' | 'content_manipulation' | 'text' | 'shape' | 'wall' | 'room';
+  element_type: WMSelectionType;
+}
+
+/**
+ * Build the synthetic id for a vertex at (x, y).
+ * Coordinates are rounded so endpoints that differ by sub-pixel noise still
+ * resolve to the same vertex.
+ */
+export function makeVertexId(x: number, y: number): string {
+  return `vertex:${Math.round(x)}:${Math.round(y)}`;
+}
+
+/** Parse a synthetic vertex id back into a point, or null if not one. */
+export function parseVertexId(id: string): { x: number; y: number } | null {
+  if (!id.startsWith('vertex:')) return null;
+  const parts = id.split(':');
+  if (parts.length !== 3) return null;
+  const x = Number(parts[1]);
+  const y = Number(parts[2]);
+  if (!isFinite(x) || !isFinite(y)) return null;
+  return { x, y };
 }

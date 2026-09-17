@@ -16,6 +16,16 @@ export interface DimensionInputProps {
   /** Current value in decimal feet */
   value: number;
   onChange: (feet: number) => void;
+  /**
+   * Fired on every keystroke with the live parsed value (NaN-free, 0 when
+   * unparseable), for previewing the change on the canvas as the user types.
+   *
+   * Deliberately separate from onChange: every onChange lands in the reducer,
+   * and the reducer pushes an undo entry per dispatch — routing keystrokes
+   * through it would put one undo entry per typed character on the stack.
+   * onChange still fires once, on blur/Enter, as the committed edit.
+   */
+  onPreview?: (feet: number) => void;
   placeholder?: string;
   label?: string;
   style?: React.CSSProperties;
@@ -25,6 +35,7 @@ export interface DimensionInputProps {
 const DimensionInput: React.FC<DimensionInputProps> = ({
   value,
   onChange,
+  onPreview,
   placeholder = "e.g. 6' 3\" or 6.25",
   label,
   style,
@@ -42,8 +53,15 @@ const DimensionInput: React.FC<DimensionInputProps> = ({
   }, [value]);
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setRawInput(e.target.value);
-  }, []);
+    const next = e.target.value;
+    setRawInput(next);
+    // Live feedback while typing. Clear the error as soon as the text becomes
+    // parseable again, rather than leaving it red until blur.
+    const parsed = parseDimension(next);
+    const parseable = next.trim() === '' || parsed > 0 || next.trim() === '0';
+    if (parseable) setIsInvalid(false);
+    if (onPreview && parsed > 0) onPreview(parsed);
+  }, [onPreview]);
 
   const commitValue = useCallback(() => {
     setFocused(false);
