@@ -180,9 +180,13 @@ class BaseRepository(Repository[T, ID]):
                 # Skip None values if allow_none is False
             elif isinstance(value, UUID):
                 prepared[key] = str(value)
-            # Handle date/datetime types - convert to YYYY-MM-DD string
+            # datetime keeps its full value: formatting it as YYYY-MM-DD threw
+            # away the time on every create(), so timestamptz columns written
+            # through this path all landed on midnight UTC - an email received
+            # at 16:05 was stored as 00:00 and rendered as 09:00 in KST. Note
+            # datetime subclasses date, so this branch must come first.
             elif isinstance(value, datetime):
-                prepared[key] = value.strftime('%Y-%m-%d')
+                prepared[key] = value.isoformat()
             elif isinstance(value, date):
                 prepared[key] = value.strftime('%Y-%m-%d')
             # Handle lists that might contain UUIDs
