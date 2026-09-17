@@ -70,6 +70,22 @@ POLISH_ACTIONS = {
 }
 
 
+def _polish_max_tokens(body_html: str, action: str) -> int:
+    """Pick an output budget that can fit the whole rewritten email.
+
+    Polishing echoes the entire email back, so the output is roughly as long as
+    the input - a flat 1000-token cap silently truncated longer drafts (a ~50
+    line email already overruns it). Budget from the input size instead, with
+    extra headroom for the one action that deliberately makes the email longer.
+    """
+    # ~4 chars per token is the usual English rule of thumb; double it so a
+    # rewrite that runs somewhat longer than the original still fits.
+    estimated = (len(body_html) // 4) * 2
+    if action == "lengthen":
+        estimated *= 2
+    return max(1000, min(estimated, 16000))
+
+
 def _get_greeting() -> str:
     """Get time-appropriate greeting based on US Eastern time."""
     eastern_now = datetime.now(ZoneInfo("America/New_York"))
@@ -219,9 +235,15 @@ BODY:
 [polished email body HTML here]
 """
 
-    result = _call_ai_provider(prompt)
+    failures: list = []
+    result = _call_ai_provider(
+        prompt,
+        max_tokens=_polish_max_tokens(body_html, action),
+        failures=failures,
+    )
     if not result:
-        raise RuntimeError("AI polish failed - no provider returned a usable response")
+        detail = "; ".join(failures) if failures else "no provider was available"
+        raise RuntimeError(f"AI polish failed - {detail}")
 
     parsed = _parse_ai_response(result, {})
     polished_body = parsed.get("body_html") or body_html
@@ -237,20 +259,42 @@ BODY:
     }
 
 
-def _call_ai_provider(prompt: str) -> Optional[str]:
+def _call_ai_provider(
+    prompt: str,
+    max_tokens: int = 1000,
+    failures: Optional[list] = None,
+) -> Optional[str]:
     """Try Anthropic first, then fall back to OpenAI if Anthropic is unavailable or fails
-    (e.g. missing key, no credits, transient error)."""
-    result = _call_anthropic(prompt)
+    (e.g. missing key, no credits, transient error).
+
+    `failures` (if given) collects a short reason string per provider, so callers
+    that surface an error to the user can say *why* every provider failed instead
+    of only that none succeeded. Callers that fall back to templates can ignore it.
+    """
+    result = _call_anthropic(prompt, max_tokens=max_tokens, failures=failures)
     if result:
         return result
-    return _call_openai(prompt)
+    return _call_openai(prompt, max_tokens=max_tokens, failures=failures)
 
 
-def _call_openai(prompt: str) -> Optional[str]:
+def _record_failure(failures: Optional[list], provider: str, reason: str) -> None:
+    """Log a provider failure and, if the caller is collecting them, record it."""
+    logger.error(f"{provider} error: {reason}")
+    if failures is not None:
+        failures.append(f"{provider}: {reason}")
+
+
+def _call_openai(
+    prompt: str,
+    max_tokens: int = 1000,
+    failures: Optional[list] = None,
+) -> Optional[str]:
     """Call OpenAI API for email generation"""
     api_key = getattr(settings, "OPENAI_API_KEY", None)
     if not api_key:
         logger.warning("No OPENAI_API_KEY configured, skipping OpenAI")
+        if failures is not None:
+            failures.append("OpenAI: OPENAI_API_KEY not configured")
         return None
 
     try:
@@ -263,19 +307,35 @@ def _call_openai(prompt: str) -> Optional[str]:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.7,
-            max_tokens=1000,
+            max_tokens=max_tokens,
         )
-        return response.choices[0].message.content
+        choice = response.choices[0]
+        # A truncated completion would silently drop the tail of the email, so
+        # treat it as a failure rather than returning a half-rewritten draft.
+        if choice.finish_reason == "length":
+            _record_failure(
+                failures,
+                "OpenAI",
+                f"response was cut off at the {max_tokens}-token limit",
+            )
+            return None
+        return choice.message.content
     except Exception as e:
-        logger.error(f"OpenAI API error: {e}")
+        _record_failure(failures, "OpenAI", f"{type(e).__name__}: {e}")
         return None
 
 
-def _call_anthropic(prompt: str) -> Optional[str]:
+def _call_anthropic(
+    prompt: str,
+    max_tokens: int = 1000,
+    failures: Optional[list] = None,
+) -> Optional[str]:
     """Call Anthropic API as a fallback for email generation"""
     api_key = getattr(settings, "ANTHROPIC_API_KEY", None)
     if not api_key:
         logger.warning("No ANTHROPIC_API_KEY configured, skipping Anthropic")
+        if failures is not None:
+            failures.append("Anthropic: ANTHROPIC_API_KEY not configured")
         return None
 
     try:
@@ -283,17 +343,26 @@ def _call_anthropic(prompt: str) -> Optional[str]:
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
             model=ANTHROPIC_MODEL,
-            max_tokens=1000,
+            max_tokens=max_tokens,
             temperature=0.7,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
+        # Hitting the cap means the tail of the email is missing. Returning it
+        # would hand back a draft that just stops mid-sentence, so fail instead.
+        if response.stop_reason == "max_tokens":
+            _record_failure(
+                failures,
+                "Anthropic",
+                f"response was cut off at the {max_tokens}-token limit",
+            )
+            return None
         return next(
             (t for b in response.content if (t := getattr(b, "text", None)) is not None),
             None,
         )
     except Exception as e:
-        logger.error(f"Anthropic API error: {e}")
+        _record_failure(failures, "Anthropic", f"{type(e).__name__}: {e}")
         return None
 
 
