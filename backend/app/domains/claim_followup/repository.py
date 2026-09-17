@@ -11,9 +11,11 @@ from sqlalchemy import and_, func, or_
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
 from app.domains.claim_followup.models import (
+    ACTIONABLE_STATUSES,
     CommunicationLog,
     EmailTemplate,
     FollowUpTask,
+    OPEN_STATUSES,
     SentEmail,
 )
 
@@ -63,7 +65,7 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
             query = query.filter(
                 and_(
                     FollowUpTask.next_followup_date < now,
-                    FollowUpTask.status.in_(['pending', 'awaiting_response'])
+                    FollowUpTask.status.in_(ACTIONABLE_STATUSES)
                 )
             )
         if depreciation_phase:
@@ -192,6 +194,29 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
             except Exception:
                 pass
 
+        # Resolve each claim's PA / adjuster once per claim rather than per
+        # task, so a claim carrying several tasks costs a single lookup.
+        pa_info_by_claim: Dict[str, Dict[str, str]] = {}
+        adjuster_info_by_claim: Dict[str, Dict[str, str]] = {}
+        seen_claims = {}
+        for t in tasks:
+            if t.claim is not None and str(t.claim_id) not in seen_claims:
+                seen_claims[str(t.claim_id)] = t.claim
+        if seen_claims:
+            try:
+                from app.domains.claim_followup.contact_resolver import (
+                    resolve_pa_contact, resolve_adjuster_contact,
+                )
+                for cid, claim in seen_claims.items():
+                    pa_info_by_claim[cid] = resolve_pa_contact(
+                        self.db_session, claim
+                    )
+                    adjuster_info_by_claim[cid] = resolve_adjuster_contact(
+                        self.db_session, claim
+                    )
+            except Exception:
+                pass
+
         results = []
         for t in tasks:
             d = self._convert_to_dict(t)
@@ -201,12 +226,24 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                     d['insurance_company'] = t.claim.insurance_company or ''
                     d['supplement_statuses'] = supplement_map.get(str(t.claim_id), {})
                     d['pending_info_requests'] = info_request_map.get(str(t.claim_id), 0)
-                    # PA info
-                    d['has_public_adjuster'] = t.claim.has_public_adjuster or False
-                    d['pa_name'] = t.claim.pa_name or ''
-                    d['pa_company'] = t.claim.pa_company or ''
-                    d['pa_email'] = t.claim.pa_email or ''
-                    d['pa_phone'] = t.claim.pa_phone or ''
+                    # PA info. Resolved through the contact link, not just the
+                    # pa_* freetext: the WM sheet sync writes only
+                    # claim.pa_contact_id, so the freetext is empty on
+                    # virtually every claim.
+                    pa = pa_info_by_claim.get(str(t.claim_id)) or {}
+                    d['pa_name'] = pa.get('name', '')
+                    d['pa_company'] = pa.get('company', '')
+                    d['pa_email'] = pa.get('email', '')
+                    d['pa_phone'] = pa.get('phone', '')
+                    # Trust a resolved PA over the (never-written) boolean flag.
+                    d['has_public_adjuster'] = bool(
+                        t.claim.has_public_adjuster or pa.get('email') or pa.get('name')
+                    )
+                    # Adjuster info, for role-based assignee auto-fill.
+                    adj = adjuster_info_by_claim.get(str(t.claim_id)) or {}
+                    d['adjuster_name'] = adj.get('name', '')
+                    d['adjuster_email'] = adj.get('email', '')
+                    d['adjuster_phone'] = adj.get('phone', '')
                     d['wm_cost_status'] = t.claim.wm_cost_status or ''
                     d['has_insurance_estimate'] = bool(
                         t.claim.insurance_estimate_received
@@ -259,7 +296,7 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
         tasks = self.db_session.query(FollowUpTask).filter(
             and_(
                 FollowUpTask.next_followup_date < now,
-                FollowUpTask.status.in_(['pending', 'awaiting_response'])
+                FollowUpTask.status.in_(ACTIONABLE_STATUSES)
             )
         ).order_by(FollowUpTask.next_followup_date.asc()).all()
         return [self._convert_to_dict(t) for t in tasks]
@@ -270,7 +307,7 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
         tasks = self.db_session.query(FollowUpTask).filter(
             and_(
                 FollowUpTask.auto_followup_enabled == True,
-                FollowUpTask.status.in_(['pending', 'awaiting_response']),
+                FollowUpTask.status.in_(ACTIONABLE_STATUSES),
                 or_(
                     FollowUpTask.next_followup_date <= now,
                     FollowUpTask.next_followup_date == None
@@ -294,6 +331,20 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
             FollowUpTask.claim_id == claim_id
         ).order_by(FollowUpTask.due_date.desc()).all()
 
+        # All tasks here share one claim, so resolve its contacts once.
+        pa: Dict[str, str] = {}
+        adj: Dict[str, str] = {}
+        claim_obj = next((t.claim for t in tasks if t.claim is not None), None)
+        if claim_obj is not None:
+            try:
+                from app.domains.claim_followup.contact_resolver import (
+                    resolve_pa_contact, resolve_adjuster_contact,
+                )
+                pa = resolve_pa_contact(self.db_session, claim_obj)
+                adj = resolve_adjuster_contact(self.db_session, claim_obj)
+            except Exception:
+                pass
+
         results = []
         for t in tasks:
             d = self._convert_to_dict(t)
@@ -304,6 +355,16 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                     d['property_address'] = (
                         t.claim.client.address if t.claim.client else ''
                     )
+                    d['pa_name'] = pa.get('name', '')
+                    d['pa_company'] = pa.get('company', '')
+                    d['pa_email'] = pa.get('email', '')
+                    d['pa_phone'] = pa.get('phone', '')
+                    d['has_public_adjuster'] = bool(
+                        t.claim.has_public_adjuster or pa.get('email') or pa.get('name')
+                    )
+                    d['adjuster_name'] = adj.get('name', '')
+                    d['adjuster_email'] = adj.get('email', '')
+                    d['adjuster_phone'] = adj.get('phone', '')
             except Exception:
                 pass
             results.append(d)
@@ -325,19 +386,28 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
             FollowUpTask.status == 'awaiting_response'
         ).scalar() or 0
 
+        # Blocked on someone else's confirmation — surfaced separately so it
+        # is visible without being counted as our pending workload.
+        awaiting_confirmation = self.db_session.query(
+            func.count(FollowUpTask.id)
+        ).filter(
+            FollowUpTask.status == 'awaiting_confirmation'
+        ).scalar() or 0
+
         overdue = self.db_session.query(func.count(FollowUpTask.id)).filter(
             and_(
                 FollowUpTask.next_followup_date < now,
-                FollowUpTask.status.in_(['pending', 'awaiting_response'])
+                FollowUpTask.status.in_(ACTIONABLE_STATUSES)
             )
         ).scalar() or 0
 
-        # By type
+        # By type / priority describe open workload, so they include
+        # confirmation-blocked tasks (the stage is still open).
         type_counts = self.db_session.query(
             FollowUpTask.task_type,
             func.count(FollowUpTask.id)
         ).filter(
-            FollowUpTask.status.in_(['pending', 'awaiting_response'])
+            FollowUpTask.status.in_(OPEN_STATUSES)
         ).group_by(FollowUpTask.task_type).all()
 
         # By priority
@@ -345,13 +415,14 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
             FollowUpTask.priority,
             func.count(FollowUpTask.id)
         ).filter(
-            FollowUpTask.status.in_(['pending', 'awaiting_response'])
+            FollowUpTask.status.in_(OPEN_STATUSES)
         ).group_by(FollowUpTask.priority).all()
 
         return {
             "total_tasks": total,
             "pending": pending,
             "awaiting_response": awaiting,
+            "awaiting_confirmation": awaiting_confirmation,
             "overdue": overdue,
             "resolved_this_week": 0,  # TODO: implement week calculation
             "by_type": {t: c for t, c in type_counts},

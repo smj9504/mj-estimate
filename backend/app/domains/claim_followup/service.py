@@ -392,10 +392,24 @@ class ClaimFollowUpService:
                 update_data['status'] = 'awaiting_response'
                 update_data['last_contacted_at'] = datetime.now(timezone.utc)
                 update_data['contact_count'] = (task.get('contact_count') or 0) + 1
-                if sent_to == 'pa':
-                    update_data['assigned_to_role'] = 'public_adjuster'
-                else:
-                    update_data['assigned_to_role'] = 'adjuster'
+                role = 'public_adjuster' if sent_to == 'pa' else 'adjuster'
+                update_data['assigned_to_role'] = role
+                # Move the contact with the role — otherwise the task claims
+                # to be assigned to the PA while still holding the adjuster's
+                # name and email.
+                try:
+                    from app.domains.client.models import Claim
+                    from app.domains.claim_followup.contact_resolver import (
+                        assignment_fields_for_role,
+                    )
+                    claim_obj = session.query(Claim).filter(
+                        Claim.id == claim_id
+                    ).first()
+                    fields = assignment_fields_for_role(session, claim_obj, role)
+                    if fields:
+                        update_data.update(fields)
+                except Exception as e:
+                    logger.warning(f"Could not resolve {role} contact: {e}")
             elif new_phase == 'following_up':
                 update_data['status'] = 'awaiting_response'
             elif new_phase == 'payment_received':
@@ -631,10 +645,14 @@ class ClaimFollowUpService:
 
             # Auto-create payment tasks based on WM cost status
             # Always create rebuild payment task when estimate is received
+            # Rebuild payment lands with the contractor/homeowner side, so we
+            # cannot verify it ourselves — park it for someone else to confirm
+            # instead of nagging it as our own overdue task.
             self._auto_create_payment_task(
                 session, claim_id, task, 'payment_check',
                 title='Rebuild Payment',
-                description='Insurance estimate received. Follow up for rebuild payment check.',
+                description='Insurance estimate received. Awaiting confirmation that rebuild payment was received.',
+                needs_confirmation=True,
             )
 
             if wm_cost_status in ('separate_estimate', 'not_received'):
@@ -756,8 +774,15 @@ class ClaimFollowUpService:
         task_type: str,
         title: str,
         description: str,
+        needs_confirmation: bool = False,
     ):
-        """Auto-create a payment follow-up task (rebuild or WM) if one doesn't exist"""
+        """Auto-create a payment follow-up task (rebuild or WM) if one doesn't exist.
+
+        needs_confirmation=True means we cannot verify this ourselves — someone
+        else has to confirm the payment landed. Such a task is parked in
+        'awaiting_confirmation' with auto follow-up off so it never shows up as
+        our overdue work, and it never blocks later stages.
+        """
         try:
             from app.domains.claim_followup.models import FollowUpTask as FollowUpTaskModel
 
@@ -775,14 +800,17 @@ class ClaimFollowUpService:
                 task_type=task_type,
                 title=title,
                 description=description,
-                status='pending',
+                status='awaiting_confirmation' if needs_confirmation else 'pending',
                 priority='normal',
-                next_followup_date=datetime.now(timezone.utc) + timedelta(days=7),
+                next_followup_date=(
+                    None if needs_confirmation
+                    else datetime.now(timezone.utc) + timedelta(days=7)
+                ),
                 assigned_to_name=source_task.get('assigned_to_name'),
                 assigned_to_email=source_task.get('assigned_to_email'),
                 assigned_to_phone=source_task.get('assigned_to_phone'),
                 assigned_to_role=source_task.get('assigned_to_role', 'adjuster'),
-                auto_followup_enabled=True,
+                auto_followup_enabled=not needs_confirmation,
                 followup_interval_days=7,
                 max_followup_count=10,
             )
@@ -798,14 +826,18 @@ class ClaimFollowUpService:
     ):
         """Auto-create a follow-up task for WM cost recovery when not received"""
         try:
-            from app.domains.claim_followup.models import FollowUpTask as FollowUpTaskModel
+            from app.domains.claim_followup.models import (
+                OPEN_STATUSES,
+                FollowUpTask as FollowUpTaskModel,
+            )
             from app.domains.client.models import ClaimActivity
 
-            # Check if a WM payment follow-up already exists
+            # Check if a WM payment follow-up already exists (any open status,
+            # including confirmation-blocked, or we would duplicate it)
             existing = session.query(FollowUpTaskModel).filter(
                 FollowUpTaskModel.claim_id == claim_id,
                 FollowUpTaskModel.task_type == 'payment_check',
-                FollowUpTaskModel.status.in_(['pending', 'awaiting_response']),
+                FollowUpTaskModel.status.in_(OPEN_STATUSES),
                 FollowUpTaskModel.title.ilike('%water mitigation%'),
             ).first()
             if existing:
@@ -963,6 +995,40 @@ class ClaimFollowUpService:
         except Exception as e:
             logger.error(f"Error auto-creating supplement: {e}")
 
+    def _resolve_supplement_assignee(self, session, claim_id: str) -> Dict[str, Any]:
+        """
+        Supplement work is negotiated with the public adjuster, so these tasks
+        are assigned to the PA rather than to the carrier's adjuster.
+
+        Not every claim has a PA. When none resolves, fall back to the newest
+        sibling task on the claim so the assignee is at least populated, and
+        leave the role as whatever that task used.
+        """
+        from app.domains.claim_followup.models import FollowUpTask as FollowUpTaskModel
+
+        try:
+            from app.domains.client.models import Claim
+            from app.domains.claim_followup.contact_resolver import (
+                assignment_fields_for_role,
+            )
+            claim = session.query(Claim).filter(Claim.id == claim_id).first()
+            fields = assignment_fields_for_role(session, claim, 'public_adjuster')
+            if fields:
+                return fields
+        except Exception as e:
+            logger.warning(f"PA resolution failed for claim {claim_id}: {e}")
+
+        # No PA on file — inherit from the newest sibling task.
+        source = session.query(FollowUpTaskModel).filter(
+            FollowUpTaskModel.claim_id == claim_id,
+        ).order_by(FollowUpTaskModel.created_at.desc()).first()
+        return {
+            'assigned_to_name': source.assigned_to_name if source else None,
+            'assigned_to_email': source.assigned_to_email if source else None,
+            'assigned_to_phone': source.assigned_to_phone if source else None,
+            'assigned_to_role': source.assigned_to_role if source else 'adjuster',
+        }
+
     def _auto_create_supplement_estimate_prep_task(self, session, claim_id: str, address: str = ''):
         """Auto-create a supplement_estimate_prep follow-up task if one doesn't exist.
 
@@ -980,10 +1046,7 @@ class ClaimFollowUpService:
             if existing:
                 return
 
-            # Get assigned_to from existing tasks on this claim
-            source = session.query(FollowUpTaskModel).filter(
-                FollowUpTaskModel.claim_id == claim_id,
-            ).order_by(FollowUpTaskModel.created_at.desc()).first()
+            assignee = self._resolve_supplement_assignee(session, claim_id)
 
             task = FollowUpTaskModel(
                 claim_id=claim_id,
@@ -993,10 +1056,7 @@ class ClaimFollowUpService:
                 status='pending',
                 priority='high',
                 next_followup_date=datetime.now(timezone.utc) + timedelta(days=3),
-                assigned_to_name=source.assigned_to_name if source else None,
-                assigned_to_email=source.assigned_to_email if source else None,
-                assigned_to_phone=source.assigned_to_phone if source else None,
-                assigned_to_role=source.assigned_to_role if source else 'adjuster',
+                **assignee,
                 auto_followup_enabled=False,
                 followup_interval_days=3,
                 max_followup_count=5,
@@ -1024,10 +1084,7 @@ class ClaimFollowUpService:
             if existing:
                 return
 
-            # Get assigned_to from existing tasks on this claim
-            source = session.query(FollowUpTaskModel).filter(
-                FollowUpTaskModel.claim_id == claim_id,
-            ).order_by(FollowUpTaskModel.created_at.desc()).first()
+            assignee = self._resolve_supplement_assignee(session, claim_id)
 
             task = FollowUpTaskModel(
                 claim_id=claim_id,
@@ -1037,10 +1094,7 @@ class ClaimFollowUpService:
                 status='pending',
                 priority='high',
                 next_followup_date=datetime.now(timezone.utc) + timedelta(days=5),
-                assigned_to_name=source.assigned_to_name if source else None,
-                assigned_to_email=source.assigned_to_email if source else None,
-                assigned_to_phone=source.assigned_to_phone if source else None,
-                assigned_to_role=source.assigned_to_role if source else 'adjuster',
+                **assignee,
                 auto_followup_enabled=True,
                 followup_interval_days=7,
                 max_followup_count=10,
@@ -1313,6 +1367,201 @@ class ClaimFollowUpService:
             raise
         finally:
             session.close()
+
+    # ============================================================
+    # Payment receipts
+    #
+    # Payments are recorded as a list, never as a single resolved
+    # flag: they arrive in installments, and a supplement can bring
+    # more money in after earlier payments already landed. Recording
+    # one never closes the stage.
+    # ============================================================
+
+    def record_payment(
+        self, claim_id: str, data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Record one payment received for a claim.
+
+        Writes to the shared claim_payments table so the number agrees
+        with the client/contractor views, then refreshes the claim
+        totals. The related payment_check task is moved out of
+        'awaiting_confirmation' (someone has now confirmed money
+        arrived) but is deliberately NOT resolved — more may follow.
+        """
+        session = self._get_session()
+        try:
+            from app.domains.client.models import ClaimPayment
+            from app.domains.claim_followup.models import (
+                FollowUpTask as FollowUpTaskModel,
+            )
+            from app.domains.client.service import ClaimPaymentService
+
+            confirmed_by = (data.pop('confirmed_by', None) or '').strip()
+            notes = data.get('notes') or ''
+            if confirmed_by:
+                prefix = f"Confirmed by {confirmed_by}."
+                data['notes'] = f"{prefix} {notes}".strip()
+
+            payment = ClaimPayment(claim_id=claim_id, **{
+                k: v for k, v in data.items() if v is not None
+            })
+            session.add(payment)
+            session.flush()
+
+            # Keep claim.total_insurance_paid / payment_status in sync
+            ClaimPaymentService()._recalculate_claim_totals(session, claim_id)
+
+            # Reflect the confirmation on the payment task without
+            # closing it — further installments or supplement money
+            # may still be coming.
+            ptype = data.get('payment_type', 'insurance')
+            task_type = (
+                'wm_payment_check'
+                if data.get('payment_category') == 'water_mitigation'
+                else 'payment_check'
+            )
+            task = session.query(FollowUpTaskModel).filter(
+                FollowUpTaskModel.claim_id == claim_id,
+                FollowUpTaskModel.task_type == task_type,
+                FollowUpTaskModel.status.notin_(['cancelled', 'resolved']),
+            ).first()
+            if task:
+                if task.status == 'awaiting_confirmation':
+                    task.status = 'pending'
+                task.payment_status = self._derive_payment_status(
+                    session, claim_id
+                )
+
+            result = self._payment_to_dict(payment)
+            session.commit()
+            logger.info(
+                f"Recorded {ptype} payment for claim {claim_id}: "
+                f"{data.get('amount')}"
+            )
+            return result
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error recording payment: {e}")
+            raise
+        finally:
+            session.close()
+
+    def _derive_payment_status(self, session, claim_id: str) -> str:
+        """'partial' until received covers expected — never 'paid' on its own.
+
+        Expected can move upward later (supplement), so a full match
+        today is not a guarantee it stays full.
+        """
+        from app.domains.client.models import Claim, ClaimPayment
+        from sqlalchemy import func as sqlfunc
+
+        total = session.query(
+            sqlfunc.sum(ClaimPayment.amount)
+        ).filter(ClaimPayment.claim_id == claim_id).scalar() or 0
+        claim = session.query(Claim).filter(Claim.id == claim_id).first()
+        if not claim:
+            return 'partial'
+        expected = float(
+            claim.final_invoice_amount
+            or claim.our_estimate_amount
+            or claim.current_rcv
+            or 0
+        )
+        deductible = float(claim.insurance_deductible or 0)
+        received = float(total)
+        if received <= 0:
+            return 'pending'
+        if expected and received >= (expected - deductible):
+            return 'received'
+        return 'partial'
+
+    def get_payment_summary(self, claim_id: str) -> Dict[str, Any]:
+        """Running payment picture for a claim (all recorded receipts)."""
+        session = self.database.get_readonly_session()
+        try:
+            from app.domains.client.models import Claim, ClaimPayment
+
+            payments = session.query(ClaimPayment).filter(
+                ClaimPayment.claim_id == claim_id
+            ).order_by(ClaimPayment.received_date.desc().nullslast()).all()
+
+            claim = session.query(Claim).filter(
+                Claim.id == claim_id
+            ).first()
+
+            total_received = sum(float(p.amount or 0) for p in payments)
+            # NULL 금액이 흔하다 — float() 밖에서 None을 먼저 걸러야 한다
+            expected = float(
+                (claim.final_invoice_amount if claim else None)
+                or (claim.our_estimate_amount if claim else None)
+                or (claim.current_rcv if claim else None)
+                or 0
+            )
+            deductible = float(
+                (claim.insurance_deductible if claim else None) or 0
+            )
+
+            return {
+                "total_expected": expected,
+                "total_received": total_received,
+                "deductible": deductible,
+                "remaining": expected - deductible - total_received,
+                "payment_status": (
+                    claim.payment_status if claim else 'unpaid'
+                ) or 'unpaid',
+                "payments": [
+                    self._payment_to_dict(p) for p in payments
+                ],
+            }
+        finally:
+            session.close()
+
+    def delete_payment(self, payment_id: str) -> bool:
+        """Remove a mis-entered payment and refresh claim totals."""
+        session = self._get_session()
+        try:
+            from app.domains.client.models import ClaimPayment
+            from app.domains.client.service import ClaimPaymentService
+
+            payment = session.query(ClaimPayment).filter(
+                ClaimPayment.id == payment_id
+            ).first()
+            if not payment:
+                return False
+            claim_id = str(payment.claim_id)
+            session.delete(payment)
+            session.flush()
+            ClaimPaymentService()._recalculate_claim_totals(session, claim_id)
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error deleting payment: {e}")
+            raise
+        finally:
+            session.close()
+
+    @staticmethod
+    def _payment_to_dict(payment) -> Dict[str, Any]:
+        return {
+            "id": str(payment.id),
+            "claim_id": str(payment.claim_id),
+            "amount": float(payment.amount or 0),
+            "payment_type": payment.payment_type,
+            "received_date": (
+                payment.received_date.isoformat()
+                if payment.received_date else None
+            ),
+            "check_number": payment.check_number,
+            "paid_by": payment.paid_by,
+            "payment_category": payment.payment_category,
+            "notes": payment.notes,
+            "status": payment.status,
+            "created_at": (
+                payment.created_at.isoformat()
+                if payment.created_at else None
+            ),
+        }
 
     # ============================================================
     # Email Templates

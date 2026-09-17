@@ -19,6 +19,9 @@ import type {
   PolishEmailRequest,
   PolishEmailResponse,
   FollowUpDashboardStats,
+  PaymentReceipt,
+  PaymentReceiptCreate,
+  ClaimPaymentSummary,
 } from '../types/claimFollowUp';
 
 const BASE_URL = '/api/claim-followup';
@@ -319,5 +322,28 @@ export const claimFollowUpService = {
       params: { account_id: accountId },
     });
     return data;
+  },
+
+  // ===== Payment receipts =====
+  // 분할 수령 / supplement 추가 수령을 모두 담기 위해 목록으로 관리한다.
+
+  async getClaimPayments(claimId: string): Promise<ClaimPaymentSummary> {
+    const { data } = await api.get(`${BASE_URL}/claims/${claimId}/payments`);
+    return data;
+  },
+
+  async recordClaimPayment(
+    claimId: string,
+    payload: PaymentReceiptCreate,
+  ): Promise<PaymentReceipt> {
+    const { data } = await api.post(
+      `${BASE_URL}/claims/${claimId}/payments`,
+      payload,
+    );
+    return data;
+  },
+
+  async deleteClaimPayment(claimId: string, paymentId: string): Promise<void> {
+    await api.delete(`${BASE_URL}/claims/${claimId}/payments/${paymentId}`);
   },
 };

@@ -9,9 +9,61 @@ export const KNOWN_TASK_TYPES = [
   'payment_check', 'wm_payment_check', 'docs_sent', 'general',
   'dispute', 'appraisal', 'attorney_referral',
 ] as const;
-export type TaskStatus = 'pending' | 'awaiting_response' | 'responded' | 'resolved' | 'overdue' | 'cancelled';
+// 'awaiting_confirmation': 우리가 직접 확인할 수 없고 다른 사람의 컨펌을 기다리는 상태.
+// overdue 계산과 '내 할 일'에서 제외되며, 다음 단계 진행을 막지 않는다.
+export type TaskStatus = 'pending' | 'awaiting_response' | 'awaiting_confirmation' | 'responded' | 'resolved' | 'overdue' | 'cancelled';
+
+// 우리가 액션을 해야 하는 상태 (overdue 판정 대상)
+export const ACTIONABLE_STATUSES: TaskStatus[] = ['pending', 'awaiting_response'];
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type AssignedRole = 'adjuster' | 'public_adjuster' | 'contractor';
+
+export const ASSIGNED_ROLE_OPTIONS: { value: AssignedRole; label: string }[] = [
+  { value: 'adjuster', label: 'Adjuster' },
+  { value: 'public_adjuster', label: 'Public Adjuster' },
+  { value: 'contractor', label: 'Contractor' },
+];
+
+export const ASSIGNED_ROLE_LABELS: Record<string, string> = {
+  adjuster: 'Adjuster',
+  public_adjuster: 'Public Adjuster',
+  contractor: 'Contractor',
+};
+
+/** Supplement work is negotiated with the PA, so these types default to it. */
+export const SUPPLEMENT_TASK_TYPES = ['supplement_estimate_prep', 'supplement_sent'];
+
+export const isSupplementTaskType = (t?: string): boolean =>
+  !!t && SUPPLEMENT_TASK_TYPES.includes(t);
+
+/**
+ * The contact a role points at, taken from the claim enrichment already on
+ * the task. Returns nulls for roles with no claim-level source of truth
+ * (e.g. contractor) so callers can leave the fields untouched.
+ */
+export const contactForRole = (
+  role: AssignedRole | string | undefined,
+  task?: Partial<FollowUpTask> | null,
+): { name: string; email: string; phone: string } | null => {
+  if (!task) return null;
+  if (role === 'public_adjuster') {
+    if (!task.pa_name && !task.pa_email) return null;
+    return {
+      name: task.pa_name || '',
+      email: task.pa_email || '',
+      phone: task.pa_phone || '',
+    };
+  }
+  if (role === 'adjuster') {
+    if (!task.adjuster_name && !task.adjuster_email) return null;
+    return {
+      name: task.adjuster_name || '',
+      email: task.adjuster_email || '',
+      phone: task.adjuster_phone || '',
+    };
+  }
+  return null;
+};
 export type CommunicationType = 'email' | 'phone' | 'text' | 'in_person' | 'other';
 export type EmailStatus = 'draft' | 'queued' | 'sending' | 'sent' | 'failed' | 'bounced';
 
@@ -89,6 +141,9 @@ export interface FollowUpTask {
   pa_company?: string;
   pa_email?: string;
   pa_phone?: string;
+  adjuster_name?: string;
+  adjuster_email?: string;
+  adjuster_phone?: string;
   wm_cost_status?: string;
   has_insurance_estimate?: boolean;
   bid_estimate_summary?: Record<string, number>;
@@ -286,6 +341,7 @@ export interface FollowUpDashboardStats {
   total_tasks: number;
   pending: number;
   awaiting_response: number;
+  awaiting_confirmation: number;
   overdue: number;
   resolved_this_week: number;
   by_type: Record<string, number>;
@@ -311,6 +367,7 @@ export const TASK_TYPE_LABELS: Record<string, string> = {
 export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   pending: 'blue',
   awaiting_response: 'orange',
+  awaiting_confirmation: 'purple',
   responded: 'cyan',
   resolved: 'green',
   overdue: 'red',
@@ -323,3 +380,62 @@ export const PRIORITY_COLORS: Record<TaskPriority, string> = {
   high: 'orange',
   urgent: 'red',
 };
+
+// ============================================================
+// Payment receipts
+//
+// 보험금은 분할로 들어오고, supplement가 승인되면 이후에도 추가로
+// 들어올 수 있다. 따라서 '받았다/안 받았다' 플래그가 아니라 수령
+// 내역의 목록으로 관리한다. 기록을 남겨도 단계가 닫히지 않는다.
+// ============================================================
+
+export type PaymentReceiptType =
+  | 'insurance'
+  | 'depreciation_recovery'
+  | 'supplement'
+  | 'deductible'
+  | 'other';
+
+export const PAYMENT_RECEIPT_TYPE_LABELS: Record<PaymentReceiptType, string> = {
+  insurance: 'Insurance',
+  depreciation_recovery: 'Depreciation',
+  supplement: 'Supplement',
+  deductible: 'Deductible',
+  other: 'Other',
+};
+
+export interface PaymentReceipt {
+  id: string;
+  claim_id: string;
+  amount: number;
+  payment_type?: PaymentReceiptType | string;
+  received_date?: string;
+  check_number?: string;
+  paid_by?: string;
+  payment_category?: string;
+  notes?: string;
+  status?: string;
+  created_at?: string;
+}
+
+export interface PaymentReceiptCreate {
+  amount: number;
+  payment_type?: PaymentReceiptType | string;
+  received_date?: string;
+  check_number?: string;
+  paid_by?: string;
+  payment_category?: string;
+  notes?: string;
+  /** 이 입금을 확인해 준 사람 (우리가 직접 확인할 수 없는 정보) */
+  confirmed_by?: string;
+}
+
+export interface ClaimPaymentSummary {
+  total_expected: number;
+  total_received: number;
+  deductible: number;
+  /** 참고용 잔액 — supplement로 expected가 올라갈 수 있어 완료 기준이 아니다 */
+  remaining: number;
+  payment_status: string;
+  payments: PaymentReceipt[];
+}

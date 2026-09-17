@@ -81,7 +81,7 @@ class FollowUpTaskUpdate(BaseModel):
     @validator('status')
     def validate_status(cls, v):
         if v is not None:
-            allowed = ['pending', 'awaiting_response', 'responded', 'resolved', 'overdue', 'cancelled']
+            allowed = ['pending', 'awaiting_response', 'awaiting_confirmation', 'responded', 'resolved', 'overdue', 'cancelled']
             if v not in allowed:
                 raise ValueError(f"status must be one of {allowed}")
         return v
@@ -156,6 +156,10 @@ class FollowUpTaskResponse(FollowUpTaskBase):
     pa_company: Optional[str] = None
     pa_email: Optional[str] = None
     pa_phone: Optional[str] = None
+    # Carrier adjuster, for role-based assignee auto-fill
+    adjuster_name: Optional[str] = None
+    adjuster_email: Optional[str] = None
+    adjuster_phone: Optional[str] = None
     wm_cost_status: Optional[str] = None
     has_insurance_estimate: Optional[bool] = None
     bid_estimate_summary: Optional[Dict[str, Any]] = None
@@ -376,6 +380,7 @@ class FollowUpDashboardStats(BaseModel):
     total_tasks: int = 0
     pending: int = 0
     awaiting_response: int = 0
+    awaiting_confirmation: int = 0
     overdue: int = 0
     resolved_this_week: int = 0
     by_type: Dict[str, int] = Field(default_factory=dict)
@@ -395,3 +400,61 @@ class FollowUpTaskListParams(BaseModel):
     page_size: int = 20
     sort_by: str = "due_date"
     sort_order: str = "asc"
+
+
+# ============================================================
+# Payment receipt schemas (backed by the shared claim_payments
+# table — payments arrive in installments and can keep arriving
+# after a supplement, so they are recorded as a list, never as a
+# single "resolved" flag)
+# ============================================================
+
+class PaymentReceiptCreate(BaseModel):
+    """Record one payment received against a claim"""
+    amount: float = Field(..., description="Amount received")
+    payment_type: str = Field(
+        "insurance",
+        description="insurance | depreciation_recovery | supplement | deductible | other",
+    )
+    received_date: Optional[datetime] = None
+    check_number: Optional[str] = None
+    paid_by: Optional[str] = None
+    payment_category: Optional[str] = None
+    notes: Optional[str] = None
+    confirmed_by: Optional[str] = Field(
+        None,
+        description="Who confirmed this payment (it is not something we can verify ourselves)",
+    )
+
+
+class PaymentReceiptResponse(BaseModel):
+    """One recorded payment"""
+    id: UUID
+    claim_id: UUID
+    amount: float = 0
+    payment_type: Optional[str] = None
+    received_date: Optional[datetime] = None
+    check_number: Optional[str] = None
+    paid_by: Optional[str] = None
+    payment_category: Optional[str] = None
+    notes: Optional[str] = None
+    status: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ClaimPaymentSummary(BaseModel):
+    """Running payment picture for a claim.
+
+    total_expected is a reference point, not a completion gate: a
+    supplement can raise what is owed after payments have already
+    been received.
+    """
+    total_expected: float = 0
+    total_received: float = 0
+    deductible: float = 0
+    remaining: float = 0
+    payment_status: str = "unpaid"
+    payments: List[PaymentReceiptResponse] = Field(default_factory=list)

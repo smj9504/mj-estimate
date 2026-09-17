@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -6,6 +6,7 @@ import {
   DatePicker, Switch, InputNumber, message, Typography, Row, Col,
   Statistic, Tooltip, Dropdown, Divider, Tabs, Badge, Progress,
 } from 'antd';
+import type { FormInstance } from 'antd';
 import {
   ArrowLeftOutlined, PlusOutlined, ReloadOutlined, CheckCircleOutlined,
   ClockCircleOutlined, MailOutlined, SendOutlined, EllipsisOutlined,
@@ -23,7 +24,13 @@ import { ClaimEstimatesPanel } from './ClaimFollowUpDashboard';
 import type {
   FollowUpTask, FollowUpTaskCreate, FollowUpTaskUpdate, TaskType,
 } from '../types/claimFollowUp';
-import { KNOWN_TASK_TYPES } from '../types/claimFollowUp';
+import {
+  KNOWN_TASK_TYPES,
+  ASSIGNED_ROLE_LABELS,
+  ASSIGNED_ROLE_OPTIONS,
+  contactForRole,
+  isSupplementTaskType,
+} from '../types/claimFollowUp';
 
 dayjs.extend(relativeTime);
 
@@ -32,6 +39,7 @@ const { TextArea } = Input;
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'blue', awaiting_response: 'orange', responded: 'cyan',
+  awaiting_confirmation: 'purple',
   resolved: 'green', overdue: 'red', cancelled: 'default',
 };
 
@@ -41,6 +49,7 @@ const PRIORITY_TAG_COLORS: Record<string, string> = {
 
 const TASK_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'wm_docs_sent', label: 'WM Docs (Invoice/COS/EWA/Photo)' },
+  { value: 'supplement_estimate_prep', label: 'Prepare Supplement Estimate' },
   { value: 'supplement_sent', label: 'Supplement Sent' },
   { value: 'depreciation_recovery', label: 'Depreciation Recovery Docs' },
   { value: 'estimate_request', label: 'Estimate Request' },
@@ -56,6 +65,7 @@ const TASK_TYPE_OPTIONS: { value: string; label: string }[] = [
 
 const STAGE_LABELS: Record<string, string> = {
   wm_docs_sent: 'WM Docs', estimate_request: 'Est. Request',
+  supplement_estimate_prep: 'Prep Supplement',
   supplement_sent: 'Supplement', payment_check: 'Rebuild Payment',
   wm_payment_check: 'WM Payment', depreciation_recovery: 'Depreciation',
   docs_sent: 'Other Docs', general: 'General', dispute: 'Dispute',
@@ -115,6 +125,31 @@ const ClaimFollowUpDetail: React.FC = () => {
       wmCostStatus: first.wm_cost_status || '',
       hasInsuranceEstimate: tasks.some(t => t.has_insurance_estimate),
     };
+  }, [tasks]);
+
+  /**
+   * Fill name/email/phone from the contact the chosen role points at. Every
+   * task here belongs to this claim, so any one carries its enrichment.
+   */
+  const applyRoleContact = useCallback((form: FormInstance, role: string) => {
+    const contact = contactForRole(role, tasks[0]);
+    if (contact) {
+      form.setFieldsValue({
+        assigned_to_name: contact.name,
+        assigned_to_email: contact.email,
+        assigned_to_phone: contact.phone,
+      });
+    } else if (role === 'public_adjuster' || role === 'adjuster') {
+      // Not every claim has one on file. Say so instead of silently
+      // leaving the previous role's contact in the fields.
+      message.info(
+        `No ${ASSIGNED_ROLE_LABELS[role]} on file for this claim — enter the contact manually.`
+      );
+    } else if (role === 'contractor') {
+      form.setFieldsValue({
+        assigned_to_name: '', assigned_to_email: '', assigned_to_phone: '',
+      });
+    }
   }, [tasks]);
 
   const supplementStatuses = useMemo(() => {
@@ -483,7 +518,14 @@ const ClaimFollowUpDetail: React.FC = () => {
             <Col xs={24} sm={12}>
               <Form.Item name="task_type" label="Task Type" rules={[{ required: true }]}>
                 <Select options={TASK_TYPE_OPTIONS} placeholder="Select type"
-                  onChange={() => createForm.setFieldValue('custom_task_type', undefined)} />
+                  onChange={(value) => {
+                    createForm.setFieldValue('custom_task_type', undefined);
+                    // Supplements are negotiated with the PA — assign it.
+                    if (isSupplementTaskType(value)) {
+                      createForm.setFieldValue('assigned_to_role', 'public_adjuster');
+                      applyRoleContact(createForm, 'public_adjuster');
+                    }
+                  }} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -517,11 +559,10 @@ const ClaimFollowUpDetail: React.FC = () => {
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item name="assigned_to_role" label="Assigned Role" initialValue="adjuster">
-                <Select options={[
-                  { value: 'adjuster', label: 'Adjuster' },
-                  { value: 'public_adjuster', label: 'Public Adjuster' },
-                  { value: 'contractor', label: 'Contractor' },
-                ]} />
+                <Select
+                  options={ASSIGNED_ROLE_OPTIONS}
+                  onChange={(role) => applyRoleContact(createForm, role)}
+                />
               </Form.Item>
             </Col>
           </Row>
@@ -569,6 +610,7 @@ const ClaimFollowUpDetail: React.FC = () => {
               <Form.Item name="status" label="Status">
                 <Select options={[
                   { value: 'pending', label: 'Pending' }, { value: 'awaiting_response', label: 'Awaiting Response' },
+                  { value: 'awaiting_confirmation', label: 'Awaiting Confirmation' },
                   { value: 'responded', label: 'Responded' }, { value: 'resolved', label: 'Resolved' },
                   { value: 'cancelled', label: 'Cancelled' },
                 ]} />
@@ -594,11 +636,10 @@ const ClaimFollowUpDetail: React.FC = () => {
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item name="assigned_to_role" label="Assigned Role">
-                <Select options={[
-                  { value: 'adjuster', label: 'Adjuster' },
-                  { value: 'public_adjuster', label: 'Public Adjuster' },
-                  { value: 'contractor', label: 'Contractor' },
-                ]} />
+                <Select
+                  options={ASSIGNED_ROLE_OPTIONS}
+                  onChange={(role) => applyRoleContact(editForm, role)}
+                />
               </Form.Item>
             </Col>
           </Row>
