@@ -135,6 +135,8 @@ export interface PollResult {
   emails_found: number;
   processed: number;
   uploaded: number;
+  /** Matched and queued for review; the revision is created on confirm. */
+  pending?: number;
   skipped: number;
   duplicates: number;
   errors: number;
@@ -145,6 +147,7 @@ export interface BatchPollResult {
   results: PollResult[];
   total_processed: number;
   total_uploaded: number;
+  total_pending?: number;
 }
 
 export interface IngestionStats {

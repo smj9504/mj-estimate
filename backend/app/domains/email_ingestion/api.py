@@ -156,16 +156,16 @@ async def poll_all(
         None, description="Backfill from this date (YYYY-MM-DD)"
     ),
     limit: int = Query(50, le=5000, description="Max emails per account"),
-    allow_claim_creation: bool = Query(
-        True, description="Allow auto-creating AUTO-<ts> claims on match"
-    ),
 ):
-    """Poll all active email accounts for new insurance estimates"""
+    """Poll all active email accounts for new insurance estimates.
+
+    Matches are queued for review, not applied - a claim and its revision are
+    only created once a reviewer confirms via /logs/{id}/assign.
+    """
     service = _get_service()
     try:
         return service.poll_all_accounts(
             since_date=_parse_since(since), limit=limit,
-            allow_claim_creation=allow_claim_creation,
         )
     except Exception as e:
         logger.error(f"Error polling all accounts: {e}")
@@ -179,16 +179,12 @@ async def poll_account(
         None, description="Backfill from this date (YYYY-MM-DD)"
     ),
     limit: int = Query(50, le=5000, description="Max emails to scan"),
-    allow_claim_creation: bool = Query(
-        True, description="Allow auto-creating AUTO-<ts> claims on match"
-    ),
 ):
     """Poll a specific email account"""
     service = _get_service()
     try:
         return service.poll_account(
             account_id, since_date=_parse_since(since), limit=limit,
-            allow_claim_creation=allow_claim_creation,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

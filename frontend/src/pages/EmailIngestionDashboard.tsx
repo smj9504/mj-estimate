@@ -108,11 +108,35 @@ const EmailIngestionDashboard: React.FC = () => {
     enabled: !!assignClientId,
   });
 
+  // Open the confirm dialog seeded with whatever the matcher already worked
+  // out. Polling only ever suggests a client/claim now, so without this the
+  // reviewer would have to re-find a client the backend had already located.
+  // Still a suggestion: every field stays editable.
+  const openAssignModal = (log: IngestionLog) => {
+    setSelectedLog(log);
+    setAssignClientId(log.matched_client_id || undefined);
+    if (log.matched_client_id && log.client_name) {
+      // Seed the search so the preselected client renders as a label rather
+      // than a bare uuid - the Select's options come from the search query.
+      setClientSearch(log.client_name);
+    }
+    assignForm.setFieldsValue({
+      client_id: log.matched_client_id || undefined,
+      create_claim: !log.matched_claim_id,
+      claim_id: log.matched_claim_id || undefined,
+      claim_number: undefined,
+    });
+    setAssignModalOpen(true);
+  };
+
   // Mutations
   const pollAllMutation = useMutation({
     mutationFn: () => emailIngestionService.pollAll(),
     onSuccess: (result) => {
-      message.success(`${result.total_uploaded} files uploaded from ${result.accounts_polled} accounts`);
+      const queued = result.total_pending ?? 0;
+      message.success(
+        `${queued} attachment(s) queued for review from ${result.accounts_polled} accounts`
+      );
       queryClient.invalidateQueries({ queryKey: ['email-ingestion-logs'] });
       queryClient.invalidateQueries({ queryKey: ['email-ingestion-stats'] });
     },
@@ -226,15 +250,12 @@ const EmailIngestionDashboard: React.FC = () => {
           )}
           {record.status === 'pending' && (
             <>
-              <Tooltip title="Assign to Client/Claim">
+              <Tooltip title="Confirm & create revision">
                 <Button
                   size="small"
                   type="primary"
                   icon={<LinkOutlined />}
-                  onClick={() => {
-                    setSelectedLog(record);
-                    setAssignModalOpen(true);
-                  }}
+                  onClick={() => openAssignModal(record)}
                 />
               </Tooltip>
               <Tooltip title="Skip">
@@ -348,6 +369,52 @@ const EmailIngestionDashboard: React.FC = () => {
           <Tag>{r.head.match_method}</Tag>
         </Tooltip>
       ) : null,
+    },
+    {
+      // Every matched attachment now waits here for confirmation, and most
+      // emails carry a single PDF - whose child table is not expandable - so
+      // the confirm action has to live on the summary row too, not only in
+      // the per-attachment table. Acts on the email's first pending
+      // attachment; multi-PDF emails are handled one by one when expanded.
+      title: 'Actions',
+      key: 'row_actions',
+      width: 150,
+      fixed: 'right',
+      render: (_: any, r: EmailRow) => {
+        const pending = r.attachments.find((a) => a.status === 'pending');
+        if (!pending) return null;
+        return (
+          <Space size="small">
+            {pending.file_id && (
+              <Tooltip title="Preview PDF">
+                <Button
+                  size="small"
+                  icon={<FileTextOutlined />}
+                  onClick={() => window.open(`/api/files/download/${pending.file_id}?inline=true`, '_blank')}
+                />
+              </Tooltip>
+            )}
+            <Tooltip title="Confirm & create revision">
+              <Button
+                size="small"
+                type="primary"
+                icon={<LinkOutlined />}
+                onClick={() => openAssignModal(pending)}
+              />
+            </Tooltip>
+            <Tooltip title="Skip">
+              <Button
+                size="small"
+                icon={<StopOutlined />}
+                onClick={() => {
+                  setSelectedLog(pending);
+                  setSkipModalOpen(true);
+                }}
+              />
+            </Tooltip>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -514,6 +581,17 @@ const EmailIngestionDashboard: React.FC = () => {
                   >
                     (Preview PDF)
                   </a>
+                </>
+              )}
+              {selectedLog.match_method && (
+                <>
+                  <br />
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Suggested match: {selectedLog.client_name || 'unknown client'}
+                    {selectedLog.claim_number ? ` / ${selectedLog.claim_number}` : ''}
+                    {' '}({selectedLog.match_method}, {selectedLog.match_confidence}%)
+                    {' — check the PDF before confirming.'}
+                  </Text>
                 </>
               )}
             </div>

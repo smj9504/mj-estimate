@@ -164,6 +164,8 @@ class PollResponse(BaseModel):
     emails_found: int
     processed: int
     uploaded: int
+    # Matched and queued for review; the revision is created on confirm.
+    pending: int = 0
     skipped: int
     duplicates: int
     errors: int
@@ -174,6 +176,7 @@ class BatchPollResponse(BaseModel):
     results: List[PollResponse]
     total_processed: int
     total_uploaded: int
+    total_pending: int = 0
 
 
 class IngestionStatsResponse(BaseModel):

@@ -454,9 +454,11 @@ class EmailIngestionService:
         since_date: Optional[datetime] = None,
         limit: int = 50,
         unseen_only: bool = False,
-        allow_claim_creation: bool = True,
     ) -> Dict[str, Any]:
         """Poll a single email account for new insurance estimate PDFs.
+
+        Matched attachments are queued as 'pending' for review; polling never
+        creates claims or revisions on its own.
 
         `since_date` defaults to the account's last_synced_at (an incremental
         poll). Pass an explicit date with a larger `limit` to backfill older
@@ -492,6 +494,7 @@ class EmailIngestionService:
                 "emails_found": len(emails),
                 "processed": 0,
                 "uploaded": 0,
+                "pending": 0,
                 "skipped": 0,
                 "duplicates": 0,
                 "errors": 0,
@@ -541,13 +544,14 @@ class EmailIngestionService:
                             account=account,
                             fetched_email=fetched_email,
                             attachment=attachment,
-                            allow_claim_creation=allow_claim_creation,
                             sibling_passed=sibling_passed,
                             sent_index=sent_index,
                         )
                         stats["processed"] += 1
                         if result.get("status") == "uploaded":
                             stats["uploaded"] += 1
+                        elif result.get("status") == "pending":
+                            stats["pending"] += 1
                         elif result.get("status") == "skipped":
                             stats["skipped"] += 1
                         elif result.get("status") == "duplicate":
@@ -590,13 +594,13 @@ class EmailIngestionService:
         since_date: Optional[datetime] = None,
         limit: int = 50,
         unseen_only: bool = False,
-        allow_claim_creation: bool = True,
     ) -> Dict[str, Any]:
         """Poll all active email accounts"""
         accounts = self.get_accounts()
         results = []
         total_processed = 0
         total_uploaded = 0
+        total_pending = 0
 
         for account in accounts:
             try:
@@ -605,11 +609,11 @@ class EmailIngestionService:
                     since_date=since_date,
                     limit=limit,
                     unseen_only=unseen_only,
-                    allow_claim_creation=allow_claim_creation,
                 )
                 results.append(result)
                 total_processed += result["processed"]
                 total_uploaded += result["uploaded"]
+                total_pending += result.get("pending", 0)
             except Exception as e:
                 logger.error(f"Error polling account {account['email_address']}: {e}")
                 results.append({
@@ -618,6 +622,7 @@ class EmailIngestionService:
                     "emails_found": 0,
                     "processed": 0,
                     "uploaded": 0,
+                    "pending": 0,
                     "skipped": 0,
                     "duplicates": 0,
                     "errors": 1,
@@ -628,6 +633,7 @@ class EmailIngestionService:
             "results": results,
             "total_processed": total_processed,
             "total_uploaded": total_uploaded,
+            "total_pending": total_pending,
         }
 
     def _process_attachment(
@@ -637,16 +643,14 @@ class EmailIngestionService:
         account: Dict[str, Any],
         fetched_email,
         attachment,
-        allow_claim_creation: bool = True,
         sibling_passed: bool = False,
         sent_index: Optional[Tuple[Set[str], Set[str]]] = None,
     ) -> Dict[str, Any]:
         """Process a single PDF attachment through the pipeline.
 
-        With allow_claim_creation=False an attachment that would otherwise
-        mint a new AUTO-<timestamp> claim is left pending for manual review
-        instead. Used when backfilling historical mail, where inventing
-        claims retroactively is worse than a reviewable queue.
+        Stores the PDF and records what it matched, then leaves the row
+        'pending'. Creating the claim and the ClaimNegotiation revision is a
+        reviewer's decision, made in manual_assign - see Step 6.
         """
         from app.domains.email_ingestion.classifier import (
             classify_email_attachment,
@@ -778,41 +782,10 @@ class EmailIngestionService:
             session.commit()
             return {"status": "pending"}
 
-        # Step 4: Create claim if needed
-        claim_created = False
+        # Step 4: Resolve the claim this attachment would belong to.
+        # Nothing is created here - a brand-new claim is only minted once a
+        # reviewer confirms the match (manual_assign), never by the poller.
         claim_id = match_result.claim_id
-
-        if match_result.needs_new_claim and not claim_id:
-            if not allow_claim_creation:
-                # Matched a client but would need a brand-new claim. Leave it
-                # pending with the stored PDF so a reviewer can attach it to
-                # the right claim via manual_assign.
-                log_repo.create({
-                    "email_account_id": account_id,
-                    "message_id": fetched_email.message_id,
-                    "subject": fetched_email.subject,
-                    "sender": fetched_email.sender,
-                    "received_at": fetched_email.received_at,
-                    "attachment_name": attachment.filename,
-                    "attachment_hash": attachment.sha256_hash,
-                    "status": "pending",
-                    "is_insurance_estimate": is_estimate,
-                    "classification_reason": reason,
-                    "matched_client_id": match_result.client_id,
-                    "match_method": match_result.method,
-                    "match_confidence": match_result.confidence,
-                    "file_id": pending_file_id,
-                    "skip_reason": (
-                        "Matched a client but no existing claim; "
-                        "claim auto-creation disabled for this run"
-                    ),
-                })
-                session.commit()
-                return {"status": "pending"}
-
-            claim_id, claim_created = self._create_claim_for_match(
-                session, match_result, fetched_email
-            )
 
         # Step 5: Check duplicate for this specific claim
         if claim_id and log_repo.exists_by_attachment_hash(attachment.sha256_hash, claim_id):
@@ -834,37 +807,13 @@ class EmailIngestionService:
             session.commit()
             return {"status": "duplicate"}
 
-        # Step 6: Attach the already-stored file to the claim and create negotiation
-        try:
-            file_id, negotiation_id = self._upload_and_create_negotiation(
-                session, claim_id, attachment, fetched_email, existing_file_id=pending_file_id
-            )
-        except Exception as e:
-            logger.error(f"Failed to finalize negotiation for claim {claim_id}: {e}")
-            log_data = {
-                "email_account_id": account_id,
-                "message_id": fetched_email.message_id,
-                "subject": fetched_email.subject,
-                "sender": fetched_email.sender,
-                "received_at": fetched_email.received_at,
-                "attachment_name": attachment.filename,
-                "attachment_hash": attachment.sha256_hash,
-                "status": "failed",
-                "is_insurance_estimate": is_estimate,
-                "classification_reason": reason,
-                "matched_client_id": match_result.client_id,
-                "matched_claim_id": claim_id,
-                "match_method": match_result.method,
-                "match_confidence": match_result.confidence,
-                "claim_created": claim_created,
-                "file_id": pending_file_id,
-                "error_message": str(e),
-            }
-            log_repo.create(log_data)
-            session.commit()
-            return {"status": "failed"}
-
-        # Step 7: Create success log
+        # Step 6: Queue for review. A match is a *suggestion*, not a decision:
+        # the revision is only created once a human confirms it in the review
+        # screen (manual_assign). Auto-creating it here meant a fuzzy address
+        # or name match silently bumped a claim's revision number and pushed
+        # the claim to 'negotiating' before anyone had looked at the PDF.
+        # The match is recorded on the log so the reviewer can confirm with
+        # one click instead of re-finding the client.
         log_data = {
             "email_account_id": account_id,
             "message_id": fetched_email.message_id,
@@ -873,41 +822,19 @@ class EmailIngestionService:
             "received_at": fetched_email.received_at,
             "attachment_name": attachment.filename,
             "attachment_hash": attachment.sha256_hash,
-            "status": "uploaded",
+            "status": "pending",
             "is_insurance_estimate": is_estimate,
             "classification_reason": reason,
             "matched_client_id": match_result.client_id,
             "matched_claim_id": claim_id,
             "match_method": match_result.method,
             "match_confidence": match_result.confidence,
-            "claim_created": claim_created,
-            "negotiation_id": negotiation_id,
-            "file_id": file_id,
+            "file_id": pending_file_id,
         }
         log_repo.create(log_data)
         session.commit()
 
-        return {"status": "uploaded", "file_id": file_id, "negotiation_id": negotiation_id}
-
-    def _create_claim_for_match(
-        self, session, match_result, fetched_email
-    ) -> tuple:
-        """Create a new claim for a matched client"""
-        from app.domains.client.models import Claim
-
-        claim_number = match_result.claim_number_extracted or f"AUTO-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-
-        claim = Claim(
-            client_id=match_result.client_id,
-            claim_number=claim_number,
-            insurance_policy_number=match_result.policy_number_extracted,
-            status="open",
-            notes=f"Auto-created from email: {fetched_email.subject}",
-        )
-        session.add(claim)
-        session.flush()
-
-        return str(claim.id), True
+        return {"status": "pending", "file_id": pending_file_id}
 
     def _run_upload(self, file_service, **upload_kwargs) -> Dict[str, Any]:
         """Run the async FileService.upload_file from sync code, whether or not

@@ -2,8 +2,10 @@
 Email ingestion polling scheduler.
 
 Polls all active email accounts once daily, matching attachments to
-claims by claim number/address and uploading them (dedup via message-id
-+ attachment hash is handled in EmailIngestionService).
+claims by claim number/address and queueing them for review (dedup via
+message-id + attachment hash is handled in EmailIngestionService).
+The poll never creates claims or estimate revisions on its own - matched
+attachments wait as 'pending' until confirmed in the review screen.
 Runs once daily at 6:00 AM US Eastern time.
 """
 
@@ -44,7 +46,7 @@ async def poll_email_accounts_job():
             f"Email ingestion poll completed: "
             f"accounts={result['accounts_polled']}, "
             f"processed={result['total_processed']}, "
-            f"uploaded={result['total_uploaded']}"
+            f"pending_review={result.get('total_pending', 0)}"
         )
     except Exception as e:
         logger.error(f"Email ingestion poll job failed: {e}", exc_info=True)
