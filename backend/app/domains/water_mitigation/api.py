@@ -4979,14 +4979,26 @@ def delete_sheet_pa_mapping(
 
 
 @router.post("/sheet-pa-mappings/apply")
-def apply_sheet_pa_mappings(db: DatabaseSession = Depends(get_db_session)):
+def apply_sheet_pa_mappings(
+    overwrite_existing: bool = Query(
+        False,
+        description="Also replace PAs already set on a claim (e.g. chosen by hand)",
+    ),
+    db: DatabaseSession = Depends(get_db_session),
+):
     """
     Apply current Sheet → PA mappings to all existing WM jobs.
     For each job that has google_sheet_name set and a mapping exists,
     updates the linked Claim's pa_contact_id.
+
+    By default this only fills claims with no PA, so a PA set by hand is
+    preserved. Pass overwrite_existing=true to force the sheet's value.
     """
     from sqlalchemy import select
-    from app.domains.water_mitigation.models import WMSheetPAMapping
+    from app.domains.water_mitigation.models import (
+        WaterMitigationJob,
+        WMSheetPAMapping,
+    )
     from app.domains.client.models import Claim
 
     mappings = db.execute(select(WMSheetPAMapping)).scalars().all()
@@ -5003,17 +5015,25 @@ def apply_sheet_pa_mappings(db: DatabaseSession = Depends(get_db_session)):
     ).scalars().all()
 
     applied = 0
+    kept = 0
     for job in jobs:
         pa_contact_id = mapping_lookup.get(job.google_sheet_name)
         if not pa_contact_id:
             continue
-        claim = db.get(Claim, job.claim_id)
-        if claim and claim.pa_contact_id != pa_contact_id:
-            claim.pa_contact_id = pa_contact_id
-            applied += 1
+        claim = db.execute(
+            select(Claim).where(Claim.id == job.claim_id)
+        ).scalar_one_or_none()
+        if not claim or claim.pa_contact_id == pa_contact_id:
+            continue
+        if claim.pa_contact_id and not overwrite_existing:
+            # Set by hand (or by an earlier, different mapping) — leave it.
+            kept += 1
+            continue
+        claim.pa_contact_id = pa_contact_id
+        applied += 1
 
     db.commit()
-    return {"applied": applied, "total_jobs": len(jobs)}
+    return {"applied": applied, "kept_existing": kept, "total_jobs": len(jobs)}
 
 
 # ============================================================

@@ -206,6 +206,10 @@ class ClaimUpdate(BaseModel):
     pa_company: Optional[str] = None
     pa_email: Optional[str] = None
     pa_phone: Optional[str] = None
+    # Link to a CompanyContact. Settable directly so a claim can have a PA
+    # without going through the WM sheet mapping (rebuild-only claims, or a
+    # PA that changed hands). '' clears it.
+    pa_contact_id: Optional[str] = None
     wm_cost_status: Optional[str] = None
     wm_estimate_amount: Optional[float] = None
     wm_estimate_file_id: Optional[str] = None
@@ -306,6 +310,7 @@ class ClaimDetailResponse(ClaimBase):
     pa_company: Optional[str] = None
     pa_email: Optional[str] = None
     pa_phone: Optional[str] = None
+    pa_contact_id: Optional[str] = None
     wm_cost_status: Optional[str] = None
     wm_estimate_amount: Optional[float] = None
     wm_estimate_file_id: Optional[str] = None

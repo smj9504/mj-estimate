@@ -64,6 +64,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { clientService, claimService, negotiationService, claimActivityService } from '../services/clientService';
 import { fileService } from '../services/fileService';
+import { companyService } from '../services/companyService';
 import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
 import ClientDocumentHub from '../components/client/ClientDocumentHub';
 import ClaimNotes from '../components/client/ClaimNotes';
@@ -403,10 +404,28 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
 }) => {
   const [form] = Form.useForm<ClaimCreate>();
 
+  // PA contacts for the claim's Public Adjuster link. Loaded once the modal
+  // opens rather than on page load, since most visits never edit a claim.
+  const { data: paContacts = [], isLoading: paContactsLoading } = useQuery({
+    queryKey: ['pa-contacts'],
+    queryFn: () => companyService.listAllContacts('public_adjuster'),
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const paContactOptions = React.useMemo(
+    () => paContacts.map((c: any) => ({
+      value: String(c.id),
+      label: [c.name, c.company_name, c.email].filter(Boolean).join(' · '),
+    })),
+    [paContacts],
+  );
+
   React.useEffect(() => {
     if (open) {
       if (editingClaim) {
         form.setFieldsValue({
+          pa_contact_id: editingClaim.pa_contact_id || undefined,
           claim_number: editingClaim.claim_number,
           insurance_company: editingClaim.insurance_company,
           insurance_policy_number: editingClaim.insurance_policy_number,
@@ -560,6 +579,26 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
             <Form.Item name="adjuster_email" label="Adjuster Email"
               rules={[{ type: 'email', message: 'Invalid email' }]}>
               <Input />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <Divider orientation="left" plain style={{ marginBottom: 8 }}>Public Adjuster</Divider>
+        <Row gutter={12}>
+          <Col xs={24}>
+            <Form.Item
+              name="pa_contact_id"
+              label="Public Adjuster"
+              extra="Links the claim to a PA contact. Water mitigation sheet sync sets this automatically, but any claim can be linked here — including rebuild-only claims."
+            >
+              <Select
+                allowClear
+                showSearch
+                loading={paContactsLoading}
+                placeholder="No public adjuster"
+                optionFilterProp="label"
+                options={paContactOptions}
+              />
             </Form.Item>
           </Col>
         </Row>

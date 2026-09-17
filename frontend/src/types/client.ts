@@ -191,6 +191,7 @@ export interface Claim {
   pa_company?: string;
   pa_email?: string;
   pa_phone?: string;
+  pa_contact_id?: string | null;
   needs_supplement: boolean;
   supplement_status?: string;
   supplement_notes?: string;
@@ -379,6 +380,8 @@ export interface ClaimCreate {
   adjuster_name?: string;
   adjuster_phone?: string;
   adjuster_email?: string;
+  /** CompanyContact id of the public adjuster; null/'' clears the link. */
+  pa_contact_id?: string | null;
   date_of_loss?: string;
   loss_description?: string;
   status?: ClaimStatus;
