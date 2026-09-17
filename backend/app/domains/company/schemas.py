@@ -157,3 +157,7 @@ class CompanyContactUpdate(BaseModel):
 
 class CompanyContactResponse(CompanyContactBase, BaseResponseSchema):
     company_id: str
+    # Name of the owning company. The API already resolves it; without the
+    # field declared here Pydantic drops it, leaving pickers unable to show
+    # which firm a contact belongs to.
+    company_name: Optional[str] = None

@@ -421,6 +421,58 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
     [paContacts],
   );
 
+  // "Add new PA" — so a PA that isn't in the directory yet can be created
+  // here instead of sending the user off to the Company screen.
+  const queryClient = useQueryClient();
+  const [paModalOpen, setPaModalOpen] = useState(false);
+  const [paSaving, setPaSaving] = useState(false);
+  const [paForm] = Form.useForm();
+
+  const { data: paCompanies = [] } = useQuery({
+    queryKey: ['pa-companies'],
+    queryFn: () => companyService.listCompaniesByType('public_adjuster'),
+    enabled: paModalOpen,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const handleCreatePaContact = async () => {
+    const values = await paForm.validateFields();
+    setPaSaving(true);
+    try {
+      // Either attach to an existing PA firm or create the firm first.
+      let companyId: string = values.company_id;
+      if (!companyId) {
+        const company = await companyService.createCompany({
+          name: values.new_company_name,
+          company_type: 'public_adjuster',
+        } as any);
+        companyId = String((company as any).id);
+      }
+
+      const contact = await companyService.createContact(companyId, {
+        name: values.name,
+        email: values.email || undefined,
+        phone: values.phone || undefined,
+        title: values.title || undefined,
+        is_primary: false,
+        is_active: true,
+      } as any);
+
+      // Refresh the picker and select the contact we just made.
+      await queryClient.invalidateQueries({ queryKey: ['pa-contacts'] });
+      await queryClient.invalidateQueries({ queryKey: ['pa-companies'] });
+      form.setFieldsValue({ pa_contact_id: String((contact as any).id) } as any);
+
+      message.success('Public adjuster added');
+      setPaModalOpen(false);
+      paForm.resetFields();
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || 'Failed to add public adjuster');
+    } finally {
+      setPaSaving(false);
+    }
+  };
+
   React.useEffect(() => {
     if (open) {
       if (editingClaim) {
@@ -598,6 +650,21 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
                 placeholder="No public adjuster"
                 optionFilterProp="label"
                 options={paContactOptions}
+                popupRender={(menu) => (
+                  <>
+                    {menu}
+                    <Divider style={{ margin: '4px 0' }} />
+                    <Button
+                      type="link"
+                      icon={<PlusOutlined />}
+                      style={{ width: '100%', textAlign: 'left' }}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setPaModalOpen(true)}
+                    >
+                      Add new public adjuster
+                    </Button>
+                  </>
+                )}
               />
             </Form.Item>
           </Col>
@@ -633,6 +700,72 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           </Space>
         </Form.Item>
       </Form>
+
+      <Modal
+        title="Add Public Adjuster"
+        open={paModalOpen}
+        onOk={handleCreatePaContact}
+        onCancel={() => { setPaModalOpen(false); paForm.resetFields(); }}
+        confirmLoading={paSaving}
+        okText="Add"
+        destroyOnClose
+      >
+        <Form form={paForm} layout="vertical" preserve={false}>
+          <Form.Item
+            name="company_id"
+            label="PA Company"
+            extra="Leave empty to create a new company."
+          >
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="Select existing company"
+              options={paCompanies.map((c) => ({ value: c.id, label: c.name }))}
+            />
+          </Form.Item>
+          <Form.Item
+            noStyle
+            shouldUpdate={(prev, cur) => prev.company_id !== cur.company_id}
+          >
+            {({ getFieldValue }) => !getFieldValue('company_id') && (
+              <Form.Item
+                name="new_company_name"
+                label="New Company Name"
+                rules={[{ required: true, message: 'Enter the PA company name' }]}
+              >
+                <Input placeholder="e.g. Fair Claims Advocates" />
+              </Form.Item>
+            )}
+          </Form.Item>
+          <Form.Item
+            name="name"
+            label="Contact Name"
+            rules={[{ required: true, message: 'Enter the contact name' }]}
+          >
+            <Input placeholder="e.g. Angel Seo" />
+          </Form.Item>
+          <Row gutter={12}>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="email"
+                label="Email"
+                rules={[{ type: 'email', message: 'Invalid email' }]}
+              >
+                <Input placeholder="pa@example.com" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item name="phone" label="Phone">
+                <Input />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="title" label="Title">
+            <Input placeholder="e.g. Senior Public Adjuster" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Modal>
   );
 };

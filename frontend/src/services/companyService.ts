@@ -164,6 +164,14 @@ export const companyService = {
     return response.data;
   },
 
+  // Companies of one type (id + name only), for pickers.
+  listCompaniesByType: async (
+    companyType: string,
+  ): Promise<{ id: string; name: string }[]> => {
+    const response = await apiClient.get(`/api/companies/by-type/${companyType}`);
+    return response.data;
+  },
+
   // Link (or clear, with null) a PA contact on a claim. The backend mirrors
   // the contact onto the claim's pa_name/pa_email/... columns.
   linkPaContactToClaim: async (
