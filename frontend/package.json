@@ -56,12 +56,20 @@
     "build:dev": "dotenv -e .env.development craco build",
     "build:prod": "dotenv -e .env.production craco build",
     "test": "craco test",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
     "extends": [
       "react-app",
       "react-app/jest"
+    ]
+  },
+  "jest": {
+    "testMatch": [
+      "<rootDir>/src/**/__tests__/**/*.{js,mjs,jsx,ts,tsx}",
+      "<rootDir>/src/**/*.{spec,test}.{js,mjs,jsx,tsx}"
     ]
   },
   "browserslist": {
@@ -84,6 +92,8 @@
     "@types/react-router-dom": "^5.3.3",
     "ajv": "^8.17.1",
     "baseline-browser-mapping": "^2.9.11",
-    "cross-env": "^10.0.0"
+    "cross-env": "^10.0.0",
+    "react-is": "^18.3.1",
+    "vitest": "^2.1.9"
   }
 }
