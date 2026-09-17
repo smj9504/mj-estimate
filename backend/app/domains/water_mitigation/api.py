@@ -22,7 +22,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
@@ -5451,6 +5451,111 @@ async def save_wm_insurance_estimate(
         "file_id": file_id,
         "file_name": upload_filename,
         "is_combined": is_combined,
+    }
+
+
+class WMManualEstimateRequest(BaseModel):
+    """Manually entered water-mitigation amount from the comparison card."""
+
+    wm_amount: float = Field(..., ge=0, description="Water mitigation RCV amount")
+    notes: Optional[str] = None
+
+
+@router.post("/jobs/{job_id}/insurance-estimate/manual")
+async def save_wm_insurance_estimate_manual(
+    job_id: UUID,
+    payload: WMManualEstimateRequest,
+    db: DatabaseSession = Depends(get_db_session),
+):
+    """Record a hand-entered WM insurance estimate amount (no PDF).
+
+    Mirrors the upload endpoint: creates a new water_mitigation
+    ClaimNegotiation revision and syncs the claim's WM fields, so the
+    comparison card, the follow-up dashboard and the supplement screens all
+    read the same number. Only RCV is captured - depreciation and net ACV
+    stay unset because a typed-in figure carries no breakdown.
+    """
+    from sqlalchemy import func
+
+    from app.domains.client.models import Claim, ClaimNegotiation
+    from .models import WaterMitigationJob
+
+    job = db.query(WaterMitigationJob).filter(
+        WaterMitigationJob.id == job_id
+    ).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.claim_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This job is not linked to a claim. Link the job to a claim "
+                "before recording an insurance estimate."
+            ),
+        )
+
+    claim = db.query(Claim).filter(Claim.id == job.claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Linked claim not found")
+
+    wm_amount = float(payload.wm_amount)
+
+    next_revision = (
+        db.query(func.max(ClaimNegotiation.revision_number))
+        .filter(
+            ClaimNegotiation.claim_id == str(job.claim_id),
+            ClaimNegotiation.estimate_category == 'water_mitigation',
+        )
+        .scalar() or 0
+    ) + 1
+
+    # A single WM section so the comparison card resolves the amount the same
+    # way it does for a parsed PDF, instead of falling through to the claim.
+    wm_sections = [{
+        'section_name': 'Water Mitigation',
+        'rcv': wm_amount,
+        'depreciation': 0,
+        'net_acv': wm_amount,
+        'line_item_total': wm_amount,
+        'overhead_amount': 0,
+        'profit_amount': 0,
+        'deductible': 0,
+        'is_manual': True,
+    }]
+
+    negotiation = ClaimNegotiation(
+        claim_id=str(job.claim_id),
+        revision_number=next_revision,
+        revision_type='initial' if next_revision == 1 else 'supplement',
+        estimate_category='water_mitigation',
+        rcv_amount=wm_amount,
+        acv_amount=wm_amount,
+        depreciation_amount=0,
+        deductible=0,
+        date_received=datetime.now(),
+        received_from='Manual Entry',
+        sections_data=wm_sections,
+        extraction_metadata={
+            'source': 'wm_job_manual',
+            'job_id': str(job_id),
+            'is_manual': True,
+        },
+        notes=payload.notes or 'Water Mitigation estimate entered manually',
+    )
+    db.add(negotiation)
+
+    claim.wm_cost_status = 'separate_estimate'
+    claim.wm_estimate_amount = wm_amount
+
+    db.commit()
+    db.refresh(negotiation)
+
+    return {
+        "success": True,
+        "negotiation_id": str(negotiation.id),
+        "revision_number": negotiation.revision_number,
+        "wm_amount": wm_amount,
+        "is_manual": True,
     }
 
 

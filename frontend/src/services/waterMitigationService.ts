@@ -1571,6 +1571,24 @@ export const financialComparisonService = {
     );
     return response.data;
   },
+
+  /** Record a hand-entered WM amount without a PDF */
+  saveManualInsuranceEstimate: async (
+    jobId: string,
+    params: { wmAmount: number; notes?: string },
+  ): Promise<{
+    success: boolean;
+    negotiation_id: string;
+    revision_number: number;
+    wm_amount: number;
+    is_manual: boolean;
+  }> => {
+    const response = await api.post(
+      `${BASE_URL}/jobs/${jobId}/insurance-estimate/manual`,
+      { wm_amount: params.wmAmount, notes: params.notes },
+    );
+    return response.data;
+  },
 };
 
 // ============================================================

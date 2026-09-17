@@ -12,7 +12,8 @@ import type { ColumnsType } from 'antd/es/table';
 import {
   DollarOutlined, ArrowUpOutlined, ArrowDownOutlined,
   FileTextOutlined, SafetyCertificateOutlined, InfoCircleOutlined,
-  UploadOutlined, FilePdfOutlined,
+  UploadOutlined, FilePdfOutlined, EditOutlined,
+  CheckOutlined, CloseOutlined,
 } from '@ant-design/icons';
 import {
   financialComparisonService,
@@ -46,6 +47,11 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
   const [parseResult, setParseResult] = useState<WMEstimateParseResult | null>(null);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [wmAmount, setWmAmount] = useState<number | null>(null);
+
+  // Manual amount entry (no PDF)
+  const [editing, setEditing] = useState(false);
+  const [manualAmount, setManualAmount] = useState<number | null>(null);
+  const [savingManual, setSavingManual] = useState(false);
 
   const load = useCallback(async () => {
     if (!jobId) return;
@@ -128,6 +134,37 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
       );
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Seed the input with whatever the card currently shows, so editing starts
+  // from the existing number rather than an empty field.
+  const startEditing = () => {
+    const current =
+      data?.insurance_estimate?.wm_section?.rcv ??
+      data?.insurance_estimate?.wm_estimate_amount ??
+      null;
+    setManualAmount(current);
+    setEditing(true);
+  };
+
+  const handleSaveManual = async () => {
+    if (manualAmount == null) return;
+    setSavingManual(true);
+    try {
+      await financialComparisonService.saveManualInsuranceEstimate(jobId, {
+        wmAmount: manualAmount,
+      });
+      message.success('Insurance estimate amount saved.');
+      setEditing(false);
+      setManualAmount(null);
+      await load();
+    } catch (err: any) {
+      message.error(
+        err?.response?.data?.detail || 'Failed to save the amount.',
+      );
+    } finally {
+      setSavingManual(false);
     }
   };
 
@@ -239,10 +276,47 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
                     </a>
                   </Tooltip>
                 )}
+                {!editing && (
+                  <Tooltip title="Enter the amount manually">
+                    <Button size="small" icon={<EditOutlined />} onClick={startEditing} />
+                  </Tooltip>
+                )}
                 {uploadButton}
               </div>
             </div>
-            {wmSec ? (
+            {editing ? (
+              <div>
+                <Space.Compact style={{ width: '100%' }}>
+                  <InputNumber
+                    autoFocus
+                    min={0}
+                    step={0.01}
+                    prefix="$"
+                    style={{ width: '100%' }}
+                    value={manualAmount ?? undefined}
+                    onChange={(v) => setManualAmount(v ?? null)}
+                    onPressEnter={handleSaveManual}
+                    placeholder="0.00"
+                  />
+                  <Button
+                    type="primary"
+                    icon={<CheckOutlined />}
+                    loading={savingManual}
+                    disabled={manualAmount == null}
+                    onClick={handleSaveManual}
+                  />
+                  <Button
+                    icon={<CloseOutlined />}
+                    disabled={savingManual}
+                    onClick={() => { setEditing(false); setManualAmount(null); }}
+                  />
+                </Space.Compact>
+                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
+                  Saved as the water mitigation RCV. This updates the claim and the
+                  comparison below.
+                </Text>
+              </div>
+            ) : wmSec ? (
               <>
                 <Statistic
                   value={wmSec.rcv}
