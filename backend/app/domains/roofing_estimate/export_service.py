@@ -187,12 +187,20 @@ def _with_hidden_amounts_distributed(estimate):
             row["unit_price"] = round(total / qty, 2)
         adjusted.append(row)
 
-    # Rounding each line independently drifts from the grand total by a
-    # few cents; put the difference on the largest line so the printed
-    # column still sums to the printed total.
+    # Reconcile against the ACTUAL grand total, not against
+    # `base + hidden`. Those two differ by a cent or so whenever the
+    # stored total carries its own rounding, and the customer must never
+    # be able to add the column up and get a different number — so the
+    # target is `total` itself, minus the permit that is printed at cost.
     spread = [r for r in adjusted if not _is_permit(r)]
-    drift = round(
-        (base + hidden) - sum(float(r["total"]) for r in spread), 2)
+    permit_total = sum(
+        float(r.get("total") or 0) for r in adjusted if _is_permit(r))
+    grand = estimate.get("total")
+    target = (
+        float(grand) - permit_total if grand
+        else base + hidden
+    )
+    drift = round(target - sum(float(r["total"]) for r in spread), 2)
     if drift and spread:
         biggest = max(spread, key=lambda r: float(r["total"]))
         biggest["total"] = round(float(biggest["total"]) + drift, 2)
@@ -585,19 +593,12 @@ class RoofingExportService:
                         or (ev or {}).get(
                             "predominant_pitch", "")
                     )
-                    s_sub = sum(
-                        i.get("total", 0)
-                        for i in s_items
-                    )
-
-                    # Structure header
+                    # Structure header carries the measurements; the
+                    # price goes under the structure's own table, where
+                    # the gutter section also puts it.
                     s_info = f"{s_sf:,.0f} SF"
                     if s_pitch:
                         s_info += f" | {s_pitch}"
-                    s_info += (
-                        f" | Subtotal:"
-                        f" ${s_sub:,.2f}"
-                    )
                     elements.append(Paragraph(
                         f"<b>{s_label}</b>"
                         f"&nbsp;&nbsp;"
@@ -629,6 +630,27 @@ class RoofingExportService:
                         colors, TA_RIGHT,
                         TA_CENTER,
                     )
+
+                    # This structure's roofing total, under its own
+                    # table, so a multi-structure quote shows what each
+                    # building costs rather than one combined figure.
+                    sd_total = sum(
+                        i.get("total", 0) for i in display_items
+                    )
+                    if sd_total:
+                        elements.append(Spacer(1, 3))
+                        elements.append(Paragraph(
+                            f"{s_label} Roofing Total:"
+                            f" ${sd_total:,.2f}",
+                            ParagraphStyle(
+                                "RSubS",
+                                fontName="Helvetica-Bold",
+                                fontSize=9,
+                                textColor=colors.HexColor(
+                                    COLOR_MEDIUM),
+                                alignment=TA_RIGHT,
+                            ),
+                        ))
 
                     # Per-structure waste note
                     s_sq = (sr or {}).get(
@@ -662,6 +684,26 @@ class RoofingExportService:
                     colors, TA_RIGHT,
                     TA_CENTER,
                 )
+
+                # Roofing total. The gutter section has always printed
+                # one; without the same here a lumpsum quote shows a
+                # price for the gutters and none for the roof.
+                r_total = sum(
+                    i.get("total", 0) for i in display_items
+                )
+                if r_total:
+                    elements.append(Spacer(1, 3))
+                    elements.append(Paragraph(
+                        f"Roofing Total: ${r_total:,.2f}",
+                        ParagraphStyle(
+                            "RSub",
+                            fontName="Helvetica-Bold",
+                            fontSize=9,
+                            textColor=colors.HexColor(
+                                COLOR_MEDIUM),
+                            alignment=TA_RIGHT,
+                        ),
+                    ))
 
                 # Waste note
                 w_pct = estimate.get("waste_factor", 0.12)
