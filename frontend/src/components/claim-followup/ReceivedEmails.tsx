@@ -7,6 +7,7 @@ import {
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { emailIngestionService } from '../../services/emailIngestionService';
+import { fileService } from '../../services/fileService';
 import type { IngestionLog } from '../../types/emailIngestion';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -135,9 +136,7 @@ const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
         <Button
           size="small"
           icon={<DownloadOutlined />}
-          onClick={() =>
-            window.open(`/api/files/download/${r.file_id}?inline=true`, '_blank')
-          }
+          onClick={() => window.open(fileService.getInlineUrl(r.file_id!), '_blank')}
           style={{ fontSize: 11 }}
         >
           Open

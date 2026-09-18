@@ -36,6 +36,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { emailIngestionService } from '../services/emailIngestionService';
+import { fileService } from '../services/fileService';
 import { clientService, claimService } from '../services/clientService';
 import type { IngestionLog, IngestionStats, EmailAccount } from '../types/emailIngestion';
 import type { ClientListItem, Claim } from '../types/client';
@@ -244,7 +245,7 @@ const EmailIngestionDashboard: React.FC = () => {
               <Button
                 size="small"
                 icon={<FileTextOutlined />}
-                onClick={() => window.open(`/api/files/download/${record.file_id}?inline=true`, '_blank')}
+                onClick={() => window.open(fileService.getInlineUrl(record.file_id!), '_blank')}
               />
             </Tooltip>
           )}
@@ -390,7 +391,7 @@ const EmailIngestionDashboard: React.FC = () => {
                 <Button
                   size="small"
                   icon={<FileTextOutlined />}
-                  onClick={() => window.open(`/api/files/download/${pending.file_id}?inline=true`, '_blank')}
+                  onClick={() => window.open(fileService.getInlineUrl(pending.file_id!), '_blank')}
                 />
               </Tooltip>
             )}
@@ -575,7 +576,7 @@ const EmailIngestionDashboard: React.FC = () => {
                 <>
                   {' '}
                   <a
-                    href={`/api/files/download/${selectedLog.file_id}?inline=true`}
+                    href={fileService.getInlineUrl(selectedLog.file_id)}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
