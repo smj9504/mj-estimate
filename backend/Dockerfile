@@ -26,9 +26,9 @@ WORKDIR /app
 # config file" in the WeasyPrint PDF path. libpango can rasterize text but
 # has no font database and no fonts to resolve against, so every PDF was
 # rendered in a last-resort fallback face instead of the family the template
-# asked for. build.sh already installed fontconfig for the old Render
-# Python-buildpack deploy; that never got carried over when the service moved
-# to this Dockerfile (render.yaml -> dockerfilePath).
+# asked for. The old Render Python-buildpack deploy installed fontconfig from
+# its own build script; that never got carried over when the service moved to
+# this Dockerfile (render.yaml -> dockerfilePath).
 #
 # Templates request Microsoft/Apple families (Arial, Calibri, Palatino
 # Linotype, Helvetica Neue, Trebuchet MS, Segoe UI) that are not
