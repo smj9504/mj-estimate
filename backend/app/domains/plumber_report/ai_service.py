@@ -638,9 +638,11 @@ def _call_anthropic(prompt: str, model: str) -> Optional[str]:
     toward clean, code-fence-free JSON). Some models — e.g. claude-sonnet-5,
     a reasoning model — reject one or both with a 400 ("temperature is
     deprecated for this model" / "does not support assistant message
-    prefill"). Rather than hardcode per-model capability, each is dropped on
-    its own confirmed rejection and the call retried; this terminates in at
-    most 3 attempts since each retry strictly removes one of the two. The
+    prefill"); an older installed SDK can also reject `temperature` locally
+    as a TypeError, before any request is sent. Rather than hardcode
+    per-model capability, each is dropped on its own confirmed rejection and
+    the call retried; this terminates in at most 3 attempts since each retry
+    strictly removes one of the two. The
     resolved configuration is cached per-model so future calls skip straight
     to it (see _anthropic_model_capabilities).
     """
@@ -667,7 +669,11 @@ def _call_anthropic(prompt: str, model: str) -> Optional[str]:
             try:
                 response = client.messages.create(**kwargs)
                 break
-            except anthropic.BadRequestError as e:
+            except (anthropic.BadRequestError, TypeError) as e:
+                # TypeError: an older SDK whose Messages.create() signature has
+                # no `temperature` parameter at all rejects it locally, before
+                # any request is sent. Same remedy as the API's 400 — drop the
+                # parameter and retry — so it is handled on the same path.
                 msg = str(e).lower()
                 if use_temperature and "temperature" in msg:
                     logger.warning(f"{model} rejects 'temperature', retrying without it (caching for future calls)")
