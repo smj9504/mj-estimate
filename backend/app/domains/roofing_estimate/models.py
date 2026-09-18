@@ -141,7 +141,11 @@ class RoofingEstimate(Base, BaseModel):
     # { dumpster, driveway_protection, landscape_protection,
     #   permit, magnetic_sweep, re_nail_decking,
     #   pipe_boots_replace, vent_cap_replace,
-    #   lead_rrp, hoa_review, satellite_removal }
+    #   lead_rrp, hoa_review, satellite_removal,
+    #   wet_debris }
+    # wet_debris: tear-off expected to be waterlogged (rain, or cedar
+    # that has been holding damp). Raises the estimated debris weight,
+    # which is what sizes the dumpster — see dumpster.py.
 
     # ── Insurance Info ──
     insurance_info = Column(JSONB, nullable=True)
@@ -162,13 +166,49 @@ class RoofingEstimate(Base, BaseModel):
     target_total = Column(Float, nullable=True)         # desired grand total
     adjustment_factor = Column(Float, nullable=True)    # multiplier applied to line items
 
+    # ── Internal Material Cost (never exported to the customer) ──
+    material_cost_overrides = Column(JSONB, nullable=True)
+    # { <material key>: { unit_cost, taxable, note }, ... }
+    # Only materials whose actual supplier price differs from the
+    # default appear here; the rest fall back to material_cost.py.
+    material_tax_rate = Column(Float, nullable=True)
+    # null -> derive from state (MD/DC 6%, VA 5.3%)
+
+    # How the billed roof area was stepped up to whole bundles, so the
+    # quote can explain why 9.41 SQ is billed as 9.67.
+    # { measured_squares, waste_pct, squares_with_waste,
+    #   billed_squares, bundles }
+    square_rounding = Column(JSONB, nullable=True)
+
+    # ── Internal job cost (labor + disposal), never shown to customers ──
+    #
+    # What the job actually costs to run, so "예상 이익" means something.
+    # Material cost alone counted the crew and the dumpster as profit.
+    #
+    # { labor_per_sq, tearoff_per_sq, crew_name, crew_note,
+    #   disposal_method: "dumpster" | "truck",
+    #   tipping_fee_per_ton, haul_trips, haul_cost_per_trip }
+    #
+    # Crew rates differ per crew and are entered per estimate; nothing is
+    # assumed when this is empty — the analysis says what is missing
+    # rather than reporting a profit that ignores labor.
+    job_cost_inputs = Column(JSONB, nullable=True)
+
+    # Share of each line item's installed price treated as material, for
+    # markup and sales tax. Null -> per-category ratios in pricing.py;
+    # a value here overrides every category for this estimate.
+    material_portion_pct = Column(Float, nullable=True)
+
     # ── Calculated Totals ──
     roofing_subtotal = Column(Float, default=0)
     gutter_subtotal = Column(Float, default=0)
     subtotal = Column(Float, default=0)
+    material_cost_total = Column(Float, default=0)
+    labor_cost_total = Column(Float, default=0)
     markup_amount = Column(Float, default=0)
     overhead_amount = Column(Float, default=0)
     profit_amount = Column(Float, default=0)
+    contingency_amount = Column(Float, default=0)
     tax_amount = Column(Float, default=0)
     permit_fee = Column(Float, default=0)
     total = Column(Float, default=0)
@@ -232,6 +272,10 @@ class RoofingEstimateLineItem(Base, BaseModel):
     unit = Column(String(10), nullable=False)   # SQ, SF, LF, EA, LS
     unit_price = Column(Float, nullable=False)
     total = Column(Float, nullable=False)
+    # Material/labor split of `total`, used for markup and sales tax.
+    material_portion = Column(Float, nullable=True)
+    material_cost = Column(Float, nullable=True)
+    labor_cost = Column(Float, nullable=True)
     category = Column(String(50), nullable=True)
     # tearoff / decking / underlayment / ice_water / drip_edge /
     # shingle / ridge_cap / ventilation / flashing / gutter / misc
@@ -265,3 +309,123 @@ class RoofingEstimateHistory(Base, BaseModel):
     change_description = Column(String(500), nullable=True)
 
     estimate = relationship("RoofingEstimate", back_populates="history")
+
+
+class RoofingMaterialPrice(Base, BaseModel):
+    """Editable default supplier cost for one roofing material.
+
+    Seeded from the constants in material_cost.py, then maintained from
+    the UI as real supplier pricing changes. This is the *default* only:
+    each estimate snapshots the costs in force when it was created, so
+    editing a price here never rewrites the profit already recorded on
+    past jobs.
+    """
+    __tablename__ = "roofing_material_prices"
+    __table_args__ = (
+        Index("ix_roof_mat_prices_company", "company_id"),
+        Index("ix_roof_mat_prices_key", "material_key"),
+        {"extend_existing": True},
+    )
+
+    # Matches the row key produced by material_cost.py (e.g. "shingle",
+    # "underlayment"). Variant-bearing materials are suffixed with the
+    # spec that selects them, e.g. "shingle:architectural_std".
+    material_key = Column(String(100), nullable=False)
+    label = Column(String(255), nullable=False)
+    category = Column(String(50), nullable=False)
+    unit = Column(String(10), nullable=False)
+    unit_cost = Column(Float, nullable=False, default=0)
+    is_taxable = Column(Boolean, default=True)
+    # Soft delete: a retired material stays here so estimates that were
+    # priced with it keep resolving, it just leaves the pick lists.
+    is_active = Column(Boolean, default=True)
+    notes = Column(String(500), nullable=True)
+
+    # ── What this material actually is ──
+    # Grade alone ("architectural") does not price a roof: GAF Timberline
+    # HDZ and CertainTeed Landmark Pro are both architectural and cost
+    # different amounts, so the specific product is what gets quoted.
+    manufacturer = Column(String(100), nullable=True)   # GAF, CertainTeed
+    product_name = Column(String(200), nullable=True)   # "Timberline HDZ"
+    color = Column(String(100), nullable=True)
+    size_spec = Column(String(100), nullable=True)      # 'D-style 2"x2"'
+    supplier = Column(String(150), nullable=True)       # ABC Supply
+    sku = Column(String(100), nullable=True)            # supplier part no.
+    # ── Quantity formula ──
+    # Resolution order, most expressive first:
+    #   1. qty_formula  — spreadsheet expression, e.g.
+    #      "IF(valley_lf > 15, ROUNDUP(roof_area_waste*3.15),
+    #          ROUNDUP(roof_area_waste*3))"
+    #   2. qty_basis / coverage_per_unit / qty_minimum — the simple
+    #      "measurement ÷ coverage, rounded up" rule
+    #   3. the built-in packaging rule in material_cost.py
+    qty_formula = Column(Text, nullable=True)
+    qty_basis = Column(String(40), nullable=True)       # see material_basis
+    coverage_per_unit = Column(Float, nullable=True)    # measured per pack
+    coverage_unit = Column(String(10), nullable=True)   # SQ / LF / SF
+    qty_minimum = Column(Float, nullable=True)          # floor, e.g. 2 tubes
+    # Set when a user created this row rather than the seed catalog.
+    is_custom = Column(Boolean, default=False)
+
+    company_id = Column(
+        UUIDType(),
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    updated_by_id = Column(
+        UUIDType(),
+        ForeignKey("staff.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+
+class RoofingPricingSetting(Base, BaseModel):
+    """One editable number used by the estimate calculation.
+
+    The companion to RoofingMaterialPrice, for everything that is NOT a
+    supplier material cost: installed rates, pitch and story multipliers,
+    waste factors, sales tax, permit fees, and the fallback material
+    portions. Those all lived as constants in pricing.py, so changing one
+    meant a code deploy.
+
+    Rows are keyed by group + setting_key, matching the constant they
+    override (e.g. group "shingle_rate", key "architectural_std" ->
+    SHINGLE_RATES["architectural_std"]). A missing row falls through to
+    the pricing.py constant, so this table only ever holds deliberate
+    edits and an empty table changes nothing.
+
+    Scope, most specific first:
+      1. company_id = this company
+      2. company_id = NULL (global default)
+      3. the pricing.py constant
+
+    Material costs are deliberately absent: those belong to the price
+    book, which carries supplier, SKU and packaging that make no sense
+    here.
+    """
+    __tablename__ = "roofing_pricing_settings"
+    __table_args__ = (
+        Index("ix_roof_pricing_company", "company_id"),
+        Index("ix_roof_pricing_group", "setting_group"),
+        {"extend_existing": True},
+    )
+
+    setting_group = Column(String(50), nullable=False)
+    setting_key = Column(String(100), nullable=False)
+    value = Column(Float, nullable=False)
+    # Frozen copy of the pricing.py constant this row overrides, so the
+    # screen can show "was 750, now 800" and offer a reset without
+    # importing the module into the response.
+    default_value = Column(Float, nullable=True)
+    notes = Column(String(500), nullable=True)
+
+    company_id = Column(
+        UUIDType(),
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    updated_by_id = Column(
+        UUIDType(),
+        ForeignKey("staff.id", ondelete="SET NULL"),
+        nullable=True,
+    )

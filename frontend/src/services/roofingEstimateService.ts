@@ -11,6 +11,16 @@ import type {
   RoofingEstimateHistory,
   RoofingPricingInfo,
   EagleViewParseResult,
+  MaterialCostBreakdown,
+  MaterialCostUpdate,
+  FormulaValidation,
+  FormulaVariableDoc,
+  MaterialBasis,
+  MaterialPriceCreate,
+  MaterialPriceEntry,
+  MaterialPricePatch,
+  PricingSettingPatch,
+  PricingSettingsResponse,
 } from '../types/roofingEstimate';
 
 const BASE_URL = '/api/roofing-estimates';
@@ -190,6 +200,83 @@ export const roofingEstimateService = {
     link.click();
     link.remove();
     window.URL.revokeObjectURL(url);
+  },
+
+  // ── Internal material cost ──
+
+  async getMaterialCosts(id: string): Promise<MaterialCostBreakdown> {
+    const response = await api.get(`${BASE_URL}/${id}/material-costs`);
+    return response.data;
+  },
+
+  async updateMaterialCosts(
+    id: string,
+    data: MaterialCostUpdate,
+  ): Promise<MaterialCostBreakdown> {
+    const response = await api.put(`${BASE_URL}/${id}/material-costs`, data);
+    return response.data;
+  },
+
+  // ── Default material price book ──
+
+  async listMaterialPrices(
+    includeInactive = false,
+  ): Promise<MaterialPriceEntry[]> {
+    const response = await api.get(`${BASE_URL}/material-prices`, {
+      params: includeInactive ? { include_inactive: true } : undefined,
+    });
+    return response.data;
+  },
+
+  async listMaterialBases(): Promise<MaterialBasis[]> {
+    const response = await api.get(`${BASE_URL}/material-bases`);
+    return response.data;
+  },
+
+  async validateMaterialFormula(
+    formula: string,
+  ): Promise<FormulaValidation> {
+    const response = await api.post(
+      `${BASE_URL}/material-formula/validate`, { formula },
+    );
+    return response.data;
+  },
+
+  async getFormulaVariables(): Promise<{
+    variables: FormulaVariableDoc[]; functions: string[];
+  }> {
+    const response = await api.get(`${BASE_URL}/material-formula/variables`);
+    return response.data;
+  },
+
+  async createMaterialPrice(
+    data: MaterialPriceCreate,
+  ): Promise<MaterialPriceEntry> {
+    const response = await api.post(`${BASE_URL}/material-prices`, data);
+    return response.data;
+  },
+
+  async updateMaterialPrices(
+    prices: Record<string, MaterialPricePatch>,
+  ): Promise<MaterialPriceEntry[]> {
+    const response = await api.put(`${BASE_URL}/material-prices`, { prices });
+    return response.data;
+  },
+
+  // ── Calculation rates (everything except material cost) ──
+
+  async listPricingSettings(): Promise<PricingSettingsResponse> {
+    const response = await api.get(`${BASE_URL}/pricing-settings`);
+    return response.data;
+  },
+
+  async updatePricingSettings(
+    settings: PricingSettingPatch[],
+  ): Promise<PricingSettingsResponse> {
+    const response = await api.put(
+      `${BASE_URL}/pricing-settings`, { settings },
+    );
+    return response.data;
   },
 
   async exportWarrantyCert(id: string, options?: { completion_date?: string; address?: string }) {

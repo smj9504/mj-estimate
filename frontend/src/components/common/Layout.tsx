@@ -30,6 +30,7 @@ import {
   HomeOutlined,
   ShoppingCartOutlined,
   ColumnWidthOutlined,
+  DollarOutlined,
   PlusOutlined,
   AppstoreOutlined,
 } from '@ant-design/icons';
@@ -219,6 +220,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             key: '/siding-estimates',
             icon: <ColumnWidthOutlined />,
             label: 'Siding',
+          },
+          {
+            // Shared default supplier costs per purchase unit (BD/RL/PC).
+            key: '/roofing/material-prices',
+            icon: <DollarOutlined />,
+            label: '자재 기본 단가',
+          },
+          {
+            // Installed rates, multipliers, tax and fees — the pricing
+            // inputs that are not material cost.
+            key: '/roofing/pricing-settings',
+            icon: <SettingOutlined />,
+            label: '견적 계산 단가',
           },
         ],
       },

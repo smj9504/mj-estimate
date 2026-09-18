@@ -423,6 +423,11 @@ const RoofingEstimateDetail: React.FC = () => {
       overhead_pct: values.overhead_pct,
       profit_pct: values.profit_pct,
       contingency_pct: values.contingency_pct,
+      // Blank means "use the per-category material ratios".
+      material_portion_pct:
+        values.material_portion_pct === undefined || values.material_portion_pct === null || values.material_portion_pct === ''
+          ? null
+          : values.material_portion_pct,
       warranty_info: {
         labor_warranty_years: values.labor_warranty_years ?? 10,
         material_warranty_source: 'manufacturer',
@@ -648,6 +653,12 @@ const RoofingEstimateDetail: React.FC = () => {
             >
               PDF
             </Button>
+            <Button
+              icon={<DollarOutlined />}
+              onClick={() => navigate(`/roofing-estimates/${id}/material-cost`)}
+            >
+              Material Cost
+            </Button>
           </Space>
         </Col>
       </Row>
@@ -661,9 +672,14 @@ const RoofingEstimateDetail: React.FC = () => {
       {estimate.status !== 'draft' && (
         <Card style={{ marginBottom: 16 }}>
           <Row gutter={16}>
-            <Col xs={12} sm={8} md={3}><Statistic title="Subtotal" value={estimate.subtotal} prefix="$" precision={2} /></Col>
+            {/* Material tax is folded in: it has no line of its own
+                (the contractor, not the homeowner, owes it) but it is
+                part of the total, so these tiles must still sum. */}
+            <Col xs={12} sm={8} md={3}><Statistic title="Subtotal" value={(estimate.subtotal || 0) + (estimate.tax_amount || 0)} prefix="$" precision={2} /></Col>
             <Col xs={12} sm={8} md={3}><Statistic title="Markup" value={estimate.markup_amount} prefix="$" precision={2} /></Col>
-            <Col xs={12} sm={8} md={3}><Statistic title="Tax" value={estimate.tax_amount} prefix="$" precision={2} /></Col>
+            {(estimate.contingency_amount ?? 0) > 0 && (
+              <Col xs={12} sm={8} md={3}><Statistic title="Contingency" value={estimate.contingency_amount} prefix="$" precision={2} /></Col>
+            )}
             <Col xs={12} sm={8} md={3}><Statistic title="Permit" value={estimate.permit_fee} prefix="$" precision={2} /></Col>
             <Col xs={12} sm={8} md={4}>
               <Statistic
@@ -1766,6 +1782,15 @@ const RoofingEstimateDetail: React.FC = () => {
                   <Col xs={12} sm={8} md={4}><Form.Item label="Labor Markup %" name="labor_markup_pct"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={1} /></Form.Item></Col>
                   <Col xs={12} sm={8} md={4}><Form.Item label="Contingency %" name="contingency_pct"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={0.2} /></Form.Item></Col>
                   <Col xs={12} sm={8} md={4}><Form.Item label="O&P (Insurance)" name="include_overhead_profit" valuePropName="checked"><Switch /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}>
+                    <Form.Item
+                      label="Material Portion"
+                      name="material_portion_pct"
+                      tooltip="Share of each line item that counts as material, for markup and sales tax. Leave blank to use per-category ratios (tear-off 0%, shingle 45%, decking 70%...)."
+                    >
+                      <InputNumber style={{ width: '100%' }} step={0.05} min={0} max={1} placeholder="auto (by category)" />
+                    </Form.Item>
+                  </Col>
                 </Row>
                 <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_overhead_profit !== cur.include_overhead_profit}>
                   {({ getFieldValue }) => getFieldValue('include_overhead_profit') && (
@@ -2155,7 +2180,7 @@ const RoofingEstimateDetail: React.FC = () => {
                             <>
                               <Row justify="space-between" style={{ marginBottom: 4 }}>
                                 <Text>Roofing Subtotal</Text>
-                                <Text>${(estimate.roofing_subtotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
+                                <Text>${((estimate.roofing_subtotal || 0) + (estimate.markup_amount || 0) + (estimate.tax_amount || 0) + (estimate.contingency_amount || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
                               </Row>
                               <Row justify="space-between" style={{ marginBottom: 4 }}>
                                 <Text>Gutter Subtotal</Text>
@@ -2165,15 +2190,20 @@ const RoofingEstimateDetail: React.FC = () => {
                           ) : (
                             <Row justify="space-between" style={{ marginBottom: 4 }}>
                               <Text>Subtotal</Text>
-                              <Text>${(estimate.subtotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
+                              <Text>${((estimate.subtotal || 0) + (estimate.markup_amount || 0) + (estimate.tax_amount || 0) + (estimate.contingency_amount || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
                             </Row>
                           )}
-                          {(estimate.tax_amount || 0) > 0 && (
-                            <Row justify="space-between" style={{ marginBottom: 4 }}>
-                              <Text>Sales Tax</Text>
-                              <Text>${(estimate.tax_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
-                            </Row>
-                          )}
+                          {/* Markup, sales tax and contingency have no
+                              line of their own here, matching the PDF:
+                              a "Contingency $400" row reads to a
+                              customer as a surcharge added at the end,
+                              and in MD/VA the material tax is the
+                              contractor's own cost and cannot be billed
+                              on as tax. All three are inside the
+                              subtotal above — omitting them entirely
+                              would make these rows fail to sum to the
+                              total. The internal tiles at the top of
+                              the page still show each one. */}
                           {(estimate.permit_fee || 0) > 0 && (
                             <Row justify="space-between" style={{ marginBottom: 4 }}>
                               <Text>Permit Fee</Text>

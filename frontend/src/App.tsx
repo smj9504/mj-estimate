@@ -101,6 +101,9 @@ const SidingEstimateDetail = lazyWithRetry(() => import('./pages/SidingEstimateD
 // Roofing Estimate Pages
 const RoofingEstimateList = lazyWithRetry(() => import('./pages/RoofingEstimateList'));
 const RoofingEstimateDetail = lazyWithRetry(() => import('./pages/RoofingEstimateDetail'));
+const RoofingMaterialCost = lazyWithRetry(() => import('./pages/RoofingMaterialCost'));
+const RoofingMaterialPrices = lazyWithRetry(() => import('./pages/RoofingMaterialPrices'));
+const RoofingPricingSettings = lazyWithRetry(() => import('./pages/RoofingPricingSettings'));
 
 // Material Order Pages
 const MaterialOrderPage = lazyWithRetry(() => import('./pages/MaterialOrderPage'));
@@ -866,6 +869,47 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <RoofingEstimateDetail />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/roofing-estimates/:id/material-cost",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RoofingMaterialCost />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    // Shared across every roofing estimate: the per-unit cost of a
+    // bundle/roll/piece. Quantities live on the estimate screens.
+    path: "/roofing/material-prices",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RoofingMaterialPrices />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    // The other half of the pricing inputs: installed rates, multipliers,
+    // tax and permit fees. Material cost is deliberately not editable
+    // here — that stays on /roofing/material-prices.
+    path: "/roofing/pricing-settings",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RoofingPricingSettings />
           </Suspense>
         </Layout>
       </ProtectedRoute>

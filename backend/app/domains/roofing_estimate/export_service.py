@@ -129,6 +129,80 @@ def _get_warranty_label(years: int) -> str:
     return f"{years}-Year Premium Workmanship Protection Plan"
 
 
+def _with_hidden_amounts_distributed(estimate):
+    """Line items with markup, tax and contingency folded into them.
+
+    A quote that lists "Contingency $400" reads to a homeowner as a
+    surcharge invented at the end — the same reaction a "Sales Tax" line
+    provokes. These are not separate charges: they are part of what the
+    work costs, and a contractor normally carries them inside the unit
+    price.
+
+    So they are spread across the line items in proportion to each
+    item's own total, and the printed unit price is recomputed from the
+    adjusted amount. The customer sees only the work and its price.
+
+    Deliberately NOT touched:
+
+      * the permit line — a pass-through fee, quoted at cost, so
+        marking it up would misstate it
+      * the stored estimate — this is presentation only. `subtotal`,
+        `contingency_amount` and the internal margin analysis keep
+        their real values; nothing about what the job earns changes.
+
+    Returns the original list untouched when there is nothing to
+    distribute, so an estimate without these amounts prints as before.
+    """
+    items = estimate.get("line_items") or []
+    hidden = (
+        (estimate.get("markup_amount") or 0)
+        + (estimate.get("tax_amount") or 0)
+        + (estimate.get("contingency_amount") or 0)
+    )
+    if not items or hidden <= 0:
+        return items
+
+    # The permit is quoted at cost and carries none of this.
+    def _is_permit(li):
+        return str(li.get("description", "")).startswith("Building permit")
+
+    base = sum(
+        float(li.get("total") or 0) for li in items if not _is_permit(li)
+    )
+    if base <= 0:
+        return items
+
+    factor = (base + hidden) / base
+
+    adjusted = []
+    for li in items:
+        if _is_permit(li):
+            adjusted.append(li)
+            continue
+        row = dict(li)
+        total = round(float(li.get("total") or 0) * factor, 2)
+        row["total"] = total
+        qty = float(li.get("quantity") or 0)
+        if qty:
+            row["unit_price"] = round(total / qty, 2)
+        adjusted.append(row)
+
+    # Rounding each line independently drifts from the grand total by a
+    # few cents; put the difference on the largest line so the printed
+    # column still sums to the printed total.
+    spread = [r for r in adjusted if not _is_permit(r)]
+    drift = round(
+        (base + hidden) - sum(float(r["total"]) for r in spread), 2)
+    if drift and spread:
+        biggest = max(spread, key=lambda r: float(r["total"]))
+        biggest["total"] = round(float(biggest["total"]) + drift, 2)
+        qty = float(biggest.get("quantity") or 0)
+        if qty:
+            biggest["unit_price"] = round(float(biggest["total"]) / qty, 2)
+
+    return adjusted
+
+
 class RoofingExportService:
     """Generate PDF estimates for roofing projects."""
 
@@ -449,7 +523,7 @@ class RoofingExportService:
         #  LINE ITEMS TABLE (supports multi-structure)
         # ────────────────────────────────────────────────
         is_lumpsum = pricing_mode == "lumpsum"
-        line_items = estimate.get("line_items", [])
+        line_items = _with_hidden_amounts_distributed(estimate)
         struct_results = (
             estimate.get("structure_results") or []
         )
@@ -733,6 +807,17 @@ class RoofingExportService:
             textColor=colors.white, alignment=TA_RIGHT,
         )
 
+        # Markup, sales tax and contingency have no line of their own on
+        # a customer-facing quote — they are already inside the unit
+        # prices above (see _with_hidden_amounts_distributed). The
+        # subtotal printed here is therefore the sum of the ADJUSTED line
+        # items, not the stored `subtotal`, so the column adds up.
+        hidden_in_subtotal = (
+            (estimate.get("markup_amount") or 0)
+            + (estimate.get("tax_amount") or 0)
+            + (estimate.get("contingency_amount") or 0)
+        )
+
         totals_rows = []
         if not is_lumpsum:
             gutter_sub = estimate.get("gutter_subtotal", 0) or 0
@@ -740,7 +825,9 @@ class RoofingExportService:
             if gutter_separate and gutter_sub > 0:
                 totals_rows.append([
                     Paragraph("Roofing Subtotal", s_tot_label),
-                    Paragraph(f"${roofing_sub:,.2f}", s_tot_value),
+                    Paragraph(
+                        f"${roofing_sub + hidden_in_subtotal:,.2f}",
+                        s_tot_value),
                 ])
                 totals_rows.append([
                     Paragraph("Gutter Subtotal", s_tot_label),
@@ -749,9 +836,10 @@ class RoofingExportService:
             else:
                 totals_rows.append([
                     Paragraph("Subtotal", s_tot_label),
-                    Paragraph(f"${estimate.get('subtotal', 0):,.2f}", s_tot_value),
+                    Paragraph(
+                        f"${(estimate.get('subtotal', 0) or 0) + hidden_in_subtotal:,.2f}",
+                        s_tot_value),
                 ])
-            # Markup is included in unit prices — not shown separately
             if estimate.get("include_overhead_profit"):
                 totals_rows.append([
                     Paragraph("Overhead", s_tot_label),
@@ -763,11 +851,13 @@ class RoofingExportService:
                     Paragraph(f"${estimate.get('profit_amount', 0):,.2f}",
                               s_tot_value),
                 ])
-            totals_rows.append([
-                Paragraph("Sales Tax", s_tot_label),
-                Paragraph(f"${estimate.get('tax_amount', 0):,.2f}",
-                          s_tot_value),
-            ])
+            # Sales tax is deliberately NOT shown. In MD and VA a
+            # roofing contractor is the final consumer of the materials
+            # it affixes to the building: it pays the tax to its
+            # supplier and may not bill the homeowner for "tax". The
+            # amount stays inside the price — it is a cost of the job,
+            # not a charge to pass through — so the quote shows the
+            # price it is part of and nothing labelled tax.
             if estimate.get("permit_fee", 0) > 0:
                 totals_rows.append([
                     Paragraph("Permit Fee", s_tot_label),
@@ -882,12 +972,34 @@ class RoofingExportService:
         # ────────────────────────────────────────────────
         #  NOTES (if any)
         # ────────────────────────────────────────────────
+        note_lines = []
+
+        # Why the billed area is not simply area x waste. Shingles come
+        # three bundles to a square and a part bundle cannot be bought,
+        # so the quantity steps up to the next third. Without this the
+        # customer sees 9.67 SQ against a 9.4 SQ roof and has no way to
+        # tell whether it is a mistake.
+        rounding = estimate.get("square_rounding") or {}
+        if rounding.get("billed_squares"):
+            note_lines.append(
+                f"Roof area {rounding['measured_squares']:.2f} SQ "
+                f"+ {rounding['waste_pct']}% waste "
+                f"= {rounding['squares_with_waste']:.2f} SQ, billed as "
+                f"{rounding['billed_squares']:.2f} SQ. Shingles are sold "
+                f"in bundles covering 1/3 SQ each, so the quantity is "
+                f"rounded up to the next whole bundle "
+                f"({rounding['bundles']} bundles)."
+            )
+
         est_notes = (estimate.get("notes") or "").strip()
         if est_notes:
+            note_lines.extend(
+                ln.strip() for ln in est_notes.split("\n") if ln.strip())
+
+        if note_lines:
             elements.append(Spacer(1, 10))
             elements.append(Paragraph("NOTES", s_section))
-            for line in est_notes.split("\n"):
-                line = line.strip()
+            for line in note_lines:
                 if line:
                     elements.append(Paragraph(
                         f"\u2022 {line}",
@@ -1465,7 +1577,7 @@ class RoofingExportService:
         loc = ", ".join(filter(None, [city, state, zipcode]))
 
         # Build line items / sections
-        line_items = estimate.get("line_items") or []
+        line_items = _with_hidden_amounts_distributed(estimate)
         is_lumpsum = pricing_mode == "lumpsum"
 
         if is_lumpsum:
@@ -1521,29 +1633,26 @@ class RoofingExportService:
                     "items": items,
                     "subtotal": sec_sub,
                 })
-            items_subtotal = estimate.get(
-                "subtotal", 0
-            ) or 0
+            # Sum of the ADJUSTED lines, not the stored subtotal:
+            # markup, tax and contingency are inside them now.
+            items_subtotal = sum(
+                sec["subtotal"] for sec in sections
+            )
 
         # Build adjustments
         adjustments = []
-        markup = estimate.get("markup_amount", 0) or 0
+        # markup / tax / contingency are distributed into the line
+        # items above and so have no adjustment row of their own.
         overhead = estimate.get("overhead_amount", 0) or 0
         profit = estimate.get("profit_amount", 0) or 0
         permit = estimate.get("permit_fee", 0) or 0
 
         if not is_lumpsum:
             order = 1
-            if markup:
-                adjustments.append({
-                    "name": "Material & Labor Markup",
-                    "percentage": 0,
-                    "fixed_amount": markup,
-                    "type": "add",
-                    "order": order,
-                    "amount": markup,
-                })
-                order += 1
+            # Markup and contingency are already inside the line item
+            # prices above (see _with_hidden_amounts_distributed), so
+            # they get no adjustment row — listing them would both
+            # double-count and read to the customer as a surcharge.
             if overhead:
                 adjustments.append({
                     "name": "Overhead",
@@ -1575,7 +1684,10 @@ class RoofingExportService:
                 })
 
         total = estimate.get("total", 0) or 0
-        tax = estimate.get("tax_amount", 0) or 0
+        # No tax line on the invoice either, for the same reason as the
+        # estimate: the material tax is the contractor's own cost, paid
+        # at the supplier and already inside `total`. Billing it as tax
+        # would misstate it to the homeowner.
 
         # Insurance info
         ins = estimate.get("insurance_info") or {}
@@ -1615,7 +1727,7 @@ class RoofingExportService:
             "adjustments": adjustments,
             "tax_rate": 0,
             "tax_method": "fixed",
-            "tax_amount": tax,
+            "tax_amount": 0,
             "total": total,
             "payments": (
                 [{

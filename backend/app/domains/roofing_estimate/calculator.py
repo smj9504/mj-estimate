@@ -15,32 +15,17 @@ Phases:
 """
 
 import logging
-import math
 from typing import Any, Dict, List, Optional
 
-from .pricing import (
-    DECKING_RATES,
-    DRIP_EDGE_RATE,
-    FLASHING_RATES,
-    ICE_WATER_SHIELD_RATE,
-    MATERIAL_PORTION,
-    MISC_RATES,
-    PENETRATION_RATES,
-    PIPE_BOOT_RATES,
-    RIDGE_CAP_RATE,
-    SHINGLE_RATES,
-    SKYLIGHT_REPLACEMENT_RATES,
-    TEAROFF_RATES,
-    UNDERLAYMENT_RATES,
-    VENTILATION_RATES,
-    get_gutter_rate,
-    get_guard_rate,
-    get_permit_fee,
-    get_pitch_multiplier,
-    get_sales_tax_rate,
-    get_story_multiplier,
-    get_waste_factor,
+from .dumpster import select_dumpsters
+from .material_packaging import round_squares_to_bundle
+from .material_portion import (
+    apply_material_portions,
+    derive_material_portions,
+    portion_warnings,
 )
+from .pricing import get_material_portion
+from .rate_resolver import DEFAULT_RATES, Rates
 
 logger = logging.getLogger(__name__)
 
@@ -56,11 +41,27 @@ PHASE_LABELS = {
 }
 
 
-def calculate_estimate(estimate) -> Dict[str, Any]:
+def calculate_estimate(
+    estimate, material_cost_rows: Optional[List[Dict]] = None,
+    rate_overrides: Optional[Dict[str, float]] = None,
+) -> Dict[str, Any]:
     """Calculate all line items for a roofing estimate.
 
     Supports multi-structure: if eagleview_data has >1 structure,
     generates separate line items per structure with structure_index.
+
+    `material_cost_rows` are the supplier cost rows from
+    calculate_material_costs(). When given, each line item's material /
+    labor split is derived from what the material actually costs instead
+    of the fixed ratios in pricing.py, so a price-book edit moves markup
+    and sales tax. Installed rates — and so the subtotal — are unchanged
+    either way. Omit it and the ratios apply as before.
+
+    `rate_overrides` are the edited calculation settings from
+    pricing_settings.load_settings() — installed rates, multipliers,
+    waste factors, tax and permit fees. Anything not overridden falls
+    back to the pricing.py constant, so omitting this prices exactly as
+    the code always did.
 
     Returns:
         Dict with line_items, structure_results,
@@ -76,7 +77,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     manual_structures = estimate.manual_structures or []
 
     # Common estimate-level config
-    config = _build_config(estimate)
+    config = _build_config(estimate, material_cost_rows, rate_overrides)
 
     if len(structures) > 1:
         return _calculate_multi_structure(
@@ -90,10 +91,16 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         return _calculate_single_structure(estimate, config)
 
 
-def _build_config(estimate) -> Dict[str, Any]:
+def _build_config(
+    estimate, material_cost_rows: Optional[List[Dict]] = None,
+    rate_overrides: Optional[Dict[str, float]] = None,
+) -> Dict[str, Any]:
     """Extract shared config from estimate ORM object."""
     return {
         "state": estimate.state or "MD",
+        # County/city, for the NoVA tax add-on and the permit rules.
+        "locality": getattr(estimate, "locality", None) or (
+            (estimate.hidden_costs or {}).get("locality")),
         "year_built": estimate.year_built or 2000,
         "stories": estimate.stories or 1,
         "full_tearoff": estimate.full_tearoff,
@@ -116,6 +123,18 @@ def _build_config(estimate) -> Dict[str, Any]:
         "overhead_pct": estimate.overhead_pct if estimate.overhead_pct is not None else 0.10,
         "profit_pct": estimate.profit_pct if estimate.profit_pct is not None else 0.10,
         "contingency_pct": estimate.contingency_pct if estimate.contingency_pct is not None else 0.05,
+        # None -> per-category ratios; a value overrides every category.
+        "material_portion_pct": getattr(
+            estimate, "material_portion_pct", None),
+        # Supplier cost rows, when the caller has resolved a price book.
+        # Absent -> the per-category ratios in pricing.py still decide the
+        # material/labor split, so calculate_estimate() keeps working for
+        # callers that have no database session (tests, PDF re-renders).
+        "material_cost_rows": material_cost_rows,
+        # Resolves every installed rate, multiplier, tax and fee to its
+        # edited value, falling through to the pricing.py constant when
+        # nobody has changed it.
+        "rates": Rates(rate_overrides),
         "target_total": getattr(estimate, "target_total", None),
         "roof_penetrations": getattr(estimate, "roof_penetrations", None) or [],
         "skylight_replacements": getattr(estimate, "skylight_replacements", None) or [],
@@ -124,6 +143,7 @@ def _build_config(estimate) -> Dict[str, Any]:
 
 def _calculate_single_structure(estimate, config: Dict) -> Dict[str, Any]:
     """Original single-structure calculation."""
+    rates = config.get("rates") or DEFAULT_RATES
     sf = estimate.total_sf or 0
     measurements = {
         "total_sf": sf,
@@ -138,25 +158,30 @@ def _calculate_single_structure(estimate, config: Dict) -> Dict[str, Any]:
         "penetration_count": estimate.penetration_count or 0,
         "skylight_count": estimate.skylight_count or 0,
         "chimney_count": estimate.chimney_count or 0,
-        "waste_factor": estimate.waste_factor or get_waste_factor(
+        "waste_factor": estimate.waste_factor or rates.waste_factor(
             estimate.roof_complexity or "hip"),
         "roof_complexity": estimate.roof_complexity or "hip",
     }
 
-    items, warnings = _generate_line_items(
+    items, warnings, dumpster, rounding = _generate_line_items(
         measurements, config, structure_index=0,
     )
     return _finalize_totals(items, warnings, config,
-                            structure_results=None)
+                            structure_results=None,
+                            dumpster=dumpster,
+                            rounding=rounding)
 
 
 def _calculate_manual_multi_structure(
     estimate, manual_structures: List[Dict], config: Dict,
 ) -> Dict[str, Any]:
     """Calculate per-structure from manually entered measurements."""
+    rates = config.get("rates") or DEFAULT_RATES
     all_items: List[Dict] = []
     all_warnings: List[str] = []
     structure_results: List[Dict] = []
+    dumpster: Optional[Dict] = None
+    rounding: Optional[Dict] = None
 
     # Pre-calc combined squares for dumpster
     total_all_sf = sum(s.get("total_sf", 0) for s in manual_structures)
@@ -178,7 +203,9 @@ def _calculate_manual_multi_structure(
             continue
 
         complexity = s.get("roof_complexity", estimate.roof_complexity or "hip")
-        waste = s.get("waste_factor", estimate.waste_factor or get_waste_factor(complexity))
+        waste = s.get(
+            "waste_factor",
+            estimate.waste_factor or rates.waste_factor(complexity))
 
         measurements = {
             "total_sf": round(total_sf, 1),
@@ -238,7 +265,7 @@ def _calculate_manual_multi_structure(
                 "dumpster": False,
             }
 
-        items, warnings = _generate_line_items(
+        items, warnings, s_dumpster, s_rounding = _generate_line_items(
             measurements, struct_config, structure_index=s_idx)
 
         struct_subtotal = sum(it["total"] for it in items)
@@ -256,9 +283,14 @@ def _calculate_manual_multi_structure(
 
         all_items.extend(items)
         all_warnings.extend(warnings)
+        if s_dumpster and dumpster is None:
+            dumpster = s_dumpster
+        if s_rounding and rounding is None:
+            rounding = s_rounding
 
     return _finalize_totals(all_items, all_warnings, config,
-                            structure_results=structure_results)
+                            structure_results=structure_results,
+                            dumpster=dumpster, rounding=rounding)
 
 
 def _calculate_multi_structure(
@@ -266,9 +298,11 @@ def _calculate_multi_structure(
     ev_lines: List[Dict], config: Dict,
 ) -> Dict[str, Any]:
     """Calculate per-structure, then combine."""
+    rates = config.get("rates") or DEFAULT_RATES
     all_items: List[Dict] = []
     all_warnings: List[str] = []
     structure_results: List[Dict] = []
+    dumpster: Optional[Dict] = None
 
     selected_faces_set = set(estimate.selected_faces or [])
 
@@ -354,7 +388,7 @@ def _calculate_multi_structure(
         ]
 
         complexity = struct.get("complexity", "hip")
-        waste = get_waste_factor(complexity)
+        waste = rates.waste_factor(complexity)
 
         measurements = {
             "total_sf": round(total_sf, 1),
@@ -420,7 +454,7 @@ def _calculate_multi_structure(
                 "dumpster": False,
             }
 
-        items, warnings = _generate_line_items(
+        items, warnings, s_dumpster, s_rounding = _generate_line_items(
             measurements, struct_config, structure_index=s_idx)
 
         struct_subtotal = sum(it["total"] for it in items)
@@ -438,9 +472,14 @@ def _calculate_multi_structure(
 
         all_items.extend(items)
         all_warnings.extend(warnings)
+        if s_dumpster and dumpster is None:
+            dumpster = s_dumpster
+        if s_rounding and rounding is None:
+            rounding = s_rounding
 
     return _finalize_totals(all_items, all_warnings, config,
-                            structure_results=structure_results)
+                            structure_results=structure_results,
+                            dumpster=dumpster, rounding=rounding)
 
 
 def _generate_line_items(
@@ -453,16 +492,38 @@ def _generate_line_items(
     line_items: List[Dict] = []
     warnings: List[str] = []
     order = 0
+    rates = config.get("rates") or DEFAULT_RATES
+    # Set when a dumpster is billed, so the estimate can show why that
+    # size was chosen rather than just the line item.
+    dumpster_pick: Optional[Dict] = None
+    # Set when the billed area was stepped up to whole bundles, so the
+    # quote can explain why 9.41 SQ is billed as 9.67.
+    rounding_note: Optional[Dict] = None
 
     total_sf = m["total_sf"]
     squares = m["squares"]
     pitch = m["predominant_pitch"]
-    pitch_mult = get_pitch_multiplier(pitch)
-    story_mult = get_story_multiplier(config["stories"])
+    pitch_mult = rates.pitch_multiplier(pitch)
+    story_mult = rates.story_multiplier(config["stories"])
 
     complexity = m.get("roof_complexity", "hip")
-    waste = m.get("waste_factor", get_waste_factor(complexity))
-    squares_with_waste = squares * (1 + waste)
+    waste = m.get("waste_factor", rates.waste_factor(complexity))
+    # Shingles are sold by the bundle, three to a square, so the billed
+    # area steps in thirds: 10, 10.33, 10.67, 11. Billing the raw
+    # 27.50 SQ would be 82.5 bundles — half a bundle nobody can buy, and
+    # 0.17 SQ less than the material side already orders.
+    squares_raw = squares * (1 + waste)
+    squares_with_waste = round_squares_to_bundle(squares_raw)
+    if abs(squares_with_waste - squares_raw) > 0.005:
+        rounding_note = {
+            "measured_squares": round(squares, 2),
+            "waste_pct": round(waste * 100),
+            "squares_with_waste": round(squares_raw, 2),
+            "billed_squares": round(squares_with_waste, 2),
+            "bundles": int(round(squares_with_waste * 3)),
+        }
+    else:
+        rounding_note = None
 
     year_built = config["year_built"]
     needs_lead_rrp = year_built < 1978
@@ -497,10 +558,15 @@ def _generate_line_items(
             and (not is_multi or structure_index == 0))
     ]
 
+    mp_override = config.get("material_portion_pct")
+
     def _add(phase, desc, qty, unit, rate, cost, cat, xact=None):
         nonlocal order
-        line_items.append(_item(phase, desc, qty, unit, rate, cost,
-                                cat, xact, order, structure_index))
+        line_items.append(_item(
+            phase, desc, qty, unit, rate, cost, cat, xact, order,
+            structure_index,
+            material_portion=rates.material_portion(cat, mp_override),
+        ))
         order += 1
 
     # ── PHASE 1: Setup & Tear-off ──
@@ -510,27 +576,65 @@ def _generate_line_items(
         material = config["existing_material"]
 
         if material == "cedar_shake":
-            rate = TEAROFF_RATES["cedar_shake_per_sq"]
+            rate = rates.tearoff("cedar_shake_per_sq")
             desc = f"Tear-off cedar shake ({layers} layer)"
         else:
             rate_key = f"{layers}_layer_per_sq"
-            rate = TEAROFF_RATES.get(rate_key, TEAROFF_RATES["1_layer_per_sq"])
+            rate = rates.tearoff(
+                rate_key, rates.tearoff("1_layer_per_sq"))
             desc = f"Tear-off asphalt shingles ({layers} layer)"
 
         _add(1, desc, squares, "SQ", rate,
              squares * rate, "tearoff", "RFG 220")
 
     if hidden.get("dumpster", True):
-        layers = config["layer_count"]
-        # Use combined squares if provided (multi-structure)
+        # Size the can by what the tear-off actually weighs rather than
+        # billing one standard size: cedar shake and multi-layer roofs
+        # need a bigger can, a small single-layer roof a smaller one.
+        # Use combined squares if provided (multi-structure).
         dump_sq = config.get("_dumpster_squares", squares)
-        effective_squares = dump_sq * layers
-        dumpster_count = max(
-            1, math.ceil(effective_squares / 30)
+        pick = select_dumpsters(
+            squares=dump_sq,
+            # "asphalt" is generic; when the existing roof is known to
+            # be architectural the debris is materially heavier.
+            material=(
+                config["existing_material"]
+                if config["existing_material"] != "asphalt"
+                else (hidden.get("existing_shingle_type") or "asphalt")
+            ),
+            layers=config["layer_count"],
+            # Decking replaced comes off with the roof; the estimate
+            # already knows how many sheets it billed for.
+            decking_sheets=max(
+                0,
+                (decking.get("estimated_sheets_needed", 0) or 0)
+                - (decking.get("free_sheets_included", 2) or 0),
+            ) if decking.get("estimated_sheets_needed") else 0,
+            wet=bool(hidden.get("wet_debris")),
         )
-        rate = TEAROFF_RATES["dumpster_20yard"]
-        _add(1, f"Dumpster 20-yard ({dumpster_count}x)",
-             dumpster_count, "EA", rate, dumpster_count * rate, "tearoff")
+        if pick["cans"]:
+            weight = pick["weight"]["total_lb"]
+            # A split load bills each size on its own line: "30 yard +
+            # 10 yard" is what gets ordered and what the invoice shows.
+            counts: Dict[int, int] = {}
+            for can in pick["cans"]:
+                counts[can["yards"]] = counts.get(can["yards"], 0) + 1
+            first = True
+            for yards, qty in sorted(counts.items(), reverse=True):
+                rate = rates.tearoff(f"dumpster_{yards}yard")
+                desc = f"Dumpster {yards} yard ({qty}x)"
+                if first:
+                    desc += f" — est. {weight:,.0f} lb debris"
+                    first = False
+                _add(1, desc, qty, "EA", rate, qty * rate, "tearoff")
+            dumpster_pick = pick
+            if pick.get("capacity_used_pct", 0) > 95:
+                warnings.append(
+                    f"Estimated debris {weight:,.0f} lb is "
+                    f"{pick['capacity_used_pct']:.0f}% of the container "
+                    f"capacity. Overage charges may apply if the actual "
+                    f"tear-off is heavier than estimated."
+                )
 
     # ── PHASE 2: Decking ──
 
@@ -538,7 +642,7 @@ def _generate_line_items(
     free_sheets = decking.get("free_sheets_included", 2)
     est_sheets = decking.get("estimated_sheets_needed", 0)
     deck_rate = decking.get("rate_per_sheet",
-                            DECKING_RATES.get(deck_material, 90.0))
+                            rates.decking(deck_material))
 
     if est_sheets > free_sheets:
         billable = est_sheets - free_sheets
@@ -549,7 +653,7 @@ def _generate_line_items(
 
     if decking.get("re_nail_existing", False):
         re_nail_sf = decking.get("re_nail_sf", total_sf)
-        rate = DECKING_RATES["re_nail_per_sf"]
+        rate = rates.decking("re_nail_per_sf")
         _add(2, "Re-nail existing decking", re_nail_sf, "SF", rate,
              re_nail_sf * rate, "decking")
 
@@ -557,13 +661,13 @@ def _generate_line_items(
 
     underlay_type = underlay.get("type", "synthetic")
     underlay_rate = underlay.get("rate_per_sf",
-                                 UNDERLAYMENT_RATES.get(underlay_type, 0.65))
+                                 rates.underlayment(underlay_type))
     underlay_sf = total_sf * 1.05
     _add(3, f"Underlayment ({underlay_type})",
          round(underlay_sf, 0), "SF", underlay_rate,
          underlay_sf * underlay_rate, "underlayment", "RFG UNDLAY")
 
-    iw_rate = ice_water.get("rate_per_sf", ICE_WATER_SHIELD_RATE)
+    iw_rate = ice_water.get("rate_per_sf", rates.ice_water)
     eaves_width = ice_water.get("eaves_width_ft", 3)
     iw_total_sf = (eave_lf * eaves_width + valley_lf * 6 + penetrations * 4)
     if iw_total_sf > 0:
@@ -574,12 +678,12 @@ def _generate_line_items(
 
     drip_lf = eave_lf + rake_lf
     if drip_lf > 0:
-        _add(4, "Drip edge (aluminum)", drip_lf, "LF", DRIP_EDGE_RATE,
-             drip_lf * DRIP_EDGE_RATE, "drip_edge", "RFG DRIP")
+        _add(4, "Drip edge (aluminum)", drip_lf, "LF", rates.drip_edge,
+             drip_lf * rates.drip_edge, "drip_edge", "RFG DRIP")
 
     flash_lf = flash.get("step_flashing_lf", step_flash_lf)
     if flash_lf > 0:
-        rate = FLASHING_RATES["step_flashing_per_lf"]
+        rate = rates.flashing("step_flashing_per_lf")
         _add(4, "Step flashing", flash_lf, "LF", rate,
              flash_lf * rate, "flashing", "RFG STEP")
 
@@ -588,7 +692,7 @@ def _generate_line_items(
         cricket_list = flash.get("chimney_cricket", [])
         has_cricket = cricket_list[i] if i < len(cricket_list) else False
         rk = "chimney_large" if has_cricket else "chimney_small"
-        rate = FLASHING_RATES[rk]
+        rate = rates.flashing(rk)
         desc = f"Chimney flashing #{i+1}"
         if has_cricket:
             desc += " (w/ cricket)"
@@ -596,7 +700,7 @@ def _generate_line_items(
 
     sky_ct = flash.get("skylight_flashing_kits", skylights)
     if sky_ct > 0:
-        rate = FLASHING_RATES["skylight_flashing_kit"]
+        rate = rates.flashing("skylight_flashing_kit")
         _add(4, "Skylight flashing kit", sky_ct, "EA", rate,
              sky_ct * rate, "flashing")
 
@@ -607,7 +711,7 @@ def _generate_line_items(
             p_qty = pen.get("quantity", 1)
             if p_qty <= 0:
                 continue
-            rate = PENETRATION_RATES.get(p_type, 65.0)
+            rate = rates.penetration(p_type)
             label = p_type.replace("_", " ").title()
             notes = pen.get("notes", "")
             desc = f"{label}"
@@ -620,7 +724,7 @@ def _generate_line_items(
         pipe_ct = flash.get("pipe_boots", penetrations)
         boot_type = flash.get("pipe_boot_type", "lifetime")
         if pipe_ct > 0:
-            rate = PIPE_BOOT_RATES.get(boot_type, 65.0)
+            rate = rates.pipe_boot(boot_type)
             _add(4, f"Pipe boots ({boot_type})", pipe_ct, "EA",
                  rate, pipe_ct * rate, "flashing", "RFG VENTPIPE")
 
@@ -628,10 +732,10 @@ def _generate_line_items(
 
     shingle_type = shingle.get("type", "architectural_std")
     shingle_rate = shingle.get("rate_per_square",
-                               SHINGLE_RATES.get(shingle_type, 550.0))
+                               rates.shingle(shingle_type))
     site_ops_total = (
-        MISC_RATES["driveway_protection"]
-        + MISC_RATES["magnetic_sweep"]
+        rates.misc("driveway_protection")
+        + rates.misc("magnetic_sweep")
     )
     site_ops_per_sq = site_ops_total / max(squares_with_waste, 1)
     adjusted_rate = (shingle_rate + site_ops_per_sq) * pitch_mult * story_mult
@@ -643,15 +747,20 @@ def _generate_line_items(
     desc = f"Shingle install - {shingle_type.replace('_', ' ').title()}"
     if product:
         desc += f" ({brand} {product})".strip()
-    desc += f" [{round(squares, 1)} SQ + {waste_pct}% waste]"
+    desc += (
+        f" [{squares:.2f} SQ + {waste_pct}% waste"
+        f" = {squares_raw:.2f} → {squares_with_waste:.2f} SQ]"
+        if abs(squares_with_waste - squares_raw) > 0.005
+        else f" [{squares:.2f} SQ + {waste_pct}% waste]"
+    )
 
     _add(5, desc, round(squares_with_waste, 2), "SQ",
          round(adjusted_rate, 2), cost, "shingle", "RFG 300")
 
     cap_lf = ridge_lf + hip_lf
     if cap_lf > 0:
-        _add(5, "Hip & ridge cap shingle", cap_lf, "LF", RIDGE_CAP_RATE,
-             cap_lf * RIDGE_CAP_RATE, "ridge_cap", "RFG RIDGC")
+        _add(5, "Hip & ridge cap shingle", cap_lf, "LF", rates.ridge_cap,
+             cap_lf * rates.ridge_cap, "ridge_cap", "RFG RIDGC")
 
     # ── PHASE 6: Ventilation & Penetrations ──
 
@@ -659,20 +768,20 @@ def _generate_line_items(
         vent_lf = vent.get("ridge_vent_lf", ridge_lf)
         rv_type = vent.get("ridge_vent_type", "shingle_over")
         rate_key = f"ridge_vent_{rv_type}_per_lf"
-        rate = VENTILATION_RATES.get(rate_key, 11.0)
+        rate = rates.ventilation(rate_key)
         rv_label = rv_type.replace("_", " ").title()
         _add(6, f"Continuous ridge vent — {rv_label}", vent_lf,
              "LF", rate, vent_lf * rate, "ventilation", "RFG RVENT")
 
     static_ct = vent.get("static_vents", 0)
     if static_ct > 0:
-        rate = VENTILATION_RATES["static_vent_each"]
+        rate = rates.ventilation("static_vent_each")
         _add(6, "Static box vent", static_ct, "EA", rate,
              static_ct * rate, "ventilation", "RFG VENTSTAT")
 
     if hidden.get("vent_cap_replace", False):
         exhaust_ct = vent.get("exhaust_vents", 2)
-        rate = MISC_RATES["vent_cap_replace_each"]
+        rate = rates.misc("vent_cap_replace_each")
         _add(6, "Exhaust vent cap replacement", exhaust_ct, "EA", rate,
              exhaust_ct * rate, "ventilation")
 
@@ -692,7 +801,7 @@ def _generate_line_items(
         )
 
         if g_lf > 0:
-            rate = get_gutter_rate(g_style, g_size, g_material)
+            rate = rates.gutter(g_style, g_size, g_material)
             gutter_cost = g_lf * rate + splash_cost
             effective_rate = round(gutter_cost / g_lf, 2)
             desc = (f"Gutter {g_size}\" {g_style.replace('_', '-')} "
@@ -721,24 +830,24 @@ def _generate_line_items(
         if gutter.get("gutter_guards", False):
             guard_type = gutter.get("guard_type", "mesh")
             guard_lf = gutter.get("guard_lf", g_lf)
-            rate = get_guard_rate(guard_type)
+            rate = rates.guard(guard_type)
             _add(7, f"Gutter guards ({guard_type})", guard_lf, "LF", rate,
                  guard_lf * rate, "gutter", "GTR GRD")
 
     # ── PHASE 8: Cleanup & Misc ──
 
     if needs_lead_rrp and hidden.get("lead_rrp", True):
-        rate = MISC_RATES["lead_rrp"]
+        rate = rates.misc("lead_rrp")
         _add(8, "Lead paint RRP compliance (pre-1978)",
              1, "LS", rate, rate, "misc")
         warnings.append("Pre-1978 building: Lead RRP compliance required")
 
     if hidden.get("satellite_removal", False):
-        rate = MISC_RATES["satellite_removal"]
+        rate = rates.misc("satellite_removal")
         _add(8, "Satellite dish removal", 1, "LS", rate, rate, "misc")
 
     if hidden.get("hoa_review", False) or config.get("hoa"):
-        rate = MISC_RATES["hoa_review_fee"]
+        rate = rates.misc("hoa_review_fee")
         _add(8, "HOA architectural review fee", 1, "LS", rate, rate, "misc")
 
     # Warnings
@@ -760,16 +869,62 @@ def _generate_line_items(
         f"Decking allowance: {free_sheets} sheets included free. "
         f"Additional sheets: ${deck_rate:.2f} each.")
 
-    return line_items, warnings
+    return line_items, warnings, dumpster_pick, rounding_note
+
+
+def _is_permit(item: Dict) -> bool:
+    """The building permit pass-through line."""
+    return item["description"].startswith("Building permit")
+
+
+def _material_of(item: Dict) -> float:
+    """Material half of a line item's total.
+
+    Falls back to the category ratio for items built outside _item(),
+    so a stored line item from before the split existed still resolves.
+    """
+    if item.get("material_cost") is not None:
+        return item["material_cost"]
+    portion = item.get("material_portion")
+    if portion is None:
+        portion = get_material_portion(item.get("category") or "misc")
+    return item["total"] * portion
+
+
+def _resync_costs(item: Dict) -> None:
+    """Recompute an item's material/labor split after its total changed."""
+    portion = item.get("material_portion")
+    if portion is None:
+        portion = get_material_portion(item.get("category") or "misc")
+        item["material_portion"] = round(portion, 4)
+    item["material_cost"] = round(item["total"] * portion, 2)
+    item["labor_cost"] = round(item["total"] - item["material_cost"], 2)
 
 
 def _finalize_totals(
     line_items: List[Dict], warnings: List[str],
     config: Dict, structure_results: Optional[List[Dict]],
+    dumpster: Optional[Dict] = None,
+    rounding: Optional[Dict] = None,
 ) -> Dict[str, Any]:
     """Apply markup, tax, permit, target-total adjustment."""
     state = config["state"]
     hidden = config["hidden_costs"]
+    rates = config.get("rates") or DEFAULT_RATES
+
+    # Re-split each line into material and labor using what the material
+    # actually costs, before any of the maths below reads those halves.
+    # Every calculation path lands here, so this covers single, manual
+    # multi- and EagleView multi-structure estimates alike.
+    material_rows = config.get("material_cost_rows")
+    derived_portions = {}
+    if material_rows:
+        derived_portions = derive_material_portions(line_items, material_rows)
+        apply_material_portions(
+            line_items, derived_portions, config["material_portion_pct"],
+        )
+        if config["material_portion_pct"] is None:
+            warnings.extend(portion_warnings(derived_portions))
 
     # Separate gutter (phase 7) from main roofing subtotal
     roofing_subtotal = sum(
@@ -780,24 +935,86 @@ def _finalize_totals(
     )
     subtotal = roofing_subtotal + gutter_subtotal
 
-    avg_markup = (
-        config["material_markup_pct"] * MATERIAL_PORTION
-        + config["labor_markup_pct"] * (1 - MATERIAL_PORTION)
+    # Material sales tax the COMPANY owes its supplier. In MD and VA a
+    # roofing contractor is the final consumer of what it affixes to the
+    # building, so this is a cost folded into the price — never a line
+    # the customer is charged. Kept in the total, hidden on the quote.
+    tax_rate = rates.sales_tax(
+        state, config.get("locality"),
+        (config.get("hidden_costs") or {}).get("priced_on"),
     )
-    markup_amount = subtotal * avg_markup
 
-    overhead_amount = 0.0
-    profit_amount = 0.0
-    if config["include_overhead_profit"]:
-        overhead_amount = subtotal * config["overhead_pct"]
-        profit_amount = subtotal * config["profit_pct"]
+    def _totals_for(items: List[Dict]) -> Dict[str, float]:
+        """Markup / O&P / contingency / tax over a set of line items.
 
-    contingency = subtotal * config["contingency_pct"]
+        Markup and sales tax both run off each item's own material and
+        labor halves, so a labor-only line like tear-off is neither taxed
+        nor marked up as though it were half material.
 
-    tax_rate = get_sales_tax_rate(state)
-    tax_amount = subtotal * MATERIAL_PORTION * tax_rate
+        The permit line is skipped: it is a pass-through fee added to the
+        grand total on its own, so counting it here would mark it up and
+        then add it a second time.
+        """
+        items = [it for it in items if not _is_permit(it)]
+        base = sum(it["total"] for it in items)
+        material = sum(_material_of(it) for it in items)
+        labor = base - material
 
-    # Permit (once for entire estimate)
+        markup = (
+            material * config["material_markup_pct"]
+            + labor * config["labor_markup_pct"]
+        )
+        overhead = 0.0
+        profit = 0.0
+        if config["include_overhead_profit"]:
+            overhead = base * config["overhead_pct"]
+            profit = base * config["profit_pct"]
+        return {
+            "subtotal": base,
+            "material_cost_total": material,
+            "labor_cost_total": labor,
+            "markup": markup,
+            "overhead": overhead,
+            "profit": profit,
+            "contingency": base * config["contingency_pct"],
+            # Tax is on materials only, markup included: what the customer
+            # is charged for material is the taxable amount.
+            "tax": (material + material * config["material_markup_pct"])
+            * tax_rate,
+        }
+
+    def _grand_multiplier(material_portion: float) -> float:
+        """How much the grand total moves per $1 on a line item.
+
+        One dollar of line item also carries its markup, O&P, contingency
+        and — on the material share — sales tax.
+        """
+        mp = material_portion
+        mult = 1.0
+        mult += (mp * config["material_markup_pct"]
+                 + (1 - mp) * config["labor_markup_pct"])
+        if config["include_overhead_profit"]:
+            mult += config["overhead_pct"] + config["profit_pct"]
+        mult += config["contingency_pct"]
+        mult += mp * (1 + config["material_markup_pct"]) * tax_rate
+        return mult or 1.0
+
+    totals = _totals_for(line_items)
+    material_cost_total = totals["material_cost_total"]
+    labor_cost_total = totals["labor_cost_total"]
+    markup_amount = totals["markup"]
+    overhead_amount = totals["overhead"]
+    profit_amount = totals["profit"]
+    contingency = totals["contingency"]
+    tax_amount = totals["tax"]
+
+    # Permit (once for entire estimate). Roof area drives the fee in
+    # the jurisdictions that meter by the square foot.
+    if not config.get("_permit_roof_sf"):
+        config["_permit_roof_sf"] = round(sum(
+            it["quantity"] * 100 for it in line_items
+            if it.get("category") == "shingle" and it.get("unit") == "SQ"
+        ), 1)
     permit_option = hidden.get("permit_option", "state")
     if permit_option is None:
         permit_option = "state" if hidden.get("permit", True) else "none"
@@ -806,20 +1023,39 @@ def _finalize_totals(
         permit_fee = 0
     elif permit_option == "custom":
         permit_fee = hidden.get("permit_custom_fee") or 0
-    elif permit_option == "state":
-        permit_fee = get_permit_fee(state)
     else:
-        permit_fee = get_permit_fee(permit_option)
+        # A like-for-like shingle replacement is permit-exempt in most
+        # DMV jurisdictions; replacing decking or touching structure is
+        # not. Jurisdictions that do charge meter by roof area.
+        decking_spec = config.get("decking_spec") or {}
+        like_for_like = not (
+            decking_spec.get("estimated_sheets_needed")
+            or decking_spec.get("re_nail_existing")
+            or hidden.get("structural_work")
+        )
+        locality = (
+            config.get("locality") if permit_option == "state"
+            else permit_option
+        )
+        permit_fee = rates.permit_fee(
+            state, locality, like_for_like,
+            config.get("_permit_roof_sf", 0),
+        )
 
     if permit_fee > 0:
         permit_label = (
             permit_option.upper() if permit_option in ("MD", "VA", "DC")
-            else state if permit_option == "state"
+            else (config.get("locality") or state)
+            if permit_option == "state"
             else "Custom"
         )
-        line_items.append(_item(8, f"Building permit ({permit_label})",
-                                1, "LS", permit_fee, permit_fee,
-                                "misc", None, len(line_items), 0))
+        line_items.append(_item(
+            8, f"Building permit ({permit_label})",
+            1, "LS", permit_fee, permit_fee,
+            "misc", None, len(line_items), 0,
+            material_portion=rates.material_portion(
+                "misc", config.get("material_portion_pct")),
+        ))
 
     grand_total = (subtotal + markup_amount + overhead_amount
                    + profit_amount + contingency + tax_amount + permit_fee)
@@ -827,22 +1063,21 @@ def _finalize_totals(
     # Target total adjustment (excludes gutter — gutter priced separately)
     adjustment_factor = None
     target_total = config.get("target_total")
+
+    def _is_adjustable(it: Dict) -> bool:
+        """Roofing items only: gutter and the permit are priced apart."""
+        return it.get("phase") != 7 and not _is_permit(it)
+
+    def _roofing_grand() -> tuple:
+        """(grand total, subtotal) for the adjustable roofing items."""
+        adjustable = [it for it in line_items if _is_adjustable(it)]
+        t = _totals_for(adjustable)
+        grand = (t["subtotal"] + t["markup"] + t["overhead"] + t["profit"]
+                 + t["contingency"] + t["tax"] + permit_fee)
+        return grand, t["subtotal"]
+
     if target_total and target_total > 0 and roofing_subtotal > 0:
-        # Calculate roofing-only grand total (exclude gutter)
-        roofing_markup = roofing_subtotal * avg_markup
-        roofing_overhead = (
-            roofing_subtotal * config["overhead_pct"]
-            if config["include_overhead_profit"] else 0
-        )
-        roofing_profit = (
-            roofing_subtotal * config["profit_pct"]
-            if config["include_overhead_profit"] else 0
-        )
-        roofing_contingency = roofing_subtotal * config["contingency_pct"]
-        roofing_tax = roofing_subtotal * MATERIAL_PORTION * tax_rate
-        roofing_grand = (roofing_subtotal + roofing_markup
-                         + roofing_overhead + roofing_profit
-                         + roofing_contingency + roofing_tax + permit_fee)
+        roofing_grand, roofing_subtotal = _roofing_grand()
 
         fixed_costs = permit_fee
         adjustable_target = target_total - fixed_costs
@@ -851,60 +1086,44 @@ def _finalize_totals(
             adjustment_factor = adjustable_target / adjustable_current
             # Only adjust non-gutter, non-permit items
             for item in line_items:
-                if item.get("phase") == 7:
-                    continue
-                if item["description"].startswith("Building permit"):
+                if not _is_adjustable(item):
                     continue
                 item["unit_price"] = round(
                     item["unit_price"] * adjustment_factor, 2,
                 )
                 item["total"] = round(
                     item["quantity"] * item["unit_price"], 2)
+                _resync_costs(item)
 
-            # Recalculate roofing subtotal after adjustment
-            roofing_subtotal = sum(
-                item["total"] for item in line_items
-                if item.get("phase") != 7
-                and not item["description"].startswith("Building permit")
-            )
-
-            # Fix rounding drift on roofing items
-            roofing_markup = roofing_subtotal * avg_markup
-            roofing_overhead = (
-                roofing_subtotal * config["overhead_pct"]
-                if config["include_overhead_profit"] else 0
-            )
-            roofing_profit = (
-                roofing_subtotal * config["profit_pct"]
-                if config["include_overhead_profit"] else 0
-            )
-            roofing_contingency = roofing_subtotal * config["contingency_pct"]
-            roofing_tax = roofing_subtotal * MATERIAL_PORTION * tax_rate
-            roofing_grand = (roofing_subtotal + roofing_markup
-                             + roofing_overhead + roofing_profit
-                             + roofing_contingency + roofing_tax + permit_fee)
+            # Fix rounding drift on roofing items.
+            #
+            # A dollar added to a line item does not move the grand total
+            # by a dollar: it also carries that line's markup, O&P,
+            # contingency and (on its material half) sales tax. Solve for
+            # the line delta that closes the gap instead of assuming 1:1.
+            roofing_grand, roofing_subtotal = _roofing_grand()
 
             rounding_diff = round(target_total - roofing_grand, 2)
             if rounding_diff != 0:
                 adjustable = [
-                    it for it in line_items
-                    if it.get("phase") != 7
-                    and not it["description"].startswith("Building permit")
+                    it for it in line_items if _is_adjustable(it)
                 ]
                 if adjustable:
                     largest = max(adjustable, key=lambda x: x["total"])
+                    mp = largest.get("material_portion")
+                    if mp is None:
+                        mp = rates.material_portion(
+                            largest.get("category") or "misc")
+                    grand_per_dollar = _grand_multiplier(mp)
                     largest["total"] = round(
-                        largest["total"] + rounding_diff, 2)
+                        largest["total"]
+                        + rounding_diff / grand_per_dollar, 2)
                     if largest["quantity"]:
                         largest["unit_price"] = round(
                             largest["total"] / largest["quantity"], 2
                         )
-                    roofing_subtotal = sum(
-                        it["total"] for it in line_items
-                        if it.get("phase") != 7
-                        and not it["description"].startswith(
-                            "Building permit")
-                    )
+                    _resync_costs(largest)
+                    _, roofing_subtotal = _roofing_grand()
 
             warnings.append(
                 f"Target total applied: ${target_total:,.2f} "
@@ -917,12 +1136,14 @@ def _finalize_totals(
             if item.get("phase") == 7
         )
         subtotal = roofing_subtotal + gutter_subtotal
-        markup_amount = subtotal * avg_markup
-        if config["include_overhead_profit"]:
-            overhead_amount = subtotal * config["overhead_pct"]
-            profit_amount = subtotal * config["profit_pct"]
-        contingency = subtotal * config["contingency_pct"]
-        tax_amount = subtotal * MATERIAL_PORTION * tax_rate
+        totals = _totals_for(line_items)
+        material_cost_total = totals["material_cost_total"]
+        labor_cost_total = totals["labor_cost_total"]
+        markup_amount = totals["markup"]
+        overhead_amount = totals["overhead"]
+        profit_amount = totals["profit"]
+        contingency = totals["contingency"]
+        tax_amount = totals["tax"]
         grand_total = (subtotal + markup_amount + overhead_amount
                        + profit_amount + contingency
                        + tax_amount + permit_fee)
@@ -944,12 +1165,25 @@ def _finalize_totals(
     return {
         "line_items": line_items,
         "structure_results": structure_results,
+        # Which categories took their material share from the price book,
+        # and the cost/billed pair behind each — so the split can be
+        # explained on screen instead of appearing as a bare percentage.
+        "material_portions": derived_portions or None,
+        # Why this can size was chosen: estimated tear-off weight and
+        # the capacity it was matched against.
+        "dumpster": dumpster,
+        # Present when the billed area was stepped up to whole bundles;
+        # the quote explains the step in a note.
+        "square_rounding": rounding,
         "roofing_subtotal": round(roofing_subtotal, 2),
         "gutter_subtotal": round(gutter_subtotal, 2),
         "subtotal": round(subtotal, 2),
         "markup_amount": round(markup_amount, 2),
         "overhead_amount": round(overhead_amount, 2),
         "profit_amount": round(profit_amount, 2),
+        "contingency_amount": round(contingency, 2),
+        "material_cost_total": round(material_cost_total, 2),
+        "labor_cost_total": round(labor_cost_total, 2),
         "tax_amount": round(tax_amount, 2),
         "permit_fee": round(permit_fee, 2),
         "total": round(grand_total, 2),
@@ -966,29 +1200,44 @@ def _finalize_totals(
 def _item(phase: int, description: str, quantity: float, unit: str,
           unit_price: float, total: float, category: str,
           xactimate_code: str = None, display_order: int = 0,
-          structure_index: int = 0) -> Dict:
+          structure_index: int = 0,
+          material_portion: float = None) -> Dict:
+    """Build one line item, including its material/labor split.
+
+    `material_portion` is stored per item so markup and sales tax can be
+    applied to the real material half of each line rather than to one
+    blended ratio across the whole estimate.
+    """
+    total = round(total, 2)
+    if material_portion is None:
+        material_portion = get_material_portion(category)
+    material_cost = round(total * material_portion, 2)
     return {
         "phase": phase,
         "description": description,
         "quantity": round(quantity, 2),
         "unit": unit,
         "unit_price": round(unit_price, 2),
-        "total": round(total, 2),
+        "total": total,
         "category": category,
         "xactimate_code": xactimate_code,
         "display_order": display_order,
         "structure_index": structure_index,
+        "material_portion": round(material_portion, 4),
+        "material_cost": material_cost,
+        "labor_cost": round(total - material_cost, 2),
     }
 
 
 def _build_skylight_addons(config: Dict) -> List[Dict]:
     """Generate skylight replacement add-on quotes (not in base estimate)."""
+    rates = config.get("rates") or DEFAULT_RATES
     skylight_spec = config.get("skylight_replacements") or []
     addons = []
     for sky in skylight_spec:
         sky_type = sky.get("type", "medium_fixed")
         qty = sky.get("quantity", 1)
-        rate = SKYLIGHT_REPLACEMENT_RATES.get(sky_type, 850.0)
+        rate = rates.skylight(sky_type)
         label = sky_type.replace("_", " ").title()
         location = sky.get("location", "")
         desc = f"Skylight replacement — {label}"
