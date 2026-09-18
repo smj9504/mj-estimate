@@ -2,11 +2,35 @@
  * Bathroom Remodel Estimate types
  */
 
+// ── Shower type helpers ──
+
+/**
+ * Every curbless variant, including the legacy bare 'curbless' value that
+ * older estimates still carry. Curbless is split by substrate because
+ * recessing a wood subfloor and core-cutting a slab differ in cost.
+ */
+export const CURBLESS_SHOWER_TYPES = [
+  'curbless', 'curbless_wood', 'curbless_slab',
+] as const;
+
+/** Site-built tiled showers (vs. prefab units) — these need backer board. */
+export const CUSTOM_TILE_SHOWER_TYPES = [
+  'custom_tile', 'neo_angle_custom', ...CURBLESS_SHOWER_TYPES,
+] as const;
+
+export const isCurblessShower = (t?: string): boolean =>
+  !!t && (CURBLESS_SHOWER_TYPES as readonly string[]).includes(t);
+
+export const isCustomTileShower = (t?: string): boolean =>
+  !!t && (CUSTOM_TILE_SHOWER_TYPES as readonly string[]).includes(t);
+
 // ── Component Spec interfaces ──
 
 export interface ShowerSpec {
-  /** tub_combo, one_piece, multi_piece_kit, custom_tile, curbless, neo_angle_kit, neo_angle_custom */
+  /** tub_combo, one_piece, multi_piece_kit, custom_tile, curbless_wood, curbless_slab, neo_angle_kit, neo_angle_custom */
   type?: string;
+  /** Linear drain grade for curbless showers: standard | premium */
+  linear_drain_grade?: string;
   size?: { width: number; depth: number; height: number };
   enclosure?: string;     // curtain, sliding, pivot, frameless, half_wall_glass
   /** Door type from sketch: sliding, swing, frameless_swing, bi_fold, curtain, none, neo_angle_pivot */

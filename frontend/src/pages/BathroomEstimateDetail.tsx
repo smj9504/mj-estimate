@@ -57,7 +57,7 @@ import type {
   BathroomEstimateHistory,
   BathroomPricingInfo,
 } from '../types/bathroomEstimate';
-import { PHASE_LABELS } from '../types/bathroomEstimate';
+import { PHASE_LABELS, isCustomTileShower } from '../types/bathroomEstimate';
 import BESketchTab from '../components/bathroom-estimate/sketch/BESketchTab';
 import type { SketchFixtureSync } from '../components/bathroom-estimate/sketch/BESketchTab';
 
@@ -446,9 +446,9 @@ const BathroomEstimateDetail: React.FC = () => {
     const replaceShower = updates.replace_shower ?? current.replace_shower;
     let wetSF = 0;
 
-    // Shower tile walls (custom_tile or curbless need backer board)
+    // Shower tile walls (site-built tiled showers need backer board)
     const sType = mergedShower.type || '';
-    if (replaceShower && (sType === 'custom_tile' || sType === 'curbless')) {
+    if (replaceShower && isCustomTileShower(sType)) {
       const sw = mergedShower.width_in || 0;
       const sd = mergedShower.depth_in || 0;
       const sh = mergedShower.tile_height_in || 0;
@@ -1000,7 +1000,7 @@ const BathroomEstimateDetail: React.FC = () => {
                   {() => {
                     const hasFloorMaterial = !!form.getFieldValue(['floor_spec', 'material']);
                     const showerType = form.getFieldValue(['shower_spec', 'type']);
-                    const hasCustomShower = form.getFieldValue('replace_shower') && (showerType === 'custom_tile' || showerType === 'curbless');
+                    const hasCustomShower = form.getFieldValue('replace_shower') && isCustomTileShower(showerType);
                     const hasSurroundTile = !!form.getFieldValue(['bathtub_spec', 'surround_tile']);
                     const autoFloor = hasFloorMaterial;
                     const autoWalls = hasCustomShower || hasSurroundTile;
@@ -2641,10 +2641,9 @@ const BathroomEstimateDetail: React.FC = () => {
                           </Text></Col>
                         </Row>
                       )}
-                      <Row justify="space-between">
-                        <Col><Text>Sales Tax (material)</Text></Col>
-                        <Col><Text>${(estimate?.tax_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text></Col>
-                      </Row>
+                      {/* Material tax is loaded into line item pricing and is
+                          never shown as a separate charge (lump-sum contract:
+                          the contractor is the final consumer). */}
                       <Divider style={{ margin: '8px 0' }} />
                       <Row justify="space-between">
                         <Col><Title level={4} style={{ margin: 0 }}>GRAND TOTAL</Title></Col>

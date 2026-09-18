@@ -12,10 +12,16 @@ Includes material + labor unless otherwise noted.
 2026-08 price update (research: FloorDaily Ceramic Tile Report 2026,
 CountBricks labor rates Feb 2026, Depo Homes "Bathroom Remodel Costs
 Increase 15-20% in 2026", felixdeco tariff tracker):
-- Import tariffs (China/India/Vietnam/Brazil Section 301+122) are pushing
-  tile and vanity/cabinet costs up sharply (tile ceramic ~+15%, vanity
-  tariff exposure ~20-28%) — categories most exposed to tariffs capped
-  at the top of our 1-5% adjustment range.
+- Import tariffs are pushing tile and vanity/cabinet costs up sharply
+  (tile ceramic ~+15%, vanity tariff exposure ~20-28%) — categories most
+  exposed to tariffs capped at the top of our 1-5% adjustment range.
+  TARIFF BASIS CORRECTED 2026-09-18: the original note cited "Section
+  301+122". IEEPA-based tariffs were struck down by the Supreme Court in
+  Feb 2026, so that basis is partly void. Still in force: Section 232
+  (vanity/kitchen cabinets 25%, effective 2025-10-14; a 50% increase is
+  deferred to at least 2027) and Section 301 (Chinese furniture +25%,
+  unaffected by the ruling). Ceramic tile: India countervailing 3.0-3.5%,
+  China anti-dumping 104-400%.
 - Skilled trade labor (plumber/electrician) up ~8-10% YoY on tight
   labor supply — plumbing/electrical nudged up accordingly.
 - Fixtures (toilets, sinks, tub/shower units) showed milder +2-3%
@@ -177,21 +183,27 @@ TILE_MATERIAL_RATES = {
 }
 
 TILE_LABOR_RATES = {
-    # Labor per SF by application
-    # 2026-08-26: +5% (Tier B — porcelain floor combo already ~$19.25/SF,
-    # inside the $17.22-$21.37/SF HomeWyse May 2026 benchmark range)
+    # Labor per SF by application.
+    # SUPPLY-INCLUSIVE (§5-5): thinset, grout and setting supplies are part of
+    # the installer's rate — do NOT add a separate supplies line on top.
+    # Verification: porcelain floor = material 8.25 + labor 11.00 = $19.25/SF,
+    # inside the $17.22-$21.37/SF HomeWyse May 2026 benchmark range.
     "floor_per_sf": 11.00,            # $8-$14/SF (Fixr tile installer)
     "wall_per_sf": 13.25,             # $10-$15/SF (vertical work premium)
-    "shower_wall_per_sf": 15.45,      # $10-$18/SF (wet area, precision)
+    "shower_wall_per_sf": 14.50,      # $10-$15/SF (wet area, precision)
     # slope + drain cuts + mosaic → more labor than shower wall
     "shower_floor_per_sf": 19.85,     # $16-$22/SF
 }
 
+# Labor complexity by lay pattern (LABOR portion only — see §0-3).
+# Combined with TILE_SIZE_MULTIPLIER via get_tile_complexity_multiplier(),
+# NOT by plain multiplication.
 TILE_PATTERN_MULTIPLIER = {
     "straight": 1.00,
-    "diagonal": 1.12,
-    "herringbone": 1.28,
-    "versailles": 1.35,
+    "diagonal": 1.15,        # trade norm +10-20%
+    "herringbone": 1.40,     # Tile Club +30-60%
+    "versailles": 1.50,
+    "chevron": 1.55,         # Tile Club +40-80%, mitred cuts
 }
 
 # Tile size labor multiplier
@@ -207,21 +219,49 @@ TILE_SIZE_MULTIPLIER = {
     "12x12": 1.00,            # standard baseline
     "12x24": 1.00,            # standard, most common
     "6x24": 1.05,             # plank style, slightly more cuts
-    "24x24": 1.10,            # large, needs leveling
-    "24x48": 1.25,            # large format, 2-person install
+    "24x24": 1.15,            # large, needs leveling system
+    "24x48": 1.30,            # large format, 2-person install
     "4x12_subway": 1.05,      # subway tile, many joints
     "3x6_subway": 1.10,       # classic subway, more joints
 }
 
 TILE_SIZES = list(TILE_SIZE_MULTIPLIER.keys())
 
+# Cap on the combined pattern × size complexity multiplier.
+TILE_COMPLEXITY_CAP = 1.75
+
+# Waste factor by pattern (MATERIAL portion only — labor is billed on the
+# finished surface area, so waste must never touch the labor side).
+# Diagonal/herringbone/chevron produce far more offcuts than a straight lay,
+# and mosaic sheets waste the most.
+TILE_WASTE_BY_PATTERN = {
+    "straight": 0.10,
+    "diagonal": 0.15,
+    "brick": 0.15,
+    "herringbone": 0.18,
+    "versailles": 0.18,
+    "chevron": 0.18,
+}
+# Large-format and mosaic sizes override the pattern-based waste when higher.
+TILE_WASTE_BY_SIZE = {
+    "1x1_mosaic": 0.20,
+    "2x2_mosaic": 0.20,
+    "24x48": 0.15,
+}
+DEFAULT_TILE_WASTE = 0.10
+
 TILE_EXTRAS = {
-    "waste_factor": 0.10,             # 10% waste (unchanged — not a price)
-    # 2026-08-26: +6% (Tier B, follow-up pass)
-    "grout_per_sf": 1.65,             # grout material
+    "waste_factor": 0.10,             # legacy default — see get_tile_waste()
     "sealer_per_sf": 0.85,            # sealant for natural stone
-    "thinset_per_sf": 0.72,           # thinset mortar
-    "tile_demo_per_sf": 4.35,         # old tile removal ($1.50-$4.50/SF)
+    # REMOVED (§5-5):
+    # - "grout_per_sf" / "thinset_per_sf": setting supplies are part of the
+    #   tile installer's rate, not a separate charge. Billing them on top of
+    #   TILE_LABOR_RATES double-counted ~$2.37/SF and pushed porcelain floor
+    #   to $21.62/SF, above the HomeWyse $17.22-$21.37 benchmark. The v2
+    #   verification (material 8.25 + labor 11.00 = $19.25/SF) treats the
+    #   labor rate as supply-inclusive.
+    # - "tile_demo_per_sf": duplicated DEMO_RATES["floor_tile_per_sf"] /
+    #   ["wall_tile_per_sf"] (§1-1 owns all tile removal).
 }
 
 # ──────────────────────────────────────────────
@@ -357,15 +397,12 @@ SHOWER_DOOR_TYPES = [
     "frameless_neo_angle",
 ]
 
-# Legacy compat — still referenced by enclosure dropdown
-# 2026-08-26 2nd follow-up: same +12%/+10%/+8% weighting as SHOWER_DOOR_PRICES
-SHOWER_ENCLOSURE_PRICES = {
-    "curtain": 49,
-    "sliding": 429,
-    "pivot": 655,
-    "frameless": 1928,
-    "half_wall_glass": 1428,
-}
+# REMOVED (§7-3): SHOWER_ENCLOSURE_PRICES was a legacy second price list for
+# the same selections SHOWER_DOOR_PRICES covers, with stale values (frameless
+# $1,928 vs the door table's $985 material), so an estimate priced differently
+# depending on which field the caller happened to set. The legacy `enclosure`
+# field is now mapped onto door_type via _LEGACY_ENCLOSURE_MAP in
+# calculator.py, leaving a single canonical door pricing path.
 
 SHOWER_INSERT_PRICES = {
     # Prefab shower units (material only), Tier B +5-6%
@@ -467,9 +504,28 @@ NEO_ANGLE_KIT_INSTALL = 904
 # tile-adjacent labor items, Tier B +5-6%
 SHOWER_CUSTOM_EXTRAS = {
     "niche_each": 206,                # recessed niche (material + labor)
+    "niche_waterproof_prefab": 285,   # Schluter/Kerdi one-piece preform niche
     "bench": 495,                     # tiled bench (material + labor)
     "curb": 250,                      # standard curb build
-    "curbless_drain": 715,             # linear drain + slope work
+
+    # ── Curbless floor system (§9-1) ──
+    # FLOOR SYSTEM WORK ONLY — the linear drain is billed separately below.
+    # The earlier single 715 rate covered neither the subfloor recess nor the
+    # extended waterproofing, and a later 3,150 figure double-counted the
+    # drain. Both are corrected here.
+    #   wood:  subfloor recess / joist notching 1,450 + extended
+    #          waterproofing & full-floor slope 550
+    #   slab:  concrete core cut + re-pour / floor build-up
+    # Cross-checked: FinHome 2026 (linear drain +$400-900, extended
+    # waterproofing +$300-800 -> floor work alone $800-1,800), Bay Area
+    # retrofit subfloor framing $1,000-3,000, Tampa curbed-vs-curbless delta
+    # +$2,000-8,000, contractor forums $1,000-7,000.
+    "curbless_floor_wood": 2000,
+    "curbless_floor_slab": 3000,
+
+    # Linear drain assembly — ALWAYS a separate line from the floor system.
+    "linear_drain_standard": 285,
+    "linear_drain_premium": 585,      # premium / point-inset
 }
 
 # Shower head/valve — fixtures, Tier B +5-6%
@@ -524,12 +580,26 @@ VANITY_EXTRAS = {
     # underpriced-install-labor gap as vanity install); toe kick = Tier B
     # +6% (material, not labor)
     "wall_mount_blocking": 271,       # wood blocking for floating vanity (framing work)
-    "faucet_single_hole": 298,        # faucet supply + install
-    "faucet_centerset": 335,
-    "faucet_widespread": 422,
-    "faucet_wall_mount": 628,         # wall-mount requires rough valve + access
+    # REMOVED (§10-4): faucet_* were material+install BUNDLES that were then
+    # charged alongside PLUMBING_RATES["vanity_faucet_install"], billing the
+    # installation twice. Faucets now price through the single canonical path:
+    # FAUCET_PRICES (material) + PLUMBING_RATES["vanity_faucet_install"].
     "toe_kick_per_lf": 13.35,         # toe kick board (supply + install, freestanding vanity)
 }
+
+# Faucet MATERIAL only — install labor is PLUMBING_RATES["vanity_faucet_install"]
+# regardless of sink type (cabinet vanity, pedestal or wall-mount). §10-4
+# consolidated three overlapping price paths into this one table.
+FAUCET_PRICES = {
+    "single_hole": 175,
+    "centerset": 189,                 # 4" centerset
+    "widespread": 268,
+    "wall_mount": 395,                # + rough valve/access, see FAUCET_EXTRAS
+}
+
+# Wall-mount faucets need a rough valve + access panel beyond the standard
+# fixture connection.
+FAUCET_WALL_MOUNT_ROUGH = 235
 
 # Pedestal Sink / Wall-Mount Sink (non-vanity options)
 # 2026-08-26: material Tier B +5%
@@ -543,13 +613,10 @@ SINK_INSTALL = {
     "pedestal_sink": 448,             # set pedestal, connect plumbing ($300-$450)
     "wall_mount_sink": 513,           # blocking + bracket + connect ($350-$500)
 }
-SINK_FAUCET = {
-    # Tier B material +5%
-    "centerset": 189,                 # 4" centerset faucet supply
-    "single_hole": 163,               # single hole faucet supply
-}
-# 2026-08-26: +17% (Tier A — pure install labor, same as vanity)
-SINK_FAUCET_INSTALL = 271             # faucet install labor (same as vanity)
+# REMOVED (§11-1): SINK_FAUCET / SINK_FAUCET_INSTALL were a third faucet price
+# path that disagreed with both VANITY_EXTRAS["faucet_*"] and FAUCET_PRICES for
+# the same fixture. Pedestal/wall-mount sinks now use the same canonical
+# FAUCET_PRICES + PLUMBING_RATES["vanity_faucet_install"] as cabinet vanities.
 
 # Mirror / Medicine Cabinet
 # 2026-08-26: material Tier B +5-6%
@@ -611,7 +678,9 @@ BASEBOARD_PRICES = {
     "pvc": 7.00,                      # PVC (recommended for bath)
     "mdf": 5.45,
     "wood": 9.15,
-    "tile": 13.00,
+    # "tile" REMOVED (§12-2): tile base is priced per tile material via
+    # TILE_BASEBOARD_PRICES; keeping a flat 13.00 here was a second rate for
+    # the same item that disagreed with the porcelain rate (13.25).
 }
 
 # Tile baseboard pricing by tile material (material + labor per LF)
@@ -669,7 +738,15 @@ ACCESSORY_GRADE_MULTIPLIER = {
 # For water mitigation / restoration work: fixture is carefully removed,
 # stored, then reinstalled after wall/floor work is completed.
 # All costs are LABOR ONLY (no new material).
-# Sources: Xactimate D&R codes, Angi, CountBricks, HomeWyse 2025-2026
+#
+# ⚠ SOURCE CORRECTED 2026-09-18: these are NOT Xactimate D&R codes, despite
+# the earlier attribution. Actual Xactimate lines are far lower (toilet detach
+# $86.53, base cabinet detach $54.23, vanity tear-out $16.05/LF) — this table
+# runs roughly 2.5-4x those. These are RETAIL GC rates.
+# Do NOT submit these figures on an insurance claim as if they were Xactimate
+# pricing; they will be adjusted down. For insurance work, apply a ~0.40
+# factor (see DR_MODE / XACTIMATE_MODE in the v2 reference, not yet built).
+# Sources: Angi, CountBricks, HomeWyse 2025-2026 (retail GC market rates)
 # 2026-08-26: +16-18% (Tier A — this is 100% install/removal labor, same
 # underpriced-install-labor gap the vanity-install research exposed)
 DETACH_RESET_COSTS = {
@@ -711,7 +788,17 @@ HIDDEN_COSTS = {
     "floor_protection": 136,          # Ram board, plastic, tape
     "mobilization": 190,              # tool/equipment transport
     "final_clean": 244,               # move-in ready cleaning
-    "punch_list": 216,                # 1-2 follow-up visits
+    # ⚠ MODELED ALLOWANCE — NOT a researched market rate.
+    # This is the one figure in this file with no published benchmark. The
+    # industry treats punch list as a *process*, not a priced visit: trade
+    # sources quote rework as a share of project value (4-10%), never a
+    # per-visit rate. The only adjacent published number is a home-warranty
+    # service-call fee ($75-$125), which is a different line of business.
+    # $216 is back-solved from ~2-3h x $75-100/h + travel. Treat it as a
+    # placeholder and replace it with the shop's own callback history
+    # (visit count x average duration) as soon as that data exists.
+    # See PUNCH_LIST_BASIS below for the derivation shown to the user.
+    "punch_list": 216,
     "caulk_day": 298,                 # silicone/latex caulking (1 day labor)
     "drywall_patch_per_sf": 6.10,     # patching around tile edges
     "drywall_skim_coat_per_sf": 4.70, # skim coat after tile removal ($3-$6/SF)
@@ -720,6 +807,45 @@ HIDDEN_COSTS = {
     "cast_iron_disposal": 190,        # weight surcharge for CI tub
     "permit_fee": 268,                # building permit (varies by county, $150-$400)
 }
+
+# Punch list derivation — exposed so the assumption is visible and tunable
+# instead of hiding behind a single rounded number. HIDDEN_COSTS["punch_list"]
+# should equal round(VISITS x HOURS x RATE + TRAVEL).
+# There is no market rate to validate this against (see the warning above);
+# it is an internal labor-time model only.
+# NOTE: the legacy $216 was a round number, not the output of any model — no
+# 2-visit combination reproduces it, so the old "1-2 follow-up visits" label
+# was wrong as well. These parameters are fitted to hold the existing price
+# steady (1 x 2.75h x $75 + $10 travel = $216.25 -> $216) while making the
+# assumption inspectable. Adjust visits/hours here, not the raw dollar figure.
+PUNCH_LIST_BASIS = {
+    "visits": 1,          # one return trip after substantial completion
+    "hours_per_visit": 2.75,
+    "hourly_rate": 75,    # finish-carpenter/handyman blended rate
+    "travel_per_visit": 10,
+}
+
+
+def get_punch_list_cost() -> float:
+    """Modeled punch-list allowance (no published market rate exists)."""
+    b = PUNCH_LIST_BASIS
+    labor = b["visits"] * b["hours_per_visit"] * b["hourly_rate"]
+    travel = b["visits"] * b["travel_per_visit"]
+    return float(round(labor + travel))
+
+
+def get_punch_list_note() -> str:
+    """User-facing explanation of how the punch-list figure was derived."""
+    b = PUNCH_LIST_BASIS
+    visit_word = "visit" if b["visits"] == 1 else "visits"
+    return (
+        f"Final adjustments, minor touch-ups, hardware tightening. "
+        f"Allowance based on estimated labor time "
+        f"({b['visits']} follow-up {visit_word} x "
+        f"{b['hours_per_visit']:g}h @ ${b['hourly_rate']}/h + "
+        f"${b['travel_per_visit']} travel), not a published rate."
+    )
+
 
 # ──────────────────────────────────────────────
 # Shower Pan / Pre-slope (custom tile showers)
@@ -794,14 +920,101 @@ PREMIUM_ZIP_OVERRIDES = {
 }
 
 # ──────────────────────────────────────────────
-# Sales Tax by State (material portion only)
+# Material Tax Loading (internal cost loading — NEVER billed as a line)
 # ──────────────────────────────────────────────
-SALES_TAX_RATES = {
+# In MD/VA/DC/FL the contractor is the final consumer on a lump-sum real
+# property improvement contract: sales tax is paid at material purchase and
+# absorbed into cost. It is never passed through to the homeowner as a tax
+# line.  Refs: Va. Code §58.1-610(A) / 23VAC10-210-410 (+ Tax Commissioner
+# Ruling 24-149), Fla. Admin. Code R. 12A-1.051 / DOR GT-800007,
+# COMAR 03.06.01.19, DC capital-improvement exclusion.
+#
+# These rates therefore load the MATERIAL portion of each line item's cost
+# (see MATERIAL_SHARE_BY_CATEGORY) and are invisible on the estimate.
+MATERIAL_TAX_LOADING = {
     "MD": 0.06,
     "VA": 0.053,     # NOVA can be 0.06
-    "DC": 0.06,
+    "DC": 0.06,      # 7.0% from 2026-10-01
     "FL": 0.06,      # FL base 6%, some counties add 0.5-1.5% discretionary
 }
+
+# Backwards-compatible alias (older imports)
+SALES_TAX_RATES = MATERIAL_TAX_LOADING
+
+# ──────────────────────────────────────────────
+# Cost basis classes (§0-1-1) — what handling applies to
+# ──────────────────────────────────────────────
+# Rates in this file come from three different KINDS of source. Handling is
+# decided by the SOURCE KIND, not by which section a rate happens to live in:
+#
+#   SKU  — retail listing price (Home Depot, DreamLine, Aquatic, Fab Glass…).
+#          Over-the-counter, so it carries NO sourcing, pickup/delivery,
+#          storage, staging or return/damage-risk allowance.
+#          -> x MATERIAL_HANDLING, then x O&P  (total ≈ 1.39)
+#   INST — installed benchmark (HomeWyse, Angi…). The installing trade's
+#          burden and handling are already inside the number.
+#          -> O&P only  (total ≈ 1.21)
+#   PASS — pass-through (dumpster, permit, inspection). No markup at all.
+#
+# Sanity check: SKU material at 1.39 sits inside the 25-50% material markup
+# range trade sources quote for residential remodeling; INST at 1.21 is the
+# top of HomeWyse's own 13-22% GC markup guidance. Both are defensible.
+#
+# NOTE: an earlier revision listed the SKU scope as five section numbers
+# ("§7 · §8 · §6-1 · §10-1 · §11-3"). That shorthand silently dropped §5-1
+# tile material, §8-1 prefab shower units, §9-1/9-3/9-4 shower components,
+# §10-4 faucets and §11-1/11-2 sink & mirror material. The authoritative
+# scope is the source kind — see SKU_PRICED_TABLES below.
+MATERIAL_HANDLING = 1.15
+
+# Documentation of which tables are SKU-priced (handling applies) vs.
+# installed-price (it must not). Kept as data so the scope is auditable.
+SKU_PRICED_TABLES = frozenset({
+    "TILE_MATERIAL_RATES",              # §5-1
+    "BATHTUB_PRICES",                   # §6-1
+    "SHOWER_DOOR_PRICES",               # §7-1 (except the curtain rod)
+    "SHOWER_INSERT_PRICES",             # §8-1
+    "NEO_ANGLE_BASE_PRICES",            # §8-2
+    "NEO_ANGLE_DOOR_PRICES",            # §8-3
+    "NEO_ANGLE_WALL_SURROUND_PRICES",   # §8-4
+    "NEO_ANGLE_KIT_PRICES",             # §8-5
+    "SHOWER_CUSTOM_EXTRAS.linear_drain",  # §9-1 drain material only
+    "SHOWERHEAD_PRICES",                # §9-3
+    "SHOWER_VALVE_PRICES",              # §9-4
+    "VANITY_PRICES",                    # §10-1
+    "FAUCET_PRICES",                    # §10-4
+    "SINK_PRICES",                      # §11-1 material only (install = INST)
+    "MIRROR_PRICES",                    # §11-2
+    "TOILET_PRICES",                    # §11-3
+})
+
+# Installed-price tables — NEVER apply handling (it is already in the rate).
+INSTALLED_PRICE_TABLES = frozenset({
+    "PLUMBING_RATES", "ELECTRICAL_RATES", "SUBSTRATE_RATES",
+    "TILE_LABOR_RATES", "BATHTUB_INSTALL", "BATHTUB_EXTRAS",
+    "SHOWER_DOOR_INSTALL", "SHOWER_PAN_COSTS", "VANITY_TOP_PRICES",
+    "VANITY_INSTALL", "VANITY_EXTRAS", "SINK_INSTALL", "MIRROR_INSTALL",
+    "PAINT_RATES", "BASEBOARD_PRICES", "TILE_BASEBOARD_PRICES",
+    "QUARTER_ROUND_PRICES", "ACCESSORY_PRICES", "DETACH_RESET_COSTS",
+    "GENERAL_CONDITIONS", "DEMO_RATES",
+})
+
+# Material share of each line item category (rest is labor / equipment).
+# Only the material share carries the tax loading — labor is not taxed.
+MATERIAL_SHARE_BY_CATEGORY = {
+    "demo": 0.00,        # teardown = labor only
+    "plumbing": 0.30,    # rough parts / fixture connection
+    "electrical": 0.20,  # devices + circuits, labor heavy
+    "substrate": 0.35,   # backer board, waterproofing, framing
+    "tile": 0.45,        # tile material vs. setting labor
+    "fixture": 0.70,     # tubs, vanities, toilets, doors — material heavy
+    "finish": 0.35,      # paint, trim, accessories
+    "misc": 0.00,        # permits, dumpsters, pass-through — not taxed
+    # Sub-category shares used when a bundled price must be split into its
+    # material and labor halves (not line item categories themselves).
+    "accessory": 0.60,   # towel bars, hooks, grab bars — material heavy
+}
+DEFAULT_MATERIAL_SHARE = 0.35
 
 NOVA_ZIP3 = {"220", "221", "222", "223"}  # NOVA region → 6%
 # Florida counties with surtax (6% + 1% = 7%)
@@ -819,16 +1032,23 @@ FL_SURTAX_ZIP3 = {
 # Group B: Stricter — trade permits for fixture replacement (MD)
 # Group C: Always recommend permit (DC, FL varies by county)
 PERMIT_MATRIX = {
-    # Virginia — Group A (VA USBC, like-for-like cosmetic exempt)
+    # Virginia — Group A (VA USBC)
+    # 13VAC5-63-80 (USBC §108.2) exempts "ordinary repairs" ONLY — paint/
+    # wallpaper, cabinet and trim replacement, and work a building official
+    # deems minor. Touching plumbing/electrical, or new drywall/wall changes,
+    # still requires a permit. The blanket "like-for-like is exempt" reading
+    # was an overstatement.
     "VA": {
         "group": "A",
         "like_for_like_exempt": True,
         "label": "VA USBC",
         "note_exempt": (
-            "Like-for-like fixture replacement — cosmetic remodel "
-            "exempt from building permit per VA Uniform Statewide "
-            "Building Code (VA USBC). No structural or rough-in "
-            "changes."
+            "Cosmetic, like-for-like work may qualify as an "
+            "\"ordinary repair\" exempt from permit per VA USBC "
+            "(13VAC5-63-80, §108.2) — this covers finishes, cabinet "
+            "and trim replacement only. Any plumbing/electrical "
+            "alteration or new drywall/wall work still requires a "
+            "permit; confirm scope with the local Building Official."
         ),
         "note_required": (
             "Permit required: scope includes plumbing/electrical "
@@ -853,19 +1073,21 @@ PERMIT_MATRIX = {
         ),
     },
     # DC — Group C (always recommend)
+    # NOTE: DCRA was dissolved 2022-10-01 and split into DOB (Department of
+    # Buildings — permits/inspections) and DLCP (licensing). Permits are DOB.
     "DC": {
         "group": "C",
         "like_for_like_exempt": False,
-        "label": "DCRA",
+        "label": "DC DOB",
         "note_exempt": (
             "DC recommends permits for most bathroom work. "
-            "Contact DCRA (Department of Consumer and Regulatory "
-            "Affairs) to confirm requirements."
+            "Contact the DC Department of Buildings (DOB) to confirm "
+            "requirements."
         ),
         "note_required": (
-            "Permit required per DCRA. Plumbing/electrical work "
-            "requires licensed trade contractors with active DC "
-            "permits."
+            "Permit required per DC Department of Buildings (DOB). "
+            "Plumbing/electrical work requires licensed trade "
+            "contractors with active DC permits."
         ),
     },
     # Florida — varies by county, generally stricter
@@ -929,6 +1151,27 @@ def get_permit_info(state: str, has_rough_change: bool) -> dict:
 # ──────────────────────────────────────────────
 # O&P (optional)
 # ──────────────────────────────────────────────
+# Applied COMPOUND: cost x 1.10 x 1.10 = x1.21 (see calculator.py).
+#
+# This is NOT double-counting margin. Construction estimating separates three
+# layers and each is charged exactly once:
+#   L1 trade unit price  — material + burdened labor (insurance, benefits,
+#                          payroll tax). This is what the rates in this file
+#                          are, and what HomeWyse publishes.
+#   L2 job overhead      — dumpster, portable toilet, protection, permits
+#                          (GENERAL_CONDITIONS / permit allowance).
+#   L3 general O&P       — the GC's office, management and profit. THIS.
+#
+# HomeWyse states its unit costs use "base wage + overhead costs (insurance,
+# benefits)" — i.e. L1 only — and explicitly instructs adding 13-22% on top
+# when a general contractor manages the job. RSMeans likewise treats its
+# "Total Incl. O&P" as the *installing subcontractor's* O&P and expects GC
+# General Conditions (5-15%, typically 10%) above that. Xactimate separates
+# job-personnel, job-related and general overhead the same way.
+#
+# x1.21 therefore sits at the TOP of HomeWyse's recommended 13-22% band —
+# defensible, but do not stack further markup on top of it. Cutting it to
+# 6+6 (12.4%) would fall BELOW the recommended floor and under-recover.
 DEFAULT_OVERHEAD_PCT = 0.10
 DEFAULT_PROFIT_PCT = 0.10
 
@@ -941,9 +1184,21 @@ BATHROOM_FUNCTIONS = ["full", "three_quarter", "half"]
 
 SHOWER_TYPES = [
     "tub_combo", "one_piece", "multi_piece_kit",
-    "custom_tile", "curbless",
+    "custom_tile",
+    # Curbless is split by substrate (§16): recessing a wood subfloor and
+    # core-cutting a slab are different jobs at different cost.
+    "curbless_wood", "curbless_slab",
     "neo_angle_kit", "neo_angle_custom",
 ]
+
+# Every curbless variant, incl. the legacy bare "curbless" value that older
+# estimates still carry. Use this for branch tests, never a == "curbless".
+CURBLESS_TYPES = frozenset({"curbless", "curbless_wood", "curbless_slab"})
+
+# Shower types that are a site-built tiled shower (vs. a prefab unit).
+CUSTOM_TILE_SHOWER_TYPES = frozenset(
+    {"custom_tile", "neo_angle_custom"} | CURBLESS_TYPES
+)
 ENCLOSURE_TYPES = ["curtain", "sliding", "pivot", "frameless", "half_wall_glass"]
 SHOWERHEAD_TYPES = ["standard", "rain", "handheld", "combo", "body_spray"]
 TRIM_GRADES = ["builder", "mid", "premium"]
@@ -962,7 +1217,9 @@ MIRROR_TYPES = ["plain", "framed", "medicine_cabinet", "medicine_cabinet_recesse
 TOILET_TYPES = ["two_piece_standard", "two_piece_comfort", "one_piece_standard", "one_piece_comfort"]
 
 TILE_MATERIALS = ["ceramic", "porcelain", "natural_stone", "glass_mosaic", "lvt_spc"]
-TILE_PATTERNS = ["straight", "diagonal", "herringbone", "versailles"]
+TILE_PATTERNS = [
+    "straight", "diagonal", "herringbone", "versailles", "chevron",
+]
 
 WATERPROOF_TYPES = ["paint_on", "sheet", "none"]
 
@@ -973,6 +1230,8 @@ EXHAUST_FAN_CFMS = [50, 80, 110, 150]
 EXHAUST_FAN_SWITCH_TYPES = ["standard", "timer", "humidity"]
 
 PAINT_GRADES = ["builder", "mid", "premium"]
+# "tile" stays a valid selection — it is priced from TILE_BASEBOARD_PRICES
+# (by tile material), not from BASEBOARD_PRICES.
 BASEBOARD_MATERIALS = ["pvc", "mdf", "wood", "tile"]
 
 
@@ -985,11 +1244,83 @@ def get_labor_multiplier(zip_code: str) -> float:
     return ZIP3_LABOR_MULTIPLIERS.get(zip_code[:3], 1.00)
 
 
-def get_sales_tax_rate(state: str, zip_code: str = "") -> float:
-    """Get sales tax rate with regional surtax support."""
+def get_material_tax_loading(state: str, zip_code: str = "") -> float:
+    """Material cost tax loading for a state/zip.
+
+    This is an INTERNAL cost loading applied to the material portion of a
+    line item — not a customer-facing sales tax. The contractor is the final
+    consumer on lump-sum improvement contracts in MD/VA/DC/FL, so tax must
+    never appear as a separate charge on the estimate or PDF.
+    """
     if state == "VA" and zip_code and zip_code[:3] in NOVA_ZIP3:
         return 0.06
     if state == "FL" and zip_code and zip_code[:3] in FL_SURTAX_ZIP3:
         surtax = 0.01 if zip_code[:3] in {"330", "331", "332", "333"} else 0.005
         return 0.06 + surtax
-    return SALES_TAX_RATES.get(state, 0.06)
+    return MATERIAL_TAX_LOADING.get(state, 0.06)
+
+
+def get_material_share(category: str) -> float:
+    """Material fraction of a line item category (rest is labor/equipment)."""
+    return MATERIAL_SHARE_BY_CATEGORY.get(category, DEFAULT_MATERIAL_SHARE)
+
+
+def get_tile_complexity_multiplier(pattern: str, tile_size: str) -> float:
+    """Combined pattern + size labor multiplier for tile work.
+
+    Pattern and size complexity overlap heavily — a herringbone lay of 2x2
+    mosaic is not 1.28 x 1.35 = 1.73x the labor. RSMeans/Xactimate/NTCA style
+    estimating takes the DOMINANT complexity driver at full weight and counts
+    the secondary one at half:
+
+        multiplier = max(P, S) + (min(P, S) - 1.00) x 0.5   [capped]
+
+    Applies to the LABOR portion only; extra material is handled by waste.
+    """
+    p = TILE_PATTERN_MULTIPLIER.get(pattern, 1.0)
+    s = TILE_SIZE_MULTIPLIER.get(tile_size, 1.0)
+    combined = max(p, s) + (min(p, s) - 1.00) * 0.5
+    return min(combined, TILE_COMPLEXITY_CAP)
+
+
+def get_tile_waste(pattern: str, tile_size: str) -> float:
+    """Waste factor for tile MATERIAL by pattern/size (never applied to labor)."""
+    waste = TILE_WASTE_BY_PATTERN.get(pattern, DEFAULT_TILE_WASTE)
+    return max(waste, TILE_WASTE_BY_SIZE.get(tile_size, 0.0))
+
+
+def apply_material_handling(price: float) -> float:
+    """Load procurement cost onto an SKU-priced material figure (§0-1).
+
+    Most rates in this file are HomeWyse-style *installed* prices, which
+    already carry the installer's procurement. A few tables were instead
+    priced from retail SKU listings (Home Depot / DreamLine / Aquatic etc.) —
+    those are over-the-counter prices with no allowance for sourcing, pickup
+    or delivery, storage, staging, or the return/damage risk the contractor
+    carries on a special-order item.
+
+    Apply ONLY to tables listed in SKU_PRICED_TABLES. Never apply it to
+    labor, nor to anything in INSTALLED_PRICE_TABLES — doing so double-counts
+    handling the installed rate already includes.
+    """
+    return round(price * MATERIAL_HANDLING, 2)
+
+
+def is_curbless(shower_type: str) -> bool:
+    """True for any curbless variant, including the legacy bare value."""
+    return shower_type in CURBLESS_TYPES
+
+
+def get_curbless_floor_cost(shower_type: str) -> float:
+    """Curbless FLOOR SYSTEM cost (linear drain billed separately).
+
+    Legacy "curbless" (no substrate recorded) falls back to the wood rate,
+    which is the common case for DMV housing stock.
+    """
+    if shower_type == "curbless_slab":
+        return SHOWER_CUSTOM_EXTRAS["curbless_floor_slab"]
+    return SHOWER_CUSTOM_EXTRAS["curbless_floor_wood"]
+
+
+# Backwards-compatible alias (older imports)
+get_sales_tax_rate = get_material_tax_loading

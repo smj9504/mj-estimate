@@ -353,11 +353,10 @@ class BathroomExportService:
         subtotal = estimate.get("subtotal", 0)
         summary_data.append(["", "Subtotal", f"${subtotal:,.2f}"])
 
-        # O&P is absorbed into line item pricing — not shown separately on PDF
-
-        tax = estimate.get("tax_amount", 0)
-        if tax > 0:
-            summary_data.append(["", "Sales Tax (material)", f"${tax:,.2f}"])
+        # O&P is absorbed into line item pricing — not shown separately on PDF.
+        # Material tax is likewise loaded into line item pricing: on lump-sum
+        # improvement contracts the contractor is the final consumer, so no
+        # sales tax line may appear on the client-facing PDF.
 
         total = estimate.get("total", 0)
         summary_data.append(["", "GRAND TOTAL", f"${total:,.2f}"])

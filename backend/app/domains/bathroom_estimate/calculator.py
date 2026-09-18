@@ -38,7 +38,6 @@ from .pricing import (
     SHOWER_CUSTOM_EXTRAS,
     SHOWER_DOOR_INSTALL,
     SHOWER_DOOR_PRICES,
-    SHOWER_ENCLOSURE_PRICES,
     SHOWER_INSERT_INSTALL,
     SHOWER_INSERT_PRICES,
     SHOWER_PAN_COSTS,
@@ -48,8 +47,12 @@ from .pricing import (
     TILE_EXTRAS,
     TILE_LABOR_RATES,
     TILE_MATERIAL_RATES,
-    TILE_PATTERN_MULTIPLIER,
-    TILE_SIZE_MULTIPLIER,
+    get_tile_complexity_multiplier,
+    get_tile_waste,
+    CUSTOM_TILE_SHOWER_TYPES,
+    is_curbless,
+    get_curbless_floor_cost,
+    apply_material_handling,
     TOILET_EXTRAS,
     TOILET_PRICES,
     TRIM_GRADE_MULTIPLIER,
@@ -60,10 +63,14 @@ from .pricing import (
     VANITY_TOP_PRICES,
     SINK_PRICES,
     SINK_INSTALL,
-    SINK_FAUCET,
-    SINK_FAUCET_INSTALL,
+    FAUCET_PRICES,
+    FAUCET_WALL_MOUNT_ROUGH,
     get_labor_multiplier,
-    get_sales_tax_rate,
+    get_material_tax_loading,
+    get_material_share,
+    PUNCH_LIST_BASIS,
+    get_punch_list_cost,
+    get_punch_list_note,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,6 +86,19 @@ def _scale_dollar_amounts(text: str, factor: float) -> str:
     return _DOLLAR_RE.sub(_replace, text)
 
 
+# Legacy `shower_spec["enclosure"]` values → canonical door_type keys.
+# The old SHOWER_ENCLOSURE_PRICES lookup table was removed (§7-3): it was a
+# second, staler price list for selections SHOWER_DOOR_PRICES already covers,
+# so the same choice priced differently depending on which field was set.
+_LEGACY_ENCLOSURE_MAP = {
+    "curtain": "curtain",
+    "sliding": "framed_sliding",
+    "pivot": "framed_pivot",
+    "frameless": "frameless_sliding",
+    "half_wall_glass": "fixed_panel",
+}
+
+
 def calculate_estimate(estimate) -> Dict[str, Any]:
     """Calculate all line items for a bathroom estimate.
 
@@ -86,7 +106,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         estimate: BathroomEstimate ORM object
 
     Returns:
-        Dict with line_items, subtotal, overhead, profit, tax, total, etc.
+        Dict with line_items, subtotal, overhead, profit, total, etc.
+        (tax_amount is always 0 — material tax is loaded into line pricing.)
     """
     line_items: List[Dict] = []
     warnings: List[str] = []
@@ -184,7 +205,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
     # Wall demo: auto-derive from shower/tub surround OR manual flag
     _auto_wall_shower = (estimate.replace_shower
-                         and _shower_spec_demo.get("type") in ("custom_tile", "curbless"))
+                         and _shower_spec_demo.get("type") in CUSTOM_TILE_SHOWER_TYPES)
     _auto_wall_tub = (_tub_spec_demo.get("surround_tile", False)
                       and (estimate.replace_tub
                            or getattr(estimate, 'detach_reset_tub', False)))
@@ -305,7 +326,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     if estimate.replace_shower:
         shower_spec = estimate.shower_spec or {}
         stype = shower_spec.get("type", "one_piece")
-        if stype in ("custom_tile", "curbless", "neo_angle_custom"):
+        if stype in CUSTOM_TILE_SHOWER_TYPES:
             _unit_cost = round(DEMO_RATES["shower_custom_tile"] * labor_mult, 2)
             # Merge wall tile removal + unit tear-out into one line
             if _auto_wall_shower and '_shower_tile_cost' in dir():
@@ -458,7 +479,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         if estimate.replace_shower:
             shower_spec_d = estimate.shower_spec or {}
             stype_d = shower_spec_d.get("type", "one_piece")
-            debris_cy += 2.0 if stype_d in ("custom_tile", "curbless") else 1.5
+            debris_cy += 2.0 if stype_d in CUSTOM_TILE_SHOWER_TYPES else 1.5
         if estimate.replace_vanity:
             van_ct = len((estimate.vanity_spec or {}).get("items", [])) or 1
             debris_cy += 1.0 * van_ct
@@ -608,8 +629,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     tub_spec_sub = estimate.bathtub_spec or {}
 
     # Shower wall tile SF
-    if estimate.replace_shower and shower_spec.get("type") in (
-            "custom_tile", "curbless"):
+    if (estimate.replace_shower
+            and shower_spec.get("type") in CUSTOM_TILE_SHOWER_TYPES):
         s_tile = shower_spec.get("tile_spec", {})
         s_sf = s_tile.get("sf", 0)
         if not s_sf:
@@ -831,34 +852,29 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         tile_mat = floor_spec.get("material", "porcelain")
         pattern = floor_spec.get("pattern", "straight")
         tile_size = floor_spec.get("size", "12x12")
-        mat_rate = TILE_MATERIAL_RATES.get(
-            tile_mat, TILE_MATERIAL_RATES["porcelain"])
+        mat_rate = apply_material_handling(TILE_MATERIAL_RATES.get(
+            tile_mat, TILE_MATERIAL_RATES["porcelain"]))
         labor_rate = TILE_LABOR_RATES["floor_per_sf"] * labor_mult
-        pat_mult = TILE_PATTERN_MULTIPLIER.get(pattern, 1.0)
-        size_mult = TILE_SIZE_MULTIPLIER.get(tile_size, 1.0)
-        waste = TILE_EXTRAS["waste_factor"]
-        supply_rate = (TILE_EXTRAS["grout_per_sf"]
-                       + TILE_EXTRAS["thinset_per_sf"])
+        complexity_mult = get_tile_complexity_multiplier(pattern, tile_size)
+        waste = get_tile_waste(pattern, tile_size)
 
         ft_mat_cost = round(
             tile_floor_sf * (1 + waste) * mat_rate, 2)
         ft_labor_cost = round(
-            tile_floor_sf * labor_rate * pat_mult * size_mult, 2)
-        ft_supply_cost = round(tile_floor_sf * supply_rate, 2)
+            tile_floor_sf * labor_rate * complexity_mult, 2)
         ft_sealer_cost = 0
         if tile_mat == "natural_stone":
             ft_sealer_cost = round(
                 tile_floor_sf * TILE_EXTRAS["sealer_per_sf"], 2)
 
-        ft_total = (ft_mat_cost + ft_labor_cost
-                    + ft_supply_cost + ft_sealer_cost)
+        ft_total = (ft_mat_cost + ft_labor_cost + ft_sealer_cost)
 
         ft_parts = [
             f"Material: {tile_mat} ${mat_rate:.2f}/SF allowance, "
             f"{tile_floor_sf*(1+waste):.0f}SF ${ft_mat_cost:,.2f} "
             f"(incl {int(waste*100)}% waste)",
-            f"Install: {pattern} ${ft_labor_cost:,.2f}",
-            f"Supplies: ${ft_supply_cost:,.2f}",
+            f"Install: {pattern} ${ft_labor_cost:,.2f} "
+            f"(incl. thinset, grout, setting supplies)",
         ]
         if ft_sealer_cost:
             ft_parts.append(f"Sealer: ${ft_sealer_cost:,.2f}")
@@ -877,8 +893,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
     # Shower wall tile (consolidated)
     shower_spec = estimate.shower_spec or {}
-    _shower_tile_types = (
-        "custom_tile", "curbless", "neo_angle_custom")
+    _shower_tile_types = CUSTOM_TILE_SHOWER_TYPES
     _s_wall_mat = shower_spec.get("wall_material", "tile")
     _s_is_tile_shower = (
         estimate.replace_shower
@@ -913,26 +928,22 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             stile_mat = tile_spec.get("material", "porcelain")
             spattern = tile_spec.get("pattern", "straight")
             stile_size = tile_spec.get("size", "12x12")
-            smat_rate = TILE_MATERIAL_RATES.get(
-                stile_mat, TILE_MATERIAL_RATES["porcelain"])
+            smat_rate = apply_material_handling(TILE_MATERIAL_RATES.get(
+                stile_mat, TILE_MATERIAL_RATES["porcelain"]))
             slabor_rate = TILE_LABOR_RATES["shower_wall_per_sf"] * labor_mult
-            spat_mult = TILE_PATTERN_MULTIPLIER.get(spattern, 1.0)
-            ssize_mult = TILE_SIZE_MULTIPLIER.get(stile_size, 1.0)
-            swaste = TILE_EXTRAS["waste_factor"]
-            ssupply_rate = TILE_EXTRAS["grout_per_sf"] + TILE_EXTRAS["thinset_per_sf"]
-
+            scomplexity_mult = get_tile_complexity_multiplier(
+                spattern, stile_size)
+            swaste = get_tile_waste(spattern, stile_size)
             st_mat_cost = round(shower_wall_sf * (1 + swaste) * smat_rate, 2)
-            st_labor_cost = round(shower_wall_sf * slabor_rate * spat_mult * ssize_mult, 2)
-            st_supply_cost = round(shower_wall_sf * ssupply_rate, 2)
+            st_labor_cost = round(shower_wall_sf * slabor_rate * scomplexity_mult, 2)
             st_sealer_cost = 0
             if stile_mat == "natural_stone":
                 st_sealer_cost = round(shower_wall_sf * TILE_EXTRAS["sealer_per_sf"], 2)
-            st_total = st_mat_cost + st_labor_cost + st_supply_cost + st_sealer_cost
+            st_total = st_mat_cost + st_labor_cost + st_sealer_cost
 
             st_parts = [
                 f"Material: {stile_mat} ${smat_rate:.2f}/SF allowance, {shower_wall_sf*(1+swaste):.0f}SF ${st_mat_cost:,.2f} (incl {int(swaste*100)}% waste)",
-                f"Install: {spattern} ${st_labor_cost:,.2f}",
-                f"Supplies: ${st_supply_cost:,.2f}",
+                f"Install: {spattern} ${st_labor_cost:,.2f} (incl. thinset, grout, setting supplies)",
             ]
             if st_sealer_cost:
                 st_parts.append(f"Sealer: ${st_sealer_cost:,.2f}")
@@ -968,26 +979,23 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             sf_tile_mat = tile_spec.get("material", "porcelain")
             sf_pattern = tile_spec.get("pattern", "straight")
             sf_tile_size = tile_spec.get("size", "12x12")
-            sf_mat_rate = TILE_MATERIAL_RATES.get(
-                sf_tile_mat, TILE_MATERIAL_RATES["porcelain"])
+            sf_mat_rate = apply_material_handling(TILE_MATERIAL_RATES.get(
+                sf_tile_mat, TILE_MATERIAL_RATES["porcelain"]))
             sf_labor_rate = TILE_LABOR_RATES["shower_floor_per_sf"] * labor_mult
-            sf_pat_mult = TILE_PATTERN_MULTIPLIER.get(sf_pattern, 1.0)
-            sf_size_mult = TILE_SIZE_MULTIPLIER.get(sf_tile_size, 1.0)
-            sf_waste = TILE_EXTRAS["waste_factor"]
-            sf_supply_rate = TILE_EXTRAS["grout_per_sf"] + TILE_EXTRAS["thinset_per_sf"]
+            sf_complexity_mult = get_tile_complexity_multiplier(
+                sf_pattern, sf_tile_size)
+            sf_waste = get_tile_waste(sf_pattern, sf_tile_size)
 
             sf_mat_cost = round(shower_floor_sf * (1 + sf_waste) * sf_mat_rate, 2)
-            sf_labor_cost = round(shower_floor_sf * sf_labor_rate * sf_pat_mult * sf_size_mult, 2)
-            sf_supply_cost = round(shower_floor_sf * sf_supply_rate, 2)
+            sf_labor_cost = round(shower_floor_sf * sf_labor_rate * sf_complexity_mult, 2)
             sf_sealer_cost = 0
             if sf_tile_mat == "natural_stone":
                 sf_sealer_cost = round(shower_floor_sf * TILE_EXTRAS["sealer_per_sf"], 2)
-            sf_total = sf_mat_cost + sf_labor_cost + sf_supply_cost + sf_sealer_cost
+            sf_total = sf_mat_cost + sf_labor_cost + sf_sealer_cost
 
             sf_parts = [
                 f"Material: {sf_tile_mat} ${sf_mat_rate:.2f}/SF allowance, {shower_floor_sf*(1+sf_waste):.0f}SF ${sf_mat_cost:,.2f} (incl {int(sf_waste*100)}% waste)",
-                f"Install: {sf_pattern} ${sf_labor_cost:,.2f} (slope to drain)",
-                f"Supplies: ${sf_supply_cost:,.2f}",
+                f"Install: {sf_pattern} ${sf_labor_cost:,.2f} (slope to drain, incl. thinset, grout, setting supplies)",
             ]
             if sf_sealer_cost:
                 sf_parts.append(f"Sealer: ${sf_sealer_cost:,.2f}")
@@ -1004,7 +1012,11 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         if pan_sf > 0:
             pan_preslope = round(pan_sf * SHOWER_PAN_COSTS["mortar_preslope_per_sf"] * labor_mult, 2)
             pan_liner = round(SHOWER_PAN_COSTS["pan_liner"] * labor_mult, 2)
-            pan_curb_wp = round(SHOWER_PAN_COSTS["curb_waterproof"] * labor_mult, 2) if stype != "curbless" else 0
+            pan_curb_wp = (
+                0 if is_curbless(stype)
+                else round(
+                    SHOWER_PAN_COSTS["curb_waterproof"] * labor_mult, 2)
+            )
             pan_total = pan_preslope + pan_liner + pan_curb_wp
 
             pan_parts = [
@@ -1066,21 +1078,19 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             sur_mat = tub_spec.get("surround_tile_material", "porcelain")
             sur_pattern = tub_spec.get("surround_tile_pattern", "straight")
             sur_size = tub_spec.get("surround_tile_size", "12x12")
-            sur_mat_rate = TILE_MATERIAL_RATES.get(
-                sur_mat, TILE_MATERIAL_RATES["porcelain"])
+            sur_mat_rate = apply_material_handling(TILE_MATERIAL_RATES.get(
+                sur_mat, TILE_MATERIAL_RATES["porcelain"]))
             sur_labor_rate = BATHTUB_EXTRAS["surround_tile_labor_per_sf"] * labor_mult
-            sur_pat_mult = TILE_PATTERN_MULTIPLIER.get(sur_pattern, 1.0)
-            sur_size_mult = TILE_SIZE_MULTIPLIER.get(sur_size, 1.0)
-            sur_waste = TILE_EXTRAS["waste_factor"]
-            sur_supply_rate = TILE_EXTRAS["grout_per_sf"] + TILE_EXTRAS["thinset_per_sf"]
+            sur_complexity_mult = get_tile_complexity_multiplier(
+                sur_pattern, sur_size)
+            sur_waste = get_tile_waste(sur_pattern, sur_size)
 
             bt_mat_cost = round(surround_sf * (1 + sur_waste) * sur_mat_rate, 2)
-            bt_labor_cost = round(surround_sf * sur_labor_rate * sur_pat_mult * sur_size_mult, 2)
-            bt_supply_cost = round(surround_sf * sur_supply_rate, 2)
+            bt_labor_cost = round(surround_sf * sur_labor_rate * sur_complexity_mult, 2)
             bt_sealer_cost = 0
             if sur_mat == "natural_stone":
                 bt_sealer_cost = round(surround_sf * TILE_EXTRAS["sealer_per_sf"], 2)
-            bt_total = bt_mat_cost + bt_labor_cost + bt_supply_cost + bt_sealer_cost
+            bt_total = bt_mat_cost + bt_labor_cost + bt_sealer_cost
 
             # Build wall dimension note
             wall_dim_note = f"{wall_count} walls: {tl:.0f}\"L × {td:.0f}\"D × {sh:.0f}\"H = {surround_sf:.1f}SF"
@@ -1088,8 +1098,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             bt_parts = [
                 wall_dim_note,
                 f"Material: {sur_mat} ${sur_mat_rate:.2f}/SF allowance, {surround_sf*(1+sur_waste):.0f}SF ${bt_mat_cost:,.2f} (incl {int(sur_waste*100)}% waste)",
-                f"Install: {sur_pattern} ${bt_labor_cost:,.2f}",
-                f"Supplies: ${bt_supply_cost:,.2f}",
+                f"Install: {sur_pattern} ${bt_labor_cost:,.2f} (incl. thinset, grout, setting supplies)",
             ]
             if bt_sealer_cost:
                 bt_parts.append(f"Sealer: ${bt_sealer_cost:,.2f}")
@@ -1146,7 +1155,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         tub_type = tub_spec["type"]
         tub_mat = tub_spec.get("material", "acrylic")
         tub_prices = BATHTUB_PRICES.get(tub_type, BATHTUB_PRICES["alcove"])
-        tub_price = tub_prices.get(tub_mat, tub_prices["acrylic"])
+        tub_price = apply_material_handling(
+            tub_prices.get(tub_mat, tub_prices["acrylic"]))
         tub_type_label = tub_type.replace("_", " ").title()
         tub_mat_label = tub_mat.replace("_", " ").title()
 
@@ -1284,8 +1294,9 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
         # --- Unit (insert) or custom tile extras ---
         if stype in ("one_piece", "multi_piece_kit"):
-            insert_price = SHOWER_INSERT_PRICES.get(
-                stype, SHOWER_INSERT_PRICES["one_piece"])
+            insert_price = apply_material_handling(
+                SHOWER_INSERT_PRICES.get(
+                    stype, SHOWER_INSERT_PRICES["one_piece"]))
             insert_install = round(
                 SHOWER_INSERT_INSTALL * labor_mult, 2)
             shower_total += insert_price + insert_install
@@ -1304,7 +1315,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 kit_grade, {})
             sizes = sorted(kit_prices.keys()) if kit_prices else [36]
             sz = min(sizes, key=lambda x: abs(x - s_w))
-            kit_price = kit_prices.get(sz, 900)
+            kit_price = apply_material_handling(kit_prices.get(sz, 900))
             kit_install = round(
                 NEO_ANGLE_KIT_INSTALL * labor_mult, 2)
             shower_total += kit_price + kit_install
@@ -1324,7 +1335,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             # Base pan
             base_sizes = sorted(NEO_ANGLE_BASE_PRICES.keys())
             bsz = min(base_sizes, key=lambda x: abs(x - s_w))
-            base_price = NEO_ANGLE_BASE_PRICES.get(bsz, 220)
+            base_price = apply_material_handling(
+                NEO_ANGLE_BASE_PRICES.get(bsz, 220))
             base_install = round(
                 NEO_ANGLE_BASE_INSTALL * labor_mult, 2)
             shower_total += base_price + base_install
@@ -1340,7 +1352,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                     wall_mat, {})
                 ws_sizes = sorted(ws_prices.keys()) if ws_prices else [36]
                 wsz = min(ws_sizes, key=lambda x: abs(x - s_w))
-                ws_price = ws_prices.get(wsz, 325)
+                ws_price = apply_material_handling(
+                    ws_prices.get(wsz, 325))
                 ws_install = round(
                     NEO_ANGLE_WALL_SURROUND_INSTALL
                     * labor_mult, 2)
@@ -1380,7 +1393,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             shower_parts.append(
                 f"Curb: ${curb_cost:,.2f}")
 
-        if stype in ("custom_tile", "curbless"):
+        if stype in CUSTOM_TILE_SHOWER_TYPES:
             niches = shower_spec.get("niches", 0)
             if niches > 0:
                 niche_cost = round(
@@ -1401,13 +1414,31 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 shower_parts.append(
                     f"Bench {bench_len}″ ({bench_pos}): "
                     f"${bench_cost:,.2f}")
-            if stype == "curbless":
-                drain_cost = round(
-                    SHOWER_CUSTOM_EXTRAS["curbless_drain"]
-                    * labor_mult, 2)
+            if is_curbless(stype):
+                # §9-1: floor system and linear drain are SEPARATE costs.
+                # Charging one blended figure either understated the subfloor
+                # work (old 715) or double-counted the drain.
+                floor_cost = round(
+                    get_curbless_floor_cost(stype) * labor_mult, 2)
+                shower_total += floor_cost
+                _sub = ("slab core-cut + re-pour"
+                        if stype == "curbless_slab"
+                        else "subfloor recess + extended waterproofing")
+                shower_parts.append(
+                    f"Curbless floor system ({_sub}): ${floor_cost:,.2f}")
+
+                _drain_grade = shower_spec.get("linear_drain_grade",
+                                               "standard")
+                _drain_key = ("linear_drain_premium"
+                              if _drain_grade == "premium"
+                              else "linear_drain_standard")
+                # Drain assembly is SKU material — handling applies, but not
+                # the regional labor multiplier (§0-3: material is national).
+                drain_cost = apply_material_handling(
+                    SHOWER_CUSTOM_EXTRAS[_drain_key])
                 shower_total += drain_cost
                 shower_parts.append(
-                    f"Linear drain: ${drain_cost:,.2f}")
+                    f"Linear drain ({_drain_grade}): ${drain_cost:,.2f}")
             else:
                 curb_cost = round(
                     SHOWER_CUSTOM_EXTRAS["curb"]
@@ -1428,7 +1459,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 f"${sh_dr_cost:,.2f}")
         elif _sh_action != "none":
             sh_type = shower_spec.get("showerhead_type", "standard")
-            sh_price = SHOWERHEAD_PRICES.get(sh_type, SHOWERHEAD_PRICES["standard"])
+            sh_price = apply_material_handling(
+                SHOWERHEAD_PRICES.get(sh_type, SHOWERHEAD_PRICES["standard"]))
             grade_mult = TRIM_GRADE_MULTIPLIER.get(shower_spec.get("trim_grade", "mid"), 1.0)
             sh_cost = round(sh_price * grade_mult, 2)
             shower_total += sh_cost
@@ -1441,7 +1473,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             shower_parts.append("Valve/trim: plumber already replaced (excluded)")
         elif not _sh_valve_enabled:
             # User disabled shower valve — trim only (skip if trim excluded)
-            if stype in ("custom_tile", "curbless") and not _excl_trim_sh:
+            if stype in CUSTOM_TILE_SHOWER_TYPES and not _excl_trim_sh:
                 trim_cost = round(
                     PLUMBING_RATES["shower_valve_trim"] * labor_mult, 2
                 )
@@ -1461,9 +1493,11 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 if shower_spec.get("trim_grade") == "premium"
                 else "pressure_balance"
             )
-            valve_cost = round(
+            # Material only — no regional labor multiplier (§0-3):
+            # material prices are national, only labor varies by zip.
+            valve_cost = apply_material_handling(
                 SHOWER_VALVE_PRICES.get(
-                    valve_type, SHOWER_VALVE_PRICES["pressure_balance"]) * labor_mult, 2
+                    valve_type, SHOWER_VALVE_PRICES["pressure_balance"])
             )
             shower_total += valve_cost
             vt_label = valve_type.replace('_', ' ')
@@ -1475,7 +1509,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 shower_parts.append(
                     f"Valve body + trim: {vt_label} ${valve_cost:,.2f}"
                 )
-        elif stype in ("custom_tile", "curbless") and not _excl_trim_sh:
+        elif stype in CUSTOM_TILE_SHOWER_TYPES and not _excl_trim_sh:
             # Trim-only (retain existing valve body)
             trim_cost = round(
                 PLUMBING_RATES["shower_valve_trim"] * labor_mult, 2
@@ -1506,6 +1540,19 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         door_type = shower_spec.get("door_type")
         door_width = shower_spec.get("door_width_in", 0) or 0
         s_w_door = shower_spec.get("width_in", 36) or 36
+
+        # Legacy `enclosure` field → canonical door_type (§7-3).
+        # The old SHOWER_ENCLOSURE_PRICES table priced the same selections
+        # differently from SHOWER_DOOR_PRICES (e.g. frameless $1,928 vs $985
+        # material), so an estimate written with the old field priced higher
+        # than an identical one using door_type. Map it onto the single
+        # canonical path instead of keeping a second price list.
+        if not door_type:
+            _legacy_enc = shower_spec.get("enclosure")
+            if _legacy_enc:
+                door_type = _LEGACY_ENCLOSURE_MAP.get(_legacy_enc)
+                if door_type and not door_width:
+                    door_width = s_w_door
 
         # Fixed glass panel — computed here (before the door is priced) so
         # its cost can fold into the door line below: a fixed side panel is
@@ -1553,7 +1600,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             na_sz = min(
                 na_sizes,
                 key=lambda x: abs(x - s_w_door))
-            mat_price = na_prices[na_sz]
+            mat_price = apply_material_handling(na_prices[na_sz])
             door_install = round(
                 NEO_ANGLE_DOOR_INSTALL.get(
                     door_type, 375) * labor_mult, 2)
@@ -1586,6 +1633,10 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                      if door_width
                      else widths[len(widths) // 2])
                 mat_price = prices[w]
+            # SKU-priced glass — add procurement handling (§0-1).
+            # "curtain" is a rod, priced as an installed bundle elsewhere.
+            if door_type != "curtain":
+                mat_price = apply_material_handling(mat_price)
             door_label = door_type.replace(
                 "_", " ").title()
 
@@ -1618,23 +1669,6 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                     f"Shower door - {door_label}",
                     1, "EA", door_combined, "fixture",
                     notes=door_note)
-        else:
-            # Legacy fallback: enclosure field
-            enclosure = shower_spec.get("enclosure")
-            if enclosure and enclosure != "curtain":
-                enc_price = SHOWER_ENCLOSURE_PRICES.get(
-                    enclosure, SHOWER_ENCLOSURE_PRICES["sliding"])
-                enc_note = None
-                if panel_cost > 0:
-                    enc_price += panel_cost
-                    enc_note = f"Fixed panel ({panel_count}): {panel_sf} SF ${panel_cost:,.2f}"
-                    panel_merged = True
-                _add(line_items, 5, f"Shower enclosure - {enclosure.replace('_', ' ')}",
-                     1, "EA", enc_price, "fixture", notes=enc_note)
-            elif enclosure == "curtain":
-                _add(line_items, 5, "Shower curtain rod + curtain", 1, "EA",
-                     SHOWER_ENCLOSURE_PRICES["curtain"], "fixture")
-
         # Fallback: a fixed panel exists but no door/enclosure line above
         # could absorb it (e.g. curtain, or no door configured at all) —
         # keep it as its own line rather than silently dropping the cost.
@@ -1644,7 +1678,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  notes=f"{panel_sf} SF tempered glass, installed")
 
     # --- Shower curb tile ---
-    if estimate.replace_shower and shower_spec.get("type") in ("custom_tile", "curbless"):
+    if estimate.replace_shower and shower_spec.get("type") in CUSTOM_TILE_SHOWER_TYPES:
         curb_h = shower_spec.get("curb_height", 4) or 0
         if curb_h > 0:
             s_w = shower_spec.get("width_in", 36) or 36
@@ -1657,7 +1691,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
     # Tile edge trim (Schluter/metal) for custom tile showers
     if (estimate.replace_shower
-            and shower_spec.get("type") in ("custom_tile", "curbless")):
+            and shower_spec.get("type") in CUSTOM_TILE_SHOWER_TYPES):
         # Estimate trim LF: perimeter of shower opening + niche edges
         s_w = shower_spec.get("width_in", 36) or 36
         s_d = shower_spec.get("depth_in", 36) or 36
@@ -1687,17 +1721,24 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             # ── Pedestal / Wall-Mount Sink path ──
             if sink_type in ("pedestal_sink", "wall_mount_sink"):
                 sink_label = "Pedestal sink" if sink_type == "pedestal_sink" else "Wall-mount sink"
-                fixture_price = SINK_PRICES.get(
-                    sink_type, SINK_PRICES["pedestal_sink"])
+                fixture_price = apply_material_handling(
+                    SINK_PRICES.get(sink_type, SINK_PRICES["pedestal_sink"]))
                 install_price = round(
                     SINK_INSTALL.get(sink_type, SINK_INSTALL["pedestal_sink"]) * labor_mult, 2)
 
+                # §11-1: same canonical faucet path as a cabinet vanity —
+                # FAUCET_PRICES (material) + vanity_faucet_install (labor).
                 faucet = van.get("faucet_type", "centerset")
-                faucet_price = SINK_FAUCET.get(faucet, SINK_FAUCET["centerset"])
+                faucet_price = apply_material_handling(
+                    FAUCET_PRICES.get(faucet, FAUCET_PRICES["centerset"]))
                 faucet_label = faucet.replace('_', ' ')
                 faucet_connect = 0
                 if not plumber_fixed_vanity:
-                    faucet_connect = round(SINK_FAUCET_INSTALL * labor_mult, 2)
+                    faucet_connect = round(
+                        PLUMBING_RATES["vanity_faucet_install"] * labor_mult, 2)
+                    if faucet == "wall_mount":
+                        faucet_connect += round(
+                            FAUCET_WALL_MOUNT_ROUGH * labor_mult, 2)
                 faucet_total = round(faucet_price + faucet_connect, 2)
 
                 mirror_total = 0
@@ -1705,7 +1746,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 mirror_label = ""
                 if getattr(estimate, 'replace_mirror', False):
                     mirror = van.get("mirror_type", "framed")
-                    mirror_price = MIRROR_PRICES.get(mirror, MIRROR_PRICES["framed"])
+                    mirror_price = apply_material_handling(
+                        MIRROR_PRICES.get(mirror, MIRROR_PRICES["framed"]))
                     mirror_label = mirror.replace('_', ' ')
                     mirror_total = round(mirror_price + MIRROR_INSTALL * labor_mult, 2)
 
@@ -1738,8 +1780,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             v_source = van.get("source", "stock_rta")
             v_prices = VANITY_PRICES.get(
                 v_source, VANITY_PRICES["stock_rta"])
-            v_price = v_prices.get(
-                v_width, v_prices.get(36, 500))
+            v_price = apply_material_handling(
+                v_prices.get(v_width, v_prices.get(36, 500)))
             src_label = v_source.replace('_', ' ')
 
             # --- Countertop ---
@@ -1757,11 +1799,12 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 wall_mount_price = round(
                     VANITY_EXTRAS["wall_mount_blocking"] * labor_mult, 2)
 
-            # --- Faucet (allowance) + plumbing connection ---
+            # --- Faucet material (allowance) + plumbing connection ---
+            # §10-4: FAUCET_PRICES is MATERIAL ONLY (no regional multiplier —
+            # material is national). Install labor is added once, below.
             faucet = van.get("faucet_type", "single_hole")
-            faucet_key = f"faucet_{faucet}"
-            faucet_price = VANITY_EXTRAS.get(
-                faucet_key, VANITY_EXTRAS["faucet_single_hole"])
+            faucet_price = apply_material_handling(
+                FAUCET_PRICES.get(faucet, FAUCET_PRICES["single_hole"]))
             faucet_label = faucet.replace('_', ' ')
             sink_count = van.get("sinks", 1)
             faucet_total = round(faucet_price * sink_count, 2)
@@ -1770,7 +1813,12 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             faucet_connect = 0
             if not plumber_fixed_vanity:
                 faucet_connect = round(
-                    PLUMBING_RATES["vanity_faucet_install"] * labor_mult, 2)
+                    PLUMBING_RATES["vanity_faucet_install"]
+                    * sink_count * labor_mult, 2)
+                if faucet == "wall_mount":
+                    # Wall-mount needs a rough valve + access panel
+                    faucet_connect += round(
+                        FAUCET_WALL_MOUNT_ROUGH * sink_count * labor_mult, 2)
             faucet_total += faucet_connect
 
             # --- Mirror (only if replace_mirror is set) ---
@@ -1779,7 +1827,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             mirror_price = 0
             if getattr(estimate, 'replace_mirror', False):
                 mirror = van.get("mirror_type", "framed")
-                mirror_price = MIRROR_PRICES.get(mirror, MIRROR_PRICES["framed"])
+                mirror_price = apply_material_handling(
+                        MIRROR_PRICES.get(mirror, MIRROR_PRICES["framed"]))
                 mirror_label = mirror.replace('_', ' ')
                 mirror_total = round(
                     mirror_price + MIRROR_INSTALL * labor_mult, 2)
@@ -1866,7 +1915,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     tlt = estimate.toilet_spec or {}
     if estimate.replace_toilet and tlt:
         t_type = tlt.get("type", "two_piece_standard")
-        t_price = TOILET_PRICES.get(t_type, TOILET_PRICES["two_piece_standard"])
+        t_price = apply_material_handling(
+            TOILET_PRICES.get(t_type, TOILET_PRICES["two_piece_standard"]))
         t_install = round(PLUMBING_RATES["toilet_set"] * labor_mult, 2)
 
         # Plumbing supplies — skip supply line if plumber already fixed toilet
@@ -1901,7 +1951,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
         if tlt.get("bidet_seat"):
             _add(line_items, 5, "Bidet seat installation", 1, "EA",
-                 TOILET_PRICES["bidet_seat"], "fixture")
+                 apply_material_handling(TOILET_PRICES["bidet_seat"]),
+                 "fixture")
             warnings.append("Bidet seat requires GFCI outlet nearby")
 
     # ────────────────────────────────────────
@@ -2013,7 +2064,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 continue
             label = f" #{vi + 1}" if len(vanity_items_m) > 1 else ""
             mirror_type = van.get("mirror_type", "framed")
-            mirror_price = MIRROR_PRICES.get(mirror_type, MIRROR_PRICES["framed"])
+            mirror_price = apply_material_handling(
+                MIRROR_PRICES.get(mirror_type, MIRROR_PRICES["framed"]))
             mirror_label = mirror_type.replace('_', ' ')
             mirror_install = round(MIRROR_INSTALL * labor_mult, 2)
             mirror_combined = mirror_price + mirror_install
@@ -2121,7 +2173,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         if estimate.replace_shower:
             s_spec = estimate.shower_spec or {}
             s_type = s_spec.get("type", "")
-            if s_type in ("custom_tile", "curbless"):
+            if s_type in CUSTOM_TILE_SHOWER_TYPES:
                 ts = (s_spec.get("tile_spec") or {}).get("sf", 0)
                 if not ts:
                     sw = s_spec.get("width_in", 0) or 0
@@ -2199,8 +2251,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             tile_pat = walls.get("tile_pattern", "straight")
             tile_sz = walls.get("tile_size", "12x12")
             # Material + labor per SF
-            mat_rate = TILE_MATERIAL_RATES.get(
-                tile_mat, TILE_MATERIAL_RATES["porcelain"])
+            mat_rate = apply_material_handling(TILE_MATERIAL_RATES.get(
+                tile_mat, TILE_MATERIAL_RATES["porcelain"]))
             lab_rate = TILE_LABOR_RATES["wall_per_sf"]
             tile_cost = round((mat_rate + lab_rate) * labor_mult, 2)
             _add(line_items, 4,
@@ -2486,22 +2538,31 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         # Replace: new material + install
         acc_total = 0
         acc_parts = []
+        # ACCESSORY_PRICES bundles material + install labor (60/40, §0-2).
+        # Finish/grade multipliers are MATERIAL-only and the regional
+        # multiplier is LABOR-only (§0-3), so the bundle must be split before
+        # either is applied — otherwise switching Chrome->Brass would also
+        # inflate the installation labor by 25%.
+        _acc_mat_share = get_material_share("accessory")
+        _acc_lab_share = 1 - _acc_mat_share
+
+        def _accessory_cost(bundled_price: float, quantity: float = 1) -> float:
+            material = bundled_price * _acc_mat_share * af_mult * ag_mult
+            labor = bundled_price * _acc_lab_share * labor_mult
+            return round(quantity * (material + labor), 2)
+
         for key, label, price_key in acc_items:
             qty = acc.get(key) or 0
             if qty > 0:
                 base_price = ACCESSORY_PRICES.get(
                     price_key, ACCESSORY_PRICES["towel_bar"])
-                item_cost = round(
-                    qty * base_price * af_mult * ag_mult * labor_mult, 2)
+                item_cost = _accessory_cost(base_price, qty)
                 acc_total += item_cost
                 acc_parts.append(f"{label} x{qty} ${item_cost:,.2f}")
 
         # Curtain rod rolls into accessories line item
         if tub_spec.get("curtain_rod"):
-            cr_cost = round(
-                BATHTUB_EXTRAS["curtain_rod"] * af_mult * ag_mult * labor_mult,
-                2,
-            )
+            cr_cost = _accessory_cost(BATHTUB_EXTRAS["curtain_rod"])
             acc_total += cr_cost
             acc_parts.append(f"Curtain rod + rings ${cr_cost:,.2f}")
 
@@ -2587,9 +2648,16 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
          HIDDEN_COSTS["final_clean"], "misc")
 
     if hc.get("punch_list", False):
-        _add(line_items, 7, "Punch list reserve (1-2 follow-up visits)", 1, "LS",
-             HIDDEN_COSTS["punch_list"], "misc",
-             notes="Final adjustments, minor touch-ups, hardware tightening")
+        # Modeled time-based allowance — there is no published per-visit rate
+        # for punch list work (see PUNCH_LIST_BASIS).
+        _pl_visits = PUNCH_LIST_BASIS["visits"]
+        _pl_label = (
+            f"Punch list reserve ({_pl_visits} follow-up "
+            f"{'visit' if _pl_visits == 1 else 'visits'})"
+        )
+        _add(line_items, 7, _pl_label, 1, "LS",
+             get_punch_list_cost(), "misc",
+             notes=get_punch_list_note())
 
     # Mold warning
     if estimate.mold_suspected:
@@ -2629,7 +2697,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             # Shower surround: (width + 2×depth) × tile_height
             _sc_shower = estimate.shower_spec or {}
             if (estimate.replace_shower
-                    and _sc_shower.get("type") in ("custom_tile", "curbless")):
+                    and _sc_shower.get("type") in CUSTOM_TILE_SHOWER_TYPES):
                 _sc_w = _sc_shower.get("width_in", 36) or 36
                 _sc_d = _sc_shower.get("depth_in", 36) or 36
                 _sc_h = _sc_shower.get("tile_height_in", 72) or 72
@@ -2751,8 +2819,26 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     overhead_pct = estimate.overhead_pct if estimate.overhead_pct is not None else 0.10
     profit_pct = estimate.profit_pct if estimate.profit_pct is not None else 0.10
 
+    # ── Material tax loading (internalized — never a customer-facing line) ──
+    # On lump-sum improvement contracts in MD/VA/DC/FL the contractor is the
+    # final consumer of the materials, so the tax is a cost input, not a
+    # pass-through charge. Fold it into each line item's material portion
+    # BEFORE the subtotal so it can never surface as a separate amount.
+    state = estimate.state or "MD"
+    tax_rate = get_material_tax_loading(state, zip_code)
+    if tax_rate:
+        for item in line_items:
+            share = get_material_share(item.get("category", ""))
+            if not share:
+                continue
+            loaded = item["unit_price"] * (1 + share * tax_rate)
+            item["unit_price"] = round(loaded, 2)
+            item["total"] = round(item["quantity"] * item["unit_price"], 2)
+
     if include_op:
-        op_multiplier = 1 + overhead_pct + profit_pct
+        # Compound, not additive: overhead is applied to cost, then profit is
+        # applied to the overhead-loaded amount (cost x 1.10 x 1.10 = x1.21).
+        op_multiplier = (1 + overhead_pct) * (1 + profit_pct)
         for item in line_items:
             item["unit_price"] = round(item["unit_price"] * op_multiplier, 2)
             item["total"] = round(item["quantity"] * item["unit_price"], 2)
@@ -2767,13 +2853,11 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     overhead_amount = 0
     profit_amount = 0
 
-    # Sales tax on material portion (~50% of subtotal is material)
-    state = estimate.state or "MD"
-    tax_rate = get_sales_tax_rate(state, zip_code)
-    material_portion = subtotal * 0.50  # rough split
-    tax_amount = round(material_portion * tax_rate, 2)
-
-    total = round(subtotal + tax_amount, 2)
+    # Material tax is already loaded into line item pricing above, so the
+    # grand total is simply the subtotal. No separate tax amount is ever
+    # reported to the client.
+    tax_amount = 0
+    total = round(subtotal, 2)
 
     # ────────────────────────────────────────
     # Round total to nearest $10 for clean pricing
@@ -2789,9 +2873,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 _lg["total"] / _lg["quantity"], 2
             )
         subtotal = sum(item["total"] for item in line_items)
-        material_portion = subtotal * 0.50
-        tax_amount = round(material_portion * tax_rate, 2)
-        total = round(subtotal + tax_amount, 2)
+        total = round(subtotal, 2)
 
     # ────────────────────────────────────────
     # Target total adjustment (reverse pricing)
@@ -2813,9 +2895,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
         # Recalculate totals with adjusted line items
         subtotal = sum(item["total"] for item in line_items)
-        material_portion = subtotal * 0.50
-        tax_amount = round(material_portion * tax_rate, 2)
-        total = round(subtotal + tax_amount, 2)
+        total = round(subtotal, 2)
 
         # Fix rounding drift: adjust largest line item to hit target exactly
         rounding_diff = round(target_total - total, 2)
@@ -2834,14 +2914,13 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                     largest["notes"], _sec_factor
                 )
             subtotal = sum(item["total"] for item in line_items)
-            material_portion = subtotal * 0.50
-            tax_amount = round(material_portion * tax_rate, 2)
-            total = round(subtotal + tax_amount, 2)
+            total = round(subtotal, 2)
 
     # Methodology notes
+    # NOTE: material tax loading is an internal cost input and is deliberately
+    # NOT described here — methodology_notes is shown to the client.
     method_parts = [
         f"DMV region pricing ({state}), labor multiplier: {labor_mult:.2f}",
-        f"Sales tax: {tax_rate*100:.1f}% on estimated material portion",
     ]
     if include_op:
         method_parts.append(
