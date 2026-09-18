@@ -22,17 +22,20 @@ from .pricing import (
     COUNTERTOP_MATERIALS,
     CROWN_MOLDING_PRICING,
     DOOR_STYLES,
+    END_PANEL_TYPES,
     FINISH_MULTIPLIER,
     GLASS_DOOR_PREMIUM,
     ISLAND_PANEL_PRICING,
     LAYOUT_TYPES,
     MATERIAL_MULTIPLIER,
+    OVERLAY_STYLES,
     PREFAB_ISLAND_INSTALL,
     PREFAB_ISLAND_PRICING,
     SCOPE_ITEMS,
     SPECIALTY_PREMIUM,
     TALL_CABINET_TYPES,
 )
+from .rate_meta import Basis
 from .schemas import (
     CabinetEstimateCreate,
     CabinetEstimateListResponse,
@@ -70,9 +73,29 @@ def get_pricing_info():
         "materials": BoxMaterial.choices(),
         "finishes": FinishType.choices(),
         "door_styles": DOOR_STYLES,
+        "overlay_styles": OVERLAY_STYLES,
+        "pricing_bases": [
+            {
+                "key": Basis.INSURANCE_DR.value,
+                "label": "Insurance claim",
+                "description": (
+                    "Xactimate detach & reset. Crew time only — no "
+                    "per-appliance trip charge."
+                ),
+            },
+            {
+                "key": Basis.RETAIL_INSTALL.value,
+                "label": "Retail remodel",
+                "description": (
+                    "Installer pricing. Carries a trip minimum on each "
+                    "appliance."
+                ),
+            },
+        ],
         "layout_types": LAYOUT_TYPES,
         "cab_types": CabType.choices(),
         "specialty_types": list(SPECIALTY_PREMIUM.keys()),
+        "end_panel_types": END_PANEL_TYPES,
         "scope_items": SCOPE_ITEMS,
         "backsplash_types": [
             {"key": k, "label": v["label"], "material_per_sf": v["material_per_sf"], "install_per_sf": v["install_per_sf"]}

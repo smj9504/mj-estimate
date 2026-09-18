@@ -156,6 +156,11 @@ class CabinetEstimateBase(BaseModel):
     box_material: Optional[str] = Field(None, max_length=50)
     finish: Optional[str] = Field(None, max_length=50)
     door_style: Optional[str] = Field(None, max_length=50)
+    overlay_style: Optional[str] = Field(None, max_length=50)
+    pricing_basis: Optional[str] = Field(
+        "INSURANCE_DR",
+        description="INSURANCE_DR (claim) or RETAIL_INSTALL (remodel)",
+    )
     include_demo: bool = True
     include_install: bool = True
     include_delivery: bool = True
@@ -184,6 +189,14 @@ class CabinetEstimateBase(BaseModel):
     include_dumpster: bool = True
     include_electrical: bool = False
     include_permit: bool = False
+    filler_count: int = 0
+    end_panel_counts: Optional[Dict[str, int]] = Field(
+        None,
+        description='Finished end panels, e.g. {"base": 2, "wall": 1}',
+    )
+    dishwasher_return_panel_count: int = 0
+    include_light_rail: bool = False
+    light_rail_lf: Optional[float] = None
     outlet_relocation_count: int = 0
     delivery_floor: int = 1
     island_type: str = Field(
@@ -227,6 +240,8 @@ class CabinetEstimateUpdate(BaseModel):
     box_material: Optional[str] = Field(None, max_length=50)
     finish: Optional[str] = Field(None, max_length=50)
     door_style: Optional[str] = Field(None, max_length=50)
+    overlay_style: Optional[str] = Field(None, max_length=50)
+    pricing_basis: Optional[str] = None
     include_demo: Optional[bool] = None
     include_install: Optional[bool] = None
     include_delivery: Optional[bool] = None
@@ -255,6 +270,11 @@ class CabinetEstimateUpdate(BaseModel):
     include_dumpster: Optional[bool] = None
     include_electrical: Optional[bool] = None
     include_permit: Optional[bool] = None
+    filler_count: Optional[int] = None
+    end_panel_counts: Optional[Dict[str, int]] = None
+    dishwasher_return_panel_count: Optional[int] = None
+    include_light_rail: Optional[bool] = None
+    light_rail_lf: Optional[float] = None
     outlet_relocation_count: Optional[int] = None
     delivery_floor: Optional[int] = None
     island_type: Optional[str] = None
@@ -292,6 +312,8 @@ class CabinetEstimateResponse(BaseModel):
     box_material: Optional[str] = None
     finish: Optional[str] = None
     door_style: Optional[str] = None
+    overlay_style: Optional[str] = None
+    pricing_basis: Optional[str] = "INSURANCE_DR"
     include_demo: bool = True
     include_install: bool = True
     include_delivery: bool = True
@@ -320,6 +342,11 @@ class CabinetEstimateResponse(BaseModel):
     include_dumpster: bool = True
     include_electrical: bool = False
     include_permit: bool = False
+    filler_count: int = 0
+    end_panel_counts: Optional[Dict[str, int]] = None
+    dishwasher_return_panel_count: int = 0
+    include_light_rail: bool = False
+    light_rail_lf: Optional[float] = None
     outlet_relocation_count: int = 0
     delivery_floor: int = 1
     island_type: str = "custom"
@@ -404,9 +431,14 @@ class PricingInfoResponse(BaseModel):
     materials: List[str]
     finishes: List[str]
     door_styles: List[str]
+    overlay_styles: List[str]
+    # Selectable pricing bases: [{key, label, description}]
+    pricing_bases: List[Dict[str, str]]
     layout_types: List[str]
     cab_types: List[str]
     specialty_types: List[str]
+    # {type_key: label} - finished end panel options
+    end_panel_types: Dict[str, str]
     # Most entries are a flat rate, but the install labor keys are
     # tier-keyed ({"Stock": ..., "Semi-Custom": ..., "Custom": ...}).
     scope_items: Dict[str, Union[float, Dict[str, float]]]

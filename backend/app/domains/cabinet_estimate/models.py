@@ -69,6 +69,19 @@ class CabinetEstimate(Base, BaseModel):
     box_material = Column(String(50))  # Plywood / MDF / Particle
     finish = Column(String(50))        # Painted / Stained / Glazed / Laminate
     door_style = Column(String(50))    # Shaker / Raised Panel / Slab / Glass
+    # Full Overlay / Partial Overlay / Inset. Inset runs +15-25% because
+    # the door sits flush inside the face frame.
+    overlay_style = Column(String(50), nullable=True)
+
+    # Which pricing world this estimate is quoted in. An insurance claim
+    # and a retail remodel price the same physical work differently -
+    # most visibly on appliance detach & reset, where a carrier pays
+    # crew time and a homeowner pays a trip minimum too. Mixing the two
+    # in one estimate is the defect this column prevents.
+    # INSURANCE_DR (default, claim work) | RETAIL_INSTALL (remodel).
+    pricing_basis = Column(
+        String(30), nullable=True, server_default="INSURANCE_DR",
+    )
 
     # Scope of work flags
     include_demo = Column(Boolean, default=True)
@@ -106,6 +119,14 @@ class CabinetEstimate(Base, BaseModel):
     include_dumpster = Column(Boolean, default=True)
     include_electrical = Column(Boolean, default=False)
     include_permit = Column(Boolean, default=False)
+    # Trim and panel scope. These appear on essentially every real
+    # kitchen but had no line item before.
+    filler_count = Column(Integer, default=0)
+    # {"wall": n, "base": n, "tall": n, "refrigerator": n}
+    end_panel_counts = Column(JSON, nullable=True)
+    dishwasher_return_panel_count = Column(Integer, default=0)
+    include_light_rail = Column(Boolean, default=False)
+    light_rail_lf = Column(Float, nullable=True)
     outlet_relocation_count = Column(Integer, default=0)
     delivery_floor = Column(
         Integer, default=1,

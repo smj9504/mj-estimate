@@ -52,6 +52,19 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   // Base - Lazy Susan
   'LS33': { cab_type: 'base', width: 33, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan 33"' },
   'LS36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan 36"' },
+  // Base - Trash / recycle pull-out (standard in a new kitchen)
+  'TP15': { cab_type: 'base', width: 15, height: 34.5, specialty: 'trash_pullout', label: 'Trash Pull-out 15"' },
+  'TP18': { cab_type: 'base', width: 18, height: 34.5, specialty: 'trash_pullout', label: 'Trash Pull-out 18"' },
+  'TP21': { cab_type: 'base', width: 21, height: 34.5, specialty: 'trash_pullout', label: 'Trash Pull-out 21"' },
+  'TP24': { cab_type: 'base', width: 24, height: 34.5, specialty: 'trash_pullout', label: 'Trash Pull-out 24"' },
+  // Base - Farmhouse / apron sink base (front cut away for the apron)
+  'FSB30': { cab_type: 'base', width: 30, height: 34.5, specialty: 'farmhouse_sink_base', label: 'Farmhouse Sink Base 30"' },
+  'FSB33': { cab_type: 'base', width: 33, height: 34.5, specialty: 'farmhouse_sink_base', label: 'Farmhouse Sink Base 33"' },
+  'FSB36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'farmhouse_sink_base', label: 'Farmhouse Sink Base 36"' },
+  // Base - Microwave drawer base
+  'MWD24': { cab_type: 'base', width: 24, height: 34.5, specialty: 'microwave_drawer_base', label: 'Microwave Drawer 24"' },
+  'MWD27': { cab_type: 'base', width: 27, height: 34.5, specialty: 'microwave_drawer_base', label: 'Microwave Drawer 27"' },
+  'MWD30': { cab_type: 'base', width: 30, height: 34.5, specialty: 'microwave_drawer_base', label: 'Microwave Drawer 30"' },
   // Base - Range Base (opening for the range; panels/build priced separately)
   'RB30S': { cab_type: 'base', width: 30, height: 34.5, specialty: 'range_base_slide_in', label: 'Range Base 30" (Slide-in)' },
   'RB36S': { cab_type: 'base', width: 36, height: 34.5, specialty: 'range_base_slide_in', label: 'Range Base 36" (Slide-in)' },
@@ -112,6 +125,19 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   // Wall - Specialty
   'WDC24': { cab_type: 'wall', width: 24, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"' },
   'WDC27': { cab_type: 'wall', width: 27, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 27"' },
+  'WBC24': { cab_type: 'wall', width: 24, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 24"' },
+  'WBC27': { cab_type: 'wall', width: 27, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 27"' },
+  'WBC30': { cab_type: 'wall', width: 30, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 30"' },
+  'WBC33': { cab_type: 'wall', width: 33, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 33"' },
+  // Wall - OTR microwave cabinet (18"H with cut-out + venting)
+  'WMW30': { cab_type: 'wall', width: 30, height: 18, specialty: 'otr_microwave_wall', label: 'OTR Microwave 30"' },
+  'WMW33': { cab_type: 'wall', width: 33, height: 18, specialty: 'otr_microwave_wall', label: 'OTR Microwave 33"' },
+  'WMW36': { cab_type: 'wall', width: 36, height: 18, specialty: 'otr_microwave_wall', label: 'OTR Microwave 36"' },
+  // Wall - Deep upper over a refrigerator (24" deep, not 12")
+  'WRD30': { cab_type: 'wall', width: 30, height: 24, specialty: 'refrigerator_wall_deep', label: 'Fridge Deep Upper 30"' },
+  'WRD33': { cab_type: 'wall', width: 33, height: 24, specialty: 'refrigerator_wall_deep', label: 'Fridge Deep Upper 33"' },
+  'WRD36': { cab_type: 'wall', width: 36, height: 24, specialty: 'refrigerator_wall_deep', label: 'Fridge Deep Upper 36"' },
+  'WRD42': { cab_type: 'wall', width: 42, height: 24, specialty: 'refrigerator_wall_deep', label: 'Fridge Deep Upper 42"' },
   // Tall - Pantry (widths 18/24/30/36 x heights 84/90/96)
   'T1884': { cab_type: 'tall', width: 18, height: 84, label: 'Tall 18"x84"' },
   'T2484': { cab_type: 'tall', width: 24, height: 84, label: 'Tall 24"x84"' },
@@ -143,6 +169,16 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'RC3684': { cab_type: 'tall', width: 36, height: 84, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 36"x84"' },
   'RC3690': { cab_type: 'tall', width: 36, height: 90, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 36"x90"' },
   'RC3696': { cab_type: 'tall', width: 36, height: 96, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 36"x96"' },
+  // Tall - Double oven / oven+microwave stack (taller cut-out)
+  'DOC3084': { cab_type: 'tall', width: 30, height: 84, specialty: 'double_oven_cabinet', label: 'Double Oven 30"x84"' },
+  'DOC3090': { cab_type: 'tall', width: 30, height: 90, specialty: 'double_oven_cabinet', label: 'Double Oven 30"x90"' },
+  'DOC3384': { cab_type: 'tall', width: 33, height: 84, specialty: 'double_oven_cabinet', label: 'Double Oven 33"x84"' },
+  'DOC3390': { cab_type: 'tall', width: 33, height: 90, specialty: 'double_oven_cabinet', label: 'Double Oven 33"x90"' },
+  // Tall - Pantry with roll-out trays
+  'PRO2484': { cab_type: 'tall', width: 24, height: 84, specialty: 'pantry_rollout', label: 'Pantry Roll-out 24"x84"' },
+  'PRO3084': { cab_type: 'tall', width: 30, height: 84, specialty: 'pantry_rollout', label: 'Pantry Roll-out 30"x84"' },
+  'PRO3384': { cab_type: 'tall', width: 33, height: 84, specialty: 'pantry_rollout', label: 'Pantry Roll-out 33"x84"' },
+  'PRO3684': { cab_type: 'tall', width: 36, height: 84, specialty: 'pantry_rollout', label: 'Pantry Roll-out 36"x84"' },
 };
 
 const CUSTOM_VALUE = '__custom__';
