@@ -155,9 +155,61 @@ class WaterMitigationService:
         update_data = data.dict(exclude_unset=True)
         self._apply_address_split(update_data)
         update_data['updated_by_id'] = updated_by_id
+        self._apply_payment_received_transition(
+            job, update_data,
+            actor=f"admin:{updated_by_id}" if updated_by_id else "admin",
+        )
 
         updated_job = self.job_repo.update(job_id, update_data)
+
+        # Keep the linked claim's mirrored note in step with the job's payment_note
+        if 'payment_note' in update_data:
+            from .payment_note_mirror import mirror_payment_note_to_claim
+            get = job.get if isinstance(job, dict) else lambda k: getattr(job, k, None)
+            mirror_payment_note_to_claim(
+                self.session,
+                claim_id=get('claim_id'),
+                address=get('property_address') or '',
+                note=update_data['payment_note'],
+            )
         return updated_job
+
+    @staticmethod
+    def _apply_payment_received_transition(
+        job: Any,  # WaterMitigationJob row or its dict form
+        update_data: Dict[str, Any],
+        actor: str,
+        nudge_status: bool = True,
+    ) -> None:
+        """
+        Fill the audit fields whenever payment_received actually changes.
+
+        With nudge_status, a flip to received also moves a still-early
+        payment_status (unset/pending/issued) to 'received' so the Detail
+        page stays coherent. The public link passes nudge_status=False:
+        it may only ever touch the boolean, never the lifecycle string.
+        """
+        if 'payment_received' not in update_data:
+            return
+
+        # job_repo.get_by_id returns a dict; the public path passes the ORM row
+        def current(key: str):
+            return job.get(key) if isinstance(job, dict) else getattr(job, key, None)
+
+        new_value = bool(update_data['payment_received'])
+        if new_value == bool(current('payment_received')):
+            update_data.pop('payment_received')
+            return
+
+        update_data['payment_received'] = new_value
+        update_data['payment_received_at'] = func.now() if new_value else None
+        update_data['payment_received_by'] = actor
+        if (
+            nudge_status and new_value
+            and 'payment_status' not in update_data
+            and current('payment_status') in (None, '', 'pending', 'issued')
+        ):
+            update_data['payment_status'] = 'received'
 
     def update_job_status(
         self,
@@ -386,6 +438,7 @@ class WaterMitigationService:
         search: Optional[str] = None,
         status: Optional[List[str]] = None,
         active: Optional[bool] = None,
+        hide_received: bool = False,
         page: int = 1,
         page_size: int = 50
     ) -> tuple[List[WaterMitigationJob], int]:
@@ -399,6 +452,7 @@ class WaterMitigationService:
             search=search,
             status=status,
             active=active,
+            hide_received=hide_received,
             page=page,
             page_size=page_size
         )

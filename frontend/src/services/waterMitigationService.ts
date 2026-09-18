@@ -3,9 +3,12 @@
  * Handles all API calls to /api/water-mitigation endpoints
  */
 
-import api from './api';
+import api, { publicApi } from './api';
 import { compressIfNeeded } from '../utils/imageCompressor';
 import type {
+  WMPaymentBoardToken,
+  WMPaymentRow,
+  WMPublicBoardResponse,
   WaterMitigationJob,
   JobCreate,
   JobUpdate,
@@ -153,6 +156,8 @@ export const waterMitigationService = {
       filters.status.forEach(s => params.append('status', s));
     }
     if (filters?.active !== undefined) params.append('active', String(filters.active));
+    if (filters?.hide_received) params.append('hide_received', 'true');
+    if (filters?.with_insurance) params.append('with_insurance', 'true');
     if (filters?.page) params.append('page', String(filters.page));
     if (filters?.page_size) params.append('page_size', String(filters.page_size));
 
@@ -1807,6 +1812,56 @@ export const magicPlanService = {
   }> => {
     const response = await api.get(
       '/api/integrations/magicplan/health'
+    );
+    return response.data;
+  },
+};
+
+// ── WM Payment Board (manager link) ──────────────────────────
+// Amount / recipient edits go through waterMitigationService.updateJob.
+// The public calls MUST use publicApi: the default `api` client redirects
+// to /login on a 401, which would eject a manager who isn't logged in.
+
+const PAYMENT_BOARD_URL = '/api/wm-payment-board';
+
+export const wmPaymentBoardService = {
+  // Admin (authenticated)
+  getToken: async (): Promise<WMPaymentBoardToken> => {
+    const response = await api.get(`${PAYMENT_BOARD_URL}/admin/token`);
+    return response.data;
+  },
+
+  regenerateToken: async (): Promise<WMPaymentBoardToken> => {
+    const response = await api.post(`${PAYMENT_BOARD_URL}/admin/token/regenerate`);
+    return response.data;
+  },
+
+  // Public (no auth)
+  getPublicBoard: async (token: string): Promise<WMPublicBoardResponse> => {
+    const response = await publicApi.get(`${PAYMENT_BOARD_URL}/${token}`);
+    return response.data;
+  },
+
+  setPublicReceived: async (
+    token: string,
+    jobId: string,
+    received: boolean
+  ): Promise<WMPaymentRow> => {
+    const response = await publicApi.patch(
+      `${PAYMENT_BOARD_URL}/${token}/jobs/${jobId}/received`,
+      { payment_received: received }
+    );
+    return response.data;
+  },
+
+  setPublicNote: async (
+    token: string,
+    jobId: string,
+    note: string | null
+  ): Promise<WMPaymentRow> => {
+    const response = await publicApi.patch(
+      `${PAYMENT_BOARD_URL}/${token}/jobs/${jobId}/note`,
+      { payment_note: note }
     );
     return response.data;
   },

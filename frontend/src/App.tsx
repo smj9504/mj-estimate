@@ -156,6 +156,9 @@ const ClaimsLifecycleDashboard = lazyWithRetry(() => import('./pages/ClaimsLifec
 // Crew Upload (Public)
 const CrewUploadPage = lazyWithRetry(() => import('./pages/CrewUploadPage'));
 
+// WM Payment Board (Public - manager link)
+const WMPaymentBoardPublic = lazyWithRetry(() => import('./pages/WMPaymentBoardPublic'));
+
 // Contractor Payment Portal (Public)
 const ContractorPaymentPortal = lazyWithRetry(() => import('./pages/ContractorPaymentPortal'));
 
@@ -247,6 +250,15 @@ const router = createBrowserRouter([
     element: (
       <Suspense fallback={<PageLoader />}>
         <CrewUploadPage />
+      </Suspense>
+    )
+  },
+  // WM Payment Board (공개 - 매니저 수금 확인용, 인증 불필요)
+  {
+    path: "/wm-payments/:token",
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <WMPaymentBoardPublic />
       </Suspense>
     )
   },

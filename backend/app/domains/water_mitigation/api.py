@@ -143,6 +143,8 @@ def list_jobs(
     search: Optional[str] = None,
     status: Optional[str] = None,
     active: Optional[bool] = True,  # Default to True - only show active jobs
+    hide_received: bool = False,  # Payment view: drop jobs already paid
+    with_insurance: bool = False,  # Payment view: attach approved_amount_auto
     page: int = 1,
     page_size: int = 50,
     service: WaterMitigationService = Depends(get_wm_service)
@@ -156,15 +158,22 @@ def list_jobs(
             search=search,
             status=status_list,
             active=active,
+            hide_received=hide_received,
             page=page,
             page_size=page_size
         )
+
+        insurance_amounts = {}
+        if with_insurance:
+            from .insurance_amount import insurance_amounts_for_jobs
+            insurance_amounts = insurance_amounts_for_jobs(service.session, jobs)
 
         # Convert to response
         job_dicts = []
         for job in jobs:
             job_dict = service.job_repo._convert_to_dict(job)
             job_dict['photo_count'] = getattr(job, 'photo_count', 0)
+            job_dict['approved_amount_auto'] = insurance_amounts.get(str(job.id))
             job_dicts.append(job_dict)
 
         total_pages = math.ceil(total / page_size) if total > 0 else 0

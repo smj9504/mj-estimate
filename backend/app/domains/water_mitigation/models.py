@@ -108,6 +108,26 @@ class WaterMitigationJob(Base, BaseModel):
     payment_status = Column(String(50), comment="pending | issued | homeowner_holding | lost | reissued | received | partial")
     payment_note = Column(Text)
 
+    # Payment board (see payment_board_models.py)
+    # invoice_amount above is our invoice; these are the insurance side.
+    approved_amount = Column(DECIMAL(10, 2), comment="Amount approved by the insurance company")
+    final_amount = Column(
+        DECIMAL(10, 2),
+        comment="Final amount after negotiating down from approved_amount (optional)"
+    )
+    check_recipient = Column(String(20), comment="Who the check went to: contractor | customer")
+    # Deliberately separate from payment_status: the no-login manager link writes
+    # this and must never be able to overwrite a lost/reissued lifecycle state.
+    payment_received = Column(
+        Boolean, default=False, nullable=False, server_default='false',
+        comment="Has the payment been received (binary)"
+    )
+    payment_received_at = Column(DateTime(timezone=True), comment="When payment_received was last set true")
+    payment_received_by = Column(
+        String(100),
+        comment="Who confirmed: 'admin:<staff_id>' or 'public_link'"
+    )
+
     # External integration references
     companycam_project_id = Column(String(255), unique=True, index=True)
     google_sheet_row_number = Column(Integer, index=True)

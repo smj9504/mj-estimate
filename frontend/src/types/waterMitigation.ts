@@ -104,6 +104,15 @@ export interface WaterMitigationJob {
   payment_note?: string;
   notes?: string;
 
+  // Payment board (insurance side + received flag)
+  approved_amount?: number | null;
+  approved_amount_auto?: number | null; // claim's insurance estimate (only with with_insurance)
+  final_amount?: number | null;
+  check_recipient?: CheckRecipient | null;
+  payment_received?: boolean;
+  payment_received_at?: string | null;
+  payment_received_by?: string | null;
+
   // Metadata
   photo_count?: number;
   created_at?: string;
@@ -177,6 +186,43 @@ export interface JobCreateRequest {
 // Alias for backward compatibility
 export type JobCreate = JobCreateRequest;
 
+// Payment board
+export type CheckRecipient = 'contractor' | 'customer';
+
+/** One job as returned through the manager link (read-mostly subset of a job) */
+export interface WMPaymentRow {
+  id: string;
+  property_address: string;
+  homeowner_name?: string | null;
+  status?: string | null;
+  invoice_amount?: number | null;
+  approved_amount?: number | null;
+  approved_amount_auto?: number | null;
+  final_amount?: number | null;
+  check_recipient?: CheckRecipient | null;
+  check_number?: string | null;
+  check_date?: string | null;
+  payment_received: boolean;
+  payment_received_at?: string | null;
+  payment_note?: string | null;
+}
+
+export interface WMPublicBoardResponse {
+  valid: boolean;
+  items: WMPaymentRow[];
+}
+
+export interface WMPaymentBoardToken {
+  id: string;
+  token: string;
+  label?: string | null;
+  is_active: boolean;
+  view_count: number;
+  confirm_count: number;
+  last_accessed_at?: string | null;
+  created_at: string;
+}
+
 export interface JobUpdate {
   company_id?: string; // Optional company assignment
   active?: boolean;
@@ -224,6 +270,12 @@ export interface JobUpdate {
   payment_status?: string;
   payment_note?: string;
 
+  // Payment board (received_at/_by are set server-side)
+  approved_amount?: number | null;
+  final_amount?: number | null;
+  check_recipient?: CheckRecipient | null;
+  payment_received?: boolean;
+
   // Integration fields
   companycam_project_id?: string;
   google_sheet_row_number?: number;
@@ -250,6 +302,8 @@ export interface JobFilters {
   search?: string;
   status?: JobStatus[];
   active?: boolean;
+  hide_received?: boolean;
+  with_insurance?: boolean;
   page?: number;
   page_size?: number;
 }

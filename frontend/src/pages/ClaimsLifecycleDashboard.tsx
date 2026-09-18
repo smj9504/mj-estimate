@@ -29,6 +29,17 @@ const formatCurrency = (val?: number) => {
 const ClaimsLifecycleDashboard: React.FC = () => {
   const navigate = useNavigate();
 
+  // 행 안의 버튼/링크 클릭은 행 이동으로 처리하지 않음
+  const rowNavProps = (path?: string) => ({
+    onClick: (e: React.MouseEvent) => {
+      if (!path) return;
+      const target = e.target as HTMLElement;
+      if (target.closest('a, button, .ant-btn, .ant-dropdown-trigger, .ant-dropdown')) return;
+      navigate(path);
+    },
+    style: { cursor: path ? 'pointer' : 'default' },
+  });
+
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useQuery({
     queryKey: ['lifecycle-stats'],
     queryFn: () => lifecycleService.getStats(),
@@ -313,6 +324,11 @@ const ClaimsLifecycleDashboard: React.FC = () => {
                 size="small"
                 pagination={false}
                 scroll={{ x: 500 }}
+                onRow={(r: any) => rowNavProps(
+                  r.wm_job_id
+                    ? `/water-mitigation/${r.wm_job_id}`
+                    : r.claim_id ? `/claim-followup/claim/${r.claim_id}` : undefined
+                )}
                 columns={[
                   {
                     title: 'Task', dataIndex: 'title', width: 140, fixed: 'left' as const, ellipsis: true,
@@ -373,6 +389,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
                 size="small"
                 pagination={false}
                 scroll={{ x: 550 }}
+                onRow={(r: WMDocPrep) => rowNavProps(`/water-mitigation/${r.job_id}`)}
                 columns={wmDocPrepColumns}
               />
             )}
@@ -401,6 +418,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
                 size="small"
                 pagination={false}
                 scroll={{ x: 500 }}
+                onRow={(r: PendingEstimate) => rowNavProps(`/water-mitigation/${r.job_id}`)}
                 columns={pendingEstimateColumns}
               />
             )}
@@ -434,6 +452,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
                 size="small"
                 pagination={false}
                 scroll={{ x: 660 }}
+                onRow={(r: PaymentGap) => rowNavProps(`/claim-followup/claim/${r.claim_id}`)}
                 columns={paymentGapColumns}
               />
             )}
@@ -465,6 +484,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
                 size="small"
                 pagination={false}
                 scroll={{ x: 520 }}
+                onRow={(r: SupplementWork) => rowNavProps(`/supplements/${r.supplement_id}`)}
                 columns={supplementWorkColumns}
               />
             )}
@@ -492,6 +512,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
                 rowKey="id"
                 size="small"
                 pagination={false}
+                onRow={(r: any) => rowNavProps(`/rebuild-projects?project=${r.id}`)}
                 columns={[
                   {
                     title: 'Project', dataIndex: 'title', ellipsis: true,

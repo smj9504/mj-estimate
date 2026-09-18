@@ -79,6 +79,7 @@ from app.domains.water_mitigation.models import (
     WMDemolitionType, WMScopeLocation, WMScopeItem, WMDebrisCalculation,
     WMScopeItemCategory, WMStandardScopeItem, WMSheetPAMapping
 )
+from app.domains.water_mitigation.payment_board_models import WMPaymentBoardToken  # noqa: F401
 
 # Company model (imported after its dependencies)
 from app.domains.company.models import Company, CompanyContact
@@ -208,6 +209,10 @@ from app.domains.cheatsheet.models import (  # noqa: F401
 )
 from app.domains.crew_upload.api import public_router as crew_upload_public_router
 from app.domains.crew_upload.api import admin_router as crew_upload_admin_router
+from app.domains.water_mitigation.payment_board_api import (
+    public_router as wm_payment_board_public_router,
+    admin_router as wm_payment_board_admin_router,
+)
 from app.domains.water_mitigation.trash_scheduler import (
     start_trash_scheduler,
     stop_trash_scheduler,
@@ -404,6 +409,13 @@ _NEEDED_COLUMNS = [
     # WM payment tracking
     ("water_mitigation_jobs", "payment_status", "VARCHAR(50)"),
     ("water_mitigation_jobs", "payment_note", "TEXT"),
+    # WM payment board
+    ("water_mitigation_jobs", "approved_amount", "DECIMAL(10,2)"),
+    ("water_mitigation_jobs", "final_amount", "DECIMAL(10,2)"),
+    ("water_mitigation_jobs", "check_recipient", "VARCHAR(20)"),
+    ("water_mitigation_jobs", "payment_received", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    ("water_mitigation_jobs", "payment_received_at", "TIMESTAMPTZ"),
+    ("water_mitigation_jobs", "payment_received_by", "VARCHAR(100)"),
     # Follow-up payment tracking
     ("followup_tasks", "payment_status", "VARCHAR(50)"),
     ("followup_tasks", "payment_note", "TEXT"),
@@ -1094,6 +1106,19 @@ app.include_router(
     crew_upload_admin_router,
     prefix="/api/crew-upload/admin",
     tags=["Crew Upload (Admin)"]
+)
+
+# WM Payment Board (manager link). Admin first so /admin/* isn't swallowed
+# by the public router's /{token} pattern.
+app.include_router(
+    wm_payment_board_admin_router,
+    prefix="/api/wm-payment-board/admin",
+    tags=["WM Payment Board (Admin)"]
+)
+app.include_router(
+    wm_payment_board_public_router,
+    prefix="/api/wm-payment-board",
+    tags=["WM Payment Board (Public)"]
 )
 
 # External Integrations endpoints (conditionally loaded)

@@ -62,6 +62,7 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
         search: Optional[str] = None,
         status: Optional[List[str]] = None,
         active: Optional[bool] = None,
+        hide_received: bool = False,
         page: int = 1,
         page_size: int = 50
     ) -> tuple[List[WaterMitigationJob], int]:
@@ -69,6 +70,10 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
 
         Optimized to fetch photo_count in a single query using subquery
         to avoid N+1 query problem.
+
+        hide_received drops jobs whose payment has been received (payment
+        board view). NULL is treated as not received for rows that predate
+        the column.
         """
         from sqlalchemy.orm import aliased, joinedload
 
@@ -113,6 +118,14 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
 
         if active is not None:
             conditions.append(WaterMitigationJob.active == active)
+
+        if hide_received:
+            conditions.append(
+                or_(
+                    WaterMitigationJob.payment_received.is_(False),
+                    WaterMitigationJob.payment_received.is_(None),
+                )
+            )
 
         if conditions:
             query = query.filter(and_(*conditions))

@@ -34,6 +34,10 @@ class JobStatus:
         ]
 
 
+# Who an insurance check was made out to (payment board)
+CHECK_RECIPIENTS = frozenset({'contractor', 'customer'})
+
+
 # Base schemas
 class JobBase(BaseModel):
     """Base job schema"""
@@ -78,11 +82,25 @@ class JobBase(BaseModel):
     payment_status: Optional[str] = None
     payment_note: Optional[str] = None
 
+    # Payment board (insurance side + received flag)
+    approved_amount: Optional[float] = None
+    final_amount: Optional[float] = None
+    check_recipient: Optional[str] = None
+    payment_received: Optional[bool] = None
+    payment_received_at: Optional[datetime] = None
+    payment_received_by: Optional[str] = None
+
     @validator('date_of_loss', 'mitigation_start_date', 'mitigation_end_date', 'inspection_date', 'documents_sent_date', 'check_date', pre=True)
     def convert_date_to_datetime(cls, v):
         """Convert date to datetime if needed"""
         if isinstance(v, date) and not isinstance(v, datetime):
             return datetime.combine(v, datetime.min.time())
+        return v
+
+    @validator('check_recipient')
+    def validate_check_recipient(cls, v):
+        if v is not None and v not in CHECK_RECIPIENTS:
+            raise ValueError(f'check_recipient must be one of: {sorted(CHECK_RECIPIENTS)}')
         return v
 
 
@@ -146,6 +164,12 @@ class JobUpdate(BaseModel):
     payment_status: Optional[str] = None
     payment_note: Optional[str] = None
 
+    # Payment board. payment_received_at/_by are derived in the service, not accepted here.
+    approved_amount: Optional[float] = None
+    final_amount: Optional[float] = None
+    check_recipient: Optional[str] = None
+    payment_received: Optional[bool] = None
+
     active: Optional[bool] = None
 
     # CompanyCam Integration
@@ -156,6 +180,12 @@ class JobUpdate(BaseModel):
         """Convert date to datetime if needed"""
         if isinstance(v, date) and not isinstance(v, datetime):
             return datetime.combine(v, datetime.min.time())
+        return v
+
+    @validator('check_recipient')
+    def validate_check_recipient(cls, v):
+        if v is not None and v not in CHECK_RECIPIENTS:
+            raise ValueError(f'check_recipient must be one of: {sorted(CHECK_RECIPIENTS)}')
         return v
 
 
@@ -210,6 +240,9 @@ class JobResponse(JobBase):
 
     # Computed fields
     photo_count: Optional[int] = 0
+    # Insurance WM amount from the linked claim (same number the detail page's
+    # financial comparison shows). Only filled when the list is asked for it.
+    approved_amount_auto: Optional[float] = None
 
     class Config:
         from_attributes = True

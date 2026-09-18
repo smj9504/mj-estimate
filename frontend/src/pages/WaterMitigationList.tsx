@@ -18,7 +18,13 @@ import {
   Dropdown,
   Grid,
   List,
-  Typography
+  Typography,
+  Switch,
+  InputNumber,
+  Tooltip,
+  Statistic,
+  Row,
+  Col
 } from 'antd';
 import {
   PlusOutlined,
@@ -34,12 +40,25 @@ import waterMitigationService from '../services/waterMitigationService';
 import type {
   WaterMitigationJob,
   JobFilters,
-  JobStatus
+  JobStatus,
+  JobUpdate,
+  CheckRecipient
 } from '../types/waterMitigation';
 import { JOB_STATUS_OPTIONS } from '../types/waterMitigation';
 import JobFormModal from '../components/water-mitigation/JobFormModal';
 import GoogleSheetsSyncButton from '../components/water-mitigation/GoogleSheetsSyncButton';
 import SheetPAMappingButton from '../components/water-mitigation/SheetPAMappingButton';
+import WMPaymentLinkButton from '../components/water-mitigation/WMPaymentLinkButton';
+import {
+  CHECK_RECIPIENT_OPTIONS,
+  CheckRecipientTag,
+  EditableNote,
+  RECEIVED_ROW_BG,
+  ReceivedTag,
+  effectiveApproved,
+  formatMoney,
+  outstandingAmount
+} from '../components/water-mitigation/paymentBoardShared';
 
 const { Search } = Input;
 const { Option } = Select;
@@ -73,6 +92,14 @@ const WaterMitigationList: React.FC = () => {
   });
   const [formVisible, setFormVisible] = useState(false);
   const [editingJob, setEditingJob] = useState<WaterMitigationJob | undefined>(undefined);
+
+  // Payment view: swaps the column set for amounts / received tracking
+  const [paymentView, setPaymentView] = useState(false);
+  // Invoice / Approved columns can be hidden (e.g. when showing the screen to someone)
+  const [showAmounts, setShowAmounts] = useState(true);
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  // Uncommitted InputNumber edits, keyed `${jobId}:${field}`; committed on blur/enter
+  const [drafts, setDrafts] = useState<Record<string, number | null>>({});
 
   // Load jobs
   const loadJobs = async () => {
@@ -143,6 +170,86 @@ const WaterMitigationList: React.FC = () => {
     setEditingJob(undefined);
     loadJobs();
   };
+
+  const handlePaymentViewChange = (checked: boolean) => {
+    setPaymentView(checked);
+    // with_insurance pulls each job's insurance estimate for the Approved column
+    setFilters(prev => ({
+      ...prev,
+      with_insurance: checked || undefined,
+      hide_received: checked ? prev.hide_received : undefined,
+      page: 1
+    }));
+  };
+
+  // Inline save for the payment view. Optimistic, rolled back on failure.
+  const handleInlineUpdate = async (jobId: string, patch: JobUpdate) => {
+    const previous = jobs.find(j => j.id === jobId);
+    if (!previous) return;
+    setJobs(prev => prev.map(j => (j.id === jobId ? { ...j, ...patch } as WaterMitigationJob : j)));
+    setSavingIds(prev => new Set(prev).add(jobId));
+    try {
+      const updated = await waterMitigationService.updateJob(jobId, patch);
+      setJobs(prev => prev.map(j => (
+        j.id === jobId ? { ...j, ...updated, photo_count: j.photo_count } : j
+      )));
+      // A job just marked received drops out of the list when hide_received is on
+      if (patch.payment_received !== undefined && filters.hide_received) {
+        loadJobs();
+      }
+    } catch (error) {
+      setJobs(prev => prev.map(j => (j.id === jobId ? previous : j)));
+      message.error('Failed to save payment info');
+      console.error('Inline payment update error:', error);
+    } finally {
+      setSavingIds(prev => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
+    }
+  };
+
+  // Approved is the final amount; it defaults to the claim's insurance estimate until typed
+  const renderApprovedCell = () =>
+    (_: unknown, record: WaterMitigationJob) => {
+      const field = 'approved_amount' as const;
+      const key = `${record.id}:${field}`;
+      const isAuto = record.approved_amount == null && record.approved_amount_auto != null;
+      const stored = effectiveApproved(record);
+      const value = key in drafts ? drafts[key] : stored;
+      const commit = () => {
+        if (!(key in drafts)) return;
+        const next = drafts[key];
+        setDrafts(prev => {
+          const rest = { ...prev };
+          delete rest[key];
+          return rest;
+        });
+        if ((next ?? null) !== (record[field] ?? null)) {
+          handleInlineUpdate(record.id, { [field]: next } as JobUpdate);
+        }
+      };
+      const input = (
+        <InputNumber
+          size="small"
+          prefix="$"
+          precision={2}
+          min={0}
+          placeholder="—"
+          style={{ width: '100%', ...(isAuto && !(key in drafts) ? { color: '#8c8c8c' } : {}) }}
+          value={value ?? undefined}
+          onChange={(v) => setDrafts(prev => ({ ...prev, [key]: v }))}
+          onBlur={commit}
+          onPressEnter={commit}
+        />
+      );
+      return isAuto ? (
+        <Tooltip title="From the insurance estimate on the job detail. Type to override.">
+          {input}
+        </Tooltip>
+      ) : input;
+    };
 
   // Table columns (desktop)
   const columns: ColumnsType<WaterMitigationJob> = [
@@ -257,6 +364,99 @@ const WaterMitigationList: React.FC = () => {
     }
   ];
 
+  // Payment view columns (desktop). invoice_amount is read-only here: the
+  // scope invoice sync writes it, so a typed value would be overwritten.
+  const paymentColumns: ColumnsType<WaterMitigationJob> = [
+    {
+      title: 'Property Address',
+      dataIndex: 'property_address',
+      key: 'property_address',
+      ellipsis: true,
+      render: (address: string, record) => (
+        <div>
+          <a
+            onClick={() => navigate(`/water-mitigation/${record.id}`)}
+            style={{ color: '#1890ff', cursor: 'pointer' }}
+          >
+            {address}
+          </a>
+          {record.homeowner_name && (
+            <div><Text type="secondary" style={{ fontSize: 12 }}>{record.homeowner_name}</Text></div>
+          )}
+        </div>
+      )
+    },
+    ...(showAmounts ? [
+      {
+        title: (
+          <Tooltip title="From the generated invoice — edit on the job detail page">
+            <span>Our Invoice</span>
+          </Tooltip>
+        ),
+        dataIndex: 'invoice_amount',
+        key: 'invoice_amount',
+        width: 130,
+        align: 'right' as const,
+        render: (v?: number | null) => formatMoney(v)
+      },
+      {
+        title: 'Approved (Final)',
+        key: 'approved_amount',
+        width: 160,
+        render: renderApprovedCell()
+      },
+    ] : []),
+    {
+      title: 'Check To',
+      dataIndex: 'check_recipient',
+      key: 'check_recipient',
+      width: 160,
+      render: (value: CheckRecipient | null | undefined, record) => (
+        <Select
+          size="small"
+          allowClear
+          placeholder="—"
+          value={value ?? undefined}
+          style={{ width: '100%' }}
+          options={CHECK_RECIPIENT_OPTIONS}
+          onChange={(v) => handleInlineUpdate(record.id, { check_recipient: v ?? null })}
+          labelRender={({ value: v }) => <CheckRecipientTag value={v as CheckRecipient} />}
+        />
+      )
+    },
+    {
+      title: 'Received',
+      key: 'payment_received',
+      width: 170,
+      render: (_, record) => (
+        <Space>
+          <Switch
+            checked={!!record.payment_received}
+            loading={savingIds.has(record.id)}
+            checkedChildren="✓"
+            unCheckedChildren="✗"
+            onChange={(checked) => handleInlineUpdate(record.id, { payment_received: checked })}
+          />
+          <ReceivedTag received={record.payment_received} />
+        </Space>
+      )
+    },
+    {
+      title: 'Note',
+      key: 'payment_note',
+      width: 240,
+      render: (_, record) => (
+        <EditableNote
+          value={record.payment_note}
+          onSave={(note) => handleInlineUpdate(record.id, { payment_note: note ?? '' })}
+        />
+      )
+    }
+  ];
+
+  const pendingJobs = jobs.filter(j => !j.payment_received);
+  const outstandingTotal = pendingJobs.reduce((sum, j) => sum + outstandingAmount(j), 0);
+
   // Mobile card item renderer
   const renderMobileItem = (job: WaterMitigationJob) => (
     <List.Item
@@ -321,6 +521,34 @@ const WaterMitigationList: React.FC = () => {
             <Text type="secondary" style={{ fontSize: 12 }}>Photos: {job.photo_count}</Text>
           )}
         </div>
+        {paymentView && (
+          // Amounts are edited on desktop or the detail page; mobile only toggles received
+          <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 8 }}>
+            {showAmounts && (
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12 }}>
+                <Text type="secondary">Invoice {formatMoney(job.invoice_amount)}</Text>
+                <Text type="secondary">Approved {formatMoney(effectiveApproved(job))}</Text>
+              </div>
+            )}
+            <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <CheckRecipientTag value={job.check_recipient} />
+              <Switch
+                size="small"
+                checked={!!job.payment_received}
+                loading={savingIds.has(job.id)}
+                onChange={(checked) => handleInlineUpdate(job.id, { payment_received: checked })}
+              />
+              <ReceivedTag received={job.payment_received} />
+            </div>
+            <div style={{ marginTop: 6 }}>
+              <EditableNote
+                compact
+                value={job.payment_note}
+                onSave={(note) => handleInlineUpdate(job.id, { payment_note: note ?? '' })}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </List.Item>
   );
@@ -342,6 +570,7 @@ const WaterMitigationList: React.FC = () => {
                 />
               </>
             )}
+            <WMPaymentLinkButton size={isMobile ? 'small' : 'middle'} />
             <Button
               type="primary"
               icon={<PlusOutlined />}
@@ -402,9 +631,43 @@ const WaterMitigationList: React.FC = () => {
                 <Option value="active">Active Only</Option>
                 <Option value="inactive">Inactive Only</Option>
               </Select>
+
+              <Space wrap style={{ marginLeft: isMobile ? 0 : 'auto' }}>
+                <Text style={{ fontSize: 13 }}>Payment view</Text>
+                <Switch checked={paymentView} onChange={handlePaymentViewChange} />
+                {paymentView && (
+                  <>
+                    <Text style={{ fontSize: 13 }}>Amounts</Text>
+                    <Switch checked={showAmounts} onChange={setShowAmounts} />
+                    <Text style={{ fontSize: 13 }}>Hide received</Text>
+                    <Switch
+                      checked={!!filters.hide_received}
+                      onChange={(checked) =>
+                        setFilters(prev => ({ ...prev, hide_received: checked || undefined, page: 1 }))
+                      }
+                    />
+                  </>
+                )}
+              </Space>
             </div>
           </div>
         </div>
+
+        {paymentView && showAmounts && (
+          <Row gutter={16} style={{ marginBottom: 16 }}>
+            <Col xs={12} md={6}>
+              <Statistic title="Pending (this page)" value={pendingJobs.length} suffix={`/ ${jobs.length}`} />
+            </Col>
+            <Col xs={12} md={6}>
+              <Statistic
+                title="Outstanding (this page)"
+                value={outstandingTotal}
+                precision={2}
+                prefix="$"
+              />
+            </Col>
+          </Row>
+        )}
 
         {/* Mobile: Card List / Desktop: Table */}
         {isMobile ? (
@@ -425,18 +688,23 @@ const WaterMitigationList: React.FC = () => {
           />
         ) : (
           <Table
-            columns={columns}
+            columns={paymentView ? paymentColumns : columns}
             dataSource={jobs}
             rowKey="id"
             loading={loading}
             onRow={(record) => ({
               onClick: (e) => {
-                // Don't navigate if clicking on a link, button, or dropdown
+                // Don't navigate if clicking on a link, button, dropdown, or an inline editor
                 const target = e.target as HTMLElement;
-                if (target.closest('a, button, .ant-dropdown-trigger, .ant-btn')) return;
+                if (target.closest(
+                  'a, button, .ant-dropdown-trigger, .ant-btn, .ant-input-number, .ant-select, .ant-switch'
+                )) return;
                 navigate(`/water-mitigation/${record.id}`);
               },
-              style: { cursor: 'pointer' }
+              style: {
+                cursor: 'pointer',
+                background: paymentView && record.payment_received ? RECEIVED_ROW_BG : undefined
+              }
             })}
             pagination={{
               current: filters.page,
@@ -448,7 +716,7 @@ const WaterMitigationList: React.FC = () => {
                 setFilters(prev => ({ ...prev, page, page_size: pageSize }));
               }
             }}
-            scroll={{ x: 1200 }}
+            scroll={{ x: paymentView ? (showAmounts ? 1100 : 900) : 1200 }}
           />
         )}
       </Card>
