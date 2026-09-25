@@ -61,7 +61,8 @@ frontend/.env.production
 mjestimate_dev.db
 /backend/uploads/
 /backend/logs/
-/backend/scripts/
+/backend/scripts/*
+!/backend/scripts/acculynx_export/
 /backend/migrations/
 /backend/storage/water-mitigation/
 
@@ -179,3 +180,6 @@ backend/stroage/water-mitigation/documents
 # Documentation (keep deployment docs)
 !docs/DEPLOYMENT.md
 /docs/
+
+# AccuLynx export working data (customer PII, raw dumps, downloaded files)
+acculynx_export_data/

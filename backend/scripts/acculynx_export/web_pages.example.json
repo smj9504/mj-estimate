@@ -1,0 +1,10 @@
+{
+  "_comment": "Placeholder page paths. Run `web-discover` on one job, check the real AccuLynx URLs for each tab, then copy this file to web_pages.json and fix the paths. {base} = ACCULYNX_WEB_URL, {jobId} = AccuLynx job id.",
+  "communications": "{base}/jobs/{jobId}/communications",
+  "photos_videos": "{base}/jobs/{jobId}/photos",
+  "documents": "{base}/jobs/{jobId}/documents",
+  "estimates": "{base}/jobs/{jobId}/estimates",
+  "measurements": "{base}/jobs/{jobId}/measurements",
+  "orders": "{base}/jobs/{jobId}/orders",
+  "tasks": "{base}/jobs/{jobId}/tasks"
+}
