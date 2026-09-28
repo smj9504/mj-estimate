@@ -37,6 +37,10 @@ class CompanyCamClient:
                 data = await client.download_photo(photo_url)
     """
 
+    # Photo download retry policy (CDN drops pooled connections under load)
+    DOWNLOAD_MAX_ATTEMPTS = 3
+    DOWNLOAD_RETRY_BASE_DELAY = 1.0
+
     def __init__(self, api_key: Optional[str] = None):
         """
         Initialize CompanyCam client
@@ -261,26 +265,57 @@ class CompanyCamClient:
         Raises:
             httpx.HTTPError: If download fails
         """
-        try:
-            if self._shared_client:
-                response = await self._shared_client.get(
-                    photo_url, headers=self.headers, timeout=60.0
-                )
-                response.raise_for_status()
-                return response.content
-            else:
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    response = await client.get(
-                        photo_url, headers=self.headers
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, self.DOWNLOAD_MAX_ATTEMPTS + 1):
+            try:
+                if self._shared_client:
+                    response = await self._shared_client.get(
+                        photo_url, headers=self.headers, timeout=60.0
                     )
                     response.raise_for_status()
                     return response.content
+                else:
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        response = await client.get(
+                            photo_url, headers=self.headers
+                        )
+                        response.raise_for_status()
+                        return response.content
 
-        except httpx.HTTPError as e:
-            logger.error(
-                f"Failed to download photo from {photo_url}: {e}"
-            )
-            raise
+            except httpx.HTTPError as e:
+                last_exc = e
+                if (
+                    attempt < self.DOWNLOAD_MAX_ATTEMPTS
+                    and self._is_retryable_download_error(e)
+                ):
+                    delay = self.DOWNLOAD_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                    logger.warning(
+                        f"Transient error downloading photo "
+                        f"(attempt {attempt}/{self.DOWNLOAD_MAX_ATTEMPTS}, "
+                        f"retrying in {delay:.1f}s): "
+                        f"{type(e).__name__}: {e} - {photo_url}"
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                break
+
+        logger.error(
+            f"Failed to download photo from {photo_url}: "
+            f"{type(last_exc).__name__}: {last_exc}"
+        )
+        raise last_exc
+
+    @staticmethod
+    def _is_retryable_download_error(exc: httpx.HTTPError) -> bool:
+        """
+        Connection drops (ReadError, RemoteProtocolError "Server disconnected"),
+        timeouts, 429 and 5xx from the CompanyCam image CDN are transient.
+        A retry opens a fresh connection since httpx discards the broken one.
+        """
+        if isinstance(exc, httpx.HTTPStatusError):
+            status = exc.response.status_code
+            return status == 429 or status >= 500
+        return isinstance(exc, (httpx.TransportError, httpx.TimeoutException))
 
     async def get_photos_batch(self, photo_ids: list[int]) -> Dict[int, Dict[str, Any]]:
         """
