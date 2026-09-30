@@ -5,14 +5,14 @@ Business logic layer for floor sketches, overlay management,
 and background image upload/removal.
 """
 
+import io
 import logging
-from typing import List, Optional
+import time
+from typing import List, Optional, Tuple
 from uuid import UUID
 
-from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
-from app.domains.storage.factory import StorageFactory
 from app.domains.water_mitigation.sketch_models import WMFloorSketch
 from app.domains.water_mitigation.sketch_repository import SketchRepository
 from app.domains.water_mitigation.sketch_schemas import (
@@ -26,8 +26,50 @@ from app.domains.water_mitigation.sketch_schemas import (
 
 logger = logging.getLogger(__name__)
 
-# Folder name used when storing background images in the storage provider
-_BACKGROUND_IMAGE_FOLDER = "wm_sketch_backgrounds"
+
+def normalize_background_image(
+    data: bytes, content_type: Optional[str], filename: Optional[str] = None
+) -> Tuple[bytes, str]:
+    """Convert SVG/WebP to PNG (browser canvas + WeasyPrint safe)."""
+    mime = (content_type or "").lower()
+    name = (filename or "").lower()
+    is_svg = mime == "image/svg+xml" or name.endswith(".svg") or data[:5] == b"<?xml" or data.lstrip()[:4] == b"<svg"
+    is_webp = mime == "image/webp" or name.endswith(".webp") or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")
+    if is_svg:
+        import cairosvg
+        return cairosvg.svg2png(bytestring=data, output_width=2400), "image/png"
+    if is_webp:
+        from PIL import Image as PILImage
+        buf = io.BytesIO()
+        PILImage.open(io.BytesIO(data)).save(buf, format="PNG")
+        return buf.getvalue(), "image/png"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return data, "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return data, "image/jpeg"
+    return data, mime or "image/png"
+
+
+def set_background_image(
+    repository: SketchRepository, sketch: WMFloorSketch, data: bytes, mime: str
+) -> WMFloorSketch:
+    """Persist image bytes on the sketch and point the URL at the preview proxy."""
+    # Timestamp busts the browser cache after crop/re-upload.
+    image_url = (
+        f"/api/water-mitigation/sketch/floors/{sketch.id}/background-image/preview"
+        f"?v={int(time.time())}"
+    )
+    return repository.update_floor_sketch(
+        sketch,
+        {
+            "background_image_url": image_url,
+            "background_image_data": data,
+            "background_image_content_type": mime,
+            "source_type": "image",
+            "storage_file_id": None,
+            "storage_provider": "db",
+        },
+    )
 
 
 class SketchService:
@@ -119,122 +161,48 @@ class SketchService:
     # Background Image
     # =========================================================================
 
-    async def upload_background_image(
+    def upload_background_image(
         self,
         floor_sketch_id: UUID,
-        file: UploadFile,
-        storage_factory: StorageFactory,
+        file_content: bytes,
+        content_type: Optional[str],
+        filename: Optional[str] = None,
     ) -> WMFloorSketch:
         """
-        Upload a background image file and store its URL on the sketch.
+        Store a background image directly on the floor sketch row.
 
-        Uses StorageFactory to persist the file through the configured
-        storage provider (local filesystem, Google Drive, etc.).
-        The old image is removed from storage before the new one is saved.
+        SVG/WebP are converted to PNG up front so the preview endpoint and
+        the PDF renderer can serve the bytes as-is.
         """
-        import io
-
         sketch = self.repository.get_floor_sketch(floor_sketch_id)
         if not sketch:
             raise ValueError(f"Floor sketch {floor_sketch_id} not found")
 
-        storage = storage_factory.get_instance()
-
-        # Remove the previous background image if one exists
-        old_file_id = getattr(sketch, "storage_file_id", None)
-        if old_file_id:
-            try:
-                storage.delete(old_file_id)
-            except Exception as exc:
-                # Non-fatal: log and continue with the new upload
-                logger.warning(
-                    "Could not delete previous background image for floor sketch "
-                    "%s (file_id=%s): %s",
-                    floor_sketch_id,
-                    old_file_id,
-                    exc,
-                )
-
-        # Upload new file via StorageProvider.upload()
-        file_content = await file.read()
+        data, mime = normalize_background_image(file_content, content_type, filename)
         logger.info(
-            "[BG UPLOAD] sketch=%s, filename=%s, content_type=%s, "
-            "size=%d bytes, old_file_id=%s",
-            floor_sketch_id, file.filename, file.content_type,
-            len(file_content), old_file_id,
+            "[BG UPLOAD] sketch=%s, filename=%s, content_type=%s -> %s, "
+            "size=%d -> %d bytes",
+            floor_sketch_id, filename, content_type, mime,
+            len(file_content), len(data),
         )
-        result = storage.upload(
-            file_data=io.BytesIO(file_content),
-            filename=file.filename or "background.png",
-            context=_BACKGROUND_IMAGE_FOLDER,
-            context_id=str(floor_sketch_id),
-            content_type=file.content_type or "image/png",
-        )
-        logger.info(
-            "[BG UPLOAD] result: file_id=%s, file_url=%s",
-            result.file_id, result.file_url,
-        )
+        return set_background_image(self.repository, sketch, data, mime)
 
-        # Determine the storage provider name
-        from app.core.config import settings
-        provider_name = getattr(settings, "STORAGE_PROVIDER", "local")
+    def remove_background_image(self, floor_sketch_id: UUID) -> WMFloorSketch:
+        """Clear the background image from the sketch."""
+        sketch = self.repository.get_floor_sketch(floor_sketch_id)
+        if not sketch:
+            raise ValueError(f"Floor sketch {floor_sketch_id} not found")
 
-        # For local dev, serve via /uploads/ static mount.
-        # For cloud storage, the frontend will use the proxy endpoint.
-        if provider_name == "local":
-            image_url = result.file_url
-            if not image_url.startswith(("http://", "https://", "/")):
-                image_url = f"/uploads/{image_url}"
-        else:
-            # Use the backend proxy endpoint so the frontend doesn't need
-            # direct access to cloud storage.
-            # Append timestamp to bust browser cache after crop/re-upload.
-            import time
-            image_url = (
-                f"/api/water-mitigation/sketch/floors/"
-                f"{floor_sketch_id}/background-image/preview"
-                f"?v={int(time.time())}"
-            )
-
-        # Persist URL + storage metadata for proxy retrieval
         return self.repository.update_floor_sketch(
             sketch,
             {
-                "background_image_url": image_url,
-                "source_type": "image",
-                "storage_file_id": result.file_id,
-                "storage_provider": provider_name,
+                "background_image_url": None,
+                "background_image_data": None,
+                "background_image_content_type": None,
+                "storage_file_id": None,
+                "storage_provider": None,
+                "source_type": "sketch",
             },
-        )
-
-    async def remove_background_image(
-        self,
-        floor_sketch_id: UUID,
-        storage_factory: StorageFactory,
-    ) -> WMFloorSketch:
-        """
-        Remove the background image from storage and clear the URL on the sketch.
-        """
-        sketch = self.repository.get_floor_sketch(floor_sketch_id)
-        if not sketch:
-            raise ValueError(f"Floor sketch {floor_sketch_id} not found")
-
-        if sketch.background_image_url:
-            try:
-                import posixpath
-                storage = storage_factory.get_instance()
-                file_id = posixpath.basename(sketch.background_image_url)
-                storage.delete(file_id)
-            except Exception as exc:
-                logger.warning(
-                    "Could not delete background image for floor sketch %s: %s",
-                    floor_sketch_id,
-                    exc,
-                )
-
-        return self.repository.update_floor_sketch(
-            sketch,
-            {"background_image_url": None, "source_type": "sketch"},
         )
 
     # =========================================================================

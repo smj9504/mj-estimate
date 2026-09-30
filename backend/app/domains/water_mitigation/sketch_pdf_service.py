@@ -653,9 +653,12 @@ class SketchPdfService:
 
         image_bytes: Optional[bytes] = None
 
-        # Cloud storage — always download fresh (no local cache)
+        if provider == "db":
+            image_bytes = getattr(floor, "background_image_data", None)
+
+        # Legacy cloud storage — always download fresh (no local cache)
         # to ensure crop/re-upload changes are reflected immediately.
-        if provider != "local" and file_id:
+        if image_bytes is None and provider not in ("local", "db") and file_id:
             try:
                 from app.domains.storage.factory import StorageFactory
                 storage = StorageFactory.get_instance(provider)

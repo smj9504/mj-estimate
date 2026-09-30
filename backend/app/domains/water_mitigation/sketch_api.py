@@ -360,7 +360,7 @@ def save_overlay_data(
     response_model=WMBackgroundImageResponse,
     summary="Upload a background image for a floor sketch",
 )
-async def upload_background_image(
+def upload_background_image(
     floor_sketch_id: UUID,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -369,16 +369,17 @@ async def upload_background_image(
     """
     Upload a background image (floor plan, photo, etc.) for a floor sketch.
 
-    The file is stored via the configured StorageFactory provider and the
-    resulting URL is persisted on the sketch. The source_type is set to
-    "image" automatically.
+    The image bytes are stored on the sketch row itself (no external
+    storage) and served through the preview endpoint. The source_type is
+    set to "image" automatically.
     """
     service = SketchService(db)
     try:
-        sketch = await service.upload_background_image(
+        sketch = service.upload_background_image(
             floor_sketch_id,
-            file,
-            StorageFactory,
+            file.file.read(),
+            file.content_type,
+            file.filename,
         )
         db.commit()
         db.refresh(sketch)
@@ -399,7 +400,7 @@ async def upload_background_image(
     response_model=WMBackgroundImageResponse,
     summary="Remove the background image from a floor sketch",
 )
-async def remove_background_image(
+def remove_background_image(
     floor_sketch_id: UUID,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_user),
@@ -407,15 +408,12 @@ async def remove_background_image(
     """
     Remove the background image from a floor sketch.
 
-    The file is deleted from the storage provider and the URL field is
-    cleared. The source_type is reset to "sketch".
+    The stored image and URL are cleared. The source_type is reset to
+    "sketch".
     """
     service = SketchService(db)
     try:
-        sketch = await service.remove_background_image(
-            floor_sketch_id,
-            StorageFactory,
-        )
+        sketch = service.remove_background_image(floor_sketch_id)
         db.commit()
         db.refresh(sketch)
         return WMBackgroundImageResponse(
@@ -470,6 +468,23 @@ def preview_background_image(
     file_id = getattr(sketch, "storage_file_id", None)
     bg_url = sketch.background_image_url or ""
 
+    if provider == "db":
+        data = sketch.background_image_data
+        if not data:
+            raise HTTPException(
+                status_code=404,
+                detail="Background image not found",
+            )
+        return StreamingResponse(
+            io.BytesIO(data),
+            media_type=sketch.background_image_content_type or "image/png",
+            headers={
+                "Content-Disposition": "inline",
+                "Cache-Control": "no-store, must-revalidate",
+            },
+        )
+
+    # Legacy images uploaded before DB storage (Google Drive / local disk).
     # Fallback: extract GDrive file_id from stored URL
     # for data uploaded before storage_file_id was added
     if not file_id and "drive.google.com/file/d/" in bg_url:
@@ -687,6 +702,11 @@ async def _load_image_bytes(sketch: WMFloorSketch, db: Session) -> bytes:
     provider = getattr(sketch, "storage_provider", "local") or "local"
     file_id = getattr(sketch, "storage_file_id", None)
     bg_url = sketch.background_image_url or ""
+
+    if provider == "db":
+        if sketch.background_image_data:
+            return sketch.background_image_data
+        raise ValueError("Could not load background image from storage")
 
     if provider != "local" and file_id:
         storage = StorageFactory().get_instance()
