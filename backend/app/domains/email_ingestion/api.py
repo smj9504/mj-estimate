@@ -3,6 +3,7 @@ Email Ingestion API endpoints.
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -135,23 +136,56 @@ async def oauth_callback(data: EmailAccountOAuthConnect):
 # Polling endpoints
 # ============================================================
 
+def _parse_since(since: Optional[str]) -> Optional[datetime]:
+    """Parse a YYYY-MM-DD backfill date into a tz-aware datetime."""
+    if not since:
+        return None
+    try:
+        return datetime.strptime(since, "%Y-%m-%d").replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid 'since' date {since!r}; expected YYYY-MM-DD",
+        )
+
 @router.post("/poll", response_model=BatchPollResponse)
-async def poll_all():
-    """Poll all active email accounts for new insurance estimates"""
+async def poll_all(
+    since: Optional[str] = Query(
+        None, description="Backfill from this date (YYYY-MM-DD)"
+    ),
+    limit: int = Query(50, le=5000, description="Max emails per account"),
+):
+    """Poll all active email accounts for new insurance estimates.
+
+    Matches are queued for review, not applied - a claim and its revision are
+    only created once a reviewer confirms via /logs/{id}/assign.
+    """
     service = _get_service()
     try:
-        return service.poll_all_accounts()
+        return service.poll_all_accounts(
+            since_date=_parse_since(since), limit=limit,
+        )
     except Exception as e:
         logger.error(f"Error polling all accounts: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/poll/{account_id}", response_model=PollResponse)
-async def poll_account(account_id: str):
+async def poll_account(
+    account_id: str,
+    since: Optional[str] = Query(
+        None, description="Backfill from this date (YYYY-MM-DD)"
+    ),
+    limit: int = Query(50, le=5000, description="Max emails to scan"),
+):
     """Poll a specific email account"""
     service = _get_service()
     try:
-        return service.poll_account(account_id)
+        return service.poll_account(
+            account_id, since_date=_parse_since(since), limit=limit,
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -167,12 +201,19 @@ async def poll_account(account_id: str):
 async def list_logs(
     status: Optional[str] = Query(None, description="Filter by status"),
     account_id: Optional[str] = Query(None, description="Filter by account"),
+    claim_id: Optional[str] = Query(None, description="Filter by matched claim"),
+    has_attachment: bool = Query(
+        False, description="Only rows whose attachment was stored"
+    ),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
 ):
     """Get ingestion logs with optional filters"""
     service = _get_service()
-    return service.get_logs(status=status, account_id=account_id, limit=limit, offset=offset)
+    return service.get_logs(
+        status=status, account_id=account_id, limit=limit, offset=offset,
+        claim_id=claim_id, has_attachment=has_attachment,
+    )
 
 
 @router.get("/logs/pending", response_model=List[IngestionLogResponse])

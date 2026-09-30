@@ -79,6 +79,8 @@ interface Photo {
   description?: string;
   thumbnail_url?: string;  // CompanyCam CDN thumbnail URL (fast)
   preview_url?: string;    // Preview URL from API
+  location_level?: string;
+  location_room?: string;
 }
 
 // Helper function to format date for display
@@ -87,6 +89,24 @@ const formatDateDisplay = (dateStr?: string | null): string | null => {
   try {
     const date = new Date(dateStr);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return dateStr;
+  }
+};
+
+/**
+ * Format a date exactly the way the generated PDF does ("September 01, 2026" —
+ * full month, zero-padded day), so what the editor previews matches what prints.
+ * Date-only strings are pinned to UTC noon first: `new Date('2026-09-01')` parses
+ * as UTC midnight and would render a day early in any timezone west of Greenwich.
+ */
+const formatDatePdfStyle = (dateStr?: string | null): string | null => {
+  if (!dateStr) return null;
+  try {
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? `${dateStr}T12:00:00Z` : dateStr;
+    const date = new Date(iso);
+    if (isNaN(date.getTime())) return dateStr;
+    return date.toLocaleDateString('en-US', { month: 'long', day: '2-digit', year: 'numeric' });
   } catch {
     return dateStr;
   }
@@ -150,6 +170,8 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [autoUpdatePhotoDates, setAutoUpdatePhotoDates] = useState(true);
+  const [showPhotoDates, setShowPhotoDates] = useState(true);
+  const [showPhotoLocations, setShowPhotoLocations] = useState(true);
   // Default report date: mitigation end date + 1, fallback to today
   const [reportDate, setReportDate] = useState<dayjs.Dayjs | null>(
     mitigationEndDate ? dayjs(mitigationEndDate).add(1, 'day') : dayjs()
@@ -200,6 +222,36 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     return result;
   };
 
+  /**
+   * Derive a section's default date from its title, following the SAME
+   * category -> date rule the photos themselves follow (see backend
+   * bulk_update_photo_dates_by_category):
+   *   - "Day 2" sections  -> mitigation start date + 1 day
+   *   - "Day 3" sections  -> mitigation end date
+   *   - everything else   -> mitigation start date
+   * Returns an ISO YYYY-MM-DD string, or undefined when the job has no
+   * mitigation dates set yet.
+   */
+  const deriveSectionDate = (title: string): string | undefined => {
+    const normalized = (title || '').toLowerCase().replace(/[\s\-_]/g, '');
+
+    if (/day3/.test(normalized)) {
+      return mitigationEndDate ? mitigationEndDate.split('T')[0] : undefined;
+    }
+
+    if (!mitigationStartDate) return undefined;
+    const startOnly = mitigationStartDate.split('T')[0];
+
+    if (/day2/.test(normalized)) {
+      // Parse as UTC-noon so the +1 day shift can't slip a day across timezones
+      const start = new Date(`${startOnly}T12:00:00Z`);
+      start.setUTCDate(start.getUTCDate() + 1);
+      return start.toISOString().split('T')[0];
+    }
+
+    return startOnly;
+  };
+
   // Initialize form data when config loads
   useEffect(() => {
     if (config) {
@@ -211,7 +263,12 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
         ...section,
         layout: section.layout || 'two', // Default layout if missing
         photos: section.photos || [],
-        summary: replacePlaceholders(section.summary || '')  // Replace placeholders on load
+        summary: replacePlaceholders(section.summary || ''),  // Replace placeholders on load
+        // Configs saved before section dates existed get the rule-derived
+        // default; an explicit date (incl. '' = intentionally cleared) is kept.
+        section_date: section.section_date === undefined
+          ? deriveSectionDate(section.title)
+          : section.section_date
       }));
       setSections(normalizedSections);
     } else {
@@ -316,6 +373,9 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
         config_id: config.id,
         report_date: reportDate ? reportDate.format('YYYY-MM-DD') : undefined,
         template_variant: pdfTemplateVariant,
+        show_photo_dates: showPhotoDates,
+        show_photo_locations: showPhotoLocations,
+        persist: false, // preview only — don't upload/save a Document for every preview
       };
 
       const blob = await waterMitigationService.report.generateReport(jobId, requestData);
@@ -341,13 +401,15 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   };
 
   const handleAddSection = () => {
+    const title = `Section ${sections.length + 1}`;
     const newSection: ReportSection = {
       id: Date.now().toString(),
-      title: `Section ${sections.length + 1}`,
+      title,
       summary: '',
       photos: [],
       layout: 'two',
-      display_order: sections.length
+      display_order: sections.length,
+      section_date: deriveSectionDate(title)
     };
     setSections([...sections, newSection]);
     setSelectedSectionId(newSection.id);
@@ -487,6 +549,18 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     }
   };
 
+  // Report-only override of a photo's location tag — purely local state,
+  // no API call. It's stored inline in the report config's `sections`
+  // (saved whenever the config itself is saved), same as caption/show_date.
+  const handlePhotoLocationOverrideChange = (photoId: string, value: string) => {
+    setSections(sections.map(s => ({
+      ...s,
+      photos: s.photos.map(p =>
+        p.photo_id === photoId ? { ...p, location_override: value || undefined } : p
+      ),
+    })));
+  };
+
   const handleDownloadPdf = async (compress: boolean = false) => {
     if (!config?.id) return;
 
@@ -498,6 +572,8 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
         report_date: reportDate ? reportDate.format('YYYY-MM-DD') : undefined,
         compress: compress,
         template_variant: pdfTemplateVariant,
+        show_photo_dates: showPhotoDates,
+        show_photo_locations: showPhotoLocations,
       };
 
       const blob = await waterMitigationService.report.generateReport(jobId, requestData);
@@ -729,7 +805,8 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
             photo_id: photo.id,
             caption: photo.caption || '',
             show_date: true,
-            show_description: true
+            show_description: true,
+            show_location: true
           };
           bestSection.photos.push(photoMeta);
           totalAssigned++;
@@ -838,6 +915,26 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                       disabled={!mitigationStartDate || !mitigationEndDate}
                     >
                       Update Photo Dates
+                    </Checkbox>
+                  ),
+                },
+                {
+                  key: 'showPhotoDates', label: (
+                    <Checkbox
+                      checked={showPhotoDates}
+                      onChange={(e) => setShowPhotoDates(e.target.checked)}
+                    >
+                      Show Date on Photos
+                    </Checkbox>
+                  ),
+                },
+                {
+                  key: 'showPhotoLocations', label: (
+                    <Checkbox
+                      checked={showPhotoLocations}
+                      onChange={(e) => setShowPhotoLocations(e.target.checked)}
+                    >
+                      Show Location on Photos
                     </Checkbox>
                   ),
                 },
@@ -1042,6 +1139,20 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                       rows={2}
                     />
                   </Form.Item>
+                  <Form.Item
+                    label="Section Date"
+                    extra="Shown next to the section title in the report. Defaults to the same rule the photo dates follow (Day 2 → start + 1 day, Day 3 → end date, otherwise start date)."
+                  >
+                    <DatePicker
+                      value={currentSection.section_date ? dayjs(currentSection.section_date) : null}
+                      onChange={d => handleUpdateSection(currentSection.id, {
+                        section_date: d ? d.format('YYYY-MM-DD') : ''
+                      })}
+                      format="MMMM DD, YYYY"
+                      placeholder="No date shown"
+                      style={{ width: 240 }}
+                    />
+                  </Form.Item>
                   <Form.Item label="Photo Layout">
                     <Select
                       value={currentSection.layout || 'two'}
@@ -1095,7 +1206,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                             hoverable
                             styles={{ body: { padding: 8 } }}
                             cover={
-                              <div style={{ position: 'relative', height: 150, overflow: 'hidden' }}>
+                              <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', background: '#fafafa' }}>
                                 <Image
                                   src={photo.thumbnail_url || `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photo.id}/preview?size=thumbnail`}
                                   alt={photo.caption || 'Photo'}
@@ -1150,9 +1261,21 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                                   </Select.Option>
                                 ))}
                               </Select>
+                              <Input
+                                size="small"
+                                key={photoMeta.photo_id}
+                                defaultValue={photoMeta.location_override ?? ''}
+                                placeholder={
+                                  [photo.location_level, photo.location_room].filter(Boolean).join(' – ')
+                                  || 'Location override'
+                                }
+                                onBlur={(e) => handlePhotoLocationOverrideChange(photoMeta.photo_id, e.target.value)}
+                                style={{ width: '100%', fontSize: 10, marginBottom: 4 }}
+                                onClick={(e) => e.stopPropagation()}
+                              />
                               {photo.taken_date && (
                                 <div style={{ color: '#8c8c8c', fontSize: 10 }}>
-                                  {new Date(photo.taken_date).toLocaleDateString()}
+                                  {formatDatePdfStyle(photo.taken_date)}
                                 </div>
                               )}
                             </div>

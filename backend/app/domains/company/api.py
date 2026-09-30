@@ -557,6 +557,31 @@ def _get_contact_session():
     return get_database().get_session()
 
 
+@router.get("/by-type/{company_type}")
+async def list_companies_by_type(company_type: str):
+    """
+    Companies of one type (e.g. public_adjuster), id + name only.
+
+    Used where a picker needs to offer the firms of a single type without
+    paging through the full company list.
+    """
+    session = _get_contact_session()
+    try:
+        from app.domains.company.models import Company
+        companies = (
+            session.query(Company)
+            .filter(
+                Company.company_type == company_type,
+                Company.is_active == True,  # noqa: E712
+            )
+            .order_by(Company.name)
+            .all()
+        )
+        return [{"id": str(c.id), "name": c.name} for c in companies]
+    finally:
+        session.close()
+
+
 @router.get("/contacts/all", response_model=list[CompanyContactResponse])
 async def list_all_contacts(
     company_type: Optional[str] = Query(None, description="Filter by company type"),

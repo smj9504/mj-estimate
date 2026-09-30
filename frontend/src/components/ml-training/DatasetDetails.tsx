@@ -46,6 +46,7 @@ import {
   type CostEstimate
 } from '../../services/mlTrainingService';
 import api from '../../services/api';
+import { fileService } from '../../services/fileService';
 
 const { TabPane } = Tabs;
 const { Text, Title } = Typography;
@@ -343,7 +344,7 @@ const DatasetDetails: React.FC<DatasetDetailsProps> = ({ dataset, onClose }) => 
       render: (_: any, record: TrainingImage) => {
         // Use file_id to get image from API preview endpoint
         const imageUrl = record.file_id
-          ? `/api/files/preview/${record.file_id}`
+          ? fileService.getPreviewUrl(record.file_id)
           : record.image_url;
 
         return (

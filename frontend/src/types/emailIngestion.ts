@@ -19,6 +19,8 @@ export interface EmailAccount {
   can_send?: boolean;
   is_active: boolean;
   auto_schedule?: string;
+  smtp_server?: string;
+  smtp_port?: number;
   last_synced_at?: string;
   created_at?: string;
   updated_at?: string;
@@ -46,6 +48,8 @@ export interface EmailAccountCreate {
   can_send?: boolean;
   is_active?: boolean;
   auto_schedule?: string;
+  smtp_server?: string;
+  smtp_port?: number;
 }
 
 export interface EmailAccountUpdate {
@@ -63,6 +67,8 @@ export interface EmailAccountUpdate {
   can_send?: boolean;
   is_active?: boolean;
   auto_schedule?: string;
+  smtp_server?: string;
+  smtp_port?: number;
 }
 
 export interface EmailAccountTestResult {
@@ -98,6 +104,9 @@ export interface IngestionLog {
   client_name?: string;
   claim_number?: string;
   account_email?: string;
+  file_name?: string;
+  file_size?: number;
+  file_content_type?: string;
 }
 
 export type IngestionStatus =
@@ -126,6 +135,8 @@ export interface PollResult {
   emails_found: number;
   processed: number;
   uploaded: number;
+  /** Matched and queued for review; the revision is created on confirm. */
+  pending?: number;
   skipped: number;
   duplicates: number;
   errors: number;
@@ -136,6 +147,7 @@ export interface BatchPollResult {
   results: PollResult[];
   total_processed: number;
   total_uploaded: number;
+  total_pending?: number;
 }
 
 export interface IngestionStats {

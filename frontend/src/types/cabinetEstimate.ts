@@ -10,7 +10,25 @@ export type FinishType = 'Stained' | 'Painted' | 'Glazed' | 'Laminate';
 export type CabType = 'base' | 'wall' | 'tall' | 'specialty';
 export type CabinetLocation = 'perimeter' | 'island';
 export type EstimateStatus = 'draft' | 'calculated' | 'approved' | 'exported';
-export type SpecialtyType = 'sink_base' | 'lazy_susan' | 'blind_corner' | 'drawer_base' | 'diagonal_corner_wall' | 'oven_cabinet' | 'refrigerator_cabinet';
+export type SpecialtyType =
+  | 'sink_base' | 'lazy_susan' | 'blind_corner' | 'drawer_base'
+  | 'diagonal_corner_wall' | 'blind_corner_wall'
+  | 'trash_pullout' | 'farmhouse_sink_base' | 'microwave_drawer_base'
+  | 'refrigerator_wall_deep' | 'otr_microwave_wall'
+  | 'oven_cabinet' | 'refrigerator_cabinet'
+  | 'pantry_rollout' | 'double_oven_cabinet'
+  | 'range_base_slide_in' | 'range_base_drop_in';
+/**
+ * Which pricing world an estimate is quoted in. An insurance claim and a
+ * retail remodel price the same physical work differently — most visibly
+ * on appliance detach & reset, where a carrier pays crew time and a
+ * homeowner also pays a trip minimum. Never mix the two in one estimate.
+ */
+export type PricingBasis = 'INSURANCE_DR' | 'RETAIL_INSTALL';
+/** Full Overlay / Partial Overlay / Inset — inset runs +15-25%. */
+export type OverlayStyle = 'Full Overlay' | 'Partial Overlay' | 'Inset';
+/** Finished end panel positions, priced per panel by cabinet type. */
+export type EndPanelType = 'wall' | 'base' | 'tall' | 'refrigerator';
 export type BacksplashType = 'ceramic_tile' | 'subway_tile' | 'glass_tile' | 'stone_marble';
 
 // ── Box ──
@@ -26,6 +44,8 @@ export interface CabinetBox {
   is_specialty: boolean;
   specialty_type?: SpecialtyType | null;
   has_glass_door: boolean;
+  /** Finished end panels flanking a slide-in range opening (0-2). */
+  range_panel_count?: number | null;
   qty: number;
   display_order: number;
   created_at?: string;
@@ -40,6 +60,8 @@ export interface CabinetBoxCreate {
   is_specialty: boolean;
   specialty_type?: SpecialtyType | null;
   has_glass_door: boolean;
+  /** Finished end panels flanking a slide-in range opening (0-2). */
+  range_panel_count?: number | null;
   qty: number;
   display_order?: number;
 }
@@ -85,11 +107,19 @@ export interface CabinetEstimate {
   box_material?: BoxMaterial;
   finish?: FinishType;
   door_style?: string;
+  overlay_style?: OverlayStyle;
+  pricing_basis?: PricingBasis;
   include_demo: boolean;
   include_install: boolean;
   include_delivery: boolean;
   include_plumbing: boolean;
   sink_type?: 'single' | 'double';
+  /** Under-sink components, quoted for a single sink. */
+  include_aav?: boolean;
+  include_air_gap?: boolean;
+  include_soap_dispenser?: boolean;
+  include_instant_hot?: boolean;
+  include_dw_hookup?: boolean;
   include_countertop_reset: boolean;
   include_hardware: boolean;
   include_crown_molding: boolean;
@@ -108,6 +138,11 @@ export interface CabinetEstimate {
   include_dumpster: boolean;
   include_electrical: boolean;
   include_permit: boolean;
+  filler_count: number;
+  end_panel_counts?: Partial<Record<EndPanelType, number>> | null;
+  dishwasher_return_panel_count: number;
+  include_light_rail: boolean;
+  light_rail_lf?: number | null;
   outlet_relocation_count: number;
   delivery_floor?: number;
   island_type: string;
@@ -155,11 +190,19 @@ export interface CabinetEstimateCreate {
   box_material?: BoxMaterial;
   finish?: FinishType;
   door_style?: string;
+  overlay_style?: OverlayStyle;
+  pricing_basis?: PricingBasis;
   include_demo?: boolean;
   include_install?: boolean;
   include_delivery?: boolean;
   include_plumbing?: boolean;
   sink_type?: 'single' | 'double';
+  /** Under-sink components, quoted for a single sink. */
+  include_aav?: boolean;
+  include_air_gap?: boolean;
+  include_soap_dispenser?: boolean;
+  include_instant_hot?: boolean;
+  include_dw_hookup?: boolean;
   include_countertop_reset?: boolean;
   include_hardware?: boolean;
   include_crown_molding?: boolean;
@@ -178,6 +221,11 @@ export interface CabinetEstimateCreate {
   include_dumpster?: boolean;
   include_electrical?: boolean;
   include_permit?: boolean;
+  filler_count?: number;
+  end_panel_counts?: Partial<Record<EndPanelType, number>> | null;
+  dishwasher_return_panel_count?: number;
+  include_light_rail?: boolean;
+  light_rail_lf?: number | null;
   outlet_relocation_count?: number;
   delivery_floor?: number;
   island_type?: string;
@@ -212,11 +260,19 @@ export interface CabinetEstimateUpdate {
   box_material?: BoxMaterial;
   finish?: FinishType;
   door_style?: string;
+  overlay_style?: OverlayStyle;
+  pricing_basis?: PricingBasis;
   include_demo?: boolean;
   include_install?: boolean;
   include_delivery?: boolean;
   include_plumbing?: boolean;
   sink_type?: 'single' | 'double';
+  /** Under-sink components, quoted for a single sink. */
+  include_aav?: boolean;
+  include_air_gap?: boolean;
+  include_soap_dispenser?: boolean;
+  include_instant_hot?: boolean;
+  include_dw_hookup?: boolean;
   include_countertop_reset?: boolean;
   include_hardware?: boolean;
   include_crown_molding?: boolean;
@@ -235,6 +291,11 @@ export interface CabinetEstimateUpdate {
   include_dumpster?: boolean;
   include_electrical?: boolean;
   include_permit?: boolean;
+  filler_count?: number;
+  end_panel_counts?: Partial<Record<EndPanelType, number>> | null;
+  dishwasher_return_panel_count?: number;
+  include_light_rail?: boolean;
+  light_rail_lf?: number | null;
   outlet_relocation_count?: number;
   delivery_floor?: number;
   island_type?: string;
@@ -309,9 +370,14 @@ export interface PricingInfo {
   materials: string[];
   finishes: string[];
   door_styles: string[];
+  overlay_styles: string[];
+  /** Selectable pricing bases with their descriptions. */
+  pricing_bases: { key: PricingBasis; label: string; description: string }[];
   layout_types: string[];
   cab_types: string[];
   specialty_types: string[];
+  /** { type_key: label } — finished end panel options. */
+  end_panel_types: Record<string, string>;
   // Install labor keys are tier-keyed ({ Stock, 'Semi-Custom', Custom });
   // every other entry is a flat rate.
   scope_items: Record<string, number | Record<string, number>>;

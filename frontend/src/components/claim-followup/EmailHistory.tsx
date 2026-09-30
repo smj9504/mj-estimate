@@ -110,7 +110,25 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
           );
         }
         if (r.status === 'sent') {
-          return <Tag icon={<EyeOutlined />}>Unread</Tag>;
+          // No opens recorded. Distinguish "recipient hasn't opened it" from
+          // "we never attached the pixel", which would otherwise both read
+          // as Unread and be silently indistinguishable.
+          if (r.tracking_pixel_sent === false) {
+            return (
+              <Tooltip title="No tracking pixel was attached to this email, so opens could not be recorded. This says nothing about whether the recipient read it.">
+                <Tag color="orange">Not tracked</Tag>
+              </Tooltip>
+            );
+          }
+          return (
+            <Tooltip title={
+              r.tracking_pixel_sent
+                ? 'Tracking pixel was attached but never loaded. Most mail clients block remote images, so this does not prove the email is unread.'
+                : 'Sent before open tracking was recorded, so it is unknown whether a tracking pixel was attached.'
+            }>
+              <Tag icon={<EyeOutlined />}>Unread</Tag>
+            </Tooltip>
+          );
         }
         return '-';
       },

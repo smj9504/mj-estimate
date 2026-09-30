@@ -32,7 +32,7 @@ import type {
 
 export const clientService = {
   async list(params?: { skip?: number; limit?: number; search?: string; is_active?: boolean }) {
-    const { data } = await api.get('/api/clients', { params });
+    const { data } = await api.get('/api/clients/', { params });
     return data as { clients: ClientListItem[]; total: number };
   },
 
@@ -55,7 +55,7 @@ export const clientService = {
   },
 
   async create(payload: ClientCreate) {
-    const { data } = await api.post('/api/clients', payload);
+    const { data } = await api.post('/api/clients/', payload);
     return data as Client;
   },
 

@@ -4,6 +4,7 @@ Estimate domain service with comprehensive business logic and validation.
 
 import json
 import logging
+from copy import deepcopy
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -176,6 +177,54 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
             logger.error(f"Error getting insurance estimates: {e}")
             raise
     
+    def duplicate(self, estimate_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Duplicate an existing estimate, including its items.
+
+        Args:
+            estimate_id: ID of the estimate to duplicate
+
+        Returns:
+            Newly created estimate dictionary with items, or None if the
+            source estimate does not exist
+        """
+        try:
+            original = self.get_with_items(estimate_id)
+            if not original:
+                return None
+
+            estimate_data = deepcopy(original)
+
+            # Remove identity/system fields so a new record is created
+            for field in ['id', 'created_at', 'updated_at', 'estimate_number']:
+                estimate_data.pop(field, None)
+
+            # Remove derived fields injected by get_with_items() that are not
+            # columns on the Estimate model (they come from a company join)
+            for field in [
+                'company_name', 'company_address', 'company_city',
+                'company_state', 'company_zip', 'company_phone',
+                'company_email', 'company_logo',
+            ]:
+                estimate_data.pop(field, None)
+
+            # Reset document-specific state for the copy
+            # (create_with_items() recalculates totals)
+            estimate_data['estimate_number'] = self._generate_estimate_number()
+            estimate_data['status'] = 'draft'
+
+            # Strip item identity fields; create_with_items() maps items via
+            # an explicit field whitelist, so extra keys are harmless, but
+            # dropping them avoids any accidental reuse of the old item IDs
+            for item in estimate_data.get('items', []):
+                for field in ['id', 'estimate_id', 'created_at', 'updated_at']:
+                    item.pop(field, None)
+
+            return self.create_with_items(estimate_data)
+        except Exception as e:
+            logger.error(f"Error duplicating estimate {estimate_id}: {e}")
+            raise
+
     def create_with_items(self, estimate_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create estimate with items in a single transaction.

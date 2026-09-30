@@ -17,6 +17,7 @@ from PIL import Image
 from PIL.ExifTags import TAGS
 from sqlalchemy.sql import func
 
+from app.common.utils.address import fill_missing_address_parts
 from app.core.config import settings
 from app.core.interfaces import DatabaseSession
 from app.domains.storage.factory import StorageFactory
@@ -66,9 +67,55 @@ class WaterMitigationService:
         self.report_config_repo = WMReportConfigRepository(session)
 
     # Job operations
+    @staticmethod
+    def _apply_address_split(job_data: Dict[str, Any]) -> None:
+        """
+        Normalize the property address fields in place.
+
+        Callers send the address in one of two shapes:
+          - split (street + city/state/zipcode), from the address autocomplete
+          - a single free-form property_address string, from manual entry or
+            an external sync
+
+        Either way both shapes end up stored: the split columns are what
+        Client sync, contracts and scope invoices read, while property_address
+        stays the full string that search and legacy matching rely on.
+        Explicit values always win; parsing only fills the blanks.
+        """
+        address_keys = (
+            'property_address', 'property_street',
+            'property_city', 'property_state', 'property_zipcode',
+        )
+        if not any(k in job_data for k in address_keys):
+            return
+
+        parts = fill_missing_address_parts(
+            job_data.get('property_address'),
+            street=job_data.get('property_street'),
+            city=job_data.get('property_city'),
+            state=job_data.get('property_state'),
+            zipcode=job_data.get('property_zipcode'),
+        )
+        job_data['property_street'] = parts['street']
+        job_data['property_city'] = parts['city']
+        job_data['property_state'] = parts['state']
+        job_data['property_zipcode'] = parts['zipcode']
+
+        # Recompose the full address from the parts so the two stay in sync,
+        # in the usual US form: "street, city ST zip".
+        locality = ' '.join(
+            p for p in (parts['city'], parts['state'], parts['zipcode']) if p
+        )
+        composed = ', '.join(
+            p for p in (parts['street'], locality) if p
+        )
+        if composed:
+            job_data['property_address'] = composed
+
     def create_job(self, data: JobCreate, created_by_id: Optional[UUID] = None) -> Dict[str, Any]:
         """Create new job"""
         job_data = data.dict()
+        self._apply_address_split(job_data)
         job_data['created_by_id'] = created_by_id
         job_data['updated_by_id'] = created_by_id
 
@@ -106,10 +153,63 @@ class WaterMitigationService:
             return None
 
         update_data = data.dict(exclude_unset=True)
+        self._apply_address_split(update_data)
         update_data['updated_by_id'] = updated_by_id
+        self._apply_payment_received_transition(
+            job, update_data,
+            actor=f"admin:{updated_by_id}" if updated_by_id else "admin",
+        )
 
         updated_job = self.job_repo.update(job_id, update_data)
+
+        # Keep the linked claim's mirrored note in step with the job's payment_note
+        if 'payment_note' in update_data:
+            from .payment_note_mirror import mirror_payment_note_to_claim
+            get = job.get if isinstance(job, dict) else lambda k: getattr(job, k, None)
+            mirror_payment_note_to_claim(
+                self.session,
+                claim_id=get('claim_id'),
+                address=get('property_address') or '',
+                note=update_data['payment_note'],
+            )
         return updated_job
+
+    @staticmethod
+    def _apply_payment_received_transition(
+        job: Any,  # WaterMitigationJob row or its dict form
+        update_data: Dict[str, Any],
+        actor: str,
+        nudge_status: bool = True,
+    ) -> None:
+        """
+        Fill the audit fields whenever payment_received actually changes.
+
+        With nudge_status, a flip to received also moves a still-early
+        payment_status (unset/pending/issued) to 'received' so the Detail
+        page stays coherent. The public link passes nudge_status=False:
+        it may only ever touch the boolean, never the lifecycle string.
+        """
+        if 'payment_received' not in update_data:
+            return
+
+        # job_repo.get_by_id returns a dict; the public path passes the ORM row
+        def current(key: str):
+            return job.get(key) if isinstance(job, dict) else getattr(job, key, None)
+
+        new_value = bool(update_data['payment_received'])
+        if new_value == bool(current('payment_received')):
+            update_data.pop('payment_received')
+            return
+
+        update_data['payment_received'] = new_value
+        update_data['payment_received_at'] = func.now() if new_value else None
+        update_data['payment_received_by'] = actor
+        if (
+            nudge_status and new_value
+            and 'payment_status' not in update_data
+            and current('payment_status') in (None, '', 'pending', 'issued')
+        ):
+            update_data['payment_status'] = 'received'
 
     def update_job_status(
         self,
@@ -146,6 +246,11 @@ class WaterMitigationService:
         # Auto-create follow-up task when status changes to "Sent to adjuster"
         if new_status == 'Sent to adjuster' and previous_status != 'Sent to adjuster':
             self._create_followup_for_sent_to_adjuster(job, job_id)
+
+        # Auto-create supplement (estimate_request) when the insurance company
+        # asks us to provide the estimate
+        if new_status == 'Estimate requested' and previous_status != 'Estimate requested':
+            self._create_estimate_request_for_job(job, job_id, status_update.notes)
 
         # Log activity on claim
         self._log_claim_activity(job, job_id, previous_status, new_status)
@@ -236,6 +341,85 @@ class WaterMitigationService:
             logger.error(f"Error auto-creating follow-up for WM Job {job_id}: {e}")
             # Don't fail the status update if follow-up creation fails
 
+    def _create_estimate_request_for_job(
+        self,
+        job: Dict[str, Any],
+        job_id: UUID,
+        notes: Optional[str] = None
+    ):
+        """Auto-create a SupplementRequest (request_type='estimate_request')
+        when the insurance company asks us to provide the estimate."""
+        try:
+            claim_id = job.get('claim_id') if isinstance(job, dict) else getattr(job, 'claim_id', None)
+            if not claim_id:
+                logger.warning(f"WM Job {job_id} has no linked claim, skipping estimate request creation")
+                return
+
+            from app.domains.supplement.models import SupplementRequest
+            from app.domains.client.models import Claim, ClaimActivity
+
+            # Skip if an active estimate request already exists for this claim
+            existing = self.session.query(SupplementRequest).filter(
+                SupplementRequest.claim_id == str(claim_id),
+                SupplementRequest.request_type == 'estimate_request',
+                SupplementRequest.status.notin_(['approved', 'denied', 'withdrawn']),
+            ).first()
+            if existing:
+                logger.info(f"Estimate request already exists for claim {claim_id}, skipping")
+                return
+
+            property_address = job.get('property_address', '') if isinstance(job, dict) else getattr(job, 'property_address', '')
+
+            # PA info from the linked claim (falls back to the job's adjuster)
+            claim = self.session.query(Claim).filter(Claim.id == claim_id).first()
+            submitted_to = (getattr(claim, 'pa_name', '') or '') if claim else ''
+            submitted_to_email = (getattr(claim, 'pa_email', '') or '') if claim else ''
+            if not submitted_to:
+                submitted_to = job.get('adjuster_name', '') if isinstance(job, dict) else getattr(job, 'adjuster_name', '') or ''
+            if not submitted_to_email:
+                submitted_to_email = job.get('adjuster_email', '') if isinstance(job, dict) else getattr(job, 'adjuster_email', '') or ''
+
+            est_req = SupplementRequest(
+                claim_id=str(claim_id),
+                request_type='estimate_request',
+                title=(
+                    f"Estimate Request - {property_address}"
+                    if property_address else "Estimate Request"
+                ),
+                reason=(
+                    notes
+                    or 'Insurance company requested our estimate for this water mitigation job.'
+                ),
+                original_amount=0,
+                supplement_amount=0,
+                our_estimate_amount=0,
+                status='identified',
+                priority='high',
+                submitted_to=submitted_to,
+                submitted_to_email=submitted_to_email,
+            )
+            self.session.add(est_req)
+            self.session.flush()
+
+            self.session.add(ClaimActivity(
+                claim_id=claim_id,
+                activity_type='estimate_request_created',
+                title='Estimate request created',
+                description=(
+                    f'Insurance requested our estimate ({property_address}). '
+                    'Auto-created estimate request from WM job status change.'
+                ),
+                related_entity_type='supplement',
+                related_entity_id=est_req.id,
+            ))
+            self.session.commit()
+
+            logger.info(f"Auto-created estimate request for WM Job {job_id} (claim {claim_id})")
+
+        except Exception as e:
+            logger.error(f"Error auto-creating estimate request for WM Job {job_id}: {e}")
+            # Don't fail the status update if supplement creation fails
+
     def toggle_job_active(
         self,
         job_id: UUID,
@@ -254,6 +438,7 @@ class WaterMitigationService:
         search: Optional[str] = None,
         status: Optional[List[str]] = None,
         active: Optional[bool] = None,
+        hide_received: bool = False,
         page: int = 1,
         page_size: int = 50
     ) -> tuple[List[WaterMitigationJob], int]:
@@ -267,6 +452,7 @@ class WaterMitigationService:
             search=search,
             status=status,
             active=active,
+            hide_received=hide_received,
             page=page,
             page_size=page_size
         )
@@ -1270,6 +1456,8 @@ class WaterMitigationService:
         report_date: Optional[str] = None,
         compress: bool = False,
         template_variant: str = "a",
+        show_photo_dates: bool = True,
+        show_photo_locations: bool = True,
         commit: bool = True,
         persist: bool = True,
     ) -> Dict[str, Any]:
@@ -1277,12 +1465,14 @@ class WaterMitigationService:
         WMDocument record so it shows up in the Documents tab and can be
         reused (e.g. as an email attachment) without regenerating.
 
-        Pass persist=False to render a throwaway copy — used when the email
-        needs a smaller version of a report the user has already saved, and
-        overwriting their saved one would be the wrong call. file_id and
-        document_id come back None in that case.
+        Set persist=False to render without saving: the PDF is still
+        rendered and returned, but the storage upload + WMDocument upsert
+        (and their implicit commit) are skipped. Used for previews, and when
+        the email needs a smaller copy of a report the user already saved
+        (overwriting their saved one would be the wrong call).
 
         Returns dict with: pdf_bytes, filename, file_id, document_id.
+        file_id/document_id are None when persist=False.
         """
         import tempfile
         from pathlib import Path
@@ -1347,6 +1537,8 @@ class WaterMitigationService:
             report_date=report_date,
             compress=compress,
             template_variant=template_variant,
+            show_photo_dates=show_photo_dates,
+            show_photo_locations=show_photo_locations,
         )
 
         pdf_bytes = Path(temp_path).read_bytes()

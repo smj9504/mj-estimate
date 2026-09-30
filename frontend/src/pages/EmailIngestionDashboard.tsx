@@ -32,14 +32,26 @@ import {
   LinkOutlined,
   StopOutlined,
   SettingOutlined,
+  PaperClipOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { emailIngestionService } from '../services/emailIngestionService';
+import { fileService } from '../services/fileService';
 import { clientService, claimService } from '../services/clientService';
 import type { IngestionLog, IngestionStats, EmailAccount } from '../types/emailIngestion';
 import type { ClientListItem, Claim } from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+
+/** One received email, with every attachment logged against it. */
+interface EmailRow {
+  /** message_id, or a per-row fallback when the header was missing. */
+  key: string;
+  /** The attachment whose row carries the claim/client match, if any. */
+  head: IngestionLog;
+  attachments: IngestionLog[];
+  statusCounts: Record<string, number>;
+}
 
 const { Title, Text } = Typography;
 
@@ -54,7 +66,11 @@ const STATUS_COLORS: Record<string, string> = {
 const EmailIngestionDashboard: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  // Default to pending: this screen exists to work the manual-assign queue,
+  // and skipped rows (classified as not-an-estimate, no file stored) are a
+  // large share of the log - 52 of 129 at the time of writing - which buried
+  // the rows that actually need action. Clearing the filter still shows all.
+  const [statusFilter, setStatusFilter] = useState<string | undefined>('pending');
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [selectedLog, setSelectedLog] = useState<IngestionLog | null>(null);
   const [skipModalOpen, setSkipModalOpen] = useState(false);
@@ -93,11 +109,35 @@ const EmailIngestionDashboard: React.FC = () => {
     enabled: !!assignClientId,
   });
 
+  // Open the confirm dialog seeded with whatever the matcher already worked
+  // out. Polling only ever suggests a client/claim now, so without this the
+  // reviewer would have to re-find a client the backend had already located.
+  // Still a suggestion: every field stays editable.
+  const openAssignModal = (log: IngestionLog) => {
+    setSelectedLog(log);
+    setAssignClientId(log.matched_client_id || undefined);
+    if (log.matched_client_id && log.client_name) {
+      // Seed the search so the preselected client renders as a label rather
+      // than a bare uuid - the Select's options come from the search query.
+      setClientSearch(log.client_name);
+    }
+    assignForm.setFieldsValue({
+      client_id: log.matched_client_id || undefined,
+      create_claim: !log.matched_claim_id,
+      claim_id: log.matched_claim_id || undefined,
+      claim_number: undefined,
+    });
+    setAssignModalOpen(true);
+  };
+
   // Mutations
   const pollAllMutation = useMutation({
     mutationFn: () => emailIngestionService.pollAll(),
     onSuccess: (result) => {
-      message.success(`${result.total_uploaded} files uploaded from ${result.accounts_polled} accounts`);
+      const queued = result.total_pending ?? 0;
+      message.success(
+        `${queued} attachment(s) queued for review from ${result.accounts_polled} accounts`
+      );
       queryClient.invalidateQueries({ queryKey: ['email-ingestion-logs'] });
       queryClient.invalidateQueries({ queryKey: ['email-ingestion-stats'] });
     },
@@ -129,38 +169,46 @@ const EmailIngestionDashboard: React.FC = () => {
     },
   });
 
-  const columns: ColumnsType<IngestionLog> = [
-    {
-      title: 'Date',
-      dataIndex: 'received_at',
-      key: 'received_at',
-      width: 130,
-      render: (v: string) => v ? dayjs(v).format('MM/DD HH:mm') : '-',
-      sorter: (a, b) => (a.received_at || '').localeCompare(b.received_at || ''),
-      defaultSortOrder: 'descend',
-    },
-    {
-      title: 'Account',
-      dataIndex: 'account_email',
-      key: 'account_email',
-      width: 180,
-      ellipsis: true,
-    },
-    {
-      title: 'Subject',
-      dataIndex: 'subject',
-      key: 'subject',
-      ellipsis: true,
-    },
+  // One log row per attachment means a 6-PDF email filled six rows and the
+  // reviewer could not see it was one message. Collapse to one row per email
+  // (message_id) and hang the attachments off an expandable child table.
+  const emailRows: EmailRow[] = React.useMemo(() => {
+    const byMessage = new Map<string, IngestionLog[]>();
+    logs.forEach((log) => {
+      // message_id should always be set; fall back to the row id so a blank
+      // one becomes its own group rather than collapsing unrelated rows.
+      const key = log.message_id || `__no_msgid__${log.id}`;
+      const list = byMessage.get(key);
+      if (list) list.push(log);
+      else byMessage.set(key, [log]);
+    });
+
+    return Array.from(byMessage.entries()).map(([key, items]) => {
+      // Prefer a child that carries claim/client info for the summary row:
+      // only the attachment that won the match has them.
+      const matched = items.find((i) => i.matched_claim_id || i.matched_client_id);
+      const head = matched || items[0];
+      return {
+        key,
+        head,
+        attachments: items,
+        statusCounts: items.reduce<Record<string, number>>((acc, i) => {
+          acc[i.status] = (acc[i.status] || 0) + 1;
+          return acc;
+        }, {}),
+      };
+    });
+  }, [logs]);
+
+  const attachmentColumns: ColumnsType<IngestionLog> = [
     {
       title: 'Attachment',
       dataIndex: 'attachment_name',
       key: 'attachment_name',
-      width: 200,
       ellipsis: true,
       render: (v: string) => v ? (
         <Tooltip title={v}>
-          <FileTextOutlined style={{ marginRight: 4 }} />{v}
+          <span><FileTextOutlined style={{ marginRight: 6 }} />{v}</span>
         </Tooltip>
       ) : '-',
     },
@@ -168,38 +216,23 @@ const EmailIngestionDashboard: React.FC = () => {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 100,
+      width: 110,
       render: (status: string) => (
         <Tag color={STATUS_COLORS[status] || 'default'}>{status.toUpperCase()}</Tag>
       ),
     },
     {
-      title: 'Client',
-      dataIndex: 'client_name',
-      key: 'client_name',
-      width: 150,
-      render: (v: string, record: IngestionLog) => v ? (
-        <a onClick={() => record.matched_client_id && navigate(`/clients/${record.matched_client_id}`)}>
-          <UserOutlined style={{ marginRight: 4 }} />{v}
-        </a>
-      ) : <Text type="secondary">-</Text>,
-    },
-    {
-      title: 'Claim',
-      dataIndex: 'claim_number',
-      key: 'claim_number',
-      width: 130,
-    },
-    {
-      title: 'Match',
-      dataIndex: 'match_method',
-      key: 'match_method',
-      width: 100,
-      render: (v: string, record: IngestionLog) => v ? (
-        <Tooltip title={`Confidence: ${record.match_confidence}%`}>
-          <Tag>{v}</Tag>
-        </Tooltip>
-      ) : null,
+      title: 'Why',
+      key: 'reason',
+      ellipsis: true,
+      render: (_: any, r: IngestionLog) => {
+        const text = r.skip_reason || r.classification_reason;
+        return text ? (
+          <Tooltip title={text}>
+            <Text type="secondary" style={{ fontSize: 12 }}>{text}</Text>
+          </Tooltip>
+        ) : null;
+      },
     },
     {
       title: 'Actions',
@@ -212,21 +245,18 @@ const EmailIngestionDashboard: React.FC = () => {
               <Button
                 size="small"
                 icon={<FileTextOutlined />}
-                onClick={() => window.open(`/api/files/download/${record.file_id}?inline=true`, '_blank')}
+                onClick={() => window.open(fileService.getInlineUrl(record.file_id!), '_blank')}
               />
             </Tooltip>
           )}
           {record.status === 'pending' && (
             <>
-              <Tooltip title="Assign to Client/Claim">
+              <Tooltip title="Confirm & create revision">
                 <Button
                   size="small"
                   type="primary"
                   icon={<LinkOutlined />}
-                  onClick={() => {
-                    setSelectedLog(record);
-                    setAssignModalOpen(true);
-                  }}
+                  onClick={() => openAssignModal(record)}
                 />
               </Tooltip>
               <Tooltip title="Skip">
@@ -243,6 +273,149 @@ const EmailIngestionDashboard: React.FC = () => {
           )}
         </Space>
       ),
+    },
+  ];
+
+  const columns: ColumnsType<EmailRow> = [
+    {
+      title: 'Date',
+      key: 'received_at',
+      width: 130,
+      render: (_: any, r: EmailRow) =>
+        r.head.received_at ? dayjs(r.head.received_at).format('MM/DD HH:mm') : '-',
+      sorter: (a, b) =>
+        (a.head.received_at || '').localeCompare(b.head.received_at || ''),
+      defaultSortOrder: 'descend',
+    },
+    {
+      title: 'Account',
+      key: 'account_email',
+      width: 150,
+      ellipsis: true,
+      render: (_: any, r: EmailRow) => r.head.account_email || '-',
+    },
+    {
+      // Subject was the only column without a width, so it absorbed whatever
+      // scroll.x had left over after the fixed columns - about 60px - and was
+      // unreadable. It carries the most information on the row, so it gets an
+      // explicit width and scroll.x is sized to fit the total.
+      title: 'Subject',
+      key: 'subject',
+      width: 340,
+      ellipsis: true,
+      render: (_: any, r: EmailRow) => r.head.subject ? (
+        <Tooltip title={r.head.subject}>
+          <span>{r.head.subject}</span>
+        </Tooltip>
+      ) : '-',
+    },
+    {
+      title: 'Files',
+      key: 'attachment_count',
+      width: 90,
+      align: 'center',
+      render: (_: any, r: EmailRow) => (
+        <Tooltip
+          title={r.attachments
+            .map((a) => a.attachment_name)
+            .filter(Boolean)
+            .join('\n')}
+        >
+          <Tag icon={<PaperClipOutlined />} color={r.attachments.length > 1 ? 'blue' : undefined}>
+            {r.attachments.length}
+          </Tag>
+        </Tooltip>
+      ),
+      sorter: (a, b) => a.attachments.length - b.attachments.length,
+    },
+    {
+      // An email's attachments can land on different statuses - the estimate
+      // uploaded, the scope pending, a W9 skipped - so summarise rather than
+      // pick one.
+      title: 'Status',
+      key: 'status',
+      width: 190,
+      render: (_: any, r: EmailRow) => (
+        <Space size={4} wrap>
+          {Object.entries(r.statusCounts).map(([status, n]) => (
+            <Tag key={status} color={STATUS_COLORS[status] || 'default'}>
+              {status.toUpperCase()}{n > 1 ? ` ×${n}` : ''}
+            </Tag>
+          ))}
+        </Space>
+      ),
+    },
+    {
+      title: 'Client',
+      key: 'client_name',
+      width: 150,
+      render: (_: any, r: EmailRow) => r.head.client_name ? (
+        <a onClick={() => r.head.matched_client_id && navigate(`/clients/${r.head.matched_client_id}`)}>
+          <UserOutlined style={{ marginRight: 4 }} />{r.head.client_name}
+        </a>
+      ) : <Text type="secondary">-</Text>,
+    },
+    {
+      title: 'Claim',
+      key: 'claim_number',
+      width: 130,
+      render: (_: any, r: EmailRow) => r.head.claim_number || '-',
+    },
+    {
+      title: 'Match',
+      key: 'match_method',
+      width: 100,
+      render: (_: any, r: EmailRow) => r.head.match_method ? (
+        <Tooltip title={`Confidence: ${r.head.match_confidence}%`}>
+          <Tag>{r.head.match_method}</Tag>
+        </Tooltip>
+      ) : null,
+    },
+    {
+      // Every matched attachment now waits here for confirmation, and most
+      // emails carry a single PDF - whose child table is not expandable - so
+      // the confirm action has to live on the summary row too, not only in
+      // the per-attachment table. Acts on the email's first pending
+      // attachment; multi-PDF emails are handled one by one when expanded.
+      title: 'Actions',
+      key: 'row_actions',
+      width: 150,
+      fixed: 'right',
+      render: (_: any, r: EmailRow) => {
+        const pending = r.attachments.find((a) => a.status === 'pending');
+        if (!pending) return null;
+        return (
+          <Space size="small">
+            {pending.file_id && (
+              <Tooltip title="Preview PDF">
+                <Button
+                  size="small"
+                  icon={<FileTextOutlined />}
+                  onClick={() => window.open(fileService.getInlineUrl(pending.file_id!), '_blank')}
+                />
+              </Tooltip>
+            )}
+            <Tooltip title="Confirm & create revision">
+              <Button
+                size="small"
+                type="primary"
+                icon={<LinkOutlined />}
+                onClick={() => openAssignModal(pending)}
+              />
+            </Tooltip>
+            <Tooltip title="Skip">
+              <Button
+                size="small"
+                icon={<StopOutlined />}
+                onClick={() => {
+                  setSelectedLog(pending);
+                  setSkipModalOpen(true);
+                }}
+              />
+            </Tooltip>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -349,14 +522,32 @@ const EmailIngestionDashboard: React.FC = () => {
 
       {/* Logs Table */}
       <Card>
-        <Table
+        <Table<EmailRow>
           columns={columns}
-          dataSource={logs}
-          rowKey="id"
+          dataSource={emailRows}
+          rowKey="key"
           loading={logsLoading}
           size="small"
-          pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `Total: ${t}` }}
-          scroll={{ x: 1200 }}
+          pagination={{
+            pageSize: 20,
+            showSizeChanger: true,
+            showTotal: (t) => `Total: ${t} emails`,
+          }}
+          scroll={{ x: 1280 }}
+          expandable={{
+            // Only multi-attachment emails are worth expanding; a single file
+            // is already fully described by its parent row.
+            rowExpandable: (r) => r.attachments.length > 1,
+            expandedRowRender: (r) => (
+              <Table<IngestionLog>
+                columns={attachmentColumns}
+                dataSource={r.attachments}
+                rowKey="id"
+                size="small"
+                pagination={false}
+              />
+            ),
+          }}
         />
       </Card>
 
@@ -385,12 +576,23 @@ const EmailIngestionDashboard: React.FC = () => {
                 <>
                   {' '}
                   <a
-                    href={`/api/files/download/${selectedLog.file_id}?inline=true`}
+                    href={fileService.getInlineUrl(selectedLog.file_id)}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
                     (Preview PDF)
                   </a>
+                </>
+              )}
+              {selectedLog.match_method && (
+                <>
+                  <br />
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Suggested match: {selectedLog.client_name || 'unknown client'}
+                    {selectedLog.claim_number ? ` / ${selectedLog.claim_number}` : ''}
+                    {' '}({selectedLog.match_method}, {selectedLog.match_confidence}%)
+                    {' — check the PDF before confirming.'}
+                  </Text>
                 </>
               )}
             </div>

@@ -84,6 +84,10 @@ class RoofingEstimateBase(BaseModel):
     overhead_pct: float = 0.10
     profit_pct: float = 0.10
     contingency_pct: float = 0.05
+    # None -> per-category material ratios; a value overrides them all.
+    material_portion_pct: Optional[float] = Field(None, ge=0, le=1)
+    # Crew labor + debris disposal, for the internal profit panel.
+    job_cost_inputs: Optional[Dict[str, Any]] = None
 
     # Documentation
     overview_text: Optional[str] = None
@@ -159,6 +163,9 @@ class RoofingEstimateUpdate(BaseModel):
     overhead_pct: Optional[float] = None
     profit_pct: Optional[float] = None
     contingency_pct: Optional[float] = None
+    material_portion_pct: Optional[float] = Field(None, ge=0, le=1)
+    # Crew labor + debris disposal, for the internal profit panel.
+    job_cost_inputs: Optional[Dict[str, Any]] = None
 
     overview_text: Optional[str] = None
     notes: Optional[str] = None
@@ -176,6 +183,10 @@ class LineItemResponse(BaseModel):
     unit: str
     unit_price: float
     total: float
+    # Material/labor split of `total`, driving markup and sales tax.
+    material_portion: Optional[float] = None
+    material_cost: Optional[float] = None
+    labor_cost: Optional[float] = None
     category: Optional[str] = None
     xactimate_code: Optional[str] = None
     notes: Optional[str] = None
@@ -262,6 +273,12 @@ class RoofingEstimateResponse(BaseModel):
     overhead_pct: float = 0.10
     profit_pct: float = 0.10
     contingency_pct: float = 0.05
+    material_portion_pct: Optional[float] = None
+    # Crew labor + debris disposal, for the internal profit panel.
+    job_cost_inputs: Optional[Dict[str, Any]] = None
+    # Computed, not user-supplied: how the billed area was stepped up to
+    # whole bundles. Drives the explanatory note on the quote.
+    square_rounding: Optional[Dict[str, Any]] = None
 
     # Target total
     target_total: Optional[float] = None
@@ -271,9 +288,12 @@ class RoofingEstimateResponse(BaseModel):
     roofing_subtotal: float = 0
     gutter_subtotal: float = 0
     subtotal: float = 0
+    material_cost_total: float = 0
+    labor_cost_total: float = 0
     markup_amount: float = 0
     overhead_amount: float = 0
     profit_amount: float = 0
+    contingency_amount: float = 0
     tax_amount: float = 0
     permit_fee: float = 0
     total: float = 0
@@ -394,3 +414,200 @@ class PricingInfoResponse(BaseModel):
     waste_factors: Dict[str, float]
     # Building permit allowance by state
     permit_fees: Dict[str, float]
+
+
+# ── Internal material cost (never exported to the customer) ──
+
+class MaterialCostOverride(BaseModel):
+    """Per-estimate correction to a material's default supplier cost."""
+    unit_cost: Optional[float] = Field(None, ge=0)
+    taxable: bool = True
+    note: Optional[str] = None
+
+
+class MaterialCostUpdate(BaseModel):
+    overrides: Optional[Dict[str, MaterialCostOverride]] = None
+    tax_rate: Optional[float] = Field(None, ge=0, le=1)
+
+
+class MaterialCostItem(BaseModel):
+    key: str
+    price_key: Optional[str] = None
+    category: str
+    category_label: str
+    description: str
+    quantity: float
+    unit: str
+    unit_cost: float
+    default_unit_cost: float
+    is_overridden: bool
+    taxable: bool
+    subtotal: float
+    note: str = ""
+
+
+class MaterialCostCategory(BaseModel):
+    category: str
+    label: str
+    items: List[MaterialCostItem]
+    subtotal: float
+    tax_amount: float
+    total_with_tax: float
+    pct_of_material: float
+
+
+class MaterialPriceEntry(BaseModel):
+    id: Optional[str] = None
+    material_key: str
+    label: str
+    category: str
+    unit: str
+    unit_cost: float
+    is_taxable: bool = True
+    is_active: bool = True
+    notes: str = ""
+    company_id: Optional[str] = None
+
+    # What the material actually is. Null on rows that predate this and
+    # only name a grade.
+    manufacturer: Optional[str] = None
+    product_name: Optional[str] = None
+    color: Optional[str] = None
+    size_spec: Optional[str] = None
+    supplier: Optional[str] = None
+    sku: Optional[str] = None
+    qty_formula: Optional[str] = None
+    qty_basis: Optional[str] = None
+    coverage_per_unit: Optional[float] = None
+    coverage_unit: Optional[str] = None
+    qty_minimum: Optional[float] = None
+    is_custom: bool = False
+
+
+class MaterialPriceCreate(BaseModel):
+    """A material the seed catalog does not have."""
+    label: str = Field(..., min_length=1, max_length=255)
+    category: str = Field(..., min_length=1, max_length=50)
+    unit: str = Field(..., min_length=1, max_length=10)
+    unit_cost: float = Field(0, ge=0)
+    is_taxable: bool = True
+    notes: Optional[str] = Field(None, max_length=500)
+
+    manufacturer: Optional[str] = Field(None, max_length=100)
+    product_name: Optional[str] = Field(None, max_length=200)
+    color: Optional[str] = Field(None, max_length=100)
+    size_spec: Optional[str] = Field(None, max_length=100)
+    supplier: Optional[str] = Field(None, max_length=150)
+    sku: Optional[str] = Field(None, max_length=100)
+    qty_formula: Optional[str] = Field(None, max_length=500)
+    qty_basis: Optional[str] = Field(None, max_length=40)
+    coverage_per_unit: Optional[float] = Field(None, gt=0)
+    coverage_unit: Optional[str] = Field(None, max_length=10)
+    qty_minimum: Optional[float] = Field(None, ge=0)
+    # Optional: derived from the label when omitted.
+    material_key: Optional[str] = Field(None, max_length=100)
+
+
+class MaterialCostResponse(BaseModel):
+    items: List[MaterialCostItem]
+    categories: List[MaterialCostCategory]
+    tax_rate: float
+    subtotal_before_tax: float
+    taxable_subtotal: float
+    tax_amount: float
+    total_with_tax: float
+    estimate_total: Optional[float] = None
+    # Both None: material alone is not profit. See job_cost.
+    gross_profit: Optional[float] = None
+    margin_pct: Optional[float] = None
+    # Share of the sale price that materials consume.
+    material_pct_of_sale: Optional[float] = None
+    # Labor + disposal + material, and the profit actually left over.
+    # `complete` False means labor was not entered, and the screen must
+    # say so rather than show a margin computed without it.
+    job_cost: Optional[Dict[str, Any]] = None
+    # Editable defaults, so the screen can offer "save as default".
+    price_book: List[MaterialPriceEntry] = []
+    snapshot_taken: bool = False
+
+
+# ── Default material price book ──
+
+class MaterialPricePatch(BaseModel):
+    unit_cost: Optional[float] = Field(None, ge=0)
+    is_taxable: Optional[bool] = None
+    notes: Optional[str] = None
+
+    label: Optional[str] = Field(None, max_length=255)
+    category: Optional[str] = Field(None, max_length=50)
+    unit: Optional[str] = Field(None, max_length=10)
+    manufacturer: Optional[str] = Field(None, max_length=100)
+    product_name: Optional[str] = Field(None, max_length=200)
+    color: Optional[str] = Field(None, max_length=100)
+    size_spec: Optional[str] = Field(None, max_length=100)
+    supplier: Optional[str] = Field(None, max_length=150)
+    sku: Optional[str] = Field(None, max_length=100)
+    qty_formula: Optional[str] = Field(None, max_length=500)
+    qty_basis: Optional[str] = Field(None, max_length=40)
+    coverage_per_unit: Optional[float] = Field(None, gt=0)
+    coverage_unit: Optional[str] = Field(None, max_length=10)
+    qty_minimum: Optional[float] = Field(None, ge=0)
+    # Retire a material without deleting it: estimates priced with it
+    # keep resolving, it just leaves the pick lists.
+    is_active: Optional[bool] = None
+
+
+class MaterialPriceUpdate(BaseModel):
+    """Default cost changes, keyed by material_key."""
+    prices: Dict[str, MaterialPricePatch]
+
+
+# ── Pricing Settings (calculation rates, NOT material costs) ──
+
+class PricingSettingEntry(BaseModel):
+    """One editable calculation rate, with the default behind it."""
+    setting_group: str
+    setting_key: str
+    group_label: str
+    label: str
+    kind: str                 # money | rate | pct
+    unit: Optional[str] = None
+    help: Optional[str] = None
+    value: float
+    default_value: Optional[float] = None
+    is_overridden: bool = False
+    notes: Optional[str] = None
+    id: Optional[str] = None
+    company_id: Optional[str] = None
+
+    # What the main material behind this rate costs, restated in the
+    # rate's own unit so the two are directly comparable. Absent on
+    # rates with no single dominant material (tear-off, permits, misc).
+    material_cost: Optional[float] = None
+    material_label: Optional[str] = None
+    material_unit_cost: Optional[float] = None
+    material_purchase_unit: Optional[str] = None
+    material_key: Optional[str] = None
+    material_per_rate_unit: Optional[float] = None
+
+
+class PricingSettingPatch(BaseModel):
+    """An edit to one setting.
+
+    `value` None resets the setting to its pricing.py default by
+    deleting the stored row, which is how the screen's reset works.
+    """
+    setting_group: str = Field(..., min_length=1, max_length=50)
+    setting_key: str = Field(..., min_length=1, max_length=100)
+    value: Optional[float] = Field(None, ge=0)
+    notes: Optional[str] = Field(None, max_length=500)
+
+
+class PricingSettingsResponse(BaseModel):
+    settings: List[PricingSettingEntry]
+    groups: List[dict]
+    overridden_count: int
+
+
+class PricingSettingsUpdate(BaseModel):
+    settings: List[PricingSettingPatch]

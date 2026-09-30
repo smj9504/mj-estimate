@@ -33,6 +33,7 @@ interface FileCardProps {
   fileCategory?: FileCategory;
   showImagePreview?: boolean;
   showDocumentDetails?: boolean;
+  renderCardExtraAction?: (file: FileItem) => React.ReactNode;
 }
 
 const FileCard: React.FC<FileCardProps> = ({
@@ -46,7 +47,8 @@ const FileCard: React.FC<FileCardProps> = ({
   onDelete,
   fileCategory,
   showImagePreview = true,
-  showDocumentDetails = true
+  showDocumentDetails = true,
+  renderCardExtraAction
 }) => {
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState<string>('');
@@ -197,6 +199,14 @@ const FileCard: React.FC<FileCardProps> = ({
         <Tooltip title="Delete" key="delete">
           <DeleteOutlined style={{}} onClick={(e) => handleDelete(file, e)} />
         </Tooltip>
+      );
+    }
+
+    if (renderCardExtraAction) {
+      actions.push(
+        <span key="extra-action" onClick={(e) => e.stopPropagation()}>
+          {renderCardExtraAction(file)}
+        </span>
       );
     }
 

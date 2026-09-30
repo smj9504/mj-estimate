@@ -160,6 +160,9 @@ class CabinetEstimateService:
                 has_glass_door=getattr(
                     b, 'has_glass_door', False,
                 ) or False,
+                range_panel_count=getattr(
+                    b, 'range_panel_count', None,
+                ),
                 qty=b.qty,
             )
             for b in estimate.boxes
@@ -169,11 +172,29 @@ class CabinetEstimateService:
             boxes=box_inputs,
             tier=estimate.tier,
             zip_code=estimate.zip_code or "",
+            box_material=getattr(estimate, 'box_material', None),
+            finish=getattr(estimate, 'finish', None),
+            door_style=getattr(estimate, 'door_style', None),
+            overlay_style=getattr(estimate, 'overlay_style', None),
+            pricing_basis=getattr(estimate, 'pricing_basis', None),
             include_demo=estimate.include_demo,
             include_install=estimate.include_install,
             include_delivery=estimate.include_delivery,
             include_plumbing=estimate.include_plumbing,
             sink_type=getattr(estimate, 'sink_type', 'single') or 'single',
+            include_aav=getattr(estimate, 'include_aav', False) or False,
+            include_air_gap=getattr(
+                estimate, 'include_air_gap', False,
+            ) or False,
+            include_soap_dispenser=getattr(
+                estimate, 'include_soap_dispenser', False,
+            ) or False,
+            include_instant_hot=getattr(
+                estimate, 'include_instant_hot', False,
+            ) or False,
+            include_dw_hookup=getattr(
+                estimate, 'include_dw_hookup', False,
+            ) or False,
             include_countertop_reset=estimate.include_countertop_reset,
             include_hardware=(
                 estimate.include_hardware
@@ -265,6 +286,24 @@ class CabinetEstimateService:
             include_permit=(
                 getattr(estimate, 'include_permit', False)
                 or False
+            ),
+            filler_count=(
+                getattr(estimate, 'filler_count', 0) or 0
+            ),
+            end_panel_counts=getattr(
+                estimate, 'end_panel_counts', None,
+            ),
+            dishwasher_return_panel_count=(
+                getattr(
+                    estimate, 'dishwasher_return_panel_count', 0,
+                ) or 0
+            ),
+            include_light_rail=(
+                getattr(estimate, 'include_light_rail', False)
+                or False
+            ),
+            light_rail_lf=getattr(
+                estimate, 'light_rail_lf', None,
             ),
             outlet_relocation_count=(
                 getattr(estimate, 'outlet_relocation_count', 0)
@@ -364,6 +403,7 @@ class CabinetEstimateService:
             "claim_id", "company_id", "property_address", "zip_code",
             "layout_type", "kitchen_size_sqft", "ceiling_height",
             "has_soffit", "tier", "box_material", "finish", "door_style",
+            "overlay_style", "pricing_basis",
             "include_demo", "include_install", "include_delivery",
             "include_plumbing", "sink_type", "include_countertop_reset",
             "include_hardware", "include_crown_molding",
@@ -373,6 +413,9 @@ class CabinetEstimateService:
             "drywall_repair_sqft", "include_painting", "painting_sqft",
             "include_appliance_rr", "appliance_list", "include_dumpster",
             "include_electrical", "include_permit",
+            "filler_count", "end_panel_counts",
+            "dishwasher_return_panel_count",
+            "include_light_rail", "light_rail_lf",
             "outlet_relocation_count", "delivery_floor", "island_type",
             "island_prefab_size", "island_prefab_price",
             "island_end_panel_sqft", "island_back_panel_sqft",
@@ -409,6 +452,9 @@ class CabinetEstimateService:
                 "has_glass_door": getattr(
                     box, 'has_glass_door', False,
                 ) or False,
+                "range_panel_count": getattr(
+                    box, 'range_panel_count', None,
+                ),
                 "qty": box.qty,
                 "display_order": i,
             })

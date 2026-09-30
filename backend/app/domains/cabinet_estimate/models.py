@@ -69,6 +69,19 @@ class CabinetEstimate(Base, BaseModel):
     box_material = Column(String(50))  # Plywood / MDF / Particle
     finish = Column(String(50))        # Painted / Stained / Glazed / Laminate
     door_style = Column(String(50))    # Shaker / Raised Panel / Slab / Glass
+    # Full Overlay / Partial Overlay / Inset. Inset runs +15-25% because
+    # the door sits flush inside the face frame.
+    overlay_style = Column(String(50), nullable=True)
+
+    # Which pricing world this estimate is quoted in. An insurance claim
+    # and a retail remodel price the same physical work differently -
+    # most visibly on appliance detach & reset, where a carrier pays
+    # crew time and a homeowner pays a trip minimum too. Mixing the two
+    # in one estimate is the defect this column prevents.
+    # INSURANCE_DR (default, claim work) | RETAIL_INSTALL (remodel).
+    pricing_basis = Column(
+        String(30), nullable=True, server_default="INSURANCE_DR",
+    )
 
     # Scope of work flags
     include_demo = Column(Boolean, default=True)
@@ -76,6 +89,14 @@ class CabinetEstimate(Base, BaseModel):
     include_delivery = Column(Boolean, default=True)
     include_plumbing = Column(Boolean, default=False)
     sink_type = Column(String(20), default="single")  # single / double
+    # Under-sink components, quoted for a single sink. P-trap, supply
+    # lines and angle stops always come with the plumbing scope; these
+    # are the ones that depend on the specific kitchen.
+    include_aav = Column(Boolean, default=False)
+    include_air_gap = Column(Boolean, default=False)
+    include_soap_dispenser = Column(Boolean, default=False)
+    include_instant_hot = Column(Boolean, default=False)
+    include_dw_hookup = Column(Boolean, default=False)
     include_countertop_reset = Column(Boolean, default=False)
     include_hardware = Column(Boolean, default=True)
 
@@ -98,6 +119,14 @@ class CabinetEstimate(Base, BaseModel):
     include_dumpster = Column(Boolean, default=True)
     include_electrical = Column(Boolean, default=False)
     include_permit = Column(Boolean, default=False)
+    # Trim and panel scope. These appear on essentially every real
+    # kitchen but had no line item before.
+    filler_count = Column(Integer, default=0)
+    # {"wall": n, "base": n, "tall": n, "refrigerator": n}
+    end_panel_counts = Column(JSON, nullable=True)
+    dishwasher_return_panel_count = Column(Integer, default=0)
+    include_light_rail = Column(Boolean, default=False)
+    light_rail_lf = Column(Float, nullable=True)
     outlet_relocation_count = Column(Integer, default=0)
     delivery_floor = Column(
         Integer, default=1,
@@ -181,6 +210,13 @@ class CabinetEstimate(Base, BaseModel):
         order_by="CabinetEstimateHistory.version_number.desc()",
         lazy="select",
     )
+    sketch = relationship(
+        "CabinetSketch",
+        back_populates="estimate",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
 
 
 class CabinetBox(Base, BaseModel):
@@ -207,8 +243,12 @@ class CabinetBox(Base, BaseModel):
     is_specialty = Column(Boolean, default=False)
     specialty_type = Column(String(50), nullable=True)
     # sink_base / lazy_susan / blind_corner / drawer_base / diagonal_corner_wall
-    # / oven_cabinet / refrigerator_cabinet
+    # / oven_cabinet / refrigerator_cabinet / range_base_slide_in
+    # / range_base_drop_in
     has_glass_door = Column(Boolean, default=False)
+    # Finished end panels flanking a slide-in range opening (0-2).
+    # Only meaningful when specialty_type == "range_base_slide_in".
+    range_panel_count = Column(Integer, nullable=True)
     qty = Column(Integer, default=1, nullable=False)
     display_order = Column(Integer, default=0)
 

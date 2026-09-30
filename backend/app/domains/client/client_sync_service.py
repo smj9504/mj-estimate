@@ -230,7 +230,7 @@ class ClientSyncService:
                 'email': (job.homeowner_email or '').strip() or None,
                 'is_primary': True,
             }],
-            address=job.property_address,
+            address=job.property_street or job.property_address,
             city=job.property_city,
             state=job.property_state,
             zipcode=job.property_zipcode,
@@ -250,8 +250,9 @@ class ClientSyncService:
     def _update_client_from_job(self, client: Client, job: WaterMitigationJob) -> None:
         """Update existing Client with latest WM Job data (non-destructive)."""
         # Update address if Client has no address or job has newer data
-        if job.property_address and not client.address:
-            client.address = job.property_address
+        job_street = job.property_street or job.property_address
+        if job_street and not client.address:
+            client.address = job_street
         if job.property_city and not client.city:
             client.city = job.property_city
         if job.property_state and not client.state:

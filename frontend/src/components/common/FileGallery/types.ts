@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 export type ViewMode = 'grid' | 'list' | 'card';
 export type FileContext = 'work-order' | 'daily-log' | 'hauling-estimate' | 'water-mitigation' | 'claim' | 'general';
 export type FileCategory = 'image' | 'document';
@@ -21,6 +23,9 @@ export interface FileItem {
   isActive?: boolean;
   createdAt: string;
   updatedAt?: string;
+  // Water-mitigation-specific location tag (undefined for other contexts)
+  locationLevel?: string;
+  locationRoom?: string;
 }
 
 export interface FileGalleryProps {
@@ -96,6 +101,20 @@ export interface FileGalleryProps {
   onUpload?: (files: File[], category?: string) => Promise<void>;
   onDelete?: (fileId: string) => Promise<void>;
   onFileClick?: (file: FileItem) => void;
+
+  // Optional extra action rendered alongside Preview/Download/Delete in each
+  // file card's action bar. Purely additive/opt-in - omitting it leaves
+  // every existing consumer of FileGallery unchanged.
+  renderCardExtraAction?: (file: FileItem) => ReactNode;
+
+  // Optional extra control(s) rendered in the bulk-actions bar alongside
+  // Set Category / Change Date / Delete, receiving the currently selected
+  // files. Lets a consumer add its own bulk operation without FileGallery
+  // needing to know anything domain-specific. Omitting it changes nothing.
+  renderBulkExtraAction?: (
+    selected: FileItem[],
+    opts: { compact: boolean; clearSelection: () => void }
+  ) => ReactNode;
 }
 
 export interface UploadProgress {

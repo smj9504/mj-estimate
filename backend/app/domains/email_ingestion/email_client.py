@@ -221,10 +221,20 @@ class IMAPClient:
         self,
         since_date: Optional[datetime] = None,
         limit: int = 50,
+        unseen_only: bool = False,
     ) -> List[FetchedEmail]:
         """
-        Fetch unseen emails that have attachments.
-        Returns list of FetchedEmail objects.
+        Fetch emails that have attachments.
+
+        By default this scans regardless of the \\Seen flag: whether someone
+        happened to open a message in Gmail says nothing about whether its
+        attachment belongs on a claim, and filtering on UNSEEN permanently
+        hid the majority of the inbox (76% of one account's 2026 mail was
+        already read). Dedup is handled downstream by the
+        (message_id, attachment_hash) unique index, so re-scanning already
+        processed mail is cheap and safe.
+
+        Pass unseen_only=True to restore the old narrow behaviour.
         """
         results = []
 
@@ -233,10 +243,14 @@ class IMAPClient:
             self._connection.select("INBOX")
 
             # Build search criteria
-            criteria = ["UNSEEN"]
+            criteria = []
+            if unseen_only:
+                criteria.append("UNSEEN")
             if since_date:
                 date_str = since_date.strftime("%d-%b-%Y")
                 criteria.append(f'SINCE {date_str}')
+            if not criteria:
+                criteria.append("ALL")
 
             search_query = f'({" ".join(criteria)})'
             status, message_ids = self._connection.search(None, search_query)
@@ -358,20 +372,42 @@ class IMAPClient:
             in_reply_to = msg.get("In-Reply-To", "").strip()
             references = msg.get("References", "").strip()
 
-            # Parse text body
+            # Parse text body.
+            #
+            # BODY.PEEK[HEADER] and BODY.PEEK[TEXT] are fetched separately, so
+            # `msg` here holds headers only and `text_raw` is the raw body. For
+            # a multipart message (any Gmail/Outlook reply) that body is the
+            # full MIME structure - boundary markers and per-part headers
+            # included - so it must be re-joined with the headers and walked,
+            # not decoded as a single blob. Decoding it directly used to leak
+            # "--00000000000026b1eb065b0133ce / Content-Type: ..." into
+            # body_text, and from there into reply summaries.
             body_text = ""
             body_html = ""
             if text_raw:
                 try:
-                    charset = msg.get_content_charset() or "utf-8"
-                    content_type = msg.get_content_type() or "text/plain"
-                    decoded = text_raw.decode(charset, errors="replace")
+                    full = email.message_from_bytes(
+                        headers_raw.rstrip() + b"\r\n\r\n" + text_raw
+                    )
+                    body_text, body_html = _extract_body(full)
+                except Exception:
+                    body_text = ""
+                    body_html = ""
+
+                # Fall back to treating the payload as a single flat body
+                # (non-multipart mail, or a structure we failed to parse).
+                if not body_text and not body_html:
+                    try:
+                        charset = msg.get_content_charset() or "utf-8"
+                        content_type = msg.get_content_type() or "text/plain"
+                        decoded = text_raw.decode(charset, errors="replace")
+                    except Exception:
+                        content_type = "text/plain"
+                        decoded = text_raw.decode("utf-8", errors="replace")
                     if content_type == "text/html":
                         body_html = decoded
                     else:
                         body_text = decoded
-                except Exception:
-                    body_text = text_raw.decode("utf-8", errors="replace")
 
             return FetchedEmail(
                 message_id=message_id,

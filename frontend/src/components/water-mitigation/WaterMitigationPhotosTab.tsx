@@ -5,10 +5,14 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin, Tooltip, Progress, Grid, Table, Select, Row, Col, Dropdown } from 'antd';
-import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined, ShareAltOutlined, CopyOutlined, RobotOutlined, ThunderboltOutlined, CloseOutlined, StarFilled, DownOutlined, ReloadOutlined } from '@ant-design/icons';
+import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined, ShareAltOutlined, CopyOutlined, RobotOutlined, ThunderboltOutlined, CloseOutlined, StarFilled, DownOutlined, ReloadOutlined, EnvironmentOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
+import type { FileItem } from '../common/FileGallery/types';
 import CompanyCamDateSelectModal from './CompanyCamDateSelectModal';
+import WMPhotoLocationModal from './WMPhotoLocationModal';
+import WMBulkPhotoLocationModal from './WMBulkPhotoLocationModal';
+import wmSketchService from '../../services/wmSketchService';
 import api from '../../services/api';
 import { useWakeLock } from '../../hooks';
 import waterMitigationService, {
@@ -348,6 +352,39 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({ status: 'idle' });
   const [isSyncing, setIsSyncing] = useState(false);
   const pollingRef = useRef<boolean>(false);
+
+  // ─── Photo location tagging (Level + Room) ───
+  const [locationModalFile, setLocationModalFile] = useState<FileItem | null>(null);
+  const [bulkLocationPhotos, setBulkLocationPhotos] = useState<FileItem[] | null>(null);
+  // FileGallery owns the selection state; it hands us a clearSelection callback
+  // when the bulk action is rendered, which we fire only on a successful save.
+  const bulkLocationClearRef = useRef<(() => void) | null>(null);
+  const [levelOptions, setLevelOptions] = useState<string[]>([]);
+  const [roomSuggestions, setRoomSuggestions] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!jobId) return;
+    wmSketchService.getFloorSketches(jobId)
+      .then((floors) => {
+        const sorted = [...floors].sort((a, b) => a.floor_order - b.floor_order);
+        setLevelOptions(sorted.map((f) => f.floor_label));
+      })
+      .catch(() => {
+        // Non-fatal: the location modal falls back to free-text entry
+        // with no suggestions if the job has no floor sketches yet.
+      });
+    waterMitigationService.photos.getLocationSuggestions(jobId)
+      .then((res) => setRoomSuggestions(res.rooms))
+      .catch(() => {});
+  }, [jobId]);
+
+  const handleLocationSaved = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['files-infinite', 'water-mitigation', jobId] });
+    // Refresh room suggestions in case a new room name was typed
+    waterMitigationService.photos.getLocationSuggestions(jobId)
+      .then((res) => setRoomSuggestions(res.rooms))
+      .catch(() => {});
+  }, [jobId, queryClient]);
 
   // Background refresh when tab becomes active
   const prevActiveRef = useRef(isActive);
@@ -1580,8 +1617,59 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
 
           // Enhanced styling
           className="wm-photo-gallery"
+
+          // Bulk location tagging for the current selection - opens
+          // WMBulkPhotoLocationModal (set many at once, or fix them one by one)
+          renderBulkExtraAction={(selected, { compact, clearSelection }) => (
+            <Button
+              size={compact ? 'middle' : 'small'}
+              icon={<EnvironmentOutlined />}
+              onClick={() => {
+                setBulkLocationPhotos(selected);
+                bulkLocationClearRef.current = clearSelection;
+              }}
+              disabled={selected.length === 0}
+              style={{ borderRadius: '6px', borderColor: '#667eea', color: '#667eea' }}
+            >
+              {compact ? 'Location' : 'Set Location'}
+            </Button>
+          )}
+
+          // Per-photo location tag (Level + Room) - opens WMPhotoLocationModal
+          renderCardExtraAction={(file) => (
+            <Tooltip title={
+              file.locationLevel || file.locationRoom
+                ? `Location: ${[file.locationLevel, file.locationRoom].filter(Boolean).join(' - ')}`
+                : 'Set Location'
+            }>
+              <EnvironmentOutlined onClick={() => setLocationModalFile(file)} />
+            </Tooltip>
+          )}
         />
       </div>
+
+      <WMBulkPhotoLocationModal
+        open={!!bulkLocationPhotos}
+        photos={bulkLocationPhotos ?? []}
+        levelOptions={levelOptions}
+        roomSuggestions={roomSuggestions}
+        onClose={() => setBulkLocationPhotos(null)}
+        onSaved={() => {
+          handleLocationSaved();
+          bulkLocationClearRef.current?.();
+        }}
+      />
+
+      <WMPhotoLocationModal
+        open={!!locationModalFile}
+        photoId={locationModalFile?.id ?? null}
+        initialLevel={locationModalFile?.locationLevel}
+        initialRoom={locationModalFile?.locationRoom}
+        levelOptions={levelOptions}
+        roomSuggestions={roomSuggestions}
+        onClose={() => setLocationModalFile(null)}
+        onSaved={handleLocationSaved}
+      />
 
       {/* CompanyCam Date Select Modal - pick which capture dates to import (linked or newly-linked project) */}
       <CompanyCamDateSelectModal

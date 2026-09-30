@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card,
@@ -29,7 +29,9 @@ import {
   Divider,
   Tabs,
   Popconfirm,
+  Alert,
 } from 'antd';
+import type { FormInstance } from 'antd';
 import {
   PlusOutlined,
   ReloadOutlined,
@@ -71,8 +73,19 @@ import type {
   TaskType,
   TaskStatus,
   TaskPriority,
+  PaymentReceiptCreate,
+  PaymentReceipt,
 } from '../types/claimFollowUp';
-import { KNOWN_TASK_TYPES, DEPRECIATION_PHASE_LABELS } from '../types/claimFollowUp';
+import {
+  KNOWN_TASK_TYPES, DEPRECIATION_PHASE_LABELS, ACTIONABLE_STATUSES,
+  PAYMENT_RECEIPT_TYPE_LABELS,
+} from '../types/claimFollowUp';
+import {
+  ASSIGNED_ROLE_OPTIONS,
+  ASSIGNED_ROLE_LABELS,
+  contactForRole,
+  isSupplementTaskType,
+} from '../types/claimFollowUp';
 import type { ColumnsType } from 'antd/es/table';
 
 dayjs.extend(relativeTime);
@@ -189,6 +202,7 @@ const getEstimateCategoryConfig = (category: string | null | undefined) =>
 const STATUS_COLORS: Record<string, string> = {
   pending: 'blue',
   awaiting_response: 'orange',
+  awaiting_confirmation: 'purple',
   responded: 'cyan',
   resolved: 'green',
   overdue: 'red',
@@ -222,8 +236,10 @@ const STAGE_STATUS_PRIORITY: Record<string, number> = {
   awaiting_response: 1,
   pending: 2,
   responded: 3,
-  resolved: 4,
-  cancelled: 5,
+  // 타인 확인 대기: 우리 액션이 아니므로 resolved 직전 순위
+  awaiting_confirmation: 4,
+  resolved: 5,
+  cancelled: 6,
 };
 
 const aggregateByStage = (
@@ -933,6 +949,9 @@ const ClaimFollowUpDashboard: React.FC = () => {
   const [existingWmPdfName, setExistingWmPdfName] = useState<string | undefined>();
   const [existingWmPdfId, setExistingWmPdfId] = useState<string | undefined>();
   const [selectedTask, setSelectedTask] = useState<FollowUpTask | null>(null);
+  // 수령 내역 기록 모달 (분할/추가 수령을 누적 기록)
+  const [paymentModalTask, setPaymentModalTask] = useState<FollowUpTask | null>(null);
+  const [paymentForm] = Form.useForm();
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editEstimateFile, setEditEstimateFile] = useState<File | undefined>();
   const [editWmFile, setEditWmFile] = useState<File | undefined>();
@@ -1044,9 +1063,9 @@ const ClaimFollowUpDashboard: React.FC = () => {
         group.hasUrgent = true;
       }
 
-      // Check overdue
+      // Check overdue — awaiting_confirmation은 타인 확인 대기이므로 제외
       const date = task.next_followup_date || task.due_date;
-      if (date && dayjs(date).isBefore(dayjs()) && ['pending', 'awaiting_response'].includes(task.status)) {
+      if (date && dayjs(date).isBefore(dayjs()) && ACTIONABLE_STATUSES.includes(task.status)) {
         group.hasOverdue = true;
       }
 
@@ -1110,6 +1129,41 @@ const ClaimFollowUpDashboard: React.FC = () => {
     return filtered;
   }, [claimGroups, hideResolved, supplementFilter]);
 
+  // Any task on a claim carries that claim's PA/adjuster enrichment, so one
+  // task is enough to resolve the contact behind an assigned role.
+  const claimEnrichment = useCallback((claimId?: string): FollowUpTask | null => {
+    if (!claimId) return null;
+    return tasks.find(t => String(t.claim_id) === String(claimId)) || null;
+  }, [tasks]);
+
+  /** Fill name/email/phone from whichever contact the chosen role points at. */
+  const applyRoleContact = useCallback((
+    form: FormInstance,
+    role: string,
+    claimId?: string,
+  ) => {
+    const contact = contactForRole(role, claimEnrichment(claimId));
+    if (contact) {
+      form.setFieldsValue({
+        assigned_to_name: contact.name,
+        assigned_to_email: contact.email,
+        assigned_to_phone: contact.phone,
+      });
+    } else if (role === 'public_adjuster' || role === 'adjuster') {
+      // Not every claim has one on file. Say so instead of silently
+      // leaving the previous role's contact in the fields.
+      message.info(
+        `No ${ASSIGNED_ROLE_LABELS[role]} on file for this claim — enter the contact manually.`
+      );
+    } else if (role === 'contractor') {
+      // No claim-level contractor contact — clear rather than keep the
+      // previous role's person.
+      form.setFieldsValue({
+        assigned_to_name: '', assigned_to_email: '', assigned_to_phone: '',
+      });
+    }
+  }, [claimEnrichment]);
+
   // Mutations
   const createMutation = useMutation({
     mutationFn: (data: FollowUpTaskCreate) => claimFollowUpService.createTask(data),
@@ -1121,6 +1175,37 @@ const ClaimFollowUpDashboard: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['followup-stats'] });
     },
     onError: (err: any) => message.error(err?.response?.data?.detail || 'Failed to create task'),
+  });
+
+  // 수령 내역 조회 — 모달이 열린 claim에 대해서만
+  const { data: paymentSummary, isLoading: paymentsLoading } = useQuery({
+    queryKey: ['claim-payments', paymentModalTask?.claim_id],
+    queryFn: () => claimFollowUpService.getClaimPayments(paymentModalTask!.claim_id),
+    enabled: !!paymentModalTask?.claim_id,
+  });
+
+  const recordPaymentMutation = useMutation({
+    mutationFn: ({ claimId, payload }: { claimId: string; payload: PaymentReceiptCreate }) =>
+      claimFollowUpService.recordClaimPayment(claimId, payload),
+    onSuccess: (_, variables) => {
+      message.success('Payment recorded');
+      paymentForm.resetFields();
+      queryClient.invalidateQueries({ queryKey: ['claim-payments', variables.claimId] });
+      queryClient.invalidateQueries({ queryKey: ['followup-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['followup-stats'] });
+    },
+    onError: (err: any) => message.error(err?.response?.data?.detail || 'Failed to record payment'),
+  });
+
+  const deletePaymentMutation = useMutation({
+    mutationFn: ({ claimId, paymentId }: { claimId: string; paymentId: string }) =>
+      claimFollowUpService.deleteClaimPayment(claimId, paymentId),
+    onSuccess: (_, variables) => {
+      message.success('Payment removed');
+      queryClient.invalidateQueries({ queryKey: ['claim-payments', variables.claimId] });
+      queryClient.invalidateQueries({ queryKey: ['followup-tasks'] });
+    },
+    onError: (err: any) => message.error(err?.response?.data?.detail || 'Failed to remove payment'),
   });
 
   const resolveMutation = useMutation({
@@ -1217,8 +1302,9 @@ const ClaimFollowUpDashboard: React.FC = () => {
   const isOverdue = (task: FollowUpTask) => {
     const date = task.next_followup_date || task.due_date;
     if (!date) return false;
+    // awaiting_confirmation은 다른 사람의 확인을 기다리는 상태 → overdue 아님
     return dayjs(date).isBefore(dayjs()) &&
-      ['pending', 'awaiting_response'].includes(task.status);
+      ACTIONABLE_STATUSES.includes(task.status);
   };
 
   // Helper: open resolve modal for a given task
@@ -1390,6 +1476,13 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   label: 'Send Email',
                   onClick: () => navigate(`/claim-followup/${task.id}/email`),
                 },
+                // 수령 내역은 payment 단계에서만 — 여러 번 나눠 받는 걸 누적 기록
+                ...(PAYMENT_TASK_TYPES.includes(task.task_type) ? [{
+                  key: 'payments',
+                  icon: <DollarOutlined />,
+                  label: 'Record Payment',
+                  onClick: () => { setPaymentModalTask(task); paymentForm.resetFields(); },
+                }] : []),
                 {
                   key: 'resolve',
                   icon: <CheckCircleOutlined />,
@@ -1523,11 +1616,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
         && !activeTypes.has('wm_payment_check')) {
       virtualPending.add('wm_payment_check');
     }
-    // Ensure rebuild payment shows when estimate exists but no task yet
-    if ((resolvedTypes.has('wm_docs_sent') || activeTypes.has('wm_docs_sent'))
+    // Ensure rebuild payment shows when the insurance estimate exists but no
+    // task yet. 기준은 보험사 견적서 수령 여부 — wmCostStatus는 WM 비용 처리
+    // 방식일 뿐이라 rebuild payment 표시 조건으로는 맞지 않는다.
+    if (group.hasInsuranceEstimate
         && !resolvedTypes.has('payment_check')
-        && !activeTypes.has('payment_check')
-        && group.wmCostStatus) {
+        && !activeTypes.has('payment_check')) {
       virtualPending.add('payment_check');
     }
 
@@ -1587,9 +1681,14 @@ const ClaimFollowUpDashboard: React.FC = () => {
       pending: 'Pending',
     };
 
-    // Determine overall claim progress
+    // Determine overall claim progress.
+    // Payment 단계는 완료 판정에서 제외한다: supplement로 추가 수령이 가능하고
+    // 분할 수령도 되기 때문에 애초에 '종결'되는 단계가 아니다. payment가
+    // 미결이라는 이유로 claim 전체가 미완료로 보이면 안 된다.
+    const isPaymentStageType = (s: string) =>
+      s === 'payment_check' || s === 'wm_payment_check';
     const hasActiveOrPending = relevantStages.some(
-      s => activeTypes.has(s) || virtualPending.has(s)
+      s => !isPaymentStageType(s) && (activeTypes.has(s) || virtualPending.has(s))
     );
     const allResolved = !hasActiveOrPending;
 
@@ -1641,16 +1740,20 @@ const ClaimFollowUpDashboard: React.FC = () => {
       const isPastStage = resolved && laterStagesExist;
 
       // Payment-specific
-      const isPaymentStage = stage === 'payment_check' || stage === 'wm_payment_check';
+      const isPaymentStage = isPaymentStageType(stage);
       const paymentStatus = anyTask?.payment_status;
       const paymentNeedsAttention = isPaymentStage && paymentStatus
         && ['homeowner_holding', 'lost', 'partial'].includes(paymentStatus);
+      // 타인 확인 대기 — 내가 할 일이 아니라는 걸 색으로 구분
+      const awaitingConfirmation = stageTask?.status === 'awaiting_confirmation';
 
       let bgColor: string;
       let txtColor: string;
       let border: string;
 
-      if (paymentNeedsAttention) {
+      if (awaitingConfirmation && !paymentNeedsAttention) {
+        bgColor = '#f9f0ff'; txtColor = '#722ed1'; border = '1px dashed #d3adf7';
+      } else if (paymentNeedsAttention) {
         bgColor = '#fff7e6'; txtColor = '#d48806'; border = '1px solid #ffc069';
       } else if (isPastStage || (resolved && allResolved && isPaymentStage)) {
         // Past or final resolved payment → subtle gray
@@ -1684,6 +1787,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
         label = isPastStage
           ? `${SHORT_LABELS[stage] || label}: ${statusLabel}`
           : `${getStageLabel(stage)}: ${statusLabel}`;
+      } else if (awaitingConfirmation) {
+        label = `${SHORT_LABELS[stage] || label}: Awaiting Confirm`;
       }
 
       // Supplement stage: show detailed status (tasks or virtual)
@@ -1879,6 +1984,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
               options={[
                 { value: 'pending', label: 'Pending' },
                 { value: 'awaiting_response', label: 'Awaiting Response' },
+                { value: 'awaiting_confirmation', label: 'Awaiting Confirmation' },
                 { value: 'responded', label: 'Responded' },
                 { value: 'resolved', label: 'Resolved' },
                 { value: 'overdue', label: 'Overdue' },
@@ -2131,6 +2237,14 @@ const ClaimFollowUpDashboard: React.FC = () => {
                       const label = TASK_TYPE_OPTIONS.find(o => o.value === value)?.label;
                       if (label) createForm.setFieldValue('title', label);
                     }
+                    // Supplements are negotiated with the PA — assign it.
+                    if (isSupplementTaskType(value)) {
+                      createForm.setFieldValue('assigned_to_role', 'public_adjuster');
+                      applyRoleContact(
+                        createForm, 'public_adjuster',
+                        createForm.getFieldValue('claim_id'),
+                      );
+                    }
                   }} />
               </Form.Item>
             </Col>
@@ -2172,11 +2286,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item name="assigned_to_role" label="Assigned To Role" initialValue="adjuster">
-                <Select options={[
-                  { value: 'adjuster', label: 'Adjuster' },
-                  { value: 'public_adjuster', label: 'Public Adjuster' },
-                  { value: 'contractor', label: 'Contractor' },
-                ]} />
+                <Select
+                  options={ASSIGNED_ROLE_OPTIONS}
+                  onChange={(role) => applyRoleContact(
+                    createForm, role, createForm.getFieldValue('claim_id'),
+                  )}
+                />
               </Form.Item>
             </Col>
           </Row>
@@ -2637,6 +2752,142 @@ const ClaimFollowUpDashboard: React.FC = () => {
         </Form>
       </Modal>
 
+      {/* Record Payment Modal — 분할/추가 수령을 누적 기록한다.
+          기록해도 단계가 닫히지 않는다: supplement로 더 들어올 수 있음 */}
+      <Modal
+        title={`Payments: ${paymentModalTask?.property_address || paymentModalTask?.claim_number || ''}`}
+        open={!!paymentModalTask}
+        width={isMobile ? '95vw' : 720}
+        style={isMobile ? { top: 10 } : undefined}
+        onCancel={() => { setPaymentModalTask(null); paymentForm.resetFields(); }}
+        footer={<Button onClick={() => { setPaymentModalTask(null); paymentForm.resetFields(); }}>Close</Button>}
+      >
+        {paymentSummary && (
+          <Row gutter={8} style={{ marginBottom: 12 }}>
+            <Col span={8}>
+              <Statistic title="Expected" value={paymentSummary.total_expected}
+                precision={2} prefix="$" valueStyle={{ fontSize: 16 }} />
+            </Col>
+            <Col span={8}>
+              <Statistic title="Received" value={paymentSummary.total_received}
+                precision={2} prefix="$" valueStyle={{ fontSize: 16, color: '#52c41a' }} />
+            </Col>
+            <Col span={8}>
+              <Statistic title="Remaining" value={paymentSummary.remaining}
+                precision={2} prefix="$"
+                valueStyle={{ fontSize: 16, color: paymentSummary.remaining > 0 ? '#cf1322' : '#8c8c8c' }} />
+            </Col>
+          </Row>
+        )}
+
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="Recording a payment does not close this stage"
+          description="Payments can arrive in installments, and an approved supplement can bring more money in later."
+        />
+
+        <Table<PaymentReceipt>
+          dataSource={paymentSummary?.payments || []}
+          rowKey="id"
+          size="small"
+          loading={paymentsLoading}
+          pagination={false}
+          locale={{ emptyText: 'No payments recorded yet' }}
+          style={{ marginBottom: 16 }}
+          columns={[
+            {
+              title: 'Received', dataIndex: 'received_date', width: 110,
+              render: (v?: string, r?: PaymentReceipt) =>
+                v ? dayjs(v).format('MM/DD/YYYY')
+                  : (r?.created_at ? dayjs(r.created_at).format('MM/DD/YYYY') : '-'),
+            },
+            {
+              title: 'Amount', dataIndex: 'amount', width: 110, align: 'right' as const,
+              render: (v: number) => <Text strong>${(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>,
+            },
+            {
+              title: 'Type', dataIndex: 'payment_type', width: 110,
+              render: (v?: string) => <Tag>{PAYMENT_RECEIPT_TYPE_LABELS[v as keyof typeof PAYMENT_RECEIPT_TYPE_LABELS] || v || '-'}</Tag>,
+            },
+            { title: 'Check #', dataIndex: 'check_number', width: 100, render: (v?: string) => v || '-' },
+            { title: 'Notes', dataIndex: 'notes', ellipsis: true, render: (v?: string) => v || '-' },
+            {
+              title: '', width: 40,
+              render: (_: any, r: PaymentReceipt) => (
+                <Popconfirm title="Remove this payment?"
+                  onConfirm={() => deletePaymentMutation.mutate({
+                    claimId: paymentModalTask!.claim_id, paymentId: r.id,
+                  })}>
+                  <Button type="text" danger size="small" icon={<DeleteOutlined />} />
+                </Popconfirm>
+              ),
+            },
+          ]}
+        />
+
+        <Divider style={{ margin: '8px 0' }}>Record a payment</Divider>
+        <Form
+          form={paymentForm}
+          layout="vertical"
+          onFinish={(values) => {
+            if (!paymentModalTask) return;
+            const payload: PaymentReceiptCreate = {
+              amount: values.amount,
+              payment_type: values.payment_type || 'insurance',
+              received_date: values.received_date?.toISOString(),
+              check_number: values.check_number,
+              confirmed_by: values.confirmed_by,
+              notes: values.notes,
+              payment_category: paymentModalTask.task_type === 'wm_payment_check'
+                ? 'water_mitigation' : undefined,
+            };
+            recordPaymentMutation.mutate({ claimId: paymentModalTask.claim_id, payload });
+          }}
+        >
+          <Row gutter={8}>
+            <Col xs={12} sm={6}>
+              <Form.Item name="amount" label="Amount" rules={[{ required: true, message: 'Enter amount' }]}>
+                <InputNumber style={{ width: '100%' }} min={0} precision={2} prefix="$" />
+              </Form.Item>
+            </Col>
+            <Col xs={12} sm={6}>
+              <Form.Item name="payment_type" label="Type" initialValue="insurance">
+                <Select options={Object.entries(PAYMENT_RECEIPT_TYPE_LABELS).map(
+                  ([value, label]) => ({ value, label }))} />
+              </Form.Item>
+            </Col>
+            <Col xs={12} sm={6}>
+              <Form.Item name="received_date" label="Received">
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col xs={12} sm={6}>
+              <Form.Item name="check_number" label="Check #">
+                <Input />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={8}>
+            <Col xs={24} sm={8}>
+              <Form.Item name="confirmed_by" label="Confirmed by"
+                tooltip="직접 확인할 수 없는 정보이므로, 누가 확인해 주었는지 남긴다">
+                <Input placeholder="e.g. Mike (field)" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={16}>
+              <Form.Item name="notes" label="Notes">
+                <Input placeholder="e.g. 1st installment, ACV portion" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Button type="primary" htmlType="submit" loading={recordPaymentMutation.isPending}>
+            Add Payment
+          </Button>
+        </Form>
+      </Modal>
+
       {/* Edit Task Modal */}
       <Modal
         title={`Edit: ${selectedTask?.title}`}
@@ -2675,6 +2926,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 <Select options={[
                   { value: 'pending', label: 'Pending' },
                   { value: 'awaiting_response', label: 'Awaiting Response' },
+                  { value: 'awaiting_confirmation', label: 'Awaiting Confirmation' },
                   { value: 'responded', label: 'Responded' },
                   { value: 'resolved', label: 'Resolved' },
                   { value: 'cancelled', label: 'Cancelled' },
@@ -2693,11 +2945,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item name="assigned_to_role" label="Assigned Role">
-                <Select options={[
-                  { value: 'adjuster', label: 'Adjuster' },
-                  { value: 'public_adjuster', label: 'Public Adjuster' },
-                  { value: 'contractor', label: 'Contractor' },
-                ]} />
+                <Select
+                  options={ASSIGNED_ROLE_OPTIONS}
+                  onChange={(role) => applyRoleContact(
+                    editForm, role, selectedTask?.claim_id,
+                  )}
+                />
               </Form.Item>
             </Col>
           </Row>

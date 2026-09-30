@@ -353,7 +353,8 @@ async def upload_insurance_estimate(claim_id: str, data: dict):
                     followup_service._auto_create_payment_task(
                         session, claim_id, source_info, 'payment_check',
                         title='Rebuild Payment',
-                        description='Insurance estimate received. Follow up for rebuild payment check.',
+                        description='Insurance estimate received. Awaiting confirmation that rebuild payment was received.',
+                        needs_confirmation=True,
                     )
                     if claim.wm_cost_status in ('separate_estimate', 'not_received'):
                         followup_service._auto_create_payment_task(

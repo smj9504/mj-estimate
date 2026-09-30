@@ -21,6 +21,16 @@ from app.core.base_models import BaseModel
 from app.core.database_factory import Base
 from app.core.database_types import UUIDType
 
+# Statuses where *we* still owe an action: these drive overdue detection
+# and auto follow-up. 'awaiting_confirmation' is deliberately excluded —
+# that task is waiting on someone else to confirm (e.g. rebuild payment
+# received), so it must never be nagged as our overdue work.
+ACTIONABLE_STATUSES = ['pending', 'awaiting_response']
+
+# Statuses that keep a stage open (not yet resolved/cancelled), including
+# the ones blocked on another person.
+OPEN_STATUSES = ACTIONABLE_STATUSES + ['awaiting_confirmation']
+
 
 class FollowUpTask(Base, BaseModel):
     """
@@ -72,7 +82,7 @@ class FollowUpTask(Base, BaseModel):
         String(50),
         nullable=False,
         default='pending',
-        comment="pending | awaiting_response | responded | resolved | overdue | cancelled"
+        comment="pending | awaiting_response | awaiting_confirmation | responded | resolved | overdue | cancelled"
     )
 
     # Scheduling
@@ -343,6 +353,15 @@ class SentEmail(Base, BaseModel):
     opened_at = Column(DateTime(timezone=True), comment="When the email was first opened")
     open_count = Column(Integer, default=0, comment="Number of times the tracking pixel was loaded")
     last_opened_at = Column(DateTime(timezone=True), comment="Most recent open timestamp")
+    # Whether the outbound body actually carried the tracking pixel. NULL on
+    # rows sent before this was recorded (= unknown). False means tracking was
+    # skipped (BACKEND_PUBLIC_URL unreachable), so "not opened" on such a row
+    # says nothing about the recipient - it only means we never asked.
+    tracking_pixel_sent = Column(
+        Boolean,
+        nullable=True,
+        comment="True if the open-tracking pixel was embedded in the sent body",
+    )
 
     # Audit
     sent_by_id = Column(UUIDType(), ForeignKey("staff.id"))

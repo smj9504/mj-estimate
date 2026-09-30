@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
 
 from app.domains.claim_followup.schemas import (
+    ClaimPaymentSummary,
     CommunicationLogCreate,
     CommunicationLogResponse,
     CommunicationLogUpdate,
@@ -20,6 +21,8 @@ from app.domains.claim_followup.schemas import (
     FollowUpTaskUpdate,
     GenerateAIEmailRequest,
     GenerateAIEmailResponse,
+    PaymentReceiptCreate,
+    PaymentReceiptResponse,
     PolishEmailRequest,
     PolishEmailResponse,
     SendEmailRequest,
@@ -761,6 +764,48 @@ async def delete_task(task_id: str):
     success = service.delete_task(task_id)
     if not success:
         raise HTTPException(status_code=404, detail="Task not found")
+    return {"success": True}
+
+
+# ============================================================
+# Payment receipts
+# ============================================================
+
+@router.get("/claims/{claim_id}/payments", response_model=ClaimPaymentSummary)
+async def get_claim_payments(claim_id: str):
+    """Running payment picture for a claim, with every recorded receipt."""
+    service = _get_service()
+    try:
+        return service.get_payment_summary(claim_id)
+    except Exception as e:
+        logger.error(f"Error getting payment summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/claims/{claim_id}/payments", response_model=PaymentReceiptResponse)
+async def record_claim_payment(claim_id: str, payload: PaymentReceiptCreate):
+    """Record one payment received.
+
+    Does not close the payment stage: more can arrive in later
+    installments or through an approved supplement.
+    """
+    service = _get_service()
+    try:
+        return service.record_payment(
+            claim_id, payload.dict(exclude_unset=True)
+        )
+    except Exception as e:
+        logger.error(f"Error recording payment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/claims/{claim_id}/payments/{payment_id}")
+async def delete_claim_payment(claim_id: str, payment_id: str):
+    """Remove a mis-entered payment record."""
+    service = _get_service()
+    success = service.delete_payment(payment_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Payment not found")
     return {"success": True}
 
 

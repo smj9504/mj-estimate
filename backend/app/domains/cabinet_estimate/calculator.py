@@ -8,29 +8,50 @@ import logging
 from dataclasses import dataclass
 from typing import List, Optional
 
+from .appliance_labor import appliance_pricing_dict
+from .rate_meta import Basis, resolve_basis
 from .pricing import (
-    APPLIANCE_RR_PRICING,
     BACKSPLASH_TYPES,
     BASE_RATES,
     COUNTERTOP_MATERIALS,
     CROWN_MOLDING_PRICING,
     DEFAULT_OVERHEAD_PCT,
     DEFAULT_PROFIT_PCT,
+    DISHWASHER_RETURN_PANEL,
+    DOOR_STYLE_MULTIPLIER,
+    END_PANEL_PRICING,
+    END_PANEL_TYPES,
+    FILLER_PRICING,
+    FINISH_MULTIPLIER,
     GLASS_DOOR_PREMIUM,
     ISLAND_PANEL_PRICING,
+    LIGHT_RAIL_PRICING,
+    MATERIAL_MULTIPLIER,
     MATERIAL_SHARE,
+    OVERLAY_STYLE_MULTIPLIER,
     SCOPE_ITEMS,
     COUNTERTOP_BACKSPLASH_PER_LF,
+    NON_STANDARD_WIDTH_MULTIPLIER,
     PREFAB_ISLAND_INSTALL,
     PREFAB_ISLAND_PRICING,
+    RANGE_END_PANEL_EACH,
     SPECIALTY_PREMIUM,
+    SPECIALTY_PREMIUM_TIER_SCALE,
+    SPECIALTY_TALL_TYPES,
     TALL_CABINET_TYPES,
     TALL_HEIGHT_MULTIPLIER,
     TALL_TYPE_BASE_WIDTH,
     TALL_WIDTH_MULTIPLIER,
+    VOLATILE_FINISHES,
     WALL_HEIGHT_MULTIPLIER,
     get_labor_multiplier,
+    is_standard_width,
+    permit_fee,
+    permit_jurisdiction,
+    width_efficiency,
+    sink_for_base,
     size_tier_value,
+    DOUBLE_BOWL_MIN_SINK_WIDTH,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,6 +68,8 @@ class BoxInput:
     specialty_type: Optional[str]
     has_glass_door: bool
     qty: int
+    # Finished end panels flanking a slide-in range opening (0-2).
+    range_panel_count: Optional[int] = None
 
 
 @dataclass
@@ -98,8 +121,15 @@ def _calc_location_cabinets(
     include_crown_molding: bool,
     include_toe_kick: bool,
     warnings: List[str],
+    spec_mult: float = 1.0,
 ) -> tuple[List[LineItem], float, float, int]:
-    """Calculate cabinet supply/install items for a location."""
+    """Calculate cabinet supply/install items for a location.
+
+    `total_mult` scales cabinet SUPPLY - it carries the regional labor
+    multiplier plus the box material, finish and door style factors.
+    `spec_mult` scales specialty premiums by tier; see
+    SPECIALTY_PREMIUM_TIER_SCALE.
+    """
     line_items: List[LineItem] = []
     loc_label = "Island" if loc == "island" else ""
     prefix = f"{loc_label} " if loc_label else ""
@@ -116,10 +146,19 @@ def _calc_location_cabinets(
     ) / 12
     tall_count = sum(b.qty for b in tall_boxes)
 
-    # Classify wall boxes by height tier
+    # Classify wall boxes by height tier.
+    # The short end is banded rather than lumped together: a 12" bridge and
+    # a 27" upper are nothing like the same box. See
+    # WALL_HEIGHT_MULTIPLIER.
     def _wall_height_tier(height: float) -> str:
-        if height <= 27:
+        if height <= 15:
+            return "bridge"
+        elif height <= 21:
             return "short"
+        elif height <= 24:
+            return "mid"
+        elif height <= 27:
+            return "near_standard"
         elif height <= 30:
             return "standard"
         elif height <= 36:
@@ -128,21 +167,64 @@ def _calc_location_cabinets(
             return "extra_tall"
 
     _WALL_TIER_LABELS = {
-        "short": "Short",
+        "bridge": "Bridge (12-15\"H)",
+        "short": "Short (18-21\"H)",
+        "mid": "Mid (24\"H)",
+        "near_standard": "Near-Standard (27\"H)",
         "standard": "Standard",
         "tall": "Tall (36\"H)",
         "extra_tall": "Extra Tall (42\"H)",
     }
 
+    # A box milled off the standard 3" grid costs more to build, so it is
+    # quoted on its own line at a higher per-LF rate rather than being
+    # averaged into the standard run. Supply only — see
+    # NON_STANDARD_WIDTH_MULTIPLIER.
+    _NON_STD_SUFFIX = " (Non-Standard Width)"
+
+    # Narrow boxes cost more per LF than wide ones - every box carries
+    # the same hardware, deck and assembly labor regardless of width. The
+    # boxes in a group are billed as one pooled LF figure, so the group
+    # takes an LF-weighted average of its boxes' efficiency factors
+    # rather than a per-box multiplier. See WIDTH_EFFICIENCY_MULTIPLIER.
+    def _avg_width_efficiency(group: List[BoxInput]) -> float:
+        total_in = sum(b.width_inches * b.qty for b in group)
+        if total_in <= 0:
+            return 1.0
+        weighted = sum(
+            width_efficiency(b.width_inches) * b.width_inches * b.qty
+            for b in group
+        )
+        return round(weighted / total_in, 4)
+
     # ── Cabinet supply ──
-    if base_lf > 0:
-        base_unit = round(rates["base_lf"] * total_mult, 2)
-        base_total = round(base_lf * base_unit, 2)
+    base_by_std: dict[bool, float] = {}
+    base_boxes_by_std: dict[bool, List[BoxInput]] = {}
+    for b in base_boxes:
+        std = is_standard_width(b.width_inches)
+        base_by_std[std] = base_by_std.get(std, 0) + (
+            b.width_inches * b.qty
+        ) / 12
+        base_boxes_by_std.setdefault(std, []).append(b)
+
+    for std in (True, False):
+        std_lf = base_by_std.get(std, 0)
+        if std_lf <= 0:
+            continue
+        w_mult = 1.0 if std else NON_STANDARD_WIDTH_MULTIPLIER
+        eff_mult = _avg_width_efficiency(
+            base_boxes_by_std.get(std, []),
+        )
+        base_unit = round(
+            rates["base_lf"] * total_mult * w_mult * eff_mult, 2,
+        )
+        base_total = round(std_lf * base_unit, 2)
         line_items.append(LineItem(
             description=(
                 f"{prefix}Base Cabinets - {tier}"
+                f"{'' if std else _NON_STD_SUFFIX}"
             ),
-            quantity=round(base_lf, 2),
+            quantity=round(std_lf, 2),
             unit="LF",
             unit_price=base_unit,
             total=base_total,
@@ -151,26 +233,35 @@ def _calc_location_cabinets(
             location=loc,
         ))
 
-    # Wall cabinets: split by height tier for pricing
-    wall_by_tier: dict[str, float] = {}
+    # Wall cabinets: split by height tier, then by standard/non-standard width
+    wall_by_tier: dict[tuple[str, bool], float] = {}
+    wall_boxes_by_tier: dict[tuple[str, bool], List[BoxInput]] = {}
     for b in wall_boxes:
         htier = _wall_height_tier(b.height_inches)
-        wall_by_tier[htier] = wall_by_tier.get(
-            htier, 0,
+        key = (htier, is_standard_width(b.width_inches))
+        wall_by_tier[key] = wall_by_tier.get(
+            key, 0,
         ) + (b.width_inches * b.qty) / 12
+        wall_boxes_by_tier.setdefault(key, []).append(b)
 
-    for htier, tier_lf in wall_by_tier.items():
+    for (htier, std), tier_lf in wall_by_tier.items():
         if tier_lf <= 0:
             continue
         h_mult = WALL_HEIGHT_MULTIPLIER.get(htier, 1.0)
+        w_mult = 1.0 if std else NON_STANDARD_WIDTH_MULTIPLIER
+        eff_mult = _avg_width_efficiency(
+            wall_boxes_by_tier.get((htier, std), []),
+        )
         wall_unit = round(
-            rates["wall_lf"] * total_mult * h_mult, 2,
+            rates["wall_lf"] * total_mult * h_mult * w_mult * eff_mult,
+            2,
         )
         wall_total = round(tier_lf * wall_unit, 2)
         h_label = _WALL_TIER_LABELS.get(htier, htier)
         line_items.append(LineItem(
             description=(
                 f"{prefix}Wall Cabinets {h_label} - {tier}"
+                f"{'' if std else _NON_STD_SUFFIX}"
             ),
             quantity=round(tier_lf, 2),
             unit="LF",
@@ -203,7 +294,20 @@ def _calc_location_cabinets(
                 f"{box.code}: {box.height_inches:g}\"H priced at the "
                 f"{h_approx}\"H rate (nearest listed size)"
             )
-        return round((w_mult / base_w_mult) * h_mult, 4)
+        # Off-grid widths cost more to build. Checked against the standard
+        # 3" lineup rather than the multiplier table, which lists only the
+        # few sizes the curve is calibrated on.
+        nonstd_mult = 1.0
+        if not is_standard_width(box.width_inches):
+            nonstd_mult = NON_STANDARD_WIDTH_MULTIPLIER
+            warnings.append(
+                f"{box.code}: {box.width_inches}\"W is off the standard 3\" "
+                f"lineup — supply priced at "
+                f"{NON_STANDARD_WIDTH_MULTIPLIER}x"
+            )
+        return round(
+            (w_mult / base_w_mult) * h_mult * nonstd_mult, 4,
+        )
 
     # Tall cabinets: split by type
     generic_tall = [
@@ -301,6 +405,12 @@ def _calc_location_cabinets(
                 )
         else:
             premium = premium_entry
+        # A better box carries better hardware and tighter joinery around
+        # the same feature, so the premium scales with tier. Tall types
+        # are priced per EA through TALL_CABINET_TYPES, which already
+        # reflects tier, so they must not be scaled twice.
+        if premium > 0 and box.specialty_type not in SPECIALTY_TALL_TYPES:
+            premium = round(premium * spec_mult, 2)
         if premium > 0:
             item_total = round(premium * box.qty, 2)
             sp_type = box.specialty_type.replace(
@@ -327,6 +437,35 @@ def _calc_location_cabinets(
                 f"{sp_type.title()} premium applied: "
                 f"{box.code}"
             )
+
+    # ── Slide-in range finished end panels ──
+    # Priced per panel rather than as a flat specialty premium: an opening
+    # between two cabinets exposes two ends, one at a wall exposes one.
+    for box in boxes:
+        if box.specialty_type != "range_base_slide_in":
+            continue
+        panels = box.range_panel_count
+        if panels is None:
+            panels = 2  # both flanking ends, the common case
+        panel_qty = panels * box.qty
+        if panel_qty <= 0:
+            continue
+        panel_total = round(RANGE_END_PANEL_EACH * panel_qty, 2)
+        line_items.append(LineItem(
+            description=(
+                f"Range End Panel (Finished) - {box.code}"
+            ),
+            quantity=panel_qty,
+            unit="EA",
+            unit_price=RANGE_END_PANEL_EACH,
+            total=panel_total,
+            material_share=MATERIAL_SHARE["cabinet_supply"],
+            category="premium",
+            location=loc,
+            notes=(
+                f"{panels} panel(s) per opening — slide-in range"
+            ),
+        ))
 
     # ── Glass door premiums ──
     glass_boxes = [b for b in boxes if b.has_glass_door]
@@ -381,7 +520,15 @@ def _calc_location_cabinets(
                 category="install",
                 location=loc,
             ))
-        for htier, tier_lf in wall_by_tier.items():
+        # wall_by_tier is keyed by (height_tier, is_standard_width).
+        # Install labor doesn't vary with width, so merge the width split
+        # back out - otherwise the same tier yields two identical lines.
+        install_wall_by_tier: dict[str, float] = {}
+        for (htier, _std), tier_lf in wall_by_tier.items():
+            install_wall_by_tier[htier] = (
+                install_wall_by_tier.get(htier, 0) + tier_lf
+            )
+        for htier, tier_lf in install_wall_by_tier.items():
             if tier_lf <= 0:
                 continue
             h_label = _WALL_TIER_LABELS.get(
@@ -452,6 +599,15 @@ def _calc_location_cabinets(
             elif b.specialty_type == "blind_corner":
                 # 1 door + 1 drawer
                 openings = 2
+            elif b.specialty_type == "range_base_slide_in":
+                # No cabinet under a slide-in: the flanking bases are
+                # simply spaced apart and the range fills the gap, so
+                # there is no door or drawer front to put a pull on.
+                openings = 0
+            elif b.specialty_type == "range_base_drop_in":
+                # Drop-in cabinets are open-topped for the unit to sit
+                # in, with a single drawer below (e.g. 27estore BRC-30).
+                openings = 1
             elif b.specialty_type == "sink_base":
                 # False front drawer (1) + doors
                 # ≤33": 1 false front + 2 doors = 3
@@ -614,11 +770,27 @@ def calculate_estimate(
     boxes: List[BoxInput],
     tier: str,
     zip_code: str,
+    # Box construction and door options. These scale cabinet supply and
+    # were previously defined in pricing.py but never actually applied.
+    box_material: Optional[str] = None,
+    finish: Optional[str] = None,
+    door_style: Optional[str] = None,
+    overlay_style: Optional[str] = None,
+    # Which pricing world to quote in. Insurance and retail price the
+    # same physical work differently; see appliance_labor.py.
+    pricing_basis: Optional[str] = None,
     include_demo: bool = True,
     include_install: bool = True,
     include_delivery: bool = True,
     include_plumbing: bool = False,
     sink_type: Optional[str] = "single",
+    # Under-sink components, quoted for a single sink. The core hookup is
+    # in plumbing_reconnect; these are the extras, at marginal labor.
+    include_aav: bool = False,
+    include_air_gap: bool = False,
+    include_soap_dispenser: bool = False,
+    include_instant_hot: bool = False,
+    include_dw_hookup: bool = False,
     include_countertop_reset: bool = False,
     include_hardware: bool = True,
     include_crown_molding: bool = False,
@@ -643,6 +815,13 @@ def calculate_estimate(
     include_dumpster: bool = True,
     include_electrical: bool = False,
     include_permit: bool = False,
+    # Trim and panel scope. Fillers and finished end panels appear on
+    # essentially every real kitchen but had no line item before.
+    filler_count: int = 0,
+    end_panel_counts: Optional[dict] = None,
+    dishwasher_return_panel_count: int = 0,
+    include_light_rail: bool = False,
+    light_rail_lf: Optional[float] = None,
     outlet_relocation_count: int = 0,
     delivery_floor: int = 1,
     island_type: str = "custom",
@@ -671,8 +850,43 @@ def calculate_estimate(
     if not rates:
         raise ValueError(f"Unknown tier: {tier}")
 
+    # Resolve the pricing basis once, up front. Everything basis-
+    # sensitive reads from here so a single estimate cannot end up with
+    # some lines priced for a carrier and others for a homeowner.
+    basis = resolve_basis(pricing_basis)
+    appliance_prices = appliance_pricing_dict(basis)
+    if basis is Basis.RETAIL_INSTALL:
+        warnings.append(
+            "Retail basis: appliance resets carry a per-unit trip "
+            "minimum. On a job that moves several appliances in one "
+            "visit, confirm the trip is not being billed per appliance."
+        )
+
     labor_mult = get_labor_multiplier(zip_code)
-    total_mult = labor_mult
+
+    # Cabinet supply scales with what the box is made of and how the door
+    # is built, on top of the regional multiplier. These tables existed in
+    # pricing.py but nothing ever read them, so every estimate was priced
+    # as Plywood / Stained / Shaker / Full Overlay regardless of what the
+    # user picked.
+    mat_mult = MATERIAL_MULTIPLIER.get(box_material or "Plywood", 1.0)
+    fin_mult = FINISH_MULTIPLIER.get(finish or "Stained", 1.0)
+    door_mult = DOOR_STYLE_MULTIPLIER.get(door_style or "Shaker", 1.0)
+    overlay_mult = OVERLAY_STYLE_MULTIPLIER.get(
+        overlay_style or "Full Overlay", 1.0,
+    )
+    total_mult = round(
+        labor_mult * mat_mult * fin_mult * door_mult * overlay_mult, 4,
+    )
+
+    if finish in VOLATILE_FINISHES:
+        warnings.append(
+            f"{finish} finish is priced at a {fin_mult:.2f}x table value, "
+            f"but manufacturers charge anywhere from 0% to 50% for it — "
+            f"confirm the actual upcharge with the supplier."
+        )
+
+    spec_mult = SPECIALTY_PREMIUM_TIER_SCALE.get(tier, 1.0)
 
     # ── 2. Split by location ──
     perimeter_boxes = [
@@ -688,7 +902,7 @@ def calculate_estimate(
             perimeter_boxes, "perimeter", tier, rates,
             total_mult, include_install,
             include_hardware, include_crown_molding,
-            include_toe_kick, warnings,
+            include_toe_kick, warnings, spec_mult,
         )
     )
     line_items.extend(p_items)
@@ -759,7 +973,7 @@ def calculate_estimate(
                 total_mult, include_install,
                 include_hardware,
                 False,  # no crown molding on island
-                include_toe_kick, warnings,
+                include_toe_kick, warnings, spec_mult,
             )
         )
         line_items.extend(i_items)
@@ -902,10 +1116,11 @@ def calculate_estimate(
             + floor_surcharge,
             SCOPE_ITEMS["delivery_min"],
         ), 2)
+        # Customer-facing note: state what the charge covers, not how it
+        # is computed - the rate breakdown is internal pricing.
         floor_note = (
-            f", +${floor_surcharge} "
-            f"({delivery_floor}F carry-up)"
-            if floor_extra > 0 else ""
+            f"Includes {delivery_floor}F carry-up"
+            if floor_extra > 0 else None
         )
         line_items.append(LineItem(
             description="Cabinet Delivery",
@@ -916,12 +1131,7 @@ def calculate_estimate(
             material_share=MATERIAL_SHARE["delivery"],
             category="misc",
             location="shared",
-            notes=(
-                f"${SCOPE_ITEMS['delivery_base']}"
-                f" + "
-                f"${SCOPE_ITEMS['delivery_per_lf']}/LF"
-                f"{floor_note}"
-            ),
+            notes=floor_note,
         ))
 
     # Plumbing
@@ -936,51 +1146,138 @@ def calculate_estimate(
             ),
             (
                 "Plumbing Reconnect "
-                "(sink drain, P-trap, disposal, "
-                "DW drain/supply, faucet hookup)",
+                "(trip + sink drain & supply hookup)",
                 SCOPE_ITEMS["plumbing_reconnect"],
-                "Includes all fixture hookups",
+                (
+                    "Core hookup and trip charge; parts below are "
+                    "itemized at marginal labor"
+                ),
                 0.0,
             ),
             (
-                (
-                    "Undermount SS Double Bowl "
-                    "Sink 33\" (Kraus KHU102-33) "
-                    "- supply only"
-                    if sink_type == "double"
-                    else "Undermount SS Single Bowl "
-                    "Sink 30\" (Kraus KHU100-30) "
-                    "- supply only"
-                ),
-                SCOPE_ITEMS.get(
-                    "sink_double_supply"
-                    if sink_type == "double"
-                    else "sink_single_supply",
-                    280,
-                ),
-                (
-                    "16-gauge stainless steel, "
-                    "sound-dampened"
-                ),
-                1.0,
-            ),
-            (
-                "Pull-Down Kitchen Faucet "
-                "(Moen/Delta mid-range) "
-                "- supply only",
-                SCOPE_ITEMS["faucet_supply"],
-                None,
-                1.0,
-            ),
-            (
                 "Garbage Disposal 3/4 HP "
-                "(InSinkErator Badger 5XP) "
                 "- supply only",
                 SCOPE_ITEMS["disposal_supply"],
-                None,
+                "One disposer, on the main sink",
                 1.0,
             ),
         ]
+
+        # ── Sinks, sized off their base cabinets ──
+        # A sink is bought to fit its base (width - ~3"), so group the
+        # sink bases by width and quote the matching sink for each.
+        sink_bases: dict[int, int] = {}
+        for b in boxes:
+            if b.specialty_type == "sink_base":
+                sink_bases[b.width_inches] = (
+                    sink_bases.get(b.width_inches, 0) + b.qty
+                )
+        # No sink base drawn: fall back to a single 30" base so the
+        # plumbing scope still quotes a sink.
+        if not sink_bases:
+            sink_bases = {30: 1}
+
+        sink_count = sum(sink_bases.values())
+        is_double = sink_type == "double"
+        # Quoted with the other per-sink items so a base row with qty > 1
+        # yields that many sinks, not one.
+        sink_lines: list = []
+
+        for base_w in sorted(sink_bases):
+            qty = sink_bases[base_w]
+            sink_w, single_price, double_price = sink_for_base(base_w)
+            price = double_price if is_double else single_price
+            bowl = "Double Bowl" if is_double else "Single Bowl"
+            if is_double and sink_w < DOUBLE_BOWL_MIN_SINK_WIDTH:
+                warnings.append(
+                    f"{sink_w}\"W double bowl in a {base_w}\"W sink base: "
+                    f"bowls under {DOUBLE_BOWL_MIN_SINK_WIDTH}\" are "
+                    f"cramped — a single bowl is usually the better fit"
+                )
+            sink_lines.append((
+                f"Undermount SS {bowl} Sink {sink_w}\" "
+                f"- supply only",
+                price,
+                qty,
+                1.0,
+                (
+                    f"16-gauge stainless steel, sound-dampened; "
+                    f"sized for a {base_w}\"W sink base"
+                ),
+            ))
+
+        # Under-sink components, per sink: 1 P-trap, 2 supply lines,
+        # 2 angle stops. Material share is the part's share of
+        # part + marginal labor.
+        under_sink = list(sink_lines)
+        if sink_count > 1:
+            # The trip is in plumbing_reconnect; each extra sink adds its
+            # own drain and supply hookup, not another trip.
+            under_sink.append((
+                "Additional Sink Hookup (drain & supply)",
+                SCOPE_ITEMS["plumbing_reconnect_additional_sink"],
+                sink_count - 1, 0.0,
+                "Second and later sinks; trip already charged above",
+            ))
+        under_sink += [
+            (
+                "Pull-Down Kitchen Faucet "
+                "(Moen/Delta mid-range) - supply only",
+                SCOPE_ITEMS["faucet_supply"], 1 * sink_count, 1.0,
+                "One faucet per sink",
+            ),
+            (
+                "P-Trap Assembly (sink drain)",
+                SCOPE_ITEMS["p_trap_assembly"], 1 * sink_count, 0.56,
+                "Part + marginal labor; crew already on site",
+            ),
+            (
+                "Supply Line - Braided (hot/cold)",
+                SCOPE_ITEMS["supply_line_each"], 2 * sink_count, 0.42,
+                None,
+            ),
+            (
+                "Angle Stop Valve (hot/cold)",
+                SCOPE_ITEMS["angle_stop_each"], 2 * sink_count, 0.38,
+                None,
+            ),
+        ]
+        if include_aav:
+            under_sink.append((
+                "Air Admittance Valve / Loop Vent",
+                SCOPE_ITEMS["aav_vent"], 1, 0.44,
+                "Island or where a stack vent is impractical",
+            ))
+        if include_air_gap:
+            under_sink.append((
+                "Dishwasher Air Gap (countertop)",
+                SCOPE_ITEMS["air_gap"], 1, 0.35,
+                "Countertop penetration, reset",
+            ))
+        if include_soap_dispenser:
+            under_sink.append((
+                "Soap Dispenser (countertop)",
+                SCOPE_ITEMS["soap_dispenser"], 1, 0.46,
+                "Countertop penetration, reset",
+            ))
+        if include_instant_hot:
+            under_sink.append((
+                "Instant Hot Water Dispenser",
+                SCOPE_ITEMS["instant_hot_dispenser"], 1, 0.63,
+                "Unit + tank mount, 2-3 hr install",
+            ))
+        if include_dw_hookup:
+            under_sink.extend([
+                (
+                    "DW Supply Line - Braided",
+                    SCOPE_ITEMS["dw_supply_line"], 1, 0.42, None,
+                ),
+                (
+                    "DW Angle Stop Valve",
+                    SCOPE_ITEMS["dw_angle_stop"], 1, 0.38, None,
+                ),
+            ])
+
         for desc, cost, notes, share in plumbing_items:
             line_items.append(LineItem(
                 description=desc,
@@ -994,18 +1291,53 @@ def calculate_estimate(
                 notes=notes,
             ))
 
-    # Countertop reset
+        for desc, unit_cost, qty, share, notes in under_sink:
+            line_items.append(LineItem(
+                description=desc,
+                quantity=qty,
+                unit="EA",
+                unit_price=unit_cost,
+                total=round(unit_cost * qty, 2),
+                material_share=share,
+                category="plumbing",
+                location="shared",
+                notes=notes,
+            ))
+
+    # Countertop detach & reset — per LF of base run rather than a flat
+    # fee, so a galley and a big U-shape are not charged the same.
     if include_countertop_reset:
-        line_items.append(LineItem(
-            description="Countertop Reset",
-            quantity=1,
-            unit="EA",
-            unit_price=SCOPE_ITEMS["countertop_reset"],
-            total=SCOPE_ITEMS["countertop_reset"],
-            material_share=MATERIAL_SHARE["countertop_reset"],
-            category="countertop",
-            location="shared",
-        ))
+        ct_reset_lf = round(base_lf, 2)
+        ct_reset_rate = SCOPE_ITEMS["countertop_reset_per_lf"]
+        ct_reset_min = SCOPE_ITEMS["countertop_reset_min"]
+        ct_reset_total = round(ct_reset_lf * ct_reset_rate, 2)
+        if ct_reset_total < ct_reset_min or ct_reset_lf <= 0:
+            # Short runs still carry the trip and the two-person lift.
+            line_items.append(LineItem(
+                description="Countertop Detach & Reset (minimum)",
+                quantity=1,
+                unit="LS",
+                unit_price=ct_reset_min,
+                total=ct_reset_min,
+                material_share=MATERIAL_SHARE["countertop_reset"],
+                category="countertop",
+                location="shared",
+                notes=(
+                    f"{ct_reset_lf:g} LF at ${ct_reset_rate}/LF is below "
+                    f"the ${ct_reset_min} minimum"
+                ),
+            ))
+        else:
+            line_items.append(LineItem(
+                description="Countertop Detach & Reset",
+                quantity=ct_reset_lf,
+                unit="LF",
+                unit_price=ct_reset_rate,
+                total=ct_reset_total,
+                material_share=MATERIAL_SHARE["countertop_reset"],
+                category="countertop",
+                location="shared",
+            ))
 
     # Site protection & cleanup
     site_prot_cost = round(
@@ -1235,7 +1567,7 @@ def calculate_estimate(
             # Skip disposal if plumbing already handles it
             if atype == "garbage_disposal" and include_plumbing:
                 continue
-            info = APPLIANCE_RR_PRICING.get(atype)
+            info = appliance_prices.get(atype)
             if not info or aqty <= 0:
                 continue
             item_cost = info["cost"] * aqty
@@ -1304,26 +1636,100 @@ def calculate_estimate(
             ),
         ))
 
-    # ── 11d. Permit Allowance ──
-    if include_permit:
-        permit_cost = SCOPE_ITEMS["permit_allowance"]
+    # ── 11e. Fillers / scribe molding ──
+    # Walls are never plumb and cabinet runs never land exactly on the
+    # wall, so a filler strip goes in at essentially every run end and
+    # inside corner. Billed per piece: material by tier + fit labor.
+    if filler_count and filler_count > 0:
+        filler_mat = FILLER_PRICING.get(
+            tier, FILLER_PRICING["Stock"],
+        )
+        filler_inst = FILLER_PRICING["install_each"]
+        filler_unit = round(filler_mat + filler_inst, 2)
         line_items.append(LineItem(
-            description=(
-                "Permit Allowance "
-                "(plumbing/electrical)"
-            ),
-            quantity=1,
+            description=f"Filler / Scribe Molding - {tier}",
+            quantity=filler_count,
             unit="EA",
-            unit_price=permit_cost,
-            total=permit_cost,
-            material_share=MATERIAL_SHARE["permit"],
-            category="misc",
+            unit_price=filler_unit,
+            total=round(filler_count * filler_unit, 2),
+            material_share=round(
+                filler_mat / filler_unit, 4,
+            ) if filler_unit else 0.0,
+            category="premium",
             location="shared",
-            notes=(
-                "Fairfax/DMV jurisdiction; "
-                "actual cost may vary"
-            ),
+            notes="Scribed and fitted to the wall",
         ))
+
+    # ── 11f. Finished end panels ──
+    # A run that ends in open space shows a raw box side without one.
+    if end_panel_counts:
+        for panel_type, count in end_panel_counts.items():
+            if not count or count <= 0:
+                continue
+            prices = END_PANEL_PRICING.get(panel_type)
+            if not prices:
+                continue
+            panel_mat = prices.get(tier, prices["Stock"])
+            panel_inst = END_PANEL_PRICING["install_each"]
+            panel_unit = round(panel_mat + panel_inst, 2)
+            line_items.append(LineItem(
+                description=(
+                    f"{END_PANEL_TYPES.get(panel_type, panel_type)} "
+                    f"- {tier}"
+                ),
+                quantity=count,
+                unit="EA",
+                unit_price=panel_unit,
+                total=round(count * panel_unit, 2),
+                material_share=round(
+                    panel_mat / panel_unit, 4,
+                ) if panel_unit else 0.0,
+                category="premium",
+                location="shared",
+                notes="Finished to match cabinet doors",
+            ))
+
+    # ── 11g. Dishwasher return panel ──
+    if (dishwasher_return_panel_count
+            and dishwasher_return_panel_count > 0):
+        line_items.append(LineItem(
+            description="Dishwasher Return Panel",
+            quantity=dishwasher_return_panel_count,
+            unit="EA",
+            unit_price=DISHWASHER_RETURN_PANEL,
+            total=round(
+                dishwasher_return_panel_count
+                * DISHWASHER_RETURN_PANEL, 2,
+            ),
+            material_share=0.65,
+            category="premium",
+            location="shared",
+            notes="Finished filler beside the dishwasher opening",
+        ))
+
+    # ── 11h. Light rail molding ──
+    # Trim under the wall cabinets that conceals under-cabinet lighting.
+    # Defaults to the wall run when no explicit length is given.
+    if include_light_rail:
+        lr_lf = light_rail_lf if light_rail_lf else wall_lf
+        lr_lf = round(lr_lf or 0, 2)
+        if lr_lf > 0:
+            lr_mat = LIGHT_RAIL_PRICING["material_per_lf"]
+            lr_inst = LIGHT_RAIL_PRICING["install_per_lf"]
+            lr_unit = round(lr_mat + lr_inst, 2)
+            line_items.append(LineItem(
+                description="Light Rail Molding",
+                quantity=lr_lf,
+                unit="LF",
+                unit_price=lr_unit,
+                total=round(lr_lf * lr_unit, 2),
+                material_share=round(
+                    lr_mat / lr_unit, 4,
+                ) if lr_unit else 0.0,
+                category="premium",
+                location="perimeter",
+                notes="Conceals under-cabinet lighting",
+            ))
 
     # ── 12. Dumpster ──
     if include_dumpster:
@@ -1340,13 +1746,16 @@ def calculate_estimate(
             demo_cuft += backsplash_sqft * 0.3
         demo_cuyd = (demo_cuft * 1.3) / 27
 
-        if demo_cuyd <= 5:
+        # Thresholds allow for the fact that a container's rated volume is
+        # usable capacity for loose demo debris - cabinets are broken down
+        # flat when loaded. A typical kitchen (~9-11 cu yd) fits a 15 yard.
+        if demo_cuyd <= 7:
             dump_size = 10
             dump_key = "dumpster_10yard"
-        elif demo_cuyd <= 8:
+        elif demo_cuyd <= 11:
             dump_size = 15
             dump_key = "dumpster_15yard"
-        elif demo_cuyd <= 12:
+        elif demo_cuyd <= 16:
             dump_size = 20
             dump_key = "dumpster_20yard"
         else:
@@ -1372,6 +1781,29 @@ def calculate_estimate(
             ),
         ))
 
+        # DC rowhouses rarely have off-street space for a container, so
+        # the dumpster goes in the street or alley - which in DC needs a
+        # DDOT public space occupancy permit. Only DC has this regime.
+        if permit_jurisdiction(zip_code) == "DC":
+            ps_cost = SCOPE_ITEMS["dc_dumpster_public_space_permit"]
+            line_items.append(LineItem(
+                description=(
+                    "DC Public Space Occupancy Permit (dumpster)"
+                ),
+                quantity=1,
+                unit="EA",
+                unit_price=ps_cost,
+                total=ps_cost,
+                material_share=MATERIAL_SHARE["permit"],
+                category="demo",
+                location="shared",
+                notes=(
+                    "DDOT permit for a container in the street, alley "
+                    "or sidewalk; 2-week allowance. Not required if the "
+                    "container sits on private property."
+                ),
+            ))
+
     # ── 13. Calculate totals ──
     # Raw subtotal before O&P
     raw_subtotal = round(
@@ -1395,6 +1827,41 @@ def calculate_estimate(
             item.quantity * item.unit_price, 2,
         )
 
+    # ── 13a. Permit allowance ──
+    # Added last, and deliberately outside the O&P loop above.
+    # Jurisdictions bill the permit off the DECLARED VALUE of the work -
+    # the number on the application, which is the customer-facing price
+    # including O&P - so it has to be computed after O&P is baked in.
+    # It is also a pass-through government fee, not work the contractor
+    # marks up, so it does not get O&P applied on top of itself.
+    # (Was a flat $270 allowance regardless of jurisdiction or project
+    # size; DC alone runs ~$1,100 on a $50k kitchen.)
+    if include_permit:
+        declared_value = round(
+            sum(item.total for item in line_items), 2,
+        )
+        permit_cost, permit_label = permit_fee(
+            zip_code, declared_value,
+        )
+        line_items.append(LineItem(
+            description=(
+                "Permit Allowance "
+                "(plumbing/electrical)"
+            ),
+            quantity=1,
+            unit="EA",
+            unit_price=permit_cost,
+            total=permit_cost,
+            material_share=MATERIAL_SHARE["permit"],
+            category="misc",
+            location="shared",
+            notes=(
+                f"{permit_label} — allowance on a declared value of "
+                f"${declared_value:,.0f}; actual fee set by the "
+                f"permit office"
+            ),
+        ))
+
     # Subtotal now includes O&P (= total)
     subtotal = round(
         sum(item.total for item in line_items), 2,
@@ -1404,6 +1871,9 @@ def calculate_estimate(
     _apply_material_labor_split(line_items)
 
     # ── 13b. Target total adjustment (reverse pricing) ──
+    # The permit is a government fee at a rate the jurisdiction sets, so
+    # it is held fixed and the remaining items absorb the adjustment -
+    # scaling it would quote a permit cost that no office would charge.
     adjustment_factor = None
     if (
         target_total
@@ -1411,9 +1881,26 @@ def calculate_estimate(
         and subtotal > 0
         and total > 0
     ):
-        adjustment_factor = target_total / total
+        def _is_adjustable(it: LineItem) -> bool:
+            return not it.description.startswith("Permit Allowance")
 
-        for item in line_items:
+        adjustable = [it for it in line_items if _is_adjustable(it)]
+        fixed_total = round(
+            sum(it.total for it in line_items if not _is_adjustable(it)),
+            2,
+        )
+        adjustable_total = round(
+            sum(it.total for it in adjustable), 2,
+        )
+        # Solve over the adjustable half only.
+        if adjustable_total > 0:
+            adjustment_factor = (
+                target_total - fixed_total
+            ) / adjustable_total
+        else:
+            adjustment_factor = target_total / total
+
+        for item in adjustable:
             item.unit_price = round(
                 item.unit_price * adjustment_factor, 2,
             )
@@ -1428,8 +1915,8 @@ def calculate_estimate(
 
         # Fix rounding drift: adjust largest line item to hit target exactly
         rounding_diff = round(target_total - total, 2)
-        if rounding_diff != 0 and line_items:
-            largest = max(line_items, key=lambda x: x.total)
+        if rounding_diff != 0 and adjustable:
+            largest = max(adjustable, key=lambda x: x.total)
             largest.total = round(largest.total + rounding_diff, 2)
             if largest.quantity:
                 largest.unit_price = round(
@@ -1443,8 +1930,15 @@ def calculate_estimate(
         _apply_material_labor_split(line_items)
 
     # ── 14. Methodology notes ──
+    _BASIS_LABELS = {
+        Basis.INSURANCE_DR: (
+            "Insurance (Xactimate detach & reset)"
+        ),
+        Basis.RETAIL_INSTALL: "Retail remodel (installer pricing)",
+    }
     methodology_lines = [
         f"Estimate based on {tier} tier cabinets.",
+        f"Pricing basis: {_BASIS_LABELS.get(basis, basis.value)}",
     ]
     if perimeter_boxes:
         methodology_lines.append(
@@ -1472,9 +1966,14 @@ def calculate_estimate(
     methodology_lines.extend([
         (
             f"Multipliers: "
-            f"Labor(ZIP {zip_code})={labor_mult}"
+            f"Labor(ZIP {zip_code})={labor_mult}, "
+            f"Material({box_material or 'Plywood'})={mat_mult}, "
+            f"Finish({finish or 'Stained'})={fin_mult}, "
+            f"Door({door_style or 'Shaker'})={door_mult}, "
+            f"Overlay({overlay_style or 'Full Overlay'})="
+            f"{overlay_mult}"
         ),
-        f"Combined multiplier: {total_mult:.2f}",
+        f"Combined supply multiplier: {total_mult:.2f}",
         (
             f"O&P: {overhead_pct*100:.0f}% / "
             f"{profit_pct*100:.0f}%"

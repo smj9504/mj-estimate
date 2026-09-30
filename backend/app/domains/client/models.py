@@ -152,6 +152,19 @@ class Claim(Base, BaseModel):
     wm_estimate_file_id = Column(String(255), comment="Stored WM estimate PDF file ID")
     wm_estimate_file_name = Column(String(500))
 
+    # Who produced the initial estimate. Some carriers decline to write one and
+    # ask the contractor to submit an estimate for approval instead, which
+    # inverts the normal negotiation flow.
+    estimate_origin = Column(
+        String(30),
+        comment="carrier_provided | contractor_prepared"
+    )
+    # Progress of the contractor-prepared path; NULL on the carrier path.
+    contractor_estimate_stage = Column(
+        String(40),
+        comment="requested | estimate_sent | awaiting_approval | approved_initial_received"
+    )
+
     # Supplement tracking
     needs_supplement = Column(Boolean, default=False)
     supplement_status = Column(

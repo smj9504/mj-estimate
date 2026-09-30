@@ -143,7 +143,19 @@ export const fileService = {
 
   // Download file
   getDownloadUrl(fileId: string): string {
-    return `${api.defaults.baseURL}/api/files/download/${fileId}`;
+    // baseURL is '' on localhost (CRA proxy handles /api); fall back to the
+    // current origin so the result is always an absolute, openable URL.
+    const baseURL = api.defaults.baseURL || window.location.origin;
+    const cleanBaseURL = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
+    return `${cleanBaseURL}/api/files/download/${fileId}`;
+  },
+
+  // Download URL that renders in the browser tab instead of saving to disk.
+  // Must be absolute: window.open/<a href> bypass the axios baseURL, so a
+  // relative /api/... path resolves against the frontend origin, which in
+  // production is Vercel and has no /api route (404).
+  getInlineUrl(fileId: string): string {
+    return `${this.getDownloadUrl(fileId)}?inline=true`;
   },
 
   // Get preview URL

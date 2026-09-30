@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card, Table, Button, Space, Tag, Modal, Form, Input, InputNumber,
@@ -67,6 +68,22 @@ const RebuildProjectList: React.FC = () => {
     queryKey: ['rebuild-contractors'],
     queryFn: () => rebuildService.listContractors(),
   });
+
+  // ?project=<id> 로 진입하면 해당 프로젝트 상세를 자동으로 연다 (다른 화면에서 행 클릭 시)
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openedProjectParam = useRef<string | null>(null);
+  const projectParam = searchParams.get('project');
+  useEffect(() => {
+    if (!projectParam || openedProjectParam.current === projectParam) return;
+    openedProjectParam.current = projectParam;
+    rebuildService.getProject(projectParam)
+      .then(p => { setSelectedProject(p); setDetailModalOpen(true); })
+      .catch(() => message.error('Project not found'))
+      .finally(() => {
+        searchParams.delete('project');
+        setSearchParams(searchParams, { replace: true });
+      });
+  }, [projectParam, searchParams, setSearchParams]);
 
   const createProjectMutation = useMutation({
     mutationFn: (data: RebuildProjectCreate) => rebuildService.createProject(data),

@@ -16,6 +16,7 @@ class JobStatus:
     SENT_TO_ADJUSTER = "Sent to adjuster"
     FOLLOW_UP = "Follow up"
     PAPERWORK_RECEIVED = "Paperwork received"
+    ESTIMATE_REQUESTED = "Estimate requested"
     CHECK_RECEIVED = "Check received"
     COMPLETE = "Complete"
 
@@ -27,9 +28,14 @@ class JobStatus:
             cls.SENT_TO_ADJUSTER,
             cls.FOLLOW_UP,
             cls.PAPERWORK_RECEIVED,
+            cls.ESTIMATE_REQUESTED,
             cls.CHECK_RECEIVED,
             cls.COMPLETE
         ]
+
+
+# Who an insurance check was made out to (payment board)
+CHECK_RECIPIENTS = frozenset({'contractor', 'customer'})
 
 
 # Base schemas
@@ -76,11 +82,25 @@ class JobBase(BaseModel):
     payment_status: Optional[str] = None
     payment_note: Optional[str] = None
 
+    # Payment board (insurance side + received flag)
+    approved_amount: Optional[float] = None
+    final_amount: Optional[float] = None
+    check_recipient: Optional[str] = None
+    payment_received: Optional[bool] = None
+    payment_received_at: Optional[datetime] = None
+    payment_received_by: Optional[str] = None
+
     @validator('date_of_loss', 'mitigation_start_date', 'mitigation_end_date', 'inspection_date', 'documents_sent_date', 'check_date', pre=True)
     def convert_date_to_datetime(cls, v):
         """Convert date to datetime if needed"""
         if isinstance(v, date) and not isinstance(v, datetime):
             return datetime.combine(v, datetime.min.time())
+        return v
+
+    @validator('check_recipient')
+    def validate_check_recipient(cls, v):
+        if v is not None and v not in CHECK_RECIPIENTS:
+            raise ValueError(f'check_recipient must be one of: {sorted(CHECK_RECIPIENTS)}')
         return v
 
 
@@ -144,6 +164,12 @@ class JobUpdate(BaseModel):
     payment_status: Optional[str] = None
     payment_note: Optional[str] = None
 
+    # Payment board. payment_received_at/_by are derived in the service, not accepted here.
+    approved_amount: Optional[float] = None
+    final_amount: Optional[float] = None
+    check_recipient: Optional[str] = None
+    payment_received: Optional[bool] = None
+
     active: Optional[bool] = None
 
     # CompanyCam Integration
@@ -154,6 +180,12 @@ class JobUpdate(BaseModel):
         """Convert date to datetime if needed"""
         if isinstance(v, date) and not isinstance(v, datetime):
             return datetime.combine(v, datetime.min.time())
+        return v
+
+    @validator('check_recipient')
+    def validate_check_recipient(cls, v):
+        if v is not None and v not in CHECK_RECIPIENTS:
+            raise ValueError(f'check_recipient must be one of: {sorted(CHECK_RECIPIENTS)}')
         return v
 
 
@@ -208,6 +240,9 @@ class JobResponse(JobBase):
 
     # Computed fields
     photo_count: Optional[int] = 0
+    # Insurance WM amount from the linked claim (same number the detail page's
+    # financial comparison shows). Only filled when the list is asked for it.
+    approved_amount_auto: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -290,8 +325,18 @@ class PhotoResponse(BaseModel):
     # MagicPlan metadata (floor, room info)
     magicplan_metadata: Optional[Dict[str, Any]] = None
 
+    # Location tag (user-editable, independent of magicplan_metadata)
+    location_level: Optional[str] = None
+    location_room: Optional[str] = None
+
     class Config:
         from_attributes = True
+
+
+class PhotoLocationUpdate(BaseModel):
+    """Update a photo's location tag (level + room)"""
+    location_level: Optional[str] = None
+    location_room: Optional[str] = None
 
 
 class PhotoListResponse(BaseModel):
@@ -345,6 +390,10 @@ class PhotoMetadata(BaseModel):
     caption: Optional[str] = None
     show_date: bool = True
     show_description: bool = True
+    # Report-only override of the photo's own location_level/location_room tag.
+    # None/omitted means "use the photo's own tag".
+    location_override: Optional[str] = None
+    show_location: bool = True
 
     class Config:
         from_attributes = True
@@ -403,6 +452,9 @@ class GenerateReportRequest(BaseModel):
     report_date: Optional[str] = None  # Custom report date (ISO format: YYYY-MM-DD)
     compress: bool = False  # Compress PDF (reduce image quality for smaller file size)
     template_variant: str = "a"  # Template variant: 'a' (default), 'b' (formal), 'c' (modern)
+    show_photo_dates: bool = True  # Show the captured-date overlay on each photo
+    show_photo_locations: bool = True  # Show the level/room location tag in each photo's caption
+    persist: bool = True  # Upload PDF to storage + upsert WMDocument. False for preview-only calls.
 
 
 class GenerateReportResponse(BaseModel):

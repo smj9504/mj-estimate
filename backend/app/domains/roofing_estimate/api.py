@@ -13,6 +13,13 @@ from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
 from app.domains.auth.dependencies import get_current_user
 
+from .formula import FUNCTION_NAMES
+from .formula import validate as validate_formula
+from .material_basis import (
+    basis_options,
+    formula_variable_docs,
+    formula_variables,
+)
 from .pricing import (
     BUILDING_TYPES,
     DECKING_MATERIALS,
@@ -37,6 +44,13 @@ from .pricing import (
 )
 from .schemas import (
     HistoryResponse,
+    MaterialCostResponse,
+    MaterialCostUpdate,
+    MaterialPriceCreate,
+    MaterialPriceEntry,
+    MaterialPriceUpdate,
+    PricingSettingsResponse,
+    PricingSettingsUpdate,
     PricingInfoResponse,
     RoofingEstimateCreate,
     RoofingEstimateListResponse,
@@ -80,6 +94,145 @@ def get_pricing_info():
 
 
 # ── CRUD ──
+
+# ── Default material price book (internal) ──
+# Declared before /{estimate_id} so the literal path wins the match.
+
+@router.get("/material-prices", response_model=list[MaterialPriceEntry])
+def list_material_prices(
+    company_id: Optional[str] = Query(None),
+    include_inactive: bool = Query(
+        False, description="Include retired materials",
+    ),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Editable default supplier costs, seeded on first use."""
+    service = RoofingEstimateService(session)
+    return service.list_material_prices(
+        company_id=company_id, include_inactive=include_inactive,
+    )
+
+
+@router.get("/material-bases")
+def list_material_bases(
+    current_user: dict = Depends(get_current_user),
+):
+    """Measurements a material quantity formula can be written against."""
+    return basis_options()
+
+
+@router.post("/material-formula/validate")
+def validate_material_formula(
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    """Check a quantity formula and show what it yields on a sample roof.
+
+    Lets the price-book screen report a typo while it is being typed,
+    rather than at costing time on a real estimate.
+    """
+    sample = {
+        "squares": 28.25, "squares_no_waste": 25.0, "total_sf": 2500.0,
+        "eave_lf": 120.0, "rake_lf": 60.0, "drip_edge_lf": 180.0,
+        "ridge_lf": 40.0, "hip_lf": 10.0, "ridge_hip_lf": 50.0,
+        "valley_lf": 20.0, "eave_valley_lf": 140.0, "flashing_lf": 30.0,
+        "penetrations": 4.0, "chimneys": 1.0, "skylights": 0.0,
+        "gutter_lf": 150.0, "downspout_lf": 60.0, "fixed": 0.0,
+    }
+    result = validate_formula(
+        body.get("formula") or "", formula_variables(sample),
+    )
+    result["sample"] = sample
+    return result
+
+
+@router.get("/material-formula/variables")
+def list_formula_variables(
+    current_user: dict = Depends(get_current_user),
+):
+    """Variables and functions a quantity formula may use."""
+    return {
+        "variables": formula_variable_docs(),
+        "functions": FUNCTION_NAMES,
+    }
+
+
+@router.post("/material-prices", response_model=MaterialPriceEntry)
+def create_material_price(
+    data: MaterialPriceCreate,
+    company_id: Optional[str] = Query(None),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Add a material the seed catalog does not cover.
+
+    Retiring a material is an update setting is_active=false, not a
+    delete: estimates priced with it must keep resolving.
+    """
+    service = RoofingEstimateService(session)
+    return service.create_material_price(
+        data.dict(exclude_unset=True),
+        company_id=company_id,
+        created_by_id=current_user.id,
+    )
+
+
+@router.put("/material-prices", response_model=list[MaterialPriceEntry])
+def update_material_prices(
+    data: MaterialPriceUpdate,
+    company_id: Optional[str] = Query(None),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Change default costs. Existing estimates keep their own snapshot."""
+    service = RoofingEstimateService(session)
+    prices = {
+        key: patch.dict(exclude_unset=True)
+        for key, patch in data.prices.items()
+    }
+    return service.update_material_prices(
+        prices, company_id=company_id, updated_by_id=current_user.id,
+    )
+
+
+@router.get("/pricing-settings", response_model=PricingSettingsResponse)
+def list_pricing_settings(
+    company_id: Optional[str] = Query(None),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Editable calculation rates — installed rates, multipliers, tax, fees.
+
+    Material costs are not here; they belong to /material-prices, which
+    stays the single place a supplier cost is edited.
+    """
+    service = RoofingEstimateService(session)
+    return service.list_pricing_settings(company_id=company_id)
+
+
+@router.put("/pricing-settings", response_model=PricingSettingsResponse)
+def update_pricing_settings(
+    data: PricingSettingsUpdate,
+    company_id: Optional[str] = Query(None),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Change calculation rates. A null value resets to the default.
+
+    Existing estimates keep the totals they were last calculated with;
+    they re-price only when someone calculates them again.
+    """
+    service = RoofingEstimateService(session)
+    try:
+        return service.update_pricing_settings(
+            [p.dict(exclude_unset=True) for p in data.settings],
+            company_id=company_id,
+            updated_by_id=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
 
 @router.post("", response_model=RoofingEstimateResponse)
 def create_estimate(
@@ -275,6 +428,53 @@ def calculate_estimate(
 
 
 # ── Clone ──
+
+# ── Internal material cost (not customer-facing) ──
+
+@router.get(
+    "/{estimate_id}/material-costs", response_model=MaterialCostResponse,
+)
+def get_material_costs(
+    estimate_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Material cost breakdown with tax, for internal profit analysis.
+
+    Quantities are derived from the roof measurements, so this stays in
+    sync with the estimate without anything being entered by hand.
+    """
+    service = RoofingEstimateService(session)
+    result = service.get_material_costs(estimate_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+@router.put(
+    "/{estimate_id}/material-costs", response_model=MaterialCostResponse,
+)
+def update_material_costs(
+    estimate_id: str,
+    data: MaterialCostUpdate,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Record actual supplier costs that differ from the defaults."""
+    service = RoofingEstimateService(session)
+    overrides = None
+    if data.overrides is not None:
+        overrides = {
+            key: value.dict(exclude_none=True)
+            for key, value in data.overrides.items()
+        }
+    result = service.update_material_costs(
+        estimate_id, overrides=overrides, tax_rate=data.tax_rate,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
 
 @router.post("/{estimate_id}/clone", response_model=RoofingEstimateResponse)
 def clone_estimate(

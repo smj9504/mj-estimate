@@ -57,19 +57,21 @@ import {
   CameraOutlined,
   DownOutlined,
   FileAddOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { clientService, claimService, negotiationService, claimActivityService } from '../services/clientService';
 import { fileService } from '../services/fileService';
+import { companyService } from '../services/companyService';
 import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
 import ClientDocumentHub from '../components/client/ClientDocumentHub';
 import ClaimNotes from '../components/client/ClaimNotes';
 import ClaimPhotosSection from '../components/client/ClaimPhotosSection';
 import AccuLynxSyncButton from '../components/common/AccuLynxSyncButton'; // AccuLynx: remove this line to fully remove the feature
 import ClaimTodos from '../components/client/ClaimTodos';
-import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory } from '../components/claim-followup';
+import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory, ReceivedEmails } from '../components/claim-followup';
 import type { ClaimContact } from '../components/claim-followup/EmailComposer';
 import type {
   Client,
@@ -84,6 +86,13 @@ import type {
   PdfExtractionResult,
   CabinetEstimateSummary,
   PlumberReportSummary,
+} from '../types/client';
+import {
+  ESTIMATE_ORIGIN_CONFIG,
+  ESTIMATE_CATEGORY_CONFIG,
+  CONTRACTOR_ESTIMATE_STAGE_ORDER,
+  CONTRACTOR_ESTIMATE_STAGE_LABELS,
+  CONTRACTOR_ESTIMATE_STAGE_COLORS,
 } from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -395,10 +404,80 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
 }) => {
   const [form] = Form.useForm<ClaimCreate>();
 
+  // PA contacts for the claim's Public Adjuster link. Loaded once the modal
+  // opens rather than on page load, since most visits never edit a claim.
+  const { data: paContacts = [], isLoading: paContactsLoading } = useQuery({
+    queryKey: ['pa-contacts'],
+    queryFn: () => companyService.listAllContacts('public_adjuster'),
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const paContactOptions = React.useMemo(
+    () => paContacts.map((c: any) => ({
+      value: String(c.id),
+      label: [c.name, c.company_name, c.email].filter(Boolean).join(' · '),
+    })),
+    [paContacts],
+  );
+
+  // "Add new PA" — so a PA that isn't in the directory yet can be created
+  // here instead of sending the user off to the Company screen.
+  const queryClient = useQueryClient();
+  const [paModalOpen, setPaModalOpen] = useState(false);
+  const [paSaving, setPaSaving] = useState(false);
+  const [paForm] = Form.useForm();
+
+  const { data: paCompanies = [] } = useQuery({
+    queryKey: ['pa-companies'],
+    queryFn: () => companyService.listCompaniesByType('public_adjuster'),
+    enabled: paModalOpen,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const handleCreatePaContact = async () => {
+    const values = await paForm.validateFields();
+    setPaSaving(true);
+    try {
+      // Either attach to an existing PA firm or create the firm first.
+      let companyId: string = values.company_id;
+      if (!companyId) {
+        const company = await companyService.createCompany({
+          name: values.new_company_name,
+          company_type: 'public_adjuster',
+        } as any);
+        companyId = String((company as any).id);
+      }
+
+      const contact = await companyService.createContact(companyId, {
+        name: values.name,
+        email: values.email || undefined,
+        phone: values.phone || undefined,
+        title: values.title || undefined,
+        is_primary: false,
+        is_active: true,
+      } as any);
+
+      // Refresh the picker and select the contact we just made.
+      await queryClient.invalidateQueries({ queryKey: ['pa-contacts'] });
+      await queryClient.invalidateQueries({ queryKey: ['pa-companies'] });
+      form.setFieldsValue({ pa_contact_id: String((contact as any).id) } as any);
+
+      message.success('Public adjuster added');
+      setPaModalOpen(false);
+      paForm.resetFields();
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || 'Failed to add public adjuster');
+    } finally {
+      setPaSaving(false);
+    }
+  };
+
   React.useEffect(() => {
     if (open) {
       if (editingClaim) {
         form.setFieldsValue({
+          pa_contact_id: editingClaim.pa_contact_id || undefined,
           claim_number: editingClaim.claim_number,
           insurance_company: editingClaim.insurance_company,
           insurance_policy_number: editingClaim.insurance_policy_number,
@@ -409,6 +488,8 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           date_of_loss: editingClaim.date_of_loss ? dayjs(editingClaim.date_of_loss) as any : undefined,
           loss_description: editingClaim.loss_description,
           status: editingClaim.status,
+          estimate_origin: editingClaim.estimate_origin,
+          contractor_estimate_stage: editingClaim.contractor_estimate_stage,
           notes: editingClaim.notes,
           initial_acv: editingClaim.current_acv,
           initial_rcv: editingClaim.current_rcv,
@@ -480,6 +561,36 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           </Col>
         </Row>
 
+        <Row gutter={12}>
+          <Col xs={24} sm={12}>
+            <Form.Item name="estimate_origin" label="Initial Estimate From"
+              tooltip="Some carriers decline to write an estimate and ask us to submit one for approval">
+              <Select allowClear placeholder="Not determined yet">
+                {Object.entries(ESTIMATE_ORIGIN_CONFIG).map(([val, cfg]) => (
+                  <Option key={val} value={val}>{cfg.label}</Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={12}>
+            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.estimate_origin !== cur.estimate_origin}>
+              {({ getFieldValue }) =>
+                getFieldValue('estimate_origin') === 'contractor_prepared' ? (
+                  <Form.Item name="contractor_estimate_stage" label="Contractor Estimate Stage">
+                    <Select allowClear placeholder="Select stage">
+                      {CONTRACTOR_ESTIMATE_STAGE_ORDER.map((val) => (
+                        <Option key={val} value={val}>
+                          {CONTRACTOR_ESTIMATE_STAGE_LABELS[val]}
+                        </Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                ) : null
+              }
+            </Form.Item>
+          </Col>
+        </Row>
+
         <Divider orientation="left" plain style={{ marginBottom: 8 }}>Insurance Details</Divider>
         <Row gutter={12}>
           <Col xs={24} sm={12}>
@@ -524,6 +635,41 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           </Col>
         </Row>
 
+        <Divider orientation="left" plain style={{ marginBottom: 8 }}>Public Adjuster</Divider>
+        <Row gutter={12}>
+          <Col xs={24}>
+            <Form.Item
+              name="pa_contact_id"
+              label="Public Adjuster"
+              extra="Links the claim to a PA contact. Water mitigation sheet sync sets this automatically, but any claim can be linked here — including rebuild-only claims."
+            >
+              <Select
+                allowClear
+                showSearch
+                loading={paContactsLoading}
+                placeholder="No public adjuster"
+                optionFilterProp="label"
+                options={paContactOptions}
+                popupRender={(menu) => (
+                  <>
+                    {menu}
+                    <Divider style={{ margin: '4px 0' }} />
+                    <Button
+                      type="link"
+                      icon={<PlusOutlined />}
+                      style={{ width: '100%', textAlign: 'left' }}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setPaModalOpen(true)}
+                    >
+                      Add new public adjuster
+                    </Button>
+                  </>
+                )}
+              />
+            </Form.Item>
+          </Col>
+        </Row>
+
         <Divider orientation="left" plain style={{ marginBottom: 8 }}>Initial Amounts</Divider>
         <Row gutter={12}>
           <Col xs={24} sm={12}>
@@ -554,6 +700,72 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           </Space>
         </Form.Item>
       </Form>
+
+      <Modal
+        title="Add Public Adjuster"
+        open={paModalOpen}
+        onOk={handleCreatePaContact}
+        onCancel={() => { setPaModalOpen(false); paForm.resetFields(); }}
+        confirmLoading={paSaving}
+        okText="Add"
+        destroyOnClose
+      >
+        <Form form={paForm} layout="vertical" preserve={false}>
+          <Form.Item
+            name="company_id"
+            label="PA Company"
+            extra="Leave empty to create a new company."
+          >
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="Select existing company"
+              options={paCompanies.map((c) => ({ value: c.id, label: c.name }))}
+            />
+          </Form.Item>
+          <Form.Item
+            noStyle
+            shouldUpdate={(prev, cur) => prev.company_id !== cur.company_id}
+          >
+            {({ getFieldValue }) => !getFieldValue('company_id') && (
+              <Form.Item
+                name="new_company_name"
+                label="New Company Name"
+                rules={[{ required: true, message: 'Enter the PA company name' }]}
+              >
+                <Input placeholder="e.g. Fair Claims Advocates" />
+              </Form.Item>
+            )}
+          </Form.Item>
+          <Form.Item
+            name="name"
+            label="Contact Name"
+            rules={[{ required: true, message: 'Enter the contact name' }]}
+          >
+            <Input placeholder="e.g. Angel Seo" />
+          </Form.Item>
+          <Row gutter={12}>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="email"
+                label="Email"
+                rules={[{ type: 'email', message: 'Invalid email' }]}
+              >
+                <Input placeholder="pa@example.com" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item name="phone" label="Phone">
+                <Input />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="title" label="Title">
+            <Input placeholder="e.g. Senior Public Adjuster" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Modal>
   );
 };
@@ -877,7 +1089,7 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
 
       <Form form={form} layout="vertical" onFinish={handleFinish} scrollToFirstError>
         <Row gutter={12}>
-          <Col xs={24} sm={12}>
+          <Col xs={24} sm={8}>
             <Form.Item name="revision_type" label="Revision Type"
               rules={[{ required: true, message: 'Revision type is required' }]}>
               <Select placeholder="Select type">
@@ -887,7 +1099,17 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
               </Select>
             </Form.Item>
           </Col>
-          <Col xs={24} sm={12}>
+          <Col xs={24} sm={8}>
+            <Form.Item name="estimate_category" label="Category"
+              tooltip="Revision numbers are tracked separately per category">
+              <Select allowClear placeholder="Select category">
+                {Object.entries(ESTIMATE_CATEGORY_CONFIG).map(([val, cfg]) => (
+                  <Option key={val} value={val}>{cfg.label}</Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={8}>
             <Form.Item name="date_received" label="Date Received">
               <DatePicker style={{ width: '100%' }} format="MM/DD/YYYY" />
             </Form.Item>
@@ -1007,8 +1229,23 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
     onError: () => message.error('Failed to delete.'),
   });
 
-  // Sort by revision number for delta calculation
-  const sorted = [...negotiations].sort((a, b) => a.revision_number - b.revision_number);
+  // Sort by category then revision number. Delta compares against the previous
+  // revision *within the same category* — comparing a WM revision against a
+  // reconstruction one produces a meaningless difference.
+  const sorted = [...negotiations].sort((a, b) => {
+    const catA = a.estimate_category || '';
+    const catB = b.estimate_category || '';
+    if (catA !== catB) return catA.localeCompare(catB);
+    return a.revision_number - b.revision_number;
+  });
+
+  const prevInCategory = (record: ClaimNegotiation): ClaimNegotiation | null => {
+    const sameCat = sorted.filter(
+      (n) => (n.estimate_category || '') === (record.estimate_category || ''),
+    );
+    const idx = sameCat.findIndex((n) => n.id === record.id);
+    return idx > 0 ? sameCat[idx - 1] : null;
+  };
 
   const columns: ColumnsType<ClaimNegotiation> = [
     {
@@ -1026,6 +1263,22 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
       render: (type: ClaimNegotiation['revision_type']) => {
         const cfg = REVISION_TYPE_CONFIG[type];
         return <Tag color={cfg.color} style={{ fontSize: 11 }}>{cfg.label}</Tag>;
+      },
+    },
+    {
+      title: 'Category',
+      dataIndex: 'estimate_category',
+      key: 'estimate_category',
+      width: 110,
+      responsive: ['md'] as any,
+      render: (cat: ClaimNegotiation['estimate_category']) => {
+        if (!cat) return <Text type="secondary">—</Text>;
+        const cfg = ESTIMATE_CATEGORY_CONFIG[cat];
+        return (
+          <Tag color={cfg?.color || 'default'} style={{ fontSize: 11 }}>
+            {cfg?.label || cat}
+          </Tag>
+        );
       },
     },
     {
@@ -1060,9 +1313,8 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
       width: 90,
       responsive: ['sm'] as any,
       render: (_: any, record) => {
-        const idx = sorted.findIndex((n) => n.id === record.id);
-        if (idx <= 0) return <Text type="secondary">—</Text>;
-        const prev = sorted[idx - 1];
+        const prev = prevInCategory(record);
+        if (!prev) return <Text type="secondary">—</Text>;
         const delta = record.rcv_amount - prev.rcv_amount;
         if (delta === 0) return <Text type="secondary">$0</Text>;
         return (
@@ -1175,11 +1427,48 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <Text strong>Negotiation History</Text>
+        <Space size={6} wrap>
+          <Text strong>Negotiation History</Text>
+          {claim.estimate_origin && (
+            <Tooltip title={ESTIMATE_ORIGIN_CONFIG[claim.estimate_origin]?.description}>
+              <Tag
+                color={ESTIMATE_ORIGIN_CONFIG[claim.estimate_origin]?.color || 'default'}
+                style={{ margin: 0, fontSize: 11 }}
+              >
+                {ESTIMATE_ORIGIN_CONFIG[claim.estimate_origin]?.label || claim.estimate_origin}
+              </Tag>
+            </Tooltip>
+          )}
+          {claim.estimate_origin === 'contractor_prepared' && claim.contractor_estimate_stage && (
+            <Tag
+              color={CONTRACTOR_ESTIMATE_STAGE_COLORS[claim.contractor_estimate_stage] || 'default'}
+              style={{ margin: 0, fontSize: 11 }}
+            >
+              {CONTRACTOR_ESTIMATE_STAGE_LABELS[claim.contractor_estimate_stage]
+                || claim.contractor_estimate_stage}
+            </Tag>
+          )}
+        </Space>
         <Button size="small" icon={<PlusOutlined />} onClick={() => setNegModalOpen(true)}>
           Add Revision
         </Button>
       </div>
+
+      {claim.estimate_origin === 'contractor_prepared'
+        && claim.contractor_estimate_stage !== 'approved_initial_received' && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="Carrier asked us to prepare the estimate"
+          description={
+            claim.contractor_estimate_stage
+              ? `Current stage: ${CONTRACTOR_ESTIMATE_STAGE_LABELS[claim.contractor_estimate_stage]}. `
+                + 'The approved initial estimate from the carrier is not on file yet.'
+              : 'No stage recorded yet. Set the stage on the claim to track progress.'
+          }
+        />
+      )}
 
       <Table<ClaimNegotiation>
         rowKey="id"
@@ -1715,6 +2004,16 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                   </Button>
                 </div>
                 <EmailHistory claimId={claim.id} />
+
+                {/* Received emails carrying an attachment matched to this
+                    claim. Sourced from email ingestion, which stores the
+                    attachment in `files` and links it via matched_claim_id. */}
+                <Divider style={{ margin: '16px 0 12px' }} />
+                <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+                  <InboxOutlined style={{ marginRight: 6 }} />
+                  Received Emails
+                </Text>
+                <ReceivedEmails claimId={claim.id} />
 
                 {/* Claim Todos */}
                 <Divider style={{ margin: '16px 0 12px' }} />

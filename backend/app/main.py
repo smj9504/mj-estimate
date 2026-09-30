@@ -3,19 +3,32 @@ FastAPI Backend for MJ Estimate Generator
 Main application entry point with comprehensive database abstraction system
 """
 
-# Suppress WeasyPrint GTK/Fontconfig warnings on Windows
-# These are harmless warnings from Linux libraries running on Windows
+# Suppress WeasyPrint GTK/Fontconfig warnings on Windows.
+# WINDOWS ONLY - must never touch these vars on Linux. The Docker image
+# (backend/Dockerfile) installs fontconfig + real fonts system-wide, and
+# fontconfig finds them on its own via the default /etc/fonts. Overriding
+# either var there breaks every WeasyPrint PDF:
+#   - FONTCONFIG_PATH pointed at ~/anaconda3/... which does not exist in the
+#     container, so fontconfig would look for its config in a missing dir.
+#   - the old `else` branch set FONTCONFIG_FILE='NUL' (the *Windows* null
+#     device) unconditionally, i.e. on every Linux deploy. fontconfig then
+#     tried to open a config file literally named NUL and logged
+#     "Fontconfig error: Cannot load default config file: No such file:
+#     (null)" on every render - the PDF still came out, but with no font
+#     database, so text fell back to a default face instead of the family
+#     the template asked for.
 import os
+import sys
 
-_fontconfig_path = os.path.join(
-    os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
-)
-if os.path.isdir(_fontconfig_path):
-    os.environ['FONTCONFIG_PATH'] = _fontconfig_path
-    os.environ.pop('FONTCONFIG_FILE', None)  # Remove conflicting var
-else:
-    os.environ.setdefault('FONTCONFIG_FILE', 'NUL')
-os.environ.setdefault('G_SLICE', 'always-malloc')
+if sys.platform == 'win32':
+    _fontconfig_path = os.path.join(
+        os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
+    )
+    if os.path.isdir(_fontconfig_path):
+        os.environ['FONTCONFIG_PATH'] = _fontconfig_path
+        os.environ.pop('FONTCONFIG_FILE', None)  # Remove conflicting var
+    else:
+        os.environ.setdefault('FONTCONFIG_FILE', 'NUL')
 
 # Suppress GLib warnings
 import warnings
@@ -66,6 +79,7 @@ from app.domains.water_mitigation.models import (
     WMDemolitionType, WMScopeLocation, WMScopeItem, WMDebrisCalculation,
     WMScopeItemCategory, WMStandardScopeItem, WMSheetPAMapping
 )
+from app.domains.water_mitigation.payment_board_models import WMPaymentBoardToken  # noqa: F401
 
 # Company model (imported after its dependencies)
 from app.domains.company.models import Company, CompanyContact
@@ -148,6 +162,7 @@ from app.domains.cabinet_estimate.api import router as cabinet_estimate_router
 from app.domains.cabinet_estimate.models import (
     CabinetEstimate, CabinetBox, CabinetEstimateLineItem, CabinetEstimateHistory
 )
+from app.domains.cabinet_estimate.sketch_models import CabinetSketch
 from app.domains.bathroom_estimate.api import router as bathroom_estimate_router
 from app.domains.bathroom_estimate.models import (
     BathroomEstimate, BathroomEstimateLineItem, BathroomEstimateHistory
@@ -194,6 +209,10 @@ from app.domains.cheatsheet.models import (  # noqa: F401
 )
 from app.domains.crew_upload.api import public_router as crew_upload_public_router
 from app.domains.crew_upload.api import admin_router as crew_upload_admin_router
+from app.domains.water_mitigation.payment_board_api import (
+    public_router as wm_payment_board_public_router,
+    admin_router as wm_payment_board_admin_router,
+)
 from app.domains.water_mitigation.trash_scheduler import (
     start_trash_scheduler,
     stop_trash_scheduler,
@@ -215,6 +234,10 @@ from app.domains.insurance_extraction.models import (
 # Email Ingestion system models
 from app.domains.email_ingestion.models import EmailAccount, EmailIngestionLog
 from app.domains.email_ingestion.api import router as email_ingestion_router
+
+# Admin system settings
+from app.domains.admin.models import SystemSetting
+from app.domains.admin.settings_api import router as admin_settings_router
 
 # Claim Follow-up system models
 from app.domains.claim_followup.models import (
@@ -306,6 +329,8 @@ app_logger = logging.getLogger(__name__)
 _NEEDED_COLUMNS = [
     ("wm_floor_sketches", "storage_file_id", "VARCHAR(500)"),
     ("wm_floor_sketches", "storage_provider", "VARCHAR(50)"),
+    ("wm_floor_sketches", "background_image_data", "BYTEA"),
+    ("wm_floor_sketches", "background_image_content_type", "VARCHAR(100)"),
     ("contract_templates", "storage_file_id", "VARCHAR(500)"),
     ("invoices", "client_id", "UUID"),
     ("invoices", "claim_id", "UUID"),
@@ -386,6 +411,13 @@ _NEEDED_COLUMNS = [
     # WM payment tracking
     ("water_mitigation_jobs", "payment_status", "VARCHAR(50)"),
     ("water_mitigation_jobs", "payment_note", "TEXT"),
+    # WM payment board
+    ("water_mitigation_jobs", "approved_amount", "DECIMAL(10,2)"),
+    ("water_mitigation_jobs", "final_amount", "DECIMAL(10,2)"),
+    ("water_mitigation_jobs", "check_recipient", "VARCHAR(20)"),
+    ("water_mitigation_jobs", "payment_received", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    ("water_mitigation_jobs", "payment_received_at", "TIMESTAMPTZ"),
+    ("water_mitigation_jobs", "payment_received_by", "VARCHAR(100)"),
     # Follow-up payment tracking
     ("followup_tasks", "payment_status", "VARCHAR(50)"),
     ("followup_tasks", "payment_note", "TEXT"),
@@ -414,6 +446,10 @@ _NEEDED_COLUMNS = [
     ("files", "storage_provider", "VARCHAR(50)"),
     ("contract_instances", "filled_pdf_provider", "VARCHAR(50)"),
     ("contract_instances", "signed_pdf_provider", "VARCHAR(50)"),
+    # Who produced the initial estimate, and how far the contractor-prepared
+    # path has progressed when the carrier declines to write one
+    ("claims", "estimate_origin", "VARCHAR(30)"),
+    ("claims", "contractor_estimate_stage", "VARCHAR(40)"),
 ]
 
 
@@ -503,7 +539,7 @@ async def lifespan(app: FastAPI):
 
         try:
             start_reply_scheduler()
-            print("[STARTUP] Reply check job registered (every 10 min)")
+            print("[STARTUP] Reply check job registered (9am, 3pm ET)")
         except Exception as e:
             print(f"[STARTUP] Reply scheduler skipped: {e}")
 
@@ -1047,6 +1083,9 @@ if material_detection_available:
 # Email Ingestion endpoints
 app.include_router(email_ingestion_router, prefix="/api/email-ingestion", tags=["Email Ingestion"])
 
+# Admin system settings endpoints (router already declares its own /api/admin/settings prefix)
+app.include_router(admin_settings_router)
+
 # Claim Follow-up endpoints
 app.include_router(claim_followup_router, prefix="/api/claim-followup", tags=["Claim Follow-up"])
 app.include_router(lifecycle_router, prefix="/api/claims", tags=["Claims Lifecycle"])
@@ -1069,6 +1108,19 @@ app.include_router(
     crew_upload_admin_router,
     prefix="/api/crew-upload/admin",
     tags=["Crew Upload (Admin)"]
+)
+
+# WM Payment Board (manager link). Admin first so /admin/* isn't swallowed
+# by the public router's /{token} pattern.
+app.include_router(
+    wm_payment_board_admin_router,
+    prefix="/api/wm-payment-board/admin",
+    tags=["WM Payment Board (Admin)"]
+)
+app.include_router(
+    wm_payment_board_public_router,
+    prefix="/api/wm-payment-board",
+    tags=["WM Payment Board (Public)"]
 )
 
 # External Integrations endpoints (conditionally loaded)

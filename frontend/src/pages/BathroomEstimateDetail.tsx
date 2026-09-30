@@ -46,6 +46,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
+import { resolveAddressParts } from '../utils/addressUtils';
 import { bathroomEstimateService } from '../services/bathroomEstimateService';
 import { clientService, claimService } from '../services/clientService';
 import { companyService } from '../services/companyService';
@@ -56,7 +57,7 @@ import type {
   BathroomEstimateHistory,
   BathroomPricingInfo,
 } from '../types/bathroomEstimate';
-import { PHASE_LABELS } from '../types/bathroomEstimate';
+import { PHASE_LABELS, isCustomTileShower } from '../types/bathroomEstimate';
 import BESketchTab from '../components/bathroom-estimate/sketch/BESketchTab';
 import type { SketchFixtureSync } from '../components/bathroom-estimate/sketch/BESketchTab';
 
@@ -191,11 +192,15 @@ const BathroomEstimateDetail: React.FC = () => {
     setSelectedClientId(clientId);
     const client = (clientResults?.clients as any[])?.find((c: any) => c.id === clientId);
     if (client) {
+      // Older client rows keep the whole address in `address` with city/state/
+      // zip empty, so split it out rather than dumping the full string into
+      // the Property Address field.
+      const addr = resolveAddressParts(client);
       form.setFieldsValue({
-        property_address: client.address || '',
-        city: client.city || '',
-        state: client.state || '',
-        zip_code: client.zipcode || '',
+        property_address: addr.street,
+        city: addr.city,
+        state: addr.state,
+        zip_code: addr.zip,
       });
     }
     await loadClaimsForClient(clientId);
@@ -441,9 +446,9 @@ const BathroomEstimateDetail: React.FC = () => {
     const replaceShower = updates.replace_shower ?? current.replace_shower;
     let wetSF = 0;
 
-    // Shower tile walls (custom_tile or curbless need backer board)
+    // Shower tile walls (site-built tiled showers need backer board)
     const sType = mergedShower.type || '';
-    if (replaceShower && (sType === 'custom_tile' || sType === 'curbless')) {
+    if (replaceShower && isCustomTileShower(sType)) {
       const sw = mergedShower.width_in || 0;
       const sd = mergedShower.depth_in || 0;
       const sh = mergedShower.tile_height_in || 0;
@@ -995,7 +1000,7 @@ const BathroomEstimateDetail: React.FC = () => {
                   {() => {
                     const hasFloorMaterial = !!form.getFieldValue(['floor_spec', 'material']);
                     const showerType = form.getFieldValue(['shower_spec', 'type']);
-                    const hasCustomShower = form.getFieldValue('replace_shower') && (showerType === 'custom_tile' || showerType === 'curbless');
+                    const hasCustomShower = form.getFieldValue('replace_shower') && isCustomTileShower(showerType);
                     const hasSurroundTile = !!form.getFieldValue(['bathtub_spec', 'surround_tile']);
                     const autoFloor = hasFloorMaterial;
                     const autoWalls = hasCustomShower || hasSurroundTile;
@@ -2272,8 +2277,19 @@ const BathroomEstimateDetail: React.FC = () => {
                           </Form.Item>
                         </Col>
                         <Col xs={24} sm={16} md={12}>
-                          <Form.Item name={['hidden_costs', 'auto_shower_valve']} valuePropName="checked" style={{ marginBottom: 2 }}>
-                            <Checkbox><Text style={{ fontSize: 12 }}>Shower valve + trim (standalone shower)</Text></Checkbox>
+                          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.replace_shower !== cur.replace_shower}>
+                            {() => {
+                              const hasShower = !!form.getFieldValue('replace_shower');
+                              return (
+                                <Form.Item name={['hidden_costs', 'auto_shower_valve']} valuePropName="checked" style={{ marginBottom: 2 }}>
+                                  <Checkbox disabled={!hasShower}>
+                                    <Text style={{ fontSize: 12 }} type={hasShower ? undefined : 'secondary'}>
+                                      Shower valve + trim (standalone shower){!hasShower && ' — shower 없음'}
+                                    </Text>
+                                  </Checkbox>
+                                </Form.Item>
+                              );
+                            }}
                           </Form.Item>
                         </Col>
                         <Col xs={24} sm={16} md={12}>
@@ -2625,10 +2641,9 @@ const BathroomEstimateDetail: React.FC = () => {
                           </Text></Col>
                         </Row>
                       )}
-                      <Row justify="space-between">
-                        <Col><Text>Sales Tax (material)</Text></Col>
-                        <Col><Text>${(estimate?.tax_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text></Col>
-                      </Row>
+                      {/* Material tax is loaded into line item pricing and is
+                          never shown as a separate charge (lump-sum contract:
+                          the contractor is the final consumer). */}
                       <Divider style={{ margin: '8px 0' }} />
                       <Row justify="space-between">
                         <Col><Title level={4} style={{ margin: 0 }}>GRAND TOTAL</Title></Col>

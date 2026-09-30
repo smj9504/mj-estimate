@@ -4,8 +4,9 @@ Email Ingestion service - orchestrates polling, classification, matching, and up
 
 import io
 import logging
+import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from cryptography.fernet import Fernet
 
@@ -16,6 +17,99 @@ logger = logging.getLogger(__name__)
 # Encryption key for email passwords
 # Generate once: Fernet.generate_key() and store in env
 _ENCRYPTION_KEY = getattr(settings, "EMAIL_ENCRYPTION_KEY", None)
+
+
+_BOUNCE_SENDER_PATTERN = re.compile(
+    r"(postmaster|mailer-daemon|mail\s*delivery\s*(subsystem|system))",
+    re.IGNORECASE,
+)
+_BOUNCE_SUBJECT_PATTERN = re.compile(
+    r"(delivery\s*(status\s*notification|failure)|undeliverable|"
+    r"returned\s*mail|failure\s*notice|mail\s*delivery\s*failed)",
+    re.IGNORECASE,
+)
+
+
+def _is_bounce_message(sender: Optional[str], subject: Optional[str]) -> bool:
+    """True for delivery-failure notifications.
+
+    A bounce quotes the original message, attachments included, so ingesting
+    one re-files every PDF we just sent. One undelivered estimate produced 12
+    such rows here.
+    """
+    if sender and _BOUNCE_SENDER_PATTERN.search(sender):
+        return True
+    return bool(subject and _BOUNCE_SUBJECT_PATTERN.search(subject))
+
+
+def _load_sent_attachment_index(session) -> Tuple[Set[str], Set[str]]:
+    """Index of everything we have emailed out: (sha256 set, filename set).
+
+    Built once per poll. Reading sent_emails.attachments per attachment
+    meant a full scan of that JSONB column for every PDF in every message,
+    which held the connection long enough that the Neon pooler dropped it
+    mid-poll.
+    """
+    from app.domains.claim_followup.models import SentEmail
+
+    hashes: Set[str] = set()
+    names: Set[str] = set()
+    rows = session.query(SentEmail.attachments).filter(
+        SentEmail.attachments.isnot(None)
+    ).all()
+    for (atts,) in rows:
+        for att in (atts or []):
+            if not isinstance(att, dict):
+                continue
+            digest = att.get("sha256_hash")
+            if digest:
+                hashes.add(digest)
+            name = (att.get("filename") or "").strip().lower()
+            if name:
+                names.add(name)
+    return hashes, names
+
+
+def _any_attachment_qualifies(fetched_email, sent_index) -> bool:
+    """True if at least one PDF on this email classifies as claim paperwork.
+
+    Used to carry the rest of the email's attachments along. Files we sent
+    ourselves do not count - an estimate of ours bouncing back should not
+    drag the whole message in.
+    """
+    from app.domains.email_ingestion.classifier import (
+        classify_email_attachment,
+    )
+
+    for att in fetched_email.pdf_attachments:
+        if _is_own_sent_attachment(att, sent_index):
+            continue
+        ok, _conf, _reason = classify_email_attachment(
+            filename=att.filename,
+            sender=fetched_email.sender,
+            subject=fetched_email.subject,
+            body=fetched_email.body_text,
+            pdf_data=att.data,
+        )
+        if ok:
+            return True
+    return False
+
+
+def _is_own_sent_attachment(attachment, sent_index) -> bool:
+    """True if this attachment is a file we emailed out ourselves.
+
+    Matched on sha256 when the outbound row recorded one, otherwise on
+    filename. Older sent_emails rows stored only {filename, mime_type}, so
+    the filename fallback is what covers the existing backlog; sends from
+    now on carry a hash and match exactly.
+    """
+    sent_hashes, sent_names = sent_index
+    digest = attachment.sha256_hash or ""
+    if digest and digest in sent_hashes:
+        return True
+    name = (attachment.filename or "").strip().lower()
+    return bool(name and name in sent_names)
 
 
 def _get_fernet() -> Fernet:
@@ -354,8 +448,23 @@ class EmailIngestionService:
     # Polling & Processing
     # ============================================================
 
-    def poll_account(self, account_id: str) -> Dict[str, Any]:
-        """Poll a single email account for new insurance estimate PDFs"""
+    def poll_account(
+        self,
+        account_id: str,
+        since_date: Optional[datetime] = None,
+        limit: int = 50,
+        unseen_only: bool = False,
+    ) -> Dict[str, Any]:
+        """Poll a single email account for new insurance estimate PDFs.
+
+        Matched attachments are queued as 'pending' for review; polling never
+        creates claims or revisions on its own.
+
+        `since_date` defaults to the account's last_synced_at (an incremental
+        poll). Pass an explicit date with a larger `limit` to backfill older
+        mail - dedup is by (message_id, attachment_hash), so re-scanning
+        already-processed mail is safe.
+        """
         session = self._get_session()
         try:
             from app.domains.email_ingestion.repository import (
@@ -374,8 +483,9 @@ class EmailIngestionService:
 
             # Fetch unseen emails with attachments
             emails = imap.fetch_unseen_with_attachments(
-                since_date=account.get("last_synced_at"),
-                limit=50,
+                since_date=since_date or account.get("last_synced_at"),
+                limit=limit,
+                unseen_only=unseen_only,
             )
 
             stats = {
@@ -384,16 +494,42 @@ class EmailIngestionService:
                 "emails_found": len(emails),
                 "processed": 0,
                 "uploaded": 0,
+                "pending": 0,
                 "skipped": 0,
                 "duplicates": 0,
                 "errors": 0,
             }
 
+            # Everything we have emailed out, read once. Looking this up per
+            # attachment scanned the whole sent_emails JSONB column for every
+            # PDF, which dropped the Neon connection partway through a poll.
+            sent_index = _load_sent_attachment_index(session)
+
             for fetched_email in emails:
+                # A bounce is our own outbound mail coming back; skip the
+                # whole message rather than filtering its attachments one by
+                # one, since none of them are new inbound documents.
+                if _is_bounce_message(
+                    fetched_email.sender, fetched_email.subject
+                ):
+                    stats["skipped"] += 1
+                    continue
+
                 # Process each PDF attachment. Dedup is per-attachment (not
                 # per-email) so that if one attachment in a multi-PDF email
                 # previously failed, it gets retried here while attachments
                 # that already succeeded are correctly skipped.
+                # Pre-pass: does any attachment on this email look like claim
+                # paperwork? Attachments are judged one at a time, so without
+                # this the first file is evaluated before its siblings exist.
+                # When one qualifies the others are kept too - a claim packet
+                # arrives as estimate + scope + photo report + contract, and
+                # some of those are named only for the property address, which
+                # no filename rule can recognise on its own.
+                sibling_passed = _any_attachment_qualifies(
+                    fetched_email, sent_index
+                )
+
                 for attachment in fetched_email.pdf_attachments:
                     if log_repo.exists_by_message_id_and_hash(
                         fetched_email.message_id, attachment.sha256_hash
@@ -408,10 +544,14 @@ class EmailIngestionService:
                             account=account,
                             fetched_email=fetched_email,
                             attachment=attachment,
+                            sibling_passed=sibling_passed,
+                            sent_index=sent_index,
                         )
                         stats["processed"] += 1
                         if result.get("status") == "uploaded":
                             stats["uploaded"] += 1
+                        elif result.get("status") == "pending":
+                            stats["pending"] += 1
                         elif result.get("status") == "skipped":
                             stats["skipped"] += 1
                         elif result.get("status") == "duplicate":
@@ -449,19 +589,31 @@ class EmailIngestionService:
         finally:
             session.close()
 
-    def poll_all_accounts(self) -> Dict[str, Any]:
+    def poll_all_accounts(
+        self,
+        since_date: Optional[datetime] = None,
+        limit: int = 50,
+        unseen_only: bool = False,
+    ) -> Dict[str, Any]:
         """Poll all active email accounts"""
         accounts = self.get_accounts()
         results = []
         total_processed = 0
         total_uploaded = 0
+        total_pending = 0
 
         for account in accounts:
             try:
-                result = self.poll_account(str(account["id"]))
+                result = self.poll_account(
+                    str(account["id"]),
+                    since_date=since_date,
+                    limit=limit,
+                    unseen_only=unseen_only,
+                )
                 results.append(result)
                 total_processed += result["processed"]
                 total_uploaded += result["uploaded"]
+                total_pending += result.get("pending", 0)
             except Exception as e:
                 logger.error(f"Error polling account {account['email_address']}: {e}")
                 results.append({
@@ -470,6 +622,7 @@ class EmailIngestionService:
                     "emails_found": 0,
                     "processed": 0,
                     "uploaded": 0,
+                    "pending": 0,
                     "skipped": 0,
                     "duplicates": 0,
                     "errors": 1,
@@ -480,6 +633,7 @@ class EmailIngestionService:
             "results": results,
             "total_processed": total_processed,
             "total_uploaded": total_uploaded,
+            "total_pending": total_pending,
         }
 
     def _process_attachment(
@@ -489,8 +643,15 @@ class EmailIngestionService:
         account: Dict[str, Any],
         fetched_email,
         attachment,
+        sibling_passed: bool = False,
+        sent_index: Optional[Tuple[Set[str], Set[str]]] = None,
     ) -> Dict[str, Any]:
-        """Process a single PDF attachment through the pipeline"""
+        """Process a single PDF attachment through the pipeline.
+
+        Stores the PDF and records what it matched, then leaves the row
+        'pending'. Creating the claim and the ClaimNegotiation revision is a
+        reviewer's decision, made in manual_assign - see Step 6.
+        """
         from app.domains.email_ingestion.classifier import (
             classify_email_attachment,
             extract_pdf_text_first_pages,
@@ -498,6 +659,29 @@ class EmailIngestionService:
         from app.domains.email_ingestion.matcher import match_email_to_client
 
         account_id = str(account["id"])
+
+        # Step 0: Is this a file we sent ourselves, coming back to us?
+        # Replies, forwards and bounce notifications re-attach the original
+        # PDFs, so without this the estimate we emailed out is ingested again
+        # and shows up twice on the claim - once under sent mail, once under
+        # received. Compared by hash where we have one (sends from now on)
+        # and by filename otherwise (older rows stored only name + mime type).
+        if _is_own_sent_attachment(
+            attachment, sent_index or _load_sent_attachment_index(session)
+        ):
+            log_repo.create({
+                "email_account_id": account_id,
+                "message_id": fetched_email.message_id,
+                "subject": fetched_email.subject,
+                "sender": fetched_email.sender,
+                "received_at": fetched_email.received_at,
+                "attachment_name": attachment.filename,
+                "attachment_hash": attachment.sha256_hash,
+                "status": "skipped",
+                "skip_reason": "Attachment is a file we sent; already on the claim as outbound mail",
+            })
+            session.commit()
+            return {"status": "skipped"}
 
         # Step 1: Check attachment hash duplicate
         if log_repo.exists_by_attachment_hash(attachment.sha256_hash):
@@ -518,13 +702,14 @@ class EmailIngestionService:
 
         # Step 2: Classify
         is_estimate, confidence, reason = classify_email_attachment(
+            filename=attachment.filename,
             sender=fetched_email.sender,
             subject=fetched_email.subject,
             body=fetched_email.body_text,
             pdf_data=attachment.data,
         )
 
-        if not is_estimate:
+        if not is_estimate and not sibling_passed:
             log_data = {
                 "email_account_id": account_id,
                 "message_id": fetched_email.message_id,
@@ -542,6 +727,14 @@ class EmailIngestionService:
             session.commit()
             return {"status": "skipped"}
 
+        if not is_estimate:
+            # Kept only because a sibling attachment on the same email
+            # qualified. Files named just for the property address
+            # ("6305 Musket Ball Drive Centreville 20121.pdf") carry no
+            # recognisable document type, but arrive in the same packet as
+            # the report that does.
+            reason = f"{reason} | Kept: sibling attachment on this email qualified"
+
         # Step 2.5: Persist the PDF now that it's classified as an estimate, so a
         # reviewer can preview/assign it later even if matching fails below.
         pending_file_id = self._store_attachment_file(session, account_id, attachment, fetched_email)
@@ -555,7 +748,7 @@ class EmailIngestionService:
                 "attachment_name": attachment.filename,
                 "attachment_hash": attachment.sha256_hash,
                 "status": "failed",
-                "is_insurance_estimate": True,
+                "is_insurance_estimate": is_estimate,
                 "classification_reason": reason,
                 "error_message": "Failed to store attachment in file storage",
             }
@@ -581,7 +774,7 @@ class EmailIngestionService:
                 "attachment_name": attachment.filename,
                 "attachment_hash": attachment.sha256_hash,
                 "status": "pending",
-                "is_insurance_estimate": True,
+                "is_insurance_estimate": is_estimate,
                 "classification_reason": reason,
                 "file_id": pending_file_id,
             }
@@ -589,14 +782,10 @@ class EmailIngestionService:
             session.commit()
             return {"status": "pending"}
 
-        # Step 4: Create claim if needed
-        claim_created = False
+        # Step 4: Resolve the claim this attachment would belong to.
+        # Nothing is created here - a brand-new claim is only minted once a
+        # reviewer confirms the match (manual_assign), never by the poller.
         claim_id = match_result.claim_id
-
-        if match_result.needs_new_claim and not claim_id:
-            claim_id, claim_created = self._create_claim_for_match(
-                session, match_result, fetched_email
-            )
 
         # Step 5: Check duplicate for this specific claim
         if claim_id and log_repo.exists_by_attachment_hash(attachment.sha256_hash, claim_id):
@@ -618,37 +807,13 @@ class EmailIngestionService:
             session.commit()
             return {"status": "duplicate"}
 
-        # Step 6: Attach the already-stored file to the claim and create negotiation
-        try:
-            file_id, negotiation_id = self._upload_and_create_negotiation(
-                session, claim_id, attachment, fetched_email, existing_file_id=pending_file_id
-            )
-        except Exception as e:
-            logger.error(f"Failed to finalize negotiation for claim {claim_id}: {e}")
-            log_data = {
-                "email_account_id": account_id,
-                "message_id": fetched_email.message_id,
-                "subject": fetched_email.subject,
-                "sender": fetched_email.sender,
-                "received_at": fetched_email.received_at,
-                "attachment_name": attachment.filename,
-                "attachment_hash": attachment.sha256_hash,
-                "status": "failed",
-                "is_insurance_estimate": True,
-                "classification_reason": reason,
-                "matched_client_id": match_result.client_id,
-                "matched_claim_id": claim_id,
-                "match_method": match_result.method,
-                "match_confidence": match_result.confidence,
-                "claim_created": claim_created,
-                "file_id": pending_file_id,
-                "error_message": str(e),
-            }
-            log_repo.create(log_data)
-            session.commit()
-            return {"status": "failed"}
-
-        # Step 7: Create success log
+        # Step 6: Queue for review. A match is a *suggestion*, not a decision:
+        # the revision is only created once a human confirms it in the review
+        # screen (manual_assign). Auto-creating it here meant a fuzzy address
+        # or name match silently bumped a claim's revision number and pushed
+        # the claim to 'negotiating' before anyone had looked at the PDF.
+        # The match is recorded on the log so the reviewer can confirm with
+        # one click instead of re-finding the client.
         log_data = {
             "email_account_id": account_id,
             "message_id": fetched_email.message_id,
@@ -657,41 +822,19 @@ class EmailIngestionService:
             "received_at": fetched_email.received_at,
             "attachment_name": attachment.filename,
             "attachment_hash": attachment.sha256_hash,
-            "status": "uploaded",
-            "is_insurance_estimate": True,
+            "status": "pending",
+            "is_insurance_estimate": is_estimate,
             "classification_reason": reason,
             "matched_client_id": match_result.client_id,
             "matched_claim_id": claim_id,
             "match_method": match_result.method,
             "match_confidence": match_result.confidence,
-            "claim_created": claim_created,
-            "negotiation_id": negotiation_id,
-            "file_id": file_id,
+            "file_id": pending_file_id,
         }
         log_repo.create(log_data)
         session.commit()
 
-        return {"status": "uploaded", "file_id": file_id, "negotiation_id": negotiation_id}
-
-    def _create_claim_for_match(
-        self, session, match_result, fetched_email
-    ) -> tuple:
-        """Create a new claim for a matched client"""
-        from app.domains.client.models import Claim
-
-        claim_number = match_result.claim_number_extracted or f"AUTO-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-
-        claim = Claim(
-            client_id=match_result.client_id,
-            claim_number=claim_number,
-            insurance_policy_number=match_result.policy_number_extracted,
-            status="open",
-            notes=f"Auto-created from email: {fetched_email.subject}",
-        )
-        session.add(claim)
-        session.flush()
-
-        return str(claim.id), True
+        return {"status": "pending", "file_id": pending_file_id}
 
     def _run_upload(self, file_service, **upload_kwargs) -> Dict[str, Any]:
         """Run the async FileService.upload_file from sync code, whether or not
@@ -831,13 +974,33 @@ class EmailIngestionService:
         account_id: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        claim_id: Optional[str] = None,
+        has_attachment: bool = False,
     ) -> List[Dict[str, Any]]:
         """Get ingestion logs with filters"""
         session = self._get_readonly_session()
         try:
             from app.domains.email_ingestion.repository import get_email_ingestion_log_repository
             repo = get_email_ingestion_log_repository(session)
-            logs = repo.get_logs_with_filters(status, account_id, limit, offset)
+            logs = repo.get_logs_with_filters(
+                status, account_id, limit, offset,
+                claim_id=claim_id, has_attachment=has_attachment,
+            )
+
+            # Attach stored-file metadata. `file_id` is a plain String column,
+            # not a FK, so there is no relationship to join through - look the
+            # rows up in one query and map them back.
+            file_ids = [log["file_id"] for log in logs if log.get("file_id")]
+            if file_ids:
+                from app.domains.file.models import File
+                files = session.query(File).filter(File.id.in_(file_ids)).all()
+                by_id = {f.id: f for f in files}
+                for log in logs:
+                    f = by_id.get(log.get("file_id"))
+                    if f:
+                        log["file_name"] = f.original_name
+                        log["file_size"] = f.size
+                        log["file_content_type"] = f.content_type
 
             # Enrich with client/claim names
             for log in logs:

@@ -388,6 +388,7 @@ const WaterMitigationDetail: React.FC = () => {
       'Sent to adjuster': 'geekblue',
       'Follow up': 'orange',
       'Paperwork received': 'purple',
+      'Estimate requested': 'magenta',
       'Check received': 'green',
       'Complete': 'success'
     };

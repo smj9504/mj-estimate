@@ -445,9 +445,13 @@ class ClaimPaymentService:
             paid = float(total)
             if paid == 0:
                 claim.payment_status = "unpaid"
+            elif invoice <= 0:
+                # 기대 금액을 모르는 상태 — 받은 돈이 전부인지 알 수 없으므로
+                # 'paid'로 단정하지 않는다 (supplement로 더 들어올 수도 있다)
+                claim.payment_status = "partial"
             elif paid < invoice:
                 claim.payment_status = "partial"
-            elif paid >= invoice:
+            else:
                 claim.payment_status = "paid"
 
     def _to_dict(self, obj) -> Dict[str, Any]:

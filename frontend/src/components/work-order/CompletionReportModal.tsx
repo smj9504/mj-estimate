@@ -104,7 +104,7 @@ const CompletionReportModal: React.FC<CompletionReportModalProps> = ({
   };
 
   const getPhotoUrl = (photo: FileItem) => {
-    return photo.thumbnailUrl || `/api/files/download/${photo.id}?inline=true`;
+    return photo.thumbnailUrl || fileService.getInlineUrl(photo.id);
   };
 
   return (

@@ -130,6 +130,7 @@ interface FileCardItemProps {
   onDownload: (file: FileItem) => void;
   onDelete?: (file: FileItem, e: React.MouseEvent) => void;
   onCardClick: (file: FileItem, e: React.MouseEvent) => void;
+  renderCardExtraAction?: (file: FileItem) => React.ReactNode;
 }
 
 const FileCardItem = memo<FileCardItemProps>(({
@@ -145,7 +146,8 @@ const FileCardItem = memo<FileCardItemProps>(({
   onPreview,
   onDownload,
   onDelete,
-  onCardClick
+  onCardClick,
+  renderCardExtraAction
 }) => {
   // Critical: Guard against undefined file during virtual scroll remount
   if (!file || !file.id) {
@@ -172,7 +174,7 @@ const FileCardItem = memo<FileCardItemProps>(({
         }
       }}
       cover={
-        <div style={{ position: 'relative', width: '100%', aspectRatio: '1', overflow: 'hidden', background: '#f5f5f5' }}>
+        <div style={{ position: 'relative', width: '100%', aspectRatio: '3 / 4', overflow: 'hidden', background: '#f5f5f5' }}>
           {isImage ? (
             <>
               <LazyImage
@@ -252,6 +254,14 @@ const FileCardItem = memo<FileCardItemProps>(({
                       <DeleteOutlined style={{ color: '#fff', fontSize: 16 }} />
                     </div>
                   )}
+                  {renderCardExtraAction && (
+                    <div
+                      className="overlay-btn"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {renderCardExtraAction(file)}
+                    </div>
+                  )}
                 </div>
               </div>
             </>
@@ -296,6 +306,11 @@ const FileCardItem = memo<FileCardItemProps>(({
         ...(onDelete ? [
           <span key="delete" onClick={(e) => onDelete(file, e as any)} title="Delete">
             <DeleteOutlined style={{}} />
+          </span>
+        ] : []),
+        ...(renderCardExtraAction ? [
+          <span key="extra-action" onClick={(e) => e.stopPropagation()}>
+            {renderCardExtraAction(file)}
           </span>
         ] : [])
       ] : undefined}
@@ -343,6 +358,7 @@ interface FileGridProps {
   enableLazyLoading?: boolean;
   imageQuality?: ImageQuality; // Image quality: 'original' (full res), 'web' (400px), 'thumbnail' (250px)
   context?: string; // Context for download URL routing
+  renderCardExtraAction?: (file: FileItem) => React.ReactNode;
 }
 
 const FileGrid: React.FC<FileGridProps> = ({
@@ -360,7 +376,8 @@ const FileGrid: React.FC<FileGridProps> = ({
   gridColumns = { xs: 3, sm: 4, md: 5, lg: 6, xl: 8 },
   enableLazyLoading = true,
   imageQuality = 'thumbnail',
-  context
+  context,
+  renderCardExtraAction
 }) => {
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState<string>('');
@@ -506,7 +523,7 @@ const FileGrid: React.FC<FileGridProps> = ({
 
       .file-image {
         width: 100%;
-        aspect-ratio: 1;
+        aspect-ratio: 3 / 4;
         object-fit: cover;
         cursor: pointer;
       }
@@ -555,7 +572,7 @@ const FileGrid: React.FC<FileGridProps> = ({
 
       .file-document-icon {
         width: 100%;
-        aspect-ratio: 1;
+        aspect-ratio: 3 / 4;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -608,6 +625,7 @@ const FileGrid: React.FC<FileGridProps> = ({
             onDownload={handleDownload}
             onDelete={onDelete ? handleDelete : undefined}
             onCardClick={handleCardClick}
+            renderCardExtraAction={renderCardExtraAction}
           />
         ))}
       </div>

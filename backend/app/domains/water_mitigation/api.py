@@ -22,7 +22,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
@@ -46,6 +46,7 @@ from .schemas import (
     JobStatusUpdate,
     JobUpdate,
     PhotoListResponse,
+    PhotoLocationUpdate,
     ReportConfigCreate,
     ReportConfigResponse,
     ReportConfigUpdate,
@@ -142,6 +143,8 @@ def list_jobs(
     search: Optional[str] = None,
     status: Optional[str] = None,
     active: Optional[bool] = True,  # Default to True - only show active jobs
+    hide_received: bool = False,  # Payment view: drop jobs already paid
+    with_insurance: bool = False,  # Payment view: attach approved_amount_auto
     page: int = 1,
     page_size: int = 50,
     service: WaterMitigationService = Depends(get_wm_service)
@@ -155,15 +158,22 @@ def list_jobs(
             search=search,
             status=status_list,
             active=active,
+            hide_received=hide_received,
             page=page,
             page_size=page_size
         )
+
+        insurance_amounts = {}
+        if with_insurance:
+            from .insurance_amount import insurance_amounts_for_jobs
+            insurance_amounts = insurance_amounts_for_jobs(service.session, jobs)
 
         # Convert to response
         job_dicts = []
         for job in jobs:
             job_dict = service.job_repo._convert_to_dict(job)
             job_dict['photo_count'] = getattr(job, 'photo_count', 0)
+            job_dict['approved_amount_auto'] = insurance_amounts.get(str(job.id))
             job_dicts.append(job_dict)
 
         total_pages = math.ceil(total / page_size) if total > 0 else 0
@@ -422,6 +432,8 @@ async def list_photos(
     category_filter: Optional[str] = None,
     uncategorized_only: bool = False,
     source_filter: Optional[str] = None,
+    level_filter: Optional[str] = None,
+    room_filter: Optional[str] = None,
     page: int = 1,
     page_size: int = 50,
     skip: Optional[int] = None,
@@ -436,6 +448,8 @@ async def list_photos(
         category_filter: Comma-separated list of categories to filter by (OR logic)
         uncategorized_only: If True, only return photos without category
         source_filter: Filter by source (companycam, magicplan, manual_upload)
+        level_filter: Comma-separated list of location levels to filter by (OR logic)
+        room_filter: Comma-separated list of location rooms to filter by (OR logic)
         page: Page number (1-indexed)
         page_size: Number of items per page (default: 50, max: 200)
         skip: Explicit offset override. Required when callers use a variable
@@ -453,7 +467,7 @@ async def list_photos(
         list_photos._cache = {}
         list_photos._cache_ts = {}
 
-    cache_key = f"{job_id}:{page}:{page_size}:{skip}:{sort_by}:{sort_order}:{category_filter}:{uncategorized_only}:{source_filter}"
+    cache_key = f"{job_id}:{page}:{page_size}:{skip}:{sort_by}:{sort_order}:{category_filter}:{uncategorized_only}:{source_filter}:{level_filter}:{room_filter}"
     cached = list_photos._cache.get(cache_key)
     cached_ts = list_photos._cache_ts.get(cache_key, 0)
     if cached and (_time.time() - cached_ts) < 30:
@@ -472,6 +486,19 @@ async def list_photos(
         if not categories:
             categories = None
 
+    # Parse location filters
+    levels = None
+    if level_filter:
+        levels = [lvl.strip() for lvl in level_filter.split(',') if lvl.strip()]
+        if not levels:
+            levels = None
+
+    rooms = None
+    if room_filter:
+        rooms = [r.strip() for r in room_filter.split(',') if r.strip()]
+        if not rooms:
+            rooms = None
+
     # Get paginated photos with filters applied at database level (more efficient)
     photos, total = service.photo_repo.find_by_job_paginated(
         job_id=job_id,
@@ -482,7 +509,9 @@ async def list_photos(
         sort_order=sort_order,
         category_filter=categories,
         uncategorized_only=uncategorized_only,
-        source_filter=source_filter
+        source_filter=source_filter,
+        level_filter=levels,
+        room_filter=rooms
     )
 
     # Calculate total pages (handle None total for performance optimization)
@@ -1572,6 +1601,116 @@ def bulk_set_categories(
         db.rollback()
         logger.error(f"Failed to bulk set categories: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/photos/{photo_id}/location")
+def update_photo_location(
+    photo_id: UUID,
+    body: PhotoLocationUpdate,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """Update a photo's location tag (level + room).
+
+    Either field may be omitted/None to clear it; fields not present in
+    the request body are left unchanged.
+    """
+    try:
+        photo = service.photo_repo.get_by_id(str(photo_id))
+        if not photo:
+            raise HTTPException(status_code=404, detail="Photo not found")
+
+        update_data = body.model_dump(exclude_unset=True)
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No fields provided")
+
+        updated = service.photo_repo.update(str(photo_id), update_data)
+
+        db.commit()
+        _invalidate_photo_list_cache()
+
+        return service.photo_repo._convert_to_dict(updated)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to update photo location: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BulkSetLocationItem(BaseModel):
+    """One photo's location tag in a bulk set request.
+
+    A field that is absent is left unchanged; a field sent as "" or null is
+    cleared. Level and room are independent, so callers can bulk-set one
+    without disturbing the other.
+    """
+    photo_id: UUID
+    location_level: Optional[str] = None
+    location_room: Optional[str] = None
+
+
+class BulkSetLocationsRequest(BaseModel):
+    """Set individual location tags for multiple photos at once"""
+    updates: List[BulkSetLocationItem]
+
+
+@router.post("/photos/bulk-set-locations")
+def bulk_set_locations(
+    request: BulkSetLocationsRequest,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """
+    Set individual location tags for multiple photos in a single request.
+    Each item has its own photo_id and level/room (either may be omitted).
+    """
+    try:
+        applied = 0
+        failed = 0
+        for item in request.updates:
+            # Only fields the caller actually sent are touched. An explicitly
+            # sent "" or null clears that tag; an omitted field is left alone.
+            sent = item.model_fields_set
+            update_data = {}
+            if "location_level" in sent:
+                update_data["location_level"] = (item.location_level or "").strip() or None
+            if "location_room" in sent:
+                update_data["location_room"] = (item.location_room or "").strip() or None
+            if not update_data:
+                failed += 1
+                continue
+            updated = service.photo_repo.update(str(item.photo_id), update_data)
+            if updated:
+                applied += 1
+            else:
+                failed += 1
+
+        db.commit()
+        _invalidate_photo_list_cache()
+
+        return {
+            "applied": applied,
+            "failed": failed,
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to bulk set locations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/jobs/{job_id}/photos/location-suggestions")
+def get_photo_location_suggestions(
+    job_id: UUID,
+    service: WaterMitigationService = Depends(get_wm_service)
+):
+    """Distinct room-name tags previously used on this job's photos, for autocomplete.
+
+    Level suggestions aren't served here - the frontend sources those from
+    the job's floor sketches (WMFloorSketch.floor_label) directly.
+    """
+    rooms = service.photo_repo.get_distinct_rooms_for_job(job_id)
+    return {"rooms": rooms}
 
 
 @router.get("/photos/duplicates")
@@ -2814,6 +2953,64 @@ def delete_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.patch("/documents/{document_id}/document-type", response_model=WMDocumentResponse)
+def update_document_type(
+    document_id: UUID,
+    payload: dict,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """Update the document_type (the tag shown next to the filename).
+
+    Body: { "document_type": "EWA" }
+
+    The column is a free-form String(50) and several flows write their own
+    values (annotated_pdf, photo_report, sketch_report), so this only
+    validates that a non-empty string within the column width was sent
+    rather than restricting to a fixed vocabulary.
+    """
+    from .models import WMDocument
+
+    try:
+        document_type = payload.get('document_type')
+
+        if not isinstance(document_type, str) or not document_type.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="document_type must be a non-empty string"
+            )
+
+        document_type = document_type.strip()
+        if len(document_type) > 50:
+            raise HTTPException(
+                status_code=400,
+                detail="document_type must be 50 characters or fewer"
+            )
+
+        doc = db.query(WMDocument).filter(
+            WMDocument.id == document_id
+        ).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        previous_type = doc.document_type
+        doc.document_type = document_type
+
+        db.commit()
+        db.refresh(doc)
+        logger.info(
+            f"Updated document {document_id} type: "
+            f"{previous_type} -> {document_type}"
+        )
+        return doc
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to update document type: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.patch("/documents/{document_id}/invoice-amount", response_model=WMDocumentResponse)
 def update_document_invoice_amount(
     document_id: UUID,
@@ -2880,7 +3077,7 @@ async def upload_document(
     """
     try:
         # Validate document_type
-        valid_types = ['COS', 'EWA', 'Invoice', 'Sketch', 'Photo', 'Other']
+        valid_types = ['COS', 'EWA', 'Invoice', 'Sketch', 'Photo', 'Photo Report', 'Other']
         if document_type not in valid_types:
             raise HTTPException(
                 status_code=400,
@@ -2930,7 +3127,7 @@ async def bulk_upload_documents(
     For Invoice type, invoice_amount can be provided (applies to all).
     """
     try:
-        valid_types = ['COS', 'EWA', 'Invoice', 'Sketch', 'Photo', 'Other']
+        valid_types = ['COS', 'EWA', 'Invoice', 'Sketch', 'Photo', 'Photo Report', 'Other']
         if document_type not in valid_types:
             raise HTTPException(
                 status_code=400,
@@ -3447,12 +3644,24 @@ async def generate_photo_report(
         else:
             raise HTTPException(status_code=400, detail="Either config_id or config must be provided")
 
-        result = service.generate_and_save_photo_report(
+        import asyncio
+
+        # Run in thread: this downloads every job photo and renders the PDF
+        # synchronously, which can take long enough to stall the event loop
+        # (and /health with it) - the same failure mode that was hitting the
+        # adjuster email send. No concurrent access to `db`/`service` happens
+        # after this call, so handing the request-scoped session to the
+        # worker thread here is safe.
+        result = await asyncio.to_thread(
+            service.generate_and_save_photo_report,
             job_id,
             config=config_dict,
             report_date=request.report_date,
             compress=request.compress,
             template_variant=request.template_variant,
+            show_photo_dates=request.show_photo_dates,
+            show_photo_locations=request.show_photo_locations,
+            persist=request.persist,
         )
 
         # Return the PDF bytes directly for preview/download.
@@ -3475,7 +3684,7 @@ async def generate_photo_report(
             media_type="application/pdf",
             headers={
                 "Content-Disposition": content_disposition,
-                "X-File-Id": str(result["file_id"]),
+                "X-File-Id": str(result["file_id"]) if result["file_id"] else "",
                 "X-Config-Id": str(config_id) if config_id else ""
             }
         )
@@ -4779,14 +4988,26 @@ def delete_sheet_pa_mapping(
 
 
 @router.post("/sheet-pa-mappings/apply")
-def apply_sheet_pa_mappings(db: DatabaseSession = Depends(get_db_session)):
+def apply_sheet_pa_mappings(
+    overwrite_existing: bool = Query(
+        False,
+        description="Also replace PAs already set on a claim (e.g. chosen by hand)",
+    ),
+    db: DatabaseSession = Depends(get_db_session),
+):
     """
     Apply current Sheet → PA mappings to all existing WM jobs.
     For each job that has google_sheet_name set and a mapping exists,
     updates the linked Claim's pa_contact_id.
+
+    By default this only fills claims with no PA, so a PA set by hand is
+    preserved. Pass overwrite_existing=true to force the sheet's value.
     """
     from sqlalchemy import select
-    from app.domains.water_mitigation.models import WMSheetPAMapping
+    from app.domains.water_mitigation.models import (
+        WaterMitigationJob,
+        WMSheetPAMapping,
+    )
     from app.domains.client.models import Claim
 
     mappings = db.execute(select(WMSheetPAMapping)).scalars().all()
@@ -4803,17 +5024,25 @@ def apply_sheet_pa_mappings(db: DatabaseSession = Depends(get_db_session)):
     ).scalars().all()
 
     applied = 0
+    kept = 0
     for job in jobs:
         pa_contact_id = mapping_lookup.get(job.google_sheet_name)
         if not pa_contact_id:
             continue
-        claim = db.get(Claim, job.claim_id)
-        if claim and claim.pa_contact_id != pa_contact_id:
-            claim.pa_contact_id = pa_contact_id
-            applied += 1
+        claim = db.execute(
+            select(Claim).where(Claim.id == job.claim_id)
+        ).scalar_one_or_none()
+        if not claim or claim.pa_contact_id == pa_contact_id:
+            continue
+        if claim.pa_contact_id and not overwrite_existing:
+            # Set by hand (or by an earlier, different mapping) — leave it.
+            kept += 1
+            continue
+        claim.pa_contact_id = pa_contact_id
+        applied += 1
 
     db.commit()
-    return {"applied": applied, "total_jobs": len(jobs)}
+    return {"applied": applied, "kept_existing": kept, "total_jobs": len(jobs)}
 
 
 # ============================================================
@@ -4880,35 +5109,82 @@ async def get_financial_comparison(
         if job.claim_id:
             claim = db.query(Claim).filter(Claim.id == job.claim_id).first()
             if claim:
-                # 1) Try to find WM section in latest ClaimNegotiation sections_data
+                # 1) Prefer the latest water_mitigation negotiation. Revision numbers
+                # are tracked independently per estimate_category, so an unfiltered
+                # "highest revision" query can return the reconstruction row instead.
                 latest_neg = (
                     db.query(ClaimNegotiation)
-                    .filter(ClaimNegotiation.claim_id == job.claim_id)
+                    .filter(
+                        ClaimNegotiation.claim_id == job.claim_id,
+                        ClaimNegotiation.estimate_category == 'water_mitigation',
+                    )
                     .order_by(ClaimNegotiation.revision_number.desc())
                     .first()
                 )
+                # Fall back to any negotiation (e.g. a combined estimate that
+                # contains a WM section, or legacy rows with no category).
+                if not latest_neg:
+                    latest_neg = (
+                        db.query(ClaimNegotiation)
+                        .filter(ClaimNegotiation.claim_id == job.claim_id)
+                        .order_by(ClaimNegotiation.revision_number.desc())
+                        .first()
+                    )
                 if latest_neg and latest_neg.sections_data:
                     sections = latest_neg.sections_data
                     if isinstance(sections, list):
+                        def _as_wm_section(sec):
+                            return {
+                                "section_name": sec.get('section_name', ''),
+                                "rcv": float(sec.get('rcv') or 0),
+                                "depreciation": float(sec.get('depreciation') or 0),
+                                "net_acv": float(sec.get('net_acv') or 0),
+                                "line_item_total": float(sec.get('line_item_total') or 0),
+                                "overhead_amount": float(sec.get('overhead_amount') or 0),
+                                "profit_amount": float(sec.get('profit_amount') or 0),
+                                "deductible": float(sec.get('deductible') or 0),
+                            }
+
                         for sec in sections:
                             name = (sec.get('section_name') or '').lower()
                             if 'water' in name and 'mitig' in name:
-                                wm_section = {
-                                    "section_name": sec.get('section_name', ''),
-                                    "rcv": float(sec.get('rcv') or 0),
-                                    "depreciation": float(sec.get('depreciation') or 0),
-                                    "net_acv": float(sec.get('net_acv') or 0),
-                                    "line_item_total": float(sec.get('line_item_total') or 0),
-                                    "overhead_amount": float(sec.get('overhead_amount') or 0),
-                                    "profit_amount": float(sec.get('profit_amount') or 0),
-                                    "deductible": float(sec.get('deductible') or 0),
-                                }
+                                wm_section = _as_wm_section(sec)
                                 break
+
+                        # A WM-category estimate holds only WM sections, so any
+                        # single section it carries is the WM amount even when the
+                        # carrier titled it something else ("Dwelling", "Estimate").
+                        if (
+                            wm_section is None
+                            and latest_neg.estimate_category == 'water_mitigation'
+                            and len(sections) == 1
+                        ):
+                            wm_section = _as_wm_section(sections[0])
+
+                # Resolve the uploaded estimate PDF (document_url holds a File id)
+                document_file_id = None
+                document_name = None
+                if latest_neg and latest_neg.document_url:
+                    from app.domains.file.models import File as FileModel
+                    file_rec = (
+                        db.query(FileModel)
+                        .filter(
+                            FileModel.id == latest_neg.document_url,
+                            FileModel.is_active == True,  # noqa: E712
+                        )
+                        .first()
+                    )
+                    if file_rec:
+                        document_file_id = str(file_rec.id)
+                        document_name = latest_neg.document_name or file_rec.original_name
 
                 insurance_estimate = {
                     "wm_cost_status": claim.wm_cost_status,
                     "wm_estimate_amount": float(claim.wm_estimate_amount) if claim.wm_estimate_amount else None,
                     "wm_section": wm_section,
+                    "estimate_category": latest_neg.estimate_category if latest_neg else None,
+                    "document_file_id": document_file_id,
+                    "document_name": document_name,
                     # Claim-level totals for reference
                     "claim_rcv": float(claim.current_rcv or 0),
                     "claim_acv": float(claim.current_acv or 0),
@@ -4946,6 +5222,373 @@ async def get_financial_comparison(
 
 
 # ============================================================
+# Insurance Estimate Upload (WM side)
+# ============================================================
+
+# Keywords used to pick the water-mitigation slice out of a combined
+# (rebuild + WM) insurance estimate. Kept in sync with the follow-up
+# dashboard's ESTIMATE_CATEGORIES.water_mitigation.sectionKeywords.
+WM_SECTION_KEYWORDS = [
+    'water mitigation', 'water mit', 'mitigation', 'emergency service',
+    'dry out', 'dryout', 'drying', 'dehumidifier', 'extraction',
+    'water extraction', 'remediation',
+]
+
+
+def _score_wm_section(section: Dict[str, Any]) -> int:
+    """Score how strongly a parsed section looks like water mitigation."""
+    name = (section.get('section_name') or '').lower()
+    if not name:
+        return 0
+    # An explicit "water mitigation" title beats every other signal.
+    if 'water' in name and 'mitig' in name:
+        return 100
+    return sum(10 for kw in WM_SECTION_KEYWORDS if kw in name)
+
+
+def _pick_wm_section(sections: List[Dict[str, Any]]) -> Optional[int]:
+    """Return the index of the most WM-looking section, or None."""
+    if not sections:
+        return None
+    best_idx, best_score = None, 0
+    for idx, sec in enumerate(sections):
+        score = _score_wm_section(sec)
+        if score > best_score:
+            best_idx, best_score = idx, score
+    # A single-section estimate is a WM-only document by definition.
+    if best_idx is None and len(sections) == 1:
+        return 0
+    return best_idx
+
+
+@router.post("/jobs/{job_id}/insurance-estimate/parse")
+async def parse_wm_insurance_estimate(
+    job_id: UUID,
+    file: UploadFile = File(...),
+):
+    """Parse an insurance estimate PDF and pre-select its water-mitigation section.
+
+    Does not persist anything - the client reviews/adjusts the detected
+    section and then calls the save endpoint below.
+    """
+    import tempfile
+
+    if not file.filename or not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    tmp_path = None
+    try:
+        file_content = await file.read()
+
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+        try:
+            with os.fdopen(tmp_fd, "wb") as tmp_f:
+                tmp_f.write(file_content)
+        except Exception:
+            try:
+                os.close(tmp_fd)
+            except OSError:
+                pass
+            raise
+
+        from app.domains.client.negotiation_pdf_service import extract_summary_from_pdf
+        result = extract_summary_from_pdf(tmp_path)
+        sections = result.get("sections") or []
+
+        wm_index = _pick_wm_section(sections)
+        is_combined = len(sections) > 1
+
+        return {
+            "sections": sections,
+            "totals": result.get("totals") or {},
+            "validation": result.get("validation") or {},
+            "wm_section_index": wm_index,
+            "is_combined": is_combined,
+            "file_name": file.filename,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error parsing WM insurance estimate: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if tmp_path and os.path.isfile(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+@router.post("/jobs/{job_id}/insurance-estimate")
+async def save_wm_insurance_estimate(
+    job_id: UUID,
+    file: UploadFile = File(...),
+    wm_amount: float = Form(...),
+    wm_section: Optional[str] = Form(None),
+    is_combined: bool = Form(False),
+    sections_data: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    db: DatabaseSession = Depends(get_db_session),
+):
+    """Upload an insurance estimate for a WM job and record the WM amount.
+
+    Stores the PDF and creates a ClaimNegotiation row with
+    estimate_category='water_mitigation', so the estimate also surfaces on
+    the client and follow-up screens. Handles both WM-only estimates and
+    combined (rebuild + WM) estimates, where only the WM slice is recorded.
+    """
+    import io
+    import json
+
+    from sqlalchemy import func
+
+    from app.domains.client.models import Claim, ClaimNegotiation
+    from app.domains.file.service import FileService
+    from .models import WaterMitigationJob
+
+    if not file.filename or not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    job = db.query(WaterMitigationJob).filter(
+        WaterMitigationJob.id == job_id
+    ).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.claim_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This job is not linked to a claim. Link the job to a claim "
+                "before uploading an insurance estimate."
+            ),
+        )
+
+    claim = db.query(Claim).filter(Claim.id == job.claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Linked claim not found")
+
+    # Parse optional JSON payloads from the multipart form
+    parsed_wm_section = None
+    if wm_section:
+        try:
+            parsed_wm_section = json.loads(wm_section)
+        except Exception:
+            logger.warning("Invalid wm_section JSON; ignoring")
+    parsed_all_sections = None
+    if sections_data:
+        try:
+            parsed_all_sections = json.loads(sections_data)
+        except Exception:
+            logger.warning("Invalid sections_data JSON; ignoring")
+
+    # --- Store the PDF ---
+    file_content = await file.read()
+    address_part = (job.property_address or '').strip()
+
+    next_revision = (
+        db.query(func.max(ClaimNegotiation.revision_number))
+        .filter(
+            ClaimNegotiation.claim_id == str(job.claim_id),
+            ClaimNegotiation.estimate_category == 'water_mitigation',
+        )
+        .scalar() or 0
+    ) + 1
+
+    ext = os.path.splitext(file.filename)[1] or '.pdf'
+    if address_part:
+        safe_address = (
+            address_part.replace('/', '-').replace('\\', '-')
+            .replace(':', '').replace('"', '')
+        )
+        upload_filename = f"{safe_address}-WM-Estimate-v{next_revision}{ext}"
+    else:
+        upload_filename = f"WM-Estimate-v{next_revision}{ext}"
+
+    file_id = None
+    try:
+        from app.core.database_factory import get_database
+        fs = FileService(get_database())
+        try:
+            file_record = await fs.upload_file(
+                file_data=io.BytesIO(file_content),
+                original_filename=upload_filename,
+                content_type=file.content_type or "application/pdf",
+                context="negotiation",
+                context_id=str(job.claim_id),
+            )
+            fs.repository.db_session.commit()
+            file_id = str(file_record.get("id", ""))
+        finally:
+            fs.repository.db_session.close()
+    except Exception as e:
+        logger.error(f"WM insurance estimate upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to store the estimate PDF")
+
+    # --- Record the negotiation (WM category) ---
+    # Store only the WM slice so the comparison card reads the right amount,
+    # even when the source PDF also covers rebuild.
+    wm_sections = [parsed_wm_section] if parsed_wm_section else None
+    dep = float((parsed_wm_section or {}).get('depreciation') or 0)
+    net_acv = float((parsed_wm_section or {}).get('net_acv') or 0)
+
+    if is_combined:
+        default_note = 'Water Mitigation portion of a combined insurance estimate'
+    else:
+        default_note = 'Water Mitigation insurance estimate'
+
+    negotiation = ClaimNegotiation(
+        claim_id=str(job.claim_id),
+        revision_number=next_revision,
+        revision_type='initial' if next_revision == 1 else 'supplement',
+        estimate_category='water_mitigation',
+        rcv_amount=wm_amount,
+        acv_amount=net_acv or wm_amount,
+        depreciation_amount=dep,
+        deductible=float((parsed_wm_section or {}).get('deductible') or 0),
+        date_received=datetime.now(),
+        received_from='Insurance Company',
+        document_url=file_id,
+        document_name=upload_filename,
+        sections_data=wm_sections,
+        extraction_metadata={
+            'source': 'wm_job_upload',
+            'job_id': str(job_id),
+            'is_combined': is_combined,
+            # Keep the full parse for reference when the PDF covered rebuild too.
+            'all_sections': parsed_all_sections if is_combined else None,
+        },
+        notes=notes or default_note,
+    )
+    db.add(negotiation)
+
+    # Keep the claim's WM fields in sync - the comparison card and the
+    # follow-up screen both fall back to these.
+    claim.wm_cost_status = 'included_in_rebuild' if is_combined else 'separate_estimate'
+    claim.wm_estimate_amount = wm_amount
+    if file_id:
+        claim.wm_estimate_file_id = file_id
+        claim.wm_estimate_file_name = upload_filename
+
+    db.commit()
+    db.refresh(negotiation)
+
+    return {
+        "success": True,
+        "negotiation_id": str(negotiation.id),
+        "revision_number": negotiation.revision_number,
+        "wm_amount": wm_amount,
+        "file_id": file_id,
+        "file_name": upload_filename,
+        "is_combined": is_combined,
+    }
+
+
+class WMManualEstimateRequest(BaseModel):
+    """Manually entered water-mitigation amount from the comparison card."""
+
+    wm_amount: float = Field(..., ge=0, description="Water mitigation RCV amount")
+    notes: Optional[str] = None
+
+
+@router.post("/jobs/{job_id}/insurance-estimate/manual")
+async def save_wm_insurance_estimate_manual(
+    job_id: UUID,
+    payload: WMManualEstimateRequest,
+    db: DatabaseSession = Depends(get_db_session),
+):
+    """Record a hand-entered WM insurance estimate amount (no PDF).
+
+    Mirrors the upload endpoint: creates a new water_mitigation
+    ClaimNegotiation revision and syncs the claim's WM fields, so the
+    comparison card, the follow-up dashboard and the supplement screens all
+    read the same number. Only RCV is captured - depreciation and net ACV
+    stay unset because a typed-in figure carries no breakdown.
+    """
+    from sqlalchemy import func
+
+    from app.domains.client.models import Claim, ClaimNegotiation
+    from .models import WaterMitigationJob
+
+    job = db.query(WaterMitigationJob).filter(
+        WaterMitigationJob.id == job_id
+    ).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.claim_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This job is not linked to a claim. Link the job to a claim "
+                "before recording an insurance estimate."
+            ),
+        )
+
+    claim = db.query(Claim).filter(Claim.id == job.claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Linked claim not found")
+
+    wm_amount = float(payload.wm_amount)
+
+    next_revision = (
+        db.query(func.max(ClaimNegotiation.revision_number))
+        .filter(
+            ClaimNegotiation.claim_id == str(job.claim_id),
+            ClaimNegotiation.estimate_category == 'water_mitigation',
+        )
+        .scalar() or 0
+    ) + 1
+
+    # A single WM section so the comparison card resolves the amount the same
+    # way it does for a parsed PDF, instead of falling through to the claim.
+    wm_sections = [{
+        'section_name': 'Water Mitigation',
+        'rcv': wm_amount,
+        'depreciation': 0,
+        'net_acv': wm_amount,
+        'line_item_total': wm_amount,
+        'overhead_amount': 0,
+        'profit_amount': 0,
+        'deductible': 0,
+        'is_manual': True,
+    }]
+
+    negotiation = ClaimNegotiation(
+        claim_id=str(job.claim_id),
+        revision_number=next_revision,
+        revision_type='initial' if next_revision == 1 else 'supplement',
+        estimate_category='water_mitigation',
+        rcv_amount=wm_amount,
+        acv_amount=wm_amount,
+        depreciation_amount=0,
+        deductible=0,
+        date_received=datetime.now(),
+        received_from='Manual Entry',
+        sections_data=wm_sections,
+        extraction_metadata={
+            'source': 'wm_job_manual',
+            'job_id': str(job_id),
+            'is_manual': True,
+        },
+        notes=payload.notes or 'Water Mitigation estimate entered manually',
+    )
+    db.add(negotiation)
+
+    claim.wm_cost_status = 'separate_estimate'
+    claim.wm_estimate_amount = wm_amount
+
+    db.commit()
+    db.refresh(negotiation)
+
+    return {
+        "success": True,
+        "negotiation_id": str(negotiation.id),
+        "revision_number": negotiation.revision_number,
+        "wm_amount": wm_amount,
+        "is_manual": True,
+    }
+
+
+# ============================================================
 # Adjuster Email Endpoints
 # ============================================================
 
@@ -4966,6 +5609,44 @@ async def get_adjuster_email_info(job_id: UUID):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Error getting adjuster email info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class DocumentSlotOverrideRequest(BaseModel):
+    document_id: Optional[str] = None  # None/null clears the override
+
+
+@router.get("/jobs/{job_id}/document-slot-overrides")
+async def get_document_slot_overrides(job_id: UUID):
+    """List the job's manual slot -> document mappings."""
+    service = get_adjuster_email_service()
+    try:
+        return service.list_slot_overrides(str(job_id))
+    except Exception as e:
+        logger.error(f"Error listing document slot overrides: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/jobs/{job_id}/document-slot-overrides/{slot_key}")
+async def set_document_slot_override(
+    job_id: UUID,
+    slot_key: str,
+    data: DocumentSlotOverrideRequest,
+):
+    """Map one of the job's documents to a required email slot.
+
+    Send document_id=null to clear the mapping and fall back to the
+    automatic document_type matching.
+    """
+    service = get_adjuster_email_service()
+    try:
+        return service.set_slot_override(
+            str(job_id), slot_key, data.document_id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error setting document slot override: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -5000,9 +5681,18 @@ async def send_to_adjuster(job_id: UUID, data: SendToAdjusterRequest):
     Attaches selected documents (photo_report, invoice, w9, cos, ewa, sketch).
     BCC can include PA email for copy.
     """
+    import asyncio
+
     service = get_adjuster_email_service()
     try:
-        result = service.send_to_adjuster(str(job_id), data.dict())
+        # Run in thread: this does blocking storage downloads, PDF
+        # compression, and an SMTP send - running it directly on the event
+        # loop stalls every other request (including /health) for the
+        # duration, which has caused Render to kill the instance as
+        # unresponsive mid-send.
+        result = await asyncio.to_thread(
+            service.send_to_adjuster, str(job_id), data.dict()
+        )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -5047,9 +5737,16 @@ async def send_followup_email(job_id: UUID, data: FollowUpEmailRequest):
     """Send follow-up email to adjuster. Does NOT update documents_sent_date.
     Optionally re-attach selected documents.
     """
+    import asyncio
+
     service = get_adjuster_email_service()
     try:
-        result = service.send_followup(str(job_id), data.dict())
+        # See send_to_adjuster above: offload the blocking SMTP send so it
+        # can't stall the event loop (and the health check) long enough for
+        # Render to kill the instance mid-send.
+        result = await asyncio.to_thread(
+            service.send_followup, str(job_id), data.dict()
+        )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

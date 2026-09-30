@@ -101,6 +101,9 @@ const SidingEstimateDetail = lazyWithRetry(() => import('./pages/SidingEstimateD
 // Roofing Estimate Pages
 const RoofingEstimateList = lazyWithRetry(() => import('./pages/RoofingEstimateList'));
 const RoofingEstimateDetail = lazyWithRetry(() => import('./pages/RoofingEstimateDetail'));
+const RoofingMaterialCost = lazyWithRetry(() => import('./pages/RoofingMaterialCost'));
+const RoofingMaterialPrices = lazyWithRetry(() => import('./pages/RoofingMaterialPrices'));
+const RoofingPricingSettings = lazyWithRetry(() => import('./pages/RoofingPricingSettings'));
 
 // Material Order Pages
 const MaterialOrderPage = lazyWithRetry(() => import('./pages/MaterialOrderPage'));
@@ -152,6 +155,9 @@ const ClaimsLifecycleDashboard = lazyWithRetry(() => import('./pages/ClaimsLifec
 
 // Crew Upload (Public)
 const CrewUploadPage = lazyWithRetry(() => import('./pages/CrewUploadPage'));
+
+// WM Payment Board (Public - manager link)
+const WMPaymentBoardPublic = lazyWithRetry(() => import('./pages/WMPaymentBoardPublic'));
 
 // Contractor Payment Portal (Public)
 const ContractorPaymentPortal = lazyWithRetry(() => import('./pages/ContractorPaymentPortal'));
@@ -244,6 +250,15 @@ const router = createBrowserRouter([
     element: (
       <Suspense fallback={<PageLoader />}>
         <CrewUploadPage />
+      </Suspense>
+    )
+  },
+  // WM Payment Board (공개 - 매니저 수금 확인용, 인증 불필요)
+  {
+    path: "/wm-payments/:token",
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <WMPaymentBoardPublic />
       </Suspense>
     )
   },
@@ -866,6 +881,47 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <RoofingEstimateDetail />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/roofing-estimates/:id/material-cost",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RoofingMaterialCost />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    // Shared across every roofing estimate: the per-unit cost of a
+    // bundle/roll/piece. Quantities live on the estimate screens.
+    path: "/roofing/material-prices",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RoofingMaterialPrices />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    // The other half of the pricing inputs: installed rates, multipliers,
+    // tax and permit fees. Material cost is deliberately not editable
+    // here — that stays on /roofing/material-prices.
+    path: "/roofing/pricing-settings",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RoofingPricingSettings />
           </Suspense>
         </Layout>
       </ProtectedRoute>

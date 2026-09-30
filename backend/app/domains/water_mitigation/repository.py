@@ -62,6 +62,7 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
         search: Optional[str] = None,
         status: Optional[List[str]] = None,
         active: Optional[bool] = None,
+        hide_received: bool = False,
         page: int = 1,
         page_size: int = 50
     ) -> tuple[List[WaterMitigationJob], int]:
@@ -69,6 +70,10 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
 
         Optimized to fetch photo_count in a single query using subquery
         to avoid N+1 query problem.
+
+        hide_received drops jobs whose payment has been received (payment
+        board view). NULL is treated as not received for rows that predate
+        the column.
         """
         from sqlalchemy.orm import aliased, joinedload
 
@@ -113,6 +118,14 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
 
         if active is not None:
             conditions.append(WaterMitigationJob.active == active)
+
+        if hide_received:
+            conditions.append(
+                or_(
+                    WaterMitigationJob.payment_received.is_(False),
+                    WaterMitigationJob.payment_received.is_(None),
+                )
+            )
 
         if conditions:
             query = query.filter(and_(*conditions))
@@ -270,7 +283,9 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         category_filter: Optional[List[str]] = None,
         uncategorized_only: bool = False,
         skip: Optional[int] = None,
-        source_filter: Optional[str] = None
+        source_filter: Optional[str] = None,
+        level_filter: Optional[List[str]] = None,
+        room_filter: Optional[List[str]] = None
     ) -> tuple[List[WMPhoto], Optional[int]]:
         """Find photos for a job with pagination and optional category filtering
 
@@ -325,6 +340,16 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         # Apply source filter
         if source_filter:
             query = query.filter(WMPhoto.source == source_filter)
+
+        # Apply location filters (level/room are free text - simple
+        # case-insensitive match is enough, unlike category's hyphen
+        # normalization which exists for legacy space/underscore variants)
+        if level_filter:
+            normalized_levels = [lvl.lower().strip() for lvl in level_filter]
+            query = query.filter(func.lower(WMPhoto.location_level).in_(normalized_levels))
+        if room_filter:
+            normalized_rooms = [r.lower().strip() for r in room_filter]
+            query = query.filter(func.lower(WMPhoto.location_room).in_(normalized_rooms))
 
         # Get total count (after filters) - only for the first page
         # Skip count for later pages to significantly improve performance.
@@ -401,6 +426,21 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
             counts[cat] += 1
 
         return dict(counts)
+
+    def get_distinct_rooms_for_job(self, job_id: UUID) -> List[str]:
+        """Distinct, previously-used room-name tags for this job's photos.
+
+        Used to power autocomplete suggestions when tagging a photo's
+        location - room is free text, so this is the only source of
+        "known values" (unlike level, which is sourced from the job's
+        WMFloorSketch.floor_label values).
+        """
+        rows = self.db_session.query(WMPhoto.location_room).filter(
+            WMPhoto.job_id == job_id,
+            WMPhoto.location_room.isnot(None),
+            WMPhoto.location_room != ''
+        ).distinct().all()
+        return sorted({r[0] for r in rows})
 
     def find_by_job_with_external_ids(
         self,

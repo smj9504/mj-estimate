@@ -10,6 +10,7 @@ export enum JobStatus {
   SENT_TO_ADJUSTER = "Sent to adjuster",
   FOLLOW_UP = "Follow up",
   PAPERWORK_RECEIVED = "Paperwork received",
+  ESTIMATE_REQUESTED = "Estimate requested",
   CHECK_RECEIVED = "Check received",
   COMPLETE = "Complete"
 }
@@ -20,6 +21,7 @@ export const JOB_STATUS_OPTIONS = [
   { value: JobStatus.SENT_TO_ADJUSTER, label: "Sent to adjuster" },
   { value: JobStatus.FOLLOW_UP, label: "Follow up" },
   { value: JobStatus.PAPERWORK_RECEIVED, label: "Paperwork received" },
+  { value: JobStatus.ESTIMATE_REQUESTED, label: "Estimate requested" },
   { value: JobStatus.CHECK_RECEIVED, label: "Check received" },
   { value: JobStatus.COMPLETE, label: "Complete" }
 ];
@@ -52,6 +54,10 @@ export interface WaterMitigationJob {
 
   // Property & Homeowner Information
   property_address: string;
+  property_street?: string;
+  property_city?: string;
+  property_state?: string;
+  property_zipcode?: string;
   homeowner_name?: string;
   homeowner_phone?: string;
   homeowner_email?: string;
@@ -98,6 +104,15 @@ export interface WaterMitigationJob {
   payment_note?: string;
   notes?: string;
 
+  // Payment board (insurance side + received flag)
+  approved_amount?: number | null;
+  approved_amount_auto?: number | null; // claim's insurance estimate (only with with_insurance)
+  final_amount?: number | null;
+  check_recipient?: CheckRecipient | null;
+  payment_received?: boolean;
+  payment_received_at?: string | null;
+  payment_received_by?: string | null;
+
   // Metadata
   photo_count?: number;
   created_at?: string;
@@ -122,6 +137,10 @@ export interface JobCreateRequest {
 
   // Property & Homeowner Information
   property_address: string;
+  property_street?: string;
+  property_city?: string;
+  property_state?: string;
+  property_zipcode?: string;
   homeowner_name?: string;
   homeowner_phone?: string;
   homeowner_email?: string;
@@ -167,6 +186,43 @@ export interface JobCreateRequest {
 // Alias for backward compatibility
 export type JobCreate = JobCreateRequest;
 
+// Payment board
+export type CheckRecipient = 'contractor' | 'customer';
+
+/** One job as returned through the manager link (read-mostly subset of a job) */
+export interface WMPaymentRow {
+  id: string;
+  property_address: string;
+  homeowner_name?: string | null;
+  status?: string | null;
+  invoice_amount?: number | null;
+  approved_amount?: number | null;
+  approved_amount_auto?: number | null;
+  final_amount?: number | null;
+  check_recipient?: CheckRecipient | null;
+  check_number?: string | null;
+  check_date?: string | null;
+  payment_received: boolean;
+  payment_received_at?: string | null;
+  payment_note?: string | null;
+}
+
+export interface WMPublicBoardResponse {
+  valid: boolean;
+  items: WMPaymentRow[];
+}
+
+export interface WMPaymentBoardToken {
+  id: string;
+  token: string;
+  label?: string | null;
+  is_active: boolean;
+  view_count: number;
+  confirm_count: number;
+  last_accessed_at?: string | null;
+  created_at: string;
+}
+
 export interface JobUpdate {
   company_id?: string; // Optional company assignment
   active?: boolean;
@@ -174,6 +230,10 @@ export interface JobUpdate {
 
   // Property & Homeowner Information
   property_address?: string;
+  property_street?: string;
+  property_city?: string;
+  property_state?: string;
+  property_zipcode?: string;
   homeowner_name?: string;
   homeowner_phone?: string;
   homeowner_email?: string;
@@ -210,6 +270,12 @@ export interface JobUpdate {
   payment_status?: string;
   payment_note?: string;
 
+  // Payment board (received_at/_by are set server-side)
+  approved_amount?: number | null;
+  final_amount?: number | null;
+  check_recipient?: CheckRecipient | null;
+  payment_received?: boolean;
+
   // Integration fields
   companycam_project_id?: string;
   google_sheet_row_number?: number;
@@ -236,6 +302,8 @@ export interface JobFilters {
   search?: string;
   status?: JobStatus[];
   active?: boolean;
+  hide_received?: boolean;
+  with_insurance?: boolean;
   page?: number;
   page_size?: number;
 }
@@ -298,6 +366,8 @@ export interface PhotoMetadata {
   caption?: string;
   show_date: boolean;
   show_description: boolean;
+  location_override?: string;  // Report-only override of the photo's own location tag. Undefined = use the photo's own tag.
+  show_location: boolean;      // Default true — per-photo toggle mirroring show_date
 }
 
 export interface ReportSection {
@@ -307,6 +377,10 @@ export interface ReportSection {
   photos: PhotoMetadata[];
   layout: 'single' | 'two' | 'three' | 'four' | 'six';
   display_order: number;
+  // Section-level date shown beside the section title (ISO YYYY-MM-DD).
+  // Defaults to the same category->date rule the photos follow
+  // (Day 2 -> start+1, Day 3 -> end, otherwise start); undefined = no date shown.
+  section_date?: string;
 }
 
 export interface ReportConfig {
@@ -340,6 +414,9 @@ export interface GenerateReportRequest {
   compress?: boolean;  // Compress PDF (reduce image quality for smaller file size)
   report_date?: string;  // Custom report date (ISO format: YYYY-MM-DD)
   template_variant?: string;  // Template variant: 'a' (default), 'b' (formal), 'c' (modern)
+  show_photo_dates?: boolean;  // Show the captured-date overlay on each photo
+  show_photo_locations?: boolean;  // Show the level/room location tag in each photo's caption
+  persist?: boolean;  // Upload PDF to storage + save as a Document. Default true; set false for preview-only calls.
 }
 
 export interface GenerateReportResponse {

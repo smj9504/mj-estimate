@@ -7,10 +7,13 @@
 # weren't interpreted as shell syntax at all.
 set -e
 
-alembic upgrade head || {
-  echo "Migration failed, stamping as head..."
-  alembic stamp head
-}
+# No `|| alembic stamp head` fallback here, deliberately. Stamping on failure
+# writes the head revision into alembic_version without running the DDL, so the
+# database claims to be migrated while the schema is not - and every later
+# `upgrade head` then sees nothing to do. A Neon branch was left holding an
+# alembic_version row and no other table at all that way.
+# If a migration fails the deploy must fail with it.
+alembic upgrade head
 
 exec uvicorn app.asgi:app --host 0.0.0.0 --port "$PORT" \
   --log-level info --timeout-keep-alive 30 --workers 1

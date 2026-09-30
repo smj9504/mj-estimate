@@ -54,16 +54,28 @@ const WMTextRenderer: React.FC<WMTextRendererProps> = ({
 
     const stageContainer = stage.container();
     const stageBox = stageContainer.getBoundingClientRect();
-    const textPosition = textNode.getAbsolutePosition();
     const stageScale = stage.scaleX();
 
+    /*
+     * getAbsoluteTransform().point({0,0}) maps this node's own origin all the
+     * way to ON-CANVAS pixels — folding in every parent transform plus the
+     * stage's scale and pan. Adding the container's viewport origin then gives
+     * a viewport pixel, so the element is positioned `fixed` on <body> and is
+     * unaffected by whichever ancestor establishes the containing block.
+     *
+     * This previously read `stageBox.top + pos.y * stageScale + stage.y()`,
+     * which double-counted both the scale and the pan: getAbsolutePosition()
+     * already includes them. It only looked correct at scale 1 with no pan.
+     */
+    const onCanvas = textNode.getAbsoluteTransform().point({ x: 0, y: 0 });
+
     const textarea = document.createElement('textarea');
-    stageContainer.appendChild(textarea);
+    document.body.appendChild(textarea);
 
     textarea.value = text;
-    textarea.style.position = 'absolute';
-    textarea.style.top = `${stageBox.top + textPosition.y * stageScale + stage.y()}px`;
-    textarea.style.left = `${stageBox.left + textPosition.x * stageScale + stage.x()}px`;
+    textarea.style.position = 'fixed';
+    textarea.style.top = `${stageBox.top + onCanvas.y}px`;
+    textarea.style.left = `${stageBox.left + onCanvas.x}px`;
     textarea.style.width = `${Math.max(200, textNode.width() * stageScale)}px`;
     textarea.style.fontSize = `${font_size * stageScale}px`;
     textarea.style.fontWeight = bold ? '700' : '400';

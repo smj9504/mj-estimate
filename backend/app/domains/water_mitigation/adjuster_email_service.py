@@ -29,6 +29,140 @@ class AdjusterEmailService:
         return self.database.get_readonly_session()
 
     # ================================================================
+    # Slot Overrides
+    # ================================================================
+
+    SLOT_KEYS = ['photo_report', 'invoice', 'w9', 'cos', 'ewa', 'sketch']
+
+    def _get_slot_overrides(self, session, job_id) -> Dict[str, Any]:
+        """Return {slot_key: WMDocument} for this job's manual slot
+        mappings.
+
+        A user can pin a specific document to a required slot when the
+        automatic document_type matching doesn't find the right one. These
+        take precedence over the type-based lookups in both the readiness
+        check and attachment collection, so the two stay consistent.
+
+        Overrides pointing at a deleted/inactive document are ignored, so a
+        stale mapping degrades back to the automatic behavior rather than
+        breaking the send.
+        """
+        try:
+            from .models import WMDocument, WMDocumentSlotOverride
+
+            rows = (
+                session.query(WMDocumentSlotOverride, WMDocument)
+                .join(
+                    WMDocument,
+                    WMDocument.id == WMDocumentSlotOverride.document_id,
+                )
+                .filter(
+                    WMDocumentSlotOverride.job_id == str(job_id),
+                    WMDocumentSlotOverride.is_active == True,
+                    WMDocument.is_active == True,
+                )
+                .all()
+            )
+            return {ov.slot_key: doc for ov, doc in rows}
+        except Exception as e:
+            # Never let a missing table / bad row block an email send.
+            logger.warning(f"Failed to load document slot overrides: {e}")
+            return {}
+
+    def list_slot_overrides(self, job_id: str) -> Dict[str, Any]:
+        """Return {slot_key: {id, filename, created_at}} for the UI."""
+        session = self._get_readonly_session()
+        try:
+            overrides = self._get_slot_overrides(session, job_id)
+            return {
+                slot: {
+                    "id": str(doc.id),
+                    "filename": doc.filename,
+                    "created_at": (
+                        doc.created_at.isoformat() if doc.created_at else None
+                    ),
+                }
+                for slot, doc in overrides.items()
+            }
+        finally:
+            session.close()
+
+    def set_slot_override(
+        self, job_id: str, slot_key: str, document_id: Optional[str]
+    ) -> Dict[str, Any]:
+        """Pin a document to a slot, or clear the pin when document_id is
+        None. Returns the resulting mapping for that slot."""
+        if slot_key not in self.SLOT_KEYS:
+            raise ValueError(
+                f"Unknown slot '{slot_key}'. "
+                f"Expected one of: {', '.join(self.SLOT_KEYS)}"
+            )
+
+        session = self._get_session()
+        try:
+            from .models import WMDocument, WMDocumentSlotOverride
+
+            existing = (
+                session.query(WMDocumentSlotOverride)
+                .filter(
+                    WMDocumentSlotOverride.job_id == str(job_id),
+                    WMDocumentSlotOverride.slot_key == slot_key,
+                )
+                .first()
+            )
+
+            if not document_id:
+                if existing:
+                    session.delete(existing)
+                    session.commit()
+                return {"slot_key": slot_key, "document": None}
+
+            doc = (
+                session.query(WMDocument)
+                .filter(
+                    WMDocument.id == str(document_id),
+                    WMDocument.job_id == str(job_id),
+                    WMDocument.is_active == True,
+                )
+                .first()
+            )
+            if not doc:
+                raise ValueError(
+                    "Document not found on this job (or has been deleted)"
+                )
+
+            if existing:
+                existing.document_id = doc.id
+                existing.is_active = True
+            else:
+                session.add(WMDocumentSlotOverride(
+                    job_id=str(job_id),
+                    slot_key=slot_key,
+                    document_id=doc.id,
+                ))
+
+            session.commit()
+            logger.info(
+                f"Mapped document {doc.id} ({doc.filename}) "
+                f"to slot '{slot_key}' for job {job_id}"
+            )
+            return {
+                "slot_key": slot_key,
+                "document": {
+                    "id": str(doc.id),
+                    "filename": doc.filename,
+                    "created_at": (
+                        doc.created_at.isoformat() if doc.created_at else None
+                    ),
+                },
+            }
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    # ================================================================
     # Document Readiness
     # ================================================================
 
@@ -45,13 +179,16 @@ class AdjusterEmailService:
             if not job:
                 raise ValueError("Job not found")
 
+            # Manual slot mappings win over the type-based lookups below.
+            overrides = self._get_slot_overrides(session, job_id)
+
             # 1. Photo Report - check WMDocument with document_type containing 'report'
-            photo_report_doc = (
+            photo_report_doc = overrides.get('photo_report') or (
                 session.query(WMDocument)
                 .filter(
                     WMDocument.job_id == job_id,
                     WMDocument.is_active == True,
-                    WMDocument.document_type.in_(['report', 'photo_report']),
+                    WMDocument.document_type.in_(['report', 'photo_report', 'Photo Report']),
                 )
                 .order_by(WMDocument.created_at.desc())
                 .first()
@@ -65,8 +202,8 @@ class AdjusterEmailService:
                 .first()
             )
             # Fallback: uploaded invoice document
-            invoice_doc = None
-            if not invoice_link:
+            invoice_doc = overrides.get('invoice')
+            if not invoice_doc and not invoice_link:
                 invoice_doc = (
                     session.query(WMDocument)
                     .filter(
@@ -83,9 +220,12 @@ class AdjusterEmailService:
                 invoice_link is not None or invoice_doc is not None
             )
 
-            # 3. W9 - check company w9_file_id
-            w9_ready = False
-            if job.company_id:
+            # 3. W9 - an explicitly mapped document wins; otherwise fall
+            # back to the company-level w9_file_id. (Without an override a
+            # W-9 uploaded to the job itself can never satisfy this slot.)
+            w9_doc = overrides.get('w9')
+            w9_ready = w9_doc is not None
+            if not w9_ready and job.company_id:
                 from app.domains.company.models import Company
                 company = session.query(Company).filter(Company.id == job.company_id).first()
                 w9_file_id = getattr(company, 'w9_file_id', None) if company else None
@@ -103,7 +243,7 @@ class AdjusterEmailService:
                 logger.warning(f"W9 readiness: job has no company_id")
 
             # 4. COS - check WMDocument
-            cos_doc = (
+            cos_doc = overrides.get('cos') or (
                 session.query(WMDocument)
                 .filter(
                     WMDocument.job_id == job_id,
@@ -115,7 +255,7 @@ class AdjusterEmailService:
             )
 
             # 5. EWA - check WMDocument
-            ewa_doc = (
+            ewa_doc = overrides.get('ewa') or (
                 session.query(WMDocument)
                 .filter(
                     WMDocument.job_id == job_id,
@@ -129,13 +269,14 @@ class AdjusterEmailService:
             # 6. Sketch - check WMFloorSketch existence, and whether the
             # last-generated sketch_report PDF is stale (floor sketch edited
             # after the PDF was last rendered)
-            sketch_exists = (
+            sketch_override = overrides.get('sketch')
+            sketch_exists = sketch_override is not None or (
                 session.query(WMFloorSketch)
                 .filter(WMFloorSketch.job_id == job_id)
                 .first()
             ) is not None
 
-            sketch_doc = (
+            sketch_doc = sketch_override or (
                 session.query(WMDocument)
                 .filter(
                     WMDocument.job_id == job_id,
@@ -145,8 +286,10 @@ class AdjusterEmailService:
                 .order_by(WMDocument.created_at.desc())
                 .first()
             )
+            # A manually mapped sketch is whatever the user picked - the
+            # floor-sketch-edited-since-render check doesn't apply to it.
             sketch_stale = False
-            if sketch_doc:
+            if sketch_doc and not sketch_override:
                 from .sketch_pdf_service import SketchPdfService
                 sketch_last_modified = SketchPdfService(session).get_last_modified(job_id)
                 doc_generated_at = sketch_doc.updated_at or sketch_doc.created_at
@@ -174,6 +317,7 @@ class AdjusterEmailService:
                 },
                 "w9": {
                     "ready": w9_ready,
+                    "document": _doc_info(w9_doc),
                 },
                 "cos": {
                     "ready": cos_doc is not None,
@@ -366,15 +510,64 @@ class AdjusterEmailService:
                 session, company_id=job.company_id
             )
 
+            # Reply-To / signature identity: the job's assigned company, not
+            # the sending account. A send-only account (e.g. documents@
+            # scopit.work via Resend) has no real inbox, so replies from the
+            # adjuster need to land in the assigned company's own mailbox,
+            # and the signature should show that company's contact info
+            # rather than the sending address.
+            reply_to_info = {"name": "", "email": "", "phone": ""}
+            if job.company_id:
+                from app.domains.company.models import Company
+                reply_company = session.query(Company).filter(
+                    Company.id == job.company_id
+                ).first()
+                if reply_company:
+                    reply_to_info = {
+                        "name": reply_company.name or "",
+                        "email": reply_company.email or "",
+                        "phone": reply_company.phone or "",
+                    }
+
             return {
                 "adjuster": adjuster_info,
                 "pa": pa_info,
                 "job": job_info,
                 "email_accounts": email_accounts,
                 "preset_emails": preset_emails,
+                "reply_to": reply_to_info,
             }
         finally:
             session.close()
+
+    def _get_reply_identity(self, session, job, data: Dict[str, Any]) -> Dict[str, Optional[str]]:
+        """Resolve the From display name for an adjuster email.
+
+        Reply-To and the signature's contact email/phone are deliberately
+        NOT sourced from the job's company here: SmtpService.send() already
+        fills those in from the sending EmailAccount itself (the person who
+        actually sent the email) whenever the account routes through the
+        send-only fallback (e.g. Resend) - that's who the adjuster should
+        be able to reply to and see in the signature, not a generic company
+        mailbox. This only supplies the company name for the "<person> -
+        <company>" From display name pairing.
+        """
+        result: Dict[str, Optional[str]] = {
+            "display_name": data.get("display_name"),
+            "reply_to": data.get("reply_to"),
+            "signature_email": data.get("signature_email"),
+            "signature_phone": data.get("signature_phone"),
+        }
+        if result["display_name"] or not job.company_id:
+            return result
+
+        from app.domains.company.models import Company
+        company = session.query(Company).filter(
+            Company.id == job.company_id
+        ).first()
+        if company:
+            result["display_name"] = company.name or None
+        return result
 
     def _get_email_accounts(self, session, company_id=None) -> List[Dict[str, str]]:
         """Get available email accounts for sending.
@@ -383,7 +576,8 @@ class AdjusterEmailService:
         try:
             from app.domains.email_ingestion.models import EmailAccount
             accounts = session.query(EmailAccount).filter(
-                EmailAccount.is_active == True
+                EmailAccount.is_active == True,
+                EmailAccount.can_send == True,
             ).all()
 
             result = []
@@ -647,6 +841,9 @@ class AdjusterEmailService:
             }
             if data.get("from_address"):
                 send_payload["from_address"] = data["from_address"]
+            send_payload.update(
+                {k: v for k, v in self._get_reply_identity(session, job, data).items() if v}
+            )
             email_result = email_service.send_email(send_payload)
 
             # Update job: documents_sent_date
@@ -755,6 +952,9 @@ class AdjusterEmailService:
             }
             if data.get("from_address"):
                 send_payload["from_address"] = data["from_address"]
+            send_payload.update(
+                {k: v for k, v in self._get_reply_identity(session, job, data).items() if v}
+            )
             email_result = email_service.send_email(send_payload)
 
             # Log claim activity (but do NOT update documents_sent_date or status)
@@ -806,14 +1006,18 @@ class AdjusterEmailService:
         failed_docs = []
         address_short = (job.property_address or "property").split(",")[0].strip()
 
+        # Manual slot mappings win over the type-based lookups below, so the
+        # file attached here matches what the readiness check reported.
+        overrides = self._get_slot_overrides(session, job.id)
+
         # 1. Photo Report
         if "photo_report" in selected_docs:
-            doc = (
+            doc = overrides.get('photo_report') or (
                 session.query(WMDocument)
                 .filter(
                     WMDocument.job_id == str(job.id),
                     WMDocument.is_active == True,
-                    WMDocument.document_type.in_(['report', 'photo_report']),
+                    WMDocument.document_type.in_(['report', 'photo_report', 'Photo Report']),
                 )
                 .order_by(WMDocument.created_at.desc())
                 .first()
@@ -839,7 +1043,10 @@ class AdjusterEmailService:
 
         # 2. Invoice
         if "invoice" in selected_docs:
-            att = self._get_invoice_attachment(session, job, address_short)
+            att = self._get_invoice_attachment(
+                session, job, address_short,
+                override_doc=overrides.get('invoice'),
+            )
             if att:
                 attachments.append(att)
             else:
@@ -847,7 +1054,9 @@ class AdjusterEmailService:
 
         # 3. W9
         if "w9" in selected_docs:
-            att = self._get_w9_attachment(session, job)
+            att = self._get_w9_attachment(
+                session, job, override_doc=overrides.get('w9'),
+            )
             if att:
                 attachments.append(att)
             else:
@@ -855,7 +1064,7 @@ class AdjusterEmailService:
 
         # 4. COS
         if "cos" in selected_docs:
-            doc = (
+            doc = overrides.get('cos') or (
                 session.query(WMDocument)
                 .filter(
                     WMDocument.job_id == str(job.id),
@@ -876,7 +1085,7 @@ class AdjusterEmailService:
 
         # 5. EWA
         if "ewa" in selected_docs:
-            doc = (
+            doc = overrides.get('ewa') or (
                 session.query(WMDocument)
                 .filter(
                     WMDocument.job_id == str(job.id),
@@ -897,7 +1106,10 @@ class AdjusterEmailService:
 
         # 6. Sketch
         if "sketch" in selected_docs:
-            att = self._get_sketch_attachment(session, job, address_short)
+            att = self._get_sketch_attachment(
+                session, job, address_short,
+                override_doc=overrides.get('sketch'),
+            )
             if att:
                 attachments.append(att)
             else:
@@ -1083,16 +1295,20 @@ class AdjusterEmailService:
             return None
 
     def _get_invoice_attachment(
-        self, session, job, address_short: str
+        self, session, job, address_short: str, override_doc=None
     ) -> Optional[Dict[str, Any]]:
         """Use uploaded invoice WMDocument first; fall back to
-        on-the-fly PDF generation from WMScopeInvoice."""
+        on-the-fly PDF generation from WMScopeInvoice.
+
+        A manually mapped document (override_doc) wins over both.
+        """
         try:
             from .models import WMScopeInvoice, WMDocument
             from app.domains.invoice.service import InvoiceService
 
+            # --- Priority 0: manually mapped document ---
             # --- Priority 1: uploaded invoice document ---
-            inv_doc = (
+            inv_doc = override_doc or (
                 session.query(WMDocument)
                 .filter(
                     WMDocument.job_id == str(job.id),
@@ -1255,9 +1471,20 @@ class AdjusterEmailService:
             )
             return None
 
-    def _get_w9_attachment(self, session, job) -> Optional[Dict[str, Any]]:
-        """Get company W9 file as attachment."""
+    def _get_w9_attachment(
+        self, session, job, override_doc=None
+    ) -> Optional[Dict[str, Any]]:
+        """Get company W9 file as attachment.
+
+        A manually mapped job document wins over the company-level W-9,
+        which is otherwise the only thing that can satisfy this slot.
+        """
         try:
+            if override_doc is not None:
+                return self._attachment_from_wm_document(
+                    override_doc, "W9.pdf"
+                )
+
             if not job.company_id:
                 logger.warning("W9: job has no company_id")
                 return None
@@ -1321,7 +1548,7 @@ class AdjusterEmailService:
             return None
 
     def _get_sketch_attachment(
-        self, session, job, address_short: str
+        self, session, job, address_short: str, override_doc=None
     ) -> Optional[Dict[str, Any]]:
         """Use the previously generated sketch_report WMDocument if one
         exists (avoids re-rendering through the headless browser on every
@@ -1332,6 +1559,13 @@ class AdjusterEmailService:
         try:
             from .models import WMDocument
             from .sketch_pdf_service import SketchPdfService
+
+            # A manually mapped document wins; it is attached as-is and is
+            # never regenerated from the floor sketch.
+            if override_doc is not None:
+                return self._attachment_from_wm_document(
+                    override_doc, f"Sketch - {address_short}.pdf"
+                )
 
             doc = (
                 session.query(WMDocument)

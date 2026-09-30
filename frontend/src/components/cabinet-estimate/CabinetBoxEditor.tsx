@@ -18,7 +18,7 @@ import type { CabinetBoxCreate, CabinetLocation, CabType, SpecialtyType } from '
 const { Text } = Typography;
 
 // Common cabinet codes with default dimensions
-const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number; height: number; specialty?: SpecialtyType; label: string }> = {
+export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number; height: number; specialty?: SpecialtyType; label: string }> = {
   // Base
   'B9':  { cab_type: 'base', width: 9,  height: 34.5, label: 'Base 9"' },
   'B12': { cab_type: 'base', width: 12, height: 34.5, label: 'Base 12"' },
@@ -52,11 +52,30 @@ const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number; height
   // Base - Lazy Susan
   'LS33': { cab_type: 'base', width: 33, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan 33"' },
   'LS36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan 36"' },
+  // Base - Trash / recycle pull-out (standard in a new kitchen)
+  'TP15': { cab_type: 'base', width: 15, height: 34.5, specialty: 'trash_pullout', label: 'Trash Pull-out 15"' },
+  'TP18': { cab_type: 'base', width: 18, height: 34.5, specialty: 'trash_pullout', label: 'Trash Pull-out 18"' },
+  'TP21': { cab_type: 'base', width: 21, height: 34.5, specialty: 'trash_pullout', label: 'Trash Pull-out 21"' },
+  'TP24': { cab_type: 'base', width: 24, height: 34.5, specialty: 'trash_pullout', label: 'Trash Pull-out 24"' },
+  // Base - Farmhouse / apron sink base (front cut away for the apron)
+  'FSB30': { cab_type: 'base', width: 30, height: 34.5, specialty: 'farmhouse_sink_base', label: 'Farmhouse Sink Base 30"' },
+  'FSB33': { cab_type: 'base', width: 33, height: 34.5, specialty: 'farmhouse_sink_base', label: 'Farmhouse Sink Base 33"' },
+  'FSB36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'farmhouse_sink_base', label: 'Farmhouse Sink Base 36"' },
+  // Base - Microwave drawer base
+  'MWD24': { cab_type: 'base', width: 24, height: 34.5, specialty: 'microwave_drawer_base', label: 'Microwave Drawer 24"' },
+  'MWD27': { cab_type: 'base', width: 27, height: 34.5, specialty: 'microwave_drawer_base', label: 'Microwave Drawer 27"' },
+  'MWD30': { cab_type: 'base', width: 30, height: 34.5, specialty: 'microwave_drawer_base', label: 'Microwave Drawer 30"' },
+  // Base - Range Base (opening for the range; panels/build priced separately)
+  'RB30S': { cab_type: 'base', width: 30, height: 34.5, specialty: 'range_base_slide_in', label: 'Range Base 30" (Slide-in)' },
+  'RB36S': { cab_type: 'base', width: 36, height: 34.5, specialty: 'range_base_slide_in', label: 'Range Base 36" (Slide-in)' },
+  'RB40S': { cab_type: 'base', width: 40, height: 34.5, specialty: 'range_base_slide_in', label: 'Range Base 40" (Slide-in)' },
+  'RB30D': { cab_type: 'base', width: 30, height: 34.5, specialty: 'range_base_drop_in', label: 'Range Base 30" (Drop-in)' },
+  'RB36D': { cab_type: 'base', width: 36, height: 34.5, specialty: 'range_base_drop_in', label: 'Range Base 36" (Drop-in)' },
+  'RB40D': { cab_type: 'base', width: 40, height: 34.5, specialty: 'range_base_drop_in', label: 'Range Base 40" (Drop-in)' },
   // Wall - Standard (30"H)
   'W0930': { cab_type: 'wall', width: 9,  height: 30, label: '9"W x 30"H' },
   'W1230': { cab_type: 'wall', width: 12, height: 30, label: '12"W x 30"H' },
   'W1530': { cab_type: 'wall', width: 15, height: 30, label: '15"W x 30"H' },
-  'W1630': { cab_type: 'wall', width: 16, height: 30, label: '16"W x 30"H' },
   'W1830': { cab_type: 'wall', width: 18, height: 30, label: '18"W x 30"H' },
   'W2130': { cab_type: 'wall', width: 21, height: 30, label: '21"W x 30"H' },
   'W2430': { cab_type: 'wall', width: 24, height: 30, label: '24"W x 30"H' },
@@ -106,28 +125,65 @@ const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number; height
   // Wall - Specialty
   'WDC24': { cab_type: 'wall', width: 24, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"' },
   'WDC27': { cab_type: 'wall', width: 27, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 27"' },
-  // Tall - Pantry
+  'WBC24': { cab_type: 'wall', width: 24, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 24"' },
+  'WBC27': { cab_type: 'wall', width: 27, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 27"' },
+  'WBC30': { cab_type: 'wall', width: 30, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 30"' },
+  'WBC33': { cab_type: 'wall', width: 33, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 33"' },
+  // Wall - OTR microwave cabinet (18"H with cut-out + venting)
+  'WMW30': { cab_type: 'wall', width: 30, height: 18, specialty: 'otr_microwave_wall', label: 'OTR Microwave 30"' },
+  'WMW33': { cab_type: 'wall', width: 33, height: 18, specialty: 'otr_microwave_wall', label: 'OTR Microwave 33"' },
+  'WMW36': { cab_type: 'wall', width: 36, height: 18, specialty: 'otr_microwave_wall', label: 'OTR Microwave 36"' },
+  // Wall - Deep upper over a refrigerator (24" deep, not 12")
+  'WRD30': { cab_type: 'wall', width: 30, height: 24, specialty: 'refrigerator_wall_deep', label: 'Fridge Deep Upper 30"' },
+  'WRD33': { cab_type: 'wall', width: 33, height: 24, specialty: 'refrigerator_wall_deep', label: 'Fridge Deep Upper 33"' },
+  'WRD36': { cab_type: 'wall', width: 36, height: 24, specialty: 'refrigerator_wall_deep', label: 'Fridge Deep Upper 36"' },
+  'WRD42': { cab_type: 'wall', width: 42, height: 24, specialty: 'refrigerator_wall_deep', label: 'Fridge Deep Upper 42"' },
+  // Tall - Pantry (widths 18/24/30/36 x heights 84/90/96)
   'T1884': { cab_type: 'tall', width: 18, height: 84, label: 'Tall 18"x84"' },
   'T2484': { cab_type: 'tall', width: 24, height: 84, label: 'Tall 24"x84"' },
   'T3084': { cab_type: 'tall', width: 30, height: 84, label: 'Tall 30"x84"' },
   'T3684': { cab_type: 'tall', width: 36, height: 84, label: 'Tall 36"x84"' },
   'T1890': { cab_type: 'tall', width: 18, height: 90, label: 'Tall 18"x90"' },
   'T2490': { cab_type: 'tall', width: 24, height: 90, label: 'Tall 24"x90"' },
+  'T3090': { cab_type: 'tall', width: 30, height: 90, label: 'Tall 30"x90"' },
+  'T3690': { cab_type: 'tall', width: 36, height: 90, label: 'Tall 36"x90"' },
+  'T1896': { cab_type: 'tall', width: 18, height: 96, label: 'Tall 18"x96"' },
+  'T2496': { cab_type: 'tall', width: 24, height: 96, label: 'Tall 24"x96"' },
   'T3096': { cab_type: 'tall', width: 30, height: 96, label: 'Tall 30"x96"' },
   'T3696': { cab_type: 'tall', width: 36, height: 96, label: 'Tall 36"x96"' },
-  // Tall - Oven
-  'OC3384': { cab_type: 'tall', width: 33, height: 84, specialty: 'oven_cabinet', label: 'Oven Cabinet 33"x84"' },
-  'OC3396': { cab_type: 'tall', width: 33, height: 96, specialty: 'oven_cabinet', label: 'Oven Cabinet 33"x96"' },
+  // Tall - Pantry, non-standard width (38")
+  'T3884': { cab_type: 'tall', width: 38, height: 84, label: 'Tall 38"x84"' },
+  'T3890': { cab_type: 'tall', width: 38, height: 90, label: 'Tall 38"x90"' },
+  'T3896': { cab_type: 'tall', width: 38, height: 96, label: 'Tall 38"x96"' },
+  // Tall - Oven (widths 30/33 x heights 84/90/96)
   'OC3084': { cab_type: 'tall', width: 30, height: 84, specialty: 'oven_cabinet', label: 'Oven Cabinet 30"x84"' },
-  // Tall - Refrigerator
-  'RC3684': { cab_type: 'tall', width: 36, height: 84, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 36"x84"' },
-  'RC3696': { cab_type: 'tall', width: 36, height: 96, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 36"x96"' },
+  'OC3090': { cab_type: 'tall', width: 30, height: 90, specialty: 'oven_cabinet', label: 'Oven Cabinet 30"x90"' },
+  'OC3096': { cab_type: 'tall', width: 30, height: 96, specialty: 'oven_cabinet', label: 'Oven Cabinet 30"x96"' },
+  'OC3384': { cab_type: 'tall', width: 33, height: 84, specialty: 'oven_cabinet', label: 'Oven Cabinet 33"x84"' },
+  'OC3390': { cab_type: 'tall', width: 33, height: 90, specialty: 'oven_cabinet', label: 'Oven Cabinet 33"x90"' },
+  'OC3396': { cab_type: 'tall', width: 33, height: 96, specialty: 'oven_cabinet', label: 'Oven Cabinet 33"x96"' },
+  // Tall - Refrigerator (widths 33/36 x heights 84/90/96)
   'RC3384': { cab_type: 'tall', width: 33, height: 84, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 33"x84"' },
+  'RC3390': { cab_type: 'tall', width: 33, height: 90, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 33"x90"' },
+  'RC3396': { cab_type: 'tall', width: 33, height: 96, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 33"x96"' },
+  'RC3684': { cab_type: 'tall', width: 36, height: 84, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 36"x84"' },
+  'RC3690': { cab_type: 'tall', width: 36, height: 90, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 36"x90"' },
+  'RC3696': { cab_type: 'tall', width: 36, height: 96, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 36"x96"' },
+  // Tall - Double oven / oven+microwave stack (taller cut-out)
+  'DOC3084': { cab_type: 'tall', width: 30, height: 84, specialty: 'double_oven_cabinet', label: 'Double Oven 30"x84"' },
+  'DOC3090': { cab_type: 'tall', width: 30, height: 90, specialty: 'double_oven_cabinet', label: 'Double Oven 30"x90"' },
+  'DOC3384': { cab_type: 'tall', width: 33, height: 84, specialty: 'double_oven_cabinet', label: 'Double Oven 33"x84"' },
+  'DOC3390': { cab_type: 'tall', width: 33, height: 90, specialty: 'double_oven_cabinet', label: 'Double Oven 33"x90"' },
+  // Tall - Pantry with roll-out trays
+  'PRO2484': { cab_type: 'tall', width: 24, height: 84, specialty: 'pantry_rollout', label: 'Pantry Roll-out 24"x84"' },
+  'PRO3084': { cab_type: 'tall', width: 30, height: 84, specialty: 'pantry_rollout', label: 'Pantry Roll-out 30"x84"' },
+  'PRO3384': { cab_type: 'tall', width: 33, height: 84, specialty: 'pantry_rollout', label: 'Pantry Roll-out 33"x84"' },
+  'PRO3684': { cab_type: 'tall', width: 36, height: 84, specialty: 'pantry_rollout', label: 'Pantry Roll-out 36"x84"' },
 };
 
 const CUSTOM_VALUE = '__custom__';
 
-type SectionType = 'base' | 'wall' | 'tall';
+export type SectionType = 'base' | 'wall' | 'tall';
 
 const SECTION_CONFIG: { type: SectionType; label: string; color: string; unit: string }[] = [
   { type: 'base', label: 'Base Cabinets', color: 'blue', unit: 'LF' },
@@ -135,7 +191,7 @@ const SECTION_CONFIG: { type: SectionType; label: string; color: string; unit: s
   { type: 'tall', label: 'Tall Cabinets', color: 'orange', unit: 'EA' },
 ];
 
-function getOptionsForType(cabType: SectionType) {
+export function getOptionsForType(cabType: SectionType) {
   const entries = Object.entries(CABINET_PRESETS).filter(([, v]) => v.cab_type === cabType);
 
   if (cabType === 'base') {
@@ -256,6 +312,8 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
       is_specialty: !!preset.specialty,
       specialty_type: preset.specialty || null,
       has_glass_door: false,
+      range_panel_count:
+        preset.specialty === 'range_base_slide_in' ? 2 : null,
       qty: 1,
       display_order: boxes.length,
     };
@@ -307,6 +365,8 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
         height_inches: preset.height,
         is_specialty: !!preset.specialty,
         specialty_type: preset.specialty || null,
+        range_panel_count:
+          preset.specialty === 'range_base_slide_in' ? 2 : null,
       });
     }
   };
@@ -392,6 +452,32 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
           <Tag color="orange">{record.specialty_type.replace(/_/g, ' ')}</Tag>
         ) : <Text type="secondary">—</Text>
       ),
+    }] : []),
+    ...(cabType === 'base' ? [{
+      title: 'Panels',
+      dataIndex: 'range_panel_count',
+      width: 90,
+      render: (_: number, record: CabinetBoxCreate & { _localIdx: number }) => {
+        if (record.specialty_type !== 'range_base_slide_in') {
+          return <Text type="secondary">—</Text>;
+        }
+        const gi = getGlobalIndex(cabType, record._localIdx);
+        return (
+          <Tooltip title="Finished end panels flanking the range opening">
+            <Select
+              size="small"
+              style={{ width: 60 }}
+              value={record.range_panel_count ?? 2}
+              onChange={(v: number) => updateBox(gi, { range_panel_count: v })}
+              options={[
+                { label: '0', value: 0 },
+                { label: '1', value: 1 },
+                { label: '2', value: 2 },
+              ]}
+            />
+          </Tooltip>
+        );
+      },
     }] : []),
     ...((cabType === 'wall' || cabType === 'base') ? [{
       title: 'Glass',

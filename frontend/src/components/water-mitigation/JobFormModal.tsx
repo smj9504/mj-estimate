@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect } from 'react';
-import { Modal, Form, Input, DatePicker, Switch, Select, Button, Space, message } from 'antd';
+import { Modal, Form, Input, DatePicker, Switch, Select, Button, Space, Row, Col, message } from 'antd';
 import { PlusOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import AddressAutocomplete from '../common/AddressAutocomplete';
@@ -49,7 +49,13 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
         // Edit mode - populate form with job data
         form.setFieldsValue({
           company_id: job.company_id,
-          property_address: job.property_address,
+          // The input shows the street only; city/state/zip have their own
+          // fields. Older jobs have no property_street, so fall back to the
+          // full address rather than showing an empty box.
+          property_address: job.property_street || job.property_address,
+          property_city: job.property_city,
+          property_state: job.property_state,
+          property_zipcode: job.property_zipcode,
           companycam_project_id: job.companycam_project_id,
           homeowner_name: job.homeowner_name,
           homeowner_phone: job.homeowner_phone,
@@ -108,9 +114,16 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
       const values = await form.validateFields();
       setLoading(true);
 
+      // The address input holds the street only (AddressAutocomplete moves
+      // city/state/zip into their own fields). Send it as property_street and
+      // let the backend compose/keep property_address - it owns that format
+      // and re-derives any component the form left blank.
+      const street = (values.property_address || '').trim();
+
       // Convert dates to ISO strings
       const payload: JobCreateRequest = {
         ...values,
+        property_street: street || undefined,
         date_of_loss: values.date_of_loss ? values.date_of_loss.toISOString() : null,
         mitigation_start_date: values.mitigation_start_date ? values.mitigation_start_date.toISOString() : null,
         mitigation_end_date: values.mitigation_end_date ? values.mitigation_end_date.toISOString() : null,
@@ -166,8 +179,33 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
           name="property_address"
           rules={[{ required: true, message: 'Please enter property address' }]}
         >
-          <AddressAutocomplete placeholder="123 Main St, City, State ZIP" />
+          <AddressAutocomplete
+            placeholder="123 Main St"
+            onSelect={(addr) => form.setFieldsValue({
+              property_city: addr.city,
+              property_state: addr.state,
+              property_zipcode: addr.zip,
+            })}
+          />
         </Form.Item>
+
+        <Row gutter={16}>
+          <Col xs={24} sm={10}>
+            <Form.Item label="City" name="property_city">
+              <Input placeholder="Clifton" />
+            </Form.Item>
+          </Col>
+          <Col xs={12} sm={7}>
+            <Form.Item label="State" name="property_state">
+              <Input placeholder="VA" maxLength={2} />
+            </Form.Item>
+          </Col>
+          <Col xs={12} sm={7}>
+            <Form.Item label="Zip Code" name="property_zipcode">
+              <Input placeholder="20124" />
+            </Form.Item>
+          </Col>
+        </Row>
 
         {/* Company Assignment */}
         <Form.Item

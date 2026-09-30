@@ -108,6 +108,26 @@ class WaterMitigationJob(Base, BaseModel):
     payment_status = Column(String(50), comment="pending | issued | homeowner_holding | lost | reissued | received | partial")
     payment_note = Column(Text)
 
+    # Payment board (see payment_board_models.py)
+    # invoice_amount above is our invoice; these are the insurance side.
+    approved_amount = Column(DECIMAL(10, 2), comment="Amount approved by the insurance company")
+    final_amount = Column(
+        DECIMAL(10, 2),
+        comment="Final amount after negotiating down from approved_amount (optional)"
+    )
+    check_recipient = Column(String(20), comment="Who the check went to: contractor | customer")
+    # Deliberately separate from payment_status: the no-login manager link writes
+    # this and must never be able to overwrite a lost/reissued lifecycle state.
+    payment_received = Column(
+        Boolean, default=False, nullable=False, server_default='false',
+        comment="Has the payment been received (binary)"
+    )
+    payment_received_at = Column(DateTime(timezone=True), comment="When payment_received was last set true")
+    payment_received_by = Column(
+        String(100),
+        comment="Who confirmed: 'admin:<staff_id>' or 'public_link'"
+    )
+
     # External integration references
     companycam_project_id = Column(String(255), unique=True, index=True)
     google_sheet_row_number = Column(Integer, index=True)
@@ -199,6 +219,7 @@ class WMPhoto(Base, BaseModel):
         Index('ix_wm_photos_job_trashed', 'job_id', 'is_trashed'),
         Index('ix_wm_photos_category', 'category'),
         Index('ix_wm_photos_captured_date', 'captured_date'),
+        Index('ix_wm_photos_location_level', 'location_level'),
         {'extend_existing': True}
     )
 
@@ -226,6 +247,13 @@ class WMPhoto(Base, BaseModel):
     description = Column(Text)
     captured_date = Column(DateTime(timezone=True))
     category = Column(String(100), default='')  # Photo category - empty by default
+
+    # Location tag - which floor/room the photo was taken in.
+    # Free text, not FK'd to WMFloorSketch: location_level is sourced from
+    # (but not enforced against) that job's WMFloorSketch.floor_label values,
+    # so a later floor rename/delete doesn't cascade or orphan tagged photos.
+    location_level = Column(String(100), nullable=True)  # e.g. "Basement", "1st Floor"
+    location_room = Column(String(100), nullable=True)  # e.g. "Kitchen", "Master Bedroom"
 
     upload_status = Column(String(50), default='completed')
     uploaded_by_id = Column(UUIDType(), ForeignKey("staff.id"))
@@ -1125,3 +1153,47 @@ class WMInvoiceItemConfig(Base, BaseModel):
     scope_item = relationship("WMScopeItem")
     standard_scope_item = relationship("WMStandardScopeItem")
     line_item = relationship("LineItem")
+
+
+class WMDocumentSlotOverride(Base, BaseModel):
+    """Manual mapping of a job document to a required adjuster-email slot.
+
+    The adjuster email expects six documents (photo_report, invoice, w9,
+    cos, ewa, sketch). Normally each slot is filled by matching
+    WMDocument.document_type against a hard-coded list, which fails when a
+    document is tagged differently, when several documents share a type and
+    the newest is not the one wanted, or - for w9/sketch - when readiness
+    looks somewhere other than the job's documents entirely.
+
+    A row here pins one specific document to one slot for one job and takes
+    precedence over the automatic matching. One row per (job, slot).
+    """
+    __tablename__ = "wm_document_slot_overrides"
+    __table_args__ = (
+        Index(
+            'ix_wm_doc_slot_override_job_slot',
+            'job_id', 'slot_key',
+            unique=True,
+        ),
+        {'extend_existing': True}
+    )
+
+    job_id = Column(
+        UUIDType(),
+        ForeignKey("water_mitigation_jobs.id"),
+        nullable=False,
+    )
+    slot_key = Column(
+        String(30),
+        nullable=False,
+        comment="photo_report | invoice | w9 | cos | ewa | sketch",
+    )
+    document_id = Column(
+        UUIDType(),
+        ForeignKey("wm_documents.id"),
+        nullable=False,
+    )
+
+    # Relationships
+    job = relationship("WaterMitigationJob")
+    document = relationship("WMDocument")

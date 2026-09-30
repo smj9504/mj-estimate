@@ -35,11 +35,13 @@ import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { cabinetEstimateService } from '../services/cabinetEstimateService';
 import { clientService, claimService } from '../services/clientService';
 import { companyService } from '../services/companyService';
-import CabinetBoxEditor from '../components/cabinet-estimate/CabinetBoxEditor';
+import CabinetBoxEditor, { CABINET_PRESETS } from '../components/cabinet-estimate/CabinetBoxEditor';
 import CabinetEstimateResult from '../components/cabinet-estimate/CabinetEstimateResult';
 import CabinetPurchaseOrder from '../components/cabinet-estimate/CabinetPurchaseOrder';
 import CabinetEstimateHistory from '../components/cabinet-estimate/CabinetEstimateHistory';
+import CabinetSketchEditor from '../components/cabinet-estimate/sketch/CabinetSketchEditor';
 import type { CabinetBoxCreate, CabinetEstimate, CabinetEstimateUpdate } from '../types/cabinetEstimate';
+import type { CabType } from '../types/cabinetEstimate';
 import type { Claim } from '../types/client';
 
 const RegisterBidItemModal = React.lazy(() => import('../components/supplement/RegisterBidItemModal'));
@@ -131,6 +133,16 @@ const FALLBACK_SCOPE_RATES: Record<string, number> = {
   drywall_patch_per_sf: 2.75, drywall_rr_per_sf: 5.0,
 };
 
+// Island panel heights offered in the End/Back Panel selectors, in feet.
+// Islands are built at base-cabinet (34.5"), work (36") or bar (42") height;
+// 84" covers a full-height panel.
+const ISLAND_PANEL_HEIGHTS: { label: string; value: number }[] = [
+  { label: '34.5" (Base Cabinet)', value: 2.875 },
+  { label: '36" (Counter Height)', value: 3 },
+  { label: '42" (Bar Height)', value: 3.5 },
+  { label: '84" (Full Height)', value: 7 },
+];
+
 const CabinetEstimateDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -147,8 +159,12 @@ const CabinetEstimateDetail: React.FC = () => {
   // Watch island panel SF values for reactive LF display
   const endPanelSf = Form.useWatch('island_end_panel_sqft', form) || 0;
   const backPanelSf = Form.useWatch('island_back_panel_sqft', form) || 0;
-  const [endPanelHeight, setEndPanelHeight] = useState<'base' | 'tall'>('base');
-  const [backPanelHeight, setBackPanelHeight] = useState<'base' | 'tall'>('base');
+  // Island panel heights, in feet — the LF <-> SF conversion below is the
+  // only place height is used; the backend stores panels as plain SF.
+  // 34.5" is the base-cabinet panel, 36"/42" are work- and bar-height
+  // islands, 84" is a full-height panel.
+  const [endPanelHeight, setEndPanelHeight] = useState<number>(2.875);
+  const [backPanelHeight, setBackPanelHeight] = useState<number>(2.875);
 
   // ── Fetch pricing options ──
   const { data: pricingInfo } = useQuery({
@@ -272,11 +288,18 @@ const CabinetEstimateDetail: React.FC = () => {
         box_material: estimate.box_material,
         finish: estimate.finish,
         door_style: estimate.door_style,
+        overlay_style: estimate.overlay_style || 'Full Overlay',
+        pricing_basis: estimate.pricing_basis || 'INSURANCE_DR',
         include_demo: estimate.include_demo,
         include_install: estimate.include_install,
         include_delivery: estimate.include_delivery,
         include_plumbing: estimate.include_plumbing,
         sink_type: estimate.sink_type || 'single',
+        include_aav: estimate.include_aav ?? false,
+        include_air_gap: estimate.include_air_gap ?? false,
+        include_soap_dispenser: estimate.include_soap_dispenser ?? false,
+        include_instant_hot: estimate.include_instant_hot ?? false,
+        include_dw_hookup: estimate.include_dw_hookup ?? false,
         include_countertop_reset: estimate.include_countertop_reset,
         include_hardware: estimate.include_hardware,
         include_crown_molding: estimate.include_crown_molding,
@@ -298,6 +321,15 @@ const CabinetEstimateDetail: React.FC = () => {
         include_dumpster: estimate.include_dumpster ?? true,
         include_electrical: estimate.include_electrical ?? false,
         include_permit: estimate.include_permit ?? false,
+        filler_count: estimate.filler_count ?? 0,
+        end_panel_base: estimate.end_panel_counts?.base ?? 0,
+        end_panel_wall: estimate.end_panel_counts?.wall ?? 0,
+        end_panel_tall: estimate.end_panel_counts?.tall ?? 0,
+        end_panel_refrigerator: estimate.end_panel_counts?.refrigerator ?? 0,
+        dishwasher_return_panel_count:
+          estimate.dishwasher_return_panel_count ?? 0,
+        include_light_rail: estimate.include_light_rail ?? false,
+        light_rail_lf: estimate.light_rail_lf ?? undefined,
         outlet_relocation_count: estimate.outlet_relocation_count ?? 0,
         delivery_floor: estimate.delivery_floor || 1,
         island_type: estimate.island_type || 'custom',
@@ -380,37 +412,56 @@ const CabinetEstimateDetail: React.FC = () => {
     display_order: i,
   }));
 
+  // Build the API payload from the form store.
+  // Read from the store, not validateFields(): conditionally rendered
+  // sections (e.g. Island Countertop, which hides when the island has no
+  // boxes) are unmounted, and validateFields() only returns mounted
+  // fields - their values would be dropped silently.
+  // The end_panel_* fields are flat in the form (one InputNumber each)
+  // but the API takes them as a single object, so they are reassembled
+  // here and stripped from the top level.
+  const buildPayload = useCallback((): CabinetEstimateUpdate => {
+    const {
+      backsplash_height_inches: _bh,
+      end_panel_base: epBase,
+      end_panel_wall: epWall,
+      end_panel_tall: epTall,
+      end_panel_refrigerator: epFridge,
+      ...values
+    } = form.getFieldsValue(true);
+    return {
+      ...values,
+      end_panel_counts: {
+        base: epBase ?? 0,
+        wall: epWall ?? 0,
+        tall: epTall ?? 0,
+        refrigerator: epFridge ?? 0,
+      },
+      overhead_pct: (values.overhead_pct ?? 0) / 100,
+      profit_pct: (values.profit_pct ?? 0) / 100,
+      boxes: allBoxes,
+    };
+  }, [form, allBoxes]);
+
   // ── Save handler ──
   const handleSave = useCallback(async () => {
     try {
-      const { backsplash_height_inches: _, ...values } = await form.validateFields();
-      const payload: CabinetEstimateUpdate = {
-        ...values,
-        overhead_pct: (values.overhead_pct ?? 0) / 100,
-        profit_pct: (values.profit_pct ?? 0) / 100,
-        boxes: allBoxes,
-      };
-      saveMutation.mutate(payload);
+      await form.validateFields();
+      saveMutation.mutate(buildPayload());
     } catch {
       message.warning('Please fill required fields');
     }
-  }, [form, allBoxes, saveMutation]);
+  }, [form, buildPayload, saveMutation]);
 
   // ── Save & Calculate (single API call) ──
   const handleCalculate = useCallback(async () => {
     try {
-      const { backsplash_height_inches: _, ...values } = await form.validateFields();
-      const payload: CabinetEstimateUpdate = {
-        ...values,
-        overhead_pct: (values.overhead_pct ?? 0) / 100,
-        profit_pct: (values.profit_pct ?? 0) / 100,
-        boxes: allBoxes,
-      };
-      calculateMutation.mutate(payload);
+      await form.validateFields();
+      calculateMutation.mutate(buildPayload());
     } catch {
       message.warning('Please fill required fields before calculating');
     }
-  }, [form, allBoxes, calculateMutation]);
+  }, [form, buildPayload, calculateMutation]);
 
   if (isLoading) {
     return (
@@ -582,6 +633,17 @@ const CabinetEstimateDetail: React.FC = () => {
                         <AddressAutocomplete
                           placeholder="123 Main St, Bethesda, MD 20815"
                           onSelect={(addr) => form.setFieldsValue({
+                            // AddressAutocomplete puts only the street in the
+                            // input, expecting city/state to have their own
+                            // fields. This estimate stores one composite
+                            // address, so rebuild the full address here -
+                            // otherwise the city/state are dropped and the
+                            // screen and PDF show a street-only address.
+                            property_address: [
+                              addr.streetAddress,
+                              addr.city,
+                              [addr.state, addr.zip].filter(Boolean).join(' '),
+                            ].filter(Boolean).join(', '),
                             zip_code: addr.zip,
                           })}
                         />
@@ -617,8 +679,37 @@ const CabinetEstimateDetail: React.FC = () => {
                   </Form.Item>
                 </Card>
 
-                {/* Specifications */}
-                <Card size="small" title="Cabinet Tier" style={{ marginBottom: 16 }}>
+                {/* Specifications — each of these scales cabinet supply cost */}
+                <Card size="small" title="Cabinet Specifications" style={{ marginBottom: 16 }}>
+                  {/* The basis decides which price list the whole estimate
+                      is quoted from. It is first because changing it later
+                      moves every basis-sensitive line. */}
+                  <Form.Item
+                    name="pricing_basis"
+                    label="Pricing Basis"
+                    tooltip="An insurance claim and a retail remodel price the same work differently. Appliance resets differ most: a carrier pays crew time, a homeowner also pays a trip minimum."
+                    style={{ marginBottom: 12 }}
+                  >
+                    <Radio.Group>
+                      {(pricingInfo?.pricing_bases || []).map((b) => (
+                        <Radio.Button key={b.key} value={b.key} title={b.description}>
+                          {b.label}
+                        </Radio.Button>
+                      ))}
+                    </Radio.Group>
+                  </Form.Item>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.pricing_basis !== cur.pricing_basis}>
+                    {({ getFieldValue }) => {
+                      const key = getFieldValue('pricing_basis');
+                      const info = (pricingInfo?.pricing_bases || []).find((b) => b.key === key);
+                      if (!info) return null;
+                      return (
+                        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 12 }}>
+                          {info.description}
+                        </Text>
+                      );
+                    }}
+                  </Form.Item>
                   <Row gutter={16}>
                     <Col xs={24} md={8}>
                       <Form.Item
@@ -629,6 +720,58 @@ const CabinetEstimateDetail: React.FC = () => {
                         <Select
                           placeholder="Select tier"
                           options={pricingInfo?.tiers?.map((t) => ({ label: t, value: t })) || []}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={12} md={8}>
+                      <Form.Item
+                        name="box_material"
+                        label="Box Material"
+                        tooltip="What the box carcass is built from. Plywood is the baseline; MDF −8%, Particle −12%."
+                      >
+                        <Select
+                          placeholder="Plywood"
+                          allowClear
+                          options={pricingInfo?.materials?.map((m) => ({ label: m, value: m })) || []}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={12} md={8}>
+                      <Form.Item
+                        name="finish"
+                        label="Finish"
+                        tooltip="Stained is the baseline. Painted +15%, Glazed +25% (confirm glaze upcharge with the supplier — it varies 0-50% by manufacturer), Laminate −15%."
+                      >
+                        <Select
+                          placeholder="Stained"
+                          allowClear
+                          options={pricingInfo?.finishes?.map((f) => ({ label: f, value: f })) || []}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={12} md={8}>
+                      <Form.Item
+                        name="door_style"
+                        label="Door Style"
+                        tooltip="Shaker is the baseline. Raised Panel +15% for the extra machining, Slab −4%."
+                      >
+                        <Select
+                          placeholder="Shaker"
+                          allowClear
+                          options={pricingInfo?.door_styles?.map((d) => ({ label: d, value: d })) || []}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={12} md={8}>
+                      <Form.Item
+                        name="overlay_style"
+                        label="Overlay"
+                        tooltip="Full Overlay is the baseline. Inset doors sit flush inside the face frame and run +20%; Partial Overlay −5%."
+                      >
+                        <Select
+                          placeholder="Full Overlay"
+                          allowClear
+                          options={pricingInfo?.overlay_styles?.map((o) => ({ label: o, value: o })) || []}
                         />
                       </Form.Item>
                     </Col>
@@ -748,11 +891,10 @@ const CabinetEstimateDetail: React.FC = () => {
                                 min={0} max={30} step={0.5}
                                 style={{ width: '100%' }}
                                 placeholder="0"
-                                value={endPanelSf > 0 ? Math.round(endPanelSf / (endPanelHeight === 'tall' ? 7 : 2.875) * 10) / 10 : undefined}
+                                value={endPanelSf > 0 ? Math.round(endPanelSf / endPanelHeight * 10) / 10 : undefined}
                                 onChange={(lf) => {
-                                  const h = endPanelHeight === 'tall' ? 7 : 2.875;
                                   form.setFieldsValue({
-                                    island_end_panel_sqft: lf ? Math.round(lf * h * 10) / 10 : 0,
+                                    island_end_panel_sqft: lf ? Math.round(lf * endPanelHeight * 10) / 10 : 0,
                                   });
                                 }}
                               />
@@ -763,21 +905,18 @@ const CabinetEstimateDetail: React.FC = () => {
                               <Select
                                 value={endPanelHeight}
                                 size="middle"
-                                onChange={(h) => {
-                                  const oldH = endPanelHeight === 'tall' ? 7 : 2.875;
-                                  const newH = h === 'tall' ? 7 : 2.875;
-                                  setEndPanelHeight(h);
-                                  if (endPanelSf > 0) {
-                                    const lf = endPanelSf / oldH;
+                                onChange={(newH: number) => {
+                                  // Keep the LF the user entered; restate it
+                                  // as SF at the new height.
+                                  const lf = endPanelSf > 0 ? endPanelSf / endPanelHeight : 0;
+                                  setEndPanelHeight(newH);
+                                  if (lf > 0) {
                                     form.setFieldsValue({
                                       island_end_panel_sqft: Math.round(lf * newH * 10) / 10,
                                     });
                                   }
                                 }}
-                                options={[
-                                  { label: 'Base (34.5")', value: 'base' },
-                                  { label: 'Tall (84")', value: 'tall' },
-                                ]}
+                                options={ISLAND_PANEL_HEIGHTS}
                               />
                             </Form.Item>
                           </Col>
@@ -798,11 +937,10 @@ const CabinetEstimateDetail: React.FC = () => {
                                 min={0} max={30} step={0.5}
                                 style={{ width: '100%' }}
                                 placeholder="0"
-                                value={backPanelSf > 0 ? Math.round(backPanelSf / (backPanelHeight === 'tall' ? 7 : 2.875) * 10) / 10 : undefined}
+                                value={backPanelSf > 0 ? Math.round(backPanelSf / backPanelHeight * 10) / 10 : undefined}
                                 onChange={(lf) => {
-                                  const h = backPanelHeight === 'tall' ? 7 : 2.875;
                                   form.setFieldsValue({
-                                    island_back_panel_sqft: lf ? Math.round(lf * h * 10) / 10 : 0,
+                                    island_back_panel_sqft: lf ? Math.round(lf * backPanelHeight * 10) / 10 : 0,
                                   });
                                 }}
                               />
@@ -813,21 +951,18 @@ const CabinetEstimateDetail: React.FC = () => {
                               <Select
                                 value={backPanelHeight}
                                 size="middle"
-                                onChange={(h) => {
-                                  const oldH = backPanelHeight === 'tall' ? 7 : 2.875;
-                                  const newH = h === 'tall' ? 7 : 2.875;
-                                  setBackPanelHeight(h);
-                                  if (backPanelSf > 0) {
-                                    const lf = backPanelSf / oldH;
+                                onChange={(newH: number) => {
+                                  // Keep the LF the user entered; restate it
+                                  // as SF at the new height.
+                                  const lf = backPanelSf > 0 ? backPanelSf / backPanelHeight : 0;
+                                  setBackPanelHeight(newH);
+                                  if (lf > 0) {
                                     form.setFieldsValue({
                                       island_back_panel_sqft: Math.round(lf * newH * 10) / 10,
                                     });
                                   }
                                 }}
-                                options={[
-                                  { label: 'Base (34.5")', value: 'base' },
-                                  { label: 'Tall (84")', value: 'tall' },
-                                ]}
+                                options={ISLAND_PANEL_HEIGHTS}
                               />
                             </Form.Item>
                           </Col>
@@ -946,9 +1081,32 @@ const CabinetEstimateDetail: React.FC = () => {
                       <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_plumbing !== cur.include_plumbing}>
                         {({ getFieldValue }) =>
                           getFieldValue('include_plumbing') ? (
-                            <Form.Item name="sink_type" label="Sink Type" preserve style={{ marginBottom: 0, marginLeft: 24 }}>
-                              <Select size="small" style={{ width: 180 }} options={priceInfo.sinkOptions} />
-                            </Form.Item>
+                            <div style={{ marginLeft: 24 }}>
+                              <Form.Item name="sink_type" label="Sink Type" preserve style={{ marginBottom: 4 }}>
+                                <Select size="small" style={{ width: 180 }} options={priceInfo.sinkOptions} />
+                              </Form.Item>
+                              {/* P-trap, supply lines and angle stops always
+                                  come with the plumbing scope; these are the
+                                  extras that depend on the kitchen. */}
+                              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>
+                                Under-sink extras (1 sink)
+                              </Text>
+                              <Form.Item name="include_dw_hookup" valuePropName="checked" preserve style={{ marginBottom: 0 }}>
+                                <Checkbox style={{ fontSize: 12 }}>DW supply line + angle stop</Checkbox>
+                              </Form.Item>
+                              <Form.Item name="include_aav" valuePropName="checked" preserve style={{ marginBottom: 0 }}>
+                                <Checkbox style={{ fontSize: 12 }}>AAV / loop vent</Checkbox>
+                              </Form.Item>
+                              <Form.Item name="include_air_gap" valuePropName="checked" preserve style={{ marginBottom: 0 }}>
+                                <Checkbox style={{ fontSize: 12 }}>Air gap</Checkbox>
+                              </Form.Item>
+                              <Form.Item name="include_soap_dispenser" valuePropName="checked" preserve style={{ marginBottom: 0 }}>
+                                <Checkbox style={{ fontSize: 12 }}>Soap dispenser</Checkbox>
+                              </Form.Item>
+                              <Form.Item name="include_instant_hot" valuePropName="checked" preserve style={{ marginBottom: 0 }}>
+                                <Checkbox style={{ fontSize: 12 }}>Instant hot water dispenser</Checkbox>
+                              </Form.Item>
+                            </div>
                           ) : null
                         }
                       </Form.Item>
@@ -1016,6 +1174,96 @@ const CabinetEstimateDetail: React.FC = () => {
                       </Form.Item>
                     </Col>
                   </Row>
+
+                  {/* Trim & finished panels — present on nearly every
+                      kitchen, so these are counted rather than assumed. */}
+                  <div style={{ borderTop: '1px solid #f0f0f0', margin: '8px 0 12px', paddingTop: 8 }}>
+                    <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
+                      Trim &amp; Finished Panels
+                    </Text>
+                    <Row gutter={16}>
+                      <Col xs={12} md={8}>
+                        <Form.Item
+                          label="Fillers / Scribe"
+                          name="filler_count"
+                          style={{ marginBottom: 8 }}
+                          tooltip="Filler strips at run ends and inside corners. Walls are never plumb, so most kitchens need 2-6."
+                        >
+                          <InputNumber min={0} max={30} size="small" style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Form.Item
+                          label="Base End Panels"
+                          name="end_panel_base"
+                          style={{ marginBottom: 8 }}
+                          tooltip="Finished panel where a base run ends in open space."
+                        >
+                          <InputNumber min={0} max={20} size="small" style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Form.Item
+                          label="Wall End Panels"
+                          name="end_panel_wall"
+                          style={{ marginBottom: 8 }}
+                        >
+                          <InputNumber min={0} max={20} size="small" style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Form.Item
+                          label="Tall End Panels"
+                          name="end_panel_tall"
+                          style={{ marginBottom: 8 }}
+                        >
+                          <InputNumber min={0} max={20} size="small" style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Form.Item
+                          label="Fridge Deep Panels"
+                          name="end_panel_refrigerator"
+                          style={{ marginBottom: 8 }}
+                          tooltip="24&quot;-deep finished panel beside a refrigerator opening."
+                        >
+                          <InputNumber min={0} max={10} size="small" style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Form.Item
+                          label="DW Return Panels"
+                          name="dishwasher_return_panel_count"
+                          style={{ marginBottom: 8 }}
+                          tooltip="Finished filler between the dishwasher opening and the adjacent cabinet or wall."
+                        >
+                          <InputNumber min={0} max={5} size="small" style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Form.Item name="include_light_rail" valuePropName="checked" style={{ marginBottom: 8 }}>
+                          <Checkbox>Light Rail Molding</Checkbox>
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_light_rail !== cur.include_light_rail}>
+                          {({ getFieldValue }) => {
+                            if (!getFieldValue('include_light_rail')) return null;
+                            return (
+                              <Form.Item
+                                label="Light Rail (LF)"
+                                name="light_rail_lf"
+                                style={{ marginBottom: 8 }}
+                                tooltip="Leave blank to use the total wall cabinet run."
+                              >
+                                <InputNumber min={0} max={200} step={0.5} size="small" style={{ width: '100%' }} placeholder="auto" />
+                              </Form.Item>
+                            );
+                          }}
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  </div>
 
                   {/* Appliance list (shown when Appliance R&R checked) */}
                   <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_appliance_rr !== cur.include_appliance_rr}>
@@ -1374,6 +1622,29 @@ const CabinetEstimateDetail: React.FC = () => {
               </Col>
             </Row>
           </Form>
+        </Tabs.TabPane>
+
+        <Tabs.TabPane tab="Sketch" key="sketch">
+          <CabinetSketchEditor
+            estimateId={id!}
+            onCabinetPlaced={(code, cabType) => {
+              const preset = CABINET_PRESETS[code];
+              if (!preset) return;
+              const newBox: CabinetBoxCreate = {
+                code,
+                cab_type: cabType,
+                location: 'perimeter',
+                width_inches: preset.width,
+                height_inches: preset.height,
+                is_specialty: !!preset.specialty,
+                specialty_type: preset.specialty || null,
+                has_glass_door: false,
+                qty: 1,
+                display_order: perimeterBoxes.length,
+              };
+              setPerimeterBoxes((prev) => [...prev, newBox]);
+            }}
+          />
         </Tabs.TabPane>
 
         <Tabs.TabPane tab="Estimate Result" key="result" disabled={estimate.status === 'draft'}>

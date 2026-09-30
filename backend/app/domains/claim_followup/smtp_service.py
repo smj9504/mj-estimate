@@ -40,6 +40,8 @@ class SmtpService:
         reply_to: Optional[str] = None,
         skip_signature: bool = False,
         display_name_override: Optional[str] = None,
+        signature_email_override: Optional[str] = None,
+        signature_phone_override: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Send an email via SMTP.
@@ -54,6 +56,55 @@ class SmtpService:
         # Get SMTP connection details
         smtp_config = self._get_smtp_config(account_id)
 
+        is_personal_account = smtp_config.get("provider_type") in ("gmail", "outlook", "yahoo")
+        personal_sender_name = smtp_config.get("sender_name") if is_personal_account else None
+        personal_company_name = smtp_config.get("company_name") if is_personal_account else None
+
+        # "<person> - <company>" as the From display name so the adjuster
+        # sees who is actually emailing them, not just a company name -
+        # this applies regardless of which SMTP server ends up sending it.
+        if is_personal_account:
+            # A caller-provided display_name_override (water mitigation
+            # passes the job's assigned company name) is treated as the
+            # company half of the pairing, not the final display name.
+            company_part = display_name_override or personal_company_name
+            if personal_sender_name and company_part:
+                display_name_override = f"{personal_sender_name} - {company_part}"
+            else:
+                display_name_override = (
+                    personal_sender_name
+                    or company_part
+                    or smtp_config.get("display_name", "")
+                )
+
+        # A personal Gmail/Outlook/Yahoo mailbox (as opposed to a custom
+        # send-only account like Resend) has no domain-level SPF/DKIM/DMARC
+        # the sender controls, which was suspected to be why mail through
+        # it landed in spam more often - though enter.construction's SPF/
+        # DKIM/DMARC all passed on inspection, so the actual cause wasn't
+        # confirmed to be reputation-related. Routing through the fallback
+        # is opt-in via an admin-toggleable setting rather than automatic,
+        # pending that investigation; when on, the user's mailbox is kept
+        # as Reply-To and signature contact so replies/identity still
+        # point at them. DB setting (admin UI) overrides the env var
+        # default so this can be flipped without a redeploy.
+        from app.domains.admin.settings_service import (
+            ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK_KEY,
+            get_bool_setting,
+        )
+        route_through_fallback = get_bool_setting(
+            ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK_KEY,
+            default=settings.ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK,
+        )
+        if is_personal_account and route_through_fallback:
+            personal_email = from_address
+            fallback_config = self._get_smtp_config(None)
+            from_address = fallback_config.get("email_address") or from_address
+            reply_to = reply_to or personal_email
+            signature_email_override = signature_email_override or personal_email
+            signature_phone_override = signature_phone_override or smtp_config.get("sender_phone")
+            smtp_config = fallback_config
+
         # Build message
         msg, failed_attachments = self._build_message(
             from_address=from_address,
@@ -64,10 +115,13 @@ class SmtpService:
             attachments=attachments,
             reply_to=reply_to,
             display_name=display_name_override or smtp_config.get("display_name", ""),
-            sender_name="" if skip_signature else smtp_config.get("sender_name", ""),
-            sender_phone=smtp_config.get("sender_phone", ""),
-            email_address=smtp_config.get("email_address", from_address),
-            company_name=smtp_config.get("company_name", ""),
+            sender_name="" if skip_signature else (personal_sender_name or smtp_config.get("sender_name", "")),
+            sender_phone=signature_phone_override or smtp_config.get("sender_phone", ""),
+            # A send-only account's own address (e.g. documents@scopit.work)
+            # isn't a real mailbox - the signature should show the assigned
+            # company's contact email instead when the caller provides one.
+            email_address=signature_email_override or smtp_config.get("email_address", from_address),
+            company_name=personal_company_name or smtp_config.get("company_name", ""),
         )
 
         # Fail loudly instead of silently sending without attachments -
@@ -174,9 +228,19 @@ class SmtpService:
                 )
 
             provider = account.get("provider_type", "gmail")
-            preset = SMTP_PROVIDERS.get(
-                provider, SMTP_PROVIDERS["gmail"]
-            )
+            # A custom account with its own smtp_server (e.g. Resend, which
+            # has no IMAP endpoint and so can't use a gmail/outlook/yahoo
+            # preset) overrides the provider preset lookup.
+            if provider == "custom" and account.get("smtp_server"):
+                preset = {
+                    "server": account["smtp_server"],
+                    "port": account.get("smtp_port") or 587,
+                    "use_tls": True,
+                }
+            else:
+                preset = SMTP_PROVIDERS.get(
+                    provider, SMTP_PROVIDERS["gmail"]
+                )
 
             # OAuth or password auth
             auth_method = account.get("auth_method", "password")
@@ -212,6 +276,7 @@ class SmtpService:
                 "username": account["username"],
                 "password": password,
                 "oauth_access_token": oauth_token,
+                "provider_type": provider,
                 "display_name": account.get("display_name", ""),
                 "sender_name": account.get("sender_name", ""),
                 "sender_phone": account.get("sender_phone", ""),
@@ -362,7 +427,15 @@ class SmtpService:
         msg["MIME-Version"] = "1.0"
 
         # Always set Reply-To for deliverability
-        msg["Reply-To"] = reply_to or from_address
+        effective_reply_to = reply_to or from_address
+        msg["Reply-To"] = effective_reply_to
+
+        # Some spam filters treat the presence of List-Unsubscribe as a
+        # signal of a legitimate, well-behaved sender even for 1:1
+        # transactional mail with no real subscription to cancel - a
+        # mailto is the only mechanism that makes sense here (there's no
+        # list/webhook to back a one-click HTTP unsubscribe URL).
+        msg["List-Unsubscribe"] = f"<mailto:{effective_reply_to}?subject=unsubscribe>"
 
         return msg, failed_attachments
 

@@ -5,7 +5,7 @@ Email Ingestion repository implementations.
 import logging
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
@@ -77,6 +77,8 @@ class EmailIngestionLogRepository(SQLAlchemyRepository):
         account_id: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        claim_id: Optional[str] = None,
+        has_attachment: bool = False,
     ) -> List[Dict[str, Any]]:
         """Get logs with optional filters"""
         query = self.db_session.query(EmailIngestionLog)
@@ -85,6 +87,31 @@ class EmailIngestionLogRepository(SQLAlchemyRepository):
             query = query.filter(EmailIngestionLog.status == status)
         if account_id:
             query = query.filter(EmailIngestionLog.email_account_id == account_id)
+        if claim_id:
+            # Include the whole email, not just the attachment that matched.
+            # A claim email typically carries the estimate plus the scope,
+            # photo report and contract; only one of them wins the claim
+            # match and the siblings stay pending. Grouping by message_id
+            # surfaces the entire packet instead of one arbitrary file.
+            sibling_message_ids = self.db_session.query(
+                EmailIngestionLog.message_id
+            ).filter(
+                EmailIngestionLog.matched_claim_id == claim_id
+            ).scalar_subquery()
+            query = query.filter(
+                or_(
+                    EmailIngestionLog.matched_claim_id == claim_id,
+                    EmailIngestionLog.message_id.in_(sibling_message_ids),
+                )
+            )
+        if has_attachment:
+            # Only rows whose attachment was actually persisted to `files`.
+            # Rows that failed classification are logged without a file_id
+            # and have nothing to show or download.
+            query = query.filter(
+                EmailIngestionLog.file_id.isnot(None),
+                EmailIngestionLog.file_id != "",
+            )
 
         logs = query.order_by(
             EmailIngestionLog.created_at.desc()

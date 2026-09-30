@@ -35,6 +35,10 @@ class EmailAccountBase(BaseModel):
     can_send: bool = True
     is_active: bool = True
     auto_schedule: Optional[str] = None
+    # Send-only providers (e.g. Resend) have no IMAP endpoint; set these to
+    # override the provider_type preset when provider_type == "custom".
+    smtp_server: Optional[str] = None
+    smtp_port: Optional[int] = None
 
 
 class EmailAccountCreate(EmailAccountBase):
@@ -56,6 +60,8 @@ class EmailAccountUpdate(BaseModel):
     can_send: Optional[bool] = None
     is_active: Optional[bool] = None
     auto_schedule: Optional[str] = None
+    smtp_server: Optional[str] = None
+    smtp_port: Optional[int] = None
 
 
 class EmailAccountResponse(BaseModel):
@@ -75,6 +81,8 @@ class EmailAccountResponse(BaseModel):
     can_send: bool = True
     is_active: bool
     auto_schedule: Optional[str] = None
+    smtp_server: Optional[str] = None
+    smtp_port: Optional[int] = None
     last_synced_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -129,6 +137,9 @@ class IngestionLogResponse(BaseModel):
     client_name: Optional[str] = None
     claim_number: Optional[str] = None
     account_email: Optional[str] = None
+    file_name: Optional[str] = None
+    file_size: Optional[int] = None
+    file_content_type: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -153,6 +164,8 @@ class PollResponse(BaseModel):
     emails_found: int
     processed: int
     uploaded: int
+    # Matched and queued for review; the revision is created on confirm.
+    pending: int = 0
     skipped: int
     duplicates: int
     errors: int
@@ -163,6 +176,7 @@ class BatchPollResponse(BaseModel):
     results: List[PollResponse]
     total_processed: int
     total_uploaded: int
+    total_pending: int = 0
 
 
 class IngestionStatsResponse(BaseModel):

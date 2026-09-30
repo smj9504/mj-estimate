@@ -472,7 +472,7 @@ const ZoneEditForm: React.FC<{
         /* Floor / Ceiling: two dimensions */
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <DimensionInput
-            label="Dimension 1"
+            label="Width"
             value={zone.dimension1_ft}
             onChange={(ft) =>
               onUpdate({
@@ -482,7 +482,7 @@ const ZoneEditForm: React.FC<{
             }
           />
           <DimensionInput
-            label="Dimension 2"
+            label="Length"
             value={zone.dimension2_ft}
             onChange={(ft) =>
               onUpdate({

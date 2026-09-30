@@ -15,7 +15,24 @@ from html import escape as html_escape
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, TemplateNotFound
+
+# ── Local disk cache for remote-storage photos used in report PDFs ──
+# storage_path is stable per uploaded photo (a re-uploaded/replaced photo
+# gets a new path), so caching by path alone is safe here — unlike the
+# sketch background image, these photos aren't cropped/re-uploaded in
+# place. Avoids re-downloading the same job's photos every time a report
+# is previewed or regenerated.
+import hashlib
+import tempfile as _tempfile
+_PHOTO_CACHE_DIR = Path(_tempfile.gettempdir()) / "mj_report_photo_cache"
+_PHOTO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _photo_cache_path(storage_provider: str, storage_path: str) -> Path:
+    key = hashlib.sha256(f"{storage_provider}:{storage_path}".encode("utf-8")).hexdigest()
+    return _PHOTO_CACHE_DIR / key
+
 
 # Month names constant to avoid Windows locale/encoding issues with strftime %B
 MONTH_NAMES = [
@@ -136,9 +153,14 @@ def _format_date_en(dt: datetime) -> str:
 # EWA Template Configuration
 # Coordinates are in points (1/72 inch) from bottom-left corner
 # Letter size: 612 x 792 points
-# Project root is backend/app/common/services -> ../../../../.. -> mj-react-app
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
-EWA_TEMPLATES_DIR = PROJECT_ROOT / "reference" / "ewa_templates"
+# Templates live under backend/reference/ (not the repo root's reference/)
+# so they're included in the Docker build context - render.yaml sets
+# `dockerContext: ./backend`, so anything outside backend/ never reaches
+# the production image and this path would silently resolve to nothing
+# there even though it works fine in a local checkout of the full repo.
+# backend/app/common/services -> ../../../.. -> backend
+BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+EWA_TEMPLATES_DIR = BACKEND_ROOT / "reference" / "ewa_templates"
 
 # Company-specific EWA template configurations
 # Each company can have different template PDF and field positions
@@ -218,6 +240,35 @@ class PDFService:
         self.env.filters['format_quantity'] = self._format_quantity
         self.env.filters['format_date'] = self._format_date
         self.env.filters['markdown_to_html'] = self._markdown_to_html
+
+    def _load_invoice_template(self, template_variant: Optional[str]):
+        """Resolve an invoice template variant to a Jinja2 template.
+
+        Valid variants are 'a' (default), 'b' (formal) and 'c' (modern).
+        Unknown variants fall back to the default template instead of
+        raising TemplateNotFound, so a stale/invalid variant value never
+        turns into a 500 on PDF/HTML generation.
+        """
+        logger = logging.getLogger(__name__)
+
+        default_path = "invoice/general_invoice.html"
+        variant_suffix = (
+            f"_{template_variant}"
+            if template_variant and template_variant != "a"
+            else ""
+        )
+        template_path = f"invoice/general_invoice{variant_suffix}.html"
+
+        try:
+            return self.env.get_template(template_path), template_path
+        except TemplateNotFound:
+            if template_path == default_path:
+                raise
+            logger.warning(
+                f"Invoice template '{template_path}' not found for variant "
+                f"'{template_variant}', falling back to {default_path}"
+            )
+            return self.env.get_template(default_path), default_path
     
     @staticmethod
     def _format_currency(value: float) -> str:
@@ -402,14 +453,14 @@ class PDFService:
         
         return text
     
-    def generate_invoice_pdf(self, data: Dict[str, Any], output_path: str, template_variant: str = "modern") -> str:
+    def generate_invoice_pdf(self, data: Dict[str, Any], output_path: str, template_variant: str = "a") -> str:
         """
         Generate invoice PDF from data
 
         Args:
             data: Invoice data dictionary
             output_path: Path to save the PDF
-            template_variant: Template variant to use (default: "modern")
+            template_variant: Template variant ('a', 'b', or 'c'; default: 'a')
 
         Returns:
             Path to the generated PDF
@@ -437,10 +488,9 @@ class PDFService:
             context['company']['logo'] = None
 
         # Load template - select based on variant
-        variant_suffix = f"_{template_variant}" if template_variant and template_variant != "a" else ""
-        template_path = f"invoice/general_invoice{variant_suffix}.html"
-        logger.info(f"Loading template: {template_path} (variant={template_variant})")
-        template = self.env.get_template(template_path)
+        logger.info(f"Loading invoice template (variant={template_variant})")
+        template, template_path = self._load_invoice_template(template_variant)
+        logger.info(f"Loaded template: {template_path}")
         html_content = template.render(**context)
         logger.info(f"Template rendered, HTML length: {len(html_content)}")
 
@@ -513,10 +563,16 @@ class PDFService:
         # Write a standalone script file instead of -c inline
         script_content = """
 import sys, json, os
-os.environ['FONTCONFIG_PATH'] = os.path.join(
-    os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
-)
-os.environ.pop('FONTCONFIG_FILE', None)
+
+# Windows dev only - see app/main.py. On Linux the container's system
+# fontconfig (+ fonts, installed in backend/Dockerfile) must be left alone:
+# pointing FONTCONFIG_PATH at a non-existent anaconda dir leaves WeasyPrint
+# with no font database, so text renders in a fallback face.
+if sys.platform == 'win32':
+    os.environ['FONTCONFIG_PATH'] = os.path.join(
+        os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
+    )
+    os.environ.pop('FONTCONFIG_FILE', None)
 
 html_path = sys.argv[1]
 output_path = sys.argv[2]
@@ -560,11 +616,14 @@ print(os.path.getsize(output_path))
             # Use clean environment to avoid inheriting GLib state
             env = os.environ.copy()
             env.pop('G_SLICE', None)
-            env['FONTCONFIG_PATH'] = os.path.join(
-                os.path.expanduser('~'),
-                'anaconda3', 'Library', 'etc', 'fonts'
-            )
-            env.pop('FONTCONFIG_FILE', None)
+            # Windows dev only - see app/main.py. On Linux, leave the
+            # container's system fontconfig alone.
+            if sys.platform == 'win32':
+                env['FONTCONFIG_PATH'] = os.path.join(
+                    os.path.expanduser('~'),
+                    'anaconda3', 'Library', 'etc', 'fonts'
+                )
+                env.pop('FONTCONFIG_FILE', None)
 
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
@@ -627,9 +686,7 @@ print(os.path.getsize(output_path))
 
         # Load template
         try:
-            variant_suffix = f"_{template_variant}" if template_variant and template_variant != "a" else ""
-            template_path = f"invoice/general_invoice{variant_suffix}.html"
-            template = self.env.get_template(template_path)
+            template, template_path = self._load_invoice_template(template_variant)
             logger.info(f"Using {template_path} template (variant={template_variant})")
         except Exception as e:
             logger.error(f"Could not load template: {e}")
@@ -2012,10 +2069,16 @@ print(os.path.getsize(output_path))
 
         script_content = """
 import sys, json, os
-os.environ['FONTCONFIG_PATH'] = os.path.join(
-    os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
-)
-os.environ.pop('FONTCONFIG_FILE', None)
+
+# Windows dev only - see app/main.py. On Linux the container's system
+# fontconfig (+ fonts, installed in backend/Dockerfile) must be left alone:
+# pointing FONTCONFIG_PATH at a non-existent anaconda dir leaves WeasyPrint
+# with no font database, so text renders in a fallback face.
+if sys.platform == 'win32':
+    os.environ['FONTCONFIG_PATH'] = os.path.join(
+        os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
+    )
+    os.environ.pop('FONTCONFIG_FILE', None)
 
 html_path = sys.argv[1]
 output_path = sys.argv[2]
@@ -2044,11 +2107,14 @@ print(os.path.getsize(output_path))
         try:
             env_vars = os.environ.copy()
             env_vars.pop('G_SLICE', None)
-            env_vars['FONTCONFIG_PATH'] = os.path.join(
-                os.path.expanduser('~'),
-                'anaconda3', 'Library', 'etc', 'fonts'
-            )
-            env_vars.pop('FONTCONFIG_FILE', None)
+            # Windows dev only - see app/main.py. On Linux, leave the
+            # container's system fontconfig alone.
+            if sys.platform == 'win32':
+                env_vars['FONTCONFIG_PATH'] = os.path.join(
+                    os.path.expanduser('~'),
+                    'anaconda3', 'Library', 'etc', 'fonts'
+                )
+                env_vars.pop('FONTCONFIG_FILE', None)
 
             result = subprocess.run(
                 [sys.executable, script_tmp.name,
@@ -2918,6 +2984,8 @@ def generate_water_mitigation_report_pdf(
     report_date: Optional[str] = None,
     compress: bool = False,
     template_variant: str = "a",
+    show_photo_dates: bool = True,
+    show_photo_locations: bool = True,
 ) -> str:
     """
     Generate professional Water Mitigation photo report PDF using ReportLab
@@ -2936,6 +3004,10 @@ def generate_water_mitigation_report_pdf(
         company_data: Company information (name, logo, etc.) - if not provided, will use job.company
         report_date: Custom report date in ISO format (YYYY-MM-DD). If not provided, uses current date.
         compress: If True, compress images for smaller file size (quality=50, max 1200px)
+        show_photo_dates: If False, suppresses the captured-date overlay on every photo,
+            overriding each photo's individual show_date setting.
+        show_photo_locations: If False, suppresses the level/room location tag in every
+            photo's caption, overriding each photo's individual show_location setting.
 
     Returns:
         Path to the generated PDF
@@ -2950,7 +3022,7 @@ def generate_water_mitigation_report_pdf(
     import tempfile
     from datetime import datetime
 
-    from PIL import Image
+    from PIL import Image, ImageOps
     from pypdf import PdfReader, PdfWriter
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER, TA_LEFT
@@ -3004,16 +3076,17 @@ def generate_water_mitigation_report_pdf(
     #
     # TARGET_DPI is resolved against the size each photo is actually drawn
     # at (see max_px in the photo loop), not against the original pixel
-    # count. A 2x2 grid prints each photo under 4.5in, so a flat 2400px cap
-    # was ~630dpi there - twice print quality and four times what a screen
-    # shows. 300dpi is full print quality; a full-page photo still gets the
-    # whole MAX_DECODE_SIZE budget because its cell is that much bigger.
+    # count. A 2x2 grid prints each photo under 4.5in, so a flat cap was
+    # far beyond print quality there. 300dpi is full print quality; a
+    # full-page photo still gets the whole MAX_DECODE_SIZE budget because
+    # its cell is that much bigger.
     TARGET_DPI = 300
 
-    # Absolute ceiling on decoded pixel dimensions, so a handful of
-    # full-resolution originals can't blow up process memory even on a
-    # single-photo-per-page layout.
-    MAX_DECODE_SIZE = 2400
+    # Hard cap on decoded pixel dimensions regardless of `compress`, so a
+    # handful of full-resolution originals can't blow up process memory -
+    # lowered from 2400 after a 150MB photo-heavy report OOM-killed the
+    # Render instance while attaching it to an email.
+    MAX_DECODE_SIZE = 1800
 
     # Get storage provider from settings
     from app.core.config import settings
@@ -3555,21 +3628,22 @@ def generate_water_mitigation_report_pdf(
 
     total_pages = 1  # Start at 1 for cover page
 
+    # Build the full list of (section, page) work items up front so photo
+    # downloads can be pipelined one page ahead of rendering (see
+    # _download_page below) - the section loop no longer downloads inline.
+    page_jobs = []
     for section_data in config.get('sections', []):
         section_title = section_data.get('title', 'Section')
         section_summary = section_data.get('summary', '')
+        section_date = section_data.get('section_date')
         layout = section_data.get('layout', 'four')
         max_photos = photos_per_page_map.get(layout, 4)
         rows, cols = grid_layouts.get(layout, (2, 2))
 
-        logger.info(f"Processing section: {section_title} (layout: {layout})")
-        _log_rss(f"section start: {section_title}")
-
         # Collect photo METADATA only for this section — do NOT download
         # yet. Downloading every photo in the section up front (sometimes
         # 20-30+ full-resolution originals) spikes memory/disk before a
-        # single page is even drawn. Actual download happens per-page,
-        # just before each photo is drawn, and is released immediately after.
+        # single page is even drawn.
         section_photos = []
         for photo_meta in section_data.get('photos', []):
             photo_id = photo_meta.get('photo_id')
@@ -3588,75 +3662,141 @@ def generate_water_mitigation_report_pdf(
                 logger.warning(f"Local file not found: {file_path_str}")
                 continue
 
+            # Location tag: a per-report override (photo_meta.location_override)
+            # takes precedence over the photo's own level/room tag.
+            _location_text = photo_meta.get('location_override') or ' – '.join(
+                filter(None, [photo.get('location_level'), photo.get('location_room')])
+            )
+            _show_location = show_photo_locations and photo_meta.get('show_location', True)
+
             section_photos.append({
                 'storage_path': file_path_str,
                 'storage_provider': photo_storage,
                 'caption': photo_meta.get('caption', ''),
                 'captured_date': photo.get('captured_date'),
-                'show_date': photo_meta.get('show_date', True),
+                'show_date': show_photo_dates and photo_meta.get('show_date', True),
+                'location_text': _location_text if _show_location else '',
             })
 
         if not section_photos:
             logger.warning(f"No photos found for section: {section_title}")
             continue
 
-        # Split photos into pages
         for page_num, i in enumerate(range(0, len(section_photos), max_photos), start=1):
-            page_photo_meta = section_photos[i:i + max_photos]
+            page_jobs.append({
+                'section_title': section_title,
+                'section_summary': section_summary,
+                'section_date': section_date,
+                'layout': layout,
+                'rows': rows,
+                'cols': cols,
+                'page_num': page_num,
+                'page_photo_meta': section_photos[i:i + max_photos],
+            })
 
-            # Resolve (download if needed) only THIS page's photos now.
-            # Remote downloads for the page run in parallel (bounded to this
-            # page's photo count, same as before) since each is an independent
-            # blocking network call - this cuts wall-clock time without
-            # raising peak memory, as all of this page's photos were already
-            # being held at once.
-            local_photos = []
-            remote_pms = []
-            for pm in page_photo_meta:
-                if pm['storage_provider'] == 'local':
-                    local_photos.append({
-                        'file_path': pm['storage_path'],
-                        'is_temp': False,
-                        'caption': pm['caption'],
-                        'captured_date': pm['captured_date'],
-                        'show_date': pm['show_date'],
-                    })
-                else:
-                    remote_pms.append(pm)
-
-            def _download_photo(pm):
-                try:
-                    from app.domains.storage.factory import StorageFactory
-                    storage = StorageFactory.get_instance(pm['storage_provider'])
-                    return pm, storage.download(pm['storage_path'])
-                except Exception as e:
-                    logger.error(f"Failed to download photo: {e}")
-                    return pm, None
-
-            downloaded = []
-            if remote_pms:
-                with ThreadPoolExecutor(max_workers=len(remote_pms)) as executor:
-                    downloaded = list(executor.map(_download_photo, remote_pms))
-
-            page_photos = list(local_photos)
-            for pm, photo_data in downloaded:
-                if not photo_data:
-                    continue
-                _photo_download_count += 1
-                if _photo_download_count % 5 == 0:
-                    _log_rss(f"after {_photo_download_count} photo downloads")
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-                temp_file.write(photo_data)
-                temp_file.close()
-                del photo_data
-                temp_files.append(temp_file.name)
-                page_photos.append({
-                    'file_path': temp_file.name,
-                    'is_temp': True,
+    def _download_page_photos(page_photo_meta):
+        """Resolve (download if needed) one page's photos. Runs on the
+        prefetch thread, one page ahead of rendering (see the pipeline
+        loop below) so page N's network wait overlaps page N-1's
+        ReportLab/Pillow work instead of happening after it."""
+        local_photos = []
+        remote_pms = []
+        for pm in page_photo_meta:
+            if pm['storage_provider'] == 'local':
+                local_photos.append({
+                    'file_path': pm['storage_path'],
+                    'is_temp': False,
                     'caption': pm['caption'],
                     'captured_date': pm['captured_date'],
                     'show_date': pm['show_date'],
                 })
+            else:
+                remote_pms.append(pm)
+
+        def _download_photo(pm):
+            cache_path = _photo_cache_path(pm['storage_provider'], pm['storage_path'])
+            try:
+                if cache_path.exists():
+                    return pm, cache_path.read_bytes()
+            except Exception as e:
+                logger.warning(f"Failed to read cached photo, re-downloading: {e}")
+
+            try:
+                from app.domains.storage.factory import StorageFactory
+                storage = StorageFactory.get_instance(pm['storage_provider'])
+                photo_data = storage.download(pm['storage_path'])
+                try:
+                    cache_path.write_bytes(photo_data)
+                except Exception as e:
+                    logger.warning(f"Failed to cache downloaded photo: {e}")
+                return pm, photo_data
+            except Exception as e:
+                logger.error(f"Failed to download photo: {e}")
+                return pm, None
+
+        downloaded = []
+        if remote_pms:
+            with ThreadPoolExecutor(max_workers=len(remote_pms)) as executor:
+                downloaded = list(executor.map(_download_photo, remote_pms))
+
+        page_photos = list(local_photos)
+        for pm, photo_data in downloaded:
+            if not photo_data:
+                continue
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+            temp_file.write(photo_data)
+            temp_file.close()
+            del photo_data
+            temp_files.append(temp_file.name)
+            page_photos.append({
+                'file_path': temp_file.name,
+                'is_temp': True,
+                'caption': pm['caption'],
+                'captured_date': pm['captured_date'],
+                'show_date': pm['show_date'],
+            })
+        return page_photos
+
+    # One-page-ahead prefetch: a single background thread downloads page
+    # N+1 while page N is being decoded/drawn on the main thread, hiding
+    # network latency behind CPU work instead of paying both in sequence.
+    # At most one extra page's worth of temp files/bytes is held at a
+    # time (same bound as before, just shifted by one page).
+    _prefetch_pool = ThreadPoolExecutor(max_workers=1)
+    _prefetch_future = (
+        _prefetch_pool.submit(_download_page_photos, page_jobs[0]['page_photo_meta'])
+        if page_jobs else None
+    )
+
+    try:
+        for job_idx, page_job in enumerate(page_jobs):
+            section_title = page_job['section_title']
+            section_summary = page_job['section_summary']
+            section_date = page_job.get('section_date')
+            layout = page_job['layout']
+            rows, cols = page_job['rows'], page_job['cols']
+            page_num = page_job['page_num']
+
+            if page_num == 1:
+                logger.info(f"Processing section: {section_title} (layout: {layout})")
+                _log_rss(f"section start: {section_title}")
+
+            try:
+                page_photos = _prefetch_future.result()
+            except Exception as e:
+                logger.error(f"Page photo prefetch failed: {e}")
+                page_photos = []
+            _photo_download_count += len(page_photos)
+            if _photo_download_count and _photo_download_count % 5 < len(page_photos):
+                _log_rss(f"after {_photo_download_count} photo downloads")
+
+            # Kick off the next page's download now, before spending time
+            # decoding/drawing this page's photos below.
+            next_job = page_jobs[job_idx + 1] if job_idx + 1 < len(page_jobs) else None
+            _prefetch_future = (
+                _prefetch_pool.submit(_download_page_photos, next_job['page_photo_meta'])
+                if next_job else None
+            )
 
             if not page_photos:
                 continue
@@ -3714,6 +3854,21 @@ def generate_water_mitigation_report_pdf(
                     c.setFont(FONT_TITLE, SECTION_TITLE_SIZE)
                     c.drawString(margin, title_y, section_title)
 
+                # Section date, right-aligned on the title baseline. Uses the
+                # same format_date as the per-photo overlay so both read
+                # identically ("September 01, 2026").
+                if section_date:
+                    _section_date_str = format_date(section_date)
+                    if _section_date_str:
+                        c.setFillColor(COLOR_DARK_GRAY)
+                        c.setFont(FONT_BODY, 10)
+                        _sd_x = page_width - margin
+                        if sh_mode == "filled_box":
+                            _sd_x -= 0.1 * inch
+                        c.drawRightString(
+                            _sd_x, title_y, _section_date_str
+                        )
+
                 # Section description
                 if section_summary:
                     c.setFillColor(COLOR_DARK_GRAY)
@@ -3722,7 +3877,18 @@ def generate_water_mitigation_report_pdf(
                         section_summary, max_chars=100
                     )
                     y_pos = page_height - margin - 0.65 * inch
-                    for line in summary_lines[:3]:
+                    # Cap the summary so a long one can't grow the header
+                    # into the photo grid below (header_height feeds
+                    # content_height / photo y further down). 6 lines costs
+                    # at most an extra 0.45" of header vs the old 3-line cap,
+                    # which every layout incl. 'six' still has room for.
+                    # Anything beyond the cap is ellipsized rather than
+                    # silently dropped.
+                    MAX_SUMMARY_LINES = 6
+                    visible_lines = summary_lines[:MAX_SUMMARY_LINES]
+                    if len(summary_lines) > MAX_SUMMARY_LINES and visible_lines:
+                        visible_lines[-1] = visible_lines[-1].rstrip() + '...'
+                    for line in visible_lines:
                         if line:
                             c.drawString(margin, y_pos, line)
                         y_pos -= 0.15 * inch
@@ -3796,12 +3962,18 @@ def generate_water_mitigation_report_pdf(
                     # ~1150px; the old flat 2400px cap was ~630dpi there,
                     # i.e. four times the pixels a screen can show and
                     # twice what a printer can.
+                    # EXIF orientations 5-8 swap width/height once
+                    # exif_transpose() runs below, so budget against the
+                    # displayed orientation.
+                    disp_w, disp_h = img.width, img.height
+                    if img.getexif().get(0x0112) in (5, 6, 7, 8):
+                        disp_w, disp_h = disp_h, disp_w
                     fit_scale = min(
-                        photo_width / img.width,
-                        available_photo_height / img.height,
+                        photo_width / disp_w,
+                        available_photo_height / disp_h,
                     )
                     drawn_longest_inches = (
-                        max(img.width, img.height) * fit_scale / inch
+                        max(disp_w, disp_h) * fit_scale / inch
                     )
                     max_px = max(
                         800,
@@ -3816,6 +3988,16 @@ def generate_water_mitigation_report_pdf(
                     # original into memory before we downscale it).
                     if img.width > max_px or img.height > max_px:
                         img.draft('RGB', (max_px, max_px))
+                    # Apply EXIF orientation (phone/CompanyCam photos are
+                    # frequently stored with the sensor's raw landscape
+                    # buffer plus a rotate-90 EXIF tag). Without this,
+                    # width/height and the pixel data itself stay in the
+                    # unrotated orientation, producing a squashed/rotated
+                    # image once placed into the aspect-ratio-preserving
+                    # slot below.
+                    pre_transpose_size = img.size
+                    img = ImageOps.exif_transpose(img)
+                    was_transposed = img.size != pre_transpose_size
                     was_downscaled = False
                     if img.width > max_px or img.height > max_px:
                         img.thumbnail((max_px, max_px), Image.Resampling.LANCZOS)
@@ -3840,13 +4022,15 @@ def generate_water_mitigation_report_pdf(
                         compressed_temp.close()
                         actual_photo_path = compressed_temp.name
                         temp_files.append(compressed_temp.name)
-                    elif was_downscaled or source_format != 'JPEG':
+                    elif was_downscaled or was_transposed or source_format != 'JPEG':
                         # Not compressing, but this photo still can't go in
-                        # as-is: either it exceeded the dpi budget above, or
-                        # it isn't a JPEG. ReportLab embeds a JPEG file
-                        # byte-for-byte but has to re-encode anything else
-                        # losslessly (a PNG photo becomes tens of MB), so
-                        # write out a JPEG copy in both cases.
+                        # as-is: it exceeded the dpi budget above, its EXIF
+                        # orientation required rotating the pixel data (the
+                        # on-disk original no longer matches img_width/
+                        # img_height below), or it isn't a JPEG. ReportLab
+                        # embeds a JPEG file byte-for-byte but has to
+                        # re-encode anything else losslessly (a PNG photo
+                        # becomes tens of MB), so write out a JPEG copy.
                         downscale_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
                         save_img = img.convert('RGB') if img.mode in ('RGBA', 'P') else img
                         save_img.save(downscale_temp.name, format='JPEG', quality=IMAGE_QUALITY, optimize=True)
@@ -3924,6 +4108,11 @@ def generate_water_mitigation_report_pdf(
                         ))
                         if _is_filename:
                             caption_text = ''
+
+                    location_text = photo_item.get('location_text', '')
+                    if location_text:
+                        caption_text = f"{caption_text} ({location_text})" if caption_text else location_text
+
                     if caption_text:
                         c.setFillColor(colors.HexColor(style["color_black"]))
                         c.setFont(FONT_BODY, 8)
@@ -4052,6 +4241,8 @@ def generate_water_mitigation_report_pdf(
             # Add page to writer
             page_reader = PdfReader(page_buffer)
             writer.add_page(page_reader.pages[0])
+    finally:
+        _prefetch_pool.shutdown(wait=False, cancel_futures=True)
 
     _log_rss(f"all {total_pages} pages built, before writer.write()")
 
@@ -4501,6 +4692,11 @@ def generate_completion_report_pdf(
                     ))
                     if _is_filename:
                         caption_text = ''
+
+                location_text = photo_item.get('location_text', '')
+                if location_text:
+                    caption_text = f"{caption_text} ({location_text})" if caption_text else location_text
+
                 if caption_text:
                     c.setFillColor(COLOR_BLACK)
                     c.setFont(FONT_BODY, 8)

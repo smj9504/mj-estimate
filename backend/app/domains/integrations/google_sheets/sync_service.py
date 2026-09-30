@@ -770,13 +770,27 @@ class GoogleSheetsSyncService:
         claim = self.db.execute(
             select(Claim).where(Claim.id == job.claim_id)
         ).scalar_one_or_none()
-        if claim and claim.pa_contact_id != mapping.pa_contact_id:
-            claim.pa_contact_id = mapping.pa_contact_id
-            self.db.commit()
-            logger.info(
-                f"Applied PA contact {mapping.pa_contact_id} to claim {job.claim_id} "
-                f"(sheet: {job.google_sheet_name})"
-            )
+        if not claim:
+            return
+
+        # Only fill an empty link. A PA set by hand on the claim is a
+        # deliberate choice (a PA that changed hands, or one the sheet tab
+        # does not describe) and must survive the next sheet sync.
+        if claim.pa_contact_id:
+            if claim.pa_contact_id != mapping.pa_contact_id:
+                logger.debug(
+                    f"Keeping existing PA {claim.pa_contact_id} on claim "
+                    f"{job.claim_id}; sheet '{job.google_sheet_name}' maps to "
+                    f"{mapping.pa_contact_id}"
+                )
+            return
+
+        claim.pa_contact_id = mapping.pa_contact_id
+        self.db.commit()
+        logger.info(
+            f"Applied PA contact {mapping.pa_contact_id} to claim {job.claim_id} "
+            f"(sheet: {job.google_sheet_name})"
+        )
 
     def cleanup_duplicate_jobs(self) -> Dict[str, Any]:
         """

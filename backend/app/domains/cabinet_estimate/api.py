@@ -4,13 +4,15 @@ Cabinet Estimate API endpoints
 
 import logging
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from app.core.database_factory import get_db_session
+from app.core.database_factory import get_db, get_db_session
 from app.core.interfaces import DatabaseSession
 from app.domains.auth.dependencies import get_current_user
+from sqlalchemy.orm import Session
 
 from .pricing import (
     APPLIANCE_RR_PRICING,
@@ -20,17 +22,20 @@ from .pricing import (
     COUNTERTOP_MATERIALS,
     CROWN_MOLDING_PRICING,
     DOOR_STYLES,
+    END_PANEL_TYPES,
     FINISH_MULTIPLIER,
     GLASS_DOOR_PREMIUM,
     ISLAND_PANEL_PRICING,
     LAYOUT_TYPES,
     MATERIAL_MULTIPLIER,
+    OVERLAY_STYLES,
     PREFAB_ISLAND_INSTALL,
     PREFAB_ISLAND_PRICING,
     SCOPE_ITEMS,
     SPECIALTY_PREMIUM,
     TALL_CABINET_TYPES,
 )
+from .rate_meta import Basis
 from .schemas import (
     CabinetEstimateCreate,
     CabinetEstimateListResponse,
@@ -46,6 +51,12 @@ from .schemas import (
     PurchaseOrderResponse,
 )
 from .service import CabinetEstimateService
+from .sketch_schemas import (
+    CabinetSketchOverlayData,
+    CabinetSketchResponse,
+    CabinetSketchUpdate,
+)
+from .sketch_service import CabinetSketchService
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +73,29 @@ def get_pricing_info():
         "materials": BoxMaterial.choices(),
         "finishes": FinishType.choices(),
         "door_styles": DOOR_STYLES,
+        "overlay_styles": OVERLAY_STYLES,
+        "pricing_bases": [
+            {
+                "key": Basis.INSURANCE_DR.value,
+                "label": "Insurance claim",
+                "description": (
+                    "Xactimate detach & reset. Crew time only — no "
+                    "per-appliance trip charge."
+                ),
+            },
+            {
+                "key": Basis.RETAIL_INSTALL.value,
+                "label": "Retail remodel",
+                "description": (
+                    "Installer pricing. Carries a trip minimum on each "
+                    "appliance."
+                ),
+            },
+        ],
         "layout_types": LAYOUT_TYPES,
         "cab_types": CabType.choices(),
         "specialty_types": list(SPECIALTY_PREMIUM.keys()),
+        "end_panel_types": END_PANEL_TYPES,
         "scope_items": SCOPE_ITEMS,
         "backsplash_types": [
             {"key": k, "label": v["label"], "material_per_sf": v["material_per_sf"], "install_per_sf": v["install_per_sf"]}
@@ -206,6 +237,59 @@ def clone_estimate(
     if not result:
         raise HTTPException(status_code=404, detail="Estimate not found")
     return result
+
+
+# ── Sketch ──
+
+def _ensure_estimate_exists(estimate_id: str, session: DatabaseSession) -> None:
+    """Reuse the existing estimate lookup so sketch endpoints 404 on a
+    bogus/deleted estimate_id instead of silently creating an orphan
+    CabinetSketch row for it."""
+    service = CabinetEstimateService(session)
+    if not service.get_estimate(estimate_id):
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+
+@router.get("/{estimate_id}/sketch", response_model=CabinetSketchResponse)
+def get_sketch(
+    estimate_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Get (or lazily create) the layout sketch for an estimate."""
+    _ensure_estimate_exists(estimate_id, session)
+    return CabinetSketchService(db).get_or_create(UUID(estimate_id))
+
+
+@router.put("/{estimate_id}/sketch", response_model=CabinetSketchResponse)
+def update_sketch_meta(
+    estimate_id: str,
+    data: CabinetSketchUpdate,
+    session: DatabaseSession = Depends(get_db_session),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Update sketch canvas metadata (size/scale) only."""
+    _ensure_estimate_exists(estimate_id, session)
+    return CabinetSketchService(db).update_meta(UUID(estimate_id), data)
+
+
+@router.put("/{estimate_id}/sketch/overlay", response_model=CabinetSketchResponse)
+def save_sketch_overlay(
+    estimate_id: str,
+    payload: CabinetSketchOverlayData,
+    session: DatabaseSession = Depends(get_db_session),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Replace the sketch's overlay data (walls + cabinets) wholesale.
+
+    Full replace, not a diff — mirrors the water mitigation sketch's
+    saveOverlayData semantics.
+    """
+    _ensure_estimate_exists(estimate_id, session)
+    return CabinetSketchService(db).save_overlay(UUID(estimate_id), payload)
 
 
 # ── History ──

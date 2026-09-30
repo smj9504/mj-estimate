@@ -164,12 +164,24 @@ export const companyService = {
     return response.data;
   },
 
-  // Link a PA contact to a claim (updates pa_* freetext fields too)
+  // Companies of one type (id + name only), for pickers.
+  listCompaniesByType: async (
+    companyType: string,
+  ): Promise<{ id: string; name: string }[]> => {
+    const response = await apiClient.get(`/api/companies/by-type/${companyType}`);
+    return response.data;
+  },
+
+  // Link (or clear, with null) a PA contact on a claim. The backend mirrors
+  // the contact onto the claim's pa_name/pa_email/... columns.
   linkPaContactToClaim: async (
+    clientId: string,
     claimId: string,
-    contactId: string,
+    contactId: string | null,
   ): Promise<void> => {
-    await apiClient.patch(`/api/claims/${claimId}`, { pa_contact_id: contactId });
+    await apiClient.put(`/api/clients/${clientId}/claims/${claimId}`, {
+      pa_contact_id: contactId ?? '',
+    });
   },
 
   // Get insurance company email lookup map: { companyName: email }

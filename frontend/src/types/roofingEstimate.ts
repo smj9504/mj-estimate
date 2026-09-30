@@ -215,6 +215,10 @@ export interface RoofingEstimateLineItem {
   unit: string;
   unit_price: number;
   total: number;
+  /** Material/labor split of `total`, driving markup and sales tax. */
+  material_portion?: number;
+  material_cost?: number;
+  labor_cost?: number;
   category?: string;
   xactimate_code?: string;
   notes?: string;
@@ -300,14 +304,25 @@ export interface RoofingEstimate {
   overhead_pct: number;
   profit_pct: number;
   contingency_pct: number;
+  /**
+   * Share of each line item's installed price treated as material, for
+   * markup and sales tax. Undefined/null uses the per-category ratios;
+   * a value overrides every category for this estimate.
+   */
+  material_portion_pct?: number | null;
+  /** Crew labor + disposal, for the internal profit panel. */
+  job_cost_inputs?: RoofingJobCostInputs | null;
 
   // Totals
   roofing_subtotal: number;
   gutter_subtotal: number;
   subtotal: number;
+  material_cost_total: number;
+  labor_cost_total: number;
   markup_amount: number;
   overhead_amount: number;
   profit_amount: number;
+  contingency_amount: number;
   tax_amount: number;
   permit_fee: number;
   total: number;
@@ -338,7 +353,9 @@ export interface RoofingEstimate {
 export type RoofingEstimateCreate = Partial<Omit<RoofingEstimate,
   'id' | 'status' | 'roofing_subtotal' | 'gutter_subtotal' |
   'subtotal' | 'markup_amount' | 'overhead_amount' |
-  'profit_amount' | 'tax_amount' | 'permit_fee' | 'total' |
+  'profit_amount' | 'contingency_amount' | 'tax_amount' |
+  'material_cost_total' | 'labor_cost_total' |
+  'permit_fee' | 'total' |
   'add_ons' | 'line_items' |
   'claim_number' | 'client_name' | 'created_at' | 'updated_at' |
   'methodology_notes' | 'warning_flags'
@@ -461,3 +478,284 @@ export const STATUS_COLORS: Record<string, string> = {
   approved: 'success',
   exported: 'purple',
 };
+
+// ── Internal material cost (never shown to the customer) ──
+
+export interface MaterialCostItem {
+  key: string;
+  price_key?: string;
+  category: string;
+  category_label: string;
+  description: string;
+  /** Whole purchase units — bundles, rolls, pieces. */
+  quantity: number;
+  /** BD / RL / PC / BX / EA — how the supplier sells it. */
+  unit: string;
+  /** The roof measurement this was converted from, before rounding up. */
+  measured_quantity?: number | null;
+  measured_unit?: string | null;
+  /** How the conversion was made, e.g. "3 BD/SQ". */
+  packaging_note?: string;
+  unit_cost: number;
+  default_unit_cost: number;
+  is_overridden: boolean;
+  taxable: boolean;
+  subtotal: number;
+  note: string;
+}
+
+export interface MaterialCostCategory {
+  category: string;
+  label: string;
+  items: MaterialCostItem[];
+  subtotal: number;
+  tax_amount: number;
+  total_with_tax: number;
+  pct_of_material: number;
+}
+
+export interface MaterialCostBreakdown {
+  items: MaterialCostItem[];
+  categories: MaterialCostCategory[];
+  tax_rate: number;
+  subtotal_before_tax: number;
+  taxable_subtotal: number;
+  tax_amount: number;
+  total_with_tax: number;
+  estimate_total: number | null;
+  /**
+   * Both null: material cost alone is not profit — it ignores the crew
+   * and the dumpster. Use `job_cost` for the real figure.
+   */
+  gross_profit: number | null;
+  margin_pct: number | null;
+  material_pct_of_sale?: number | null;
+  job_cost?: RoofingJobCost | null;
+  price_book: MaterialPriceEntry[];
+  snapshot_taken: boolean;
+}
+
+/** Crew labor rates and disposal, entered per estimate. */
+export interface RoofingJobCostInputs {
+  crew_name?: string | null;
+  crew_note?: string | null;
+  /** Install labor, $ per square (waste included). */
+  labor_per_sq?: number | null;
+  /** Tear-off labor, $ per square. Crews quote this separately. */
+  tearoff_per_sq?: number | null;
+  /** Mobilization / minimum call-out, independent of area. */
+  labor_fixed?: number | null;
+  disposal_method?: 'dumpster' | 'truck';
+  /** Truck disposal: landfill tipping fee per ton. */
+  tipping_fee_per_ton?: number | null;
+  haul_trips?: number | null;
+  haul_cost_per_trip?: number | null;
+}
+
+export interface RoofingJobCost {
+  material_cost: number;
+  labor: {
+    install_cost: number;
+    tearoff_cost: number;
+    fixed_cost: number;
+    total: number;
+    install_per_sq: number;
+    tearoff_per_sq: number;
+    squares: number;
+    crew_name: string | null;
+    /** False -> no rate entered; the margin must not be shown. */
+    entered: boolean;
+  };
+  disposal: {
+    method: 'dumpster' | 'truck';
+    total: number;
+    entered: boolean;
+    debris_lb?: number;
+    debris_tons?: number;
+    container?: string | null;
+    tipping_fee?: number;
+    haul_labor?: number;
+    trips?: number;
+    tipping_fee_per_ton?: number;
+    haul_cost_per_trip?: number;
+  };
+  total_cost: number;
+  estimate_total: number | null;
+  profit: number | null;
+  margin_pct: number | null;
+  /** False -> labor unknown; show what is missing, not a margin. */
+  complete: boolean;
+  missing: string[];
+  cost_breakdown_pct: {
+    material: number;
+    labor: number;
+    disposal: number;
+  };
+}
+
+export interface MaterialPriceEntry {
+  id?: string;
+  material_key: string;
+  label: string;
+  category: string;
+  /** Purchase unit: BD / RL / PC / BX / EA / SQ. */
+  unit: string;
+  unit_cost: number;
+  is_taxable: boolean;
+  /** Retired materials stay for old estimates but leave the pick lists. */
+  is_active: boolean;
+  notes: string;
+  company_id: string | null;
+
+  // What the material actually is. Null on rows that only name a grade.
+  manufacturer?: string | null;
+  product_name?: string | null;
+  color?: string | null;
+  size_spec?: string | null;
+  supplier?: string | null;
+  sku?: string | null;
+  /**
+   * Quantity formula: take `qty_basis`, divide by `coverage_per_unit`,
+   * round up, never below `qty_minimum`. Null basis keeps the built-in
+   * packaging rule.
+   */
+  /** Spreadsheet expression; wins over basis/coverage. */
+  qty_formula?: string | null;
+  qty_basis?: string | null;
+  /** Measured units covered by one purchase unit (10 SQ per RL -> 10). */
+  coverage_per_unit?: number | null;
+  coverage_unit?: string | null;
+  qty_minimum?: number | null;
+  /** True when a user added it rather than the seed catalog. */
+  is_custom: boolean;
+}
+
+/** A measurement a quantity formula can be written against. */
+export interface FormulaValidation {
+  ok: boolean;
+  value: number | null;
+  error: string | null;
+  used: string[];
+  sample?: Record<string, number>;
+}
+
+export interface FormulaVariableDoc {
+  name: string;
+  label: string;
+  unit: string;
+  aliases: string[];
+}
+
+export interface MaterialBasis {
+  value: string;
+  label: string;
+  unit: string;
+}
+
+export interface MaterialPricePatch {
+  unit_cost?: number;
+  is_taxable?: boolean;
+  is_active?: boolean;
+  notes?: string;
+  label?: string;
+  category?: string;
+  unit?: string;
+  manufacturer?: string | null;
+  product_name?: string | null;
+  color?: string | null;
+  size_spec?: string | null;
+  supplier?: string | null;
+  sku?: string | null;
+  coverage_per_unit?: number | null;
+  coverage_unit?: string | null;
+}
+
+export interface MaterialPriceCreate {
+  label: string;
+  category: string;
+  unit: string;
+  unit_cost: number;
+  is_taxable?: boolean;
+  notes?: string;
+  manufacturer?: string;
+  product_name?: string;
+  color?: string;
+  size_spec?: string;
+  supplier?: string;
+  sku?: string;
+  qty_formula?: string;
+  qty_basis?: string;
+  coverage_per_unit?: number;
+  coverage_unit?: string;
+  qty_minimum?: number;
+}
+
+export interface MaterialCostOverride {
+  unit_cost?: number;
+  taxable?: boolean;
+  note?: string;
+}
+
+export interface MaterialCostUpdate {
+  overrides?: Record<string, MaterialCostOverride>;
+  tax_rate?: number;
+}
+
+// ── Pricing settings (calculation rates, NOT material costs) ──
+//
+// Material costs live in the price book (MaterialPriceEntry) and are
+// deliberately absent here, so this screen can never be the place a
+// supplier cost gets changed.
+
+export type PricingSettingKind = 'money' | 'rate' | 'pct';
+
+export interface PricingSettingEntry {
+  setting_group: string;
+  setting_key: string;
+  group_label: string;
+  label: string;
+  kind: PricingSettingKind;
+  unit?: string | null;
+  help?: string | null;
+  value: number;
+  default_value?: number | null;
+  is_overridden: boolean;
+  notes?: string | null;
+  id?: string | null;
+  company_id?: string | null;
+
+  /**
+   * Supplier cost of the main material behind this rate, restated in the
+   * rate's own unit. Null when the rate has no single dominant material
+   * (tear-off, permits, misc). Read-only — edited on Material Prices.
+   */
+  material_cost?: number | null;
+  material_label?: string | null;
+  material_unit_cost?: number | null;
+  material_purchase_unit?: string | null;
+  material_key?: string | null;
+  material_per_rate_unit?: number | null;
+  material_rate_unit?: string | null;
+}
+
+export interface PricingSettingGroup {
+  group: string;
+  label: string;
+  kind: PricingSettingKind;
+  unit?: string | null;
+  help?: string | null;
+}
+
+/** value null resets that setting back to its code default. */
+export interface PricingSettingPatch {
+  setting_group: string;
+  setting_key: string;
+  value: number | null;
+  notes?: string | null;
+}
+
+export interface PricingSettingsResponse {
+  settings: PricingSettingEntry[];
+  groups: PricingSettingGroup[];
+  overridden_count: number;
+}

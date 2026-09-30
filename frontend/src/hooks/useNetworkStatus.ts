@@ -65,7 +65,7 @@ export const useNetworkStatus = (): UseNetworkStatusReturn => {
       
       if (isOnline && hasShownOfflineMessage) {
         message.success({
-          content: '인터넷 연결이 복구되었습니다.',
+          content: 'Internet connection restored.',
           key: 'network-status',
           duration: 3,
         });
@@ -85,7 +85,7 @@ export const useNetworkStatus = (): UseNetworkStatusReturn => {
     
     if (hasShownOfflineMessage) {
       message.success({
-        content: '인터넷 연결이 복구되었습니다.',
+        content: 'Internet connection restored.',
         key: 'network-status',
         duration: 3,
       });
@@ -99,9 +99,9 @@ export const useNetworkStatus = (): UseNetworkStatusReturn => {
     
     if (!hasShownOfflineMessage) {
       message.warning({
-        content: '인터넷 연결이 끊어졌습니다. 일부 기능이 제한될 수 있습니다.',
+        content: 'Internet connection lost. Some features may be unavailable.',
         key: 'network-status',
-        duration: 0, // 무한 표시
+        duration: 3,
       });
       setHasShownOfflineMessage(true);
     }

@@ -325,6 +325,49 @@ async def get_claim(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _sync_claim_pa_fields(update_dict: dict, contact_id: str) -> None:
+    """
+    Mirror a linked PA CompanyContact onto the claim's denormalized pa_*
+    columns (in place). Clearing the link clears the mirror.
+
+    Only fills fields the caller did not set explicitly, so a manually typed
+    name or email still wins over the contact record.
+    """
+    if not contact_id:
+        update_dict.setdefault('pa_name', None)
+        update_dict.setdefault('pa_company', None)
+        update_dict.setdefault('pa_email', None)
+        update_dict.setdefault('pa_phone', None)
+        update_dict.setdefault('has_public_adjuster', False)
+        return
+
+    try:
+        from app.domains.company.models import Company, CompanyContact
+        from app.core.database_factory import get_database
+
+        session = get_database().get_session()
+        try:
+            contact = session.query(CompanyContact).filter(
+                CompanyContact.id == contact_id
+            ).first()
+            if not contact:
+                return
+            update_dict.setdefault('pa_name', contact.name or None)
+            update_dict.setdefault('pa_email', contact.email or None)
+            update_dict.setdefault('pa_phone', contact.phone or None)
+            if contact.company_id:
+                company = session.query(Company).filter(
+                    Company.id == contact.company_id
+                ).first()
+                if company:
+                    update_dict.setdefault('pa_company', company.name or None)
+            update_dict['has_public_adjuster'] = True
+        finally:
+            session.close()
+    except Exception as e:
+        logger.warning(f"Could not sync PA contact {contact_id}: {e}")
+
+
 @router.put("/{client_id}/claims/{claim_id}", response_model=None)
 async def update_claim(
     client_id: str,
@@ -335,6 +378,16 @@ async def update_claim(
     """Update a claim"""
     try:
         update_dict = data.dict(exclude_unset=True)
+
+        # Linking a PA contact is the source of truth for who the public
+        # adjuster is, so keep the denormalized pa_* columns and the
+        # has_public_adjuster flag in step with it. Without this the claim
+        # would still read as "no PA" to anything looking at the freetext.
+        if 'pa_contact_id' in update_dict:
+            contact_id = (update_dict.get('pa_contact_id') or '').strip()
+            update_dict['pa_contact_id'] = contact_id or None
+            _sync_claim_pa_fields(update_dict, contact_id)
+
         result = service.update(claim_id, update_dict)
         if not result:
             raise HTTPException(status_code=404, detail="Claim not found")

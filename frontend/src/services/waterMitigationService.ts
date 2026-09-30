@@ -3,9 +3,12 @@
  * Handles all API calls to /api/water-mitigation endpoints
  */
 
-import api from './api';
+import api, { publicApi } from './api';
 import { compressIfNeeded } from '../utils/imageCompressor';
 import type {
+  WMPaymentBoardToken,
+  WMPaymentRow,
+  WMPublicBoardResponse,
   WaterMitigationJob,
   JobCreate,
   JobUpdate,
@@ -153,6 +156,8 @@ export const waterMitigationService = {
       filters.status.forEach(s => params.append('status', s));
     }
     if (filters?.active !== undefined) params.append('active', String(filters.active));
+    if (filters?.hide_received) params.append('hide_received', 'true');
+    if (filters?.with_insurance) params.append('with_insurance', 'true');
     if (filters?.page) params.append('page', String(filters.page));
     if (filters?.page_size) params.append('page_size', String(filters.page_size));
 
@@ -401,6 +406,29 @@ export const waterMitigationService = {
       return response.data;
     },
 
+    // Update a photo's location tag (level + room). Pass undefined to leave a field unchanged.
+    updateLocation: async (photoId: string, locationLevel?: string, locationRoom?: string): Promise<any> => {
+      const response = await api.patch(`${BASE_URL}/photos/${photoId}/location`, {
+        location_level: locationLevel,
+        location_room: locationRoom,
+      });
+      return response.data;
+    },
+
+    // Bulk set individual location tags for multiple photos (single request)
+    bulkSetLocations: async (
+      updates: { photo_id: string; location_level?: string; location_room?: string }[]
+    ): Promise<{ applied: number; failed: number }> => {
+      const response = await api.post(`${BASE_URL}/photos/bulk-set-locations`, { updates });
+      return response.data;
+    },
+
+    // Distinct room-name tags previously used on this job's photos, for autocomplete
+    getLocationSuggestions: async (jobId: string): Promise<{ rooms: string[] }> => {
+      const response = await api.get(`${BASE_URL}/jobs/${jobId}/photos/location-suggestions`);
+      return response.data;
+    },
+
     // Bulk update photo dates (preserves time, only changes date)
     bulkUpdateDate: async (photoIds: string[], newDate: string): Promise<any> => {
       const response = await api.post(`${BASE_URL}/photos/bulk-update-date`, {
@@ -591,6 +619,15 @@ export const waterMitigationService = {
 
       const response = await api.get(
         `${BASE_URL}/jobs/${jobId}/documents?${params.toString()}`
+      );
+      return response.data;
+    },
+
+    // Update document type (the tag shown next to the filename)
+    updateDocumentType: async (documentId: string, documentType: string): Promise<any> => {
+      const response = await api.patch(
+        `${BASE_URL}/documents/${documentId}/document-type`,
+        { document_type: documentType }
       );
       return response.data;
     },
@@ -1432,6 +1469,9 @@ export interface WMFinancialComparison {
       profit_amount: number;
       deductible: number;
     } | null;
+    estimate_category: string | null;
+    document_file_id: string | null;
+    document_name: string | null;
     claim_rcv: number;
     claim_acv: number;
     claim_depreciation: number;
@@ -1447,9 +1487,111 @@ export interface WMFinancialComparison {
   };
 }
 
+/** One summary section parsed out of an insurance estimate PDF */
+export interface WMEstimateSection {
+  section_name: string;
+  rcv?: number;
+  depreciation?: number;
+  net_acv?: number;
+  deductible?: number;
+  line_item_total?: number;
+  overhead_amount?: number;
+  profit_amount?: number;
+  [key: string]: any;
+}
+
+export interface WMEstimateParseResult {
+  sections: WMEstimateSection[];
+  totals: {
+    rcv_amount?: number;
+    acv_amount?: number;
+    depreciation_amount?: number;
+    deductible?: number;
+  };
+  validation?: { is_valid: boolean; warnings: string[] };
+  /** Index of the auto-detected water mitigation section, if any */
+  wm_section_index: number | null;
+  /** True when the PDF covers rebuild + WM rather than WM alone */
+  is_combined: boolean;
+  file_name: string;
+}
+
 export const financialComparisonService = {
   get: async (jobId: string): Promise<WMFinancialComparison> => {
     const response = await api.get(`${BASE_URL}/jobs/${jobId}/financial-comparison`);
+    return response.data;
+  },
+
+  /** Parse an insurance estimate PDF without saving it */
+  parseInsuranceEstimate: async (
+    jobId: string,
+    file: File,
+  ): Promise<WMEstimateParseResult> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post(
+      `${BASE_URL}/jobs/${jobId}/insurance-estimate/parse`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 },
+    );
+    return response.data;
+  },
+
+  /** Save the estimate PDF + the confirmed WM amount */
+  saveInsuranceEstimate: async (
+    jobId: string,
+    params: {
+      file: File;
+      wmAmount: number;
+      wmSection?: WMEstimateSection | null;
+      isCombined?: boolean;
+      allSections?: WMEstimateSection[] | null;
+      notes?: string;
+    },
+  ): Promise<{
+    success: boolean;
+    negotiation_id: string;
+    revision_number: number;
+    wm_amount: number;
+    file_id: string | null;
+    file_name: string;
+    is_combined: boolean;
+  }> => {
+    const formData = new FormData();
+    formData.append('file', params.file);
+    formData.append('wm_amount', String(params.wmAmount));
+    formData.append('is_combined', String(!!params.isCombined));
+    if (params.wmSection) {
+      formData.append('wm_section', JSON.stringify(params.wmSection));
+    }
+    if (params.allSections) {
+      formData.append('sections_data', JSON.stringify(params.allSections));
+    }
+    if (params.notes) formData.append('notes', params.notes);
+
+    const response = await api.post(
+      `${BASE_URL}/jobs/${jobId}/insurance-estimate`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 },
+    );
+    return response.data;
+  },
+
+  /** Record a hand-entered WM amount without a PDF */
+  saveManualInsuranceEstimate: async (
+    jobId: string,
+    params: { wmAmount: number; notes?: string },
+  ): Promise<{
+    success: boolean;
+    negotiation_id: string;
+    revision_number: number;
+    wm_amount: number;
+    is_manual: boolean;
+  }> => {
+    const response = await api.post(
+      `${BASE_URL}/jobs/${jobId}/insurance-estimate/manual`,
+      { wm_amount: params.wmAmount, notes: params.notes },
+    );
     return response.data;
   },
 };
@@ -1460,8 +1602,8 @@ export const financialComparisonService = {
 
 export interface DocumentReadiness {
   photo_report: { ready: boolean; document?: { id: string; filename: string; created_at: string } | null };
-  invoice: { ready: boolean; invoice_id?: string | null };
-  w9: { ready: boolean };
+  invoice: { ready: boolean; invoice_id?: string | null; document?: { id: string; filename: string; created_at: string } | null };
+  w9: { ready: boolean; document?: { id: string; filename: string; created_at: string } | null };
   cos: { ready: boolean; document?: { id: string; filename: string; created_at: string } | null };
   ewa: { ready: boolean; document?: { id: string; filename: string; created_at: string } | null };
   sketch: { ready: boolean; stale?: boolean; document?: { id: string; filename: string; created_at: string } | null };
@@ -1472,6 +1614,13 @@ export interface PresetEmail {
   name: string;
   email: string;
   role: string; // 'adjuster' | 'insurance' | 'pa' | 'other'
+}
+
+// A document manually pinned to a required email slot.
+export interface SlotOverrideDocument {
+  id: string;
+  filename: string;
+  created_at: string | null;
 }
 
 export interface AdjusterEmailInfo {
@@ -1488,6 +1637,7 @@ export interface AdjusterEmailInfo {
   email_accounts: { id: string; email_address: string; display_name: string }[];
   documents: DocumentReadiness;
   preset_emails?: PresetEmail[];
+  reply_to?: { name: string; email: string; phone: string };
 }
 
 export interface SendToAdjusterPayload {
@@ -1510,6 +1660,26 @@ export const adjusterEmailService = {
   generateEmail: async (jobId: string, customNotes: string = ''): Promise<{ subject: string; body_html: string }> => {
     const response = await api.post(
       `${BASE_URL}/jobs/${jobId}/generate-adjuster-email?custom_notes=${encodeURIComponent(customNotes)}`
+    );
+    return response.data;
+  },
+
+  // Manual slot -> document mappings, for when the automatic
+  // document_type matching doesn't fill a required slot.
+  getSlotOverrides: async (jobId: string): Promise<Record<string, SlotOverrideDocument>> => {
+    const response = await api.get(`${BASE_URL}/jobs/${jobId}/document-slot-overrides`);
+    return response.data;
+  },
+
+  // Pass documentId = null to clear the mapping.
+  setSlotOverride: async (
+    jobId: string,
+    slotKey: string,
+    documentId: string | null
+  ): Promise<{ slot_key: string; document: SlotOverrideDocument | null }> => {
+    const response = await api.put(
+      `${BASE_URL}/jobs/${jobId}/document-slot-overrides/${slotKey}`,
+      { document_id: documentId }
     );
     return response.data;
   },
@@ -1642,6 +1812,56 @@ export const magicPlanService = {
   }> => {
     const response = await api.get(
       '/api/integrations/magicplan/health'
+    );
+    return response.data;
+  },
+};
+
+// ── WM Payment Board (manager link) ──────────────────────────
+// Amount / recipient edits go through waterMitigationService.updateJob.
+// The public calls MUST use publicApi: the default `api` client redirects
+// to /login on a 401, which would eject a manager who isn't logged in.
+
+const PAYMENT_BOARD_URL = '/api/wm-payment-board';
+
+export const wmPaymentBoardService = {
+  // Admin (authenticated)
+  getToken: async (): Promise<WMPaymentBoardToken> => {
+    const response = await api.get(`${PAYMENT_BOARD_URL}/admin/token`);
+    return response.data;
+  },
+
+  regenerateToken: async (): Promise<WMPaymentBoardToken> => {
+    const response = await api.post(`${PAYMENT_BOARD_URL}/admin/token/regenerate`);
+    return response.data;
+  },
+
+  // Public (no auth)
+  getPublicBoard: async (token: string): Promise<WMPublicBoardResponse> => {
+    const response = await publicApi.get(`${PAYMENT_BOARD_URL}/${token}`);
+    return response.data;
+  },
+
+  setPublicReceived: async (
+    token: string,
+    jobId: string,
+    received: boolean
+  ): Promise<WMPaymentRow> => {
+    const response = await publicApi.patch(
+      `${PAYMENT_BOARD_URL}/${token}/jobs/${jobId}/received`,
+      { payment_received: received }
+    );
+    return response.data;
+  },
+
+  setPublicNote: async (
+    token: string,
+    jobId: string,
+    note: string | null
+  ): Promise<WMPaymentRow> => {
+    const response = await publicApi.patch(
+      `${PAYMENT_BOARD_URL}/${token}/jobs/${jobId}/note`,
+      { payment_note: note }
     );
     return response.data;
   },

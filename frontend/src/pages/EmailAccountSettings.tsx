@@ -208,15 +208,29 @@ const EmailAccountSettings: React.FC = () => {
       sender_phone: account.sender_phone || undefined,
       can_send: account.can_send !== false,
       is_active: account.is_active,
+      smtp_server: account.smtp_server || undefined,
+      smtp_port: account.smtp_port || undefined,
+      send_only: account.provider_type === 'custom' && !!account.smtp_server,
     });
     setModalOpen(true);
   };
 
   const handleSubmit = (values: any) => {
+    const { send_only, ...payload } = values;
+    // Send-only custom accounts (Resend etc.) have no real mailbox to poll,
+    // so the IMAP fields are never shown/edited by the user - fill dummy
+    // values (satisfies the NOT NULL columns) and force auto_schedule off
+    // so poll_all_accounts never tries to connect to a nonexistent inbox.
+    if (payload.provider_type === 'custom' && send_only) {
+      payload.imap_server = payload.imap_server || 'unused.invalid';
+      payload.imap_port = payload.imap_port || 993;
+      payload.use_ssl = true;
+      payload.auto_schedule = undefined;
+    }
     if (editingAccount) {
-      updateMutation.mutate({ id: editingAccount.id, payload: values });
+      updateMutation.mutate({ id: editingAccount.id, payload });
     } else {
-      createMutation.mutate(values);
+      createMutation.mutate(payload);
     }
   };
 
@@ -243,8 +257,13 @@ const EmailAccountSettings: React.FC = () => {
       title: 'Provider',
       dataIndex: 'provider_type',
       key: 'provider_type',
-      width: 100,
-      render: (v: string) => <Tag>{v.toUpperCase()}</Tag>,
+      width: 130,
+      render: (v: string, record: EmailAccount) => (
+        <Space size={4}>
+          <Tag>{v.toUpperCase()}</Tag>
+          {v === 'custom' && record.smtp_server && <Tag color="purple">Send-only</Tag>}
+        </Space>
+      ),
     },
     {
       title: 'Auth',
@@ -275,33 +294,42 @@ const EmailAccountSettings: React.FC = () => {
       title: 'Actions',
       key: 'actions',
       width: 200,
-      render: (_: any, record: EmailAccount) => (
+      render: (_: any, record: EmailAccount) => {
+        // Send-only accounts (Resend etc.) have no inbox - Test Connection
+        // and Poll Now both try to open an IMAP session, which always fails
+        // for these since there's nothing to authenticate against.
+        const isSendOnly = record.provider_type === 'custom' && !!record.smtp_server;
+        return (
         <Space size="small">
-          <Tooltip title="Test Connection">
-            <Button
-              size="small"
-              icon={<ApiOutlined />}
-              loading={testingId === record.id && testMutation.isPending}
-              onClick={() => {
-                setTestingId(record.id);
-                testMutation.mutate(record.id);
-              }}
-            />
-          </Tooltip>
-          <Tooltip title="Poll Now">
-            <Button
-              size="small"
-              icon={<SyncOutlined />}
-              onClick={async () => {
-                try {
-                  const result = await emailIngestionService.pollAccount(record.id);
-                  message.success(`Found ${result.emails_found} emails, uploaded ${result.uploaded}`);
-                } catch {
-                  message.error('Polling failed');
-                }
-              }}
-            />
-          </Tooltip>
+          {!isSendOnly && (
+            <Tooltip title="Test Connection">
+              <Button
+                size="small"
+                icon={<ApiOutlined />}
+                loading={testingId === record.id && testMutation.isPending}
+                onClick={() => {
+                  setTestingId(record.id);
+                  testMutation.mutate(record.id);
+                }}
+              />
+            </Tooltip>
+          )}
+          {!isSendOnly && (
+            <Tooltip title="Poll Now">
+              <Button
+                size="small"
+                icon={<SyncOutlined />}
+                onClick={async () => {
+                  try {
+                    const result = await emailIngestionService.pollAccount(record.id);
+                    message.success(`Found ${result.emails_found} emails, uploaded ${result.uploaded}`);
+                  } catch {
+                    message.error('Polling failed');
+                  }
+                }}
+              />
+            </Tooltip>
+          )}
           <Tooltip title="Edit">
             <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
           </Tooltip>
@@ -309,7 +337,8 @@ const EmailAccountSettings: React.FC = () => {
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
-      ),
+        );
+      },
     },
   ];
 
@@ -419,17 +448,47 @@ const EmailAccountSettings: React.FC = () => {
             <Input.Password placeholder={editingAccount ? '(unchanged)' : 'App Password for Gmail'} />
           </Form.Item>
 
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider_type !== cur.provider_type}>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider_type !== cur.provider_type || prev.send_only !== cur.send_only}>
             {({ getFieldValue }) => getFieldValue('provider_type') === 'custom' ? (
               <>
-                <Form.Item name="imap_server" label="IMAP Server" rules={[{ required: true }]}>
-                  <Input placeholder="imap.example.com" />
-                </Form.Item>
-                <Form.Item name="imap_port" label="Port" rules={[{ required: true }]}>
-                  <InputNumber style={{ width: '100%' }} />
-                </Form.Item>
-                <Form.Item name="use_ssl" label="Use SSL" valuePropName="checked">
+                <Form.Item
+                  name="send_only"
+                  label="Send-only (no inbox — e.g. Resend)"
+                  valuePropName="checked"
+                  tooltip="This account only sends mail; there's no mailbox to poll for replies."
+                >
                   <Switch />
+                </Form.Item>
+
+                {getFieldValue('send_only') ? (
+                  <Alert
+                    message="Auto-Schedule stays off for send-only accounts — there's no inbox to poll."
+                    type="info"
+                    style={{ marginBottom: 12 }}
+                  />
+                ) : (
+                  <>
+                    <Form.Item name="imap_server" label="IMAP Server" rules={[{ required: true }]}>
+                      <Input placeholder="imap.example.com" />
+                    </Form.Item>
+                    <Form.Item name="imap_port" label="Port" rules={[{ required: true }]}>
+                      <InputNumber style={{ width: '100%' }} />
+                    </Form.Item>
+                    <Form.Item name="use_ssl" label="Use SSL" valuePropName="checked">
+                      <Switch />
+                    </Form.Item>
+                  </>
+                )}
+
+                <Form.Item
+                  name="smtp_server"
+                  label="SMTP Server"
+                  rules={getFieldValue('send_only') ? [{ required: true }] : []}
+                >
+                  <Input placeholder="smtp.resend.com" />
+                </Form.Item>
+                <Form.Item name="smtp_port" label="SMTP Port">
+                  <InputNumber style={{ width: '100%' }} placeholder="587" />
                 </Form.Item>
               </>
             ) : (

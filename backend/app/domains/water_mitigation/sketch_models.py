@@ -14,11 +14,12 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import deferred, relationship
 
 from app.core.base_models import BaseModel
 from app.core.database_factory import Base
@@ -66,7 +67,11 @@ class WMFloorSketch(Base, BaseModel):
     # Background image (used when source_type="image")
     background_image_url = Column(String(1000), nullable=True)
     storage_file_id = Column(String(500), nullable=True)      # Provider-specific file ID (e.g. GDrive file ID)
-    storage_provider = Column(String(50), nullable=True)       # 'local', 'gdrive', 'gcs', 's3'
+    storage_provider = Column(String(50), nullable=True)       # 'db' (current), legacy: 'local', 'gdrive', 'gcs'
+    # Image bytes live in the DB (storage_provider='db'). Deferred so list/detail
+    # queries don't pull megabytes of image data they never use.
+    background_image_data = deferred(Column(LargeBinary, nullable=True))
+    background_image_content_type = Column(String(100), nullable=True)
 
     # Canvas configuration
     canvas_width = Column(Integer, default=1200, nullable=False)

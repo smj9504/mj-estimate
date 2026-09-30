@@ -89,6 +89,13 @@ export interface WMSketchSidebarProps {
   onUpdateContentManipulation: (id: string, updates: Partial<WMContentManipulation>) => void;
   onDeleteContentManipulation: (id: string) => void;
   onUpdateWall?: (id: string, updates: Partial<WMWall>) => void;
+  /**
+   * Preferred way to change a wall's length: moves the far endpoint as a
+   * shared vertex, so walls meeting it follow and the room is re-derived.
+   * Falls back to onUpdateWall when absent, which stretches the wall alone
+   * and leaves the room at its old shape.
+   */
+  onWallLengthChange?: (id: string, feet: number) => void;
   onDeleteWall?: (id: string) => void;
   onUpdateRoom?: (id: string, updates: Partial<WMRoom>) => void;
   onDeleteRoom?: (id: string) => void;
@@ -113,6 +120,7 @@ const SELECTION_PANEL_MAP: Record<string, string> = {
   content_manipulation: 'content_manipulation',
   wall: 'floor_plan',
   room: 'floor_plan',
+  vertex: 'floor_plan',
 };
 
 /** Small pill badge for panel headers */
@@ -182,6 +190,7 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
   onUpdateContentManipulation,
   onDeleteContentManipulation,
   onUpdateWall,
+  onWallLengthChange,
   onDeleteWall,
   onUpdateRoom,
   onDeleteRoom,
@@ -439,7 +448,17 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
                       style={{ width: 70 }}
                       addonAfter="ft"
                       onChange={(val) => {
-                        if (val == null || !onUpdateWall) return;
+                        if (val == null) return;
+                        // Preferred path: the editor moves the far endpoint as
+                        // a shared vertex, so connected walls follow and the
+                        // room is re-derived. Editing the wall directly (the
+                        // fallback below) stretches it in isolation and leaves
+                        // the room drawn at its previous shape.
+                        if (onWallLengthChange) {
+                          onWallLengthChange(w.id, val);
+                          return;
+                        }
+                        if (!onUpdateWall) return;
                         const dx = w.end_x - w.start_x;
                         const dy = w.end_y - w.start_y;
                         const oldLenPx = Math.sqrt(dx * dx + dy * dy);
