@@ -7,6 +7,7 @@ Handles syncing photos and floor plans from MagicPlan to Water Mitigation jobs:
 - Floor plan image import for sketches
 """
 
+import asyncio
 import io
 import logging
 import uuid
@@ -471,6 +472,13 @@ class MagicPlanSyncService:
         Uses the SVG image URL from plan_data.floors[].image.
         """
         from app.domains.water_mitigation.sketch_models import WMFloorSketch
+        from app.domains.water_mitigation.sketch_repository import (
+            SketchRepository,
+        )
+        from app.domains.water_mitigation.sketch_service import (
+            normalize_background_image,
+            set_background_image,
+        )
 
         try:
             async with MagicPlanClient() as client:
@@ -501,49 +509,41 @@ class MagicPlanSyncService:
                 # Download the SVG/image
                 image_bytes = await client.download_file(image_url)
 
-                # Upload to storage
-                storage = StorageFactory.create()
-                ext = "svg" if ".svg" in image_url else "png"
-                file_name = (
-                    f"magicplan_floorplan_{plan_id}_f{floor_index}.{ext}"
-                )
-                folder_path = f"water-mitigation/{job_id}/sketches"
-                content_type = (
-                    "image/svg+xml" if ext == "svg" else "image/png"
-                )
-
-                upload_result = storage.upload(
-                    file_data=io.BytesIO(image_bytes),
-                    filename=file_name,
-                    context="water-mitigation",
-                    context_id=job_id,
-                    category="sketches",
-                    content_type=content_type,
-                )
-
-                # Update existing WM floor sketch
-                if target_wm_floor_id:
-                    floor_sketch = (
-                        self.db.query(WMFloorSketch)
-                        .filter(WMFloorSketch.id == target_wm_floor_id)
-                        .first()
+                if not target_wm_floor_id:
+                    return MagicPlanFloorPlanImportResult(
+                        success=False,
+                        error_message="target_wm_floor_id is required",
                     )
-                    if floor_sketch:
-                        floor_sketch.background_image_url = (
-                            upload_result.file_path
-                        )
-                        floor_sketch.storage_file_id = upload_result.file_id
-                        floor_sketch.storage_provider = (
-                            settings.STORAGE_PROVIDER
-                        )
-                        floor_sketch.source_type = "image"
-                        self.db.commit()
+                floor_sketch = (
+                    self.db.query(WMFloorSketch)
+                    .filter(WMFloorSketch.id == target_wm_floor_id)
+                    .first()
+                )
+                if not floor_sketch:
+                    return MagicPlanFloorPlanImportResult(
+                        success=False,
+                        error_message=(
+                            f"WM floor sketch {target_wm_floor_id} not found"
+                        ),
+                    )
+
+                # Store on the sketch row (converted to PNG off the event loop)
+                content_type = (
+                    "image/svg+xml" if ".svg" in image_url else "image/png"
+                )
+                data, mime = await asyncio.to_thread(
+                    normalize_background_image, image_bytes, content_type
+                )
+                set_background_image(
+                    SketchRepository(self.db), floor_sketch, data, mime
+                )
+                self.db.commit()
 
                 return MagicPlanFloorPlanImportResult(
                     success=True,
                     wm_floor_id=target_wm_floor_id,
                     floor_label=floor_label,
-                    image_url=upload_result.file_path,
+                    image_url=floor_sketch.background_image_url,
                 )
 
         except Exception as e:

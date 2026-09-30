@@ -6,7 +6,9 @@ Router is registered in main.py with prefix="/api/water-mitigation/sketch".
 """
 
 import io
-from typing import List
+import threading
+from collections import OrderedDict
+from typing import List, Optional, Tuple
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -44,6 +46,37 @@ from app.domains.water_mitigation.sketch_service import SketchService
 from app.domains.water_mitigation.sketch_pdf_service import SketchPdfService
 
 router = APIRouter(tags=["WM Sketches"])
+
+# Converted background images keyed by (provider, file_id). A re-upload
+# produces a new file_id, so entries never go stale. Bounded so a handful
+# of large PNGs can't exhaust the single worker's memory.
+_PREVIEW_CACHE_MAX_BYTES = 40 * 1024 * 1024
+_preview_cache: "OrderedDict[Tuple[str, str], Tuple[bytes, str]]" = OrderedDict()
+_preview_cache_bytes = 0
+_preview_cache_lock = threading.Lock()
+
+
+def _preview_cache_get(key: Tuple[str, str]) -> Optional[Tuple[bytes, str]]:
+    with _preview_cache_lock:
+        hit = _preview_cache.get(key)
+        if hit is not None:
+            _preview_cache.move_to_end(key)
+        return hit
+
+
+def _preview_cache_put(key: Tuple[str, str], data: bytes, content_type: str) -> None:
+    global _preview_cache_bytes
+    if len(data) > _PREVIEW_CACHE_MAX_BYTES // 2:
+        return
+    with _preview_cache_lock:
+        old = _preview_cache.pop(key, None)
+        if old is not None:
+            _preview_cache_bytes -= len(old[0])
+        _preview_cache[key] = (data, content_type)
+        _preview_cache_bytes += len(data)
+        while _preview_cache_bytes > _PREVIEW_CACHE_MAX_BYTES and _preview_cache:
+            _, (evicted, _) = _preview_cache.popitem(last=False)
+            _preview_cache_bytes -= len(evicted)
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +360,7 @@ def save_overlay_data(
     response_model=WMBackgroundImageResponse,
     summary="Upload a background image for a floor sketch",
 )
-async def upload_background_image(
+def upload_background_image(
     floor_sketch_id: UUID,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -336,16 +369,17 @@ async def upload_background_image(
     """
     Upload a background image (floor plan, photo, etc.) for a floor sketch.
 
-    The file is stored via the configured StorageFactory provider and the
-    resulting URL is persisted on the sketch. The source_type is set to
-    "image" automatically.
+    The image bytes are stored on the sketch row itself (no external
+    storage) and served through the preview endpoint. The source_type is
+    set to "image" automatically.
     """
     service = SketchService(db)
     try:
-        sketch = await service.upload_background_image(
+        sketch = service.upload_background_image(
             floor_sketch_id,
-            file,
-            StorageFactory,
+            file.file.read(),
+            file.content_type,
+            file.filename,
         )
         db.commit()
         db.refresh(sketch)
@@ -366,7 +400,7 @@ async def upload_background_image(
     response_model=WMBackgroundImageResponse,
     summary="Remove the background image from a floor sketch",
 )
-async def remove_background_image(
+def remove_background_image(
     floor_sketch_id: UUID,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_user),
@@ -374,15 +408,12 @@ async def remove_background_image(
     """
     Remove the background image from a floor sketch.
 
-    The file is deleted from the storage provider and the URL field is
-    cleared. The source_type is reset to "sketch".
+    The stored image and URL are cleared. The source_type is reset to
+    "sketch".
     """
     service = SketchService(db)
     try:
-        sketch = await service.remove_background_image(
-            floor_sketch_id,
-            StorageFactory,
-        )
+        sketch = service.remove_background_image(floor_sketch_id)
         db.commit()
         db.refresh(sketch)
         return WMBackgroundImageResponse(
@@ -405,7 +436,7 @@ async def remove_background_image(
     "/floors/{floor_sketch_id}/background-image/preview",
     summary="Serve the background image for a floor sketch",
 )
-async def preview_background_image(
+def preview_background_image(
     floor_sketch_id: UUID,
     db: Session = Depends(get_db),
 ):
@@ -415,6 +446,11 @@ async def preview_background_image(
 
     This allows the frontend to load images with a simple URL
     regardless of the underlying storage backend.
+
+    Sync on purpose: the storage download and SVG/WebP conversion are
+    blocking and take seconds. As an async handler they froze the single
+    uvicorn worker's event loop, so concurrent requests (sketch save,
+    report) timed out at the Render proxy and surfaced as CORS errors.
     """
     import logging
 
@@ -432,6 +468,23 @@ async def preview_background_image(
     file_id = getattr(sketch, "storage_file_id", None)
     bg_url = sketch.background_image_url or ""
 
+    if provider == "db":
+        data = sketch.background_image_data
+        if not data:
+            raise HTTPException(
+                status_code=404,
+                detail="Background image not found",
+            )
+        return StreamingResponse(
+            io.BytesIO(data),
+            media_type=sketch.background_image_content_type or "image/png",
+            headers={
+                "Content-Disposition": "inline",
+                "Cache-Control": "no-store, must-revalidate",
+            },
+        )
+
+    # Legacy images uploaded before DB storage (Google Drive / local disk).
     # Fallback: extract GDrive file_id from stored URL
     # for data uploaded before storage_file_id was added
     if not file_id and "drive.google.com/file/d/" in bg_url:
@@ -452,9 +505,22 @@ async def preview_background_image(
 
     # Cloud storage: download via provider and stream back
     if provider and provider != "local" and file_id:
+        cache_key = (provider, file_id)
+        cached = _preview_cache_get(cache_key)
+        if cached is not None:
+            return StreamingResponse(
+                io.BytesIO(cached[0]),
+                media_type=cached[1],
+                headers={
+                    "Content-Disposition": "inline",
+                    "Cache-Control": "no-store, must-revalidate",
+                },
+            )
         try:
             storage = StorageFactory.get_instance(provider)
             photo_bytes = storage.download(file_id)
+            if hasattr(photo_bytes, "read"):
+                photo_bytes = photo_bytes.read()
 
             # Detect content type from stored file extension
             content_type = "image/jpeg"
@@ -501,6 +567,7 @@ async def preview_background_image(
                 file_id,
                 len(photo_bytes),
             )
+            _preview_cache_put(cache_key, photo_bytes, content_type)
 
             return StreamingResponse(
                 io.BytesIO(photo_bytes),
@@ -635,6 +702,11 @@ async def _load_image_bytes(sketch: WMFloorSketch, db: Session) -> bytes:
     provider = getattr(sketch, "storage_provider", "local") or "local"
     file_id = getattr(sketch, "storage_file_id", None)
     bg_url = sketch.background_image_url or ""
+
+    if provider == "db":
+        if sketch.background_image_data:
+            return sketch.background_image_data
+        raise ValueError("Could not load background image from storage")
 
     if provider != "local" and file_id:
         storage = StorageFactory().get_instance()
