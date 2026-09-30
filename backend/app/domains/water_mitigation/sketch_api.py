@@ -6,7 +6,9 @@ Router is registered in main.py with prefix="/api/water-mitigation/sketch".
 """
 
 import io
-from typing import List
+import threading
+from collections import OrderedDict
+from typing import List, Optional, Tuple
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -44,6 +46,37 @@ from app.domains.water_mitigation.sketch_service import SketchService
 from app.domains.water_mitigation.sketch_pdf_service import SketchPdfService
 
 router = APIRouter(tags=["WM Sketches"])
+
+# Converted background images keyed by (provider, file_id). A re-upload
+# produces a new file_id, so entries never go stale. Bounded so a handful
+# of large PNGs can't exhaust the single worker's memory.
+_PREVIEW_CACHE_MAX_BYTES = 40 * 1024 * 1024
+_preview_cache: "OrderedDict[Tuple[str, str], Tuple[bytes, str]]" = OrderedDict()
+_preview_cache_bytes = 0
+_preview_cache_lock = threading.Lock()
+
+
+def _preview_cache_get(key: Tuple[str, str]) -> Optional[Tuple[bytes, str]]:
+    with _preview_cache_lock:
+        hit = _preview_cache.get(key)
+        if hit is not None:
+            _preview_cache.move_to_end(key)
+        return hit
+
+
+def _preview_cache_put(key: Tuple[str, str], data: bytes, content_type: str) -> None:
+    global _preview_cache_bytes
+    if len(data) > _PREVIEW_CACHE_MAX_BYTES // 2:
+        return
+    with _preview_cache_lock:
+        old = _preview_cache.pop(key, None)
+        if old is not None:
+            _preview_cache_bytes -= len(old[0])
+        _preview_cache[key] = (data, content_type)
+        _preview_cache_bytes += len(data)
+        while _preview_cache_bytes > _PREVIEW_CACHE_MAX_BYTES and _preview_cache:
+            _, (evicted, _) = _preview_cache.popitem(last=False)
+            _preview_cache_bytes -= len(evicted)
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +438,7 @@ async def remove_background_image(
     "/floors/{floor_sketch_id}/background-image/preview",
     summary="Serve the background image for a floor sketch",
 )
-async def preview_background_image(
+def preview_background_image(
     floor_sketch_id: UUID,
     db: Session = Depends(get_db),
 ):
@@ -415,6 +448,11 @@ async def preview_background_image(
 
     This allows the frontend to load images with a simple URL
     regardless of the underlying storage backend.
+
+    Sync on purpose: the storage download and SVG/WebP conversion are
+    blocking and take seconds. As an async handler they froze the single
+    uvicorn worker's event loop, so concurrent requests (sketch save,
+    report) timed out at the Render proxy and surfaced as CORS errors.
     """
     import logging
 
@@ -452,9 +490,22 @@ async def preview_background_image(
 
     # Cloud storage: download via provider and stream back
     if provider and provider != "local" and file_id:
+        cache_key = (provider, file_id)
+        cached = _preview_cache_get(cache_key)
+        if cached is not None:
+            return StreamingResponse(
+                io.BytesIO(cached[0]),
+                media_type=cached[1],
+                headers={
+                    "Content-Disposition": "inline",
+                    "Cache-Control": "no-store, must-revalidate",
+                },
+            )
         try:
             storage = StorageFactory.get_instance(provider)
             photo_bytes = storage.download(file_id)
+            if hasattr(photo_bytes, "read"):
+                photo_bytes = photo_bytes.read()
 
             # Detect content type from stored file extension
             content_type = "image/jpeg"
@@ -501,6 +552,7 @@ async def preview_background_image(
                 file_id,
                 len(photo_bytes),
             )
+            _preview_cache_put(cache_key, photo_bytes, content_type)
 
             return StreamingResponse(
                 io.BytesIO(photo_bytes),
