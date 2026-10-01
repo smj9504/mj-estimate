@@ -1465,10 +1465,11 @@ class WaterMitigationService:
         WMDocument record so it shows up in the Documents tab and can be
         reused (e.g. as an email attachment) without regenerating.
 
-        Set persist=False for preview-only calls: the PDF is still rendered
-        and returned, but the storage upload + WMDocument upsert (and their
-        implicit commit) are skipped, since a preview isn't meant to leave
-        a lasting record until the user actually saves it.
+        Set persist=False to render without saving: the PDF is still
+        rendered and returned, but the storage upload + WMDocument upsert
+        (and their implicit commit) are skipped. Used for previews, and when
+        the email needs a smaller copy of a report the user already saved
+        (overwriting their saved one would be the wrong call).
 
         Returns dict with: pdf_bytes, filename, file_id, document_id.
         file_id/document_id are None when persist=False.
