@@ -1772,7 +1772,10 @@ export const magicPlanService = {
         magicplan_project_name: projectName || '',
         sync_photos: true,
         sync_floor_plans: true,
-      }
+      },
+      // Downloads and re-uploads every project photo server-side, which can
+      // take well over the default 30s timeout.
+      { timeout: 300000 }
     );
     return response.data;
   },

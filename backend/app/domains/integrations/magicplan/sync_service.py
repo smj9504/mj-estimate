@@ -306,8 +306,11 @@ class MagicPlanSyncService:
                         )
                         mime_type = img.get("filetype", "image/jpeg")
 
-                        # Upload to storage
-                        upload_result = storage.upload(
+                        # Upload to storage on a worker thread: the storage
+                        # SDK is blocking and would otherwise stall the single
+                        # event loop worker (--workers 1) for every photo.
+                        upload_result = await asyncio.to_thread(
+                            storage.upload,
                             file_data=io.BytesIO(photo_bytes),
                             filename=file_name,
                             context="water-mitigation",
@@ -347,14 +350,17 @@ class MagicPlanSyncService:
                             magicplan_metadata=magicplan_metadata or None,
                         )
                         self.db.add(photo)
+                        # Commit per photo so an interrupted sync keeps what
+                        # it already stored; a retry skips them by external_id.
+                        self.db.commit()
                         result.photos_synced += 1
 
                     except Exception as e:
+                        self.db.rollback()
                         error_msg = f"Failed to sync image {img_id}: {e}"
                         logger.error(error_msg)
                         result.errors.append(error_msg)
 
-                self.db.commit()
                 result.success = True
 
         except Exception as e:
