@@ -69,7 +69,7 @@ async def extract_keywords_from_photo(photo_data: str) -> List[str]:
     Returns:
         List of keyword strings describing damage and required work
     """
-    vision_model = getattr(settings, "XACT_VISION_MODEL", "claude-haiku-4-5-20241022")
+    vision_model = getattr(settings, "XACT_VISION_MODEL", "claude-haiku-4-5-20251001")
 
     try:
         # Determine if photo_data is a file path or base64
@@ -241,7 +241,7 @@ async def match_candidates_to_assembly(
     Returns:
         Assembly JSON with selected items and quantities
     """
-    matching_model = getattr(settings, "XACT_MATCHING_MODEL", "claude-sonnet-4-6-20250514")
+    matching_model = getattr(settings, "XACT_MATCHING_MODEL", "claude-sonnet-4-6")
 
     # Build user prompt
     candidate_text = json.dumps(
@@ -350,7 +350,7 @@ async def generate_description(
     Returns:
         Dict with 'title' and 'body'
     """
-    desc_model = getattr(settings, "XACT_VISION_MODEL", "claude-haiku-4-5-20241022")
+    desc_model = getattr(settings, "XACT_VISION_MODEL", "claude-haiku-4-5-20251001")
 
     prompt = DESCRIPTION_SYSTEM_PROMPT.format(
         item_code=item_code,

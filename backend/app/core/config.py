@@ -281,8 +281,8 @@ class Settings(BaseSettings):
 
     # Xactimate Helper Tool Settings
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
-    XACT_VISION_MODEL: str = os.getenv("XACT_VISION_MODEL", "claude-haiku-4-5-20241022")
-    XACT_MATCHING_MODEL: str = os.getenv("XACT_MATCHING_MODEL", "claude-sonnet-4-6-20250514")
+    XACT_VISION_MODEL: str = os.getenv("XACT_VISION_MODEL", "claude-haiku-4-5-20251001")
+    XACT_MATCHING_MODEL: str = os.getenv("XACT_MATCHING_MODEL", "claude-sonnet-4-6")
     XACT_EMBEDDING_MODEL: str = os.getenv("XACT_EMBEDDING_MODEL", "text-embedding-3-small")
     XACT_SIMILARITY_THRESHOLD_EXACT: float = float(os.getenv("XACT_SIMILARITY_THRESHOLD_EXACT", "0.92"))
     XACT_SIMILARITY_THRESHOLD_HINT: float = float(os.getenv("XACT_SIMILARITY_THRESHOLD_HINT", "0.85"))
