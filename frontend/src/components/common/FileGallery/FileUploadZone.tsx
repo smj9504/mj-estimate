@@ -234,6 +234,14 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
           if (uploading || processingBatchRef.current) return;
           const files = Array.from(e.dataTransfer.files);
           if (files.length > 0) {
+            // The Dragger below handles this same drop event first and has
+            // already queued these files via beforeUpload - discard that queue
+            // so the debounce flush doesn't upload the whole batch a second time.
+            if (flushTimerRef.current) {
+              clearTimeout(flushTimerRef.current);
+              flushTimerRef.current = null;
+            }
+            pendingFilesRef.current = [];
             processingBatchRef.current = true;
             handleUpload(files);
           }
