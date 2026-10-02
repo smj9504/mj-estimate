@@ -12,6 +12,13 @@ FROM python:3.12-slim-bookworm
 # Set working directory
 WORKDIR /app
 
+# Render's starter plan kills the container at 512MB. glibc gives each thread
+# its own malloc arena (up to 8 per core) and never shrinks them, so the sync
+# endpoints running in the threadpool leave RSS far above what Python is
+# actually using. Capping the arenas keeps the idle footprint down and leaves
+# headroom for PDF generation.
+ENV MALLOC_ARENA_MAX=2
+
 # Install system dependencies including WeasyPrint requirements.
 # ghostscript gives the email attachment compressor its best path; without it
 # the code falls back to downsampling images with PyMuPDF (as it must on

@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from html import escape as html_escape
@@ -101,6 +102,29 @@ def _ensure_weasyprint():
     except Exception as e:
         print(f"WeasyPrint not available: {e}")
         WEASYPRINT_AVAILABLE = False
+
+
+# Render's starter plan caps the container at 512MB and the app idles close
+# to that, so PDF renders are serialized (two at once stack their peaks) and
+# the freed heap is handed back to the OS right after each one.
+_PDF_RENDER_LOCK = threading.Lock()
+
+
+def release_memory() -> None:
+    """Return freed heap pages to the OS after a memory-heavy PDF job.
+
+    glibc keeps freed memory in its arenas, so RSS stays at the peak of the
+    last render and the next request starts from there. malloc_trim only
+    exists on glibc (Linux); elsewhere this is just a gc pass.
+    """
+    import gc
+    gc.collect()
+    if sys.platform.startswith('linux'):
+        try:
+            import ctypes
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except Exception:
+            pass
 
 
 def _ensure_pypdf():
@@ -511,9 +535,9 @@ class PDFService:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        logger.info("Starting write_pdf for invoice (subprocess)...")
+        logger.info("Starting write_pdf for invoice...")
         try:
-            self._write_pdf_subprocess(
+            self._write_pdf(
                 html_content, css_strings, str(output_path)
             )
             logger.info(
@@ -527,8 +551,37 @@ class PDFService:
 
         return str(output_path)
 
+    @staticmethod
+    def _write_pdf(
+        html_content: str, css_strings: list, output_path: str
+    ) -> None:
+        """Render HTML + CSS strings to a PDF file.
+
+        Windows dev renders in a subprocess (GLib/event-loop conflicts with
+        uvicorn). Everywhere else it renders in-process: WeasyPrint is
+        already imported here, and a second interpreter importing it again
+        costs ~80MB on top of the app's RSS - enough to get the container
+        OOM-killed on Render's 512MB plan.
+        """
+        if sys.platform == 'win32':
+            PDFService._write_pdf_subprocess(
+                html_content, css_strings, output_path
+            )
+            return
+
+        _ensure_weasyprint()
+        with _PDF_RENDER_LOCK:
+            try:
+                HTML(string=html_content).write_pdf(
+                    output_path,
+                    stylesheets=[CSS(string=s) for s in css_strings],
+                )
+            finally:
+                release_memory()
+
+    @staticmethod
     def _write_pdf_subprocess(
-        self, html_content: str, css_strings: list, output_path: str
+        html_content: str, css_strings: list, output_path: str
     ) -> None:
         """Run WeasyPrint write_pdf in a separate script file to avoid
         GLib/event-loop conflicts in the uvicorn process.
@@ -2049,95 +2102,20 @@ print(os.path.getsize(output_path))
         """
         css_strings.append(page_css)
 
-        # --- Run WeasyPrint in subprocess (same as invoice/estimate) ---
-        html_tmp = tempfile.NamedTemporaryFile(
-            mode='w', suffix='.html', delete=False, encoding='utf-8'
-        )
-        html_tmp.write(html_content)
-        html_tmp.close()
-
-        css_tmp = tempfile.NamedTemporaryFile(
-            mode='w', suffix='.json', delete=False, encoding='utf-8'
-        )
-        json.dump(css_strings, css_tmp)
-        css_tmp.close()
-
+        # --- Render via the shared writer (same as invoice) ---
         out_tmp = tempfile.NamedTemporaryFile(
             suffix='.pdf', delete=False
         )
         out_tmp.close()
 
-        script_content = """
-import sys, json, os
-
-# Windows dev only - see app/main.py. On Linux the container's system
-# fontconfig (+ fonts, installed in backend/Dockerfile) must be left alone:
-# pointing FONTCONFIG_PATH at a non-existent anaconda dir leaves WeasyPrint
-# with no font database, so text renders in a fallback face.
-if sys.platform == 'win32':
-    os.environ['FONTCONFIG_PATH'] = os.path.join(
-        os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
-    )
-    os.environ.pop('FONTCONFIG_FILE', None)
-
-html_path = sys.argv[1]
-output_path = sys.argv[2]
-css_path = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] != 'None' else None
-
-from weasyprint import HTML, CSS
-
-stylesheets = []
-if css_path:
-    with open(css_path, 'r', encoding='utf-8') as f:
-        for s in json.load(f):
-            stylesheets.append(CSS(string=s))
-
-with open(html_path, 'r', encoding='utf-8') as f:
-    html = f.read()
-
-HTML(string=html).write_pdf(output_path, stylesheets=stylesheets)
-print(os.path.getsize(output_path))
-"""
-        script_tmp = tempfile.NamedTemporaryFile(
-            mode='w', suffix='.py', delete=False, encoding='utf-8'
-        )
-        script_tmp.write(script_content)
-        script_tmp.close()
-
         try:
-            env_vars = os.environ.copy()
-            env_vars.pop('G_SLICE', None)
-            # Windows dev only - see app/main.py. On Linux, leave the
-            # container's system fontconfig alone.
-            if sys.platform == 'win32':
-                env_vars['FONTCONFIG_PATH'] = os.path.join(
-                    os.path.expanduser('~'),
-                    'anaconda3', 'Library', 'etc', 'fonts'
-                )
-                env_vars.pop('FONTCONFIG_FILE', None)
-
-            result = subprocess.run(
-                [sys.executable, script_tmp.name,
-                 html_tmp.name, out_tmp.name, css_tmp.name],
-                capture_output=True, text=True,
-                timeout=60, env=env_vars
-            )
-
-            out_path = Path(out_tmp.name)
-            if not out_path.exists() or out_path.stat().st_size == 0:
-                raise RuntimeError(
-                    f"PDF subprocess failed (rc={result.returncode}): "
-                    f"{result.stderr[:500]}"
-                )
-
-            pdf_document = out_path.read_bytes()
+            PDFService._write_pdf(html_content, css_strings, out_tmp.name)
+            pdf_document = Path(out_tmp.name).read_bytes()
         finally:
-            for p in [html_tmp.name, css_tmp.name,
-                       script_tmp.name, out_tmp.name]:
-                try:
-                    os.unlink(p)
-                except Exception:
-                    pass
+            try:
+                os.unlink(out_tmp.name)
+            except Exception:
+                pass
 
         # Append photo pages using reportlab (much faster than WeasyPrint)
         if photos_for_append:

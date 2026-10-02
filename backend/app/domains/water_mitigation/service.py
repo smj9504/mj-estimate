@@ -1477,7 +1477,10 @@ class WaterMitigationService:
         import tempfile
         from pathlib import Path
 
-        from app.common.services.pdf_service import generate_water_mitigation_report_pdf
+        from app.common.services.pdf_service import (
+            generate_water_mitigation_report_pdf,
+            release_memory,
+        )
         from app.common.utils.storage_helpers import upload_bytes_to_storage
         from app.domains.file.repository import FileRepository
 
@@ -1546,6 +1549,7 @@ class WaterMitigationService:
             Path(temp_path).unlink()
         except Exception:
             pass
+        release_memory()
 
         logger.info(f"Report generated: {len(pdf_bytes)} bytes")
 
