@@ -277,6 +277,9 @@ def _calculate_manual_multi_structure(
             "total_sf": measurements["total_sf"],
             "squares": measurements["squares"],
             "predominant_pitch": measurements["predominant_pitch"],
+            # The waste the shingle line was priced with, so the PDF's
+            # waste note states this rather than a complexity default.
+            "waste_factor": measurements["waste_factor"],
             "subtotal": round(struct_subtotal, 2),
             "total": round(struct_subtotal, 2),
         })
@@ -388,7 +391,10 @@ def _calculate_multi_structure(
         ]
 
         complexity = struct.get("complexity", "hip")
-        waste = rates.waste_factor(complexity)
+        # The waste entered on the estimate wins, as it does for single
+        # and manual structures; the complexity default only fills in
+        # when none was entered.
+        waste = estimate.waste_factor or rates.waste_factor(complexity)
 
         measurements = {
             "total_sf": round(total_sf, 1),
@@ -466,6 +472,9 @@ def _calculate_multi_structure(
             "total_sf": measurements["total_sf"],
             "squares": measurements["squares"],
             "predominant_pitch": measurements["predominant_pitch"],
+            # The waste the shingle line was priced with, so the PDF's
+            # waste note states this rather than a complexity default.
+            "waste_factor": measurements["waste_factor"],
             "subtotal": round(struct_subtotal, 2),
             "total": round(struct_subtotal, 2),
         })

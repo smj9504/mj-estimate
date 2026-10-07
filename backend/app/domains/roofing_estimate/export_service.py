@@ -657,11 +657,9 @@ class RoofingExportService:
                         "squares",
                         s_sf / 100 if s_sf else 0,
                     )
-                    s_complexity = (
-                        (ev or {}).get("complexity", "hip")
+                    s_waste = self._structure_waste(
+                        estimate, s_idx, sr, ev,
                     )
-                    from .pricing import get_waste_factor
-                    s_waste = get_waste_factor(s_complexity)
                     s_sq_w = round(s_sq * (1 + s_waste), 1)
                     self._add_waste_note(
                         elements, colors, s_waste,
@@ -706,8 +704,8 @@ class RoofingExportService:
                     ))
 
                 # Waste note
-                w_pct = estimate.get("waste_factor", 0.12)
-                w_sq = estimate.get("squares", 0)
+                w_pct = self._structure_waste(estimate, 0, None, None)
+                w_sq = estimate.get("squares") or 0
                 w_sq_w = round(w_sq * (1 + w_pct), 1)
                 self._add_waste_note(
                     elements, colors, w_pct,
@@ -1274,6 +1272,35 @@ class RoofingExportService:
         doc.build(elements, onFirstPage=_header_footer, onLaterPages=_header_footer)
         buffer.seek(0)
         return buffer
+
+    @staticmethod
+    def _structure_waste(estimate, s_idx, sr, ev) -> float:
+        """Waste factor a structure's shingle line was priced with.
+
+        Mirrors the calculator: what the calculation recorded on the
+        structure first, then a manual structure's own entry, then the
+        waste entered on the estimate, and only then the complexity
+        default. Reading the complexity default first printed 13% on
+        every multi-structure quote whatever waste was entered.
+        """
+        if (sr or {}).get("waste_factor") is not None:
+            return sr["waste_factor"]
+        ms = next(
+            (m for m in (estimate.get("manual_structures") or [])
+             if m.get("index", 0) == s_idx),
+            None,
+        )
+        if (ms or {}).get("waste_factor") is not None:
+            return ms["waste_factor"]
+        if estimate.get("waste_factor"):
+            return estimate["waste_factor"]
+        from .pricing import get_waste_factor
+        return get_waste_factor(
+            (ms or {}).get("roof_complexity")
+            or (ev or {}).get("complexity")
+            or estimate.get("roof_complexity")
+            or "hip"
+        )
 
     def _add_waste_note(
         self, elements, colors,
