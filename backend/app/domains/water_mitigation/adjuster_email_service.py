@@ -815,7 +815,7 @@ class AdjusterEmailService:
                 }
                 failed_names = [doc_labels.get(d, d) for d in failed_docs]
                 raise ValueError(
-                    f"Failed to generate attachment(s): {', '.join(failed_names)}. "
+                    f"Failed to attach: {', '.join(failed_names)}. "
                     f"Email was NOT sent. Please check the documents and try again."
                 )
 
@@ -1194,64 +1194,45 @@ class AdjusterEmailService:
     def _photo_report_attachment_from_saved_doc(
         self, session, job, doc, address_short: str
     ) -> Optional[Dict[str, Any]]:
-        """Attach the saved Photo Report, re-rendering it if it's too big.
+        """Attach the saved Photo Report exactly as the user generated it.
 
-        A saved report can be far larger than an email allows - one built
-        before the report generator's size defaults were tightened, or a
-        deliberately full-quality one the user generated for print.
-        Downloading hundreds of MB into a 512MB instance only to refuse the
-        send afterwards helps nobody, so check the size the record already
-        carries and re-render at email size instead, leaving whatever the
-        user saved untouched.
+        Never re-renders: rendering a photo-heavy report inside the send
+        request is what OOM-killed the 512MB instance mid-send. An
+        over-limit report goes through the normal attachment compression,
+        and one too big to even download safely is refused with a clear
+        message instead.
         """
         saved_size = getattr(doc, "file_size", None) or 0
 
-        if saved_size > self._EMAIL_SIZE_LIMIT:
-            logger.info(
-                f"Saved photo report is {saved_size / 1024 / 1024:.1f}MB, over the "
-                f"{self._EMAIL_SIZE_LIMIT / 1024 / 1024:.0f}MB email limit - rendering an "
-                f"email-sized copy from the saved report config instead"
+        if saved_size > self._MAX_COMPRESSIBLE_SIZE:
+            # Compression can't rescue a file this size, and downloading it
+            # would trade a clear error for an OOM that takes the instance
+            # down.
+            raise ValueError(
+                f"The saved Photo Report is {saved_size / 1024 / 1024:.1f}MB, too "
+                f"large to attach. Email was NOT sent. Regenerate the report in the "
+                f"Documents tab with Compress enabled, then send again."
             )
-            att = self._generate_photo_report_attachment(
-                session, job, address_short, persist=False
-            )
-            if att:
-                return att
-            if saved_size > self._MAX_COMPRESSIBLE_SIZE:
-                # No config to re-render from, and compression can't rescue
-                # a file this size either - downloading it would trade a
-                # clear error for an OOM that takes the instance down.
-                logger.error(
-                    f"Saved photo report for job {job.id} is "
-                    f"{saved_size / 1024 / 1024:.1f}MB and there's no report config to "
-                    f"re-render it from - not downloading it. Rebuild the report in the "
-                    f"Documents tab (or use the Compress option) before sending."
-                )
-                return None
 
         att = self._attachment_from_wm_document(
             doc, f"Photo Report - {address_short}.pdf"
         )
-        if att:
-            return att
-
-        logger.warning(
-            f"Photo report doc exists (id={doc.id}, type={doc.document_type}, "
-            f"path={doc.file_path}, storage_id={getattr(doc, 'storage_file_id', None)}) "
-            f"but file download failed - falling back to regenerating from saved config"
-        )
-        return self._generate_photo_report_attachment(session, job, address_short)
+        if not att:
+            logger.warning(
+                f"Photo report doc exists (id={doc.id}, type={doc.document_type}, "
+                f"path={doc.file_path}, storage_id={getattr(doc, 'storage_file_id', None)}) "
+                f"but file download failed - not regenerating it at send time"
+            )
+        return att
 
     def _generate_photo_report_attachment(
-        self, session, job, address_short: str, persist: bool = True
+        self, session, job, address_short: str
     ) -> Optional[Dict[str, Any]]:
         """Generate a Photo Report on the fly from the job's saved report
         config (the same one shown/edited in the Documents tab).
 
-        Persists it as a WMDocument by default so it doesn't need to be
-        regenerated next time; pass persist=False when the job already has
-        a saved report that just happens to be too big to email, so the
-        smaller copy doesn't replace the one the user saved."""
+        Only for jobs that have no saved report at all. Persists it as a
+        WMDocument so later sends attach it instead of rendering again."""
         try:
             from .models import WMDocument
             from .service import WaterMitigationService
@@ -1273,8 +1254,7 @@ class AdjusterEmailService:
                 return None
 
             logger.info(
-                f"Photo report attachment: generating from saved config for job {job.id} "
-                f"(persist={persist})"
+                f"Photo report attachment: generating from saved config for job {job.id}"
             )
             # compress=True so the PDF is already email-sized (50% quality,
             # 1200px cap) instead of the full-quality original - the email
@@ -1283,7 +1263,6 @@ class AdjusterEmailService:
             # 512MB of RAM.
             result = service.generate_and_save_photo_report(
                 job.id, config=config, commit=False, compress=True,
-                persist=persist,
             )
             return {
                 "filename": f"Photo Report - {address_short}.pdf",
@@ -1551,11 +1530,11 @@ class AdjusterEmailService:
         self, session, job, address_short: str, override_doc=None
     ) -> Optional[Dict[str, Any]]:
         """Use the previously generated sketch_report WMDocument if one
-        exists (avoids re-rendering through the headless browser on every
-        send); fall back to generating fresh if there's no saved copy or
-        its file can't be read. Staleness (floor sketch edited after the
-        last render) is surfaced to the user as a warning in the send
-        dialog, not enforced here - we still attach the existing PDF."""
+        exists; only render one when there's no saved copy at all. A saved
+        copy whose file can't be read fails the attachment rather than
+        being re-rendered at send time. Staleness (floor sketch edited
+        after the last render) is surfaced to the user as a warning in the
+        send dialog, not enforced here - we still attach the existing PDF."""
         try:
             from .models import WMDocument
             from .sketch_pdf_service import SketchPdfService
@@ -1579,12 +1558,12 @@ class AdjusterEmailService:
             )
             if doc:
                 att = self._attachment_from_wm_document(doc, f"Sketch - {address_short}.pdf")
-                if att:
-                    return att
-                logger.warning(
-                    f"Sketch report doc exists (id={doc.id}) but file download failed - "
-                    f"falling back to regenerating"
-                )
+                if not att:
+                    logger.warning(
+                        f"Sketch report doc exists (id={doc.id}) but file download failed - "
+                        f"not regenerating it at send time"
+                    )
+                return att
 
             sketch_service = SketchPdfService(session)
             result = sketch_service.generate_and_save_sketch_report(job.id, commit=False)
