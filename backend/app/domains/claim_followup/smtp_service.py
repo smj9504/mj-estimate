@@ -3,18 +3,55 @@ SMTP Email Sending Service.
 Handles outbound email delivery via SMTP with support for Gmail, Outlook, and custom servers.
 """
 
+import base64
 import logging
+import re
 import smtplib
+import uuid
 from datetime import datetime, timezone
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate, make_msgid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Raw bytes base64-encoded per chunk while streaming an attachment. A
+# multiple of 57 so every chunk but the last encodes to whole 76-char lines.
+_B64_CHUNK = 57 * 1024
+
+
+def _base64_size(n: int) -> int:
+    """Size of n bytes as base64 lines joined by CRLF (no trailing CRLF)."""
+    if n <= 0:
+        return 0
+    encoded = 4 * ((n + 2) // 3)
+    lines = (encoded + 75) // 76
+    return encoded + 2 * (lines - 1)
+
+
+def _iter_base64(data: bytes) -> Iterator[bytes]:
+    """Base64-encode data as CRLF-separated 76-char lines, a chunk at a time.
+
+    The last line has no line break: the message skeleton already puts one
+    between the payload and the next boundary.
+    """
+    view = memoryview(data)
+    for start in range(0, len(view), _B64_CHUNK):
+        chunk = base64.encodebytes(view[start:start + _B64_CHUNK])
+        chunk = chunk.replace(b"\n", b"\r\n")
+        if start + _B64_CHUNK >= len(view):
+            chunk = chunk[:-2]
+        yield chunk
+
+
+def _smtp_text(segment: bytes) -> bytes:
+    """Normalize line endings to CRLF and dot-stuff, as smtplib's data() does."""
+    segment = re.sub(rb"(?:\r\n|\n|\r(?!\n))", b"\r\n", segment)
+    return re.sub(rb"(?m)^\.", b"..", segment)
 
 # SMTP provider presets
 SMTP_PROVIDERS = {
@@ -105,8 +142,11 @@ class SmtpService:
             signature_phone_override = signature_phone_override or smtp_config.get("sender_phone")
             smtp_config = fallback_config
 
-        # Build message
-        msg, failed_attachments = self._build_message(
+        # Build message. Attachment payloads are left out of it (see the
+        # streaming note below) and marked with this per-send token.
+        token = uuid.uuid4().hex
+        msg, attachment_data, failed_attachments = self._build_message(
+            placeholder_token=token,
             from_address=from_address,
             to_addresses=to_addresses,
             cc_addresses=cc_addresses,
@@ -134,9 +174,22 @@ class SmtpService:
                 f"The file(s) may be missing from storage - try re-uploading."
             )
 
+        # The message is streamed to the server rather than flattened in
+        # memory: as_string() plus smtplib's own line-ending, dot-stuffing
+        # and encoding passes held ~8x the attachment size at once (157MB
+        # for 20MB of PDFs), which OOM-killed Render's 512MB instance while
+        # sending adjuster emails. The skeleton below is the whole message
+        # with a short placeholder in place of each attachment's payload.
+        skeleton = _smtp_text(
+            msg.as_bytes(policy=msg.policy.clone(linesep="\r\n"))
+        )
+        segments = re.split(rb"%s-(\d+)" % token.encode(), skeleton)
+
         # Check message size before sending (Gmail limit: 25MB)
         MAX_EMAIL_SIZE_MB = 25
-        msg_size = len(msg.as_bytes())
+        msg_size = sum(len(s) for s in segments[0::2]) + sum(
+            _base64_size(len(attachment_data[int(i)])) for i in segments[1::2]
+        )
         msg_size_mb = msg_size / (1024 * 1024)
         if msg_size_mb > MAX_EMAIL_SIZE_MB:
             attachment_details = []
@@ -177,7 +230,10 @@ class SmtpService:
             elif smtp_config.get("username") and smtp_config.get("password"):
                 server.login(smtp_config["username"], smtp_config["password"])
 
-            server.sendmail(from_address, all_recipients, msg.as_string())
+            self._send_streaming(
+                server, from_address, all_recipients,
+                self._iter_message(segments, attachment_data), msg_size,
+            )
             server.quit()
 
             logger.info(f"Email sent successfully to {to_addresses}, message_id={message_id}")
@@ -192,6 +248,70 @@ class SmtpService:
         except Exception as e:
             logger.error(f"SMTP send error: {e}")
             raise
+
+    @staticmethod
+    def _iter_message(
+        segments: List[bytes], attachment_data: List[bytes]
+    ) -> Iterator[bytes]:
+        """Yield the message skeleton with each placeholder replaced by its
+        attachment, base64-encoded a chunk at a time."""
+        for i, segment in enumerate(segments):
+            if i % 2 == 0:
+                yield segment
+            else:
+                yield from _iter_base64(attachment_data[int(segment)])
+
+    @staticmethod
+    def _send_streaming(
+        server: smtplib.SMTP,
+        from_address: str,
+        recipients: List[str],
+        chunks: Iterator[bytes],
+        size: int,
+    ) -> Dict[str, Any]:
+        """smtplib's sendmail(), but writing the DATA section as it's produced.
+
+        sendmail() needs the whole message as one string and then makes
+        several more full copies of it; this sends chunks that are already
+        CRLF-normalized and dot-stuffed (see _smtp_text - base64 lines never
+        start with '.'). Returns the refused recipients, like sendmail().
+        """
+        server.ehlo_or_helo_if_needed()
+        options = []
+        if server.does_esmtp and server.has_extn("size"):
+            options.append(f"size={size}")
+
+        code, resp = server.mail(from_address, options)
+        if code != 250:
+            server.rset()
+            raise smtplib.SMTPSenderRefused(code, resp, from_address)
+
+        refused = {}
+        for addr in recipients:
+            code, resp = server.rcpt(addr)
+            if code not in (250, 251):
+                refused[addr] = (code, resp)
+        if len(refused) == len(recipients):
+            server.rset()
+            raise smtplib.SMTPRecipientsRefused(refused)
+
+        code, resp = server.docmd("data")
+        if code != 354:
+            server.rset()
+            raise smtplib.SMTPDataError(code, resp)
+
+        last = b""
+        for chunk in chunks:
+            if chunk:
+                server.send(chunk)
+                last = chunk
+        server.send(b".\r\n" if last.endswith(b"\r\n") else b"\r\n.\r\n")
+
+        code, resp = server.getreply()
+        if code != 250:
+            server.rset()
+            raise smtplib.SMTPDataError(code, resp)
+        return refused
 
     def _get_smtp_config(self, account_id: Optional[str]) -> Dict[str, Any]:
         """Get SMTP configuration for sending"""
@@ -374,11 +494,17 @@ class SmtpService:
         sender_phone: str = "",
         email_address: str = "",
         company_name: str = "",
-    ) -> tuple[MIMEMultipart, List[str]]:
+        placeholder_token: str = "",
+    ) -> tuple[MIMEMultipart, List[bytes], List[str]]:
         """Build MIME message with spam-prevention headers and signature.
 
-        Returns (message, failed_attachment_filenames) - callers must check
-        the failure list rather than assume every requested attachment made it in.
+        Each attachment part carries "<placeholder_token>-<n>" as its
+        payload instead of the file itself; the file bytes come back
+        separately, n being the index into that list.
+
+        Returns (message, attachment_bytes, failed_attachment_filenames) -
+        callers must check the failure list rather than assume every
+        requested attachment made it in.
         """
         # Append email signature if sender info is available
         if sender_name:
@@ -398,6 +524,7 @@ class SmtpService:
 
         # Use multipart/alternative when no attachments, multipart/mixed when attachments exist
         has_attachments = bool(attachments)
+        attachment_data: List[bytes] = []
         failed_attachments: List[str] = []
         if has_attachments:
             msg = MIMEMultipart("mixed")
@@ -406,8 +533,19 @@ class SmtpService:
             body_part.attach(MIMEText(body_html, "html", "utf-8"))
             msg.attach(body_part)
             for attachment in attachments:
-                if not self._attach_file(msg, attachment):
-                    failed_attachments.append(attachment.get("filename", "attachment"))
+                filename = attachment.get("filename", "attachment")
+                file_data = self._load_attachment(attachment)
+                if not file_data:
+                    failed_attachments.append(filename)
+                    continue
+                part = MIMEApplication(b"", Name=filename)
+                # add_header RFC 2231-encodes a non-ASCII filename; a
+                # hand-built header string got encoded whole, which left
+                # mail clients without a disposition or filename.
+                part.add_header("Content-Disposition", "attachment", filename=filename)
+                part.set_payload(f"{placeholder_token}-{len(attachment_data)}")
+                msg.attach(part)
+                attachment_data.append(file_data)
         else:
             msg = MIMEMultipart("alternative")
             msg.attach(MIMEText(plain_text, "plain", "utf-8"))
@@ -437,7 +575,7 @@ class SmtpService:
         # list/webhook to back a one-click HTTP unsubscribe URL).
         msg["List-Unsubscribe"] = f"<mailto:{effective_reply_to}?subject=unsubscribe>"
 
-        return msg, failed_attachments
+        return msg, attachment_data, failed_attachments
 
     def _append_signature(
         self,
@@ -465,31 +603,28 @@ class SmtpService:
         )
         return body_html + signature_html
 
-    def _attach_file(self, msg: MIMEMultipart, attachment: Dict[str, Any]) -> bool:
-        """Attach a file to the message. Returns True if attached, False on failure.
+    def _load_attachment(self, attachment: Dict[str, Any]) -> Optional[bytes]:
+        """Get an attachment's bytes, or None on failure.
 
         Supports two modes:
         - file_id: looks up File model and reads from storage
         - data: raw bytes passed directly (for on-the-fly generated PDFs)
 
-        Callers must check the return value - a failure here must not result
-        in silently sending the email without the attachment.
+        Callers must check for None - a failure here must not result in
+        silently sending the email without the attachment.
         """
         filename = attachment.get("filename", "attachment")
 
         # Mode 1: Raw bytes provided directly
         raw_data = attachment.get("data")
         if raw_data and isinstance(raw_data, bytes):
-            part = MIMEApplication(raw_data, Name=filename)
-            part["Content-Disposition"] = f'attachment; filename="{filename}"'
-            msg.attach(part)
             logger.info(f"Attached file (raw): {filename} ({len(raw_data)} bytes)")
-            return True
+            return raw_data
 
         file_id = attachment.get("file_id")
         if not file_id:
             logger.warning(f"Attachment '{filename}' has no file_id or raw data")
-            return False
+            return None
 
         try:
             from app.domains.file.service import get_storage_provider
@@ -504,7 +639,7 @@ class SmtpService:
                 file_rec = session.query(FileModel).filter(FileModel.id == file_id).first()
                 if not file_rec:
                     logger.warning(f"File record not found for ID: {file_id}")
-                    return False
+                    return None
                 file_url = file_rec.url or ''
             finally:
                 session.close()
@@ -523,17 +658,14 @@ class SmtpService:
                     logger.warning(f"Local file not found: {file_url}")
 
             if file_data:
-                part = MIMEApplication(file_data, Name=filename)
-                part["Content-Disposition"] = f'attachment; filename="{filename}"'
-                msg.attach(part)
                 logger.info(f"Attached file: {filename} ({len(file_data)} bytes)")
-                return True
+                return file_data
             else:
                 logger.warning(f"No file data for file_id={file_id} (url={file_url})")
-                return False
+                return None
         except Exception as e:
             logger.warning(f"Could not attach file '{filename}' (file_id={file_id}): {type(e).__name__}: {e}")
-            return False
+            return None
 
 
 def test_smtp_connection(account_id: Optional[str] = None) -> Dict[str, Any]:

@@ -1647,9 +1647,12 @@ class AdjusterEmailService:
     # Attachment Compression
     # ================================================================
 
-    # Gmail/SMTP 25MB limit; use 23MB threshold to account for
-    # base64 encoding overhead (~33% increase) in MIME messages.
-    _EMAIL_SIZE_LIMIT = 23 * 1024 * 1024
+    # Gmail's 25MB limit applies to the encoded message, and base64 plus
+    # its line breaks grow attachments by ~37% - so 18MB of raw files is
+    # ~24.7MB on the wire. (This used to be 23MB, i.e. ~31.5MB encoded,
+    # which SmtpService's 25MB check then refused without ever trying the
+    # compression below.)
+    _EMAIL_SIZE_LIMIT = 18 * 1024 * 1024
 
     # Render's production instance has a 512MB hard memory cap, shared with
     # the rest of the running app (DB connections, request handlers for
