@@ -242,6 +242,49 @@ export interface RoofingLineItemInput {
   notes?: string;
 }
 
+/**
+ * Payment schedule printed on the quote.
+ * standard — deposit / material delivery / final walk-through
+ * half     — 50% upon signing, 50% upon completion
+ */
+export type RoofingPaymentPlan = 'standard' | 'half';
+
+export const PAYMENT_PLAN_OPTIONS: { value: RoofingPaymentPlan; label: string }[] = [
+  { value: 'standard', label: '3 payments — deposit / material delivery / final walk-through' },
+  { value: 'half', label: '50% upfront / 50% upon completion' },
+];
+
+/**
+ * The payments the quote prints, as [share, amount, when due]. Mirrors
+ * payment_schedule() in the backend export_service: the last payment takes
+ * the rounding remainder so the amounts sum to the total.
+ */
+export const roofingPaymentSchedule = (
+  plan: RoofingPaymentPlan | null | undefined,
+  total: number,
+  zipCode?: string | null,
+): [number, number, string][] => {
+  let steps: [number, string][];
+  if (plan === 'half') {
+    steps = [[0.5, 'Upon contract signing'], [0.5, 'Upon completion & final walk-through']];
+  } else {
+    const isDc = ['200', '201', '202', '203', '204', '205'].includes((zipCode || '').slice(0, 3));
+    const [dep, fin] = isDc ? [0.34, 0.16] : [0.33, 0.17];
+    steps = [
+      [dep, 'Upon contract signing'],
+      [0.5, 'Upon material delivery / work start'],
+      [fin, 'Upon final walk-through & approval'],
+    ];
+  }
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  let paid = 0;
+  return steps.map(([pct, due], i) => {
+    const amt = i === steps.length - 1 ? round2(total - paid) : round2(total * pct);
+    paid += amt;
+    return [pct, amt, due];
+  });
+};
+
 /** Prefix of the warning set on an estimate whose line items were edited by hand. */
 export const MANUAL_EDIT_WARNING_PREFIX = 'Line items edited manually';
 
@@ -331,6 +374,8 @@ export interface RoofingEstimate {
   material_portion_pct?: number | null;
   /** Crew labor + disposal, for the internal profit panel. */
   job_cost_inputs?: RoofingJobCostInputs | null;
+  /** Payment schedule printed on the quote. Null/undefined = 'standard'. */
+  payment_plan?: RoofingPaymentPlan | null;
 
   // Totals
   roofing_subtotal: number;

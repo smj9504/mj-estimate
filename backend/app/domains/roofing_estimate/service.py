@@ -863,7 +863,7 @@ class RoofingEstimateService:
             # Structure/add-on inputs and the reverse-pricing target.
             "manual_structures", "roof_penetrations",
             "skylight_replacements", "add_ons", "warranty_info",
-            "target_total",
+            "target_total", "payment_plan",
         ]
 
         new_data = {"created_by_id": created_by_id, "status": "draft"}

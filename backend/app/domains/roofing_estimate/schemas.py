@@ -3,9 +3,14 @@ Roofing Estimate Pydantic schemas
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+# Payment schedule printed on the quote:
+#   standard — deposit / material delivery / final walk-through (thirds-ish)
+#   half     — 50% upon signing, 50% upon completion
+PaymentPlan = Literal["standard", "half"]
 
 
 # ── Estimate schemas ──
@@ -88,6 +93,8 @@ class RoofingEstimateBase(BaseModel):
     material_portion_pct: Optional[float] = Field(None, ge=0, le=1)
     # Crew labor + debris disposal, for the internal profit panel.
     job_cost_inputs: Optional[Dict[str, Any]] = None
+    # Payment schedule printed on the quote; None -> "standard".
+    payment_plan: Optional[PaymentPlan] = None
 
     # Documentation
     overview_text: Optional[str] = None
@@ -166,6 +173,7 @@ class RoofingEstimateUpdate(BaseModel):
     material_portion_pct: Optional[float] = Field(None, ge=0, le=1)
     # Crew labor + debris disposal, for the internal profit panel.
     job_cost_inputs: Optional[Dict[str, Any]] = None
+    payment_plan: Optional[PaymentPlan] = None
 
     overview_text: Optional[str] = None
     notes: Optional[str] = None
@@ -302,6 +310,7 @@ class RoofingEstimateResponse(BaseModel):
     material_portion_pct: Optional[float] = None
     # Crew labor + debris disposal, for the internal profit panel.
     job_cost_inputs: Optional[Dict[str, Any]] = None
+    payment_plan: Optional[str] = None
     # Computed, not user-supplied: how the billed area was stepped up to
     # whole bundles. Drives the explanatory note on the quote.
     square_rounding: Optional[Dict[str, Any]] = None

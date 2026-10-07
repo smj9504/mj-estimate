@@ -15,6 +15,7 @@ import {
   InputNumber,
   message,
   Modal,
+  Radio,
   Row,
   Select,
   Space,
@@ -52,6 +53,7 @@ import type {
   RoofingEstimate,
   RoofingEstimateLineItem,
   RoofingEstimateUpdate,
+  RoofingPaymentPlan,
   RoofingPricingInfo,
   EagleViewFace,
   EagleViewParseResult,
@@ -62,7 +64,9 @@ import type {
 } from '../types/roofingEstimate';
 import {
   MANUAL_EDIT_WARNING_PREFIX,
+  PAYMENT_PLAN_OPTIONS,
   PHASE_LABELS,
+  roofingPaymentSchedule,
   STATUS_COLORS,
   PENETRATION_TYPE_OPTIONS,
 } from '../types/roofingEstimate';
@@ -179,6 +183,31 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 // only covers the window before that query resolves.
 const FALLBACK_PERMIT_FEES: Record<string, number> = { MD: 350, VA: 300, DC: 425 };
 
+// The payments the PDF will print for a plan, with the amounts.
+const PaymentPlanPreview: React.FC<{
+  plan?: RoofingPaymentPlan | null;
+  total: number;
+  zipCode?: string | null;
+  state?: string | null;
+}> = ({ plan, total, zipCode, state }) => (
+  <div style={{ background: '#fafbfc', borderRadius: 8, padding: '8px 12px' }}>
+    {roofingPaymentSchedule(plan, total, zipCode).map(([pct, amt, due]) => (
+      <Row key={due} justify="space-between" style={{ fontSize: 13 }}>
+        <Text>{Math.round(pct * 100)}% — {due}</Text>
+        <Text strong>${amt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+      </Row>
+    ))}
+    {plan === 'half' && state === 'MD' && (
+      <Alert
+        type="warning"
+        showIcon
+        style={{ marginTop: 8 }}
+        message="Maryland home improvement law caps the deposit at one-third of the contract price (Bus. Reg. § 8-617). Check before quoting 50% upfront."
+      />
+    )}
+  </div>
+);
+
 const RoofingEstimateDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -202,6 +231,7 @@ const RoofingEstimateDetail: React.FC = () => {
     dueDate: dayjs().format('YYYY-MM-DD'),
     paymentAmount: 0,
     paymentDate: '',
+    paymentPlan: 'standard' as RoofingPaymentPlan,
   });
 
   const { data: estimate, isLoading } = useQuery({
@@ -270,6 +300,7 @@ const RoofingEstimateDetail: React.FC = () => {
           acc[`${p}_remove`] = ps.remove_existing;
           return acc;
         }, {}),
+        payment_plan: estimate.payment_plan || 'standard',
         hc_permit_option: estimate.hidden_costs?.permit_option ?? (estimate.hidden_costs?.permit === false ? 'none' : 'state'),
         hc_permit_custom_fee: estimate.hidden_costs?.permit_custom_fee,
         labor_warranty_years: estimate.warranty_info?.labor_warranty_years ?? 10,
@@ -451,6 +482,7 @@ const RoofingEstimateDetail: React.FC = () => {
         values.material_portion_pct === undefined || values.material_portion_pct === null || values.material_portion_pct === ''
           ? null
           : values.material_portion_pct,
+      payment_plan: values.payment_plan || 'standard',
       warranty_info: {
         labor_warranty_years: values.labor_warranty_years ?? 10,
         material_warranty_source: 'manufacturer',
@@ -884,7 +916,10 @@ const RoofingEstimateDetail: React.FC = () => {
             <Button
               icon={<FilePdfOutlined />}
               disabled={estimate.status === 'draft'}
-              onClick={() => setPdfModalOpen(true)}
+              onClick={() => {
+                setPdfOptions(o => ({ ...o, paymentPlan: estimate.payment_plan || 'standard' }));
+                setPdfModalOpen(true);
+              }}
             >
               PDF
             </Button>
@@ -2036,6 +2071,36 @@ const RoofingEstimateDetail: React.FC = () => {
                   )}
                 </Form.Item>
 
+                <Divider orientation="left"><DollarOutlined /> Payment Plan</Divider>
+                <Row gutter={16}>
+                  <Col xs={24} md={12}>
+                    <Form.Item
+                      name="payment_plan"
+                      tooltip="The payment schedule printed on the estimate PDF."
+                    >
+                      <Radio.Group>
+                        <Space direction="vertical">
+                          {PAYMENT_PLAN_OPTIONS.map(o => (
+                            <Radio key={o.value} value={o.value}>{o.label}</Radio>
+                          ))}
+                        </Space>
+                      </Radio.Group>
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Form.Item noStyle shouldUpdate={(prev, cur) => prev.payment_plan !== cur.payment_plan || prev.state !== cur.state || prev.zip_code !== cur.zip_code}>
+                      {({ getFieldValue }) => (
+                        <PaymentPlanPreview
+                          plan={getFieldValue('payment_plan')}
+                          total={estimate.total || 0}
+                          zipCode={getFieldValue('zip_code') ?? estimate.zip_code}
+                          state={getFieldValue('state') ?? estimate.state}
+                        />
+                      )}
+                    </Form.Item>
+                  </Col>
+                </Row>
+
                 <Divider orientation="left"><AimOutlined /> Target Total (Reverse Pricing)</Divider>
                 <Alert
                   message="Set a desired total and all line items will scale proportionally when you Calculate."
@@ -2514,8 +2579,20 @@ const RoofingEstimateDetail: React.FC = () => {
             key="export"
             type="primary"
             icon={<FilePdfOutlined />}
-            onClick={() => {
-              const { docType, pricingMode, showSignature, gutterSeparate } = pdfOptions;
+            onClick={async () => {
+              const { docType, pricingMode, showSignature, gutterSeparate, paymentPlan } = pdfOptions;
+              // The plan lives on the estimate (so every PDF of it agrees);
+              // save a change made here before rendering.
+              if (docType === 'estimate' && paymentPlan !== (estimate?.payment_plan || 'standard')) {
+                try {
+                  await roofingEstimateService.update(id!, { payment_plan: paymentPlan });
+                  form.setFieldsValue({ payment_plan: paymentPlan });
+                  queryClient.invalidateQueries({ queryKey: ['roofing-estimate', id] });
+                } catch {
+                  message.error('Failed to save the payment plan');
+                  return;
+                }
+              }
               if (docType === 'warranty') {
                 roofingEstimateService.exportWarrantyCert(id!, {
                   address: estimate?.property_address,
@@ -2620,6 +2697,24 @@ const RoofingEstimateDetail: React.FC = () => {
               </Col>
             </Row>
           </>
+        )}
+
+        {pdfOptions.docType === 'estimate' && (
+          <div style={{ marginBottom: 16 }}>
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>Payment Plan</Text>
+            <Select
+              value={pdfOptions.paymentPlan}
+              style={{ width: '100%', marginBottom: 8 }}
+              onChange={(v) => setPdfOptions({ ...pdfOptions, paymentPlan: v })}
+              options={PAYMENT_PLAN_OPTIONS}
+            />
+            <PaymentPlanPreview
+              plan={pdfOptions.paymentPlan}
+              total={estimate.total || 0}
+              zipCode={estimate.zip_code}
+              state={estimate.state}
+            />
+          </div>
         )}
 
         {pdfOptions.docType === 'estimate' && (

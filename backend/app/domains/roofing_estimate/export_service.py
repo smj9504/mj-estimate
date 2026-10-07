@@ -211,6 +211,39 @@ def _with_hidden_amounts_distributed(estimate):
     return adjusted
 
 
+def payment_schedule(estimate: Dict[str, Any]) -> List[tuple]:
+    """(share, amount, when due) for each payment on the quote.
+
+    "standard" (also the default for estimates saved before the plan
+    could be chosen): deposit, material delivery, final walk-through.
+    "half": 50% upon signing, 50% upon completion. The last payment
+    takes the rounding remainder so the amounts always sum to the total.
+    """
+    total = estimate.get("total") or 0
+    if estimate.get("payment_plan") == "half":
+        steps = [
+            (0.50, "Upon contract signing"),
+            (0.50, "Upon completion & final walk-through"),
+        ]
+    else:
+        zip3 = (estimate.get("zip_code") or "")[:3]
+        is_dc = zip3 in ("200", "201", "202", "203", "204", "205")
+        dep, fin = (0.34, 0.16) if is_dc else (0.33, 0.17)
+        steps = [
+            (dep, "Upon contract signing"),
+            (0.50, "Upon material delivery / work start"),
+            (fin, "Upon final walk-through & approval"),
+        ]
+    rows = []
+    paid = 0.0
+    for i, (pct, due) in enumerate(steps):
+        amt = (round(total - paid, 2) if i == len(steps) - 1
+               else round(total * pct, 2))
+        paid += amt
+        rows.append((pct, amt, due))
+    return rows
+
+
 class RoofingExportService:
     """Generate PDF estimates for roofing projects."""
 
@@ -1148,25 +1181,6 @@ class RoofingExportService:
         #  PAYMENT SCHEDULE
         # ────────────────────────────────────────────────
         elements.append(Spacer(1, 12))
-        total = estimate.get("total", 0)
-        zip_code = estimate.get("zip_code", "") or ""
-        zip3 = zip_code[:3] if zip_code else ""
-        is_dc = zip3 in (
-            "200", "201", "202", "203", "204", "205",
-        )
-        if is_dc:
-            dep_pct, prog_pct, fin_pct = (
-                0.34, 0.50, 0.16,
-            )
-        else:
-            dep_pct, prog_pct, fin_pct = (
-                0.33, 0.50, 0.17,
-            )
-        dep_amt = round(total * dep_pct, 2)
-        prog_amt = round(total * prog_pct, 2)
-        fin_amt = round(
-            total - dep_amt - prog_amt, 2,
-        )
 
         s_pay_title = ParagraphStyle(
             "PayTitle", fontName="Helvetica-Bold",
@@ -1185,14 +1199,8 @@ class RoofingExportService:
             leading=13, spaceBefore=2,
         )
         pay_items = [
-            f"{dep_pct*100:.0f}% (${dep_amt:,.2f}) "
-            f"\u2014 Upon contract signing",
-            f"{prog_pct*100:.0f}% (${prog_amt:,.2f}) "
-            f"\u2014 Upon material delivery / "
-            f"work start",
-            f"{fin_pct*100:.0f}% (${fin_amt:,.2f}) "
-            f"\u2014 Upon final walk-through "
-            f"& approval",
+            f"{pct*100:.0f}% (${amt:,.2f}) \u2014 {due}"
+            for pct, amt, due in payment_schedule(estimate)
         ]
         for p in pay_items:
             elements.append(Paragraph(

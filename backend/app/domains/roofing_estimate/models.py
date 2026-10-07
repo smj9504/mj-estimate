@@ -199,6 +199,11 @@ class RoofingEstimate(Base, BaseModel):
     # a value here overrides every category for this estimate.
     material_portion_pct = Column(Float, nullable=True)
 
+    # Payment schedule printed on the quote. Null -> "standard" (deposit,
+    # material delivery, final walk-through); "half" -> 50% upon signing,
+    # 50% upon completion. See export_service.payment_schedule().
+    payment_plan = Column(String(30), nullable=True)
+
     # ── Calculated Totals ──
     roofing_subtotal = Column(Float, default=0)
     gutter_subtotal = Column(Float, default=0)
