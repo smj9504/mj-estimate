@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from app.core.interfaces import DatabaseSession
 
-from .calculator import calculate_estimate
+from .calculator import calculate_estimate, recalculate_totals
 from .dumpster import select_dumpsters
 from .eagleview_parser import extract_measurements, parse_eagleview
 from .job_cost import calculate_job_cost
@@ -43,6 +43,13 @@ from .repository import (
 from .schemas import RoofingEstimateCreate, RoofingEstimateUpdate
 
 logger = logging.getLogger(__name__)
+
+# Flagged on an estimate whose line items were edited by hand. The detail
+# page matches on it to confirm before Calculate throws the edits away.
+MANUAL_EDIT_WARNING = (
+    "Line items edited manually — Calculate will regenerate them from "
+    "the inputs and discard these edits."
+)
 
 
 class RoofingEstimateService:
@@ -740,6 +747,90 @@ class RoofingEstimateService:
         # beforehand. Without expiring it the reload below hands back the
         # stale (now empty) list, and the caller — the calculate endpoint,
         # and the PDF export built from its response — sees no line items.
+        self.session.expire_all()
+        return self._get_full_estimate(estimate_id)
+
+    def update_line_items(
+        self, estimate_id: str, items: List[Dict[str, Any]],
+        changed_by_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Replace the line items with a hand-edited list, then re-total.
+
+        The list is taken as the whole truth: rows left out are deleted,
+        rows without an id are added. Totals are rebuilt from the items
+        rather than from the inputs, so the edit is what the quote and
+        PDF show until someone runs Calculate again.
+        """
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not estimate:
+            return None
+
+        self._save_history(estimate_id, changed_by_id, "Line items edited")
+
+        line_items = []
+        for i, item in enumerate(items):
+            li = dict(item)
+            li.pop("id", None)
+            li["quantity"] = round(float(li["quantity"]), 2)
+            li["unit_price"] = round(float(li["unit_price"]), 2)
+            if li.get("total") is None:
+                li["total"] = li["quantity"] * li["unit_price"]
+            li["total"] = round(float(li["total"]), 2)
+            li["category"] = li.get("category") or "misc"
+            li["display_order"] = i
+            line_items.append(li)
+
+        result = recalculate_totals(
+            estimate, line_items,
+            rate_overrides=self._rate_overrides_for(estimate),
+        )
+
+        self.line_item_repo.delete_by_estimate_id(estimate_id)
+        for li in result["line_items"]:
+            self.line_item_repo.create({
+                "estimate_id": estimate_id,
+                "structure_index": li.get("structure_index") or 0,
+                "phase": li["phase"],
+                "description": li["description"],
+                "quantity": li["quantity"],
+                "unit": li["unit"],
+                "unit_price": li["unit_price"],
+                "total": li["total"],
+                "material_portion": li.get("material_portion"),
+                "material_cost": li.get("material_cost"),
+                "labor_cost": li.get("labor_cost"),
+                "category": li["category"],
+                "xactimate_code": li.get("xactimate_code"),
+                "notes": li.get("notes"),
+                "display_order": li["display_order"],
+            })
+
+        # The target-total note no longer describes these prices, and a
+        # repeat edit should not stack a second copy of the edit notice.
+        warnings = [
+            w for w in (estimate.warning_flags or [])
+            if not w.startswith("Target total applied")
+            and not w.startswith(MANUAL_EDIT_WARNING)
+        ]
+        warnings.append(MANUAL_EDIT_WARNING)
+
+        update_data = {
+            k: result[k] for k in (
+                "roofing_subtotal", "gutter_subtotal", "subtotal",
+                "material_cost_total", "labor_cost_total", "markup_amount",
+                "overhead_amount", "profit_amount", "contingency_amount",
+                "tax_amount", "permit_fee", "total", "structure_results",
+            )
+        }
+        update_data["adjustment_factor"] = None
+        update_data["warning_flags"] = warnings
+        if estimate.status == "draft":
+            update_data["status"] = "calculated"
+        self.estimate_repo.update(estimate_id, update_data)
+
+        self.session.flush()
+        # Same stale-collection problem as calculate(): the line items
+        # were rebuilt under an estimate already in the identity map.
         self.session.expire_all()
         return self._get_full_estimate(estimate_id)
 

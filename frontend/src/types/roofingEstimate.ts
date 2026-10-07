@@ -226,6 +226,25 @@ export interface RoofingEstimateLineItem {
   created_at?: string;
 }
 
+/** A line item as sent back from the Line Items tab editor. No id = new row. */
+export interface RoofingLineItemInput {
+  id?: string;
+  structure_index: number;
+  phase: number;
+  description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  total: number;
+  material_portion?: number | null;
+  category?: string;
+  xactimate_code?: string;
+  notes?: string;
+}
+
+/** Prefix of the warning set on an estimate whose line items were edited by hand. */
+export const MANUAL_EDIT_WARNING_PREFIX = 'Line items edited manually';
+
 // ── Main Estimate ──
 
 export interface RoofingEstimate {

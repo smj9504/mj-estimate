@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  AutoComplete,
   Button,
   Card,
   Checkbox,
@@ -35,6 +36,7 @@ import {
   CloudUploadOutlined,
   DeleteOutlined,
   DollarOutlined,
+  EditOutlined,
   FilePdfOutlined,
   PlusOutlined,
   SafetyCertificateOutlined,
@@ -48,6 +50,7 @@ import { roofingEstimateService } from '../services/roofingEstimateService';
 import { companyService } from '../services/companyService';
 import type {
   RoofingEstimate,
+  RoofingEstimateLineItem,
   RoofingEstimateUpdate,
   RoofingPricingInfo,
   EagleViewFace,
@@ -57,7 +60,12 @@ import type {
   SkylightReplacement,
   WarrantyInfo,
 } from '../types/roofingEstimate';
-import { PHASE_LABELS, STATUS_COLORS, PENETRATION_TYPE_OPTIONS } from '../types/roofingEstimate';
+import {
+  MANUAL_EDIT_WARNING_PREFIX,
+  PHASE_LABELS,
+  STATUS_COLORS,
+  PENETRATION_TYPE_OPTIONS,
+} from '../types/roofingEstimate';
 import type { Company } from '../types';
 import RoofDiagram from '../components/roofing-estimate/RoofDiagram';
 import dayjs from 'dayjs';
@@ -151,6 +159,21 @@ const generateMaterialWarrantyText = (brand?: string, type?: string): string | n
     'terms, are governed by the manufacturer\'s published warranty terms that accompany the product.'
   );
 };
+
+// A line item row while the Line Items tab is in edit mode. `key` is the
+// saved id, or a temporary one for a row added by hand (whose id is '').
+type EditableLineItem = RoofingEstimateLineItem & { key: string };
+
+const LINE_ITEM_UNITS = ['SQ', 'SF', 'LF', 'EA', 'LS', 'HR', 'DAY'];
+
+// Category a hand-added line takes from its phase; it sets the line's
+// material share for markup and sales tax.
+const PHASE_CATEGORIES: Record<number, string> = {
+  1: 'tearoff', 2: 'decking', 3: 'underlayment', 4: 'flashing',
+  5: 'shingle', 6: 'ventilation', 7: 'gutter', 8: 'misc',
+};
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 // Permit allowance by state. The live values come from pricing-info; this copy
 // only covers the window before that query resolves.
@@ -580,6 +603,204 @@ const RoofingEstimateDetail: React.FC = () => {
     handleFaceToggle(faceId, !isSelected);
   };
 
+  // ── Line item editing ──
+  // null = viewing the saved items; an array = the working copy being edited.
+  const [editingItems, setEditingItems] = useState<EditableLineItem[] | null>(null);
+  const [savingItems, setSavingItems] = useState(false);
+
+  const startEditingItems = () => {
+    setEditingItems((estimate?.line_items || []).map(li => ({ ...li, key: li.id })));
+  };
+
+  const patchItem = (key: string, patch: Partial<EditableLineItem>) => {
+    setEditingItems(prev => prev && prev.map(it => {
+      if (it.key !== key) return it;
+      const next = { ...it, ...patch };
+      // Hand-added lines take their category (and so their material share
+      // for markup and tax) from the phase they are filed under.
+      if (patch.phase !== undefined && !next.id) {
+        next.category = PHASE_CATEGORIES[patch.phase] || 'misc';
+      }
+      return next;
+    }));
+  };
+
+  const setItemQty = (it: EditableLineItem, qty: number | null) => {
+    const quantity = qty ?? 0;
+    patchItem(it.key, { quantity, total: round2(quantity * (it.unit_price || 0)) });
+  };
+
+  const setItemUnitPrice = (it: EditableLineItem, price: number | null) => {
+    const unit_price = price ?? 0;
+    patchItem(it.key, { unit_price, total: round2((it.quantity || 0) * unit_price) });
+  };
+
+  const setItemTotal = (it: EditableLineItem, value: number | null) => {
+    const total = value ?? 0;
+    patchItem(it.key, {
+      total,
+      unit_price: it.quantity ? round2(total / it.quantity) : total,
+      ...(it.quantity ? {} : { quantity: 1 }),
+    });
+  };
+
+  const addItem = (structureIndex: number, phase: number) => {
+    const key = `new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setEditingItems(prev => [
+      ...(prev || []),
+      {
+        key,
+        id: '',
+        estimate_id: id!,
+        structure_index: structureIndex,
+        phase,
+        description: '',
+        quantity: 1,
+        unit: 'EA',
+        unit_price: 0,
+        total: 0,
+        category: PHASE_CATEGORIES[phase] || 'misc',
+        display_order: prev?.length || 0,
+      },
+    ]);
+  };
+
+  const removeItem = (key: string) => {
+    setEditingItems(prev => prev && prev.filter(it => it.key !== key));
+  };
+
+  const saveLineItems = async () => {
+    if (!editingItems) return;
+    const blank = editingItems.find(it => !it.description?.trim() || !it.unit?.trim());
+    if (blank) {
+      message.error('Every line item needs a description and a unit');
+      return;
+    }
+    setSavingItems(true);
+    try {
+      await roofingEstimateService.updateLineItems(id!, editingItems.map(it => ({
+        id: it.id || undefined,
+        structure_index: it.structure_index ?? 0,
+        phase: it.phase,
+        description: it.description.trim(),
+        quantity: it.quantity || 0,
+        unit: it.unit.trim(),
+        unit_price: it.unit_price || 0,
+        total: it.total || 0,
+        // Edited lines keep the material share the calculation gave them.
+        material_portion: it.id ? it.material_portion ?? null : null,
+        category: it.category,
+        xactimate_code: it.xactimate_code || undefined,
+        notes: it.notes || undefined,
+      })));
+      await queryClient.invalidateQueries({ queryKey: ['roofing-estimate', id] });
+      setEditingItems(null);
+      message.success('Line items saved — totals recalculated');
+    } catch {
+      message.error('Failed to save line items');
+    } finally {
+      setSavingItems(false);
+    }
+  };
+
+  const hasManualEdits = !!estimate?.warning_flags?.some(w => w.startsWith(MANUAL_EDIT_WARNING_PREFIX));
+
+  const handleCalculate = () => {
+    const run = () => {
+      setEditingItems(null);
+      calculateMutation.mutate();
+    };
+    if (hasManualEdits || editingItems) {
+      Modal.confirm({
+        title: 'Regenerate line items?',
+        content: 'Calculate rebuilds every line item from the inputs. Your manual line item edits will be lost.',
+        okText: 'Calculate',
+        okButtonProps: { danger: true },
+        onOk: run,
+      });
+      return;
+    }
+    run();
+  };
+
+  const editLineItemColumns = [
+    {
+      title: 'Phase', dataIndex: 'phase', key: 'phase', width: 80,
+      render: (p: number, it: EditableLineItem) => (
+        <Select
+          size="small"
+          value={p}
+          style={{ width: 64 }}
+          popupMatchSelectWidth={false}
+          options={Object.entries(PHASE_LABELS).map(([n, label]) => ({ value: Number(n), label: `${n} — ${label}` }))}
+          optionLabelProp="value"
+          onChange={(v) => patchItem(it.key, { phase: v })}
+        />
+      ),
+    },
+    {
+      title: 'Description', dataIndex: 'description', key: 'description',
+      render: (v: string, it: EditableLineItem) => (
+        <Input.TextArea
+          size="small"
+          value={v}
+          autoSize={{ minRows: 1, maxRows: 4 }}
+          maxLength={500}
+          status={v?.trim() ? undefined : 'error'}
+          placeholder="Description"
+          onChange={(e) => patchItem(it.key, { description: e.target.value })}
+        />
+      ),
+    },
+    {
+      title: 'Qty', dataIndex: 'quantity', key: 'quantity', width: 100,
+      render: (v: number, it: EditableLineItem) => (
+        <InputNumber size="small" value={v} min={0} step={1} precision={2} style={{ width: '100%' }}
+          onChange={(val) => setItemQty(it, val)} />
+      ),
+    },
+    {
+      title: 'Unit', dataIndex: 'unit', key: 'unit', width: 80,
+      render: (v: string, it: EditableLineItem) => (
+        <AutoComplete
+          size="small"
+          value={v}
+          style={{ width: '100%' }}
+          options={LINE_ITEM_UNITS.map(u => ({ value: u }))}
+          status={v?.trim() ? undefined : 'error'}
+          onChange={(val) => patchItem(it.key, { unit: (val || '').toUpperCase().slice(0, 10) })}
+        />
+      ),
+    },
+    {
+      title: 'Unit Price', dataIndex: 'unit_price', key: 'unit_price', width: 120,
+      render: (v: number, it: EditableLineItem) => (
+        <InputNumber size="small" value={v} precision={2} prefix="$" style={{ width: '100%' }}
+          onChange={(val) => setItemUnitPrice(it, val)} />
+      ),
+    },
+    {
+      title: 'Total', dataIndex: 'total', key: 'total', width: 130,
+      render: (v: number, it: EditableLineItem) => (
+        <InputNumber size="small" value={v} precision={2} prefix="$" style={{ width: '100%' }}
+          onChange={(val) => setItemTotal(it, val)} />
+      ),
+    },
+    {
+      title: 'Xactimate', dataIndex: 'xactimate_code', key: 'xact', width: 100,
+      render: (v: string, it: EditableLineItem) => (
+        <Input size="small" value={v} maxLength={20}
+          onChange={(e) => patchItem(it.key, { xactimate_code: e.target.value })} />
+      ),
+    },
+    {
+      title: '', key: 'actions', width: 44,
+      render: (_: unknown, it: EditableLineItem) => (
+        <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => removeItem(it.key)} />
+      ),
+    },
+  ];
+
   const lineItemColumns = [
     {
       title: 'Phase',
@@ -618,6 +839,20 @@ const RoofingEstimateDetail: React.FC = () => {
   );
   if (!estimate) return <div style={{ padding: 24 }}>Estimate not found</div>;
 
+  // The Line Items tab shows the working copy while editing.
+  const shownItems: RoofingEstimateLineItem[] = editingItems ?? estimate.line_items ?? [];
+  // Edit rows are EditableLineItem (a line item plus `key`); typed loosely
+  // so both column sets fit the same tables.
+  const itemColumns: any[] = editingItems ? editLineItemColumns : lineItemColumns;
+  const itemRowKey = editingItems ? 'key' : 'id';
+  const addRowFooter = (structureIndex: number, phase: number) => editingItems
+    ? () => (
+      <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={() => addItem(structureIndex, phase)}>
+        Add Line Item
+      </Button>
+    )
+    : undefined;
+
   return (
     <div style={{ padding: '12px 8px', maxWidth: 1200, margin: '0 auto' }}>
       {/* Header */}
@@ -641,7 +876,7 @@ const RoofingEstimateDetail: React.FC = () => {
             <Button
               type="primary"
               icon={<CalculatorOutlined />}
-              onClick={() => calculateMutation.mutate()}
+              onClick={handleCalculate}
               loading={calculateMutation.isPending}
             >
               Calculate
@@ -1989,9 +2224,45 @@ const RoofingEstimateDetail: React.FC = () => {
             label: `Line Items (${estimate.line_items?.length || 0})`,
             children: (
               <Card>
-                {estimate.line_items?.length ? (() => {
-                  // Detect multi-structure from line items themselves
-                  const structIndices = estimate.line_items
+                {(estimate.line_items?.length > 0 || editingItems) && (
+                  <Row justify="space-between" align="middle" gutter={[8, 8]} style={{ marginBottom: 12 }}>
+                    <Col>
+                      {editingItems ? (
+                        <Text type="secondary">
+                          Line item total: ${shownItems.reduce((sum, li) => sum + (li.total || 0), 0)
+                            .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {' '}— markup, tax and the grand total are recalculated on save.
+                        </Text>
+                      ) : hasManualEdits ? (
+                        <Tag color="orange">Edited manually</Tag>
+                      ) : null}
+                    </Col>
+                    <Col>
+                      {editingItems ? (
+                        <Space wrap>
+                          <Button icon={<PlusOutlined />} onClick={() => addItem(0, 8)}>
+                            Add Line Item
+                          </Button>
+                          <Button onClick={() => setEditingItems(null)} disabled={savingItems}>
+                            Cancel
+                          </Button>
+                          <Button type="primary" icon={<SaveOutlined />} onClick={saveLineItems} loading={savingItems}>
+                            Save Line Items
+                          </Button>
+                        </Space>
+                      ) : (
+                        <Button icon={<EditOutlined />} onClick={startEditingItems}>
+                          Edit Line Items
+                        </Button>
+                      )}
+                    </Col>
+                  </Row>
+                )}
+                {shownItems?.length ? (() => {
+                  // Detect multi-structure from line items themselves. While
+                  // editing, a structure whose lines were all deleted keeps
+                  // its section so lines can be added back to it.
+                  const structIndices = [...shownItems, ...(editingItems ? estimate.line_items : [])]
                     .map(li => li.structure_index ?? 0)
                     .filter((v, i, a) => a.indexOf(v) === i)
                     .sort();
@@ -2002,7 +2273,7 @@ const RoofingEstimateDetail: React.FC = () => {
                     const sr = estimate.structure_results?.find(s => s.structure_index === sIdx);
                     if (sr) return sr;
                     const evStruct = estimate.eagleview_data?.structures?.find((s: any) => s.index === sIdx);
-                    const items = estimate.line_items.filter(li => (li.structure_index ?? 0) === sIdx);
+                    const items = shownItems.filter(li => (li.structure_index ?? 0) === sIdx);
                     const subtotal = items.reduce((sum, li) => sum + li.total, 0);
                     return {
                       structure_index: sIdx,
@@ -2017,15 +2288,15 @@ const RoofingEstimateDetail: React.FC = () => {
                   };
 
                   if (isMulti) {
-                    const allGutterItems = estimate.line_items.filter((li: any) => li.phase === 7);
+                    const allGutterItems = shownItems.filter((li: any) => li.phase === 7);
                     return (
                       <>
                         {structIndices.map((sIdx) => {
                           const info = getStructInfo(sIdx);
-                          const structItems = estimate.line_items.filter(
+                          const structItems = shownItems.filter(
                             li => (li.structure_index ?? 0) === sIdx && li.phase !== 7
                           );
-                          if (!info.included || structItems.length === 0) return null;
+                          if (!info.included || (structItems.length === 0 && !editingItems)) return null;
                           const structSubtotal = structItems.reduce((sum, li) => sum + li.total, 0);
                           return (
                             <div key={sIdx} style={{ marginBottom: 24 }}>
@@ -2050,12 +2321,13 @@ const RoofingEstimateDetail: React.FC = () => {
                                 </Col>
                               </Row>
                               <Table
-                                columns={lineItemColumns}
+                                columns={itemColumns}
                                 dataSource={structItems}
-                                rowKey="id"
+                                rowKey={itemRowKey}
                                 pagination={false}
                                 size="small"
                                 scroll={{ x: 800 }}
+                                footer={addRowFooter(sIdx, 8)}
                               />
                             </div>
                           );
@@ -2064,12 +2336,13 @@ const RoofingEstimateDetail: React.FC = () => {
                           <>
                             <Divider orientation="left" style={{ fontSize: 13 }}>Gutter (Optional Add-on)</Divider>
                             <Table
-                              columns={lineItemColumns}
+                              columns={itemColumns}
                               dataSource={allGutterItems}
-                              rowKey="id"
+                              rowKey={itemRowKey}
                               pagination={false}
                               size="small"
                               scroll={{ x: 800 }}
+                              footer={addRowFooter(0, 7)}
                               summary={() => (
                                 <Table.Summary.Row>
                                   <Table.Summary.Cell index={0} colSpan={5}>
@@ -2089,17 +2362,18 @@ const RoofingEstimateDetail: React.FC = () => {
                       </>
                     );
                   }
-                  const roofItems = estimate.line_items.filter((li: any) => li.phase !== 7);
-                  const gutterItems = estimate.line_items.filter((li: any) => li.phase === 7);
+                  const roofItems = shownItems.filter((li: any) => li.phase !== 7);
+                  const gutterItems = shownItems.filter((li: any) => li.phase === 7);
                   return (
                     <>
                       <Table
-                        columns={lineItemColumns}
+                        columns={itemColumns}
                         dataSource={roofItems}
-                        rowKey="id"
+                        rowKey={itemRowKey}
                         pagination={false}
                         size="small"
                         scroll={{ x: 800 }}
+                        footer={addRowFooter(0, 8)}
                         summary={() => (
                           <Table.Summary.Row>
                             <Table.Summary.Cell index={0} colSpan={5}>
@@ -2118,12 +2392,13 @@ const RoofingEstimateDetail: React.FC = () => {
                         <>
                           <Divider orientation="left" style={{ fontSize: 13 }}>Gutter (Optional Add-on)</Divider>
                           <Table
-                            columns={lineItemColumns}
+                            columns={itemColumns}
                             dataSource={gutterItems}
-                            rowKey="id"
+                            rowKey={itemRowKey}
                             pagination={false}
                             size="small"
                             scroll={{ x: 800 }}
+                            footer={addRowFooter(0, 7)}
                             summary={() => (
                               <Table.Summary.Row>
                                 <Table.Summary.Cell index={0} colSpan={5}>

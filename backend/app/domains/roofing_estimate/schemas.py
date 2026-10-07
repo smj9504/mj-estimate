@@ -197,6 +197,32 @@ class LineItemResponse(BaseModel):
         from_attributes = True
 
 
+class LineItemInput(BaseModel):
+    """One line item as edited on the Line Items tab.
+
+    `id` is the existing row's id, or absent for a line added by hand;
+    rows not sent back are deleted. `material_portion` is echoed back so
+    an edited line keeps the material share the calculation gave it;
+    null re-derives it from the category.
+    """
+    id: Optional[str] = None
+    structure_index: int = 0
+    phase: int = Field(..., ge=1, le=8)
+    description: str = Field(..., min_length=1, max_length=500)
+    quantity: float
+    unit: str = Field(..., min_length=1, max_length=10)
+    unit_price: float
+    total: Optional[float] = None
+    material_portion: Optional[float] = Field(None, ge=0, le=1)
+    category: Optional[str] = Field(None, max_length=50)
+    xactimate_code: Optional[str] = Field(None, max_length=20)
+    notes: Optional[str] = Field(None, max_length=500)
+
+
+class LineItemsUpdate(BaseModel):
+    line_items: List[LineItemInput]
+
+
 # ── Response schemas ──
 
 class RoofingEstimateResponse(BaseModel):

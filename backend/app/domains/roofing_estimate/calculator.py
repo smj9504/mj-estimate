@@ -901,6 +901,124 @@ def _resync_costs(item: Dict) -> None:
     item["labor_cost"] = round(item["total"] - item["material_cost"], 2)
 
 
+def _sum_totals(
+    items: List[Dict], config: Dict, tax_rate: float,
+) -> Dict[str, float]:
+    """Markup / O&P / contingency / tax over a set of line items.
+
+    Markup and sales tax both run off each item's own material and
+    labor halves, so a labor-only line like tear-off is neither taxed
+    nor marked up as though it were half material.
+
+    The permit line is skipped: it is a pass-through fee added to the
+    grand total on its own, so counting it here would mark it up and
+    then add it a second time.
+    """
+    items = [it for it in items if not _is_permit(it)]
+    base = sum(it["total"] for it in items)
+    material = sum(_material_of(it) for it in items)
+    labor = base - material
+
+    markup = (
+        material * config["material_markup_pct"]
+        + labor * config["labor_markup_pct"]
+    )
+    overhead = 0.0
+    profit = 0.0
+    if config["include_overhead_profit"]:
+        overhead = base * config["overhead_pct"]
+        profit = base * config["profit_pct"]
+    return {
+        "subtotal": base,
+        "material_cost_total": material,
+        "labor_cost_total": labor,
+        "markup": markup,
+        "overhead": overhead,
+        "profit": profit,
+        "contingency": base * config["contingency_pct"],
+        # Tax is on materials only, markup included: what the customer
+        # is charged for material is the taxable amount.
+        "tax": (material + material * config["material_markup_pct"])
+        * tax_rate,
+    }
+
+
+def recalculate_totals(
+    estimate, line_items: List[Dict],
+    rate_overrides: Optional[Dict[str, float]] = None,
+) -> Dict[str, Any]:
+    """Totals for a hand-edited set of line items.
+
+    Unlike calculate_estimate() nothing is regenerated: the items are
+    taken as given, each one's material/labor split is resynced to its
+    (possibly edited) total, and markup, O&P, contingency and tax are
+    summed with the same rules a calculation uses. The permit is
+    whatever the permit lines now say, so deleting that line drops the
+    fee. Target total is not re-applied — the edits are the price.
+    """
+    config = _build_config(estimate, None, rate_overrides)
+    rates = config["rates"]
+    tax_rate = rates.sales_tax(
+        config["state"], config.get("locality"),
+        (config.get("hidden_costs") or {}).get("priced_on"),
+    )
+
+    for item in line_items:
+        if item.get("material_portion") is None:
+            item["material_portion"] = round(rates.material_portion(
+                item.get("category") or "misc",
+                config.get("material_portion_pct"),
+            ), 4)
+        _resync_costs(item)
+
+    totals = _sum_totals(line_items, config, tax_rate)
+    # The permit is added to the grand total on its own, outside the
+    # subtotal, exactly as _finalize_totals() does.
+    permit_fee = sum(it["total"] for it in line_items if _is_permit(it))
+    roofing_subtotal = sum(
+        it["total"] for it in line_items
+        if it.get("phase") != 7 and not _is_permit(it)
+    )
+    gutter_subtotal = sum(
+        it["total"] for it in line_items if it.get("phase") == 7
+    )
+    subtotal = roofing_subtotal + gutter_subtotal
+    grand_total = (subtotal + totals["markup"] + totals["overhead"]
+                   + totals["profit"] + totals["contingency"]
+                   + totals["tax"] + permit_fee)
+
+    structure_results = estimate.structure_results
+    if structure_results:
+        structure_results = [dict(sr) for sr in structure_results]
+        for sr in structure_results:
+            if not sr.get("included"):
+                continue
+            sr_subtotal = sum(
+                it["total"] for it in line_items
+                if it.get("structure_index") == sr["structure_index"]
+                and not _is_permit(it)
+            )
+            sr["subtotal"] = round(sr_subtotal, 2)
+            sr["total"] = round(sr_subtotal, 2)
+
+    return {
+        "line_items": line_items,
+        "structure_results": structure_results,
+        "roofing_subtotal": round(roofing_subtotal, 2),
+        "gutter_subtotal": round(gutter_subtotal, 2),
+        "subtotal": round(subtotal, 2),
+        "markup_amount": round(totals["markup"], 2),
+        "overhead_amount": round(totals["overhead"], 2),
+        "profit_amount": round(totals["profit"], 2),
+        "contingency_amount": round(totals["contingency"], 2),
+        "material_cost_total": round(totals["material_cost_total"], 2),
+        "labor_cost_total": round(totals["labor_cost_total"], 2),
+        "tax_amount": round(totals["tax"], 2),
+        "permit_fee": round(permit_fee, 2),
+        "total": round(grand_total, 2),
+    }
+
+
 def _finalize_totals(
     line_items: List[Dict], warnings: List[str],
     config: Dict, structure_results: Optional[List[Dict]],
@@ -945,43 +1063,7 @@ def _finalize_totals(
     )
 
     def _totals_for(items: List[Dict]) -> Dict[str, float]:
-        """Markup / O&P / contingency / tax over a set of line items.
-
-        Markup and sales tax both run off each item's own material and
-        labor halves, so a labor-only line like tear-off is neither taxed
-        nor marked up as though it were half material.
-
-        The permit line is skipped: it is a pass-through fee added to the
-        grand total on its own, so counting it here would mark it up and
-        then add it a second time.
-        """
-        items = [it for it in items if not _is_permit(it)]
-        base = sum(it["total"] for it in items)
-        material = sum(_material_of(it) for it in items)
-        labor = base - material
-
-        markup = (
-            material * config["material_markup_pct"]
-            + labor * config["labor_markup_pct"]
-        )
-        overhead = 0.0
-        profit = 0.0
-        if config["include_overhead_profit"]:
-            overhead = base * config["overhead_pct"]
-            profit = base * config["profit_pct"]
-        return {
-            "subtotal": base,
-            "material_cost_total": material,
-            "labor_cost_total": labor,
-            "markup": markup,
-            "overhead": overhead,
-            "profit": profit,
-            "contingency": base * config["contingency_pct"],
-            # Tax is on materials only, markup included: what the customer
-            # is charged for material is the taxable amount.
-            "tax": (material + material * config["material_markup_pct"])
-            * tax_rate,
-        }
+        return _sum_totals(items, config, tax_rate)
 
     def _grand_multiplier(material_portion: float) -> float:
         """How much the grand total moves per $1 on a line item.

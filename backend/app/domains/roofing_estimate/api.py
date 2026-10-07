@@ -44,6 +44,7 @@ from .pricing import (
 )
 from .schemas import (
     HistoryResponse,
+    LineItemsUpdate,
     MaterialCostResponse,
     MaterialCostUpdate,
     MaterialPriceCreate,
@@ -422,6 +423,29 @@ def calculate_estimate(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+@router.put("/{estimate_id}/line-items", response_model=RoofingEstimateResponse)
+def update_line_items(
+    estimate_id: str,
+    data: LineItemsUpdate,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Replace the line items with a hand-edited list and re-total.
+
+    Rows not in the list are deleted. Calculate regenerates the items
+    from the inputs and discards these edits.
+    """
+    service = RoofingEstimateService(session)
+    result = service.update_line_items(
+        estimate_id,
+        [li.dict() for li in data.line_items],
+        changed_by_id=current_user.id,
+    )
     if not result:
         raise HTTPException(status_code=404, detail="Estimate not found")
     return result

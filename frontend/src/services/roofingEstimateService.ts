@@ -9,6 +9,7 @@ import type {
   RoofingEstimateListResponse,
   RoofingEstimateUpdate,
   RoofingEstimateHistory,
+  RoofingLineItemInput,
   RoofingPricingInfo,
   EagleViewParseResult,
   MaterialCostBreakdown,
@@ -113,6 +114,12 @@ export const roofingEstimateService = {
 
   async calculate(id: string, payload?: RoofingEstimateUpdate) {
     const { data } = await api.post(`${BASE_URL}/${id}/calculate`, payload || {});
+    return data as RoofingEstimate;
+  },
+
+  /** Replace the line items with a hand-edited list; totals are rebuilt. */
+  async updateLineItems(id: string, lineItems: RoofingLineItemInput[]) {
+    const { data } = await api.put(`${BASE_URL}/${id}/line-items`, { line_items: lineItems });
     return data as RoofingEstimate;
   },
 
