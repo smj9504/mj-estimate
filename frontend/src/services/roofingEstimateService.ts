@@ -22,6 +22,7 @@ import type {
   MaterialPricePatch,
   PricingSettingPatch,
   PricingSettingsResponse,
+  RoofingEstimateImage,
 } from '../types/roofingEstimate';
 
 const BASE_URL = '/api/roofing-estimates';
@@ -137,12 +138,49 @@ export const roofingEstimateService = {
     return data as RoofingEstimateHistory[];
   },
 
+  // ── Photos (printed at the end of the PDF) ──
+
+  async listImages(id: string) {
+    const { data } = await api.get(`${BASE_URL}/${id}/images`);
+    return data as RoofingEstimateImage[];
+  },
+
+  async uploadImage(id: string, file: File, caption?: string) {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (caption) formData.append('caption', caption);
+    const { data } = await api.post(`${BASE_URL}/${id}/images`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data as RoofingEstimateImage;
+  },
+
+  async updateImage(id: string, imageId: string, patch: { caption?: string; display_order?: number }) {
+    const { data } = await api.patch(`${BASE_URL}/${id}/images/${imageId}`, patch);
+    return data as RoofingEstimateImage;
+  },
+
+  async deleteImage(id: string, imageId: string) {
+    await api.delete(`${BASE_URL}/${id}/images/${imageId}`);
+  },
+
+  /** Image bytes as an object URL — the endpoint needs the auth header, so a plain <img src> can't load it. */
+  async getImageObjectUrl(id: string, imageId: string) {
+    const response = await api.get(`${BASE_URL}/${id}/images/${imageId}/content`, {
+      responseType: 'blob',
+    });
+    return window.URL.createObjectURL(response.data as Blob);
+  },
+
   // ── Export ──
 
-  async exportPdf(id: string, options?: { show_signature?: boolean; pricing_mode?: string; gutter_separate?: boolean; address?: string }) {
+  async exportPdf(id: string, options?: { show_signature?: boolean; pricing_mode?: string; gutter_separate?: boolean; include_photos?: boolean; address?: string }) {
     const params: Record<string, any> = {};
     if (options?.show_signature === false) {
       params.show_signature = false;
+    }
+    if (options?.include_photos === false) {
+      params.include_photos = false;
     }
     if (options?.pricing_mode) {
       params.pricing_mode = options.pricing_mode;

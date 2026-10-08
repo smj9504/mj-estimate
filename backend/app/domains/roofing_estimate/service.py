@@ -23,6 +23,7 @@ from .material_price_book import (
 )
 from .models import (
     RoofingEstimate,
+    RoofingEstimateImage,
     RoofingMaterialPrice,
     RoofingPricingSetting,
 )
@@ -245,7 +246,7 @@ class RoofingEstimateService:
             sheets = max(
                 0,
                 (decking.get("estimated_sheets_needed") or 0)
-                - (decking.get("free_sheets_included") or 2),
+                - (decking.get("free_sheets_included", 2) or 0),
             ) if decking.get("estimated_sheets_needed") else 0
             hidden = estimate.hidden_costs or {}
             return select_dumpsters(
@@ -873,6 +874,24 @@ class RoofingEstimateService:
 
         result = self.estimate_repo.create(new_data)
         new_id = result["id"]
+        self.session.flush()
+
+        # The photos show which roof is quoted, so the copy keeps them.
+        from sqlalchemy.orm import undefer
+        for img in (
+            self.session.query(RoofingEstimateImage)
+            .options(undefer(RoofingEstimateImage.image_data))
+            .filter(RoofingEstimateImage.estimate_id == estimate_id)
+            .all()
+        ):
+            self.session.add(RoofingEstimateImage(
+                estimate_id=new_id,
+                image_data=img.image_data,
+                content_type=img.content_type,
+                file_name=img.file_name,
+                caption=img.caption,
+                display_order=img.display_order,
+            ))
         self.session.flush()
         return self._get_full_estimate(new_id)
 

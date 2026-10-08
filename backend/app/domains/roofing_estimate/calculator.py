@@ -24,7 +24,7 @@ from .material_portion import (
     derive_material_portions,
     portion_warnings,
 )
-from .pricing import get_material_portion
+from .pricing import get_material_portion, story_key
 from .rate_resolver import DEFAULT_RATES, Rates
 
 logger = logging.getLogger(__name__)
@@ -169,7 +169,20 @@ def _calculate_single_structure(estimate, config: Dict) -> Dict[str, Any]:
     return _finalize_totals(items, warnings, config,
                             structure_results=None,
                             dumpster=dumpster,
-                            rounding=rounding)
+                            rounding=rounding if rounding["rounded"] else None)
+
+
+def _combined_rounding(per_structure: List[Dict]) -> Optional[Dict]:
+    """Bundle-rounding note covering every structure of the estimate.
+
+    Keeps the first structure's figures at the top level, which is what
+    estimates saved before this were read by, and lists each structure
+    under "structures" so the quote can explain all of them. None when
+    no structure was rounded — there is then nothing to explain.
+    """
+    if not any(r["rounded"] for r in per_structure):
+        return None
+    return {**per_structure[0], "structures": per_structure}
 
 
 def _calculate_manual_multi_structure(
@@ -181,7 +194,7 @@ def _calculate_manual_multi_structure(
     all_warnings: List[str] = []
     structure_results: List[Dict] = []
     dumpster: Optional[Dict] = None
-    rounding: Optional[Dict] = None
+    roundings: List[Dict] = []
 
     # Pre-calc combined squares for dumpster
     total_all_sf = sum(s.get("total_sf", 0) for s in manual_structures)
@@ -288,12 +301,13 @@ def _calculate_manual_multi_structure(
         all_warnings.extend(warnings)
         if s_dumpster and dumpster is None:
             dumpster = s_dumpster
-        if s_rounding and rounding is None:
-            rounding = s_rounding
+        s_rounding["label"] = s_label
+        roundings.append(s_rounding)
 
     return _finalize_totals(all_items, all_warnings, config,
                             structure_results=structure_results,
-                            dumpster=dumpster, rounding=rounding)
+                            dumpster=dumpster,
+                            rounding=_combined_rounding(roundings))
 
 
 def _calculate_multi_structure(
@@ -306,6 +320,7 @@ def _calculate_multi_structure(
     all_warnings: List[str] = []
     structure_results: List[Dict] = []
     dumpster: Optional[Dict] = None
+    roundings: List[Dict] = []
 
     selected_faces_set = set(estimate.selected_faces or [])
 
@@ -409,8 +424,13 @@ def _calculate_multi_structure(
                 line_totals.get("STEPFLASH", 0)
                 + line_totals.get("FLASHING", 0), 1),
             "penetration_count": len(accessories),
-            "skylight_count": 0,
-            "chimney_count": 0,
+            # EagleView carries no per-structure chimney or skylight
+            # count; the ones entered on the estimate go on the main
+            # structure so they are billed once.
+            "skylight_count": (
+                (estimate.skylight_count or 0) if s_idx == 0 else 0),
+            "chimney_count": (
+                (estimate.chimney_count or 0) if s_idx == 0 else 0),
             "waste_factor": waste,
             "roof_complexity": complexity,
         }
@@ -483,12 +503,13 @@ def _calculate_multi_structure(
         all_warnings.extend(warnings)
         if s_dumpster and dumpster is None:
             dumpster = s_dumpster
-        if s_rounding and rounding is None:
-            rounding = s_rounding
+        s_rounding["label"] = s_label
+        roundings.append(s_rounding)
 
     return _finalize_totals(all_items, all_warnings, config,
                             structure_results=structure_results,
-                            dumpster=dumpster, rounding=rounding)
+                            dumpster=dumpster,
+                            rounding=_combined_rounding(roundings))
 
 
 def _generate_line_items(
@@ -523,16 +544,16 @@ def _generate_line_items(
     # 0.17 SQ less than the material side already orders.
     squares_raw = squares * (1 + waste)
     squares_with_waste = round_squares_to_bundle(squares_raw)
-    if abs(squares_with_waste - squares_raw) > 0.005:
-        rounding_note = {
-            "measured_squares": round(squares, 2),
-            "waste_pct": round(waste * 100),
-            "squares_with_waste": round(squares_raw, 2),
-            "billed_squares": round(squares_with_waste, 2),
-            "bundles": int(round(squares_with_waste * 3)),
-        }
-    else:
-        rounding_note = None
+    # Always recorded: a multi-structure quote lists every structure's
+    # area, rounded or not. `rounded` says whether the step-up happened.
+    rounding_note = {
+        "measured_squares": round(squares, 2),
+        "waste_pct": round(waste * 100),
+        "squares_with_waste": round(squares_raw, 2),
+        "billed_squares": round(squares_with_waste, 2),
+        "bundles": int(round(squares_with_waste * 3)),
+        "rounded": abs(squares_with_waste - squares_raw) > 0.005,
+    }
 
     year_built = config["year_built"]
     needs_lead_rrp = year_built < 1978
@@ -655,8 +676,14 @@ def _generate_line_items(
 
     if est_sheets > free_sheets:
         billable = est_sheets - free_sheets
-        _add(2, f"Decking replacement ({deck_material.upper()}, "
-                f"{billable} sheets beyond {free_sheets} free)",
+        # "beyond 0 free" advertises an allowance the quote doesn't give.
+        deck_desc = (
+            f"Decking replacement ({deck_material.upper()}, "
+            f"{billable} sheets beyond {free_sheets} free)"
+            if free_sheets
+            else f"Decking replacement ({deck_material.upper()})"
+        )
+        _add(2, deck_desc,
              billable, "EA", deck_rate, billable * deck_rate,
              "decking", "RFG ROOFOSB")
 
@@ -696,7 +723,13 @@ def _generate_line_items(
         _add(4, "Step flashing", flash_lf, "LF", rate,
              flash_lf * rate, "flashing", "RFG STEP")
 
-    chimney_ct = flash.get("chimney_flashing", chimneys)
+    # With several structures each one carries its own count. The
+    # estimate-level flashing_spec mirrors only the single-structure form
+    # field (0 when structures are entered separately), so reading it
+    # here dropped every structure's chimneys — or, when it was set,
+    # billed the same chimneys on every structure.
+    chimney_ct = (
+        chimneys if is_multi else flash.get("chimney_flashing", chimneys))
     for i in range(chimney_ct):
         cricket_list = flash.get("chimney_cricket", [])
         has_cricket = cricket_list[i] if i < len(cricket_list) else False
@@ -707,7 +740,9 @@ def _generate_line_items(
             desc += " (w/ cricket)"
         _add(4, desc, 1, "EA", rate, rate, "flashing", "RFG CHIMS")
 
-    sky_ct = flash.get("skylight_flashing_kits", skylights)
+    sky_ct = (
+        skylights if is_multi
+        else flash.get("skylight_flashing_kits", skylights))
     if sky_ct > 0:
         rate = rates.flashing("skylight_flashing_kit")
         _add(4, "Skylight flashing kit", sky_ct, "EA", rate,
@@ -866,7 +901,7 @@ def _generate_line_items(
             f"({pitch_mult}x labor multiplier)")
     if story_mult > 1.0:
         warnings.append(
-            f"Height surcharge: {config['stories']}-story "
+            f"Height surcharge: {story_key(config['stories'])}-story "
             f"({story_mult}x multiplier)")
     if waste > 0.15:
         warnings.append(

@@ -128,9 +128,12 @@ class Rates:
         return self._lookup(
             "pitch_multiplier", pitch, pricing.PITCH_MULTIPLIERS, 1.0)
 
-    def story_multiplier(self, stories: int) -> float:
-        # Stored keys are strings; the pricing.py dict is int-keyed.
-        value = self._o.get(f"story_multiplier:{stories}")
+    def story_multiplier(self, stories: float) -> float:
+        # Stored keys are strings ("1", "1.5", "2"); the pricing.py dict is
+        # number-keyed. A whole number arrives as 2.0 from the Float
+        # column, so it is written without the ".0" to match "2".
+        value = self._o.get(
+            f"story_multiplier:{pricing.story_key(stories)}")
         if value is not None:
             return value
         return pricing.STORY_MULTIPLIERS.get(stories, 1.0)

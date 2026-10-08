@@ -283,6 +283,9 @@ PITCH_MULTIPLIERS = {
 
 STORY_MULTIPLIERS = {
     1: 1.00,
+    # 1.5 story: a half-story under the roof (Cape Cod, bonus room) —
+    # higher eaves than a rancher, but not a full second-floor setup.
+    1.5: 1.06,
     2: 1.12,
     3: 1.25,
 }
@@ -370,7 +373,13 @@ def get_pitch_multiplier(pitch: str) -> float:
     return PITCH_MULTIPLIERS.get(pitch, 1.0)
 
 
-def get_story_multiplier(stories: int) -> float:
+def story_key(stories: float) -> str:
+    """Story count as a settings key: 2.0 -> "2", 1.5 -> "1.5"."""
+    f = float(stories)
+    return str(int(f)) if f.is_integer() else str(f)
+
+
+def get_story_multiplier(stories: float) -> float:
     """Get height surcharge multiplier."""
     return STORY_MULTIPLIERS.get(stories, 1.0)
 

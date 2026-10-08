@@ -10,11 +10,12 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import deferred, relationship
 
 from app.core.base_models import BaseModel
 from app.core.database_factory import Base
@@ -58,7 +59,7 @@ class RoofingEstimate(Base, BaseModel):
     zip_code = Column(String(10))
     building_type = Column(String(50))  # sfh / townhouse / multi
     year_built = Column(Integer)        # pre-1978 -> lead RRP flag
-    stories = Column(Integer, default=1)  # 1, 2, 3
+    stories = Column(Float, default=1)  # 1, 1.5, 2, 3
     hoa = Column(Boolean, default=False)
     roof_access = Column(String(50))    # easy / moderate / difficult
 
@@ -254,6 +255,13 @@ class RoofingEstimate(Base, BaseModel):
         order_by="RoofingEstimateHistory.version_number.desc()",
         lazy="select",
     )
+    images = relationship(
+        "RoofingEstimateImage",
+        back_populates="estimate",
+        cascade="all, delete-orphan",
+        order_by="RoofingEstimateImage.display_order",
+        lazy="select",
+    )
 
 
 class RoofingEstimateLineItem(Base, BaseModel):
@@ -289,6 +297,35 @@ class RoofingEstimateLineItem(Base, BaseModel):
     display_order = Column(Integer, default=0)
 
     estimate = relationship("RoofingEstimate", back_populates="line_items")
+
+
+class RoofingEstimateImage(Base, BaseModel):
+    """Photo printed at the end of the estimate PDF.
+
+    One address often has several structures; a marked-up aerial or a
+    photo of the existing roof shows the customer which roof the quote
+    covers. Stored on the row, as the WM sketch backgrounds are, so the
+    PDF needs no outside storage to render.
+    """
+    __tablename__ = "roofing_estimate_images"
+    __table_args__ = (
+        Index("ix_roof_images_estimate_id", "estimate_id"),
+        {"extend_existing": True},
+    )
+
+    estimate_id = Column(
+        UUIDType(),
+        ForeignKey("roofing_estimates.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # Deferred: listing images must not pull every photo's bytes.
+    image_data = deferred(Column(LargeBinary, nullable=False))
+    content_type = Column(String(100), nullable=False)
+    file_name = Column(String(255), nullable=True)
+    caption = Column(String(500), nullable=True)
+    display_order = Column(Integer, default=0)
+
+    estimate = relationship("RoofingEstimate", back_populates="images")
 
 
 class RoofingEstimateHistory(Base, BaseModel):

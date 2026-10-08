@@ -72,6 +72,7 @@ import {
 } from '../types/roofingEstimate';
 import type { Company } from '../types';
 import RoofDiagram from '../components/roofing-estimate/RoofDiagram';
+import RoofingEstimatePhotos from '../components/roofing-estimate/RoofingEstimatePhotos';
 import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
@@ -227,6 +228,7 @@ const RoofingEstimateDetail: React.FC = () => {
     pricingMode: 'detailed' as 'detailed' | 'lumpsum',
     showSignature: true,
     gutterSeparate: false,
+    includePhotos: true,
     invoiceDate: dayjs().format('YYYY-MM-DD'),
     dueDate: dayjs().format('YYYY-MM-DD'),
     paymentAmount: 0,
@@ -381,7 +383,8 @@ const RoofingEstimateDetail: React.FC = () => {
       skylight_count: values.skylight_count,
       chimney_count: values.chimney_count,
       waste_factor: values.waste_factor,
-      roof_complexity: values.roof_complexity,
+      // null, not undefined: a cleared field must clear the saved value.
+      roof_complexity: values.roof_complexity ?? null,
       manual_structures: manualStructures.length > 1 ? manualStructures : undefined,
       roof_penetrations: roofPenetrations.length > 0 ? roofPenetrations : undefined,
       skylight_replacements: skylightReplacements.length > 0 ? skylightReplacements : undefined,
@@ -1089,6 +1092,7 @@ const RoofingEstimateDetail: React.FC = () => {
                     <Form.Item label="Stories" name="stories">
                       <Select options={[
                         { label: '1 Story', value: 1 },
+                        { label: '1.5 Story', value: 1.5 },
                         { label: '2 Story', value: 2 },
                         { label: '3 Story', value: 3 },
                       ]} />
@@ -1176,7 +1180,7 @@ const RoofingEstimateDetail: React.FC = () => {
                   </Col>
                   <Col xs={12} sm={12} md={6}>
                     <Form.Item label="Roof Complexity" name="roof_complexity">
-                      <Select options={pricingInfo?.roof_complexities?.map(c => ({
+                      <Select allowClear placeholder="Not set (varies by structure)" options={pricingInfo?.roof_complexities?.map(c => ({
                         label: c.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
                         value: c,
                       })) || []} />
@@ -2285,6 +2289,11 @@ const RoofingEstimateDetail: React.FC = () => {
             ),
           },
           {
+            key: 'photos',
+            label: 'Photos',
+            children: <RoofingEstimatePhotos estimateId={id!} />,
+          },
+          {
             key: '7',
             label: `Line Items (${estimate.line_items?.length || 0})`,
             children: (
@@ -2611,6 +2620,7 @@ const RoofingEstimateDetail: React.FC = () => {
                   pricing_mode: pricingMode,
                   show_signature: showSignature,
                   gutter_separate: gutterSeparate,
+                  include_photos: pdfOptions.includePhotos,
                   address: estimate?.property_address,
                 });
               }
@@ -2733,6 +2743,12 @@ const RoofingEstimateDetail: React.FC = () => {
                 onChange={(e) => setPdfOptions({ ...pdfOptions, gutterSeparate: e.target.checked })}
               >
                 Show gutter as separate section
+              </Checkbox>
+              <Checkbox
+                checked={pdfOptions.includePhotos}
+                onChange={(e) => setPdfOptions({ ...pdfOptions, includePhotos: e.target.checked })}
+              >
+                Include photos (Photos tab)
               </Checkbox>
             </div>
           </>

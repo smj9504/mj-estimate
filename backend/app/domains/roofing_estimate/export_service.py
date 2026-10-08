@@ -5,8 +5,12 @@ Professional estimate PDF with 8-phase structure.
 
 import io
 import logging
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from xml.sax.saxutils import escape as xml_escape
+
+from .pricing import story_key
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +47,19 @@ DECKING_CLAUSE_TEMPLATE = (
     "installed. Customer will be notified and provided photos before any "
     "additional replacement work proceeds."
 )
+
+# No free sheets: promising "an allowance of 0 sheet(s)" reads as an
+# error, so the clause just states the replacement rate.
+DECKING_CLAUSE_NO_ALLOWANCE_TEMPLATE = (
+    "If damaged, rotted, or substandard decking is discovered upon "
+    "tear-off, replacement will be billed at ${rate:.2f} per 4x8 sheet "
+    "({material}) installed. Customer will be notified and provided photos "
+    "before any additional replacement work proceeds."
+)
+
+# Decking lines saved before a zero allowance stopped printing
+# "N sheets beyond 0 free".
+_ZERO_FREE_DECKING_RE = re.compile(r", \d+ sheets beyond 0 free\)")
 
 HIDDEN_DAMAGE_CLAUSE = (
     "This estimate does not include repair of any structural, framing, or "
@@ -251,6 +268,7 @@ class RoofingExportService:
         self, estimate: Dict[str, Any], show_signature: bool = True,
         pricing_mode: str = "detailed",
         gutter_separate: bool = False,
+        images: Optional[List[Dict[str, Any]]] = None,
     ) -> io.BytesIO:
         """Generate professional PDF from estimate data.
 
@@ -260,6 +278,9 @@ class RoofingExportService:
         gutter_separate:
             True  - show gutter as separate section with its own subtotal
             False - include gutter within structure line items
+        images:
+            [{"data": bytes, "caption": str}, ...] printed as a photo
+            section at the end — which roof is quoted, existing condition.
         """
         try:
             from reportlab.lib import colors
@@ -460,14 +481,14 @@ class RoofingExportService:
         ])) or "N/A"
         building = (
             f"{(estimate.get('building_type') or 'SFH').upper()} - "
-            f"{estimate.get('stories', 1)} Story"
+            f"{story_key(estimate.get('stories') or 1)} Story"
         )
-        roof_area = (
-            f"{estimate.get('total_sf', 0):,.0f} SF "
-            f"({estimate.get('squares', 0):.1f} squares)"
-        )
+        area_sf, area_sq, area_sq_w = self._roof_area_totals(estimate)
+        roof_area = f"{area_sf:,.0f} SF ({area_sq:.1f} squares)"
+        if area_sq_w:
+            roof_area += f"<br/>{area_sq_w:.2f} SQ incl. waste"
         pitch_display = self._build_pitch_display(estimate)
-        complexity = (estimate.get("roof_complexity") or "").replace("_", " ").title()
+        complexity = self._complexity_display(estimate)
 
         left_col = [
             _info_pair("Client", client_name),
@@ -1053,7 +1074,26 @@ class RoofingExportService:
         # customer sees 9.67 SQ against a 9.4 SQ roof and has no way to
         # tell whether it is a mistake.
         rounding = estimate.get("square_rounding") or {}
-        if rounding.get("billed_squares"):
+        if rounding.get("structures"):
+            # One line per structure — the top-level figures describe
+            # only the first, so a multi-structure quote listed one
+            # building's area and left the rest unexplained.
+            for r in rounding["structures"]:
+                line = (
+                    f"{r.get('label') or 'Structure'}: roof area "
+                    f"{r['measured_squares']:.2f} SQ "
+                    f"+ {r['waste_pct']}% waste "
+                    f"= {r['squares_with_waste']:.2f} SQ"
+                )
+                if r.get("rounded"):
+                    line += f", billed as {r['billed_squares']:.2f} SQ"
+                note_lines.append(f"{line} ({r['bundles']} bundles).")
+            note_lines.append(
+                "Shingles are sold in bundles covering 1/3 SQ each, so "
+                "each structure's quantity is rounded up to the next "
+                "whole bundle."
+            )
+        elif rounding.get("billed_squares"):
             note_lines.append(
                 f"Roof area {rounding['measured_squares']:.2f} SQ "
                 f"+ {rounding['waste_pct']}% waste "
@@ -1108,9 +1148,13 @@ class RoofingExportService:
         deck_rate = decking_spec.get("rate_per_sheet", 90.0)
         deck_free = decking_spec.get("free_sheets_included", 2)
 
+        deck_template = (
+            DECKING_CLAUSE_TEMPLATE if deck_free
+            else DECKING_CLAUSE_NO_ALLOWANCE_TEMPLATE
+        )
         elements.append(Paragraph("Decking Replacement", s_clause_title))
         elements.append(Paragraph(
-            DECKING_CLAUSE_TEMPLATE.format(
+            deck_template.format(
                 free_sheets=deck_free, rate=deck_rate, material=deck_material,
             ),
             s_clause,
@@ -1277,9 +1321,140 @@ class RoofingExportService:
                 ),
             ))
 
+        if images:
+            self._add_photos(elements, images, content_w, colors, s_section)
+
         doc.build(elements, onFirstPage=_header_footer, onLaterPages=_header_footer)
         buffer.seek(0)
         return buffer
+
+    @staticmethod
+    def _included_structures(estimate) -> List[Dict[str, Any]]:
+        """Structures the calculation priced, when there are several."""
+        results = [
+            r for r in (estimate.get("structure_results") or [])
+            if r.get("included", True) and (r.get("total_sf") or 0) > 0
+        ]
+        return results if len(results) > 1 else []
+
+    def _roof_area_totals(self, estimate) -> tuple:
+        """(SF, SQ, SQ with waste) for the whole job.
+
+        With several structures the estimate-level total_sf can describe
+        only the main one (manual entry), so the priced structures are
+        summed, each with its own waste.
+        """
+        structs = self._included_structures(estimate)
+        if structs:
+            sf = sum(r.get("total_sf") or 0 for r in structs)
+            sq = sum(
+                r.get("squares") or (r.get("total_sf") or 0) / 100
+                for r in structs)
+            sq_w = sum(
+                (r.get("squares") or (r.get("total_sf") or 0) / 100)
+                * (1 + self._structure_waste(
+                    estimate, r.get("structure_index", 0), r, None))
+                for r in structs)
+            return sf, sq, round(sq_w, 2)
+        sf = estimate.get("total_sf") or 0
+        sq = estimate.get("squares") or sf / 100
+        if not sq:
+            return sf, sq, 0
+        waste = self._structure_waste(estimate, 0, None, None)
+        return sf, sq, round(sq * (1 + waste), 2)
+
+    def _complexity_display(self, estimate) -> str:
+        """Roof complexity, or each structure's when none is set overall.
+
+        A multi-structure job often has no single complexity (a hip main
+        house and a gable garage), so the estimate-level field may be
+        left blank; the structures' own values are listed instead.
+        """
+        def fmt(v):
+            return (v or "").replace("_", " ").title()
+
+        if estimate.get("roof_complexity"):
+            return fmt(estimate["roof_complexity"])
+        manual = estimate.get("manual_structures") or []
+        ev = (estimate.get("eagleview_data") or {}).get("structures") or []
+        included = {
+            r.get("structure_index")
+            for r in self._included_structures(estimate)
+        }
+        parts = []
+        for s in (manual if len(manual) > 1 else ev):
+            idx = s.get("index", 0)
+            value = s.get("roof_complexity") or s.get("complexity")
+            if value and (not included or idx in included):
+                parts.append(
+                    f"{s.get('label') or f'Structure #{idx + 1}'}: "
+                    f"{fmt(value)}")
+        return ", ".join(parts)
+
+    def _add_photos(self, elements, images, content_w, colors, s_section):
+        """Photo grid at the end of the quote, two per row, captioned."""
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.lib.utils import ImageReader
+        from reportlab.platypus import (
+            CondPageBreak, Image, Paragraph, Spacer, Table, TableStyle,
+        )
+
+        s_cap = ParagraphStyle(
+            "PhotoCap", fontName="Helvetica", fontSize=8.5, leading=11,
+            textColor=colors.HexColor(COLOR_MEDIUM), alignment=1,
+        )
+
+        single = len(images) == 1
+        gap = 12
+        cell_w = content_w if single else (content_w - gap) / 2
+        max_h = (4.8 if single else 3.0) * inch
+
+        cells = []
+        for img in images:
+            try:
+                reader = ImageReader(io.BytesIO(img["data"]))
+                iw, ih = reader.getSize()
+            except Exception:
+                logger.warning("Skipping unreadable roofing estimate photo")
+                continue
+            scale = min(cell_w / iw, max_h / ih)
+            flow = Image(
+                io.BytesIO(img["data"]),
+                width=iw * scale, height=ih * scale,
+            )
+            cell = [flow]
+            if img.get("caption"):
+                # Captions are typed by the user: "&" or "<" would
+                # otherwise be read as Paragraph markup and fail the PDF.
+                cell += [Spacer(1, 3),
+                         Paragraph(xml_escape(img["caption"]), s_cap)]
+            cells.append(cell)
+        if not cells:
+            return
+
+        elements.append(CondPageBreak(max_h + 0.9 * inch))
+        elements.append(Spacer(1, 12))
+        elements.append(Paragraph("PROJECT PHOTOS", s_section))
+
+        cols = 1 if single else 2
+        rows = [
+            cells[i:i + cols] + [""] * (cols - len(cells[i:i + cols]))
+            for i in range(0, len(cells), cols)
+        ]
+        tbl = Table(
+            rows,
+            colWidths=[cell_w] if single else [cell_w + gap / 2] * 2,
+        )
+        tbl.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ]))
+        elements.append(tbl)
 
     @staticmethod
     def _structure_waste(estimate, s_idx, sr, ev) -> float:
@@ -1468,7 +1643,8 @@ class RoofingExportService:
                 row_styles.append((row_idx, True))
                 row_idx += 1
 
-            desc = li.get("description", "")
+            desc = _ZERO_FREE_DECKING_RE.sub(
+                ")", li.get("description", ""))
             if is_lumpsum:
                 table_data.append([
                     Paragraph(
@@ -1692,7 +1868,8 @@ class RoofingExportService:
                 if phase_name not in items_by_phase:
                     items_by_phase[phase_name] = []
                 items_by_phase[phase_name].append({
-                    "name": li.get("description", ""),
+                    "name": _ZERO_FREE_DECKING_RE.sub(
+                        ")", li.get("description", "")),
                     "description": li.get("notes") or "",
                     "quantity": li.get("quantity", 0),
                     "unit": li.get("unit", ""),

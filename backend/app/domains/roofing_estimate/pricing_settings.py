@@ -192,9 +192,10 @@ SCALAR_SETTINGS: Dict[str, Dict[str, Any]] = {
 
 SCALAR_GROUP = "scalar"
 
-# Story multipliers are keyed by int in pricing.py but by string in the
-# database, so the two have to be reconciled on the way in and out.
-INT_KEYED_GROUPS = {"story_multiplier"}
+# Story multipliers are keyed by number in pricing.py (1, 1.5, 2) but by
+# string in the database, so the two have to be reconciled on the way in
+# and out.
+NUMBER_KEYED_GROUPS = {"story_multiplier"}
 
 
 def _source_dict(group: str) -> Dict[Any, float]:
@@ -214,9 +215,9 @@ def default_for(group: str, key: str) -> Optional[float]:
         return getattr(pricing, spec["source"], None)
 
     source = _source_dict(group)
-    if group in INT_KEYED_GROUPS:
+    if group in NUMBER_KEYED_GROUPS:
         try:
-            return source.get(int(key))
+            return source.get(float(key))
         except (TypeError, ValueError):
             return None
     return source.get(key)

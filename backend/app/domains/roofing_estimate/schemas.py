@@ -26,7 +26,7 @@ class RoofingEstimateBase(BaseModel):
     zip_code: Optional[str] = Field(None, max_length=10)
     building_type: Optional[str] = Field(None, max_length=50)
     year_built: Optional[int] = None
-    stories: int = 1
+    stories: float = 1
     hoa: bool = False
     roof_access: Optional[str] = Field(None, max_length=50)
 
@@ -114,7 +114,7 @@ class RoofingEstimateUpdate(BaseModel):
     zip_code: Optional[str] = Field(None, max_length=10)
     building_type: Optional[str] = Field(None, max_length=50)
     year_built: Optional[int] = None
-    stories: Optional[int] = None
+    stories: Optional[float] = None
     hoa: Optional[bool] = None
     roof_access: Optional[str] = Field(None, max_length=50)
 
@@ -247,7 +247,7 @@ class RoofingEstimateResponse(BaseModel):
     zip_code: Optional[str] = None
     building_type: Optional[str] = None
     year_built: Optional[int] = None
-    stories: int = 1
+    stories: float = 1
     hoa: bool = False
     roof_access: Optional[str] = None
 

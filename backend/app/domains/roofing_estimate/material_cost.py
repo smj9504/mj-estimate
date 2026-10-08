@@ -219,6 +219,9 @@ def _measurements_for(estimate) -> Dict[str, float]:
             k: sum(int(s.get(k) or 0) for s in manual_structures)
             for k in count_keys
         })
+        # The summed counts, not flashing_spec, which mirrors only the
+        # single-structure form field.
+        m["counts_per_structure"] = True
         # Linear measurements are often left blank on manual structures;
         # fall back to the top-level column rather than dropping the
         # material entirely.
@@ -490,14 +493,17 @@ def calculate_material_costs(
         qty, unit, STEP_FLASHING_MATERIAL_COST,
         measured=(step_lf, "LF"), packaging_note=note,
     )
+    per_structure = m.get("counts_per_structure", False)
     add(
         "chimney_flashing", "flashing", "Chimney flashing",
-        flash.get("chimney_flashing", m["chimney_count"]), "EA",
+        m["chimney_count"] if per_structure
+        else flash.get("chimney_flashing", m["chimney_count"]), "EA",
         CHIMNEY_FLASHING_MATERIAL_COST,
     )
     add(
         "skylight_flashing", "flashing", "Skylight flashing kit",
-        flash.get("skylight_flashing_kits", m["skylight_count"]), "EA",
+        m["skylight_count"] if per_structure
+        else flash.get("skylight_flashing_kits", m["skylight_count"]), "EA",
         SKYLIGHT_FLASHING_KIT_COST,
     )
 

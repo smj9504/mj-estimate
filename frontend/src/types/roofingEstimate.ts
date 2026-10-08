@@ -324,7 +324,7 @@ export interface RoofingEstimate {
   skylight_count: number;
   chimney_count: number;
   waste_factor: number;
-  roof_complexity?: string;
+  roof_complexity?: string | null;
 
   // EagleView
   eagleview_data?: any;
@@ -441,6 +441,17 @@ export interface RoofingEstimateHistory {
   snapshot_data: any;
   changed_by_id?: string;
   change_description?: string;
+  created_at?: string;
+}
+
+/** Photo printed at the end of the estimate PDF. */
+export interface RoofingEstimateImage {
+  id: string;
+  estimate_id: string;
+  caption?: string | null;
+  file_name?: string | null;
+  content_type: string;
+  display_order: number;
   created_at?: string;
 }
 

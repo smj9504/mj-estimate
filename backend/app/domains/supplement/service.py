@@ -336,8 +336,13 @@ class SupplementService:
                 svc = RoofingEstimateService(session)
                 estimate = svc.get_estimate(str(item.roofing_estimate_id))
                 if estimate:
+                    from app.domains.roofing_estimate.image_service import (
+                        RoofingImageService,
+                    )
                     pdf_buf = RoofingExportService().generate_pdf(
-                        estimate, show_signature=False
+                        estimate, show_signature=False,
+                        images=RoofingImageService(session).pdf_images(
+                            str(item.roofing_estimate_id)),
                     )
                     return {
                         "filename": f"Roofing_Estimate_{str(item.roofing_estimate_id)[:8]}.pdf",

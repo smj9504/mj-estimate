@@ -2,11 +2,15 @@
 Roofing Estimate API endpoints
 """
 
+import io
 import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import (
+    APIRouter, Depends, File, Form, HTTPException, Query, UploadFile,
+)
+from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 
 from app.core.database_factory import get_db_session
@@ -58,6 +62,7 @@ from .schemas import (
     RoofingEstimateResponse,
     RoofingEstimateUpdate,
 )
+from .image_service import ImageError, RoofingImageService
 from .service import RoofingEstimateService
 
 logger = logging.getLogger(__name__)
@@ -525,6 +530,87 @@ def get_history(
     return service.get_history(estimate_id)
 
 
+# ── Photos (printed at the end of the PDF) ──
+
+class ImageUpdate(BaseModel):
+    caption: Optional[str] = None
+    display_order: Optional[int] = None
+
+
+@router.get("/{estimate_id}/images")
+def list_images(
+    estimate_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    return RoofingImageService(session).list_images(estimate_id)
+
+
+@router.post("/{estimate_id}/images")
+def upload_image(
+    estimate_id: str,
+    file: UploadFile = File(...),
+    caption: Optional[str] = Form(None),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        result = RoofingImageService(session).add_image(
+            estimate_id, file.file.read(), file.filename, caption,
+        )
+    except ImageError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if result is None:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+@router.patch("/{estimate_id}/images/{image_id}")
+def update_image(
+    estimate_id: str,
+    image_id: str,
+    data: ImageUpdate,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    result = RoofingImageService(session).update_image(
+        estimate_id, image_id,
+        caption=data.caption, display_order=data.display_order,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return result
+
+
+@router.delete("/{estimate_id}/images/{image_id}")
+def delete_image(
+    estimate_id: str,
+    image_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    if not RoofingImageService(session).delete_image(estimate_id, image_id):
+        raise HTTPException(status_code=404, detail="Image not found")
+    return {"message": "Image deleted"}
+
+
+@router.get("/{estimate_id}/images/{image_id}/content")
+def get_image_content(
+    estimate_id: str,
+    image_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    content = RoofingImageService(session).get_content(estimate_id, image_id)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+    data, mime = content
+    return StreamingResponse(
+        io.BytesIO(data), media_type=mime,
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
+
+
 # ── Export (PDF) ──
 
 @router.get("/{estimate_id}/export/pdf")
@@ -533,6 +619,7 @@ def export_pdf(
     show_signature: bool = Query(True),
     pricing_mode: str = Query("detailed"),  # detailed | lumpsum
     gutter_separate: bool = Query(False),
+    include_photos: bool = Query(True),
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
@@ -549,6 +636,10 @@ def export_pdf(
         show_signature=show_signature,
         pricing_mode=pricing_mode,
         gutter_separate=gutter_separate,
+        images=(
+            RoofingImageService(session).pdf_images(estimate_id)
+            if include_photos else None
+        ),
     )
 
     return StreamingResponse(
