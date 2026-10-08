@@ -5,11 +5,14 @@ Lower-cost alternative to GCS for small/medium deployments
 Same optimization patterns as GCSProvider - reuses StorageOptimizer
 """
 
+from app.common.services.document_resources import check_size, DocumentResourceError
+
 from typing import BinaryIO, Optional, List, Dict, Any
 from datetime import datetime
 import logging
 
 import boto3
+from boto3.s3.transfer import TransferConfig
 from botocore.client import Config
 from botocore.exceptions import ClientError
 
@@ -144,12 +147,14 @@ class B2Provider(StorageProvider):
         context_id: str,
         category: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        content_type: Optional[str] = None
+        content_type: Optional[str] = None,
+        optimize: bool = True
     ) -> UploadResult:
         """Upload file to B2 with optional optimization"""
         try:
-            optimized_file, opt_metadata = self._apply_optimizations(
-                file_data, filename, content_type
+            optimized_file, opt_metadata = (
+                self._apply_optimizations(file_data, filename, content_type)
+                if optimize else (file_data, {})
             )
 
             if 'image_optimization' in opt_metadata:
@@ -206,13 +211,11 @@ class B2Provider(StorageProvider):
                 if 'file_hash' in opt_metadata:
                     blob_metadata['file_hash'] = opt_metadata['file_hash']
 
+            optimized_file.seek(0, 2)
+            upload_size = optimized_file.tell()
             optimized_file.seek(0)
-            file_bytes = optimized_file.read()
 
             put_kwargs = {
-                'Bucket': self.bucket_name,
-                'Key': blob_path,
-                'Body': file_bytes,
                 'Metadata': blob_metadata
             }
             if content_type:
@@ -220,7 +223,18 @@ class B2Provider(StorageProvider):
             if self.make_public:
                 put_kwargs['ACL'] = 'public-read'
 
-            self.client.put_object(**put_kwargs)
+            # Bounded multipart chunks; no full-file read or concurrent part buffers.
+            self.client.upload_fileobj(
+                optimized_file, self.bucket_name, blob_path,
+                ExtraArgs=put_kwargs,
+                Config=TransferConfig(
+                    multipart_threshold=8 * 1024 * 1024,
+                    multipart_chunksize=8 * 1024 * 1024,
+                    max_concurrency=1,
+                    use_threads=False,
+                    preferred_transfer_client='classic',
+                ),
+            )
 
             # Save dedup reference if enabled
             if dedup_key:
@@ -249,7 +263,7 @@ class B2Provider(StorageProvider):
                 storage_metadata={
                     'bucket': self.bucket_name,
                     'blob_name': blob_path,
-                    'size': len(file_bytes),
+                    'size': upload_size,
                     'content_type': content_type,
                     'public': self.make_public,
                     'optimizations': opt_metadata.get('optimizations_applied', [])
@@ -260,15 +274,26 @@ class B2Provider(StorageProvider):
             logger.error(f"B2 upload failed: {e}")
             raise RuntimeError(f"Failed to upload to B2: {e}")
 
-    def download(self, file_id: str) -> bytes:
+    def download(self, file_id: str, max_bytes: Optional[int] = None) -> bytes:
         """Download file from B2"""
         try:
             blob_path = self._strip_b2_prefix(file_id).replace('\\', '/')
 
             logger.info(f"Downloading from B2: {file_id}")
             obj = self.client.get_object(Bucket=self.bucket_name, Key=blob_path)
-            return obj['Body'].read()
+            body = obj['Body']
+            try:
+                if max_bytes is not None:
+                    check_size(obj.get('ContentLength', 0), max_bytes)
+                data = body.read() if max_bytes is None else body.read(max_bytes + 1)
+                if max_bytes is not None:
+                    check_size(len(data), max_bytes)
+                return data
+            finally:
+                body.close()
 
+        except DocumentResourceError:
+            raise
         except ClientError as e:
             if e.response.get('Error', {}).get('Code') in ('404', 'NoSuchKey'):
                 raise FileNotFoundError(f"File not found in B2: {file_id}")

@@ -7,6 +7,10 @@ Generates a PDF report from floor sketch data, including:
 - Material summary tables per floor
 """
 
+from app.common.services.document_resources import (
+    MIB, DocumentResourceError, check_size, document_job, read_bounded, require_memory,
+)
+
 import base64
 import html as html_lib
 import io
@@ -485,6 +489,7 @@ class SketchPdfService:
     # Public API
     # ──────────────────────────────────────────────────────────────────────
 
+    @document_job
     def generate_sketch_report(self, job_id: UUID, template_variant: str = "a") -> bytes:
         """
         Generate a PDF report for all floor sketches belonging to a WM job.
@@ -565,6 +570,7 @@ class SketchPdfService:
 
         return max(timestamps) if timestamps else None
 
+    @document_job
     def generate_and_save_sketch_report(
         self, job_id: UUID, template_variant: str = "a", commit: bool = True
     ) -> Dict[str, Any]:
@@ -662,13 +668,16 @@ class SketchPdfService:
             try:
                 from app.domains.storage.factory import StorageFactory
                 storage = StorageFactory.get_instance(provider)
-                image_bytes = storage.download(file_id)
+                require_memory(40 * MIB)
+                image_bytes = storage.download(file_id, max_bytes=20 * MIB)
                 logger.info(
                     "Downloaded background image for sketch %s: "
                     "file_id=%s, %d bytes",
                     floor.id, file_id,
                     len(image_bytes) if image_bytes else 0,
                 )
+            except DocumentResourceError:
+                raise
             except Exception as exc:
                 logger.warning(
                     "Could not download background image for sketch %s "
@@ -693,7 +702,9 @@ class SketchPdfService:
                         local_path = candidate
             if local_path:
                 try:
-                    image_bytes = local_path.read_bytes()
+                    image_bytes = read_bounded(local_path, 20 * MIB)
+                except DocumentResourceError:
+                    raise
                 except Exception as exc:
                     logger.warning(
                         "Could not read local background image %s: %s",
@@ -702,9 +713,25 @@ class SketchPdfService:
 
         if not image_bytes:
             return None
+        check_size(len(image_bytes), 20 * MIB)
 
         # Detect MIME type from actual image bytes (not URL, which may lack extension)
         mime = self._detect_mime_type(image_bytes, bg_url)
+
+        # Compressed byte size does not bound decoded image memory.
+        if mime != "image/svg+xml":
+            from PIL import Image as PILImage
+            with PILImage.open(io.BytesIO(image_bytes)) as image:
+                output_format = 'JPEG' if image.format == 'JPEG' else 'PNG'
+                image.draft('RGB', (2000, 2000))
+                if image.width * image.height > 16_000_000:
+                    raise DocumentResourceError('Sketch image resolution is too large. Resize it before generating the report.')
+                require_memory(max(32 * MIB, image.width * image.height * 12))
+                image.thumbnail((2000, 2000), PILImage.Resampling.LANCZOS)
+                with io.BytesIO() as resized:
+                    image.save(resized, format=output_format)
+                    image_bytes = resized.getvalue()
+                mime = 'image/jpeg' if output_format == 'JPEG' else 'image/png'
 
         # WeasyPrint does not support WebP — convert to PNG for PDF rendering
         if mime == "image/webp":
@@ -719,6 +746,8 @@ class SketchPdfService:
                     "Converted WebP → PNG for PDF rendering (%d bytes)",
                     len(image_bytes),
                 )
+            except DocumentResourceError:
+                raise
             except Exception as exc:
                 logger.warning("WebP→PNG conversion failed: %s", exc)
 
@@ -732,11 +761,14 @@ class SketchPdfService:
                 # cairosvg with only output_width may produce a square if
                 # the SVG lacks explicit dimensions.
                 svg_w, svg_h = self._get_image_dimensions(image_bytes)
-                out_w = 2400
+                out_w = 2000
                 if svg_w > 0 and svg_h > 0:
-                    out_h = int(out_w * svg_h / svg_w)
+                    scale = 2000 / max(svg_w, svg_h)
+                    out_w = max(1, int(svg_w * scale))
+                    out_h = max(1, int(svg_h * scale))
                 else:
                     out_h = None  # let cairosvg decide
+                require_memory(64 * MIB)
                 png_bytes = cairosvg.svg2png(
                     bytestring=image_bytes,
                     output_width=out_w,
@@ -749,6 +781,8 @@ class SketchPdfService:
                     "(svg=%dx%d → png out_w=%d out_h=%s, %d bytes)",
                     svg_w, svg_h, out_w, out_h, len(image_bytes),
                 )
+            except DocumentResourceError:
+                raise
             except Exception as exc:
                 logger.warning("SVG→PNG conversion failed: %s", exc)
 
@@ -2572,6 +2606,13 @@ class SketchPdfService:
         1. Try Playwright (headless Chromium) — best quality
         2. Fallback to WeasyPrint — works without browser binary
         """
+        # Chromium adds several processes to the container working set.
+        # Use the existing browser-free renderer on memory-limited instances.
+        from app.common.services.document_resources import memory_headroom
+        headroom = memory_headroom()
+        if headroom is not None and headroom < 256 * MIB:
+            return self._html_to_pdf_weasyprint(html_content)
+
         # Try Playwright first (best rendering quality)
         try:
             return self._html_to_pdf_playwright(html_content)
@@ -2588,6 +2629,7 @@ class SketchPdfService:
         """Convert HTML to PDF using WeasyPrint."""
         try:
             from weasyprint import HTML
+            require_memory(96 * MIB)
             pdf_bytes = HTML(string=html_content).write_pdf()
             logger.info(
                 "PDF generated via WeasyPrint (%d bytes)", len(pdf_bytes)
@@ -2597,6 +2639,8 @@ class SketchPdfService:
             raise RuntimeError(
                 "Neither Playwright nor WeasyPrint available for PDF"
             )
+        except DocumentResourceError:
+            raise
         except Exception as exc:
             logger.exception("WeasyPrint PDF generation failed: %r", exc)
             raise RuntimeError(f"PDF generation failed: {exc}") from exc

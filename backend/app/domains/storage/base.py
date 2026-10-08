@@ -104,7 +104,8 @@ class StorageProvider(ABC):
         context_id: str,
         category: Optional[str] = None,
         content_type: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        optimize: bool = True
     ) -> UploadResult:
         """
         Upload file to storage
@@ -124,7 +125,7 @@ class StorageProvider(ABC):
         pass
 
     @abstractmethod
-    def download(self, file_id: str) -> bytes:
+    def download(self, file_id: str, max_bytes: Optional[int] = None) -> bytes:
         """
         Download file content
 

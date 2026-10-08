@@ -111,7 +111,11 @@ const WMDocumentUploadModal: React.FC<WMDocumentUploadModalProps> = ({
       onSuccess();
     } catch (error: any) {
       console.error('Failed to upload document:', error);
-      const errorMessage = error?.response?.data?.detail || 'Failed to upload document';
+      const errorMessage = error?.response?.data?.detail || (
+        !error?.response
+          ? 'The upload connection was interrupted. Check the Documents list before retrying to avoid duplicate uploads.'
+          : 'Failed to upload document'
+      );
       message.error(errorMessage);
     } finally {
       setUploading(false);

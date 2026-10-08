@@ -7,6 +7,8 @@ Router is registered in main.py with prefix="/api/water-mitigation/sketch".
 
 import io
 import threading
+from app.common.services.document_resources import DocumentResourceError
+
 from collections import OrderedDict
 from typing import List, Optional, Tuple
 from uuid import UUID
@@ -814,6 +816,8 @@ def generate_sketch_report(
     try:
         pdf_service = SketchPdfService(db)
         pdf_bytes = pdf_service.generate_sketch_report(job_id, template_variant=template_variant)
+    except DocumentResourceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "10"})
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except RuntimeError as exc:

@@ -5,6 +5,8 @@ Applicable to GCS, S3, Azure with same optimization patterns
 """
 
 import os
+from app.common.services.document_resources import check_size, DocumentResourceError
+
 from typing import BinaryIO, Optional, List, Dict, Any
 from datetime import datetime, timedelta
 import logging
@@ -138,13 +140,15 @@ class GCSProvider(StorageProvider):
         context_id: str,
         category: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        content_type: Optional[str] = None
+        content_type: Optional[str] = None,
+        optimize: bool = True
     ) -> UploadResult:
         """Upload file to GCS with optional optimization"""
         try:
             # Apply optimizations (image compression, dedup, etc.)
-            optimized_file, opt_metadata = self._apply_optimizations(
-                file_data, filename, content_type
+            optimized_file, opt_metadata = (
+                self._apply_optimizations(file_data, filename, content_type)
+                if optimize else (file_data, {})
             )
 
             # Update content type and filename if image was optimized to WebP
@@ -216,6 +220,7 @@ class GCSProvider(StorageProvider):
 
             # Upload file
             optimized_file.seek(0)
+            blob.chunk_size = 8 * 1024 * 1024
             blob.upload_from_file(optimized_file, content_type=content_type)
 
             # Save dedup reference if enabled
@@ -258,7 +263,7 @@ class GCSProvider(StorageProvider):
             logger.error(f"GCS upload failed: {e}")
             raise RuntimeError(f"Failed to upload to GCS: {e}")
 
-    def download(self, file_id: str) -> bytes:
+    def download(self, file_id: str, max_bytes: Optional[int] = None) -> bytes:
         """Download file from GCS"""
         try:
             # Strip gs:// prefix if present
@@ -271,8 +276,17 @@ class GCSProvider(StorageProvider):
                 raise FileNotFoundError(f"File not found in GCS: {file_id}")
 
             logger.info(f"Downloading from GCS: {file_id}")
-            return blob.download_as_bytes()
+            if max_bytes is None:
+                return blob.download_as_bytes()
+            blob.reload()
+            check_size(blob.size or 0, max_bytes)
+            # Inclusive end bounds the response even if metadata was stale.
+            data = blob.download_as_bytes(end=max_bytes, if_generation_match=blob.generation)
+            check_size(len(data), max_bytes)
+            return data
 
+        except DocumentResourceError:
+            raise
         except exceptions.NotFound:
             raise FileNotFoundError(f"File not found in GCS: {file_id}")
         except Exception as e:

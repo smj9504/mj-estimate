@@ -45,7 +45,8 @@ class LocalStorageProvider(StorageProvider):
         context_id: str,
         category: Optional[str] = None,
         content_type: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        optimize: bool = True
     ) -> UploadResult:
         """Upload file to local filesystem"""
         try:
@@ -70,7 +71,7 @@ class LocalStorageProvider(StorageProvider):
 
             # Generate thumbnail for images
             thumbnail_url = None
-            if content_type and content_type.startswith('image/'):
+            if optimize and content_type and content_type.startswith('image/'):
                 thumbnail_url = self._generate_thumbnail(file_path, target_dir)
 
             # Build file URL (relative path)
@@ -94,12 +95,15 @@ class LocalStorageProvider(StorageProvider):
             logger.error(f"Local upload failed: {e}")
             raise
 
-    def download(self, file_id: str) -> bytes:
+    def download(self, file_id: str, max_bytes: Optional[int] = None) -> bytes:
         """Download file content"""
         file_path = self._find_file_path(file_id)
         if not file_path or not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_id}")
 
+        if max_bytes is not None:
+            from app.common.services.document_resources import read_bounded
+            return read_bounded(file_path, max_bytes)
         with open(file_path, 'rb') as f:
             return f.read()
 

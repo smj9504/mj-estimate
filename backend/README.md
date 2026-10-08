@@ -271,3 +271,64 @@ docker run -p 8000:8000 --env-file .env.production mj-estimate-backend
 - [스토리지 빠른 시작](./docs/STORAGE_QUICK_START.md)
 - [Google Cloud 설정](./docs/GOOGLE_CLOUD_SETUP.md)
 - [API 문서](http://localhost:8000/docs)
+
+
+### Water mitigation document memory limits
+
+The existing single-worker Render deployment is retained; no plan upgrade or
+new environment variable is required. Photo reports append each page to disk,
+fetch originals sequentially, and embed resized JPEGs. A shared reentrant guard
+covers photo reports, sketch renders, invoice rendering and adjuster/follow-up
+email work. Overlapping requests fail promptly with a retry message instead of
+building an in-memory queue. Do not increase Uvicorn workers on a small instance:
+the guard is process-local.
+
+Linux cgroup v1/v2 working-set headroom is checked before expensive allocations,
+with 48 MiB reserved for other activity. This reduces risk but cannot reserve RAM
+against unrelated requests/schedulers. Photo downloads are capped at 20 MiB;
+rendered photo reports at 32 MiB before loading/upload; individual and accumulated
+email attachments at 24 MiB; SMTP payload attachments at 18 MiB after compression.
+Oversized documents must be regenerated with Compress or split. Checks happen
+before sending; selected attachments are never silently dropped due to limits.
+Ghostscript runs with a 128 MiB address-space cap and a 120-second timeout on
+Linux. Failure does not fall back to an unbounded in-process PDF decode.
+
+Run regression coverage from the repository root:
+
+```sh
+python -m pytest backend/tests/test_document_memory.py -q
+```
+
+Local Windows/Python 3.12 comparison using 80 synthetic 3000x2000 JPEG photos:
+PDF worker peak working set fell from 151.2 MiB to 116.9 MiB (about 23%). This
+measures an isolated worker, not the entire production application. After normal
+backend/frontend deployment, verify a representative real report and email in
+Render Metrics; inspect memory peaks and ensure /health stays responsive. The
+current session did not deploy or send a real email.
+
+
+### Document upload and CORS error handling
+
+Water mitigation document uploads pass the request's disk-backed upload stream
+to storage without loading the complete file into bytes/BytesIO. B2 transfers use
+8 MiB multipart chunks with concurrency disabled; GCS/Drive chunks are also
+8 MiB. Manual document uploads preserve the original file bytes and MIME type
+instead of applying image/text transformations. They share the document-work
+memory guard, and cancelled requests wait for the storage worker to finish before
+closing its source file. The client timeout for single/bulk uploads is five
+minutes; failed uploads are not automatically resubmitted.
+
+The ASGI launcher applies the same configured CORS allowlist to startup 503s and
+unhandled application errors. Unconfigured origins remain blocked. This follows
+[Starlette's global CORS guidance](https://www.starlette.io/middleware/#corsmiddleware-global-enforcement).
+Render/proxy-generated responses during process termination cannot be repaired by
+application middleware. Production OPTIONS on the reported upload URL returned
+200 with the expected Vercel origin during diagnosis; no authenticated upload or
+production log inspection was performed, so the original incident's exact server
+error remains unconfirmed.
+
+Regression checks:
+
+```sh
+python -m pytest backend/tests/test_document_memory.py backend/tests/test_document_upload.py -q
+```

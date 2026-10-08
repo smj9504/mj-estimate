@@ -2,6 +2,8 @@
 Water Mitigation service layer
 """
 
+from app.common.services.document_resources import document_job, read_bounded, MIB
+
 import asyncio
 import json
 import logging
@@ -815,16 +817,13 @@ class WaterMitigationService:
         storage = StorageFactory.get_instance()
         storage_provider_type = settings.STORAGE_PROVIDER.lower()
 
-        # Read file content
-        file_content = await file.read()
-        file_size = len(file_content)
-
-        # Upload to storage
+        # UploadFile already spools large bodies to disk. Pass that seekable
+        # file through instead of allocating bytes + BytesIO + SDK copies.
+        from app.common.services.document_upload import upload_document_file
         try:
-            file_stream = BytesIO(file_content)
-            upload_result = await asyncio.to_thread(
-                storage.upload,
-                file_data=file_stream,
+            upload_result, file_size = await upload_document_file(
+                storage,
+                file.file,
                 filename=file.filename or f"document_{datetime.utcnow().timestamp()}.pdf",
                 context="water-mitigation",
                 context_id=str(job_id),
@@ -1449,6 +1448,7 @@ class WaterMitigationService:
         """Delete report config"""
         return self.report_config_repo.delete_by_job_id(job_id)
 
+    @document_job
     def generate_and_save_photo_report(
         self,
         job_id: UUID,
@@ -1530,26 +1530,24 @@ class WaterMitigationService:
         with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
             temp_path = tmp.name
 
-        logger.info(f"Generating photo report for job {job_id} (compress={compress})")
-        generate_water_mitigation_report_pdf(
-            job_data=job,
-            config=config,
-            photos=photos_list,
-            output_path=temp_path,
-            company_data=company_data,
-            report_date=report_date,
-            compress=compress,
-            template_variant=template_variant,
-            show_photo_dates=show_photo_dates,
-            show_photo_locations=show_photo_locations,
-        )
-
-        pdf_bytes = Path(temp_path).read_bytes()
         try:
-            Path(temp_path).unlink()
-        except Exception:
-            pass
-        release_memory()
+            logger.info(f"Generating photo report for job {job_id} (compress={compress})")
+            generate_water_mitigation_report_pdf(
+                job_data=job,
+                config=config,
+                photos=photos_list,
+                output_path=temp_path,
+                company_data=company_data,
+                report_date=report_date,
+                compress=compress,
+                template_variant=template_variant,
+                show_photo_dates=show_photo_dates,
+                show_photo_locations=show_photo_locations,
+            )
+            pdf_bytes = read_bounded(temp_path, 32 * MIB)
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+            release_memory()
 
         logger.info(f"Report generated: {len(pdf_bytes)} bytes")
 

@@ -95,4 +95,7 @@ class LauncherASGI:
         await send({"type": "http.response.body", "body": body})
 
 
-app = LauncherASGI()
+from app.core.cors import with_cors
+
+# Cover startup 503s and application error responses, not only routed responses.
+app = with_cors(LauncherASGI())

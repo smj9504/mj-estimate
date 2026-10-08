@@ -2,6 +2,8 @@
 Water Mitigation API endpoints
 """
 
+from app.common.services.document_resources import DocumentResourceError
+
 import logging
 import math
 import os
@@ -3098,6 +3100,9 @@ async def upload_document(
         )
         db.commit()
         return created
+    except DocumentResourceError as e:
+        db.rollback()
+        raise HTTPException(status_code=503, detail=str(e), headers={"Retry-After": "10"})
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
@@ -3154,6 +3159,9 @@ async def bulk_upload_documents(
 
         db.commit()
         return results
+    except DocumentResourceError as e:
+        db.rollback()
+        raise HTTPException(status_code=503, detail=str(e), headers={"Retry-After": "10"})
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
@@ -3691,6 +3699,9 @@ async def generate_photo_report(
 
     except HTTPException:
         raise
+    except DocumentResourceError as e:
+        db.rollback()
+        raise HTTPException(status_code=503, detail=str(e), headers={"Retry-After": "10"})
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to generate report: {e}")
@@ -5694,6 +5705,8 @@ async def send_to_adjuster(job_id: UUID, data: SendToAdjusterRequest):
             service.send_to_adjuster, str(job_id), data.dict()
         )
         return result
+    except DocumentResourceError as e:
+        raise HTTPException(status_code=503, detail=str(e), headers={"Retry-After": "10"})
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -5748,6 +5761,8 @@ async def send_followup_email(job_id: UUID, data: FollowUpEmailRequest):
             service.send_followup, str(job_id), data.dict()
         )
         return result
+    except DocumentResourceError as e:
+        raise HTTPException(status_code=503, detail=str(e), headers={"Retry-After": "10"})
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

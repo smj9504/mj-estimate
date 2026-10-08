@@ -9,7 +9,6 @@ import logging
 import os
 import re
 import sys
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from html import escape as html_escape
@@ -17,6 +16,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
+from app.common.services.document_resources import (
+    DOCUMENT_LOCK, DiskPDFWriter, DocumentResourceError, document_job,
+    require_memory, MIB,
+)
 
 # ── Local disk cache for remote-storage photos used in report PDFs ──
 # storage_path is stable per uploaded photo (a re-uploaded/replaced photo
@@ -107,7 +110,7 @@ def _ensure_weasyprint():
 # Render's starter plan caps the container at 512MB and the app idles close
 # to that, so PDF renders are serialized (two at once stack their peaks) and
 # the freed heap is handed back to the OS right after each one.
-_PDF_RENDER_LOCK = threading.Lock()
+_PDF_RENDER_LOCK = DOCUMENT_LOCK
 
 
 def release_memory() -> None:
@@ -552,6 +555,7 @@ class PDFService:
         return str(output_path)
 
     @staticmethod
+    @document_job
     def _write_pdf(
         html_content: str, css_strings: list, output_path: str
     ) -> None:
@@ -2953,6 +2957,7 @@ def _get_report_style(template_variant: str = "a") -> Dict[str, Any]:
     return styles.get(template_variant, styles["a"])
 
 
+@document_job
 def generate_water_mitigation_report_pdf(
     job_data: Dict[str, Any],
     config: Dict[str, Any],
@@ -3102,7 +3107,7 @@ def generate_water_mitigation_report_pdf(
     SECTION_TITLE_SIZE = style["section_title_size"]
 
     # Create PDF writer
-    writer = PdfWriter()
+    writer = DiskPDFWriter(output_path)
 
     # Track temp files (downloaded + compressed/downscaled copies) for
     # cleanup. Declared once at function scope — must NOT be reset inside
@@ -3579,8 +3584,8 @@ def generate_water_mitigation_report_pdf(
     cover_buffer.seek(0)
 
     # Add cover page to writer
-    cover_reader = PdfReader(cover_buffer)
-    writer.add_page(cover_reader.pages[0])
+    writer.append(cover_buffer)
+    cover_buffer.close()
 
     # ===== PHOTO SECTIONS =====
     # Create photo lookup dictionary
@@ -3606,9 +3611,7 @@ def generate_water_mitigation_report_pdf(
 
     total_pages = 1  # Start at 1 for cover page
 
-    # Build the full list of (section, page) work items up front so photo
-    # downloads can be pipelined one page ahead of rendering (see
-    # _download_page below) - the section loop no longer downloads inline.
+    # Build page metadata only; download originals one at a time when needed.
     page_jobs = []
     for section_data in config.get('sections', []):
         section_title = section_data.get('title', 'Section')
@@ -3673,78 +3676,21 @@ def generate_water_mitigation_report_pdf(
             })
 
     def _download_page_photos(page_photo_meta):
-        """Resolve (download if needed) one page's photos. Runs on the
-        prefetch thread, one page ahead of rendering (see the pipeline
-        loop below) so page N's network wait overlaps page N-1's
-        ReportLab/Pillow work instead of happening after it."""
-        local_photos = []
-        remote_pms = []
+        page_photos = []
         for pm in page_photo_meta:
-            if pm['storage_provider'] == 'local':
-                local_photos.append({
-                    'file_path': pm['storage_path'],
-                    'is_temp': False,
-                    'caption': pm['caption'],
-                    'captured_date': pm['captured_date'],
-                    'show_date': pm['show_date'],
-                })
-            else:
-                remote_pms.append(pm)
-
-        def _download_photo(pm):
-            cache_path = _photo_cache_path(pm['storage_provider'], pm['storage_path'])
-            try:
-                if cache_path.exists():
-                    return pm, cache_path.read_bytes()
-            except Exception as e:
-                logger.warning(f"Failed to read cached photo, re-downloading: {e}")
-
-            try:
-                from app.domains.storage.factory import StorageFactory
-                storage = StorageFactory.get_instance(pm['storage_provider'])
-                photo_data = storage.download(pm['storage_path'])
-                try:
+            path = pm['storage_path']
+            if pm['storage_provider'] != 'local':
+                cache_path = _photo_cache_path(pm['storage_provider'], path)
+                if not cache_path.exists():
+                    from app.common.utils.storage_helpers import download_from_storage
+                    photo_data = download_from_storage(
+                        path, pm['storage_provider'], max_bytes=20 * MIB,
+                    )
                     cache_path.write_bytes(photo_data)
-                except Exception as e:
-                    logger.warning(f"Failed to cache downloaded photo: {e}")
-                return pm, photo_data
-            except Exception as e:
-                logger.error(f"Failed to download photo: {e}")
-                return pm, None
-
-        downloaded = []
-        if remote_pms:
-            with ThreadPoolExecutor(max_workers=len(remote_pms)) as executor:
-                downloaded = list(executor.map(_download_photo, remote_pms))
-
-        page_photos = list(local_photos)
-        for pm, photo_data in downloaded:
-            if not photo_data:
-                continue
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-            temp_file.write(photo_data)
-            temp_file.close()
-            del photo_data
-            temp_files.append(temp_file.name)
-            page_photos.append({
-                'file_path': temp_file.name,
-                'is_temp': True,
-                'caption': pm['caption'],
-                'captured_date': pm['captured_date'],
-                'show_date': pm['show_date'],
-            })
+                    del photo_data
+                path = str(cache_path)
+            page_photos.append({**pm, 'file_path': path, 'is_temp': False})
         return page_photos
-
-    # One-page-ahead prefetch: a single background thread downloads page
-    # N+1 while page N is being decoded/drawn on the main thread, hiding
-    # network latency behind CPU work instead of paying both in sequence.
-    # At most one extra page's worth of temp files/bytes is held at a
-    # time (same bound as before, just shifted by one page).
-    _prefetch_pool = ThreadPoolExecutor(max_workers=1)
-    _prefetch_future = (
-        _prefetch_pool.submit(_download_page_photos, page_jobs[0]['page_photo_meta'])
-        if page_jobs else None
-    )
 
     try:
         for job_idx, page_job in enumerate(page_jobs):
@@ -3759,27 +3705,10 @@ def generate_water_mitigation_report_pdf(
                 logger.info(f"Processing section: {section_title} (layout: {layout})")
                 _log_rss(f"section start: {section_title}")
 
-            try:
-                page_photos = _prefetch_future.result()
-            except Exception as e:
-                logger.error(f"Page photo prefetch failed: {e}")
-                page_photos = []
+            require_memory()
+            page_photos = _download_page_photos(page_job['page_photo_meta'])
             _photo_download_count += len(page_photos)
-            if _photo_download_count and _photo_download_count % 5 < len(page_photos):
-                _log_rss(f"after {_photo_download_count} photo downloads")
 
-            # Kick off the next page's download now, before spending time
-            # decoding/drawing this page's photos below.
-            next_job = page_jobs[job_idx + 1] if job_idx + 1 < len(page_jobs) else None
-            _prefetch_future = (
-                _prefetch_pool.submit(_download_page_photos, next_job['page_photo_meta'])
-                if next_job else None
-            )
-
-            if not page_photos:
-                continue
-
-            # Create page
             page_buffer = io.BytesIO()
             c = pdf_canvas.Canvas(page_buffer, pagesize=letter)
 
@@ -3930,6 +3859,11 @@ def generate_water_mitigation_report_pdf(
                 try:
                     img = Image.open(photo_item['file_path'])
                     source_format = (img.format or '').upper()
+                    # PNG getexif() can trigger a full decode, so check before it.
+                    if source_format not in ('JPEG', 'MPO'):
+                        if img.width * img.height > 16_000_000:
+                            raise DocumentResourceError('Photo resolution is too large. Resize this photo before generating the report.')
+                        require_memory(max(32 * MIB, img.width * img.height * 12))
 
                     # Pixel budget for THIS photo. Image.open() reads only
                     # the header, so the dimensions are known before any
@@ -3964,8 +3898,13 @@ def generate_water_mitigation_report_pdf(
                     # Use draft mode to decode oversized JPEGs at a reduced
                     # resolution directly (avoids fully decoding a huge
                     # original into memory before we downscale it).
+                    original_size = img.size
+                    orientation = img.getexif().get(0x0112, 1)
                     if img.width > max_px or img.height > max_px:
                         img.draft('RGB', (max_px, max_px))
+                    if img.width * img.height > 16_000_000:
+                        raise DocumentResourceError('Photo resolution is too large. Resize this photo before generating the report.')
+                    require_memory(max(32 * MIB, img.width * img.height * 12))
                     # Apply EXIF orientation (phone/CompanyCam photos are
                     # frequently stored with the sensor's raw landscape
                     # buffer plus a rotate-90 EXIF tag). Without this,
@@ -3973,10 +3912,12 @@ def generate_water_mitigation_report_pdf(
                     # unrotated orientation, producing a squashed/rotated
                     # image once placed into the aspect-ratio-preserving
                     # slot below.
-                    pre_transpose_size = img.size
-                    img = ImageOps.exif_transpose(img)
-                    was_transposed = img.size != pre_transpose_size
-                    was_downscaled = False
+                    source_img = img
+                    img = ImageOps.exif_transpose(source_img)
+                    if img is not source_img:
+                        source_img.close()
+                    was_transposed = orientation != 1
+                    was_downscaled = img.size != original_size
                     if img.width > max_px or img.height > max_px:
                         img.thumbnail((max_px, max_px), Image.Resampling.LANCZOS)
                         was_downscaled = True
@@ -4126,6 +4067,8 @@ def generate_water_mitigation_report_pdf(
                             c.drawString(line_x, caption_y, line)
                             caption_y -= line_height
 
+                except DocumentResourceError:
+                    raise
                 except Exception as e:
                     logger.error(f"Failed to draw photo: {e}")
                     # Draw professional placeholder
@@ -4217,29 +4160,18 @@ def generate_water_mitigation_report_pdf(
             page_buffer.seek(0)
 
             # Add page to writer
-            page_reader = PdfReader(page_buffer)
-            writer.add_page(page_reader.pages[0])
+            writer.append(page_buffer)
+            page_buffer.close()
+            release_memory()
     finally:
-        _prefetch_pool.shutdown(wait=False, cancel_futures=True)
+        for temp_file_path in temp_files:
+            try:
+                Path(temp_file_path).unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Failed to remove report temporary file %s", temp_file_path)
+        temp_files.clear()
 
-    _log_rss(f"all {total_pages} pages built, before writer.write()")
-
-    # ===== WRITE FINAL PDF =====
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(output_path, 'wb') as output_file:
-        writer.write(output_file)
-
-    _log_rss("after writer.write()")
-
-    # Cleanup temporary files (compressed images)
-    for temp_file_path in temp_files:
-        try:
-            import os
-            os.unlink(temp_file_path)
-        except Exception as e:
-            logger.warning(f"Failed to cleanup temp file {temp_file_path}: {e}")
+    _log_rss(f"all {total_pages} pages saved to disk")
 
     logger.info(f"Report PDF generated successfully: {output_path} ({total_pages} pages)")
     return str(output_path)

@@ -396,7 +396,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     } catch (error) {
       message.destroy();
       console.error('Failed to generate PDF:', error);
-      message.error('Failed to generate PDF report');
+      message.error(error instanceof Error ? error.message : 'Failed to generate PDF report');
     }
   };
 
@@ -598,7 +598,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     } catch (error) {
       message.destroy();
       console.error('Failed to download PDF:', error);
-      message.error('Failed to download PDF');
+      message.error(error instanceof Error ? error.message : 'Failed to download PDF');
     }
   };
 

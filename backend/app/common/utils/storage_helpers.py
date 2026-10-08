@@ -114,6 +114,7 @@ def is_cloud_ref(file_ref: str) -> bool:
 def download_from_storage(
     file_ref: str,
     storage_provider: Optional[str] = None,
+    max_bytes: Optional[int] = None,
 ) -> bytes:
     """Download a stored file, tolerating a storage-provider migration.
 
@@ -132,6 +133,9 @@ def download_from_storage(
     Raises:
         FileNotFoundError: if no attempt produced the file.
     """
+    from app.common.services.document_resources import DocumentResourceError, require_memory
+    if max_bytes is not None:
+        require_memory(2 * max_bytes)
     if not file_ref:
         raise FileNotFoundError("No file reference to download")
 
@@ -165,7 +169,11 @@ def download_from_storage(
                 # Build a throwaway instance so a one-off cross-provider read
                 # doesn't swap out the cached default for everyone else.
                 storage = StorageFactory.create(provider_type)
-            return storage.download(key)
+            if max_bytes is None:
+                return storage.download(key)
+            return storage.download(key, max_bytes=max_bytes)
+        except DocumentResourceError:
+            raise
         except Exception as e:
             errors.append(f"{provider_type}:{key} ({e})")
             logger.warning(f"Storage download attempt failed - {provider_type}: {key} ({e})")

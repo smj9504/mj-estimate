@@ -5,6 +5,8 @@ Service Accounts MUST use Shared Drives (no storage quota on My Drive)
 """
 
 import re
+from app.common.services.document_resources import check_size
+
 from typing import BinaryIO, Optional, List, Dict, Any
 from datetime import datetime
 import logging
@@ -97,7 +99,8 @@ class GoogleDriveProvider(StorageProvider):
         context_id: str,
         category: Optional[str] = None,
         content_type: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        optimize: bool = True
     ) -> UploadResult:
         """Upload file to Google Drive with hierarchical structure"""
         try:
@@ -148,6 +151,7 @@ class GoogleDriveProvider(StorageProvider):
             media = MediaIoBaseUpload(
                 file_data,
                 mimetype=content_type or 'application/octet-stream',
+                chunksize=8 * 1024 * 1024,
                 resumable=True
             )
 
@@ -191,16 +195,18 @@ class GoogleDriveProvider(StorageProvider):
             logger.error(f"Upload error: {e}")
             raise
 
-    def download(self, file_id: str) -> bytes:
+    def download(self, file_id: str, max_bytes: Optional[int] = None) -> bytes:
         """Download file content from Google Drive"""
         try:
             request = self.service.files().get_media(fileId=file_id, supportsAllDrives=True)
             file_content = io.BytesIO()
-            downloader = MediaIoBaseDownload(file_content, request)
+            downloader = MediaIoBaseDownload(file_content, request, chunksize=1024 * 1024)
 
             done = False
             while not done:
                 status, done = downloader.next_chunk()
+                if max_bytes is not None:
+                    check_size(file_content.tell(), max_bytes)
 
             file_content.seek(0)
             return file_content.read()

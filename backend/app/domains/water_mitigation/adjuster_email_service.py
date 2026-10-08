@@ -3,6 +3,10 @@ Water Mitigation Adjuster Email Service.
 Handles document readiness checks, email generation, and sending to insurance adjusters.
 """
 
+from app.common.services.document_resources import (
+    MIB, DocumentResourceError, check_size, document_job, read_bounded, require_memory,
+)
+
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -767,6 +771,7 @@ class AdjusterEmailService:
     # Send Email
     # ================================================================
 
+    @document_job
     def send_to_adjuster(self, job_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Send water mitigation documents to insurance adjuster via email."""
         session = self._get_session()
@@ -790,9 +795,9 @@ class AdjusterEmailService:
             subject = data.get("subject", "")
             body_html = data.get("body_html", "")
             email_account_id = data.get("email_account_id")
-            selected_docs = data.get("selected_documents", [
-                "photo_report", "invoice", "w9", "cos", "ewa", "sketch"
-            ])
+            selected_docs = data.get("selected_documents")
+            if selected_docs is None:
+                selected_docs = ["photo_report", "invoice", "w9", "cos", "ewa", "sketch"]
 
             if not to_addresses:
                 raise ValueError("No recipient email address provided")
@@ -844,6 +849,7 @@ class AdjusterEmailService:
             send_payload.update(
                 {k: v for k, v in self._get_reply_identity(session, job, data).items() if v}
             )
+            require_memory(6 * sum(len(a["data"]) for a in attachments))
             email_result = email_service.send_email(send_payload)
 
             # Update job: documents_sent_date
@@ -903,6 +909,7 @@ class AdjusterEmailService:
     # Send Follow-Up Email
     # ================================================================
 
+    @document_job
     def send_followup(self, job_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Send follow-up email to adjuster (does NOT update documents_sent_date)."""
         session = self._get_session()
@@ -922,7 +929,7 @@ class AdjusterEmailService:
             subject = data.get("subject", "")
             body_html = data.get("body_html", "")
             email_account_id = data.get("email_account_id")
-            selected_docs = data.get("selected_documents", [])
+            selected_docs = data.get("selected_documents") or []
 
             if not to_addresses:
                 raise ValueError("No recipient email address provided")
@@ -955,6 +962,7 @@ class AdjusterEmailService:
             send_payload.update(
                 {k: v for k, v in self._get_reply_identity(session, job, data).items() if v}
             )
+            require_memory(6 * sum(len(a["data"]) for a in attachments))
             email_result = email_service.send_email(send_payload)
 
             # Log claim activity (but do NOT update documents_sent_date or status)
@@ -1004,6 +1012,15 @@ class AdjusterEmailService:
         logger.info(f"Collecting attachments for selected_docs={selected_docs}")
         attachments = []
         failed_docs = []
+
+        def add_attachment(att):
+            # Reduce one file before fetching the next. Never collect six
+            # individually admissible files and only then check their sum.
+            self._compress_attachments_if_needed([att])
+            check_size(sum(len(a['data']) for a in attachments) + len(att['data']),
+                       self._MAX_COMPRESSIBLE_SIZE)
+            attachments.append(att)
+
         address_short = (job.property_address or "property").split(",")[0].strip()
 
         # Manual slot mappings win over the type-based lookups below, so the
@@ -1027,7 +1044,7 @@ class AdjusterEmailService:
                     session, job, doc, address_short
                 )
                 if att:
-                    attachments.append(att)
+                    add_attachment(att)
                 else:
                     failed_docs.append("photo_report")
             else:
@@ -1037,7 +1054,7 @@ class AdjusterEmailService:
                 # "Generate Report" before sending to adjuster.
                 att = self._generate_photo_report_attachment(session, job, address_short)
                 if att:
-                    attachments.append(att)
+                    add_attachment(att)
                 else:
                     failed_docs.append("photo_report")
 
@@ -1048,7 +1065,7 @@ class AdjusterEmailService:
                 override_doc=overrides.get('invoice'),
             )
             if att:
-                attachments.append(att)
+                add_attachment(att)
             else:
                 failed_docs.append("invoice")
 
@@ -1058,7 +1075,7 @@ class AdjusterEmailService:
                 session, job, override_doc=overrides.get('w9'),
             )
             if att:
-                attachments.append(att)
+                add_attachment(att)
             else:
                 failed_docs.append("w9")
 
@@ -1077,7 +1094,7 @@ class AdjusterEmailService:
             if doc:
                 att = self._attachment_from_wm_document(doc, f"COS - {address_short}.pdf")
                 if att:
-                    attachments.append(att)
+                    add_attachment(att)
                 else:
                     failed_docs.append("cos")
             else:
@@ -1098,7 +1115,7 @@ class AdjusterEmailService:
             if doc:
                 att = self._attachment_from_wm_document(doc, f"EWA - {address_short}.pdf")
                 if att:
-                    attachments.append(att)
+                    add_attachment(att)
                 else:
                     failed_docs.append("ewa")
             else:
@@ -1111,7 +1128,7 @@ class AdjusterEmailService:
                 override_doc=overrides.get('sketch'),
             )
             if att:
-                attachments.append(att)
+                add_attachment(att)
             else:
                 failed_docs.append("sketch")
 
@@ -1165,16 +1182,18 @@ class AdjusterEmailService:
                     return None
                 for key in download_keys:
                     try:
-                        file_data = download_from_storage(key, storage_provider)
+                        file_data = download_from_storage(key, storage_provider, max_bytes=self._MAX_COMPRESSIBLE_SIZE)
                         logger.info(f"Downloaded WMDocument {doc.id} from {storage_provider}: {key}")
                         break
+                    except DocumentResourceError:
+                        raise
                     except Exception as e:
                         logger.warning(f"Cloud download failed for WMDocument {doc.id} ({key}): {e}")
             else:
                 # Local filesystem
                 local_path = Path(file_path_str)
                 if local_path.exists():
-                    file_data = local_path.read_bytes()
+                    file_data = read_bounded(local_path, self._MAX_COMPRESSIBLE_SIZE)
                 else:
                     logger.warning(f"WMDocument file not found locally: {file_path_str}")
 
@@ -1187,6 +1206,8 @@ class AdjusterEmailService:
                 "data": file_data,
                 "mime_type": doc.mime_type or "application/pdf",
             }
+        except DocumentResourceError:
+            raise
         except Exception as e:
             logger.warning(f"Error reading WMDocument {doc.id}: {e}")
             return None
@@ -1264,11 +1285,14 @@ class AdjusterEmailService:
             result = service.generate_and_save_photo_report(
                 job.id, config=config, commit=False, compress=True,
             )
+            check_size(len(result["pdf_bytes"]), self._MAX_COMPRESSIBLE_SIZE)
             return {
                 "filename": f"Photo Report - {address_short}.pdf",
                 "data": result["pdf_bytes"],
                 "mime_type": "application/pdf",
             }
+        except DocumentResourceError:
+            raise
         except Exception as e:
             logger.warning(f"Auto-generating photo report failed for job {job.id}: {e}")
             return None
@@ -1428,7 +1452,7 @@ class AdjusterEmailService:
                 temp_path = tmp.name
 
             pdf_path = get_pdf_service().generate_invoice_pdf(pdf_data, temp_path, template_variant="a")
-            pdf_bytes = Path(pdf_path).read_bytes()
+            pdf_bytes = read_bounded(pdf_path, self._MAX_COMPRESSIBLE_SIZE)
 
             # Cleanup temp file
             try:
@@ -1442,6 +1466,8 @@ class AdjusterEmailService:
                 "data": pdf_bytes,
                 "mime_type": "application/pdf",
             }
+        except DocumentResourceError:
+            raise
         except Exception as e:
             import traceback
             logger.error(
@@ -1502,11 +1528,11 @@ class AdjusterEmailService:
             )
 
             if is_cloud_ref(file_url) or (record_provider and record_provider != 'local'):
-                file_data = download_from_storage(file_url, record_provider)
+                file_data = download_from_storage(file_url, record_provider, max_bytes=self._MAX_COMPRESSIBLE_SIZE)
             else:
                 file_path = Path(file_url)
                 if file_path.exists():
-                    file_data = file_path.read_bytes()
+                    file_data = read_bounded(file_path, self._MAX_COMPRESSIBLE_SIZE)
                 else:
                     logger.warning(f"W9: local file not found at {file_path}")
 
@@ -1522,6 +1548,8 @@ class AdjusterEmailService:
                 "data": file_data,
                 "mime_type": getattr(file_rec, 'content_type', 'application/pdf') or "application/pdf",
             }
+        except DocumentResourceError:
+            raise
         except Exception as e:
             logger.error(f"Error getting W9 attachment: {e}")
             return None
@@ -1572,6 +1600,8 @@ class AdjusterEmailService:
                 "data": result["pdf_bytes"],
                 "mime_type": "application/pdf",
             }
+        except DocumentResourceError:
+            raise
         except Exception as e:
             logger.error(f"Error generating sketch attachment: {e}")
             return None
@@ -1654,18 +1684,9 @@ class AdjusterEmailService:
     # compression below.)
     _EMAIL_SIZE_LIMIT = 18 * 1024 * 1024
 
-    # Render's production instance has a 512MB hard memory cap, shared with
-    # the rest of the running app (DB connections, request handlers for
-    # other users, etc.) - not 512MB free for this one compression job.
-    # Compressing a PDF needs the original bytes, the reopened
-    # fitz.Document, and the reassembled output alive at once, and a
-    # photo-heavy report can multiply that further as each embedded JPEG is
-    # decoded to raw pixels before being re-encoded smaller. 80MB leaves
-    # real headroom for that working set instead of just fitting the raw
-    # attachment bytes; refuse before attempting compression rather than
-    # finding out the hard way (this OOM-killed the whole instance once
-    # already at a 150MB threshold - see git history on this file).
-    _MAX_COMPRESSIBLE_SIZE = 80 * 1024 * 1024
+    # Bound each download AND the running attachment total before MIME/base64
+    # serialization can multiply it. This is a processing cap, not SMTP's cap.
+    _MAX_COMPRESSIBLE_SIZE = 24 * 1024 * 1024
 
     # Compression levels: try gentle first, then stronger if still over limit.
     # max_image_px / jpeg_quality drive the PyMuPDF fallback and are the
@@ -1834,6 +1855,11 @@ class AdjusterEmailService:
             # already well optimized; the image pass may still win there.
             if compressed and len(compressed) < len(pdf_bytes):
                 return compressed
+        import sys
+        if sys.platform.startswith('linux'):
+            # Never replace a failed/capped subprocess with an unbounded
+            # in-process decode on the small production container.
+            return None
         return cls._compress_pdf_images(pdf_bytes, level)
 
     @staticmethod
@@ -1843,6 +1869,7 @@ class AdjusterEmailService:
         """Compress a PDF using Ghostscript at the given quality level."""
         import subprocess
         import tempfile
+        import sys
 
         src_path = dst_path = None
         try:
@@ -1865,6 +1892,14 @@ class AdjusterEmailService:
                 f"-sOutputFile={dst_path}",
                 src_path,
             ]
+            require_memory(128 * MIB)
+            if sys.platform.startswith('linux'):
+                launcher = (
+                    "import os,resource,sys; "
+                    "resource.setrlimit(resource.RLIMIT_AS,(128*1024*1024,128*1024*1024)); "
+                    "os.execv(sys.argv[1],sys.argv[1:])"
+                )
+                cmd = [sys.executable, '-c', launcher, *cmd]
             proc = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=120
             )
@@ -1874,8 +1909,12 @@ class AdjusterEmailService:
                 )
                 return None
 
-            compressed = Path(dst_path).read_bytes()
+            if Path(dst_path).stat().st_size >= len(pdf_bytes):
+                return None
+            compressed = read_bounded(dst_path, len(pdf_bytes))
             return compressed
+        except DocumentResourceError:
+            raise
         except Exception as e:
             logger.warning(f"Ghostscript compression error: {e}")
             return None
@@ -1936,6 +1975,8 @@ class AdjusterEmailService:
                         try:
                             page.replace_image(xref, stream=shrunk)
                             replaced += 1
+                        except DocumentResourceError:
+                            raise
                         except Exception as e:
                             logger.debug(f"Could not replace image {xref}: {e}")
                     # `info`/`original`/`shrunk` hold full-resolution camera
@@ -1949,6 +1990,8 @@ class AdjusterEmailService:
                 return None
 
             return doc.tobytes(garbage=4, deflate=True)
+        except DocumentResourceError:
+            raise
         except Exception as e:
             logger.warning(f"PyMuPDF compression error: {e}")
             return None
@@ -1969,32 +2012,19 @@ class AdjusterEmailService:
         try:
             from PIL import Image
 
-            img = Image.open(_io.BytesIO(img_bytes))
-            img.load()
-
-            # JPEG has no alpha channel - flatten onto white first.
-            if img.mode in ("RGBA", "LA", "P"):
-                rgba = img.convert("RGBA")
-                flat = Image.new("RGB", rgba.size, (255, 255, 255))
-                flat.paste(rgba, mask=rgba.split()[3])
-                img = flat
-            elif img.mode != "RGB":
-                img = img.convert("RGB")
-
-            longest = max(img.width, img.height)
-            if longest > max_px:
-                ratio = max_px / longest
-                img = img.resize(
-                    (
-                        max(1, int(img.width * ratio)),
-                        max(1, int(img.height * ratio)),
-                    ),
-                    Image.LANCZOS,
-                )
-
-            buf = _io.BytesIO()
-            img.save(buf, format="JPEG", quality=quality, optimize=True)
-            return buf.getvalue()
+            with Image.open(_io.BytesIO(img_bytes)) as source:
+                source.draft('RGB', (max_px, max_px))
+                if source.width * source.height > 16_000_000:
+                    return None
+                require_memory(max(32 * MIB, source.width * source.height * 12))
+                source.thumbnail((max_px, max_px), Image.Resampling.LANCZOS)
+                with source.convert('RGBA') as rgba, Image.new('RGB', source.size, 'white') as img:
+                    img.paste(rgba, mask=rgba.getchannel('A'))
+                    with _io.BytesIO() as buf:
+                        img.save(buf, format='JPEG', quality=quality, optimize=True)
+                        return buf.getvalue()
+        except DocumentResourceError:
+            raise
         except Exception as e:
             logger.debug(f"Image shrink failed: {e}")
             return None

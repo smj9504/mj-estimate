@@ -4,6 +4,7 @@
  */
 
 import api, { publicApi } from './api';
+import { isAxiosError } from 'axios';
 import { compressIfNeeded } from '../utils/imageCompressor';
 import type {
   WMPaymentBoardToken,
@@ -735,7 +736,7 @@ export const waterMitigationService = {
       const response = await api.post(
         `${BASE_URL}/jobs/${jobId}/documents/upload`,
         formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } }
+        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 300000 }
       );
       return response.data;
     },
@@ -763,7 +764,7 @@ export const waterMitigationService = {
       const response = await api.post(
         `${BASE_URL}/jobs/${jobId}/documents/bulk-upload`,
         formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } }
+        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 300000 }
       );
       return response.data;
     },
@@ -822,11 +823,26 @@ export const waterMitigationService = {
       jobId: string,
       request: GenerateReportRequest
     ): Promise<Blob> => {
-      const response = await api.post(`${BASE_URL}/jobs/${jobId}/generate-report`, request, {
-        responseType: 'blob',
-        timeout: 300000,
-      });
-      return response.data;
+      try {
+        const response = await api.post(`${BASE_URL}/jobs/${jobId}/generate-report`, request, {
+          responseType: 'blob',
+          timeout: 300000,
+        });
+        return response.data;
+      } catch (error) {
+        // JSON errors also arrive as Blobs for this download endpoint.
+        // Surface the safe-limit/busy message so the user knows what to do.
+        if (isAxiosError(error) && error.response?.data instanceof Blob) {
+          let detail: unknown;
+          try {
+            detail = JSON.parse(await error.response.data.text()).detail;
+          } catch {
+            // Proxies may return HTML instead of the API's JSON response.
+          }
+          if (typeof detail === 'string') throw new Error(detail);
+        }
+        throw error;
+      }
     }
   },
 
