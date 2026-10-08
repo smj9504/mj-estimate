@@ -869,12 +869,12 @@ class RoofingExportService:
                 )
 
         # ────────────────────────────────────────────────
-        #  DUMPSTER & DECKING (job-wide, shared by all structures)
+        #  PROJECT-WIDE ITEMS (dumpster, decking — shared by all structures)
         # ────────────────────────────────────────────────
         if common_items:
             elements.append(Spacer(1, 10))
             elements.append(Paragraph(
-                "DUMPSTER &amp; DECKING", s_section,
+                "PROJECT-WIDE ITEMS", s_section,
             ))
             if is_multi:
                 elements.append(Paragraph(
@@ -898,7 +898,7 @@ class RoofingExportService:
             if c_total:
                 elements.append(Spacer(1, 3))
                 elements.append(Paragraph(
-                    f"Dumpster &amp; Decking Total: ${c_total:,.2f}",
+                    f"Project-Wide Items Total: ${c_total:,.2f}",
                     ParagraphStyle(
                         "CSub",
                         fontName="Helvetica-Bold",
