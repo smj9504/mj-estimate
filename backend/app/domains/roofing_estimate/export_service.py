@@ -269,6 +269,38 @@ def _is_gutter_item(item: Dict[str, Any]) -> bool:
     )
 
 
+def _is_common_item(item: Dict[str, Any]) -> bool:
+    """Job-wide line item (dumpster, decking), not tied to one roof."""
+    return (
+        item.get("phase") in (2, "2")
+        or (item.get("category") or "") == "decking"
+        or (item.get("description") or "").lower().startswith("dumpster")
+    )
+
+
+def _merge_common_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Fold identical common lines repeated across structures into one.
+
+    Estimates calculated before decking was billed once per job carry a
+    decking line on every structure; the common section shows them as a
+    single line with the combined quantity.
+    """
+    merged: Dict[tuple, Dict[str, Any]] = {}
+    for li in items:
+        key = (
+            li.get("description"), li.get("unit"),
+            round(li.get("unit_price", 0) or 0, 2),
+        )
+        if key in merged:
+            m = merged[key]
+            m["quantity"] = (m.get("quantity", 0) or 0) + (
+                li.get("quantity", 0) or 0)
+            m["total"] = (m.get("total", 0) or 0) + (li.get("total", 0) or 0)
+        else:
+            merged[key] = dict(li)
+    return list(merged.values())
+
+
 class RoofingExportService:
     """Generate PDF estimates for roofing projects."""
 
@@ -593,7 +625,13 @@ class RoofingExportService:
         #  LINE ITEMS TABLE (supports multi-structure)
         # ────────────────────────────────────────────────
         is_lumpsum = pricing_mode == "lumpsum"
-        line_items = _with_hidden_amounts_distributed(estimate)
+        all_items = _with_hidden_amounts_distributed(estimate)
+        # Dumpster and decking serve the whole job, so they get their own
+        # section instead of sitting inside one structure's table.
+        common_items = _merge_common_items(
+            [i for i in all_items if _is_common_item(i)]
+        )
+        line_items = [i for i in all_items if not _is_common_item(i)]
         struct_results = (
             estimate.get("structure_results") or []
         )
@@ -829,6 +867,47 @@ class RoofingExportService:
                     elements, colors, w_pct,
                     w_sq, w_sq_w,
                 )
+
+        # ────────────────────────────────────────────────
+        #  DUMPSTER & DECKING (job-wide, shared by all structures)
+        # ────────────────────────────────────────────────
+        if common_items:
+            elements.append(Spacer(1, 10))
+            elements.append(Paragraph(
+                "DUMPSTER &amp; DECKING", s_section,
+            ))
+            if is_multi:
+                elements.append(Paragraph(
+                    "Shared by all structures on this project.",
+                    ParagraphStyle(
+                        "CommonNote",
+                        fontName="Helvetica-Oblique",
+                        fontSize=8,
+                        textColor=colors.HexColor(COLOR_MEDIUM),
+                        spaceAfter=4,
+                    ),
+                ))
+            self._build_line_table(
+                elements, common_items,
+                content_w, is_lumpsum,
+                colors, TA_RIGHT,
+                TA_CENTER,
+                phase_headers=False,
+            )
+            c_total = sum(i.get("total", 0) for i in common_items)
+            if c_total:
+                elements.append(Spacer(1, 3))
+                elements.append(Paragraph(
+                    f"Dumpster &amp; Decking Total: ${c_total:,.2f}",
+                    ParagraphStyle(
+                        "CSub",
+                        fontName="Helvetica-Bold",
+                        fontSize=9,
+                        textColor=colors.HexColor(
+                            COLOR_MEDIUM),
+                        alignment=TA_RIGHT,
+                    ),
+                ))
 
         # ────────────────────────────────────────────────
         #  GUTTER (separate section when gutter_separate)
@@ -1500,6 +1579,7 @@ class RoofingExportService:
     def _build_line_table(
         self, elements, items, content_w,
         is_lumpsum, colors, TA_RIGHT, TA_CENTER,
+        phase_headers: bool = True,
     ):
         """Build a single line-item table and append."""
         from reportlab.lib.styles import ParagraphStyle
@@ -1570,7 +1650,8 @@ class RoofingExportService:
         unique_phases = set(
             li.get("phase", 0) for li in items
         )
-        skip_phase_header = len(unique_phases) <= 1
+        skip_phase_header = (
+            not phase_headers or len(unique_phases) <= 1)
 
         # Phase totals
         phase_totals: Dict[int, float] = {}

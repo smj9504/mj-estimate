@@ -240,9 +240,11 @@ def _calculate_manual_multi_structure(
         struct_config = dict(config)
         struct_config["_is_multi_structure"] = True
 
-        # Main structure: use combined squares for dumpster
+        # Main structure: use combined squares for dumpster, and the
+        # combined area for the job-wide decking re-nail
         if s_idx == 0:
             struct_config["_dumpster_squares"] = combined_squares
+            struct_config["_combined_sf"] = round(total_all_sf, 1)
 
         # Per-structure gutter config
         gutter_base = config["gutter_spec"]
@@ -438,9 +440,11 @@ def _calculate_multi_structure(
         struct_config = dict(config)
         struct_config["_is_multi_structure"] = True
 
-        # Main structure: use combined squares for dumpster
+        # Main structure: use combined squares for dumpster, and the
+        # combined area for the job-wide decking re-nail
         if s_idx == 0:
             struct_config["_dumpster_squares"] = combined_squares
+            struct_config["_combined_sf"] = round(total_all_sf, 1)
 
         # Per-structure gutter config
         gutter_base = config["gutter_spec"]
@@ -667,14 +671,18 @@ def _generate_line_items(
                 )
 
     # ── PHASE 2: Decking ──
+    # Decking is one allowance for the whole job, like the dumpster: a
+    # multi-structure quote bills it once, on the main structure, rather
+    # than repeating the sheets (and free allowance) on every building.
 
     deck_material = decking.get("material", "osb_716")
     free_sheets = decking.get("free_sheets_included", 2)
     est_sheets = decking.get("estimated_sheets_needed", 0)
     deck_rate = decking.get("rate_per_sheet",
                             rates.decking(deck_material))
+    deck_here = not is_multi or structure_index == 0
 
-    if est_sheets > free_sheets:
+    if deck_here and est_sheets > free_sheets:
         billable = est_sheets - free_sheets
         # "beyond 0 free" advertises an allowance the quote doesn't give.
         deck_desc = (
@@ -687,8 +695,9 @@ def _generate_line_items(
              billable, "EA", deck_rate, billable * deck_rate,
              "decking", "RFG ROOFOSB")
 
-    if decking.get("re_nail_existing", False):
-        re_nail_sf = decking.get("re_nail_sf", total_sf)
+    if deck_here and decking.get("re_nail_existing", False):
+        re_nail_sf = decking.get(
+            "re_nail_sf", config.get("_combined_sf", total_sf))
         rate = rates.decking("re_nail_per_sf")
         _add(2, "Re-nail existing decking", re_nail_sf, "SF", rate,
              re_nail_sf * rate, "decking")
