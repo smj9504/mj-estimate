@@ -61,6 +61,13 @@ interface RenderedPage {
 let idCounter = 0;
 const genId = () => `ann_${Date.now()}_${++idCounter}`;
 
+const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const img = new window.Image();
+  img.onload = () => resolve(img);
+  img.onerror = reject;
+  img.src = src;
+});
+
 const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
   jobId,
   documentId,
@@ -488,22 +495,36 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
   };
 
   /** Save a signature captured for a specific template field, replacing any
-   *  previous capture for that field and sizing it to the field's box. */
-  const handleFieldSignatureSave = (field: SignatureFieldPlacement, imageData: string) => {
+   *  previous capture for that field. The image is fit inside the field's box
+   *  (centered) so the drawn signature keeps its own aspect ratio. */
+  const handleFieldSignatureSave = async (field: SignatureFieldPlacement, imageData: string) => {
+    if (!currentPageData) return;
+    const img = await loadImage(imageData);
     const existing = getFieldAnnotation(field.id);
+
+    // Fit in page pixel space, since normalized x/y units differ per axis
+    const pw = currentPageData.width;
+    const ph = currentPageData.height;
+    const boxW = field.width * pw;
+    const boxH = field.height * ph;
+    const fit = Math.min(boxW / img.naturalWidth, boxH / img.naturalHeight);
+    const sigW = img.naturalWidth * fit;
+    const sigH = img.naturalHeight * fit;
+
     const newSig: PdfSignatureAnnotation = {
       id: existing?.id || genId(),
       pageIndex: field.pageIndex,
-      x: field.x,
-      y: field.y,
-      width: field.width,
-      height: field.height,
+      x: field.x + (boxW - sigW) / 2 / pw,
+      y: field.y + (boxH - sigH) / 2 / ph,
+      width: sigW / pw,
+      height: sigH / ph,
       imageData,
       fieldId: field.id,
       fieldType: field.fieldType,
       signerRole: field.signerRole,
     };
 
+    sigImagesRef.current[newSig.id] = img;
     setAnnotations(prev => {
       const pageAnns = prev[field.pageIndex] || { texts: [], signatures: [] };
       const signatures = existing
@@ -512,24 +533,18 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
       return { ...prev, [field.pageIndex]: { ...pageAnns, signatures } };
     });
 
-    // Preload image
-    const img = new window.Image();
-    img.src = imageData;
-    img.onload = () => {
-      sigImagesRef.current[newSig.id] = img;
-      setAnnotations(prev => ({ ...prev })); // Force re-render
-    };
-
     setSignaturePadOpen(false);
     setActiveFieldId(null);
   };
 
   // --- Signature ---
 
-  const handleSignatureSave = (imageData: string) => {
+  const handleSignatureSave = async (imageData: string) => {
     if (!currentPageData) return;
+    const img = await loadImage(imageData);
     const sigWidth = 0.25; // 25% of page width
-    const sigHeight = (sigWidth * currentPageData.width * 0.4) / currentPageData.height;
+    const sigHeight = (sigWidth * currentPageData.width * img.naturalHeight)
+      / (img.naturalWidth * currentPageData.height);
 
     const newSig: PdfSignatureAnnotation = {
       id: genId(),
@@ -541,18 +556,11 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
       imageData,
     };
 
+    sigImagesRef.current[newSig.id] = img;
     updateCurrentAnnotations(prev => ({
       ...prev,
       signatures: [...prev.signatures, newSig],
     }));
-
-    // Preload image
-    const img = new window.Image();
-    img.src = imageData;
-    img.onload = () => {
-      sigImagesRef.current[newSig.id] = img;
-      setAnnotations(prev => ({ ...prev })); // Force re-render
-    };
 
     setSignaturePadOpen(false);
     setAnnotatorState(prev => ({ ...prev, selectedAnnotationId: newSig.id, tool: 'select' }));
