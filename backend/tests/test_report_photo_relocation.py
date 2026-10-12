@@ -50,11 +50,18 @@ def test_manually_placed_photo_stays():
     assert result['Day 2'] == [a]
 
 
-def test_photo_stays_when_new_category_has_no_section():
+def test_photo_leaves_report_when_new_category_has_no_section():
+    a, b = str(uuid4()), str(uuid4())
+    moved, result = relocate([section('Day 1', a, b), section('Day 2')], [(a, 'day-1', 'documentation')])
+    assert moved == 1
+    assert result == {'Day 1': [b], 'Day 2': []}
+
+
+def test_manually_placed_photo_stays_when_new_category_has_no_section():
     a = str(uuid4())
-    moved, result = relocate([section('Day 1', a), section('Day 2')], [(a, 'day-1', 'documentation')])
+    moved, result = relocate([section('Day 1'), section('Day 2', a)], [(a, 'day-1', 'documentation')])
     assert moved == 0
-    assert result['Day 1'] == [a]
+    assert result['Day 2'] == [a]
 
 
 def test_photo_not_in_report_is_not_added():

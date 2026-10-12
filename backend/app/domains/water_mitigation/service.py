@@ -1532,8 +1532,8 @@ class WaterMitigationService:
 
         Only a photo still sitting in the section Auto-Assign picks for its OLD
         category is moved — that's an auto-placed photo, so it should follow its
-        category. A photo the user put somewhere else by hand stays put, as does
-        any photo whose new category matches no section. Photos not in the
+        category; if its new category matches no section, it leaves the report.
+        A photo the user put somewhere else by hand stays put. Photos not in the
         report are never added. Does not commit.
 
         Args:
@@ -1541,7 +1541,7 @@ class WaterMitigationService:
             new_categories: photo_id -> category it was changed to.
 
         Returns:
-            Number of photos moved.
+            Number of photos moved or removed.
         """
         # Snapshot ids are canonical UUID strings; callers may pass other casings
         new_categories = {str(UUID(str(pid))): cat for pid, cat in new_categories.items()}
@@ -1574,15 +1574,16 @@ class WaterMitigationService:
                 if photo_meta is None:
                     continue
                 target = _best_section_index(sections, change["new_category"])
-                if target is None or target == source:
+                if target == source:
                     continue
 
                 sections[source]["photos"] = [
                     p for p in source_photos if str(p.get("photo_id")) != photo_id
                 ]
-                target_photos = sections[target]["photos"]
-                if not any(str(p.get("photo_id")) == photo_id for p in target_photos):
-                    target_photos.append(photo_meta)
+                if target is not None:
+                    target_photos = sections[target]["photos"]
+                    if not any(str(p.get("photo_id")) == photo_id for p in target_photos):
+                        target_photos.append(photo_meta)
                 job_moved += 1
 
             if job_moved:

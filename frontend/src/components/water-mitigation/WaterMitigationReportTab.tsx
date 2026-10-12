@@ -490,62 +490,73 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   };
 
   /**
-   * Change photo category and move it to the matching section
-   * 1. Update category via API
-   * 2. Remove from current section
-   * 3. Add to best matching section (or keep if no match)
+   * Change photo category and immediately re-place it in the report:
+   * - moves to the section that best matches the new category, or
+   * - leaves the report when no section matches it.
+   * The section move and the photo's category are applied optimistically,
+   * then rolled back if the API call fails.
    */
   const handlePhotoCategoryChange = async (photoId: string, newCategory: string) => {
-    const sourceSection = sections.find(s => s.id === selectedSectionId);
+    const sourceSection = sections.find(s => s.photos.some(p => p.photo_id === photoId));
     if (!sourceSection) return;
+    const photoMeta = sourceSection.photos.find(p => p.photo_id === photoId)!;
+    const categoryLabel = AI_CATEGORY_LABELS[newCategory] || newCategory;
 
-    try {
-      // 1. Update category via API
-      await waterMitigationService.photos.updateCategory(photoId, newCategory);
-
-      // 2. Invalidate photo cache so other components see the change
-      queryClient.invalidateQueries({ queryKey: ['water-mitigation-photos', jobId] });
-
-      // 3. Find the best matching target section for the new category
-      let bestSection: ReportSection | null = null;
-      let bestScore = 0;
-
-      for (const section of sections) {
-        const score = calculateMatchScore(section.title, newCategory);
-        if (score > bestScore) {
-          bestScore = score;
-          bestSection = section;
-        }
+    // Find the best matching target section for the new category
+    let bestSection: ReportSection | null = null;
+    let bestScore = 0;
+    for (const section of sections) {
+      const score = calculateMatchScore(section.title, newCategory);
+      if (score > bestScore) {
+        bestScore = score;
+        bestSection = section;
       }
+    }
+    const targetSection = bestSection;
 
-      // Get the photo metadata from current section
-      const photoMeta = sourceSection.photos.find(p => p.photo_id === photoId);
-      if (!photoMeta) return;
+    const previousSections = sections;
+    const photosQueryKey = ['water-mitigation-photos', jobId];
+    const previousPhotoQueries = queryClient.getQueriesData<Photo[]>({ queryKey: photosQueryKey });
 
-      // If best match is the same section or no match found, just update without moving
-      if (!bestSection || bestScore === 0 || bestSection.id === sourceSection.id) {
-        message.success(`Category changed to "${AI_CATEGORY_LABELS[newCategory] || newCategory}"`);
-        return;
-      }
+    // 1. Optimistically show the new category on the photo card
+    queryClient.setQueriesData<Photo[]>({ queryKey: photosQueryKey }, old =>
+      old?.map(p => (p.id === photoId ? { ...p, category: newCategory } : p))
+    );
 
-      // 4. Move photo: remove from source, add to target
-      const newSections = sections.map(s => {
+    // 2. Optimistically move the photo out of its current section
+    let successMessage = `Category changed to "${categoryLabel}"`;
+    if (!targetSection) {
+      setSections(sections.map(s =>
+        s.id === sourceSection.id
+          ? { ...s, photos: s.photos.filter(p => p.photo_id !== photoId) }
+          : s
+      ));
+      successMessage = `Category → "${categoryLabel}", removed from "${sourceSection.title}" (no matching section)`;
+    } else if (targetSection.id !== sourceSection.id) {
+      setSections(sections.map(s => {
         if (s.id === sourceSection.id) {
           return { ...s, photos: s.photos.filter(p => p.photo_id !== photoId) };
         }
-        if (s.id === bestSection!.id) {
+        if (s.id === targetSection.id) {
           return { ...s, photos: [...s.photos, photoMeta] };
         }
         return s;
-      });
+      }));
+      successMessage = `Category → "${categoryLabel}", moved to "${targetSection.title}"`;
+    }
 
-      setSections(newSections);
-      message.success(
-        `Category → "${AI_CATEGORY_LABELS[newCategory] || newCategory}", moved to "${bestSection.title}"`
-      );
+    try {
+      // 3. Persist the category
+      await waterMitigationService.photos.updateCategory(photoId, newCategory);
+      message.success(successMessage);
     } catch (error) {
       console.error('Failed to update photo category:', error);
+      setSections(previousSections);
+      previousPhotoQueries.forEach(([key, data]) => queryClient.setQueryData(key, data));
       message.error('Failed to update photo category');
+    } finally {
+      // Sync with the server so other components see the real state
+      queryClient.invalidateQueries({ queryKey: photosQueryKey });
     }
   };
 
