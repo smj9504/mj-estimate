@@ -484,6 +484,7 @@ class SketchPdfService:
         self.db = db
         self._svg = _get_svg_style("a")
         self._template_variant = "a"
+        self._floor_count = 1
 
     # ──────────────────────────────────────────────────────────────────────
     # Public API
@@ -532,6 +533,7 @@ class SketchPdfService:
                 }
             )
 
+        self._floor_count = max(1, len(floor_data))
         html_content = self._render_html(job, floor_data)
         return self._html_to_pdf(html_content)
 
@@ -718,39 +720,6 @@ class SketchPdfService:
         # Detect MIME type from actual image bytes (not URL, which may lack extension)
         mime = self._detect_mime_type(image_bytes, bg_url)
 
-        # Compressed byte size does not bound decoded image memory.
-        if mime != "image/svg+xml":
-            from PIL import Image as PILImage
-            with PILImage.open(io.BytesIO(image_bytes)) as image:
-                output_format = 'JPEG' if image.format == 'JPEG' else 'PNG'
-                image.draft('RGB', (2000, 2000))
-                if image.width * image.height > 16_000_000:
-                    raise DocumentResourceError('Sketch image resolution is too large. Resize it before generating the report.')
-                require_memory(max(32 * MIB, image.width * image.height * 12))
-                image.thumbnail((2000, 2000), PILImage.Resampling.LANCZOS)
-                with io.BytesIO() as resized:
-                    image.save(resized, format=output_format)
-                    image_bytes = resized.getvalue()
-                mime = 'image/jpeg' if output_format == 'JPEG' else 'image/png'
-
-        # WeasyPrint does not support WebP — convert to PNG for PDF rendering
-        if mime == "image/webp":
-            try:
-                from PIL import Image as PILImage
-                pil_img = PILImage.open(io.BytesIO(image_bytes))
-                png_buf = io.BytesIO()
-                pil_img.save(png_buf, format="PNG")
-                image_bytes = png_buf.getvalue()
-                mime = "image/png"
-                logger.info(
-                    "Converted WebP → PNG for PDF rendering (%d bytes)",
-                    len(image_bytes),
-                )
-            except DocumentResourceError:
-                raise
-            except Exception as exc:
-                logger.warning("WebP→PNG conversion failed: %s", exc)
-
         # SVG images (e.g. MagicPlan floor plans) must be rasterized to PNG.
         # Nested SVG-inside-SVG via data URI causes rendering issues in
         # WeasyPrint, and dimension detection for SVG is unreliable.
@@ -785,6 +754,32 @@ class SketchPdfService:
                 raise
             except Exception as exc:
                 logger.warning("SVG→PNG conversion failed: %s", exc)
+
+        # Embed every raster background as a 1600px JPEG. WeasyPrint passes
+        # JPEG through but decodes and re-compresses PNG: a photo-like 2000px
+        # PNG peaked ~109MiB in WeasyPrint 68.1 vs ~19MiB as a 1600px JPEG,
+        # which the 512MB instance cannot spare. It also covers WebP, which
+        # WeasyPrint does not support. Compressed byte size does not bound
+        # decoded image memory, so check pixels before decoding.
+        if mime != "image/svg+xml":
+            from PIL import Image as PILImage
+            with PILImage.open(io.BytesIO(image_bytes)) as image:
+                image.draft('RGB', (1600, 1600))
+                if image.width * image.height > 16_000_000:
+                    raise DocumentResourceError('Sketch image resolution is too large. Resize it before generating the report.')
+                require_memory(max(32 * MIB, image.width * image.height * 12))
+                image.thumbnail((1600, 1600), PILImage.Resampling.LANCZOS)
+                if image.mode in ('RGBA', 'LA', 'P'):
+                    # Transparent areas show the white page, so flatten onto white.
+                    rgba = image.convert('RGBA')
+                    flat = PILImage.new('RGB', rgba.size, 'white')
+                    flat.paste(rgba, mask=rgba.getchannel('A'))
+                else:
+                    flat = image.convert('RGB')
+                with io.BytesIO() as resized:
+                    flat.save(resized, format='JPEG', quality=90)
+                    image_bytes = resized.getvalue()
+                mime = 'image/jpeg'
 
         b64 = base64.b64encode(image_bytes).decode("ascii")
 
@@ -2629,7 +2624,9 @@ class SketchPdfService:
         """Convert HTML to PDF using WeasyPrint."""
         try:
             from weasyprint import HTML
-            require_memory(96 * MIB)
+            # Measured on WeasyPrint 68.1 with 1600px JPEG backgrounds: peak
+            # grew ~19MiB for one floor, ~30MiB for three, ~49MiB for five.
+            require_memory((24 + 10 * self._floor_count) * MIB)
             pdf_bytes = HTML(string=html_content).write_pdf()
             logger.info(
                 "PDF generated via WeasyPrint (%d bytes)", len(pdf_bytes)
