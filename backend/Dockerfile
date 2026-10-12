@@ -18,6 +18,12 @@ WORKDIR /app
 # actually using. Capping the arenas keeps the idle footprint down and leaves
 # headroom for PDF generation.
 ENV MALLOC_ARENA_MAX=2
+# glibc raises its mmap threshold (up to 32MB) after the first large free, so
+# later multi-MB buffers - downloaded attachments, rendered PDFs, decoded
+# photos - land on the heap and stay in RSS after they are freed. A fixed
+# threshold keeps every allocation of 1MB or more in its own mapping, which
+# goes back to the OS the moment it is freed.
+ENV MALLOC_MMAP_THRESHOLD_=1048576
 
 # Install system dependencies including WeasyPrint requirements.
 # ghostscript gives the email attachment compressor its best path; without it

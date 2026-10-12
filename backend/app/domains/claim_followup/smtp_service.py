@@ -8,6 +8,7 @@ import logging
 import re
 import smtplib
 import uuid
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
@@ -15,6 +16,9 @@ from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate, make_msgid
 from typing import Any, Dict, Iterator, List, Optional
 
+from app.common.services.document_resources import (
+    MIB, DocumentResourceError, document_guard, read_bounded,
+)
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -22,6 +26,17 @@ logger = logging.getLogger(__name__)
 # Raw bytes base64-encoded per chunk while streaming an attachment. A
 # multiple of 57 so every chunk but the last encodes to whole 76-char lines.
 _B64_CHUNK = 57 * 1024
+
+# Gmail's message size limit.
+MAX_EMAIL_SIZE_MB = 25
+# No single attachment larger than this fits once base64-encoded.
+_MAX_ATTACHMENT_BYTES = MAX_EMAIL_SIZE_MB * MIB * 3 // 4
+# Above this, a send downloads and holds enough to stack with a PDF render's
+# peak on the 512MB instance, so it takes the document lock. Smaller sends
+# (a signed contract, a single invoice) skip it: they would otherwise fail
+# whenever any document is rendering, and the background notifications
+# among them have no user to retry.
+_GUARDED_ATTACHMENT_BYTES = 5 * MIB
 
 
 def _base64_size(n: int) -> int:
@@ -46,6 +61,17 @@ def _iter_base64(data: bytes) -> Iterator[bytes]:
         if start + _B64_CHUNK >= len(view):
             chunk = chunk[:-2]
         yield chunk
+
+
+def _oversize_error(size: int, attachments: List[Dict[str, Any]], sizes: List[int]) -> ValueError:
+    details = ", ".join(
+        f"{att.get('filename', 'unknown')}({n / MIB:.1f}MB)"
+        for att, n in zip(attachments, sizes)
+    ) or "no details"
+    return ValueError(
+        f"Email size ({size / MIB:.1f}MB) exceeds Gmail's {MAX_EMAIL_SIZE_MB}MB limit. "
+        f"Attachments: {details}. Please reduce the number or size of attachments."
+    )
 
 
 def _smtp_text(segment: bytes) -> bytes:
@@ -142,112 +168,112 @@ class SmtpService:
             signature_phone_override = signature_phone_override or smtp_config.get("sender_phone")
             smtp_config = fallback_config
 
-        # Build message. Attachment payloads are left out of it (see the
-        # streaming note below) and marked with this per-send token.
-        token = uuid.uuid4().hex
-        msg, attachment_data, failed_attachments = self._build_message(
-            placeholder_token=token,
-            from_address=from_address,
-            to_addresses=to_addresses,
-            cc_addresses=cc_addresses,
-            subject=subject,
-            body_html=body_html,
-            attachments=attachments,
-            reply_to=reply_to,
-            display_name=display_name_override or smtp_config.get("display_name", ""),
-            sender_name="" if skip_signature else (personal_sender_name or smtp_config.get("sender_name", "")),
-            sender_phone=signature_phone_override or smtp_config.get("sender_phone", ""),
-            # A send-only account's own address (e.g. documents@scopit.work)
-            # isn't a real mailbox - the signature should show the assigned
-            # company's contact email instead when the caller provides one.
-            email_address=signature_email_override or smtp_config.get("email_address", from_address),
-            company_name=personal_company_name or smtp_config.get("company_name", ""),
-        )
+        # Refuse an oversized email before downloading anything, from the
+        # sizes on record, rather than after every attachment is in memory.
+        attachment_sizes = self._attachment_sizes(attachments)
+        known_size = sum(_base64_size(n) for n in attachment_sizes)
+        if known_size > MAX_EMAIL_SIZE_MB * MIB:
+            raise _oversize_error(known_size, attachments, attachment_sizes)
 
-        # Fail loudly instead of silently sending without attachments -
-        # a "sent" email missing a supplement estimate is worse than a
-        # blocked send, since the PA would silently never receive the file.
-        if failed_attachments:
-            names = ", ".join(failed_attachments)
-            raise ValueError(
-                f"Failed to attach the following file(s), email not sent: {names}. "
-                f"The file(s) may be missing from storage - try re-uploading."
+        guard = (
+            document_guard() if sum(attachment_sizes) > _GUARDED_ATTACHMENT_BYTES
+            else nullcontext()
+        )
+        with guard:
+            # Build message. Attachment payloads are left out of it (see the
+            # streaming note below) and marked with this per-send token.
+            token = uuid.uuid4().hex
+            msg, attachment_data, failed_attachments = self._build_message(
+                placeholder_token=token,
+                from_address=from_address,
+                to_addresses=to_addresses,
+                cc_addresses=cc_addresses,
+                subject=subject,
+                body_html=body_html,
+                attachments=attachments,
+                reply_to=reply_to,
+                display_name=display_name_override or smtp_config.get("display_name", ""),
+                sender_name="" if skip_signature else (personal_sender_name or smtp_config.get("sender_name", "")),
+                sender_phone=signature_phone_override or smtp_config.get("sender_phone", ""),
+                # A send-only account's own address (e.g. documents@scopit.work)
+                # isn't a real mailbox - the signature should show the assigned
+                # company's contact email instead when the caller provides one.
+                email_address=signature_email_override or smtp_config.get("email_address", from_address),
+                company_name=personal_company_name or smtp_config.get("company_name", ""),
             )
 
-        # The message is streamed to the server rather than flattened in
-        # memory: as_string() plus smtplib's own line-ending, dot-stuffing
-        # and encoding passes held ~8x the attachment size at once (157MB
-        # for 20MB of PDFs), which OOM-killed Render's 512MB instance while
-        # sending adjuster emails. The skeleton below is the whole message
-        # with a short placeholder in place of each attachment's payload.
-        skeleton = _smtp_text(
-            msg.as_bytes(policy=msg.policy.clone(linesep="\r\n"))
-        )
-        segments = re.split(rb"%s-(\d+)" % token.encode(), skeleton)
-
-        # Check message size before sending (Gmail limit: 25MB)
-        MAX_EMAIL_SIZE_MB = 25
-        msg_size = sum(len(s) for s in segments[0::2]) + sum(
-            _base64_size(len(attachment_data[int(i)])) for i in segments[1::2]
-        )
-        msg_size_mb = msg_size / (1024 * 1024)
-        if msg_size_mb > MAX_EMAIL_SIZE_MB:
-            attachment_details = []
-            for att in attachments:
-                name = att.get("filename", "unknown")
-                raw = att.get("data")
-                size_info = f"{len(raw) / (1024*1024):.1f}MB" if raw and isinstance(raw, bytes) else "file_id"
-                attachment_details.append(f"{name}({size_info})")
-            details = ", ".join(attachment_details) if attachment_details else "no details"
-            raise ValueError(
-                f"Email size ({msg_size_mb:.1f}MB) exceeds Gmail's {MAX_EMAIL_SIZE_MB}MB limit. "
-                f"Attachments: {details}. Please reduce the number or size of attachments."
-            )
-
-        # Send
-        message_id = msg["Message-ID"]
-        all_recipients = to_addresses + cc_addresses + bcc_addresses
-
-        try:
-            if smtp_config.get("use_tls"):
-                server = smtplib.SMTP(smtp_config["server"], smtp_config["port"])
-                server.ehlo()
-                server.starttls()
-                server.ehlo()
-            else:
-                server = smtplib.SMTP_SSL(smtp_config["server"], smtp_config["port"])
-
-            # Authenticate: OAuth XOAUTH2 or password
-            oauth_token = smtp_config.get("oauth_access_token")
-            if oauth_token:
-                auth_string = (
-                    f"user={smtp_config['username']}\x01"
-                    f"auth=Bearer {oauth_token}\x01\x01"
+            # Fail loudly instead of silently sending without attachments -
+            # a "sent" email missing a supplement estimate is worse than a
+            # blocked send, since the PA would silently never receive the file.
+            if failed_attachments:
+                names = ", ".join(failed_attachments)
+                raise ValueError(
+                    f"Failed to attach the following file(s), email not sent: {names}. "
+                    f"The file(s) may be missing from storage - try re-uploading."
                 )
-                server.docmd("AUTH", "XOAUTH2 " + __import__("base64").b64encode(
-                    auth_string.encode()
-                ).decode())
-            elif smtp_config.get("username") and smtp_config.get("password"):
-                server.login(smtp_config["username"], smtp_config["password"])
 
-            self._send_streaming(
-                server, from_address, all_recipients,
-                self._iter_message(segments, attachment_data), msg_size,
+            # The message is streamed to the server rather than flattened in
+            # memory: as_string() plus smtplib's own line-ending, dot-stuffing
+            # and encoding passes held ~8x the attachment size at once (157MB
+            # for 20MB of PDFs), which OOM-killed Render's 512MB instance while
+            # sending adjuster emails. The skeleton below is the whole message
+            # with a short placeholder in place of each attachment's payload.
+            skeleton = _smtp_text(
+                msg.as_bytes(policy=msg.policy.clone(linesep="\r\n"))
             )
-            server.quit()
+            segments = re.split(rb"%s-(\d+)" % token.encode(), skeleton)
 
-            logger.info(f"Email sent successfully to {to_addresses}, message_id={message_id}")
-            return {"message_id": message_id, "status": "sent"}
+            # Check message size before sending (Gmail limit: 25MB)
+            msg_size = sum(len(s) for s in segments[0::2]) + sum(
+                _base64_size(len(attachment_data[int(i)])) for i in segments[1::2]
+            )
+            if msg_size > MAX_EMAIL_SIZE_MB * MIB:
+                raise _oversize_error(msg_size, attachments, [len(d) for d in attachment_data])
 
-        except smtplib.SMTPAuthenticationError as e:
-            logger.error(f"SMTP authentication failed: {e}")
-            raise ValueError(f"Email authentication failed. Please check your credentials. Error: {e}")
-        except smtplib.SMTPRecipientsRefused as e:
-            logger.error(f"SMTP recipients refused: {e}")
-            raise ValueError(f"Recipients refused: {e}")
-        except Exception as e:
-            logger.error(f"SMTP send error: {e}")
-            raise
+            # Send
+            message_id = msg["Message-ID"]
+            all_recipients = to_addresses + cc_addresses + bcc_addresses
+
+            try:
+                if smtp_config.get("use_tls"):
+                    server = smtplib.SMTP(smtp_config["server"], smtp_config["port"])
+                    server.ehlo()
+                    server.starttls()
+                    server.ehlo()
+                else:
+                    server = smtplib.SMTP_SSL(smtp_config["server"], smtp_config["port"])
+
+                # Authenticate: OAuth XOAUTH2 or password
+                oauth_token = smtp_config.get("oauth_access_token")
+                if oauth_token:
+                    auth_string = (
+                        f"user={smtp_config['username']}\x01"
+                        f"auth=Bearer {oauth_token}\x01\x01"
+                    )
+                    server.docmd("AUTH", "XOAUTH2 " + __import__("base64").b64encode(
+                        auth_string.encode()
+                    ).decode())
+                elif smtp_config.get("username") and smtp_config.get("password"):
+                    server.login(smtp_config["username"], smtp_config["password"])
+
+                self._send_streaming(
+                    server, from_address, all_recipients,
+                    self._iter_message(segments, attachment_data), msg_size,
+                )
+                server.quit()
+
+                logger.info(f"Email sent successfully to {to_addresses}, message_id={message_id}")
+                return {"message_id": message_id, "status": "sent"}
+
+            except smtplib.SMTPAuthenticationError as e:
+                logger.error(f"SMTP authentication failed: {e}")
+                raise ValueError(f"Email authentication failed. Please check your credentials. Error: {e}")
+            except smtplib.SMTPRecipientsRefused as e:
+                logger.error(f"SMTP recipients refused: {e}")
+                raise ValueError(f"Recipients refused: {e}")
+            except Exception as e:
+                logger.error(f"SMTP send error: {e}")
+                raise
 
     @staticmethod
     def _iter_message(
@@ -603,6 +629,32 @@ class SmtpService:
         )
         return body_html + signature_html
 
+    @staticmethod
+    def _attachment_sizes(attachments: List[Dict[str, Any]]) -> List[int]:
+        """Each attachment's size without loading it; 0 when not on record."""
+        file_ids = [
+            att["file_id"] for att in attachments
+            if not isinstance(att.get("data"), bytes) and att.get("file_id")
+        ]
+        recorded: Dict[str, int] = {}
+        if file_ids:
+            from app.core.database_factory import get_database
+            from app.domains.file.models import File as FileModel
+
+            session = get_database().get_session()
+            try:
+                recorded = dict(
+                    session.query(FileModel.id, FileModel.size)
+                    .filter(FileModel.id.in_(file_ids)).all()
+                )
+            finally:
+                session.close()
+        return [
+            len(att["data"]) if isinstance(att.get("data"), bytes)
+            else recorded.get(att.get("file_id")) or 0
+            for att in attachments
+        ]
+
     def _load_attachment(self, attachment: Dict[str, Any]) -> Optional[bytes]:
         """Get an attachment's bytes, or None on failure.
 
@@ -648,12 +700,12 @@ class SmtpService:
             if file_url.startswith('gs://') or file_url.startswith('b2://') or file_url.startswith('https://') or file_url.startswith('http://'):
                 # Cloud storage - download via provider
                 storage = get_storage_provider()
-                file_data = storage.download(file_url)
+                file_data = storage.download(file_url, max_bytes=_MAX_ATTACHMENT_BYTES)
             else:
                 # Local file
                 file_path = Path(file_url)
                 if file_path.exists():
-                    file_data = file_path.read_bytes()
+                    file_data = read_bounded(file_path, _MAX_ATTACHMENT_BYTES)
                 else:
                     logger.warning(f"Local file not found: {file_url}")
 
@@ -663,6 +715,9 @@ class SmtpService:
             else:
                 logger.warning(f"No file data for file_id={file_id} (url={file_url})")
                 return None
+        except DocumentResourceError:
+            # Too large to attach - not a missing file, so say so.
+            raise
         except Exception as e:
             logger.warning(f"Could not attach file '{filename}' (file_id={file_id}): {type(e).__name__}: {e}")
             return None

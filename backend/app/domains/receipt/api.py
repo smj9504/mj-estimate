@@ -662,7 +662,7 @@ async def generate_receipt_html(
 
 
 @router.get("/{receipt_id}/pdf")
-async def generate_receipt_pdf(
+def generate_receipt_pdf(
     receipt_id: str,
     service: ReceiptService = Depends(get_receipt_service)
 ):
@@ -1005,7 +1005,7 @@ async def preview_receipt_html(
 
 
 @router.post("/preview-pdf")
-async def preview_receipt_pdf(
+def preview_receipt_pdf(
     data: dict,
     service: ReceiptService = Depends(get_receipt_service)
 ):

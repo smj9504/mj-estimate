@@ -1208,7 +1208,7 @@ async def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
 
 
 @router.post("/{invoice_id}/pdf")
-async def generate_invoice_pdf(
+def generate_invoice_pdf(
     invoice_id: str,
     template_variant: str = Query("a", description="Template variant: a (default), b (formal), c (modern)"),
     db=Depends(get_db),
@@ -1442,7 +1442,7 @@ async def preview_invoice_html(data: InvoicePDFRequest):
 
 
 @router.post("/preview-pdf")
-async def preview_invoice_pdf(data: InvoicePDFRequest):
+def preview_invoice_pdf(data: InvoicePDFRequest):
     """Generate a preview PDF from invoice data without saving"""
     import logging
     import traceback
@@ -1943,7 +1943,7 @@ async def generate_receipt_html(invoice_id: str, db=Depends(get_db)):
 
 
 @router.get("/{invoice_id}/receipt-pdf")
-async def generate_receipt_pdf(invoice_id: str, db=Depends(get_db)):
+def generate_receipt_pdf(invoice_id: str, db=Depends(get_db)):
     """Generate PDF receipt for a paid invoice"""
     from app.core.database_factory import get_database
     database = get_database()

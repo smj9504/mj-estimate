@@ -40,6 +40,29 @@ export async function compressIfNeeded(file: File): Promise<File> {
 }
 
 /**
+ * Shrink an image stored inline (as a data URL) in a document, such as an
+ * invoice line item image. Every copy of the document - in the DB, the
+ * editor and the server's PDF render - carries the whole image, so it is
+ * kept much smaller than an upload. The file type is kept, so a PNG keeps
+ * its transparency.
+ */
+export async function compressForInline(file: File): Promise<File> {
+  if (!file.type.startsWith('image/') || file.type === 'image/svg+xml') return file;
+  if (file.size < 200 * 1024) return file;
+
+  try {
+    const compressed = await imageCompression(file, {
+      maxSizeMB: 0.4,
+      maxWidthOrHeight: 1600,
+      useWebWorker: true,
+    });
+    return compressed.size < file.size ? compressed : file;
+  } catch {
+    return file;
+  }
+}
+
+/**
  * Compress multiple images in parallel using web workers.
  * Returns files in the same order.
  */

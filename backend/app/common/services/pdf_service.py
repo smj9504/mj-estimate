@@ -559,9 +559,9 @@ class PDFService:
         _ensure_weasyprint()
         with _PDF_RENDER_LOCK:
             try:
-                HTML(string=html_content).write_pdf(
-                    output_path,
-                    stylesheets=[CSS(string=s) for s in css_strings],
+                _render_html_pdf(
+                    html_content, output_path,
+                    [CSS(string=s) for s in css_strings],
                 )
             finally:
                 release_memory()
@@ -813,6 +813,7 @@ print(os.path.getsize(output_path))
             logger.error(f"Error rendering template: {e}")
             raise
     
+    @document_job
     def generate_estimate_pdf(self, data: Dict[str, Any], output_path: str, template_type: str = "estimate") -> str:
         """
         Generate estimate PDF from data
@@ -912,10 +913,7 @@ print(os.path.getsize(output_path))
 
         try:
             logger.info(f"Generating PDF at: {output_path}")
-            HTML(string=html_content).write_pdf(
-                output_path,
-                stylesheets=stylesheets
-            )
+            _render_html_pdf(html_content, output_path, stylesheets)
             logger.info("PDF generation completed successfully")
         except Exception as e:
             logger.error(f"Error generating PDF: {e}")
@@ -1643,6 +1641,7 @@ print(os.path.getsize(output_path))
         return f"EST-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     
     @staticmethod
+    @document_job
     def generate_plumber_report_pdf(
         report_data: Dict[str, Any],
         include_photos: bool = True,
@@ -1769,10 +1768,9 @@ print(os.path.getsize(output_path))
         stylesheets.append(CSS(string=page_css))
 
         # Generate PDF - same pattern as invoice: stylesheets param
-        pdf_document = HTML(
-            string=html_content,
-            base_url=str(template_dir)
-        ).write_pdf(stylesheets=stylesheets)
+        pdf_document = _render_html_pdf(
+            html_content, stylesheets=stylesheets, base_url=str(template_dir),
+        )
 
         return pdf_document
 
@@ -1959,6 +1957,7 @@ print(os.path.getsize(output_path))
     # ================================================================
 
     @staticmethod
+    @document_job
     def generate_electrician_report_pdf(
         report_data: Dict[str, Any],
         include_photos: bool = True,
@@ -2116,12 +2115,12 @@ print(os.path.getsize(output_path))
 
     @staticmethod
     def _download_photo(photo: dict) -> tuple:
-        """Download/decode a single photo, return (index, PIL Image or None, photo dict)."""
+        """Download a single photo; return (photo, (jpeg bytes, width, height) or None).
+
+        Only the 600px JPEG is kept, so a report's photos never sit in
+        memory as decoded images or full-size downloads.
+        """
         import base64 as b64
-        try:
-            from PIL import Image as PILImage
-        except ImportError:
-            return (photo, None)
 
         url = photo.get('url', '')
 
@@ -2140,23 +2139,30 @@ print(os.path.getsize(output_path))
             if url.startswith('data:image'):
                 _, data = url.split(',', 1)
                 img_bytes = b64.b64decode(data)
-                img = PILImage.open(io.BytesIO(img_bytes))
             elif url.startswith('http'):
                 import urllib.request
                 req = urllib.request.Request(
                     url, headers={'User-Agent': 'Mozilla/5.0'}
                 )
                 with urllib.request.urlopen(req, timeout=15) as resp:
-                    img = PILImage.open(io.BytesIO(resp.read()))
+                    img_bytes = resp.read(_MAX_PHOTO_DOWNLOAD + 1)
+                if len(img_bytes) > _MAX_PHOTO_DOWNLOAD:
+                    raise ValueError('photo file is too large')
             else:
                 logging.getLogger(__name__).warning(
                     f"Photo skipped, unsupported URL scheme: {url[:80]}")
                 return (photo, None)
 
-            img.thumbnail((600, 600), PILImage.LANCZOS)
-            if img.mode in ('RGBA', 'P'):
-                img = img.convert('RGB')
-            return (photo, img)
+            img = _load_photo(io.BytesIO(img_bytes), 600)
+            del img_bytes
+            try:
+                jpeg = io.BytesIO()
+                img.save(jpeg, format='JPEG', quality=50)
+                return (photo, (jpeg.getvalue(), img.width, img.height))
+            finally:
+                img.close()
+        except DocumentResourceError:
+            raise
         except Exception as e:
             logging.getLogger(__name__).warning(
                 f"Photo download failed: {url[:80]} -> {e}")
@@ -2179,9 +2185,10 @@ print(os.path.getsize(output_path))
         from reportlab.lib.utils import ImageReader
         from reportlab.pdfgen import canvas as pdf_canvas
 
-        # Download all photos in parallel
+        # Download photos in parallel; few at once, since each worker holds
+        # a full-size download and its decode until it is shrunk.
         from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=min(len(photos), 8)) as pool:
+        with ThreadPoolExecutor(max_workers=min(len(photos), 3)) as pool:
             results = list(pool.map(PDFService._download_photo, photos))
 
         prepared = [(photo, img) for photo, img in results
@@ -2236,22 +2243,17 @@ print(os.path.getsize(output_path))
                 img_area_h = cell_h - label_h - img_pad
 
                 try:
-                    img_w, img_h = photo_img.size
+                    jpeg, img_w, img_h = photo_img
                     scale = min(col_w / img_w,
                                 img_area_h / img_h, 1)
                     draw_w = img_w * scale
                     draw_h = min(img_h * scale, img_area_h)
                     draw_w = min(img_w * scale, col_w)
 
-                    img_buf = io.BytesIO()
-                    photo_img.save(img_buf, format='JPEG',
-                                   quality=50)
-                    img_buf.seek(0)
-
                     # Place image in top portion of cell
                     x = cell_x + (col_w - draw_w) / 2
                     y = cell_top - draw_h
-                    c.drawImage(ImageReader(img_buf),
+                    c.drawImage(ImageReader(io.BytesIO(jpeg)),
                                 x, y, draw_w, draw_h)
 
                     # Label below image at cell bottom
@@ -2526,6 +2528,7 @@ print(os.path.getsize(output_path))
             logger.error(f"Error rendering template: {e}")
             raise
 
+    @document_job
     def generate_receipt_pdf(self, data: Dict[str, Any], output_path: str) -> str:
         """
         Generate receipt PDF from data
@@ -2575,10 +2578,7 @@ print(os.path.getsize(output_path))
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        HTML(string=html_content).write_pdf(
-            output_path,
-            stylesheets=stylesheets
-        )
+        _render_html_pdf(html_content, output_path, stylesheets)
 
         return str(output_path)
 
@@ -2693,6 +2693,179 @@ def apply_scan_effect(img, mode: str = "color_scan"):
     return img
 
 
+# A photo download beyond this is not a photo worth decoding.
+_MAX_PHOTO_DOWNLOAD = 30 * MIB
+# Longest side of a photo drawn as a whole letter page: ~180dpi on 11in,
+# enough for the handwriting and signatures on a scanned form, and just under
+# half a 12MP phone photo, so that photo decodes at half scale.
+FULL_PAGE_PHOTO_PX = 2000
+# Longest side of a photo in a report grid, as in the water mitigation report.
+GRID_PHOTO_PX = 1800
+_MAX_DECODE_PIXELS = 16_000_000
+_PHOTO_TOO_LARGE = 'Photo resolution is too large. Resize this photo before generating the report.'
+
+
+def _flatten_to_rgb(img):
+    """RGB (or L) for JPEG, with any transparency on white like the page."""
+    from PIL import Image
+
+    if img.mode in ('RGB', 'L'):
+        return img
+    if img.mode not in ('RGBA', 'LA', 'PA') and 'transparency' not in img.info:
+        return img.convert('RGB')
+    rgba = img.convert('RGBA')
+    flat = Image.new('RGB', rgba.size, 'white')
+    flat.paste(rgba, mask=rgba.getchannel('A'))
+    rgba.close()
+    return flat
+
+
+def _load_photo(source, max_px: int):
+    """Decode a photo upright at no more than max_px on its longest side.
+
+    Downscales before EXIF orientation or any effect, so their copies are of
+    the small image; thumbnail() lets a JPEG decode at reduced scale. Other
+    formats decode in full first, so they are refused above 16MP.
+    """
+    from PIL import Image, ImageOps
+
+    img = Image.open(source)
+    try:
+        if (img.format or '').upper() not in ('JPEG', 'MPO'):
+            if img.width * img.height > _MAX_DECODE_PIXELS:
+                raise DocumentResourceError(_PHOTO_TOO_LARGE)
+        img.getexif()  # Read orientation now; thumbnail() keeps it on img.
+        scale = max_px / max(img.size)
+        if scale < 1:
+            # The target box must keep the aspect ratio: draft() only reduces
+            # when both sides stay at least as large as requested.
+            img.draft('RGB', (int(img.width * scale), int(img.height * scale)))
+        if img.width * img.height > _MAX_DECODE_PIXELS:
+            raise DocumentResourceError(_PHOTO_TOO_LARGE)
+        require_memory(max(32 * MIB, img.width * img.height * 12))
+        img.thumbnail((max_px, max_px), Image.Resampling.LANCZOS)
+        for step in (ImageOps.exif_transpose, _flatten_to_rgb):
+            result = step(img)
+            if result is not img:
+                img.close()
+                img = result
+        return img
+    except BaseException:
+        img.close()
+        raise
+
+
+def _photo_jpeg_file(source, max_px: int, quality: int, rotation: int = 0,
+                     scan_effect: str | None = None) -> tuple:
+    """Write a bounded, upright JPEG copy of a photo for ReportLab to embed.
+
+    ReportLab copies a JPEG file into the PDF as-is, so this is what decides
+    the photo's size in the output. Returns (path, width, height); the caller
+    deletes the file.
+    """
+    import tempfile
+
+    img = _load_photo(source, max_px)
+    try:
+        if scan_effect:
+            processed = apply_scan_effect(img, mode=scan_effect)
+            if processed is not img:
+                img.close()
+                img = processed
+        if rotation:
+            # PIL rotates counter-clockwise; rotation is clockwise.
+            rotated = img.rotate(-rotation, expand=True)
+            img.close()
+            img = rotated
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp:
+            img.save(temp, format='JPEG', quality=quality, optimize=True, subsampling='4:2:0')
+        return temp.name, img.width, img.height
+    finally:
+        img.close()
+
+
+def _full_page_photo_pdf(source, max_px: int, quality: int, rotation: int = 0,
+                         scan_effect: str | None = None) -> io.BytesIO:
+    """A one-page letter PDF with the photo fitted and centred."""
+    path, width, height = _photo_jpeg_file(source, max_px, quality, rotation, scan_effect)
+    try:
+        buffer = io.BytesIO()
+        c = canvas.Canvas(buffer, pagesize=letter)
+        page_width, page_height = letter
+        scale = min(page_width / width, page_height / height)
+        drawn_width, drawn_height = width * scale, height * scale
+        c.drawImage(path, (page_width - drawn_width) / 2, (page_height - drawn_height) / 2,
+                    width=drawn_width, height=drawn_height, preserveAspectRatio=True)
+        c.save()
+        buffer.seek(0)
+        return buffer
+    finally:
+        os.unlink(path)
+
+
+def _shrinking_url_fetcher():
+    """A WeasyPrint URL fetcher that hands over images no larger than drawn.
+
+    WeasyPrint holds every image it fetches for the whole render at its
+    original size - a phone photo pasted into an invoice as a data URI, a
+    plumber report photo URL - so each is shrunk to GRID_PHOTO_PX first.
+    Small images (logos, icons) pass through untouched. WeasyPrint turns any
+    fetch error into a missing image, so a refusal for lack of memory is kept
+    in .error for the caller to raise.
+    """
+    from PIL import Image, UnidentifiedImageError
+    from weasyprint.urls import URLFetcher, URLFetcherResponse
+
+    class ShrinkingURLFetcher(URLFetcher):
+        error = None
+
+        def fetch(self, url, headers=None):
+            response = super().fetch(url, headers)
+            content_type = response.content_type
+            if not content_type.startswith('image/') or content_type == 'image/svg+xml':
+                return response
+            try:
+                data = response.read(_MAX_PHOTO_DOWNLOAD + 1)
+            finally:
+                response.close()
+            if len(data) > _MAX_PHOTO_DOWNLOAD:
+                raise ValueError(f'Image file is too large to embed: {url[:80]}')
+            try:
+                with Image.open(io.BytesIO(data)) as probe:
+                    small = max(probe.size) <= GRID_PHOTO_PX
+            except UnidentifiedImageError:
+                small = True  # Not for Pillow; leave it to WeasyPrint.
+            if small and len(data) <= MIB:
+                return URLFetcherResponse(response.url, data, {'Content-Type': content_type})
+            try:
+                img = _load_photo(io.BytesIO(data), GRID_PHOTO_PX)
+            except DocumentResourceError as e:
+                self.error = e
+                raise
+            del data
+            try:
+                jpeg = io.BytesIO()
+                img.save(jpeg, format='JPEG', quality=85, optimize=True)
+            finally:
+                img.close()
+            return URLFetcherResponse(response.url, jpeg.getvalue(), {'Content-Type': 'image/jpeg'})
+
+    return ShrinkingURLFetcher()
+
+
+def _render_html_pdf(html_content: str, target=None, stylesheets=(), base_url=None):
+    """HTML(...).write_pdf() with images shrunk as they are fetched."""
+    _ensure_weasyprint()
+    fetcher = _shrinking_url_fetcher()
+    pdf = HTML(string=html_content, base_url=base_url, url_fetcher=fetcher).write_pdf(
+        target, stylesheets=list(stylesheets),
+    )
+    if fetcher.error:
+        raise fetcher.error
+    return pdf
+
+
+@document_job
 def generate_images_pdf(
     image_paths: list[str],
     output_path: str,
@@ -2715,105 +2888,36 @@ def generate_images_pdf(
     if not PYPDF_AVAILABLE:
         raise RuntimeError("pypdf and reportlab are required for PDF generation")
 
-    import io
     import logging
-    import tempfile
-
-    from PIL import Image
 
     logger = logging.getLogger(__name__)
     logger.info(f"Starting PDF generation with {len(image_paths)} images using reportlab (scan_effect={scan_effect})")
 
-    # Create PDF writer
-    writer = PdfWriter()
-
+    # Each page goes to disk as it is made, rather than every page's image
+    # staying in a PdfWriter until the end.
+    output = DiskPDFWriter(output_path)
     for img_path in image_paths:
+        rotation = 0
+        if rotations:
+            for photo_id, degrees in rotations.items():
+                if photo_id in str(img_path):
+                    rotation = degrees
+                    break
+
+        logger.info(f"Processing image: {img_path} (rotation: {rotation})")
         try:
-            # Get rotation for this image
-            rotation = 0
-            if rotations:
-                for photo_id, degrees in rotations.items():
-                    if photo_id in str(img_path):
-                        rotation = degrees
-                        break
-
-            logger.info(f"Processing image: {img_path} (rotation: {rotation})")
-
-            # Load image with PIL
-            from PIL import ImageOps
-            img = Image.open(img_path)
-            # Apply EXIF orientation (smartphones store images sideways with EXIF rotation tag)
-            img = ImageOps.exif_transpose(img)
-
-            # Apply scan effect if requested
-            if scan_effect:
-                logger.info(f"Applying scan effect '{scan_effect}' to image: {img_path}")
-                img = apply_scan_effect(img, mode=scan_effect)
-                logger.info(f"Scan effect applied successfully")
-
-            # Resize large images
-            max_width = 2550
-            max_height = 3300
-            if img.width > max_width or img.height > max_height:
-                logger.info(f"Resizing image from {img.width}x{img.height}")
-                img.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
-
-            # Apply rotation if needed
-            if rotation != 0:
-                logger.info(f"Rotating image by {rotation} degrees")
-                img = img.rotate(-rotation, expand=True)
-
-            # Always save processed image to temp file so ReportLab uses
-            # the EXIF-corrected (and optionally rotated) version
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-            img.save(temp_file.name, format='JPEG', quality=95)
-            img_path = temp_file.name
-
-            img_width, img_height = img.size
-
-            # Create PDF page with image
-            page_buffer = io.BytesIO()
-            c = canvas.Canvas(page_buffer, pagesize=letter)
-
-            # Calculate scaling to fit letter size while maintaining aspect ratio
-            page_width, page_height = letter
-            width_scale = page_width / img_width
-            height_scale = page_height / img_height
-            scale = min(width_scale, height_scale)
-
-            # Calculate centered position
-            scaled_width = img_width * scale
-            scaled_height = img_height * scale
-            x = (page_width - scaled_width) / 2
-            y = (page_height - scaled_height) / 2
-
-            # Draw image centered on page
-            c.drawImage(
-                str(img_path),
-                x, y,
-                width=scaled_width,
-                height=scaled_height,
-                preserveAspectRatio=True
-            )
-            c.save()
-            page_buffer.seek(0)
-
-            # Add page to writer
-            page_reader = PdfReader(page_buffer)
-            writer.add_page(page_reader.pages[0])
-
-            logger.info(f"Added image to PDF: {img_path}")
-
+            output.append(_full_page_photo_pdf(
+                img_path, FULL_PAGE_PHOTO_PX, 85, rotation, scan_effect,
+            ))
+        except DocumentResourceError:
+            raise
         except Exception as e:
             logger.error(f"Failed to process image {img_path}: {e}")
             raise RuntimeError(f"Failed to process image {img_path}: {str(e)}") from e
 
-    # Write final PDF
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(output_path, 'wb') as output_file:
-        writer.write(output_file)
+    if not output.started:
+        with open(output.path, 'wb') as output_file:
+            PdfWriter().write(output_file)
 
     logger.info(f"PDF generation completed: {output_path}")
     return str(output_path)
@@ -4160,6 +4264,7 @@ def generate_water_mitigation_report_pdf(
     return str(output_path)
 
 
+@document_job
 def generate_completion_report_pdf(
     work_order_data: Dict[str, Any],
     photos: List[Dict[str, Any]],
@@ -4222,8 +4327,11 @@ def generate_completion_report_pdf(
         IMAGE_QUALITY = 50
         IMAGE_MAX_SIZE = 1200
     else:
-        IMAGE_QUALITY = 95
-        IMAGE_MAX_SIZE = None
+        # As in the water mitigation report: 85 looks the same as 95 at any
+        # viewing size for a third of the bytes, and an original phone photo
+        # is never embedded as-is.
+        IMAGE_QUALITY = 85
+        IMAGE_MAX_SIZE = GRID_PHOTO_PX
 
     page_width, page_height = letter
     margin = 0.4 * inch
@@ -4241,7 +4349,8 @@ def generate_completion_report_pdf(
     FONT_BODY_BOLD = style["font_body_bold"]
     TITLE_SIZE = style["title_size"]
 
-    writer = PdfWriter()
+    # Pages go to disk as they are made, not all held until the end.
+    output = DiskPDFWriter(output_path)
     temp_files = []
 
     def format_date(date_value):
@@ -4489,8 +4598,7 @@ def generate_completion_report_pdf(
 
     c.save()
     cover_buffer.seek(0)
-    cover_reader = PdfReader(cover_buffer)
-    writer.add_page(cover_reader.pages[0])
+    output.append(cover_buffer)
 
     # ===== PHOTO PAGES =====
     rows, cols = 2, 2
@@ -4502,6 +4610,7 @@ def generate_completion_report_pdf(
 
     for page_start in range(0, len(photos), max_photos_per_page):
         page_photos = photos[page_start:page_start + max_photos_per_page]
+        page_temp_files = []
         page_buffer = io.BytesIO()
         c = pdf_canvas.Canvas(page_buffer, pagesize=letter)
 
@@ -4543,21 +4652,10 @@ def generate_completion_report_pdf(
             y = page_height - header_height - 0.15 * inch - (row + 1) * (photo_height_cell + 0.25 * inch)
 
             try:
-                img = Image.open(photo_item['file_path'])
-                actual_photo_path = photo_item['file_path']
-
-                if compress and IMAGE_MAX_SIZE:
-                    if img.width > IMAGE_MAX_SIZE or img.height > IMAGE_MAX_SIZE:
-                        img.thumbnail((IMAGE_MAX_SIZE, IMAGE_MAX_SIZE), Image.Resampling.LANCZOS)
-                    compressed_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-                    if img.mode in ('RGBA', 'P'):
-                        img = img.convert('RGB')
-                    img.save(compressed_temp.name, format='JPEG', quality=IMAGE_QUALITY, optimize=True, subsampling='4:2:0')
-                    compressed_temp.close()
-                    actual_photo_path = compressed_temp.name
-                    temp_files.append(compressed_temp.name)
-
-                img_width, img_height = img.size
+                actual_photo_path, img_width, img_height = _photo_jpeg_file(
+                    photo_item['file_path'], IMAGE_MAX_SIZE, IMAGE_QUALITY,
+                )
+                page_temp_files.append(actual_photo_path)
                 caption_reserve = 0.35 * inch
                 available_photo_height = photo_height_cell - caption_reserve
 
@@ -4617,6 +4715,10 @@ def generate_completion_report_pdf(
                         c.drawString(line_x, caption_y, line)
                         caption_y -= 0.12 * inch
 
+            except DocumentResourceError:
+                for temp_file_path in page_temp_files:
+                    os.unlink(temp_file_path)
+                raise
             except Exception as e:
                 logger.error(f"Failed to draw photo: {e}")
                 c.setStrokeColor(COLOR_LIGHT_GRAY)
@@ -4642,14 +4744,9 @@ def generate_completion_report_pdf(
 
         c.save()
         page_buffer.seek(0)
-        page_reader = PdfReader(page_buffer)
-        writer.add_page(page_reader.pages[0])
-
-    # Write final PDF
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, 'wb') as output_file:
-        writer.write(output_file)
+        for temp_file_path in page_temp_files:
+            os.unlink(temp_file_path)
+        output.append(page_buffer)
 
     # Cleanup temp files
     for temp_file_path in temp_files:
@@ -4662,6 +4759,7 @@ def generate_completion_report_pdf(
     return str(output_path)
 
 
+@document_job
 def generate_ewa_pdf(
     job_address: str,
     date_of_loss: str,
@@ -4793,84 +4891,14 @@ def generate_ewa_pdf(
     writer.add_page(overlay_page)
 
     # Step 3: Convert photo to PDF page and append
-    # Create a temporary PDF with the photo
-    photo_pdf_buffer = io.BytesIO()
-    photo_canvas = canvas.Canvas(photo_pdf_buffer, pagesize=letter)
-
-    # Load and optionally rotate image
-    from PIL import Image, ImageOps
-    img = Image.open(photo_path)
-    # Apply EXIF orientation (smartphones store images sideways with EXIF rotation tag)
-    img = ImageOps.exif_transpose(img)
-
-    # Apply scan effect if requested
-    if scan_effect:
-        logger.info(f"Applying scan effect '{scan_effect}' to EWA photo")
-        img = apply_scan_effect(img, mode=scan_effect)
-
-    # Compression settings - balanced quality and file size
     if compress:
-        IMAGE_QUALITY = 50  # Balanced quality (25=low, 95=original)
-        IMAGE_MAX_SIZE = 1200  # Maximum dimension in pixels
         logger.info("Compression enabled: quality=50, max_size=1200px")
-    else:
-        IMAGE_QUALITY = 95  # High quality for original
-        IMAGE_MAX_SIZE = None  # No resizing
-
-    # Apply rotation if needed
-    if rotation != 0:
-        # PIL's rotate is counter-clockwise, so we negate for clockwise rotation
-        img = img.rotate(-rotation, expand=True)
-        logger.info(f"Rotated photo by {rotation} degrees")
-
-    # Apply compression (resize if needed)
-    if compress and IMAGE_MAX_SIZE:
-        original_size = f"{img.width}x{img.height}"
-        if img.width > IMAGE_MAX_SIZE or img.height > IMAGE_MAX_SIZE:
-            img.thumbnail((IMAGE_MAX_SIZE, IMAGE_MAX_SIZE), Image.Resampling.LANCZOS)
-            logger.info(f"Resized image from {original_size} to {img.width}x{img.height}")
-
-    # Convert to RGB if necessary (for PNG with alpha)
-    if img.mode in ('RGBA', 'P'):
-        img = img.convert('RGB')
-
-    # Always save processed image to temp file so ReportLab uses
-    # the EXIF-corrected (and optionally rotated/compressed) version
-    import tempfile
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-    # subsampling='4:2:0' for maximum compression
-    img.save(temp_file.name, format='JPEG', quality=IMAGE_QUALITY, optimize=True, subsampling='4:2:0')
-    photo_path = temp_file.name
-    logger.info(f"Saved processed photo to: {photo_path}")
-
-    img_width, img_height = img.size
-
-    # Calculate scaling to fit letter size (612 x 792 points) while maintaining aspect ratio
-    page_width, page_height = letter
-
-    # Calculate scale factors
-    width_scale = page_width / img_width
-    height_scale = page_height / img_height
-    scale = min(width_scale, height_scale)
-
-    # Calculate centered position
-    scaled_width = img_width * scale
-    scaled_height = img_height * scale
-    x = (page_width - scaled_width) / 2
-    y = (page_height - scaled_height) / 2
-
-    # Draw image centered on page
-    photo_canvas.drawImage(
-        str(photo_path),
-        x, y,
-        width=scaled_width,
-        height=scaled_height,
-        preserveAspectRatio=True
+    photo_pdf_buffer = _full_page_photo_pdf(
+        photo_path,
+        1200 if compress else FULL_PAGE_PHOTO_PX,
+        50 if compress else 85,
+        rotation, scan_effect,
     )
-    photo_canvas.save()
-    photo_pdf_buffer.seek(0)
-
-    # Add photo page to writer
     photo_reader = PdfReader(photo_pdf_buffer)
     writer.add_page(photo_reader.pages[0])
 

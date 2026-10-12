@@ -564,7 +564,7 @@ async def get_email_templates():
 @router.post(
     "/claims/{claim_id}/contracts/{contract_id}/send-email"
 )
-async def send_contract_email(
+def send_contract_email(
     claim_id: str,
     contract_id: str,
     data: dict,
@@ -816,7 +816,7 @@ async def delete_contract(
     "/claims/{claim_id}/contracts/{contract_id}"
     "/send-reminder"
 )
-async def send_reminder(
+def send_reminder(
     claim_id: str,
     contract_id: str,
     data: dict,
@@ -1300,7 +1300,7 @@ async def get_wm_job_available_templates(
 # ============================================================
 
 @router.get("/templates/{template_id}/pdf")
-async def serve_template_pdf(
+def serve_template_pdf(
     template_id: str,
     service: ContractTemplateService = Depends(_get_template_service),
 ):
@@ -1333,7 +1333,7 @@ async def serve_template_pdf(
 
 
 @router.get("/contracts/{contract_id}/pdf")
-async def serve_contract_pdf(
+def serve_contract_pdf(
     contract_id: str,
     service: ContractInstanceService = Depends(_get_instance_service),
 ):

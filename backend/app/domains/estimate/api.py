@@ -884,7 +884,7 @@ def _group_items_into_sections(items: List[Dict[str, Any]], sections_data: Optio
 
 
 @router.post("/{estimate_id}/pdf")
-async def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
+def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
     """Generate PDF for an estimate"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -1084,7 +1084,7 @@ async def preview_estimate_html(data: EstimatePDFRequest):
         raise HTTPException(status_code=500, detail=f"Failed to generate HTML preview: {str(e)}")
 
 @router.post("/preview-pdf")
-async def preview_estimate_pdf(data: EstimatePDFRequest):
+def preview_estimate_pdf(data: EstimatePDFRequest):
     """Generate a preview PDF from estimate data without saving"""
     import logging
     import traceback

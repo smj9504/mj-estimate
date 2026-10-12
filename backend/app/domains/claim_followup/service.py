@@ -1859,6 +1859,16 @@ class ClaimFollowUpService:
 
     def send_email(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Send an email and record it"""
+        if data.get('wm_job_id') and data.get('wm_documents'):
+            # Collecting WM documents downloads and may render them; hold the
+            # document lock through the send so they never stack with other
+            # document work.
+            from app.common.services.document_resources import document_guard
+            with document_guard():
+                return self._send_email(data)
+        return self._send_email(data)
+
+    def _send_email(self, data: Dict[str, Any]) -> Dict[str, Any]:
         session = self._get_session()
         try:
             from app.domains.claim_followup.repository import (
@@ -1887,27 +1897,35 @@ class ClaimFollowUpService:
             wm_job_id = data.get('wm_job_id')
             wm_documents = data.get('wm_documents')
             if wm_job_id and wm_documents:
-                try:
-                    from app.domains.water_mitigation.adjuster_email_service import AdjusterEmailService
-                    from app.domains.water_mitigation.models import WaterMitigationJob
+                # Any failure here stops the send: an email that silently
+                # went out without the documents the user picked is worse
+                # than one that was not sent.
+                from app.domains.water_mitigation.adjuster_email_service import AdjusterEmailService
+                from app.domains.water_mitigation.models import WaterMitigationJob
 
-                    wm_service = AdjusterEmailService(self.database)
-                    job = session.query(WaterMitigationJob).filter(
-                        WaterMitigationJob.id == str(wm_job_id)
-                    ).first()
-                    if job:
-                        wm_attachments, _failed = wm_service._collect_attachments(
-                            session, job, wm_documents
-                        )
-                        raw_attachments.extend(wm_attachments)
-                        logger.info(
-                            f"Attached {len(wm_attachments)} WM documents "
-                            f"from job {wm_job_id} for follow-up email"
-                        )
-                        # Compress if total size exceeds email limit
-                        raw_attachments = wm_service._compress_attachments_if_needed(raw_attachments)
-                except Exception as e:
-                    logger.error(f"Error collecting WM attachments: {e}")
+                wm_service = AdjusterEmailService(self.database)
+                job = session.query(WaterMitigationJob).filter(
+                    WaterMitigationJob.id == str(wm_job_id)
+                ).first()
+                if not job:
+                    raise ValueError(
+                        f"Water mitigation job {wm_job_id} not found. Email was NOT sent."
+                    )
+                wm_attachments, failed_docs = wm_service._collect_attachments(
+                    session, job, wm_documents
+                )
+                if failed_docs:
+                    raise ValueError(
+                        f"Failed to attach: {', '.join(failed_docs)}. "
+                        f"Email was NOT sent. Please check the documents and try again."
+                    )
+                raw_attachments.extend(wm_attachments)
+                logger.info(
+                    f"Attached {len(wm_attachments)} WM documents "
+                    f"from job {wm_job_id} for follow-up email"
+                )
+                # Compress if total size exceeds email limit
+                raw_attachments = wm_service._compress_attachments_if_needed(raw_attachments)
 
             # Separate binary attachment data from metadata for DB storage.
             # Store only JSON-safe metadata in the DB (strip binary 'data'),

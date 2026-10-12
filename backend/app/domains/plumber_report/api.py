@@ -242,7 +242,7 @@ async def upload_report_photo(
 
 
 @router.post("/{report_id}/generate-pdf")
-async def generate_pdf(
+def generate_pdf(
     report_id: UUID,
     db: Session = Depends(get_db)
 ):
@@ -271,7 +271,7 @@ async def generate_pdf(
 
 
 @router.post("/preview-pdf")
-async def preview_pdf(
+def preview_pdf(
     pdf_request: PlumberReportPDFRequest
 ):
     """Preview PDF without saving (for draft preview)"""

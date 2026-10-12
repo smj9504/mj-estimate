@@ -87,6 +87,7 @@ import lineItemService from '../services/lineItemService';
 import { LineItemType } from '../types/lineItem';
 import { useTemplateBuilder } from '../contexts/TemplateBuilderContext';
 import { generateId } from '../components/sketch/utils/idUtils';
+import { compressForInline } from '../utils/imageCompressor';
 import {
   Collapse,
   Tag,
@@ -1911,7 +1912,7 @@ const InvoiceCreation: React.FC = () => {
   // Handle image upload for line item
   const handleItemImageUpload = async (file: File) => {
     try {
-      const url = await fileToBase64(file);
+      const url = await fileToBase64(await compressForInline(file));
       const newImage: LineItemImage = {
         id: generateId(),
         title: file.name.replace(/\.[^/.]+$/, ''), // filename without extension

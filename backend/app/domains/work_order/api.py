@@ -594,7 +594,7 @@ async def debug_work_order(
 
 
 @router.post("/{work_order_id}/completion-report/generate")
-async def generate_completion_report(
+def generate_completion_report(
     work_order_id: UUID,
     request: CompletionReportRequest,
     service: WorkOrderService = Depends(get_work_order_service),
@@ -697,6 +697,7 @@ async def generate_completion_report(
                 logger.warning(f"Failed to fetch client data: {e}")
 
         # 5. Download photos from storage
+        from app.common.services.document_resources import MIB, DocumentResourceError
         from app.domains.file.service import FileService, get_storage_provider
         file_service = FileService(service.db)
         storage = get_storage_provider()
@@ -714,7 +715,7 @@ async def generate_completion_report(
                 photo_path = None
 
                 if file_url.startswith('gs://') or file_url.startswith('b2://') or file_url.startswith('https://') or file_url.startswith('http://'):
-                    photo_data = storage.download(file_url)
+                    photo_data = storage.download(file_url, max_bytes=30 * MIB)
                     if photo_data:
                         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
                         temp_file.write(photo_data)
@@ -740,6 +741,8 @@ async def generate_completion_report(
                         'caption': file_record.get('description', ''),
                         'category': file_record.get('category', ''),
                     })
+            except DocumentResourceError:
+                raise
             except Exception as e:
                 logger.warning(f"Failed to download photo {file_id}: {e}")
                 continue
@@ -752,6 +755,7 @@ async def generate_completion_report(
 
         with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
             temp_output = tmp.name
+        temp_files.append(temp_output)
 
         generate_completion_report_pdf(
             work_order_data=work_order,
@@ -767,10 +771,6 @@ async def generate_completion_report(
         )
 
         pdf_bytes = Path(temp_output).read_bytes()
-        try:
-            Path(temp_output).unlink()
-        except Exception:
-            pass
 
         logger.info(f"Completion report generated: {len(pdf_bytes)} bytes, {len(photo_items)} photos")
 

@@ -915,7 +915,7 @@ async def generate_pa_email(
 
 
 @router.post("/supplements/{supplement_id}/send-to-pa")
-async def send_to_pa(supplement_id: str, data: dict):
+def send_to_pa(supplement_id: str, data: dict):
     """Send supplement bid items to PA via email with PDF attachments.
 
     Request body:
@@ -941,7 +941,7 @@ async def send_to_pa(supplement_id: str, data: dict):
 
 
 @router.post("/supplements/{supplement_id}/followups/{followup_id}/reply")
-async def reply_to_info_request(supplement_id: str, followup_id: str, data: dict):
+def reply_to_info_request(supplement_id: str, followup_id: str, data: dict):
     """Send a reply email in an existing info request conversation thread.
 
     Request body:

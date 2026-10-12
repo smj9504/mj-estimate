@@ -287,7 +287,7 @@ async def update_prefill(token: str, data: PrefillUpdateRequest):
 
 
 @router.post("/{token}/send-email")
-async def send_email_with_template(token: str, data: SendEmailRequest):
+def send_email_with_template(token: str, data: SendEmailRequest):
     """
     Send signed PDF via email using EMAIL_TEMPLATES for document_type-specific content.
     """

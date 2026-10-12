@@ -275,3 +275,211 @@ def test_budget_rechecks_after_releasing_heap(monkeypatch):
     monkeypatch.setattr(resources, 'release_memory', lambda: released.append(True))
     resources.require_memory(64 * resources.MIB)
     assert released == [True]
+
+
+@pytest.fixture
+def lock_held_elsewhere():
+    acquired, release = threading.Event(), threading.Event()
+
+    def hold():
+        with resources.DOCUMENT_LOCK:
+            acquired.set()
+            release.wait(5)
+
+    thread = threading.Thread(target=hold)
+    thread.start()
+    assert acquired.wait(5)
+    yield
+    release.set()
+    thread.join(5)
+
+
+@pytest.mark.parametrize('render', [
+    pdf_service.PDFService.generate_estimate_pdf,
+    pdf_service.PDFService.generate_receipt_pdf,
+    pdf_service.PDFService.generate_plumber_report_pdf,
+    pdf_service.PDFService.generate_electrician_report_pdf,
+    pdf_service.generate_completion_report_pdf,
+    pdf_service.generate_images_pdf,
+    pdf_service.generate_ewa_pdf,
+])
+def test_pdf_renders_do_not_overlap_other_document_work(lock_held_elsewhere, render):
+    with pytest.raises(resources.DocumentResourceError, match='Another document'):
+        render(None, None, None)
+
+
+@pytest.fixture
+def smtp(monkeypatch):
+    from app.domains.claim_followup.smtp_service import SmtpService
+    settings_module = ModuleType('app.domains.admin.settings_service')
+    settings_module.ROUTE_PERSONAL_ACCOUNTS_THROUGH_FALLBACK_KEY = 'route'
+    settings_module.get_bool_setting = lambda *args, **kwargs: False
+    monkeypatch.setitem(sys.modules, settings_module.__name__, settings_module)
+    service = SmtpService()
+    monkeypatch.setattr(service, '_get_smtp_config', lambda account_id: {})
+    return service
+
+
+def send(service, attachments):
+    return service.send(None, 'a@example.com', ['b@example.com'], 'Subject', '<p>Hi</p>',
+                        attachments=attachments)
+
+
+def test_oversized_email_is_refused_before_downloading(smtp, monkeypatch):
+    monkeypatch.setattr(smtp, '_attachment_sizes', lambda attachments: [15 * resources.MIB] * 2)
+    monkeypatch.setattr(smtp, '_load_attachment', lambda *args: pytest.fail('downloaded'))
+    with pytest.raises(ValueError, match='exceeds'):
+        send(smtp, [{'filename': 'a.pdf', 'file_id': '1'}, {'filename': 'b.pdf', 'file_id': '2'}])
+
+
+def test_large_email_waits_for_no_document_work(smtp, monkeypatch, lock_held_elsewhere):
+    monkeypatch.setattr(smtp, '_build_message', lambda **kw: pytest.fail('loaded attachments'))
+    with pytest.raises(resources.DocumentResourceError, match='Another document'):
+        send(smtp, [{'filename': 'a.pdf', 'data': b'x' * (6 * resources.MIB)}])
+
+
+def test_small_email_is_not_blocked_by_document_work(smtp, monkeypatch, lock_held_elsewhere):
+    def built(**kw):
+        raise RuntimeError('built')
+
+    monkeypatch.setattr(smtp, '_build_message', built)
+    with pytest.raises(RuntimeError, match='built'):
+        send(smtp, [{'filename': 'signed.pdf', 'data': b'x' * resources.MIB}])
+
+
+def test_attachment_download_is_bounded(smtp, tmp_path, monkeypatch):
+    path = tmp_path / 'huge.pdf'
+    with path.open('wb') as f:
+        f.truncate(25 * resources.MIB)
+    record = SimpleNamespace(url=str(path))
+    query = SimpleNamespace(filter=lambda *args: SimpleNamespace(first=lambda: record))
+    session = SimpleNamespace(query=lambda *args: query, close=lambda: None)
+    database = ModuleType('app.core.database_factory')
+    database.get_database = lambda: SimpleNamespace(get_session=lambda: session)
+    models = ModuleType('app.domains.file.models')
+    models.File = SimpleNamespace(id=None)
+    files = ModuleType('app.domains.file.service')
+    files.get_storage_provider = lambda: pytest.fail('local file sent to storage')
+    for module in (database, models, files):
+        monkeypatch.setitem(sys.modules, module.__name__, module)
+    with pytest.raises(resources.DocumentResourceError):
+        smtp._load_attachment({'filename': 'huge.pdf', 'file_id': '1'})
+
+
+def phone_photo(path, size=(4032, 3024), orientation=6):
+    with Image.new('RGB', size, 'red') as img:
+        exif = img.getexif()
+        exif[0x0112] = orientation
+        img.save(path, exif=exif.tobytes())
+    return path
+
+
+def test_photo_shrinks_before_orientation_and_effects(tmp_path, monkeypatch):
+    from PIL import ImageOps
+    original = ImageOps.exif_transpose
+
+    def transpose(img, **kwargs):
+        assert max(img.size) <= pdf_service.GRID_PHOTO_PX, 'rotated the full-size photo'
+        return original(img, **kwargs)
+
+    monkeypatch.setattr(ImageOps, 'exif_transpose', transpose)
+    with pdf_service._load_photo(phone_photo(tmp_path / 'p.jpg'), pdf_service.GRID_PHOTO_PX) as img:
+        assert img.size == (1350, 1800)  # Upright: EXIF orientation 6 applied.
+        assert img.mode == 'RGB'
+
+
+def test_transparent_image_flattens_onto_white(tmp_path):
+    path = tmp_path / 'logo.png'
+    Image.new('RGBA', (3000, 1000), (0, 0, 0, 0)).save(path)
+    with pdf_service._load_photo(path, 600) as img:
+        assert img.mode == 'RGB'
+        assert img.getpixel((0, 0)) == (255, 255, 255)
+
+
+def pdf_image_sizes(path):
+    with pymupdf.open(path) as doc:
+        return [[max(image[2:4]) for image in page.get_images()] for page in doc]
+
+
+def test_cos_pages_are_bounded_and_written_per_page(tmp_path, monkeypatch):
+    appended = []
+    original = resources.DiskPDFWriter.append
+    monkeypatch.setattr(resources.DiskPDFWriter, 'append',
+                        lambda self, page: appended.append(1) or original(self, page))
+    photo = phone_photo(tmp_path / 'p.jpg')
+    output = tmp_path / 'cos.pdf'
+    pdf_service.generate_images_pdf([str(photo)] * 3, str(output), scan_effect='bw_scan')
+    assert appended == [1, 1, 1]
+    assert pdf_image_sizes(output) == [[pdf_service.FULL_PAGE_PHOTO_PX]] * 3
+    assert list(tmp_path.glob('tmp*.jpg')) == []
+
+
+def test_completion_report_never_embeds_originals(tmp_path):
+    photo = phone_photo(tmp_path / 'p.jpg')
+    output = tmp_path / 'completion.pdf'
+    pdf_service.generate_completion_report_pdf(
+        {'work_order_number': 'WO-1', 'job_site_address': '123 Test Street'},
+        [{'file_path': str(photo), 'caption': 'Kitchen'}] * 5, str(output),
+    )
+    sizes = pdf_image_sizes(output)
+    assert len(sizes) == 3
+    assert sizes[1:] == [[pdf_service.GRID_PHOTO_PX] * 4, [pdf_service.GRID_PHOTO_PX]]
+
+
+def test_electrician_photos_are_held_as_small_jpegs(tmp_path):
+    import base64
+    photo = phone_photo(tmp_path / 'p.jpg')
+    url = 'data:image/jpeg;base64,' + base64.b64encode(photo.read_bytes()).decode()
+    _, (jpeg, width, height) = pdf_service.PDFService._download_photo({'url': url})
+    assert (width, height) == (450, 600)
+    assert jpeg[:2] == b'\xff\xd8' and len(jpeg) < 100_000
+
+
+def require_weasyprint():
+    try:
+        import weasyprint  # noqa: F401
+    except (ImportError, OSError):  # Not installed, or no Pango (Windows).
+        pytest.skip('WeasyPrint is not usable here')
+
+
+def test_weasyprint_images_are_shrunk_when_fetched(tmp_path):
+    require_weasyprint()
+    import base64
+    big = io.BytesIO()
+    Image.new('RGB', (4000, 3000), 'blue').save(big, 'PNG')
+    small = io.BytesIO()
+    Image.new('RGBA', (200, 80), (0, 0, 0, 0)).save(small, 'PNG')
+    fetcher = pdf_service._shrinking_url_fetcher()
+
+    def fetch(data):
+        response = fetcher.fetch('data:image/png;base64,' + base64.b64encode(data).decode())
+        try:
+            return response.content_type, response.read()
+        finally:
+            response.close()
+
+    content_type, body = fetch(big.getvalue())
+    assert content_type == 'image/jpeg'
+    with Image.open(io.BytesIO(body)) as img:
+        assert img.size == (1800, 1350)
+    assert fetch(small.getvalue()) == ('image/png', small.getvalue())
+
+    output = tmp_path / 'invoice.pdf'
+    html = f'<img src="data:image/png;base64,{base64.b64encode(big.getvalue()).decode()}">'
+    pdf_service._render_html_pdf(html, str(output))
+    assert pdf_image_sizes(output) == [[1800]]
+
+
+def test_memory_refusal_inside_weasyprint_is_not_swallowed(monkeypatch):
+    require_weasyprint()
+    import base64
+    big = io.BytesIO()
+    Image.new('RGB', (4000, 3000), 'blue').save(big, 'JPEG')
+
+    def refuse(*args, **kwargs):
+        raise resources.DocumentResourceError('insufficient memory')
+
+    monkeypatch.setattr(pdf_service, 'require_memory', refuse)
+    html = f'<img src="data:image/jpeg;base64,{base64.b64encode(big.getvalue()).decode()}">'
+    with pytest.raises(resources.DocumentResourceError):
+        pdf_service._render_html_pdf(html)

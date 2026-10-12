@@ -934,7 +934,7 @@ async def get_sent_emails_by_task(task_id: str):
 
 
 @router.post("/emails/send", response_model=SentEmailResponse)
-async def send_email(data: SendEmailRequest):
+def send_email(data: SendEmailRequest):
     """Send an email directly"""
     service = _get_service()
     try:

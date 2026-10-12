@@ -2,7 +2,7 @@
 Water Mitigation API endpoints
 """
 
-from app.common.services.document_resources import DocumentResourceError
+from app.common.services.document_resources import MIB, DocumentResourceError
 
 import logging
 import math
@@ -2537,7 +2537,7 @@ async def generate_document_pdf(
                 try:
                     storage = StorageFactory.get_instance(storage_provider)
                     logger.info(f"Downloading photo {photo_id} from {storage_provider}: {file_path_str}")
-                    photo_bytes = storage.download(file_path_str)
+                    photo_bytes = storage.download(file_path_str, max_bytes=30 * MIB)
 
                     if photo_bytes:
                         mime_type = photo_dict.get('mime_type', 'image/jpeg')
@@ -2557,6 +2557,8 @@ async def generate_document_pdf(
                         logger.info(f"Downloaded cloud photo to temp: {temp_path}")
                         photo_added = True
 
+                except DocumentResourceError:
+                    raise
                 except Exception as e:
                     logger.error(f"Failed to download from {storage_provider}: {e}")
 
@@ -2645,8 +2647,11 @@ async def generate_document_pdf(
 
         with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
             temp_output = tmp.name
+        temp_files.append(temp_output)
 
-        # Generate PDF based on document type
+        # Generate PDF based on document type. Rendering is synchronous, so
+        # it runs in a worker thread rather than stalling the event loop.
+        import asyncio
         if request.document_type == 'EWA':
             # EWA: Template with overlay + 1 photo
             # EWA uses date_of_loss for the date field
@@ -2661,7 +2666,8 @@ async def generate_document_pdf(
             if rotations and request.photo_ids:
                 ewa_rotation = rotations.get(str(request.photo_ids[0]), 0)
 
-            generate_ewa_pdf(
+            await asyncio.to_thread(
+                generate_ewa_pdf,
                 job_address=request.job_address,
                 date_of_loss=request.date_of_loss,
                 photo_path=photo_paths[0],  # EWA requires exactly 1 photo (validated in schema)
@@ -2673,19 +2679,19 @@ async def generate_document_pdf(
             )
         else:
             # COS: Images only (multiple photos)
-            generate_images_pdf(photo_paths, temp_output, rotations=rotations, scan_effect=request.scan_effect)
+            await asyncio.to_thread(
+                generate_images_pdf, photo_paths, temp_output,
+                rotations=rotations, scan_effect=request.scan_effect,
+            )
 
         pdf_bytes = Path(temp_output).read_bytes()
-        try:
-            Path(temp_output).unlink()
-        except Exception:
-            pass
 
         logger.info(f"Generated PDF: {filename} ({len(pdf_bytes)} bytes)")
 
         # Upload to cloud storage
         from app.common.utils.storage_helpers import upload_bytes_to_storage
-        storage_info = upload_bytes_to_storage(
+        storage_info = await asyncio.to_thread(
+            upload_bytes_to_storage,
             file_bytes=pdf_bytes,
             filename=filename,
             context="water-mitigation",
@@ -2721,6 +2727,9 @@ async def generate_document_pdf(
 
     except HTTPException:
         raise
+    except DocumentResourceError as e:
+        db.rollback()
+        raise HTTPException(status_code=503, detail=str(e), headers={"Retry-After": "10"})
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to generate PDF: {e}")
@@ -3175,7 +3184,7 @@ async def bulk_upload_documents(
 
 
 @router.post("/jobs/{job_id}/documents/generate-from-template")
-async def generate_document_from_template(
+def generate_document_from_template(
     job_id: UUID,
     request: dict,
     service: WaterMitigationService = Depends(get_wm_service),

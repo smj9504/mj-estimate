@@ -213,7 +213,7 @@ async def upload_report_photo(
 
 
 @router.post("/{report_id}/generate-pdf")
-async def generate_pdf(
+def generate_pdf(
     report_id: UUID,
     db: Session = Depends(get_db)
 ):
@@ -234,7 +234,7 @@ async def generate_pdf(
 
 
 @router.post("/preview-pdf")
-async def preview_pdf(pdf_request: ElectricianReportPDFRequest):
+def preview_pdf(pdf_request: ElectricianReportPDFRequest):
     """Preview PDF without saving"""
     try:
         report_dict = pdf_request.report_data.model_dump()
@@ -401,7 +401,7 @@ async def get_pa_email_info(
 
 
 @router.post("/{report_id}/send-to-pa")
-async def send_electrician_report_to_pa(
+def send_electrician_report_to_pa(
     report_id: UUID,
     request: SendElectricianReportRequest,
     db: Session = Depends(get_db),

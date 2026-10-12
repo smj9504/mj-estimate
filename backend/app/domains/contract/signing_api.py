@@ -388,7 +388,7 @@ async def sign_contract(token: str, data: SigningRequest, request: Request):
 
 
 @router.get("/{token}/pdf")
-async def get_contract_pdf_public(token: str):
+def get_contract_pdf_public(token: str):
     """
     Public endpoint: Serve contract PDF by signing token.
     No authentication required.
@@ -482,7 +482,7 @@ async def get_contract_pdf_public(token: str):
 
 
 @router.post("/{token}/send-copy")
-async def send_signed_copy(token: str, data: dict):
+def send_signed_copy(token: str, data: dict):
     """
     Public endpoint: Send signed PDF copy to specified email(s).
     Body: { emails: string[] }

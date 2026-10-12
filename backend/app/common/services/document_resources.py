@@ -4,6 +4,7 @@ The production server runs one worker. A reentrant lock also covers nested
 renders triggered by an email, without deadlocking or overlapping their peaks.
 """
 
+from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
 import logging
@@ -86,22 +87,28 @@ def require_memory(working_bytes=64 * MIB):
     )
 
 
-def document_job(func):
+@contextmanager
+def document_guard():
     """Fail fast when busy; never accumulate waiting jobs holding DB sessions."""
+    if not DOCUMENT_LOCK.acquire(blocking=False):
+        raise DocumentResourceError(
+            'Another document or email is being processed. Please retry when it finishes.'
+        )
+    try:
+        require_memory()
+        yield
+    finally:
+        try:
+            release_memory()
+        finally:
+            DOCUMENT_LOCK.release()
+
+
+def document_job(func):
     @wraps(func)
     def guarded(*args, **kwargs):
-        if not DOCUMENT_LOCK.acquire(blocking=False):
-            raise DocumentResourceError(
-                'Another document or email is being processed. Please retry when it finishes.'
-            )
-        try:
-            require_memory()
+        with document_guard():
             return func(*args, **kwargs)
-        finally:
-            try:
-                release_memory()
-            finally:
-                DOCUMENT_LOCK.release()
     return guarded
 
 
