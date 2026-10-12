@@ -511,8 +511,16 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
       const address = jobAddress.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 40);
       await wmSketchService.downloadSketchReport(jobId, `sketch_report_${address}.pdf`, templateVariant);
       message.success('PDF report downloaded.');
-    } catch {
-      message.error('Failed to generate PDF report. Please try again.');
+    } catch (err: any) {
+      // Blob responses carry the server's JSON error (e.g. a 503 memory/busy message) as a Blob.
+      let detail: string | undefined;
+      try {
+        const data = err?.response?.data;
+        detail = data instanceof Blob ? JSON.parse(await data.text())?.detail : data?.detail;
+      } catch {
+        // Non-JSON body; fall back to the generic message.
+      }
+      message.error(typeof detail === 'string' ? detail : 'Failed to generate PDF report. Please try again.');
     } finally {
       setPdfGenerating(false);
     }

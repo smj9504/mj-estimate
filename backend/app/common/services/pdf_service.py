@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from app.common.services.document_resources import (
-    DOCUMENT_LOCK, DiskPDFWriter, DocumentResourceError, document_job,
+    DOCUMENT_LOCK, DiskPDFWriter, DocumentResourceError, document_job, release_memory,
     require_memory, MIB,
 )
 
@@ -111,23 +111,6 @@ def _ensure_weasyprint():
 # to that, so PDF renders are serialized (two at once stack their peaks) and
 # the freed heap is handed back to the OS right after each one.
 _PDF_RENDER_LOCK = DOCUMENT_LOCK
-
-
-def release_memory() -> None:
-    """Return freed heap pages to the OS after a memory-heavy PDF job.
-
-    glibc keeps freed memory in its arenas, so RSS stays at the peak of the
-    last render and the next request starts from there. malloc_trim only
-    exists on glibc (Linux); elsewhere this is just a gc pass.
-    """
-    import gc
-    gc.collect()
-    if sys.platform.startswith('linux'):
-        try:
-            import ctypes
-            ctypes.CDLL("libc.so.6").malloc_trim(0)
-        except Exception:
-            pass
 
 
 def _ensure_pypdf():

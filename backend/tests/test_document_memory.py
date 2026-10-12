@@ -258,11 +258,20 @@ def test_container_budget_uses_limit_and_reclaimable_cache(tmp_path, monkeypatch
     root.mkdir()
     if version == 2:
         files = {'memory.max': '536870912', 'memory.current': '419430400',
-                 'memory.stat': 'inactive_file 52428800\n'}
+                 'memory.stat': 'active_file 31457280\ninactive_file 52428800\nshmem 8388608\n'}
     else:
         files = {'memory.limit_in_bytes': '536870912', 'memory.usage_in_bytes': '419430400',
-                 'memory.stat': 'total_inactive_file 52428800\n'}
+                 'memory.stat': 'total_active_file 31457280\ntotal_inactive_file 52428800\n'}
     for name, content in files.items():
         (root / name).write_text(content)
     monkeypatch.setattr(resources, 'Path', lambda unused: root)
-    assert resources.memory_headroom() == 162 * resources.MIB
+    assert resources.memory_headroom() == 192 * resources.MIB
+
+
+def test_budget_rechecks_after_releasing_heap(monkeypatch):
+    readings = iter([100 * resources.MIB, 200 * resources.MIB])
+    released = []
+    monkeypatch.setattr(resources, 'memory_headroom', lambda: next(readings))
+    monkeypatch.setattr(resources, 'release_memory', lambda: released.append(True))
+    resources.require_memory(64 * resources.MIB)
+    assert released == [True]
