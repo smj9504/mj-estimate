@@ -63,6 +63,15 @@ from app.core.interfaces import (
 logger = logging.getLogger(__name__)
 logger.debug("Database factory initialized with UTF-8 encoding fixes for Korean Windows")
 
+
+def _redact_url(url: str) -> str:
+    """Database URL safe for logs: the password is replaced with ***."""
+    try:
+        from sqlalchemy.engine import make_url
+        return make_url(url).render_as_string(hide_password=True)
+    except Exception:
+        return url.split('://', 1)[0] + '://***'
+
 # Create Base for SQLAlchemy models
 Base = declarative_base()
 
@@ -489,7 +498,7 @@ class PostgreSQLDatabase(DatabaseProvider):
             logger.info(f"PostgreSQL engine created with connect_timeout={connect_timeout}s, pool_recycle={pool_recycle}s")
         except UnicodeDecodeError as e:
             logger.error(f"Unicode decode error when creating database engine: {e}")
-            logger.error(f"Database URL (first 100 chars): {self.database_url[:100]}")
+            logger.error(f"Database URL: {_redact_url(self.database_url)}")
             logger.error("This usually happens on Korean Windows with non-UTF8 system locale")
             # Try to sanitize the URL and retry
             import urllib.parse
@@ -539,7 +548,7 @@ class PostgreSQLDatabase(DatabaseProvider):
         # Log pool configuration for debugging
         max_connections = settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW
         logger.info(
-            f"PostgreSQL database initialized: {self.database_url} "
+            f"PostgreSQL database initialized: {_redact_url(self.database_url)} "
             f"(pool_size={settings.DB_POOL_SIZE}, max_overflow={settings.DB_MAX_OVERFLOW}, "
             f"max_connections={max_connections})"
         )
@@ -849,7 +858,7 @@ class DatabaseFactory:
                 logger.info("Detected SQLite from DATABASE_URL")
                 return "sqlite"
             else:
-                logger.warning(f"Unknown database URL format: {settings.DATABASE_URL}")
+                logger.warning(f"Unknown database URL format: {_redact_url(settings.DATABASE_URL)}")
 
         # Environment-based logic - PostgreSQL is now default for development
         if settings.ENVIRONMENT == "development":
