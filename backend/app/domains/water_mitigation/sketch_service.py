@@ -370,6 +370,10 @@ class SketchService:
         "wall_drywall", "wall_drywall_2ft", "wall_drywall_4ft",
     })
 
+    # Wall zones left without a wall material are grouped as drywall, so
+    # they don't become a second scope item for the same invoice line item
+    _DEFAULT_WALL_MATERIAL_SUB_TYPE = "drywall"
+
     # Material IDs that expose framing/subfloor requiring antimicrobial
     # treatment per IICRC S500 guidance (drywall ceiling/wall demo, floor demo)
     _ANTIMICROBIAL_TRIGGER_MATERIAL_IDS = frozenset({
@@ -576,6 +580,8 @@ class SketchService:
             for zone in _jsonb_demo_zones:
                 mt = zone.get("material_type") or "unknown"
                 st = zone.get("sub_type") or ""
+                if not st and mt in self._WALL_MATERIAL_IDS:
+                    st = self._DEFAULT_WALL_MATERIAL_SUB_TYPE
                 sqft = float(zone.get("calculated_sqft") or 0)
 
                 # Trim items: ensure value is in LF, not EA count
