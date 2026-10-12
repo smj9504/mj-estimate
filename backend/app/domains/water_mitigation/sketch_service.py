@@ -381,6 +381,10 @@ class SketchService:
     # (seeded by migration am01a2b3c4d5_seed_antimicrobial_line_item)
     _ANTIMICROBIAL_LINE_ITEM_CODE = "WTRGRM"
 
+    # Marks scope locations created by generate_scope_from_sketch so a
+    # re-run can replace them instead of appending duplicates
+    _SKETCH_LOCATION_DESCRIPTION_PREFIX = "Auto-generated from sketch:"
+
     # Trim / door size sub-type display names
     _TRIM_SIZE_SUB_TYPE_NAMES = {
         "small": "Small",
@@ -519,11 +523,18 @@ class SketchService:
         except Exception as e:
             logger.warning(f"[SCOPE GEN] Failed to load antimicrobial line item: {e}")
 
-        # Optionally clear existing scope data
-        if options.clear_existing:
-            existing_locations = scope_repo.get_locations_by_job(job_id, include_items=False)
-            for loc in existing_locations:
+        # Replace locations from a previous sketch generation so re-running
+        # doesn't stack duplicate floors (which then double every invoice
+        # config line). Manually added locations are kept unless the caller
+        # asks to clear everything.
+        replaced_locations = 0
+        existing_locations = scope_repo.get_locations_by_job(job_id, include_items=False)
+        for loc in existing_locations:
+            if options.clear_existing or (loc.description or "").startswith(
+                self._SKETCH_LOCATION_DESCRIPTION_PREFIX
+            ):
                 scope_repo.delete_location(loc)
+                replaced_locations += 1
 
         locations_created = 0
         items_created = 0
@@ -542,7 +553,7 @@ class SketchService:
                 job_id=job_id,
                 name=floor_label,
                 floor=floor_label,
-                description=f"Auto-generated from sketch: {floor_label}",
+                description=f"{self._SKETCH_LOCATION_DESCRIPTION_PREFIX} {floor_label}",
                 display_order=sketch.floor_order,
             )
             self.db.add(location)
@@ -1052,6 +1063,11 @@ class SketchService:
             message=(
                 f"Generated {items_created} scope items "
                 f"across {locations_created} locations from sketch data."
+                + (
+                    f" Replaced {replaced_locations} previously generated location(s)."
+                    if replaced_locations
+                    else ""
+                )
             ),
             locations_created=locations_created,
             items_created=items_created,

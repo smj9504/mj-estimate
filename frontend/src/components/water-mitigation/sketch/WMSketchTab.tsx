@@ -545,6 +545,11 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
             Containment / Floor Protection / Content Protection 항목이
             자동으로 추가됩니다.
           </p>
+          <p style={{ fontSize: 12, color: '#8c8c8c' }}>
+            이전에 Sketch에서 생성된 Location은 새로 생성된 항목으로 교체되며,
+            직접 추가한 Location은 유지됩니다. 교체 후 Invoice Configuration은
+            Regenerate가 필요합니다.
+          </p>
         </div>
       ),
       okText: 'Generate',
