@@ -877,7 +877,9 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
         footer={null}
         width="95vw"
         style={{ top: 10, maxWidth: '100vw' }}
-        styles={{ body: { height: 'calc(100vh - 100px)', padding: 0, overflow: 'hidden' } }}
+        // dvh, not vh: on mobile 100vh includes the area behind the browser's
+        // address bar, which pushed the bottom of the PDF off-screen
+        styles={{ body: { height: 'calc(100dvh - 100px)', padding: 0, overflow: 'hidden' } }}
         destroyOnHidden
       >
         <WMPdfAnnotator

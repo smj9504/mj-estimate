@@ -267,7 +267,18 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
     }));
   }, [annotatorState.currentPage]);
 
-  const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
+  // The PDF background lets touches through so the page can scroll on mobile,
+  // which means the browser follows a tap with an emulated mouse click.
+  // Remember the last tap so that duplicate click is ignored.
+  const lastTapAtRef = useRef(0);
+
+  const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    if (e.type === 'tap') {
+      lastTapAtRef.current = Date.now();
+    } else if (Date.now() - lastTapAtRef.current < 800) {
+      return;
+    }
+
     // Click on empty space → deselect or add text
     const clickedOnEmpty = e.target === e.target.getStage() || e.target.name() === 'pdf-bg';
 
@@ -739,14 +750,17 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
           overflow: 'auto',
           background: '#e8e8e8',
           display: 'flex',
-          justifyContent: 'center',
           padding: 16,
           cursor: cursorStyle,
         }}
       >
         {currentPageData && (
+          // margin: auto centers the page but, unlike justifyContent: center,
+          // keeps its left edge reachable by scrolling once zoomed past the container
           <div style={{
             position: 'relative',
+            flexShrink: 0,
+            margin: '0 auto',
             boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
             background: '#fff',
             width: stageWidth,
@@ -760,13 +774,15 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
               onTap={handleStageClick}
             >
               <Layer>
-                {/* PDF background */}
+                {/* PDF background — preventDefault off so a finger on the page
+                    scrolls the container instead of being swallowed by Konva */}
                 <KonvaImage
                   name="pdf-bg"
                   image={currentPageData.image}
                   width={stageWidth}
                   height={stageHeight}
                   listening={true}
+                  preventDefault={false}
                 />
 
                 {/* Text annotations */}
