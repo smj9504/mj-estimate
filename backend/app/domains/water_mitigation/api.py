@@ -1495,10 +1495,15 @@ def update_photo_category(
         if not photo:
             raise HTTPException(status_code=404, detail="Photo not found")
 
+        snapshots = service.snapshot_photo_categories([photo_id])
+
         # Update category
         updated = service.photo_repo.update(
             str(photo_id),
             {"category": resolved_category}
+        )
+        service.relocate_report_photos_for_category_change(
+            snapshots, {str(photo_id): resolved_category}
         )
 
         db.commit()
@@ -1535,9 +1540,14 @@ def bulk_update_category(
         # If category is None or empty, set to empty string to clear category
         category_value = category if category else ''
 
+        snapshots = service.snapshot_photo_categories(photo_ids)
+
         # Use optimized bulk update (single UPDATE query)
         updated_count = service.photo_repo.bulk_update_category(
             photo_ids, category_value
+        )
+        service.relocate_report_photos_for_category_change(
+            snapshots, {snap["photo_id"]: category_value for snap in snapshots}
         )
 
         db.commit()
@@ -1584,6 +1594,11 @@ def bulk_set_categories(
                 continue
             by_category[category].append(photo_id)
 
+        new_categories = {
+            str(pid): category for category, ids in by_category.items() for pid in ids
+        }
+        snapshots = service.snapshot_photo_categories(list(new_categories))
+
         # One UPDATE per distinct category
         applied = 0
         for category, ids in by_category.items():
@@ -1591,6 +1606,8 @@ def bulk_set_categories(
                 WMPhoto.id.in_(ids)
             ).update({"category": category}, synchronize_session='fetch')
             applied += count
+
+        service.relocate_report_photos_for_category_change(snapshots, new_categories)
 
         db.commit()
         _invalidate_photo_list_cache()
@@ -4274,9 +4291,13 @@ async def apply_ai_classification(
     if not photo:
         raise HTTPException(status_code=404, detail="Photo not found")
 
+    snapshots = service.snapshot_photo_categories([photo_id])
     updated = service.photo_repo.update(
         str(photo_id),
         {"category": suggested_category}
+    )
+    service.relocate_report_photos_for_category_change(
+        snapshots, {str(photo_id): suggested_category}
     )
     db.commit()
 
@@ -4315,10 +4336,15 @@ def correct_photo_category(
     # Mark as user corrected in cache (for analytics)
     ai_classification_service.mark_user_corrected(db, str(photo_id), category)
 
+    snapshots = service.snapshot_photo_categories([photo_id])
+
     # Update photo category
     updated = service.photo_repo.update(
         str(photo_id),
         {"category": category}
+    )
+    service.relocate_report_photos_for_category_change(
+        snapshots, {str(photo_id): category}
     )
     db.commit()
 

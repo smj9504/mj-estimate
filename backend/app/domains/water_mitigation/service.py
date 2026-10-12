@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
@@ -54,6 +55,64 @@ logger = logging.getLogger(__name__)
 
 # Photo upload directory
 UPLOAD_DIR = Path("uploads/water_mitigation/photos")
+
+_MATCH_SEPARATORS = re.compile(r"[\s\-_:,]+")
+_DAY_PATTERN = re.compile(r"day\s*(\d+)", re.IGNORECASE)
+
+
+def _normalize_for_matching(text: str) -> List[str]:
+    """Token variants of a section title / photo category.
+
+    Mirrors normalizeForMatching in WaterMitigationReportTab.tsx — keep the
+    two in sync so server-side relocation picks the same section the
+    report builder's Auto-Assign does.
+    """
+    if not text:
+        return []
+    lower = text.lower().strip()
+    tokens = [lower]
+    tokens.extend(p for p in _MATCH_SEPARATORS.split(lower) if p)
+    no_separators = _MATCH_SEPARATORS.sub("", lower)
+    if no_separators != lower:
+        tokens.append(no_separators)
+    spaced_only = re.sub(r"\s+", " ", re.sub(r"[-_:,]+", " ", lower)).strip()
+    if spaced_only != lower:
+        tokens.append(spaced_only)
+    day_match = _DAY_PATTERN.search(lower)
+    if day_match:
+        tokens.append(f"day {day_match.group(1)}")
+        tokens.append(f"day{day_match.group(1)}")
+    return list(dict.fromkeys(tokens))
+
+
+def _section_match_score(section_title: str, photo_category: str) -> int:
+    """Mirrors calculateMatchScore in WaterMitigationReportTab.tsx."""
+    if not section_title or not photo_category:
+        return 0
+    score = 0
+    for s_token in _normalize_for_matching(section_title):
+        for c_token in _normalize_for_matching(photo_category):
+            if s_token == c_token:
+                score += 100
+            elif len(s_token) >= 3 and len(c_token) >= 3 and (
+                c_token in s_token or s_token in c_token
+            ):
+                score += 50
+    section_day = _DAY_PATTERN.search(section_title)
+    category_day = _DAY_PATTERN.search(photo_category)
+    if section_day and category_day and section_day.group(1) == category_day.group(1):
+        score += 200
+    return score
+
+
+def _best_section_index(sections: List[Dict[str, Any]], category: str) -> Optional[int]:
+    """Index of the section Auto-Assign would put a photo of this category in."""
+    best_index, best_score = None, 0
+    for index, section in enumerate(sections):
+        score = _section_match_score(section.get("title") or "", category)
+        if score > best_score:
+            best_index, best_score = index, score
+    return best_index
 
 
 class WaterMitigationService:
@@ -1447,6 +1506,91 @@ class WaterMitigationService:
     def delete_report_config(self, job_id: UUID) -> bool:
         """Delete report config"""
         return self.report_config_repo.delete_by_job_id(job_id)
+
+    def snapshot_photo_categories(self, photo_ids: List[Any]) -> List[Dict[str, Any]]:
+        """Current (job_id, category) of each photo, captured before a category
+        change so relocate_report_photos_for_category_change can tell where
+        Auto-Assign would have placed it."""
+        ids = [UUID(str(pid)) for pid in photo_ids if pid]
+        if not ids:
+            return []
+        rows = self.session.query(WMPhoto.id, WMPhoto.job_id, WMPhoto.category).filter(
+            WMPhoto.id.in_(ids)
+        ).all()
+        return [
+            {"photo_id": str(row.id), "job_id": row.job_id, "old_category": row.category or ""}
+            for row in rows
+        ]
+
+    def relocate_report_photos_for_category_change(
+        self,
+        snapshots: List[Dict[str, Any]],
+        new_categories: Dict[str, str],
+    ) -> int:
+        """
+        Move report photos to the section matching their new category.
+
+        Only a photo still sitting in the section Auto-Assign picks for its OLD
+        category is moved — that's an auto-placed photo, so it should follow its
+        category. A photo the user put somewhere else by hand stays put, as does
+        any photo whose new category matches no section. Photos not in the
+        report are never added. Does not commit.
+
+        Args:
+            snapshots: Output of snapshot_photo_categories, taken before the update.
+            new_categories: photo_id -> category it was changed to.
+
+        Returns:
+            Number of photos moved.
+        """
+        # Snapshot ids are canonical UUID strings; callers may pass other casings
+        new_categories = {str(UUID(str(pid))): cat for pid, cat in new_categories.items()}
+        by_job: Dict[Any, List[Dict[str, Any]]] = {}
+        for snap in snapshots:
+            new_category = new_categories.get(snap["photo_id"]) or ""
+            if new_category != snap["old_category"]:
+                by_job.setdefault(snap["job_id"], []).append({**snap, "new_category": new_category})
+
+        moved = 0
+        for job_id, changes in by_job.items():
+            config = self.report_config_repo.find_by_job_id(job_id)
+            if not config or not config.sections:
+                continue
+
+            sections = [
+                {**section, "photos": list(section.get("photos") or [])}
+                for section in config.sections
+            ]
+            job_moved = 0
+            for change in changes:
+                photo_id = change["photo_id"]
+                source = _best_section_index(sections, change["old_category"])
+                if source is None:
+                    continue
+                source_photos = sections[source]["photos"]
+                photo_meta = next(
+                    (p for p in source_photos if str(p.get("photo_id")) == photo_id), None
+                )
+                if photo_meta is None:
+                    continue
+                target = _best_section_index(sections, change["new_category"])
+                if target is None or target == source:
+                    continue
+
+                sections[source]["photos"] = [
+                    p for p in source_photos if str(p.get("photo_id")) != photo_id
+                ]
+                target_photos = sections[target]["photos"]
+                if not any(str(p.get("photo_id")) == photo_id for p in target_photos):
+                    target_photos.append(photo_meta)
+                job_moved += 1
+
+            if job_moved:
+                # Assign a new list so SQLAlchemy sees the JSONB column change
+                config.sections = sections
+                moved += job_moved
+                logger.info(f"Relocated {job_moved} report photo(s) after category change (job {job_id})")
+        return moved
 
     @document_job
     def generate_and_save_photo_report(
