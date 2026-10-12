@@ -448,6 +448,7 @@ const WaterMitigationList: React.FC = () => {
       render: (_, record) => (
         <EditableNote
           value={record.payment_note}
+          updatedAt={record.payment_note_updated_at}
           onSave={(note) => handleInlineUpdate(record.id, { payment_note: note ?? '' })}
         />
       )
@@ -544,6 +545,7 @@ const WaterMitigationList: React.FC = () => {
               <EditableNote
                 compact
                 value={job.payment_note}
+                updatedAt={job.payment_note_updated_at}
                 onSave={(note) => handleInlineUpdate(job.id, { payment_note: note ?? '' })}
               />
             </div>

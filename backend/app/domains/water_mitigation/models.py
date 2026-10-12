@@ -2,6 +2,8 @@
 Water Mitigation domain models
 """
 
+from datetime import datetime, timezone
+
 from sqlalchemy import (
     DECIMAL,
     Boolean,
@@ -13,6 +15,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    event,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -107,6 +110,10 @@ class WaterMitigationJob(Base, BaseModel):
     check_amount = Column(DECIMAL(10, 2))
     payment_status = Column(String(50), comment="pending | issued | homeowner_holding | lost | reissued | received | partial")
     payment_note = Column(Text)
+    payment_note_updated_at = Column(
+        DateTime(timezone=True),
+        comment="When payment_note was last written (stamped by a listener below)"
+    )
 
     # Payment board (see payment_board_models.py)
     # invoice_amount above is our invoice; these are the insurance side.
@@ -189,6 +196,15 @@ class WaterMitigationJob(Base, BaseModel):
         cascade="all, delete-orphan",
         order_by="WMFloorSketch.floor_order",
     )
+
+
+# The note is written from the manager link, the admin job edit and the claim
+# follow-up sync; stamping it here covers every path.
+@event.listens_for(WaterMitigationJob.payment_note, 'set')
+def _stamp_payment_note(target, value, oldvalue, initiator):
+    if value == oldvalue:
+        return
+    target.payment_note_updated_at = datetime.now(timezone.utc) if value else None
 
 
 class PhotoCategory(Base, BaseModel):

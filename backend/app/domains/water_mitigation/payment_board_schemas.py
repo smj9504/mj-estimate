@@ -28,6 +28,7 @@ class PaymentRowResponse(BaseModel):
     payment_received: bool = False
     payment_received_at: Optional[datetime] = None
     payment_note: Optional[str] = None
+    payment_note_updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

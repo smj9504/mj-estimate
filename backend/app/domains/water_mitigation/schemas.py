@@ -238,6 +238,8 @@ class JobResponse(JobBase):
     created_by_id: Optional[UUID] = None
     updated_by_id: Optional[UUID] = None
 
+    payment_note_updated_at: Optional[datetime] = None
+
     # Computed fields
     photo_count: Optional[int] = 0
     # Insurance WM amount from the linked claim (same number the detail page's

@@ -203,7 +203,7 @@ const WMPaymentBoardPublic: React.FC = () => {
       key: 'payment_note',
       width: 260,
       render: (_, row) => (
-        <EditableNote value={row.payment_note} onSave={(note) => handleNote(row, note)} />
+        <EditableNote value={row.payment_note} updatedAt={row.payment_note_updated_at} onSave={(note) => handleNote(row, note)} />
       ),
     },
   ];
@@ -278,7 +278,7 @@ const WMPaymentBoardPublic: React.FC = () => {
       </div>
 
       <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #e8e8e8' }}>
-        <EditableNote compact value={row.payment_note} onSave={(note) => handleNote(row, note)} />
+        <EditableNote compact value={row.payment_note} updatedAt={row.payment_note_updated_at} onSave={(note) => handleNote(row, note)} />
       </div>
     </div>
   );

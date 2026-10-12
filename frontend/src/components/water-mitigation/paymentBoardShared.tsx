@@ -5,6 +5,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import dayjs from 'dayjs';
 import { Button, Input, Space, Tag, Typography } from 'antd';
 import {
   ArrowRightOutlined,
@@ -92,12 +93,14 @@ export const ReceivedTag: React.FC<{ received?: boolean }> = ({ received }) =>
 /**
  * Tap-to-edit note. Shows the text (or an "Add note" affordance); editing
  * opens a textarea with Save / Cancel. Saving an empty note clears it.
+ * updatedAt (when the note was last written) is shown small under the text.
  */
 export const EditableNote: React.FC<{
   value?: string | null;
+  updatedAt?: string | null;
   onSave: (note: string | null) => Promise<void> | void;
   compact?: boolean;
-}> = ({ value, onSave, compact }) => {
+}> = ({ value, updatedAt, onSave, compact }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ?? '');
   const [saving, setSaving] = useState(false);
@@ -168,6 +171,11 @@ export const EditableNote: React.FC<{
     >
       <Text>{value}</Text>
       <EditOutlined style={{ marginLeft: 6, color: '#8c8c8c', fontSize: 12 }} />
+      {updatedAt && (
+        <Text type="secondary" style={{ display: 'block', fontSize: 11, marginTop: 2 }}>
+          {dayjs(updatedAt).format('MM/DD/YY h:mm A')}
+        </Text>
+      )}
     </div>
   );
 };

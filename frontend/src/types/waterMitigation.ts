@@ -102,6 +102,7 @@ export interface WaterMitigationJob {
   check_amount?: number;
   payment_status?: string;
   payment_note?: string;
+  payment_note_updated_at?: string | null;
   notes?: string;
 
   // Payment board (insurance side + received flag)
@@ -206,6 +207,7 @@ export interface WMPaymentRow {
   payment_received: boolean;
   payment_received_at?: string | null;
   payment_note?: string | null;
+  payment_note_updated_at?: string | null;
 }
 
 export interface WMPublicBoardResponse {
