@@ -26,6 +26,11 @@ from app.domains.water_mitigation.sketch_schemas import (
 
 logger = logging.getLogger(__name__)
 
+# Longest side of a stored background. The frontend shrinks uploads to this
+# (MAX_BACKGROUND_SIDE in wmSketchService.ts) so the sketch report can decode
+# them within the 512MB instance's memory budget.
+MAX_BACKGROUND_SIDE = 2000
+
 
 def normalize_background_image(
     data: bytes, content_type: Optional[str], filename: Optional[str] = None
@@ -37,7 +42,7 @@ def normalize_background_image(
     is_webp = mime == "image/webp" or name.endswith(".webp") or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")
     if is_svg:
         import cairosvg
-        return cairosvg.svg2png(bytestring=data, output_width=2400), "image/png"
+        return cairosvg.svg2png(bytestring=data, output_width=MAX_BACKGROUND_SIDE), "image/png"
     if is_webp:
         from PIL import Image as PILImage
         buf = io.BytesIO()

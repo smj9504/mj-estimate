@@ -66,6 +66,33 @@ def _equipment_scale_factor(scale: Optional[float]) -> float:
     return min(_EQUIP_MAX_SCALE_FACTOR, max(_EQUIP_MIN_SCALE_FACTOR, raw))
 
 
+def _shrink_onto_white(image, size: int):
+    """Fit a decoded image within size x size as RGB, transparency on white.
+
+    Alpha images are resized one premultiplied band at a time. Flattening at
+    full size first (convert + paste) holds two more full-size copies: a
+    12MP RGBA PNG peaked ~119MiB that way vs ~85MiB per band.
+    """
+    from PIL import Image as PILImage, ImageChops
+
+    lanczos = PILImage.Resampling.LANCZOS
+    scale = min(1.0, size / max(image.size))
+    target = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+    if image.mode not in ('RGB', 'L', 'RGBA', 'LA'):
+        image = image.convert('RGBA' if image.has_transparency_data else 'RGB')
+    if image.mode in ('RGB', 'L'):
+        return image.resize(target, lanczos).convert('RGB')
+    # Flattening onto white is c*a + 255*(1-a); resizing is linear, so it
+    # can run on c*a and a separately.
+    alpha = image.getchannel('A')
+    bands = [
+        ImageChops.multiply(image.getchannel(band), alpha).resize(target, lanczos)
+        for band in image.getbands()[:-1]
+    ]
+    inverse = ImageChops.invert(alpha.resize(target, lanczos))
+    return PILImage.merge(image.mode[:-1], [ImageChops.add(band, inverse) for band in bands]).convert('RGB')
+
+
 # A sketch whose drawn content covers less of the canvas than this is treated
 # as sparse, and the viewBox is tightened around the content so it is not
 # rendered as a few specks floating in an empty field. Equipment-only floors
@@ -765,17 +792,20 @@ class SketchPdfService:
             from PIL import Image as PILImage
             with PILImage.open(io.BytesIO(image_bytes)) as image:
                 image.draft('RGB', (1600, 1600))
-                if image.width * image.height > 16_000_000:
+                pixels = image.width * image.height
+                if pixels > 16_000_000:
                     raise DocumentResourceError('Sketch image resolution is too large. Resize it before generating the report.')
-                require_memory(max(32 * MIB, image.width * image.height * 12))
-                image.thumbnail((1600, 1600), PILImage.Resampling.LANCZOS)
-                if image.mode in ('RGBA', 'LA', 'P'):
-                    # Transparent areas show the white page, so flatten onto white.
-                    rgba = image.convert('RGBA')
-                    flat = PILImage.new('RGB', rgba.size, 'white')
-                    flat.paste(rgba, mask=rgba.getchannel('A'))
-                else:
-                    flat = image.convert('RGB')
+                # Measured peak with Pillow 12: ~24MiB + 6 bytes per source
+                # pixel (RGB or RGBA), so a 2000px upload fits the 512MB instance.
+                try:
+                    require_memory(24 * MIB + pixels * 6)
+                except DocumentResourceError:
+                    raise DocumentResourceError(
+                        f'The background image on {getattr(floor, "floor_label", None) or "a floor"} '
+                        f'({image.width}x{image.height}) is too large to render on this server. '
+                        'Re-upload it to shrink it automatically, or retry later.'
+                    ) from None
+                flat = _shrink_onto_white(image, 1600)
                 with io.BytesIO() as resized:
                     flat.save(resized, format='JPEG', quality=90)
                     image_bytes = resized.getvalue()
@@ -890,6 +920,10 @@ class SketchPdfService:
         has_bg_image = False
         try:
             bg_result = self._load_background_image_data_uri(floor)
+        except DocumentResourceError:
+            # A report silently missing its floor plan looks complete but is
+            # wrong; fail so the user sees why and can shrink the image.
+            raise
         except Exception as exc:
             logger.warning("Failed to load background image: %s", exc)
             bg_result = None

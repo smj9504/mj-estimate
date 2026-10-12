@@ -14,6 +14,45 @@ import { EMPTY_OVERLAY_DATA } from '../types/wmSketch';
 
 const BASE_URL = '/api/water-mitigation/sketch';
 
+/**
+ * Longest side of an uploaded background, matching MAX_BACKGROUND_SIDE in
+ * backend sketch_service.py. The sketch report decodes the stored image at
+ * full size; larger ones (e.g. 3x crops of SVG plans) exceed the server's
+ * memory budget and the report fails.
+ */
+const MAX_BACKGROUND_SIDE = 2000;
+
+/** Downscale a raster image so its longest side fits MAX_BACKGROUND_SIDE. */
+async function shrinkBackgroundImage(file: File): Promise<File> {
+  if (!/^image\/(png|jpeg|webp|gif|bmp)$/.test(file.type)) return file;
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return file;
+  }
+  try {
+    const scale = MAX_BACKGROUND_SIDE / Math.max(bitmap.width, bitmap.height);
+    if (scale >= 1) return file;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext('2d')!;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    // JPEG stays JPEG; everything else becomes PNG to keep transparency.
+    const type = file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png';
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, type, type === 'image/jpeg' ? 0.92 : undefined)
+    );
+    if (!blob) return file;
+    const name = type === 'image/png' ? file.name.replace(/\.[^.]+$/, '') + '.png' : file.name;
+    return new File([blob], name, { type });
+  } finally {
+    bitmap.close();
+  }
+}
+
 /** Ensure all overlay_data array fields are defined (backend JSONB may omit empty arrays) */
 function normalizeOverlay(sketch: WMFloorSketch): WMFloorSketch {
   const od = sketch.overlay_data;
@@ -102,7 +141,7 @@ const wmSketchService = {
     file: File
   ): Promise<{ background_image_url: string }> => {
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', await shrinkBackgroundImage(file));
     const response = await api.post(
       `${BASE_URL}/floors/${floorSketchId}/background-image`,
       formData,
