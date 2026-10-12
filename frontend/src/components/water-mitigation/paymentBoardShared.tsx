@@ -20,6 +20,7 @@ const { Text } = Typography;
 export const CHECK_RECIPIENT_OPTIONS: { value: CheckRecipient; label: string }[] = [
   { value: 'contractor', label: 'Contractor' },
   { value: 'customer', label: 'Customer' },
+  { value: 'pa', label: 'PA' },
 ];
 
 /** Faint green tint for rows whose payment has arrived */
@@ -46,18 +47,19 @@ export const outstandingAmount = (row: {
   approved_amount_auto?: number | null;
 }): number => Number(effectiveApproved(row) ?? row.invoice_amount ?? 0);
 
-/** Per-viewer "show amounts" preference for the public board (localStorage, best effort) */
-export const AMOUNTS_PREF_KEY = 'wm-payments:show-amounts';
-export const readAmountsPref = (fallback: boolean): boolean => {
+/** Per-viewer column visibility preferences for the public board (localStorage, best effort) */
+export const INVOICE_PREF_KEY = 'wm-payments:show-invoice';
+export const APPROVED_PREF_KEY = 'wm-payments:show-approved';
+export const readBoolPref = (key: string, fallback: boolean): boolean => {
   try {
-    const v = localStorage.getItem(AMOUNTS_PREF_KEY);
+    const v = localStorage.getItem(key);
     return v === null ? fallback : v === '1';
   } catch {
     return fallback;
   }
 };
-export const writeAmountsPref = (show: boolean) => {
-  try { localStorage.setItem(AMOUNTS_PREF_KEY, show ? '1' : '0'); } catch { /* ignore */ }
+export const writeBoolPref = (key: string, value: boolean) => {
+  try { localStorage.setItem(key, value ? '1' : '0'); } catch { /* ignore */ }
 };
 
 // Colour AND an arrow glyph, so contractor vs customer reads without relying on colour alone.
@@ -70,6 +72,11 @@ export const CheckRecipientTag: React.FC<{ value?: CheckRecipient | null }> = ({
   if (value === 'customer') {
     return (
       <Tag color="orange" icon={<ArrowRightOutlined />}>Customer</Tag>
+    );
+  }
+  if (value === 'pa') {
+    return (
+      <Tag color="purple" icon={<ArrowRightOutlined />}>PA</Tag>
     );
   }
   return <Tag>—</Tag>;

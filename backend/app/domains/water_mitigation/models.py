@@ -115,7 +115,7 @@ class WaterMitigationJob(Base, BaseModel):
         DECIMAL(10, 2),
         comment="Final amount after negotiating down from approved_amount (optional)"
     )
-    check_recipient = Column(String(20), comment="Who the check went to: contractor | customer")
+    check_recipient = Column(String(20), comment="Who the check went to: contractor | customer | pa")
     # Deliberately separate from payment_status: the no-login manager link writes
     # this and must never be able to overwrite a lost/reissued lifecycle state.
     payment_received = Column(

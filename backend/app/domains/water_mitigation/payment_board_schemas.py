@@ -8,12 +8,15 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from .schemas import CompanyBrief
+
 
 class PaymentRowResponse(BaseModel):
     """One job as shown on the payment board"""
     id: UUID
     property_address: str
     homeowner_name: Optional[str] = None
+    company: Optional[CompanyBrief] = None  # WM company assigned to the job
     status: Optional[str] = None
     invoice_amount: Optional[float] = None
     approved_amount: Optional[float] = None

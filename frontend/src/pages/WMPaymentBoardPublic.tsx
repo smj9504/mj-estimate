@@ -16,6 +16,7 @@ import {
   Spin,
   Switch,
   Table,
+  Tag,
   Typography,
   message,
 } from 'antd';
@@ -29,13 +30,19 @@ import {
   RECEIVED_ROW_BG,
   ReceivedTag,
   effectiveApproved,
+  APPROVED_PREF_KEY,
+  INVOICE_PREF_KEY,
   formatMoney,
-  readAmountsPref,
-  writeAmountsPref,
+  readBoolPref,
+  writeBoolPref,
 } from '../components/water-mitigation/paymentBoardShared';
 
 const { Text } = Typography;
 const { useBreakpoint } = Grid;
+
+/** WM company shown by its code (name when it has none), like the admin list */
+const companyLabel = (row: WMPaymentRow): string | null =>
+  row.company ? row.company.company_code || row.company.name : null;
 
 const WMPaymentBoardPublic: React.FC = () => {
   const { token } = useParams<{ token: string }>();
@@ -46,13 +53,19 @@ const WMPaymentBoardPublic: React.FC = () => {
   const [invalid, setInvalid] = useState(false);
   const [rows, setRows] = useState<WMPaymentRow[]>([]);
   const [hideReceived, setHideReceived] = useState(false);
-  // Invoice / Approved can be hidden so the board can be shown without the numbers
-  const [showAmounts, setShowAmounts] = useState(() => readAmountsPref(true));
+  // Our Invoice / Approved can each be hidden so the board can be shown without those numbers.
+  // Our Invoice starts hidden: managers mostly care about the approved amount.
+  const [showInvoice, setShowInvoice] = useState(() => readBoolPref(INVOICE_PREF_KEY, false));
+  const [showApproved, setShowApproved] = useState(() => readBoolPref(APPROVED_PREF_KEY, true));
   const [savingId, setSavingId] = useState<string | null>(null);
 
-  const toggleAmounts = (show: boolean) => {
-    setShowAmounts(show);
-    writeAmountsPref(show);
+  const toggleInvoice = (show: boolean) => {
+    setShowInvoice(show);
+    writeBoolPref(INVOICE_PREF_KEY, show);
+  };
+  const toggleApproved = (show: boolean) => {
+    setShowApproved(show);
+    writeBoolPref(APPROVED_PREF_KEY, show);
   };
 
   useEffect(() => {
@@ -141,7 +154,16 @@ const WMPaymentBoardPublic: React.FC = () => {
         </div>
       ),
     },
-    ...(showAmounts ? [
+    {
+      title: 'Company',
+      key: 'company',
+      width: 110,
+      render: (_, row) => {
+        const label = companyLabel(row);
+        return label ? <Tag color="blue">{label}</Tag> : <Text type="secondary">—</Text>;
+      },
+    },
+    ...(showInvoice ? [
       {
         title: 'Our Invoice',
         key: 'invoice_amount',
@@ -149,6 +171,8 @@ const WMPaymentBoardPublic: React.FC = () => {
         align: 'right' as const,
         render: (_: unknown, row: WMPaymentRow) => formatMoney(row.invoice_amount),
       },
+    ] : []),
+    ...(showApproved ? [
       {
         title: 'Approved (Final)',
         key: 'approved_amount',
@@ -201,8 +225,15 @@ const WMPaymentBoardPublic: React.FC = () => {
           <Text strong style={{ display: 'block', fontSize: 15, lineHeight: 1.3 }}>
             {row.property_address}
           </Text>
-          {row.homeowner_name && (
-            <Text type="secondary" style={{ fontSize: 12 }}>{row.homeowner_name}</Text>
+          {(companyLabel(row) || row.homeowner_name) && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+              {companyLabel(row) && (
+                <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>{companyLabel(row)}</Tag>
+              )}
+              {row.homeowner_name && (
+                <Text type="secondary" style={{ fontSize: 12 }}>{row.homeowner_name}</Text>
+              )}
+            </div>
           )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
@@ -215,7 +246,7 @@ const WMPaymentBoardPublic: React.FC = () => {
         </div>
       </div>
 
-      {showAmounts && (
+      {(showInvoice || showApproved) && (
         <div
           style={{
             display: 'grid',
@@ -227,14 +258,14 @@ const WMPaymentBoardPublic: React.FC = () => {
             borderRadius: 8,
           }}
         >
-          {[
-            ['Our Invoice', row.invoice_amount],
-            ['Approved (Final)', effectiveApproved(row)],
-          ].map(([label, amount]) => (
-            <div key={label as string} style={{ minWidth: 0 }}>
+          {([
+            ...(showInvoice ? [['Our Invoice', row.invoice_amount]] : []),
+            ...(showApproved ? [['Approved (Final)', effectiveApproved(row)]] : []),
+          ] as [string, number | null | undefined][]).map(([label, amount]) => (
+            <div key={label} style={{ minWidth: 0 }}>
               <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>{label}</Text>
               <Text strong style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
-                {formatMoney(amount as number | null | undefined)}
+                {formatMoney(amount)}
               </Text>
             </div>
           ))}
@@ -293,8 +324,12 @@ const WMPaymentBoardPublic: React.FC = () => {
       </div>
       <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 4 : 16, alignItems: 'flex-end' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
-          <Text style={{ fontSize: 13 }}>Amounts</Text>
-          <Switch size="small" checked={showAmounts} onChange={toggleAmounts} />
+          <Text style={{ fontSize: 13 }}>Our Invoice</Text>
+          <Switch size="small" checked={showInvoice} onChange={toggleInvoice} />
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
+          <Text style={{ fontSize: 13 }}>Approved</Text>
+          <Switch size="small" checked={showApproved} onChange={toggleApproved} />
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
           <Text style={{ fontSize: 13 }}>Hide received</Text>

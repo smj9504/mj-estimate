@@ -35,7 +35,7 @@ class JobStatus:
 
 
 # Who an insurance check was made out to (payment board)
-CHECK_RECIPIENTS = frozenset({'contractor', 'customer'})
+CHECK_RECIPIENTS = frozenset({'contractor', 'customer', 'pa'})
 
 
 # Base schemas

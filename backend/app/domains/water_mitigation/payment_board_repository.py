@@ -6,6 +6,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy import and_, desc
+from sqlalchemy.orm import joinedload
 from sqlalchemy.sql import func
 
 from app.core.interfaces import DatabaseSession
@@ -53,7 +54,9 @@ class WMPaymentBoardTokenRepository:
     # Board rows - same population AND order as the WM list page
     # (WaterMitigationJobRepository.find_by_filters: active jobs, newest first)
     def list_active_jobs(self) -> List[WaterMitigationJob]:
-        return self.db_session.query(WaterMitigationJob).filter(
+        return self.db_session.query(WaterMitigationJob).options(
+            joinedload(WaterMitigationJob.company)
+        ).filter(
             WaterMitigationJob.active.is_(True)
         ).order_by(
             desc(WaterMitigationJob.created_at),

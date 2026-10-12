@@ -187,13 +187,14 @@ export interface JobCreateRequest {
 export type JobCreate = JobCreateRequest;
 
 // Payment board
-export type CheckRecipient = 'contractor' | 'customer';
+export type CheckRecipient = 'contractor' | 'customer' | 'pa';
 
 /** One job as returned through the manager link (read-mostly subset of a job) */
 export interface WMPaymentRow {
   id: string;
   property_address: string;
   homeowner_name?: string | null;
+  company?: { id: string; name: string; company_code?: string | null } | null;
   status?: string | null;
   invoice_amount?: number | null;
   approved_amount?: number | null;
