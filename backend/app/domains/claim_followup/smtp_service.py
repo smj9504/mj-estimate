@@ -234,14 +234,15 @@ class SmtpService:
             message_id = msg["Message-ID"]
             all_recipients = to_addresses + cc_addresses + bcc_addresses
 
+            server = None
             try:
                 if smtp_config.get("use_tls"):
-                    server = smtplib.SMTP(smtp_config["server"], smtp_config["port"])
+                    server = smtplib.SMTP(smtp_config["server"], smtp_config["port"], timeout=120)
                     server.ehlo()
                     server.starttls()
                     server.ehlo()
                 else:
-                    server = smtplib.SMTP_SSL(smtp_config["server"], smtp_config["port"])
+                    server = smtplib.SMTP_SSL(smtp_config["server"], smtp_config["port"], timeout=120)
 
                 # Authenticate: OAuth XOAUTH2 or password
                 oauth_token = smtp_config.get("oauth_access_token")
@@ -250,9 +251,14 @@ class SmtpService:
                         f"user={smtp_config['username']}\x01"
                         f"auth=Bearer {oauth_token}\x01\x01"
                     )
-                    server.docmd("AUTH", "XOAUTH2 " + __import__("base64").b64encode(
-                        auth_string.encode()
-                    ).decode())
+                    # auth() answers the server's 334 error challenge with an
+                    # empty line and raises on the 535 that follows. A bare
+                    # docmd() ignored the failure, so the next command got
+                    # the rejection and the server hung up.
+                    server.auth(
+                        "XOAUTH2",
+                        lambda challenge=None: auth_string if challenge is None else "",
+                    )
                 elif smtp_config.get("username") and smtp_config.get("password"):
                     server.login(smtp_config["username"], smtp_config["password"])
 
@@ -261,6 +267,7 @@ class SmtpService:
                     self._iter_message(segments, attachment_data), msg_size,
                 )
                 server.quit()
+                server = None
 
                 logger.info(f"Email sent successfully to {to_addresses}, message_id={message_id}")
                 return {"message_id": message_id, "status": "sent"}
@@ -271,9 +278,28 @@ class SmtpService:
             except smtplib.SMTPRecipientsRefused as e:
                 logger.error(f"SMTP recipients refused: {e}")
                 raise ValueError(f"Recipients refused: {e}")
+            except smtplib.SMTPResponseException as e:
+                reason = e.smtp_error.decode(errors="replace") if isinstance(e.smtp_error, bytes) else e.smtp_error
+                logger.error(f"SMTP server rejected the email: {e.smtp_code} {reason}")
+                raise ValueError(f"Mail server rejected the email ({e.smtp_code}): {reason}")
             except Exception as e:
                 logger.error(f"SMTP send error: {e}")
                 raise
+            finally:
+                if server is not None:
+                    server.close()
+
+    @staticmethod
+    def _reset(server: smtplib.SMTP) -> None:
+        """RSET after a refused command, as sendmail() does via _rset().
+
+        Servers often hang up right after a 5xx reply; letting RSET's
+        "Connection unexpectedly closed" escape would hide that reply.
+        """
+        try:
+            server.rset()
+        except smtplib.SMTPServerDisconnected:
+            pass
 
     @staticmethod
     def _iter_message(
@@ -309,7 +335,7 @@ class SmtpService:
 
         code, resp = server.mail(from_address, options)
         if code != 250:
-            server.rset()
+            SmtpService._reset(server)
             raise smtplib.SMTPSenderRefused(code, resp, from_address)
 
         refused = {}
@@ -318,12 +344,12 @@ class SmtpService:
             if code not in (250, 251):
                 refused[addr] = (code, resp)
         if len(refused) == len(recipients):
-            server.rset()
+            SmtpService._reset(server)
             raise smtplib.SMTPRecipientsRefused(refused)
 
         code, resp = server.docmd("data")
         if code != 354:
-            server.rset()
+            SmtpService._reset(server)
             raise smtplib.SMTPDataError(code, resp)
 
         last = b""
@@ -335,7 +361,7 @@ class SmtpService:
 
         code, resp = server.getreply()
         if code != 250:
-            server.rset()
+            SmtpService._reset(server)
             raise smtplib.SMTPDataError(code, resp)
         return refused
 
