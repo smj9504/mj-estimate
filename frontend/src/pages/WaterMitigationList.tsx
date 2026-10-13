@@ -52,6 +52,7 @@ import WMPaymentLinkButton from '../components/water-mitigation/WMPaymentLinkBut
 import {
   CHECK_RECIPIENT_OPTIONS,
   CheckRecipientTag,
+  CompanyTag,
   EditableNote,
   RECEIVED_ROW_BG,
   ReceivedTag,
@@ -283,9 +284,7 @@ const WaterMitigationList: React.FC = () => {
       width: 120,
       ellipsis: true,
       render: (company: { id: string; name: string; company_code?: string } | undefined) =>
-        company ? (
-          <Tag color="blue">{company.company_code || company.name}</Tag>
-        ) : null
+        <CompanyTag company={company} />
     },
     {
       title: 'Homeowner',
@@ -503,9 +502,7 @@ const WaterMitigationList: React.FC = () => {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
           <Tag color={STATUS_COLORS[job.status]}>{job.status}</Tag>
-          {job.company && (
-            <Tag color="blue">{job.company.company_code || job.company.name}</Tag>
-          )}
+          <CompanyTag company={job.company} />
           {!job.active && <Tag>INACTIVE</Tag>}
         </div>
         <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 2 }}>

@@ -16,7 +16,6 @@ import {
   Spin,
   Switch,
   Table,
-  Tag,
   Typography,
   message,
 } from 'antd';
@@ -26,6 +25,7 @@ import { wmPaymentBoardService } from '../services/waterMitigationService';
 import type { WMPaymentRow } from '../types/waterMitigation';
 import {
   CheckRecipientTag,
+  CompanyTag,
   EditableNote,
   RECEIVED_ROW_BG,
   ReceivedTag,
@@ -39,10 +39,6 @@ import {
 
 const { Text } = Typography;
 const { useBreakpoint } = Grid;
-
-/** WM company shown by its code (name when it has none), like the admin list */
-const companyLabel = (row: WMPaymentRow): string | null =>
-  row.company ? row.company.company_code || row.company.name : null;
 
 const WMPaymentBoardPublic: React.FC = () => {
   const { token } = useParams<{ token: string }>();
@@ -158,10 +154,8 @@ const WMPaymentBoardPublic: React.FC = () => {
       title: 'Company',
       key: 'company',
       width: 110,
-      render: (_, row) => {
-        const label = companyLabel(row);
-        return label ? <Tag color="blue">{label}</Tag> : <Text type="secondary">—</Text>;
-      },
+      render: (_, row) =>
+        row.company ? <CompanyTag company={row.company} /> : <Text type="secondary">—</Text>,
     },
     ...(showInvoice ? [
       {
@@ -225,11 +219,9 @@ const WMPaymentBoardPublic: React.FC = () => {
           <Text strong style={{ display: 'block', fontSize: 15, lineHeight: 1.3 }}>
             {row.property_address}
           </Text>
-          {(companyLabel(row) || row.homeowner_name) && (
+          {(row.company || row.homeowner_name) && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-              {companyLabel(row) && (
-                <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>{companyLabel(row)}</Tag>
-              )}
+              <CompanyTag company={row.company} style={{ margin: 0, fontSize: 11 }} />
               {row.homeowner_name && (
                 <Text type="secondary" style={{ fontSize: 12 }}>{row.homeowner_name}</Text>
               )}

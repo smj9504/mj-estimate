@@ -83,6 +83,31 @@ export const CheckRecipientTag: React.FC<{ value?: CheckRecipient | null }> = ({
   return <Tag>—</Tag>;
 };
 
+// Solid fills (white text) so a company never reads like the light status / check-to tags.
+// All dark enough for white text to stay readable.
+const COMPANY_TAG_COLORS = [
+  '#006d75', '#9e1068', '#ad4e00', '#3f6600',
+  '#391085', '#a8071a', '#003eb3', '#614700',
+];
+
+/** Same company always gets the same colour, picked from its id */
+const companyTagColor = (id: string): string => {
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  return COMPANY_TAG_COLORS[Math.abs(hash) % COMPANY_TAG_COLORS.length];
+};
+
+/** WM company shown by its code (name when it has none) */
+export const CompanyTag: React.FC<{
+  company?: { id: string; name: string; company_code?: string | null } | null;
+  style?: React.CSSProperties;
+}> = ({ company, style }) =>
+  company ? (
+    <Tag color={companyTagColor(company.id)} style={style}>
+      {company.company_code || company.name}
+    </Tag>
+  ) : null;
+
 export const ReceivedTag: React.FC<{ received?: boolean }> = ({ received }) =>
   received ? (
     <Tag color="success" icon={<CheckCircleFilled />}>Received</Tag>
