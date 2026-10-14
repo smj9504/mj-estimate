@@ -82,6 +82,7 @@ import type {
   WMWall,
   WMRoom,
   WMSketchSelection,
+  FloorPlanSourceType,
 } from '../../../types/wmSketch';
 import {
   EQUIPMENT_CONFIG,
@@ -143,6 +144,8 @@ export interface WMFloorSketchEditorProps {
   onImageUploaded: (file: File) => Promise<void>;
   onImageRemoved: () => Promise<void>;
   onScaleChanged?: (scalePixelsPerFoot: number) => void;
+  /** Persist the Image / Draw toggle — the PDF only shows the imported image in Image mode */
+  onSourceTypeChanged?: (sourceType: FloorPlanSourceType) => void;
   onImportFromMagicPlan?: () => void;
   isMagicPlanImporting?: boolean;
   /** Job ID — enables the optional floating reference-photo viewer (job photos, e.g. CompanyCam) */
@@ -535,6 +538,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   onImageUploaded,
   onImageRemoved,
   onScaleChanged,
+  onSourceTypeChanged,
   onImportFromMagicPlan,
   isMagicPlanImporting,
   jobId,
@@ -2991,6 +2995,13 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // Image import / removal
   // ------------------------------------------------------------------
   const [imageSourceType, setImageSourceType] = useState(floorSketch.source_type);
+  const changeSourceType = useCallback(
+    (type: FloorPlanSourceType) => {
+      setImageSourceType(type);
+      onSourceTypeChanged?.(type);
+    },
+    [onSourceTypeChanged]
+  );
   // Reference image: show imported background as semi-transparent trace layer in sketch mode
   const [showReferenceImage, setShowReferenceImage] = useState(false);
   const [referenceOpacity, setReferenceOpacity] = useState(0.3);
@@ -3230,7 +3241,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         // Auto-detect rooms from the new walls
         setTimeout(() => autoDetectRooms(result.walls as any), 100);
         // Switch to sketch mode with reference image visible
-        setImageSourceType('sketch');
+        changeSourceType('sketch');
         setShowReferenceImage(true);
         setReferenceOpacity(0.3);
         setHideOverlays(true);
@@ -3244,7 +3255,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     } finally {
       setIsConverting(false);
     }
-  }, [floorSketch.id, mergeAiWallsRooms, autoDetectRooms]);
+  }, [floorSketch.id, mergeAiWallsRooms, autoDetectRooms, changeSourceType]);
 
   // ------------------------------------------------------------------
   // Active material color for rubber-band preview
@@ -3358,7 +3369,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         key={floorSketch.id}
         sourceType={imageSourceType}
         backgroundImageUrl={backgroundImageUrl}
-        onSourceTypeChange={setImageSourceType}
+        onSourceTypeChange={changeSourceType}
         onImageImported={handleImageImported}
         onImageRemoved={handleImageRemoved}
         onCalibrateScale={() => setIsCalibrating(true)}

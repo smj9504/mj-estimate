@@ -914,19 +914,20 @@ class SketchPdfService:
             canvas_w, canvas_h, scale,
         )
 
-        # Background image — always show if available.
-        # When a floor plan (walls/rooms) is drawn on top, the image serves
-        # as the underlying reference, matching the frontend behaviour.
+        # Background image — shown only in Image mode. In Draw mode the
+        # imported image is just a tracing reference the user can hide, so
+        # the report shows the drawn floor plan on its own.
         has_bg_image = False
-        try:
-            bg_result = self._load_background_image_data_uri(floor)
-        except DocumentResourceError:
-            # A report silently missing its floor plan looks complete but is
-            # wrong; fail so the user sees why and can shrink the image.
-            raise
-        except Exception as exc:
-            logger.warning("Failed to load background image: %s", exc)
-            bg_result = None
+        bg_result = None
+        if getattr(floor, "source_type", "image") != "sketch":
+            try:
+                bg_result = self._load_background_image_data_uri(floor)
+            except DocumentResourceError:
+                # A report silently missing its floor plan looks complete but is
+                # wrong; fail so the user sees why and can shrink the image.
+                raise
+            except Exception as exc:
+                logger.warning("Failed to load background image: %s", exc)
 
         if bg_result:
             has_bg_image = True

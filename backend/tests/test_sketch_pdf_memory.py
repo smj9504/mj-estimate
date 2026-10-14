@@ -60,6 +60,16 @@ def test_background_memory_refusal_fails_report_instead_of_dropping_image(monkey
         SketchPdfService(None)._generate_floor_svg(floor)
 
 
+@pytest.mark.parametrize('source_type, embedded', [('image', True), ('sketch', False)])
+def test_background_is_left_out_in_draw_mode(source_type, embedded):
+    floor = background(Image.new('RGB', (400, 300), 'gray'), 'PNG')
+    floor.floor_label, floor.source_type = '1st Floor', source_type
+    floor.canvas_width, floor.canvas_height, floor.scale_pixels_per_foot = 1200, 900, 20
+    floor.overlay_data = {}
+    svg = SketchPdfService(None)._generate_floor_svg(floor)
+    assert ('<image href="data:image/jpeg' in svg) is embedded
+
+
 def test_weasyprint_budget_scales_with_floor_count(monkeypatch):
     requested = []
     monkeypatch.setattr(sketch_pdf_service, 'require_memory', requested.append)

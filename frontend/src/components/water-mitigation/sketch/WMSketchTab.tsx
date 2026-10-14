@@ -505,7 +505,22 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
     [activeFloorId]
   );
 
-  const handleGeneratePdf = useCallback(async (templateVariant: string = 'a') => {
+  const handleSourceTypeChanged = useCallback(
+    async (sourceType: FloorPlanSourceType) => {
+      if (!activeFloorId) return;
+      setFloors((prev) =>
+        prev.map((f) => (f.id === activeFloorId ? { ...f, source_type: sourceType } : f))
+      );
+      try {
+        await wmSketchService.updateFloorSketch(activeFloorId, { source_type: sourceType });
+      } catch {
+        message.error('Failed to save floor plan mode.');
+      }
+    },
+    [activeFloorId]
+  );
+
+  const handleGeneratePdf =useCallback(async (templateVariant: string = 'a') => {
     setPdfGenerating(true);
     try {
       const address = jobAddress.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 40);
@@ -750,6 +765,7 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
             onImageUploaded={handleImageUploaded}
             onImageRemoved={handleImageRemoved}
             onScaleChanged={handleScaleChanged}
+            onSourceTypeChanged={handleSourceTypeChanged}
             onImportFromMagicPlan={handleOpenMagicPlanModal}
             isMagicPlanImporting={mpImporting}
             jobId={jobId}
