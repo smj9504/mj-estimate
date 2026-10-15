@@ -511,7 +511,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
         <Select
           placeholder={compact ? 'Category' : 'Set Category'}
           size={compact ? 'middle' : 'small'}
-          style={compact ? { flex: '1 1 96px', minWidth: 0 } : { minWidth: 150 }}
+          style={compact ? undefined : { minWidth: 150 }}
           onChange={handleBulkCategoryUpdate}
           value={undefined}
           suffixIcon={<TagOutlined style={{ color: '#667eea' }} />}
