@@ -168,11 +168,10 @@
   min-width: 0;
 }
 
-/* The select absorbs leftover width; the two buttons keep their label width.
-   Without a floor the select collapses to an unreadable stub. */
 /* The select absorbs leftover width and is the only control allowed to shrink,
    down to a floor where its placeholder still reads. */
 .file-gallery-bulk-bar__actions .ant-select {
+  flex: 1 1 96px;
   min-width: 96px;
 }
 
@@ -229,8 +228,23 @@
     justify-content: center;
   }
 
+  /* Too narrow for the select and every button on one row: the select takes
+     its own full-width row so category names read in full, and the buttons
+     share the row below. */
+  .file-gallery-bulk-bar__actions {
+    flex-wrap: wrap;
+  }
+
+  .file-gallery-bulk-bar__actions .ant-select {
+    flex-basis: 100%;
+  }
+
+  .file-gallery-bulk-bar__actions > .ant-btn {
+    flex: 1 1 auto;
+  }
+
   .file-gallery:has(.file-gallery-bulk-bar) .file-gallery-body {
-    padding-bottom: 124px;
+    padding-bottom: 168px;
   }
 }
 
