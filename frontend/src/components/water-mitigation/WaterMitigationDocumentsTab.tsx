@@ -107,9 +107,13 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     enabled: !!companyId,
     staleTime: 5 * 60 * 1000,
   });
-  const contractTemplates = (templatesData?.templates ?? []).filter(
-    (t: any) => t.is_active && t.field_mappings
+  // Certificate of Completion is the rebuild/recon certificate, not a WM document
+  const wmTemplates = (templatesData?.templates ?? []).filter(
+    (t: any) => t.is_active && t.document_type !== 'certificate_of_completion'
   );
+  const contractTemplates = wmTemplates.filter((t: any) => t.field_mappings);
+  // Shown disabled so a WM template that isn't set up yet doesn't silently disappear
+  const unmappedTemplates = wmTemplates.filter((t: any) => !t.field_mappings);
 
   // Background refresh when tab becomes active
   const prevActiveRef = useRef(isActive);
@@ -594,6 +598,20 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                       </Card>
                     );
                   })}
+                </div>
+              )}
+              {unmappedTemplates.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                    Not available yet — map the fields in the company's Contract Templates first:
+                  </Text>
+                  <Space size={4} wrap>
+                    {unmappedTemplates.map((tmpl: any) => (
+                      <Tag key={tmpl.id} style={{ opacity: 0.7 }}>
+                        {tmpl.name} · 0 fields mapped
+                      </Tag>
+                    ))}
+                  </Space>
                 </div>
               )}
             </div>
