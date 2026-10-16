@@ -151,6 +151,57 @@ async def search_clients(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/claims/search")
+async def search_claims(
+    q: Optional[str] = None,
+    claim_id: Optional[str] = None,
+    limit: int = 20,
+    db=Depends(get_db),
+):
+    """Search claims across all clients by client name, property address, or claim number.
+    Pass claim_id instead of q to resolve a single known claim (e.g. a preset form value)."""
+    from sqlalchemy import or_
+    from app.domains.client.models import Client, Claim
+
+    if not q and not claim_id:
+        return {"claims": [], "total": 0}
+
+    try:
+        query = db.query(Claim, Client).join(Client, Client.id == Claim.client_id)
+        if claim_id:
+            query = query.filter(Claim.id == claim_id)
+        else:
+            term = f"%{q.strip()}%"
+            query = query.filter(or_(
+                Client.display_name.ilike(term),
+                Client.address.ilike(term),
+                Client.city.ilike(term),
+                Claim.claim_number.ilike(term),
+            ))
+        rows = (
+            query
+            .order_by(Claim.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        claims = []
+        for claim, client in rows:
+            address = ', '.join(p for p in [client.address, client.city, client.state] if p)
+            claims.append({
+                'id': str(claim.id),
+                'client_id': str(client.id),
+                'claim_number': claim.claim_number,
+                'insurance_company': claim.insurance_company,
+                'date_of_loss': claim.date_of_loss.isoformat() if claim.date_of_loss else None,
+                'client_name': client.display_name,
+                'address': address,
+            })
+        return {"claims": claims, "total": len(claims)}
+    except Exception as e:
+        logger.error(f"Error searching claims: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{client_id}", response_model=None)
 async def get_client(
     client_id: str,

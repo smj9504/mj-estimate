@@ -16,6 +16,7 @@ import dayjs from 'dayjs';
 import { rebuildService } from '../services/rebuildService';
 import RebuildDocGenerator from '../components/rebuild/RebuildDocGenerator';
 import RebuildPhotoToPdf from '../components/rebuild/RebuildPhotoToPdf';
+import ClaimSearchSelect from '../components/common/ClaimSearchSelect';
 import type {
   RebuildProject, RebuildProjectCreate, RebuildContractor,
   RebuildCompletionDoc, ProjectStatus, PROJECT_STATUS_COLORS, DOC_TYPE_LABELS,
@@ -236,8 +237,8 @@ const RebuildProjectList: React.FC = () => {
         onCancel={() => { setCreateModalOpen(false); createForm.resetFields(); }}
         confirmLoading={createProjectMutation.isPending}>
         <Form form={createForm} layout="vertical" size="small">
-          <Form.Item name="claim_id" label="Claim ID" rules={[{ required: true }]}>
-            <Input placeholder="Claim UUID" />
+          <Form.Item name="claim_id" label="Claim" rules={[{ required: true, message: 'Please select a claim' }]}>
+            <ClaimSearchSelect />
           </Form.Item>
           <Form.Item name="title" label="Project Title" rules={[{ required: true }]}>
             <Input placeholder="e.g., 123 Main St - Full Rebuild" />

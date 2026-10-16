@@ -9,11 +9,12 @@ import {
 import {
   PlusOutlined, ReloadOutlined,
   DeleteOutlined, EllipsisOutlined,
-  FilePdfOutlined, LoadingOutlined,
+  FilePdfOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { supplementService } from '../services/supplementService';
 import { fileService } from '../services/fileService';
+import ClaimSearchSelect from '../components/common/ClaimSearchSelect';
 import type {
   SupplementRequest, SupplementRequestCreate,
 } from '../types/supplement';
@@ -100,16 +101,15 @@ const SupplementManagement: React.FC = () => {
     });
   }, [supplements]);
 
-  // Auto-fetch PA info when claim_id is entered in create form
-  const handleClaimIdChange = useCallback(async (claimId: string) => {
-    const trimmed = claimId.trim();
-    if (trimmed.length < 36) {
+  // Auto-fetch PA info when a claim is picked in create form
+  const handleClaimSelect = useCallback(async (claimId?: string) => {
+    if (!claimId) {
       setClaimPaInfo(null);
       return;
     }
     setClaimPaLoading(true);
     try {
-      const info = await supplementService.getClaimPaInfo(trimmed);
+      const info = await supplementService.getClaimPaInfo(claimId);
       if (info.pa_name || info.pa_email) {
         setClaimPaInfo(info);
         createForm.setFieldsValue({
@@ -133,6 +133,7 @@ const SupplementManagement: React.FC = () => {
       message.success(isEstimateRequest ? 'Estimate request created' : 'Supplement request created');
       setCreateModalOpen(false);
       createForm.resetFields();
+      setClaimPaInfo(null);
       queryClient.invalidateQueries({ queryKey: ['supplements'] });
       queryClient.invalidateQueries({ queryKey: ['supplement-stats'] });
     },
@@ -338,12 +339,8 @@ const SupplementManagement: React.FC = () => {
         }}
         confirmLoading={createMutation.isPending}>
         <Form form={createForm} layout="vertical" size="small">
-          <Form.Item name="claim_id" label="Claim ID" rules={[{ required: true }]}>
-            <Input
-              placeholder="Claim UUID"
-              onChange={e => handleClaimIdChange(e.target.value)}
-              suffix={claimPaLoading ? <LoadingOutlined /> : undefined}
-            />
+          <Form.Item name="claim_id" label="Claim" rules={[{ required: true, message: 'Please select a claim' }]}>
+            <ClaimSearchSelect onChange={id => handleClaimSelect(id)} loading={claimPaLoading} />
           </Form.Item>
           {claimPaInfo && (
             <Alert

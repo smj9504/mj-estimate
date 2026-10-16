@@ -79,7 +79,27 @@ export const clientService = {
 // Claim API
 // ============================================================
 
+export interface ClaimSearchResult {
+  id: string;
+  client_id: string;
+  claim_number: string;
+  insurance_company?: string | null;
+  date_of_loss?: string | null;
+  client_name: string;
+  address: string;
+}
+
 export const claimService = {
+  async search(q: string, limit = 20) {
+    const { data } = await api.get('/api/clients/claims/search', { params: { q, limit } });
+    return data as { claims: ClaimSearchResult[]; total: number };
+  },
+
+  async lookup(claimId: string) {
+    const { data } = await api.get('/api/clients/claims/search', { params: { claim_id: claimId, limit: 1 } });
+    return ((data as { claims: ClaimSearchResult[] }).claims[0]) || null;
+  },
+
   async listByClient(clientId: string) {
     const { data } = await api.get(`/api/clients/${clientId}/claims`);
     return data as { claims: Claim[]; total: number };

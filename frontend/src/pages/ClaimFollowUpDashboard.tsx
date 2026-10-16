@@ -65,6 +65,7 @@ import { supplementService } from '../services/supplementService';
 import { companyService } from '../services/companyService';
 import { SUPPLEMENT_STATUS_COLORS } from '../types/supplement';
 import { fileService } from '../services/fileService';
+import ClaimSearchSelect from '../components/common/ClaimSearchSelect';
 import { EmailComposer, CommunicationTimeline, DepreciationPhaseTracker } from '../components/claim-followup';
 import type {
   FollowUpTask,
@@ -2222,8 +2223,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
         style={isMobile ? { top: 10 } : undefined}
       >
         <Form form={createForm} layout="vertical">
-          <Form.Item name="claim_id" label="Claim ID" rules={[{ required: true }]}>
-            <Input placeholder="Enter claim ID" />
+          <Form.Item name="claim_id" label="Claim" rules={[{ required: true, message: 'Please select a claim' }]}>
+            <ClaimSearchSelect />
           </Form.Item>
           <Row gutter={16}>
             <Col xs={24} sm={12}>
