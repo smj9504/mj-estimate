@@ -73,6 +73,12 @@ const EmailIngestionDashboard: React.FC = () => {
   // the rows that actually need action. Clearing the filter still shows all.
   const [statusFilter, setStatusFilter] = useState<string | undefined>('pending');
   const [activeTab, setActiveTab] = useState('inbox');
+  // Multi-attachment emails expand to list every file. Controlled so the
+  // Files tag and a row click can open it, not only the small "+" icon.
+  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
+  const toggleExpanded = (key: string) =>
+    setExpandedKeys((keys) =>
+      keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]);
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [selectedLog, setSelectedLog] = useState<IngestionLog | null>(null);
   const [skipModalOpen, setSkipModalOpen] = useState(false);
@@ -210,9 +216,15 @@ const EmailIngestionDashboard: React.FC = () => {
       dataIndex: 'attachment_name',
       key: 'attachment_name',
       ellipsis: true,
-      render: (v: string) => v ? (
+      render: (v: string, r: IngestionLog) => v ? (
         <Tooltip title={v}>
-          <span><FileTextOutlined style={{ marginRight: 6 }} />{v}</span>
+          {r.file_id ? (
+            <a href={fileService.getInlineUrl(r.file_id)} target="_blank" rel="noopener noreferrer">
+              <FileTextOutlined style={{ marginRight: 6 }} />{v}
+            </a>
+          ) : (
+            <span><FileTextOutlined style={{ marginRight: 6 }} />{v}</span>
+          )}
         </Tooltip>
       ) : '-',
     },
@@ -318,18 +330,29 @@ const EmailIngestionDashboard: React.FC = () => {
       key: 'attachment_count',
       width: 90,
       align: 'center',
-      render: (_: any, r: EmailRow) => (
-        <Tooltip
-          title={r.attachments
-            .map((a) => a.attachment_name)
-            .filter(Boolean)
-            .join('\n')}
-        >
-          <Tag icon={<PaperClipOutlined />} color={r.attachments.length > 1 ? 'blue' : undefined}>
-            {r.attachments.length}
-          </Tag>
-        </Tooltip>
-      ),
+      render: (_: any, r: EmailRow) => {
+        const multi = r.attachments.length > 1;
+        return (
+          <Tooltip
+            title={
+              <div>
+                {r.attachments.map((a) => (
+                  <div key={a.id}>{a.attachment_name || '(unnamed)'}</div>
+                ))}
+              </div>
+            }
+          >
+            <Tag
+              icon={<PaperClipOutlined />}
+              color={multi ? 'blue' : undefined}
+              style={multi ? { cursor: 'pointer' } : undefined}
+              onClick={multi ? (e) => { e.stopPropagation(); toggleExpanded(r.key); } : undefined}
+            >
+              {r.attachments.length}
+            </Tag>
+          </Tooltip>
+        );
+      },
       sorter: (a, b) => a.attachments.length - b.attachments.length,
     },
     {
@@ -389,7 +412,8 @@ const EmailIngestionDashboard: React.FC = () => {
         const pending = r.attachments.find((a) => a.status === 'pending');
         if (!pending) return null;
         return (
-          <Space size="small">
+          // Keep button clicks from also toggling the row's expansion.
+          <Space size="small" onClick={(e) => e.stopPropagation()}>
             {pending.file_id && (
               <Tooltip title="Preview PDF">
                 <Button
@@ -556,10 +580,16 @@ const EmailIngestionDashboard: React.FC = () => {
                       showTotal: (t) => `Total: ${t} emails`,
                     }}
                     scroll={{ x: 1280 }}
+                    onRow={(r) => ({
+                      onClick: () => { if (r.attachments.length > 1) toggleExpanded(r.key); },
+                      style: r.attachments.length > 1 ? { cursor: 'pointer' } : undefined,
+                    })}
                     expandable={{
                       // Only multi-attachment emails are worth expanding; a single file
                       // is already fully described by its parent row.
                       rowExpandable: (r) => r.attachments.length > 1,
+                      expandedRowKeys: expandedKeys,
+                      onExpand: (_, r) => toggleExpanded(r.key),
                       expandedRowRender: (r) => (
                         <Table<IngestionLog>
                           columns={attachmentColumns}

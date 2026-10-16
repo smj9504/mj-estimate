@@ -151,11 +151,12 @@ class EmailIngestionLog(Base, BaseModel):
 
 
 class ReceivedEmail(Base, BaseModel):
-    """Every inbound message seen by a poll, attachment or not.
+    """Claim-related inbound messages seen by a poll, attachment or not.
 
     EmailIngestionLog only ever held rows for PDF attachments, so a reply
     from an adjuster with no file - most of what arrives - left no trace in
-    the app. This keeps one row per message so it can be read on the claim.
+    the app. This keeps one row per message that matched a client/claim, so
+    it can be read on the claim. Unmatched mail is not stored.
     """
     __tablename__ = "received_emails"
     __table_args__ = (

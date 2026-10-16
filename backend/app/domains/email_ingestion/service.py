@@ -539,9 +539,9 @@ class EmailIngestionService:
             # Connect to IMAP
             imap = self._build_imap_client(account, session)
 
-            # Every message, with or without attachments: all of them are
-            # kept in received_emails, and the ones carrying files also go
-            # through the PDF pipeline below.
+            # Every message, with or without attachments: the ones matching
+            # a claim are kept in received_emails, and the ones carrying
+            # files also go through the PDF pipeline below.
             all_emails = imap.fetch_emails(
                 since_date=since_date or account.get("last_synced_at"),
                 limit=limit,
@@ -718,7 +718,13 @@ class EmailIngestionService:
     # ============================================================
 
     def _save_received_email(self, session, account_id: str, fetched_email) -> bool:
-        """Store one inbound message. False if it was already stored."""
+        """Store one inbound message if it belongs to a claim.
+
+        False if it was already stored or matched no client/claim - the
+        inbox also holds newsletters, receipts and personal mail, none of
+        which belong in the app. Unmatched mail is re-checked on the next
+        poll that covers its date, so a claim created later still picks it up.
+        """
         from app.domains.email_ingestion.models import ReceivedEmail
 
         exists = session.query(ReceivedEmail.id).filter(
@@ -732,6 +738,8 @@ class EmailIngestionService:
         client_id, claim_id, method, confidence = self._match_received_email(
             session, fetched_email, text
         )
+        if not client_id and not claim_id:
+            return False
 
         session.add(ReceivedEmail(
             email_account_id=account_id,
@@ -797,7 +805,22 @@ class EmailIngestionService:
         )
         if not result.client_id:
             return None, None, None, None
-        return result.client_id, result.claim_id, result.method, result.confidence
+        # A bare name guess ("Dear John" -> any client named John) is too
+        # loose to file mail on; keep name matches only when the sender's
+        # address is the client's own email.
+        if result.method == "name" and (result.confidence or 0) < 85:
+            return None, None, None, None
+
+        claim_id = result.claim_id
+        if not claim_id:
+            # Address / sender-email matches find the client, not the claim.
+            # With a single claim there is nothing to choose between.
+            claims = session.query(Claim.id).filter(
+                Claim.client_id == result.client_id
+            ).limit(2).all()
+            if len(claims) == 1:
+                claim_id = str(claims[0][0])
+        return result.client_id, claim_id, result.method, result.confidence
 
     def get_received_emails(
         self,

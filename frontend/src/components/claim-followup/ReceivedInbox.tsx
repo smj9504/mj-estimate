@@ -25,8 +25,9 @@ const senderLabel = (sender?: string): string => {
 };
 
 /**
- * Every inbound message from the polled accounts, newest first. Messages
- * the matcher couldn't place on a claim are linked here by hand.
+ * Claim-related inbound mail from the polled accounts, newest first.
+ * Messages matched to a client but not a specific claim (or unlinked by
+ * hand) are linked here.
  */
 const ReceivedInbox: React.FC = () => {
   const queryClient = useQueryClient();
@@ -166,7 +167,7 @@ const ReceivedInbox: React.FC = () => {
             checked={unmatchedOnly}
             onChange={(v) => { setUnmatchedOnly(v); setPage(1); }}
           />
-          <Text style={{ fontSize: 13 }}>Unmatched only</Text>
+          <Text style={{ fontSize: 13 }}>No claim linked</Text>
         </Space>
       </Space>
 

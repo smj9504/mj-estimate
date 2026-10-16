@@ -1,8 +1,8 @@
 """
 Email ingestion polling scheduler.
 
-Polls all active email accounts once daily, storing every inbound message
-(received_emails) and matching attachments to
+Polls all active email accounts once daily, storing claim-related inbound
+messages (received_emails) and matching attachments to
 claims by claim number/address and queueing them for review (dedup via
 message-id + attachment hash is handled in EmailIngestionService).
 The poll never creates claims or estimate revisions on its own - matched

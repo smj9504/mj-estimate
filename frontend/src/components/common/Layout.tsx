@@ -338,7 +338,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             label: 'PDF Editor',
           },
           {
-            key: '/email-ingestion/accounts',
+            key: '/email-ingestion',
             icon: <MailOutlined />,
             label: 'Email Ingestion',
           },
