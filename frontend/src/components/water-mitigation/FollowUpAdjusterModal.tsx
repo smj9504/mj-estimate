@@ -289,7 +289,7 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
               />
             )}
             <Input
-              placeholder="Or type sender email manually..."
+              placeholder="Or type the email replies should go to..."
               value={manualFromEmail}
               onChange={e => {
                 setManualFromEmail(e.target.value);
@@ -298,6 +298,12 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
               allowClear
               style={{ width: '100%' }}
             />
+            {manualFromEmail.trim() && (
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+                Sent from our verified address so it doesn't land in spam;
+                replies go to this address.
+              </Text>
+            )}
           </div>
 
           {/* To */}

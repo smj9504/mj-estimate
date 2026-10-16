@@ -79,6 +79,12 @@ def _smtp_text(segment: bytes) -> bytes:
     segment = re.sub(rb"(?:\r\n|\n|\r(?!\n))", b"\r\n", segment)
     return re.sub(rb"(?m)^\.", b"..", segment)
 
+
+def _is_address(value: Optional[str]) -> bool:
+    """Whether value looks like an email address (not e.g. Resend's
+    SMTP username "resend", which some callers pass as from_address)."""
+    return bool(value) and re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value) is not None
+
 # SMTP provider presets
 SMTP_PROVIDERS = {
     "gmail": {"server": "smtp.gmail.com", "port": 587, "use_tls": True},
@@ -168,6 +174,29 @@ class SmtpService:
             signature_phone_override = signature_phone_override or smtp_config.get("sender_phone")
             smtp_config = fallback_config
 
+        # From is always the address this SMTP login is verified to send as.
+        # Any other address - one typed into the composer, a company's
+        # contact email - fails DMARC alignment and lands in spam (or is
+        # rewritten/refused by the server). The requested address is still
+        # where the recipient should reach the sender, so it moves to
+        # Reply-To and the signature instead.
+        from_address = from_address or ""
+        sending_address = smtp_config.get("email_address") or ""
+        if sending_address and from_address.lower() != sending_address.lower():
+            if _is_address(from_address):
+                reply_to = reply_to or from_address
+                signature_email_override = signature_email_override or from_address
+            from_address = sending_address
+
+        # A send-only address (documents@scopit.work via Resend) has no
+        # inbox, so it is never offered as Reply-To or signature contact:
+        # a reply sent there would be lost.
+        send_only = bool(smtp_config.get("send_only"))
+        if not _is_address(reply_to):
+            reply_to = None
+        if not reply_to and not send_only:
+            reply_to = from_address
+
         # Refuse an oversized email before downloading anything, from the
         # sizes on record, rather than after every attachment is in memory.
         attachment_sizes = self._attachment_sizes(attachments)
@@ -198,7 +227,7 @@ class SmtpService:
                 # A send-only account's own address (e.g. documents@scopit.work)
                 # isn't a real mailbox - the signature should show the assigned
                 # company's contact email instead when the caller provides one.
-                email_address=signature_email_override or smtp_config.get("email_address", from_address),
+                email_address=signature_email_override or (reply_to if send_only else from_address) or "",
                 company_name=personal_company_name or smtp_config.get("company_name", ""),
             )
 
@@ -370,8 +399,9 @@ class SmtpService:
         if account_id:
             return self._get_account_smtp_config(account_id)
 
-        # Fallback to system-level SMTP settings
+        # Fallback to system-level SMTP settings (send-only, e.g. Resend)
         return {
+            "send_only": True,
             "server": getattr(settings, "SMTP_HOST", "smtp.gmail.com"),
             "port": int(getattr(settings, "SMTP_PORT", 587)),
             "use_tls": True,
@@ -403,7 +433,8 @@ class SmtpService:
             # A custom account with its own smtp_server (e.g. Resend, which
             # has no IMAP endpoint and so can't use a gmail/outlook/yahoo
             # preset) overrides the provider preset lookup.
-            if provider == "custom" and account.get("smtp_server"):
+            send_only = provider == "custom" and bool(account.get("smtp_server"))
+            if send_only:
                 preset = {
                     "server": account["smtp_server"],
                     "port": account.get("smtp_port") or 587,
@@ -442,6 +473,7 @@ class SmtpService:
                     pass
 
             return {
+                "send_only": send_only,
                 "server": preset["server"],
                 "port": preset["port"],
                 "use_tls": preset["use_tls"],
@@ -616,16 +648,18 @@ class SmtpService:
         msg["Date"] = formatdate(localtime=True)
         msg["MIME-Version"] = "1.0"
 
-        # Always set Reply-To for deliverability
-        effective_reply_to = reply_to or from_address
-        msg["Reply-To"] = effective_reply_to
+        # send() leaves reply_to empty only when From is a send-only address
+        # with no real mailbox to point at - better no Reply-To than one
+        # that bounces.
+        if reply_to:
+            msg["Reply-To"] = reply_to
 
-        # Some spam filters treat the presence of List-Unsubscribe as a
-        # signal of a legitimate, well-behaved sender even for 1:1
-        # transactional mail with no real subscription to cancel - a
-        # mailto is the only mechanism that makes sense here (there's no
-        # list/webhook to back a one-click HTTP unsubscribe URL).
-        msg["List-Unsubscribe"] = f"<mailto:{effective_reply_to}?subject=unsubscribe>"
+            # Some spam filters treat the presence of List-Unsubscribe as a
+            # signal of a legitimate, well-behaved sender even for 1:1
+            # transactional mail with no real subscription to cancel - a
+            # mailto is the only mechanism that makes sense here (there's no
+            # list/webhook to back a one-click HTTP unsubscribe URL).
+            msg["List-Unsubscribe"] = f"<mailto:{reply_to}?subject=unsubscribe>"
 
         return msg, attachment_data, failed_attachments
 

@@ -438,7 +438,7 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
               />
             )}
             <Input
-              placeholder="Or type sender email manually..."
+              placeholder="Or type the email replies should go to..."
               value={manualFromEmail}
               onChange={e => {
                 setManualFromEmail(e.target.value);
@@ -455,6 +455,12 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
                 Sent via a verified relay for deliverability, but shows your name
                 {info.reply_to?.name ? ` and "${info.reply_to.name}"` : ''} in From, and
                 replies go to the account selected above.
+              </Text>
+            )}
+            {manualFromEmail.trim() && (
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+                Sent from our verified address so it doesn't land in spam;
+                replies go to this address.
               </Text>
             )}
           </div>

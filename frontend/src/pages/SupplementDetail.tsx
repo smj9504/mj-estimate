@@ -2090,7 +2090,7 @@ const SupplementDetail: React.FC = () => {
                 />
               )}
               <Input
-                placeholder="Or type sender email manually..."
+                placeholder="Or type the email replies should go to..."
                 value={paManualFromEmail}
                 onChange={e => {
                   setPaManualFromEmail(e.target.value);
@@ -2101,6 +2101,12 @@ const SupplementDetail: React.FC = () => {
               />
               {!paSelectedAccountId && !paManualFromEmail && (
                 <Text type="warning" style={{ fontSize: 12 }}>Select an account or enter email address</Text>
+              )}
+              {paManualFromEmail.trim() && (
+                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+                  Sent from our verified address so it doesn't land in spam;
+                  replies go to this address.
+                </Text>
               )}
             </div>
 
