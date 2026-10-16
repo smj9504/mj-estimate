@@ -139,6 +139,7 @@ class ClaimBase(BaseModel):
     insurance_company: Optional[str] = None
     insurance_policy_number: Optional[str] = None
     insurance_deductible: Optional[float] = None
+    deductible_discount: Optional[float] = None
     adjuster_name: Optional[str] = None
     adjuster_phone: Optional[str] = None
     adjuster_email: Optional[str] = None
@@ -187,6 +188,7 @@ class ClaimUpdate(BaseModel):
     insurance_company: Optional[str] = None
     insurance_policy_number: Optional[str] = None
     insurance_deductible: Optional[float] = None
+    deductible_discount: Optional[float] = None
     adjuster_name: Optional[str] = None
     adjuster_phone: Optional[str] = None
     adjuster_email: Optional[str] = None
@@ -392,6 +394,9 @@ class ProfitabilitySummary(BaseModel):
     total_insurance_paid: float = 0
     current_rcv: float = 0
     deductible: float = 0
+    # Waived part of the deductible and what the homeowner still owes us
+    deductible_discount: float = 0
+    homeowner_deductible_due: float = 0
     # PA Fee: (RCV - deductible) * pa_pct%
     pa_fee_percentage: float = 0
     pa_fee_base: float = 0

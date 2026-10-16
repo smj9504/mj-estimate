@@ -143,6 +143,22 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
         </Col>
       </Row>
 
+      {/* Deductible is paid by the homeowner, outside the insurance revenue above */}
+      {(p?.deductible || 0) > 0 && (
+        <div style={{ marginBottom: 12, fontSize: 12 }}>
+          <Text type="secondary">Deductible </Text>
+          <Text>{formatCurrency(p?.deductible)}</Text>
+          {(p?.deductible_discount || 0) > 0 && (
+            <>
+              <Text type="secondary"> − discount </Text>
+              <Text style={{ color: '#b5403b' }}>{formatCurrency(p?.deductible_discount)}</Text>
+            </>
+          )}
+          <Text type="secondary"> · Homeowner owes </Text>
+          <Text strong>{formatCurrency(p?.homeowner_deductible_due)}</Text>
+        </div>
+      )}
+
       {/* Cost Breakdown */}
       {(p?.total_expenses || 0) > 0 && (
         <Row gutter={[8, 4]} style={{ marginBottom: 12 }}>

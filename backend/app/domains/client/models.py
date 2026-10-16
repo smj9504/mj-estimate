@@ -101,6 +101,11 @@ class Claim(Base, BaseModel):
     insurance_company = Column(String(255))
     insurance_policy_number = Column(String(100))
     insurance_deductible = Column(DECIMAL(15, 2))
+    # The homeowner owes the deductible, but we sometimes waive part of it — lost income
+    deductible_discount = Column(
+        DECIMAL(15, 2), nullable=False, default=0, server_default='0',
+        comment="Part of the deductible the company waived for the homeowner",
+    )
 
     # Adjuster info
     adjuster_name = Column(String(255))

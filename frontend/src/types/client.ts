@@ -169,6 +169,8 @@ export interface Claim {
   insurance_company?: string;
   insurance_policy_number?: string;
   insurance_deductible?: number;
+  /** Part of the deductible the company waived for the homeowner */
+  deductible_discount?: number;
   adjuster_name?: string;
   adjuster_phone?: string;
   adjuster_email?: string;
@@ -285,6 +287,8 @@ export interface ProfitabilitySummary {
   total_insurance_paid: number;
   current_rcv: number;
   deductible: number;
+  deductible_discount: number;
+  homeowner_deductible_due: number;
   pa_fee_percentage: number;
   pa_fee_base: number;
   pa_fee_amount: number;
@@ -377,6 +381,8 @@ export interface ClaimCreate {
   insurance_company?: string;
   insurance_policy_number?: string;
   insurance_deductible?: number;
+  /** Part of the deductible the company waived for the homeowner */
+  deductible_discount?: number;
   adjuster_name?: string;
   adjuster_phone?: string;
   adjuster_email?: string;

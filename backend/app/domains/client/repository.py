@@ -466,7 +466,8 @@ class ClaimNegotiationSQLAlchemyRepository(SQLAlchemyRepository):
                 claim.current_acv = negotiation_data.get('acv_amount', 0)
                 claim.current_rcv = negotiation_data.get('rcv_amount', 0)
                 claim.current_depreciation = negotiation_data.get('depreciation_amount', 0)
-                if negotiation_data.get('deductible') is not None:
+                # Estimates uploaded without a deductible send 0 — don't wipe one entered by hand
+                if negotiation_data.get('deductible'):
                     claim.insurance_deductible = negotiation_data['deductible']
 
                 # Auto-update status to negotiating if still open

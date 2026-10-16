@@ -167,6 +167,8 @@ const SupplementDetail: React.FC = () => {
   const [editingSections, setEditingSections] = useState<any[]>([]);
   const [editingTotals, setEditingTotals] = useState<{ rcv: number; acv: number; dep: number; ded: number }>({ rcv: 0, acv: 0, dep: 0, ded: 0 });
   const [savingSections, setSavingSections] = useState(false);
+  const [editingDeductible, setEditingDeductible] = useState(false);
+  const [deductibleDraft, setDeductibleDraft] = useState({ deductible: 0, discount: 0 });
 
   const [editedRequiredEstimates, setEditedRequiredEstimates] = useState<string[]>([]);
   const [requiredEstimatesDirty, setRequiredEstimatesDirty] = useState(false);
@@ -542,6 +544,33 @@ const SupplementDetail: React.FC = () => {
   const separateTotal = separateItems.reduce((s, i) => s + (i.custom_amount || 0), 0);
   const supplementTotal = (hasXactimate ? xactNet : 0) + inXactTotal + separateTotal;
 
+  const saveDeductible = () => updateMutation.mutate(
+    {
+      deductible: deductibleDraft.deductible,
+      // A discount can't exceed the deductible it comes out of
+      deductible_discount: Math.min(deductibleDraft.discount, deductibleDraft.deductible),
+    },
+    { onSuccess: () => setEditingDeductible(false) },
+  );
+
+  const saveEstimateTotals = async (negotiationId: string) => {
+    setSavingSections(true);
+    try {
+      await supplementService.updateInsuranceEstimate(supplement.claim_id, negotiationId, {
+        sections_data: editingSections.length > 0 ? editingSections : undefined,
+        rcv_amount: editingTotals.rcv,
+        depreciation_amount: editingTotals.dep,
+        acv_amount: editingTotals.acv,
+        deductible: editingTotals.ded,
+      });
+      message.success('Estimate saved');
+      setEditingSectionsVerId(null);
+      supplementService.listInsuranceEstimates(supplement.claim_id).then(setEstimateVersions);
+      // The claim's deductible follows the estimate's, so the header needs a refetch
+      queryClient.invalidateQueries({ queryKey: ['supplement', id] });
+    } catch { message.error('Failed to save'); } finally { setSavingSections(false); }
+  };
+
   return (
     <div style={{ padding: '0 4px' }}>
       {/* Page Header */}
@@ -564,6 +593,48 @@ const SupplementDetail: React.FC = () => {
             <Descriptions size="small" column={2}>
               <Descriptions.Item label="Claim #">{supplement.claim_number}</Descriptions.Item>
               <Descriptions.Item label="Insurance">{supplement.insurance_company}</Descriptions.Item>
+              <Descriptions.Item label="Homeowner">{supplement.homeowner_name || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Deductible">
+                {editingDeductible ? (
+                  <Space size={4} wrap>
+                    <InputNumber size="small" min={0} step={100} prefix="$" style={{ width: 120 }} autoFocus
+                      value={deductibleDraft.deductible}
+                      onChange={v => setDeductibleDraft(d => ({ ...d, deductible: v || 0 }))}
+                      onPressEnter={saveDeductible} />
+                    <Text type="secondary" style={{ fontSize: 12 }}>Discount</Text>
+                    <InputNumber size="small" min={0} max={deductibleDraft.deductible} step={100} prefix="$" style={{ width: 120 }}
+                      value={deductibleDraft.discount}
+                      onChange={v => setDeductibleDraft(d => ({ ...d, discount: v || 0 }))}
+                      onPressEnter={saveDeductible} />
+                    <Button size="small" type="primary" loading={updateMutation.isPending}
+                      onClick={saveDeductible}>Save</Button>
+                    <Button size="small" onClick={() => setEditingDeductible(false)}>Cancel</Button>
+                  </Space>
+                ) : (
+                  <Space size={4} wrap>
+                    <Text>{formatCurrency(supplement.deductible)}</Text>
+                    {(supplement.deductible_discount || 0) > 0 && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        − {formatCurrency(supplement.deductible_discount)} discount ={' '}
+                        <Text strong style={{ fontSize: 12 }}>
+                          {formatCurrency((supplement.deductible || 0) - (supplement.deductible_discount || 0))}
+                        </Text>{' '}homeowner owes
+                      </Text>
+                    )}
+                    <Button type="text" size="small" style={{ fontSize: 11, padding: '0 4px' }}
+                      onClick={() => {
+                        setDeductibleDraft({
+                          deductible: supplement.deductible || 0,
+                          discount: supplement.deductible_discount || 0,
+                        });
+                        setEditingDeductible(true);
+                      }}>
+                      Edit
+                    </Button>
+                  </Space>
+                )}
+              </Descriptions.Item>
+              <Descriptions.Item label="Address" span={2}>{supplement.property_address || '-'}</Descriptions.Item>
               <Descriptions.Item label="Status">
                 <Select size="small" value={supplement.status} style={{ width: 140 }}
                   onChange={v => updateMutation.mutate({ status: v })}
@@ -808,6 +879,16 @@ const SupplementDetail: React.FC = () => {
                                   onChange={v => setEditingTotals(t => ({ ...t, ded: v || 0 }))}
                                 />
                               </Col>
+                              {/* With sections, Save lives under the section breakdown */}
+                              {!ver.sections_data?.length && (
+                                <Col span={24}>
+                                  <Space style={{ marginTop: 4 }}>
+                                    <Button size="small" type="primary" loading={savingSections}
+                                      onClick={() => saveEstimateTotals(ver.id)}>Save</Button>
+                                    <Button size="small" onClick={() => setEditingSectionsVerId(null)}>Cancel</Button>
+                                  </Space>
+                                </Col>
+                              )}
                             </Row>
                           ) : (
                             <div style={{ display: 'flex', gap: 12, fontSize: 12, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -890,22 +971,8 @@ const SupplementDetail: React.FC = () => {
                                     <Button size="small" icon={<PlusOutlined />} onClick={() => {
                                       setEditingSections([...editingSections, { section_name: '', rcv: 0, depreciation: 0, net_acv: 0 }]);
                                     }}>Add Section</Button>
-                                    <Button size="small" type="primary" loading={savingSections} onClick={async () => {
-                                      setSavingSections(true);
-                                      try {
-                                        await supplementService.updateInsuranceEstimate(supplement.claim_id, ver.id, {
-                                          sections_data: editingSections.length > 0 ? editingSections : undefined,
-                                          rcv_amount: editingTotals.rcv,
-                                          depreciation_amount: editingTotals.dep,
-                                          acv_amount: editingTotals.acv,
-                                          deductible: editingTotals.ded,
-                                        });
-                                        message.success('Sections saved');
-                                        setEditingSectionsVerId(null);
-                                        supplementService.listInsuranceEstimates(supplement.claim_id).then(setEstimateVersions);
-                                        queryClient.invalidateQueries({ queryKey: ['supplement', id] });
-                                      } catch { message.error('Failed to save'); } finally { setSavingSections(false); }
-                                    }}>Save</Button>
+                                    <Button size="small" type="primary" loading={savingSections}
+                                      onClick={() => saveEstimateTotals(ver.id)}>Save</Button>
                                     <Button size="small" onClick={() => setEditingSectionsVerId(null)}>Cancel</Button>
                                   </Space>
                                 </div>

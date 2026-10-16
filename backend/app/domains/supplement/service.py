@@ -90,7 +90,20 @@ class SupplementService:
                     from datetime import datetime, timezone
                     data['submitted_date'] = datetime.now(timezone.utc)
 
+            # Deductible lives on the claim — payment and income math read it from there
+            deductible = data.pop('deductible', None)
+            deductible_discount = data.pop('deductible_discount', None)
+
             result = repo.update(request_id, data)
+
+            if result and (deductible is not None or deductible_discount is not None):
+                from app.domains.client.models import Claim
+                claim = session.query(Claim).filter(Claim.id == result['claim_id']).first()
+                if claim:
+                    if deductible is not None:
+                        claim.insurance_deductible = deductible
+                    if deductible_discount is not None:
+                        claim.deductible_discount = deductible_discount
 
             # Update claim supplement status if status changed
             if result and 'status' in data:
@@ -1023,9 +1036,15 @@ class SupplementService:
             if claim:
                 item['claim_number'] = claim.claim_number
                 item['insurance_company'] = claim.insurance_company
+                item['deductible'] = float(claim.insurance_deductible or 0)
+                item['deductible_discount'] = float(claim.deductible_discount or 0)
                 client = session.query(Client).filter(Client.id == claim.client_id).first()
                 if client:
-                    item['property_address'] = client.address
+                    item['homeowner_name'] = client.display_name
+                    state_zip = ' '.join(p for p in (client.state, client.zipcode) if p)
+                    item['property_address'] = ', '.join(
+                        p for p in (client.address, client.city, state_zip) if p
+                    ) or None
 
                 # Get assigned companies by role
                 claim_companies = (

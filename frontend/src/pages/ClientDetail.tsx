@@ -482,6 +482,7 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           insurance_company: editingClaim.insurance_company,
           insurance_policy_number: editingClaim.insurance_policy_number,
           insurance_deductible: editingClaim.insurance_deductible,
+          deductible_discount: editingClaim.deductible_discount,
           adjuster_name: editingClaim.adjuster_name,
           adjuster_phone: editingClaim.adjuster_phone,
           adjuster_email: editingClaim.adjuster_email,
@@ -605,6 +606,12 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           </Col>
           <Col xs={24} sm={12}>
             <Form.Item name="insurance_deductible" label="Deductible">
+              <InputNumber prefix="$" style={{ width: '100%' }} min={0} step={100} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={12}>
+            <Form.Item name="deductible_discount" label="Deductible Discount"
+              tooltip="Part of the deductible we waived for the homeowner. Comes out of company income.">
               <InputNumber prefix="$" style={{ width: '100%' }} min={0} step={100} />
             </Form.Item>
           </Col>
@@ -1830,6 +1837,11 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                   <div>
                     <Text type="secondary" style={{ fontSize: 11 }}>Deductible</Text>
                     <div>{formatCurrency(claim.insurance_deductible)}</div>
+                    {(claim.deductible_discount || 0) > 0 && (
+                      <Text type="secondary" style={{ fontSize: 11 }}>
+                        −{formatCurrency(claim.deductible_discount)} discount
+                      </Text>
+                    )}
                   </div>
                   {claim.adjuster_name && (
                     <div>

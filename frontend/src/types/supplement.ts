@@ -35,7 +35,11 @@ export interface SupplementRequest {
   // Enriched
   claim_number?: string;
   insurance_company?: string;
+  homeowner_name?: string;
   property_address?: string;
+  deductible?: number;
+  /** Part of the deductible the company waived — comes out of company income */
+  deductible_discount?: number;
   wm_company_id?: string;
   wm_company_name?: string;
   rebuild_company_id?: string;

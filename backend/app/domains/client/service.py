@@ -775,6 +775,9 @@ class ClaimExpenseService:
             # PA fee calculation: (RCV - deductible) * pa_pct%
             pa_pct = float(claim.pa_fee_percentage or 0)
             deductible = float(claim.insurance_deductible or 0)
+            # Revenue above is insurance money only, so the waived deductible is
+            # reported beside it rather than subtracted from profit
+            deductible_discount = min(float(claim.deductible_discount or 0), deductible)
             current_rcv = float(claim.current_rcv or 0)
             pa_fee_base = max(0, current_rcv - deductible)
             pa_fee = pa_fee_base * (pa_pct / 100) if claim.has_public_adjuster and pa_pct > 0 else 0
@@ -803,6 +806,8 @@ class ClaimExpenseService:
                 "total_insurance_paid": total_paid,
                 "current_rcv": current_rcv,
                 "deductible": deductible,
+                "deductible_discount": round(deductible_discount, 2),
+                "homeowner_deductible_due": round(deductible - deductible_discount, 2),
                 "pa_fee_percentage": pa_pct,
                 "pa_fee_base": round(pa_fee_base, 2),
                 "pa_fee_amount": round(pa_fee, 2),

@@ -438,9 +438,20 @@ async def update_insurance_estimate(claim_id: str, negotiation_id: str, data: di
                 'revision_type', 'estimate_category', 'date_received', 'received_from', 'notes',
                 'sections_data',
             ]
+            deductible_changed = (
+                'deductible' in data
+                and float(data['deductible'] or 0) != float(neg.deductible or 0)
+            )
             for field in updatable_fields:
                 if field in data:
                     setattr(neg, field, data[field])
+
+            # Same rule as a new upload: the estimate's deductible becomes the claim's
+            if deductible_changed:
+                from app.domains.client.models import Claim
+                claim = session.query(Claim).filter(Claim.id == claim_id).first()
+                if claim:
+                    claim.insurance_deductible = data['deductible'] or 0
 
             session.commit()
 

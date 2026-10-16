@@ -58,6 +58,9 @@ class SupplementRequestUpdate(BaseModel):
     document_file_id: Optional[str] = None
     document_file_name: Optional[str] = None
     required_estimates: Optional[Dict[str, bool]] = None
+    # Written through to the claim (Claim.insurance_deductible), not the supplement
+    deductible: Optional[float] = None
+    deductible_discount: Optional[float] = None
 
     @validator('status')
     def validate_status(cls, v):
@@ -86,7 +89,10 @@ class SupplementRequestResponse(SupplementRequestBase):
     # Enriched fields
     claim_number: Optional[str] = None
     insurance_company: Optional[str] = None
+    homeowner_name: Optional[str] = None
     property_address: Optional[str] = None
+    deductible: Optional[float] = None
+    deductible_discount: Optional[float] = None
     wm_company_id: Optional[str] = None
     wm_company_name: Optional[str] = None
     rebuild_company_id: Optional[str] = None
