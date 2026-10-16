@@ -13,6 +13,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -147,3 +148,51 @@ class EmailIngestionLog(Base, BaseModel):
 
     # Relationships
     email_account = relationship("EmailAccount", back_populates="ingestion_logs")
+
+
+class ReceivedEmail(Base, BaseModel):
+    """Every inbound message seen by a poll, attachment or not.
+
+    EmailIngestionLog only ever held rows for PDF attachments, so a reply
+    from an adjuster with no file - most of what arrives - left no trace in
+    the app. This keeps one row per message so it can be read on the claim.
+    """
+    __tablename__ = "received_emails"
+    __table_args__ = (
+        Index(
+            "ix_received_emails_account_msgid",
+            "email_account_id", "message_id", unique=True,
+        ),
+        Index("ix_received_emails_claim_id", "matched_claim_id"),
+        Index("ix_received_emails_received_at", "received_at"),
+        {"extend_existing": True},
+    )
+
+    email_account_id = Column(
+        UUIDType(),
+        ForeignKey("email_accounts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    # Headers
+    message_id = Column(String(500), nullable=False)
+    in_reply_to = Column(String(500), nullable=True)
+    subject = Column(Text, nullable=True)
+    sender = Column(String(500), nullable=True)
+    to_addresses = Column(Text, nullable=True, comment="Raw To header")
+    cc_addresses = Column(Text, nullable=True, comment="Raw Cc header")
+    received_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Content
+    snippet = Column(String(300), nullable=True)
+    body_text = Column(Text, nullable=True)
+    body_html = Column(Text, nullable=True)
+    attachment_names = Column(JSONB, nullable=True, comment="Filenames only; PDFs go through EmailIngestionLog")
+
+    # Matching: reply_thread | claim_number | policy_number | address | name | manual
+    matched_client_id = Column(UUIDType(), ForeignKey("clients.id", ondelete="SET NULL"), nullable=True)
+    matched_claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="SET NULL"), nullable=True)
+    match_method = Column(String(100), nullable=True)
+    match_confidence = Column(Integer, nullable=True)
+
+    email_account = relationship("EmailAccount")

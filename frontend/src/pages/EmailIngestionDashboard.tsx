@@ -38,6 +38,7 @@ import { useNavigate } from 'react-router-dom';
 import { emailIngestionService } from '../services/emailIngestionService';
 import { fileService } from '../services/fileService';
 import { clientService, claimService } from '../services/clientService';
+import ReceivedInbox from '../components/claim-followup/ReceivedInbox';
 import type { IngestionLog, IngestionStats, EmailAccount } from '../types/emailIngestion';
 import type { ClientListItem, Claim } from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
@@ -71,6 +72,7 @@ const EmailIngestionDashboard: React.FC = () => {
   // large share of the log - 52 of 129 at the time of writing - which buried
   // the rows that actually need action. Clearing the filter still shows all.
   const [statusFilter, setStatusFilter] = useState<string | undefined>('pending');
+  const [activeTab, setActiveTab] = useState('inbox');
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [selectedLog, setSelectedLog] = useState<IngestionLog | null>(null);
   const [skipModalOpen, setSkipModalOpen] = useState(false);
@@ -135,9 +137,11 @@ const EmailIngestionDashboard: React.FC = () => {
     mutationFn: () => emailIngestionService.pollAll(),
     onSuccess: (result) => {
       const queued = result.total_pending ?? 0;
+      const saved = result.total_saved ?? 0;
       message.success(
-        `${queued} attachment(s) queued for review from ${result.accounts_polled} accounts`
+        `${saved} new email(s), ${queued} attachment(s) queued for review from ${result.accounts_polled} accounts`
       );
+      queryClient.invalidateQueries({ queryKey: ['received-emails'] });
       queryClient.invalidateQueries({ queryKey: ['email-ingestion-logs'] });
       queryClient.invalidateQueries({ queryKey: ['email-ingestion-stats'] });
     },
@@ -497,59 +501,82 @@ const EmailIngestionDashboard: React.FC = () => {
         </Col>
       </Row>
 
-      {/* Filters */}
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Space>
-          <Text strong>Filter:</Text>
-          <Select
-            placeholder="All statuses"
-            allowClear
-            style={{ width: 160 }}
-            value={statusFilter}
-            onChange={setStatusFilter}
-          >
-            <Select.Option value="pending">Pending</Select.Option>
-            <Select.Option value="uploaded">Uploaded</Select.Option>
-            <Select.Option value="skipped">Skipped</Select.Option>
-            <Select.Option value="failed">Failed</Select.Option>
-            <Select.Option value="duplicate">Duplicate</Select.Option>
-          </Select>
-          <Button icon={<ReloadOutlined />} onClick={() => refetchLogs()}>
-            Refresh
-          </Button>
-        </Space>
-      </Card>
-
-      {/* Logs Table */}
-      <Card>
-        <Table<EmailRow>
-          columns={columns}
-          dataSource={emailRows}
-          rowKey="key"
-          loading={logsLoading}
-          size="small"
-          pagination={{
-            pageSize: 20,
-            showSizeChanger: true,
-            showTotal: (t) => `Total: ${t} emails`,
-          }}
-          scroll={{ x: 1280 }}
-          expandable={{
-            // Only multi-attachment emails are worth expanding; a single file
-            // is already fully described by its parent row.
-            rowExpandable: (r) => r.attachments.length > 1,
-            expandedRowRender: (r) => (
-              <Table<IngestionLog>
-                columns={attachmentColumns}
-                dataSource={r.attachments}
-                rowKey="id"
-                size="small"
-                pagination={false}
-              />
+      <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        items={[
+          {
+            key: 'inbox',
+            label: 'All Emails',
+            children: (
+              <Card>
+                <ReceivedInbox />
+              </Card>
             ),
-          }}
-        />
-      </Card>
+          },
+          {
+            key: 'attachments',
+            label: 'Attachment Review',
+            children: (
+              <>
+                {/* Filters */}
+                <Card size="small" style={{ marginBottom: 16 }}>
+                  <Space>
+                    <Text strong>Filter:</Text>
+                    <Select
+                      placeholder="All statuses"
+                      allowClear
+                      style={{ width: 160 }}
+                      value={statusFilter}
+                      onChange={setStatusFilter}
+                    >
+                      <Select.Option value="pending">Pending</Select.Option>
+                      <Select.Option value="uploaded">Uploaded</Select.Option>
+                      <Select.Option value="skipped">Skipped</Select.Option>
+                      <Select.Option value="failed">Failed</Select.Option>
+                      <Select.Option value="duplicate">Duplicate</Select.Option>
+                    </Select>
+                    <Button icon={<ReloadOutlined />} onClick={() => refetchLogs()}>
+                      Refresh
+                    </Button>
+                  </Space>
+                </Card>
+
+                {/* Logs Table */}
+                <Card>
+                  <Table<EmailRow>
+                    columns={columns}
+                    dataSource={emailRows}
+                    rowKey="key"
+                    loading={logsLoading}
+                    size="small"
+                    pagination={{
+                      pageSize: 20,
+                      showSizeChanger: true,
+                      showTotal: (t) => `Total: ${t} emails`,
+                    }}
+                    scroll={{ x: 1280 }}
+                    expandable={{
+                      // Only multi-attachment emails are worth expanding; a single file
+                      // is already fully described by its parent row.
+                      rowExpandable: (r) => r.attachments.length > 1,
+                      expandedRowRender: (r) => (
+                        <Table<IngestionLog>
+                          columns={attachmentColumns}
+                          dataSource={r.attachments}
+                          rowKey="id"
+                          size="small"
+                          pagination={false}
+                        />
+                      ),
+                    }}
+                  />
+                </Card>
+              </>
+            ),
+          },
+        ]}
+      />
 
       {/* Manual Assign Modal */}
       <Modal

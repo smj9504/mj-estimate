@@ -140,6 +140,9 @@ export interface PollResult {
   skipped: number;
   duplicates: number;
   errors: number;
+  /** Every inbound message scanned / newly stored, attachment or not. */
+  emails_scanned?: number;
+  emails_saved?: number;
 }
 
 export interface BatchPollResult {
@@ -148,6 +151,7 @@ export interface BatchPollResult {
   total_processed: number;
   total_uploaded: number;
   total_pending?: number;
+  total_saved?: number;
 }
 
 export interface IngestionStats {
@@ -164,3 +168,37 @@ export const PROVIDER_PRESETS: Record<string, { imap_server: string; imap_port: 
   outlook: { imap_server: 'outlook.office365.com', imap_port: 993, use_ssl: true },
   yahoo: { imap_server: 'imap.mail.yahoo.com', imap_port: 993, use_ssl: true },
 };
+
+/** Any inbound message stored by a poll, with or without attachments. */
+export interface ReceivedEmail {
+  id: string;
+  email_account_id: string;
+  account_email?: string;
+  message_id: string;
+  in_reply_to?: string;
+  subject?: string;
+  sender?: string;
+  to_addresses?: string;
+  cc_addresses?: string;
+  received_at?: string;
+  snippet?: string;
+  attachment_names: string[];
+  matched_client_id?: string;
+  matched_claim_id?: string;
+  /** reply_thread | claim_number | policy_number | address | name | manual */
+  match_method?: string;
+  match_confidence?: number;
+  client_name?: string;
+  claim_number?: string;
+  created_at?: string;
+}
+
+export interface ReceivedEmailDetail extends ReceivedEmail {
+  body_text?: string;
+  body_html?: string;
+}
+
+export interface ReceivedEmailList {
+  items: ReceivedEmail[];
+  total: number;
+}

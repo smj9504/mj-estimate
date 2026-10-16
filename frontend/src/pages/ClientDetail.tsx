@@ -2017,9 +2017,9 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                 </div>
                 <EmailHistory claimId={claim.id} />
 
-                {/* Received emails carrying an attachment matched to this
-                    claim. Sourced from email ingestion, which stores the
-                    attachment in `files` and links it via matched_claim_id. */}
+                {/* Inbound mail matched to this claim, attachment or not -
+                    received_emails, plus the stored attachment files that
+                    email ingestion logged against the claim. */}
                 <Divider style={{ margin: '16px 0 12px' }} />
                 <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
                   <InboxOutlined style={{ marginRight: 6 }} />

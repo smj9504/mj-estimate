@@ -19,6 +19,10 @@ from app.domains.email_ingestion.schemas import (
     IngestionStatsResponse,
     ManualAssignRequest,
     PollResponse,
+    ReceivedEmailAssignRequest,
+    ReceivedEmailDetailResponse,
+    ReceivedEmailListResponse,
+    ReceivedEmailResponse,
     SkipRequest,
 )
 
@@ -155,7 +159,7 @@ async def poll_all(
     since: Optional[str] = Query(
         None, description="Backfill from this date (YYYY-MM-DD)"
     ),
-    limit: int = Query(50, le=5000, description="Max emails per account"),
+    limit: int = Query(200, le=5000, description="Max emails per account"),
 ):
     """Poll all active email accounts for new insurance estimates.
 
@@ -178,7 +182,7 @@ async def poll_account(
     since: Optional[str] = Query(
         None, description="Backfill from this date (YYYY-MM-DD)"
     ),
-    limit: int = Query(50, le=5000, description="Max emails to scan"),
+    limit: int = Query(200, le=5000, description="Max emails to scan"),
 ):
     """Poll a specific email account"""
     service = _get_service()
@@ -254,3 +258,46 @@ async def skip_log(log_id: str, data: SkipRequest):
     except Exception as e:
         logger.error(f"Error skipping log {log_id}: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ============================================================
+# Received emails (all inbound mail, attachment or not)
+# ============================================================
+
+@router.get("/received", response_model=ReceivedEmailListResponse)
+async def list_received_emails(
+    claim_id: Optional[str] = Query(None, description="Only emails linked to this claim"),
+    account_id: Optional[str] = Query(None, description="Filter by account"),
+    unmatched: bool = Query(False, description="Only emails not linked to a claim"),
+    search: Optional[str] = Query(None, description="Subject / sender / snippet contains"),
+    limit: int = Query(50, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """List received emails, newest first (bodies omitted)."""
+    service = _get_service()
+    return service.get_received_emails(
+        claim_id=claim_id, account_id=account_id, unmatched=unmatched,
+        search=search, limit=limit, offset=offset,
+    )
+
+
+@router.get("/received/{email_id}", response_model=ReceivedEmailDetailResponse)
+async def get_received_email(email_id: str):
+    """One received email with its body."""
+    service = _get_service()
+    email = service.get_received_email(email_id)
+    if not email:
+        raise HTTPException(status_code=404, detail="Received email not found")
+    return email
+
+
+@router.post("/received/{email_id}/assign", response_model=ReceivedEmailResponse)
+async def assign_received_email(email_id: str, data: ReceivedEmailAssignRequest):
+    """Link a received email to a claim, or unlink it (claim_id null)."""
+    service = _get_service()
+    try:
+        return service.assign_received_email(
+            email_id, str(data.claim_id) if data.claim_id else None
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))

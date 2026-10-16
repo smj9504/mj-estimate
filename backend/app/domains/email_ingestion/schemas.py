@@ -169,6 +169,9 @@ class PollResponse(BaseModel):
     skipped: int
     duplicates: int
     errors: int
+    # All inbound messages scanned / newly stored in received_emails
+    emails_scanned: int = 0
+    emails_saved: int = 0
 
 
 class BatchPollResponse(BaseModel):
@@ -177,6 +180,7 @@ class BatchPollResponse(BaseModel):
     total_processed: int
     total_uploaded: int
     total_pending: int = 0
+    total_saved: int = 0
 
 
 class IngestionStatsResponse(BaseModel):
@@ -186,3 +190,44 @@ class IngestionStatsResponse(BaseModel):
     skipped: int
     failed: int
     duplicates: int
+
+
+# ============================================================
+# Received email schemas (all inbound mail)
+# ============================================================
+
+class ReceivedEmailResponse(BaseModel):
+    id: UUID
+    email_account_id: UUID
+    account_email: Optional[str] = None
+    message_id: str
+    in_reply_to: Optional[str] = None
+    subject: Optional[str] = None
+    sender: Optional[str] = None
+    to_addresses: Optional[str] = None
+    cc_addresses: Optional[str] = None
+    received_at: Optional[datetime] = None
+    snippet: Optional[str] = None
+    attachment_names: List[str] = []
+    matched_client_id: Optional[UUID] = None
+    matched_claim_id: Optional[UUID] = None
+    match_method: Optional[str] = None
+    match_confidence: Optional[int] = None
+    client_name: Optional[str] = None
+    claim_number: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class ReceivedEmailDetailResponse(ReceivedEmailResponse):
+    body_text: Optional[str] = None
+    body_html: Optional[str] = None
+
+
+class ReceivedEmailListResponse(BaseModel):
+    items: List[ReceivedEmailResponse]
+    total: int
+
+
+class ReceivedEmailAssignRequest(BaseModel):
+    # None unlinks the email from its claim
+    claim_id: Optional[UUID] = None

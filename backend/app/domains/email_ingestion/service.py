@@ -112,6 +112,64 @@ def _is_own_sent_attachment(attachment, sent_index) -> bool:
     return bool(name and name in sent_names)
 
 
+# Message-IDs inside In-Reply-To / References headers.
+_MESSAGE_ID_PATTERN = re.compile(r"<[^<>\s]+>")
+
+# Marketing HTML runs to hundreds of KB; nothing past this is worth keeping.
+_MAX_BODY_CHARS = 200_000
+
+
+def _html_to_text(html: Optional[str]) -> str:
+    """Rough plain text from an HTML-only body, for matching and snippets."""
+    if not html:
+        return ""
+    import html as html_lib
+
+    text = re.sub(r"(?is)<(script|style|head)\b.*?</\1>", " ", html)
+    text = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</tr>", "\n", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html_lib.unescape(text)
+    text = re.sub(r"[ \t\r\f\v]+", " ", text)
+    return re.sub(r"\n\s*\n+", "\n\n", text).strip()
+
+
+def _snippet(text: str, length: int = 280) -> Optional[str]:
+    collapsed = " ".join((text or "").split())
+    return collapsed[:length] or None
+
+
+def _cap(value: Optional[str], max_chars: int) -> Optional[str]:
+    if not value:
+        return None
+    # Postgres text cannot hold NUL bytes, which some mailers emit.
+    return value.replace("\x00", "")[:max_chars]
+
+
+def _received_email_dict(row, include_body: bool) -> Dict[str, Any]:
+    data = {
+        "id": str(row.id),
+        "email_account_id": str(row.email_account_id),
+        "message_id": row.message_id,
+        "in_reply_to": row.in_reply_to,
+        "subject": row.subject,
+        "sender": row.sender,
+        "to_addresses": row.to_addresses,
+        "cc_addresses": row.cc_addresses,
+        "received_at": row.received_at,
+        "snippet": row.snippet,
+        "attachment_names": row.attachment_names or [],
+        "matched_client_id": str(row.matched_client_id) if row.matched_client_id else None,
+        "matched_claim_id": str(row.matched_claim_id) if row.matched_claim_id else None,
+        "match_method": row.match_method,
+        "match_confidence": row.match_confidence,
+        "created_at": row.created_at,
+    }
+    if include_body:
+        data["body_text"] = row.body_text
+        data["body_html"] = row.body_html
+    return data
+
+
 def _get_fernet() -> Fernet:
     """Get Fernet instance for password encryption/decryption"""
     key = _ENCRYPTION_KEY or settings.SECRET_KEY[:32].ljust(32, "=")
@@ -481,17 +539,22 @@ class EmailIngestionService:
             # Connect to IMAP
             imap = self._build_imap_client(account, session)
 
-            # Fetch unseen emails with attachments
-            emails = imap.fetch_unseen_with_attachments(
+            # Every message, with or without attachments: all of them are
+            # kept in received_emails, and the ones carrying files also go
+            # through the PDF pipeline below.
+            all_emails = imap.fetch_emails(
                 since_date=since_date or account.get("last_synced_at"),
                 limit=limit,
                 unseen_only=unseen_only,
             )
+            emails = [e for e in all_emails if e.attachments]
 
             stats = {
                 "account_id": account_id,
                 "account_email": account["email_address"],
                 "emails_found": len(emails),
+                "emails_scanned": len(all_emails),
+                "emails_saved": 0,
                 "processed": 0,
                 "uploaded": 0,
                 "pending": 0,
@@ -504,6 +567,17 @@ class EmailIngestionService:
             # attachment scanned the whole sent_emails JSONB column for every
             # PDF, which dropped the Neon connection partway through a poll.
             sent_index = _load_sent_attachment_index(session)
+
+            for fetched_email in all_emails:
+                try:
+                    if self._save_received_email(session, account_id, fetched_email):
+                        stats["emails_saved"] += 1
+                except Exception as e:
+                    session.rollback()
+                    logger.error(
+                        f"Error saving received email {fetched_email.message_id}: {e}"
+                    )
+                    stats["errors"] += 1
 
             for fetched_email in emails:
                 # A bounce is our own outbound mail coming back; skip the
@@ -601,6 +675,7 @@ class EmailIngestionService:
         total_processed = 0
         total_uploaded = 0
         total_pending = 0
+        total_saved = 0
 
         for account in accounts:
             try:
@@ -614,6 +689,7 @@ class EmailIngestionService:
                 total_processed += result["processed"]
                 total_uploaded += result["uploaded"]
                 total_pending += result.get("pending", 0)
+                total_saved += result.get("emails_saved", 0)
             except Exception as e:
                 logger.error(f"Error polling account {account['email_address']}: {e}")
                 results.append({
@@ -634,7 +710,200 @@ class EmailIngestionService:
             "total_processed": total_processed,
             "total_uploaded": total_uploaded,
             "total_pending": total_pending,
+            "total_saved": total_saved,
         }
+
+    # ============================================================
+    # Received emails (all inbound mail)
+    # ============================================================
+
+    def _save_received_email(self, session, account_id: str, fetched_email) -> bool:
+        """Store one inbound message. False if it was already stored."""
+        from app.domains.email_ingestion.models import ReceivedEmail
+
+        exists = session.query(ReceivedEmail.id).filter(
+            ReceivedEmail.email_account_id == account_id,
+            ReceivedEmail.message_id == fetched_email.message_id[:500],
+        ).first()
+        if exists:
+            return False
+
+        text = fetched_email.body_text or _html_to_text(fetched_email.body_html)
+        client_id, claim_id, method, confidence = self._match_received_email(
+            session, fetched_email, text
+        )
+
+        session.add(ReceivedEmail(
+            email_account_id=account_id,
+            message_id=fetched_email.message_id[:500],
+            in_reply_to=(fetched_email.in_reply_to or "")[:500] or None,
+            subject=_cap(fetched_email.subject, 2000),
+            sender=(fetched_email.sender or "")[:500] or None,
+            to_addresses=_cap(fetched_email.to, 5000),
+            cc_addresses=_cap(fetched_email.cc, 5000),
+            received_at=fetched_email.received_at,
+            snippet=_snippet(text),
+            body_text=_cap(fetched_email.body_text, _MAX_BODY_CHARS),
+            body_html=_cap(fetched_email.body_html, _MAX_BODY_CHARS),
+            attachment_names=[a.filename for a in fetched_email.attachments] or None,
+            matched_client_id=client_id,
+            matched_claim_id=claim_id,
+            match_method=method,
+            match_confidence=confidence,
+        ))
+        session.commit()
+        return True
+
+    def _match_received_email(
+        self, session, fetched_email, text: str
+    ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[int]]:
+        """(client_id, claim_id, method, confidence) for an inbound message.
+
+        A reply in a thread we started is the strongest signal - the claim is
+        whatever our outbound mail (or an earlier stored message in the same
+        thread) belonged to. Otherwise fall back to the attachment matcher's
+        text rules over subject + body.
+        """
+        from app.domains.claim_followup.models import SentEmail
+        from app.domains.client.models import Claim
+        from app.domains.email_ingestion.matcher import match_email_to_client
+        from app.domains.email_ingestion.models import ReceivedEmail
+
+        thread_ids = _MESSAGE_ID_PATTERN.findall(
+            f"{fetched_email.in_reply_to} {fetched_email.references}"
+        )
+        if thread_ids:
+            claim_id = None
+            sent = session.query(SentEmail.claim_id).filter(
+                SentEmail.smtp_message_id.in_(thread_ids)
+            ).first()
+            if sent:
+                claim_id = sent[0]
+            else:
+                earlier = session.query(ReceivedEmail.matched_claim_id).filter(
+                    ReceivedEmail.message_id.in_(thread_ids),
+                    ReceivedEmail.matched_claim_id.isnot(None),
+                ).first()
+                if earlier:
+                    claim_id = earlier[0]
+            if claim_id:
+                claim = session.query(Claim).filter(Claim.id == claim_id).first()
+                if claim:
+                    return str(claim.client_id), str(claim.id), "reply_thread", 95
+
+        email_text = f"Subject: {fetched_email.subject}\n{text}"
+        result = match_email_to_client(
+            session, email_text, "", sender=fetched_email.sender
+        )
+        if not result.client_id:
+            return None, None, None, None
+        return result.client_id, result.claim_id, result.method, result.confidence
+
+    def get_received_emails(
+        self,
+        claim_id: Optional[str] = None,
+        account_id: Optional[str] = None,
+        unmatched: bool = False,
+        search: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """List stored inbound mail, newest first. Bodies are left out."""
+        from sqlalchemy import or_
+
+        from app.domains.client.models import Claim, Client
+        from app.domains.email_ingestion.models import EmailAccount, ReceivedEmail
+
+        session = self._get_readonly_session()
+        try:
+            query = session.query(ReceivedEmail)
+            if claim_id:
+                query = query.filter(ReceivedEmail.matched_claim_id == claim_id)
+            if account_id:
+                query = query.filter(ReceivedEmail.email_account_id == account_id)
+            if unmatched:
+                query = query.filter(ReceivedEmail.matched_claim_id.is_(None))
+            if search and search.strip():
+                like = f"%{search.strip()}%"
+                query = query.filter(or_(
+                    ReceivedEmail.subject.ilike(like),
+                    ReceivedEmail.sender.ilike(like),
+                    ReceivedEmail.snippet.ilike(like),
+                ))
+
+            total = query.count()
+            rows = query.order_by(
+                ReceivedEmail.received_at.desc().nullslast()
+            ).offset(offset).limit(limit).all()
+
+            claim_ids = {r.matched_claim_id for r in rows if r.matched_claim_id}
+            client_ids = {r.matched_client_id for r in rows if r.matched_client_id}
+            account_ids = {r.email_account_id for r in rows}
+            claims = {
+                c.id: c for c in session.query(Claim).filter(Claim.id.in_(claim_ids))
+            } if claim_ids else {}
+            clients = {
+                c.id: c for c in session.query(Client).filter(Client.id.in_(client_ids))
+            } if client_ids else {}
+            accounts = {
+                a.id: a for a in session.query(EmailAccount).filter(EmailAccount.id.in_(account_ids))
+            } if account_ids else {}
+
+            items = []
+            for r in rows:
+                item = _received_email_dict(r, include_body=False)
+                claim = claims.get(r.matched_claim_id)
+                client = clients.get(r.matched_client_id)
+                acc = accounts.get(r.email_account_id)
+                item["claim_number"] = claim.claim_number if claim else None
+                item["client_name"] = client.display_name if client else None
+                item["account_email"] = acc.email_address if acc else None
+                items.append(item)
+            return {"items": items, "total": total}
+        finally:
+            session.close()
+
+    def get_received_email(self, email_id: str) -> Optional[Dict[str, Any]]:
+        """One stored inbound message, body included."""
+        from app.domains.email_ingestion.models import ReceivedEmail
+
+        session = self._get_readonly_session()
+        try:
+            row = session.query(ReceivedEmail).filter(ReceivedEmail.id == email_id).first()
+            return _received_email_dict(row, include_body=True) if row else None
+        finally:
+            session.close()
+
+    def assign_received_email(self, email_id: str, claim_id: Optional[str]) -> Dict[str, Any]:
+        """Link an inbound message to a claim by hand, or unlink it (None)."""
+        from app.domains.client.models import Claim
+        from app.domains.email_ingestion.models import ReceivedEmail
+
+        session = self._get_session()
+        try:
+            row = session.query(ReceivedEmail).filter(ReceivedEmail.id == email_id).first()
+            if not row:
+                raise ValueError(f"Received email {email_id} not found")
+            if claim_id:
+                claim = session.query(Claim).filter(Claim.id == claim_id).first()
+                if not claim:
+                    raise ValueError(f"Claim {claim_id} not found")
+                row.matched_claim_id = claim.id
+                row.matched_client_id = claim.client_id
+                row.match_method = "manual"
+                row.match_confidence = 100
+            else:
+                row.matched_claim_id = None
+                row.matched_client_id = None
+                row.match_method = None
+                row.match_confidence = None
+            session.commit()
+            return _received_email_dict(row, include_body=False)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     def _process_attachment(
         self,

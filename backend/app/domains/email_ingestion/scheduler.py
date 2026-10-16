@@ -1,7 +1,8 @@
 """
 Email ingestion polling scheduler.
 
-Polls all active email accounts once daily, matching attachments to
+Polls all active email accounts once daily, storing every inbound message
+(received_emails) and matching attachments to
 claims by claim number/address and queueing them for review (dedup via
 message-id + attachment hash is handled in EmailIngestionService).
 The poll never creates claims or estimate revisions on its own - matched
@@ -27,7 +28,11 @@ def _sync_poll_all_accounts() -> dict:
     """Run the synchronous IMAP poll (called in thread pool)."""
     from app.domains.email_ingestion.service import EmailIngestionService
     service = EmailIngestionService()
-    return service.poll_all_accounts()
+    # Every inbound message is stored now, not only ones with attachments, so
+    # a day's mail easily passes the old 50. Only the newest `limit` since the
+    # last sync are fetched and last_synced_at then moves on, so anything past
+    # the cap would be skipped for good.
+    return service.poll_all_accounts(limit=500)
 
 
 async def poll_email_accounts_job():

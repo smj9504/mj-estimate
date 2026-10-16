@@ -15,6 +15,9 @@ import type {
   IngestionStats,
   ManualAssignRequest,
   SkipRequest,
+  ReceivedEmail,
+  ReceivedEmailDetail,
+  ReceivedEmailList,
 } from '../types/emailIngestion';
 
 const BASE = '/api/email-ingestion';
@@ -113,5 +116,32 @@ export const emailIngestionService = {
   async skipLog(logId: string, payload: SkipRequest) {
     const { data } = await api.post(`${BASE}/logs/${logId}/skip`, payload);
     return data as IngestionLog;
+  },
+
+  // ============================================================
+  // Received emails (all inbound mail)
+  // ============================================================
+
+  async listReceived(params?: {
+    claim_id?: string;
+    account_id?: string;
+    unmatched?: boolean;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    const { data } = await api.get(`${BASE}/received`, { params });
+    return data as ReceivedEmailList;
+  },
+
+  async getReceived(id: string) {
+    const { data } = await api.get(`${BASE}/received/${id}`);
+    return data as ReceivedEmailDetail;
+  },
+
+  /** Link to a claim, or pass null to unlink. */
+  async assignReceived(id: string, claimId: string | null) {
+    const { data } = await api.post(`${BASE}/received/${id}/assign`, { claim_id: claimId });
+    return data as ReceivedEmail;
   },
 };

@@ -41,6 +41,8 @@ class FetchedEmail:
     attachments: List[EmailAttachment] = field(default_factory=list)
     in_reply_to: str = ""
     references: str = ""
+    to: str = ""
+    cc: str = ""
 
     @property
     def pdf_attachments(self) -> List[EmailAttachment]:
@@ -223,8 +225,20 @@ class IMAPClient:
         limit: int = 50,
         unseen_only: bool = False,
     ) -> List[FetchedEmail]:
+        """Fetch emails that have attachments (see fetch_emails)."""
+        return [
+            e for e in self.fetch_emails(since_date, limit, unseen_only)
+            if e.attachments
+        ]
+
+    def fetch_emails(
+        self,
+        since_date: Optional[datetime] = None,
+        limit: int = 50,
+        unseen_only: bool = False,
+    ) -> List[FetchedEmail]:
         """
-        Fetch emails that have attachments.
+        Fetch INBOX emails, with or without attachments.
 
         By default this scans regardless of the \\Seen flag: whether someone
         happened to open a message in Gmail says nothing about whether its
@@ -265,7 +279,7 @@ class IMAPClient:
             for msg_id in ids:
                 try:
                     fetched = self._fetch_single(msg_id)
-                    if fetched and fetched.attachments:
+                    if fetched:
                         results.append(fetched)
                 except Exception as e:
                     logger.warning(f"Failed to fetch email {msg_id}: {e}")
@@ -281,7 +295,10 @@ class IMAPClient:
 
     def _fetch_single(self, msg_id: bytes) -> Optional[FetchedEmail]:
         """Fetch a single email by its IMAP sequence ID"""
-        status, data = self._connection.fetch(msg_id, "(RFC822)")
+        # BODY.PEEK[] rather than RFC822: RFC822 sets \Seen, and now that
+        # every message is fetched (not just ones with attachments) a poll
+        # would mark the whole inbox read in Gmail.
+        status, data = self._connection.fetch(msg_id, "(BODY.PEEK[])")
         if status != "OK" or not data or not data[0]:
             return None
 
@@ -309,6 +326,8 @@ class IMAPClient:
 
         in_reply_to = msg.get("In-Reply-To", "").strip()
         references = msg.get("References", "").strip()
+        to = _decode_header_value(msg.get("To", ""))
+        cc = _decode_header_value(msg.get("Cc", ""))
 
         text_body, html_body = _extract_body(msg)
         attachments = _extract_attachments(msg)
@@ -323,6 +342,8 @@ class IMAPClient:
             attachments=attachments,
             in_reply_to=in_reply_to,
             references=references,
+            to=to,
+            cc=cc,
         )
 
     def _fetch_headers_only(self, msg_id: bytes) -> Optional[FetchedEmail]:
