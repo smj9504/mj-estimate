@@ -331,6 +331,7 @@ _NEEDED_COLUMNS = [
     ("wm_floor_sketches", "storage_provider", "VARCHAR(50)"),
     ("wm_floor_sketches", "background_image_data", "BYTEA"),
     ("wm_floor_sketches", "background_image_content_type", "VARCHAR(100)"),
+    ("wm_floor_sketches", "pdf_include_background", "BOOLEAN NOT NULL DEFAULT TRUE"),
     ("contract_templates", "storage_file_id", "VARCHAR(500)"),
     ("invoices", "client_id", "UUID"),
     ("invoices", "claim_id", "UUID"),

@@ -778,6 +778,8 @@ export interface WMFloorSketch {
   sketch_id?: string;
   /** Present when source_type === 'image' */
   background_image_url?: string;
+  /** Image mode only: show the imported image under the drawing in the sketch PDF */
+  pdf_include_background?: boolean;
   /** Canvas width in pixels */
   canvas_width: number;
   /** Canvas height in pixels */
@@ -815,6 +817,7 @@ export interface WMFloorSketchUpdate {
   floor_order?: number;
   address_display?: string;
   source_type?: FloorPlanSourceType;
+  pdf_include_background?: boolean;
   canvas_width?: number;
   canvas_height?: number;
   scale_pixels_per_foot?: number;

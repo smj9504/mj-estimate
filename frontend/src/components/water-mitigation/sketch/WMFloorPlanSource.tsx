@@ -34,6 +34,7 @@ import {
   CloudDownloadOutlined,
   DragOutlined,
   MoreOutlined,
+  FilePdfOutlined,
 } from '@ant-design/icons';
 import type { FloorPlanSourceType } from '../../../types/wmSketch';
 import { useImageImport } from './hooks/useImageImport';
@@ -66,6 +67,9 @@ export interface WMFloorPlanSourceProps {
   onCropImage?: () => void;
   bgMoveMode?: boolean;
   onBgMoveModeChange?: (enabled: boolean) => void;
+  /** Image mode: whether the sketch PDF shows the imported image under the drawing */
+  includeImageInPdf?: boolean;
+  onIncludeImageInPdfChange?: (include: boolean) => void;
 }
 
 // ============================================================================
@@ -128,6 +132,8 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
   onCropImage,
   bgMoveMode,
   onBgMoveModeChange,
+  includeImageInPdf = true,
+  onIncludeImageInPdfChange,
 }) => {
   const {
     fileInputRef,
@@ -181,6 +187,25 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
           ]}
           size="small"
         />
+
+        {/* PDF background switch — Image mode only; Draw mode never puts the image in the PDF */}
+        {sourceType === 'image' && hasImage && onIncludeImageInPdfChange && (
+          <Tooltip
+            title={includeImageInPdf
+              ? 'The PDF shows this image under the drawing. Click to leave it out.'
+              : 'The PDF shows only the drawing. Click to include the image.'}
+          >
+            <Button
+              size="small"
+              type={includeImageInPdf ? 'default' : 'primary'}
+              ghost={!includeImageInPdf}
+              icon={<FilePdfOutlined />}
+              onClick={() => onIncludeImageInPdfChange(!includeImageInPdf)}
+            >
+              <span className="wm-fps-btn-label">{includeImageInPdf ? 'Image in PDF' : 'Image not in PDF'}</span>
+            </Button>
+          </Tooltip>
+        )}
 
         {/* Expand toggle for additional controls */}
         <Tooltip title={expanded ? 'Hide floor plan controls' : 'Show floor plan controls'}>

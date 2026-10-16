@@ -520,7 +520,26 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
     [activeFloorId]
   );
 
-  const handleGeneratePdf =useCallback(async (templateVariant: string = 'a') => {
+  const handlePdfIncludeBackgroundChanged = useCallback(
+    async (include: boolean) => {
+      if (!activeFloorId) return;
+      const floorId = activeFloorId;
+      const setInclude = (value: boolean) =>
+        setFloors((prev) =>
+          prev.map((f) => (f.id === floorId ? { ...f, pdf_include_background: value } : f))
+        );
+      setInclude(include);
+      try {
+        await wmSketchService.updateFloorSketch(floorId, { pdf_include_background: include });
+      } catch {
+        setInclude(!include);
+        message.error('Failed to save the PDF image setting.');
+      }
+    },
+    [activeFloorId]
+  );
+
+  const handleGeneratePdf = useCallback(async (templateVariant: string = 'a') => {
     setPdfGenerating(true);
     try {
       const address = jobAddress.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 40);
@@ -766,6 +785,7 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
             onImageRemoved={handleImageRemoved}
             onScaleChanged={handleScaleChanged}
             onSourceTypeChanged={handleSourceTypeChanged}
+            onPdfIncludeBackgroundChanged={handlePdfIncludeBackgroundChanged}
             onImportFromMagicPlan={handleOpenMagicPlanModal}
             isMagicPlanImporting={mpImporting}
             jobId={jobId}

@@ -343,6 +343,7 @@ class WMFloorSketchUpdate(PydanticBaseModel):
     floor_order: Optional[int] = None
     address_display: Optional[str] = Field(None, max_length=500)
     source_type: Optional[str] = Field(None, max_length=20)
+    pdf_include_background: Optional[bool] = None
     canvas_width: Optional[int] = None
     canvas_height: Optional[int] = None
     scale_pixels_per_foot: Optional[float] = None
@@ -359,6 +360,7 @@ class WMFloorSketchResponse(PydanticBaseModel):
     source_type: str
     sketch_id: Optional[UUID]
     background_image_url: Optional[str]
+    pdf_include_background: bool = True
     canvas_width: int
     canvas_height: int
     scale_pixels_per_foot: float
@@ -384,6 +386,7 @@ class WMFloorSketchDetailResponse(PydanticBaseModel):
     source_type: str
     sketch_id: Optional[UUID]
     background_image_url: Optional[str]
+    pdf_include_background: bool = True
     canvas_width: int
     canvas_height: int
     scale_pixels_per_foot: float

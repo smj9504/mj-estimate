@@ -146,6 +146,8 @@ export interface WMFloorSketchEditorProps {
   onScaleChanged?: (scalePixelsPerFoot: number) => void;
   /** Persist the Image / Draw toggle — the PDF only shows the imported image in Image mode */
   onSourceTypeChanged?: (sourceType: FloorPlanSourceType) => void;
+  /** Persist whether the PDF shows the imported image (Image mode only) */
+  onPdfIncludeBackgroundChanged?: (include: boolean) => void;
   onImportFromMagicPlan?: () => void;
   isMagicPlanImporting?: boolean;
   /** Job ID — enables the optional floating reference-photo viewer (job photos, e.g. CompanyCam) */
@@ -539,6 +541,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   onImageRemoved,
   onScaleChanged,
   onSourceTypeChanged,
+  onPdfIncludeBackgroundChanged,
   onImportFromMagicPlan,
   isMagicPlanImporting,
   jobId,
@@ -3393,6 +3396,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         onCropImage={backgroundImageUrl ? handleCropExistingImage : undefined}
         bgMoveMode={bgMoveMode}
         onBgMoveModeChange={backgroundImageUrl ? setBgMoveMode : undefined}
+        includeImageInPdf={floorSketch.pdf_include_background !== false}
+        onIncludeImageInPdfChange={onPdfIncludeBackgroundChanged}
       />
 
       {/* Toolbar */}

@@ -914,12 +914,16 @@ class SketchPdfService:
             canvas_w, canvas_h, scale,
         )
 
-        # Background image — shown only in Image mode. In Draw mode the
-        # imported image is just a tracing reference the user can hide, so
-        # the report shows the drawn floor plan on its own.
+        # Background image — shown only in Image mode, and only while the
+        # floor's "include in PDF" switch is on. In Draw mode the imported
+        # image is just a tracing reference the user can hide, so the report
+        # shows the drawn floor plan on its own.
         has_bg_image = False
         bg_result = None
-        if getattr(floor, "source_type", "image") != "sketch":
+        if (
+            getattr(floor, "source_type", "image") != "sketch"
+            and getattr(floor, "pdf_include_background", True) is not False
+        ):
             try:
                 bg_result = self._load_background_image_data_uri(floor)
             except DocumentResourceError:

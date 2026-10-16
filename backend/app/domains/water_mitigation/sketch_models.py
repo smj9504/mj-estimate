@@ -17,6 +17,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import deferred, relationship
@@ -72,6 +73,11 @@ class WMFloorSketch(Base, BaseModel):
     # queries don't pull megabytes of image data they never use.
     background_image_data = deferred(Column(LargeBinary, nullable=True))
     background_image_content_type = Column(String(100), nullable=True)
+    # Image mode only: whether the sketch PDF shows the imported image under
+    # the drawing. Draw mode never shows it.
+    pdf_include_background = Column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
 
     # Canvas configuration
     canvas_width = Column(Integer, default=1200, nullable=False)

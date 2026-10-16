@@ -60,10 +60,13 @@ def test_background_memory_refusal_fails_report_instead_of_dropping_image(monkey
         SketchPdfService(None)._generate_floor_svg(floor)
 
 
-@pytest.mark.parametrize('source_type, embedded', [('image', True), ('sketch', False)])
-def test_background_is_left_out_in_draw_mode(source_type, embedded):
+@pytest.mark.parametrize('source_type, include, embedded', [
+    ('image', True, True), ('image', False, False), ('sketch', True, False),
+])
+def test_background_is_left_out_in_draw_mode_or_when_switched_off(source_type, include, embedded):
     floor = background(Image.new('RGB', (400, 300), 'gray'), 'PNG')
     floor.floor_label, floor.source_type = '1st Floor', source_type
+    floor.pdf_include_background = include
     floor.canvas_width, floor.canvas_height, floor.scale_pixels_per_foot = 1200, 900, 20
     floor.overlay_data = {}
     svg = SketchPdfService(None)._generate_floor_svg(floor)

@@ -106,6 +106,7 @@ def _build_detail_response(sketch: WMFloorSketch) -> WMFloorSketchDetailResponse
         source_type=sketch.source_type,
         sketch_id=sketch.sketch_id,
         background_image_url=sketch.background_image_url,
+        pdf_include_background=sketch.pdf_include_background is not False,
         canvas_width=sketch.canvas_width,
         canvas_height=sketch.canvas_height,
         scale_pixels_per_foot=sketch.scale_pixels_per_foot,
