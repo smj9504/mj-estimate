@@ -28,8 +28,8 @@ import {
   EyeOutlined,
   EditOutlined,
   HolderOutlined,
-  DollarOutlined,
 } from '@ant-design/icons';
+import { PageHeader } from '../components/common/ui';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import SortableSection from '../components/common/SortableSection';
 import SectionItemsTable from '../components/estimate/SectionItemsTable';
@@ -1460,65 +1460,55 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   }
 
   return (
-    <div style={{ padding: isMobile ? '12px' : '24px', maxWidth: '1200px', margin: '0 auto', paddingBottom: isMobile ? 84 : undefined }}>
-      <div
-        style={{
-          marginBottom: isMobile ? 16 : 24,
-          display: 'flex',
-          flexDirection: isMobile ? 'column' : 'row',
-          justifyContent: 'space-between',
-          alignItems: isMobile ? 'stretch' : 'center',
-          gap: isMobile ? 12 : 0,
-        }}
-      >
-        <Title level={isMobile ? 3 : 2} style={{ margin: 0 }}>
-          {isEditMode ? 'Edit Estimate' : 'Create New Estimate'}
-        </Title>
-        <Space wrap={!isMobile} direction={isMobile ? 'vertical' : 'horizontal'} style={isMobile ? { width: '100%' } : undefined}>
-          <div style={{ display: 'flex', gap: 8, width: isMobile ? '100%' : undefined }}>
+    <div style={{ maxWidth: 1200, margin: '0 auto', paddingBottom: isMobile ? 84 : undefined }}>
+      <PageHeader
+        title={isEditMode ? 'Edit Estimate' : 'Create New Estimate'}
+        actions={
+          <>
             <Select
               value={pdfTemplateType}
               onChange={setPdfTemplateType}
-              style={{ width: isMobile ? '100%' : 150, flex: isMobile ? 1 : undefined }}
+              style={{ width: 132 }}
+              aria-label="PDF template"
               options={[
                 { value: 'invoice', label: 'Standard' },
                 { value: 'estimate', label: 'Enhanced' }
               ]}
             />
-            <Button onClick={() => navigate('/documents/estimate')} style={isMobile ? { flexShrink: 0 } : undefined}>
+            <Checkbox
+              checked={includeSignature}
+              onChange={(e) => setIncludeSignature(e.target.checked)}
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              Include Signature Area
+            </Checkbox>
+            <Button onClick={() => navigate('/documents/estimate')}>
               Cancel
             </Button>
-          </div>
-          <Checkbox
-            checked={includeSignature}
-            onChange={(e) => setIncludeSignature(e.target.checked)}
-          >
-            Include Signature Area
-          </Checkbox>
-          {!isMobile && (
-            <>
-              <Button
-                type="primary"
-                icon={<EyeOutlined />}
-                onClick={handlePreviewPDF}
-                loading={isPreviewing}
-                disabled={isSaving || isDataLoading}
-              >
-                Preview PDF
-              </Button>
-              <Button
-                type="primary"
-                icon={<SaveOutlined />}
-                onClick={handleSave}
-                loading={isSaving}
-                disabled={isPreviewing || isDataLoading}
-              >
-                {isEditMode ? 'Update' : 'Save'} Estimate
-              </Button>
-            </>
-          )}
-        </Space>
-      </div>
+            {!isMobile && (
+              <>
+                <Button
+                  icon={<EyeOutlined />}
+                  onClick={handlePreviewPDF}
+                  loading={isPreviewing}
+                  disabled={isSaving || isDataLoading}
+                >
+                  Preview PDF
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<SaveOutlined />}
+                  onClick={handleSave}
+                  loading={isSaving}
+                  disabled={isPreviewing || isDataLoading}
+                >
+                  {isEditMode ? 'Update' : 'Save'} Estimate
+                </Button>
+              </>
+            )}
+          </>
+        }
+      />
 
       {isMobile && (
         <div
@@ -1532,9 +1522,10 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
             gap: 8,
             padding: '10px 12px',
             paddingBottom: 'calc(10px + env(safe-area-inset-bottom, 0px))',
-            background: '#fff',
-            borderTop: '1px solid #d9d9d9',
-            boxShadow: '0 -4px 12px rgba(0, 0, 0, 0.15)',
+            background: 'rgba(255, 255, 255, 0.94)',
+            backdropFilter: 'saturate(180%) blur(8px)',
+            WebkitBackdropFilter: 'saturate(180%) blur(8px)',
+            borderTop: '1px solid #e9e9e7',
           }}
         >
           <Button
@@ -1560,10 +1551,10 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       )}
 
       <Form form={form} layout="vertical" initialValues={{ estimate_date: dayjs(), status: 'draft' }}>
-        <Row gutter={[24, 24]}>
+        <Row gutter={[0, 0]}>
           {/* Estimate Details */}
           <Col xs={24}>
-            <Card title="Estimate Details" style={{ marginBottom: 24 }}>
+            <Card title="Estimate Details" className="ui-sheet-card" style={{ marginBottom: 36 }}>
               <Form.Item 
                 label="Select Company" 
                 style={{ marginBottom: 16 }}
@@ -1612,7 +1603,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
           {/* Client Information */}
           <Col xs={24}>
-            <Card title="Client Information" style={{ marginBottom: 24 }}>
+            <Card title="Client Information" className="ui-sheet-card" style={{ marginBottom: 36 }}>
               <Row gutter={16}>
                 {/* Client Name, Email, Phone in one row */}
                 <Col xs={24} md={8}>
@@ -1681,7 +1672,8 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                     />
                   </div>
                 }
-                style={{ marginBottom: 24 }}
+                className="ui-sheet-card"
+                style={{ marginBottom: 36 }}
               >
                 <Row gutter={16}>
                   <Col xs={24} md={6}>
@@ -1714,22 +1706,15 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                 </Row>
               </Card>
             ) : (
-              <div
-                style={{
-                  border: '1px solid #d9d9d9',
-                  borderRadius: '6px',
-                  marginBottom: 24,
-                  backgroundColor: '#fafafa',
-                }}
-              >
+              <div style={{ marginBottom: 36 }}>
                 <div
                   style={{
-                    padding: '16px 24px',
-                    borderBottom: 'none',
+                    paddingBottom: 6,
+                    borderBottom: '1px solid #e9e9e7',
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    fontWeight: 500,
+                    fontWeight: 600,
                     fontSize: '16px',
                   }}
                 >
@@ -1747,7 +1732,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
           {/* Section Management */}
           <Col xs={24}>
-            <Card title="Estimate Sections" style={{ marginBottom: 24 }}>
+            <Card title="Estimate Sections" className="ui-sheet-card" style={{ marginBottom: 36 }}>
               {/* Add New Section */}
               <Row gutter={16} style={{ marginBottom: 16 }}>
                 <Col flex="auto">
@@ -1767,7 +1752,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
               {/* Sections List */}
               {sections.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#8c8c8c' }}>
+                <div style={{ textAlign: 'center', padding: '40px', color: '#73726e' }}>
                   <Title level={4} type="secondary">No sections added yet</Title>
                   <p>Add sections to organize your estimate items by room or category</p>
                 </div>
@@ -1807,7 +1792,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                           <div>
                             {/* Section Items */}
                             {section.items.length === 0 ? (
-                              <div style={{ textAlign: 'center', padding: '20px', color: '#8c8c8c' }}>
+                              <div style={{ textAlign: 'center', padding: '20px', color: '#73726e' }}>
                                 <p>No items in this section yet</p>
                                 <Button type="dashed" icon={<PlusOutlined />} onClick={() => addItemToSection(sectionIndex)}>
                                   Add First Item
@@ -1819,7 +1804,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                 onKeyDown={(e) => handleDeleteKeyPress(e, sectionIndex)}
                                 style={{ outline: 'none' }}
                               >
-                                <div style={{ marginBottom: '8px', fontSize: '12px', color: '#8c8c8c' }}>
+                                <div style={{ marginBottom: '8px', fontSize: '12px', color: '#73726e' }}>
                                   <Space>
                                     <span>Double-click row or use Edit button to edit</span>
                                     <Divider type="vertical" />
@@ -1853,7 +1838,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                       <div
                         style={{
                           backgroundColor: 'white',
-                          border: '1px solid #d9d9d9',
+                          border: '1px solid #dfdfdc',
                           borderRadius: '6px',
                           padding: '12px 16px',
                           boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
@@ -1862,7 +1847,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                           opacity: 0.9,
                         }}
                       >
-                        <HolderOutlined style={{ marginRight: 8, color: '#8c8c8c' }} />
+                        <HolderOutlined style={{ marginRight: 8, color: '#73726e' }} />
                         <strong>
                           {sections.find(s => s.id === activeId)?.title || 'Section'}
                         </strong>
@@ -1883,7 +1868,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                               <div
                                 style={{
                                   backgroundColor: 'white',
-                                  border: '1px solid #d9d9d9',
+                                  border: '1px solid #dfdfdc',
                                   borderRadius: '6px',
                                   padding: '8px 12px',
                                   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
@@ -1895,10 +1880,10 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                   gap: '8px',
                                 }}
                               >
-                                <HolderOutlined style={{ color: '#8c8c8c', fontSize: '12px' }} />
+                                <HolderOutlined style={{ color: '#73726e', fontSize: '12px' }} />
                                 <span style={{ fontWeight: '500' }}>{item.name || 'Item'}</span>
-                                <span style={{ color: '#8c8c8c' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
-                                <span style={{ color: '#1890ff', marginLeft: 'auto' }}>{formatCurrency(item.total || 0)}</span>
+                                <span style={{ color: '#73726e' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
+                                <span style={{ color: '#37352f', fontWeight: 500, marginLeft: 'auto' }}>{formatCurrency(item.total || 0)}</span>
                               </div>
                             );
                           }
@@ -1916,11 +1901,12 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
           <Col xs={24}>
             <Card
               title="O&P, Tax & Totals"
-              style={{ marginBottom: 24 }}
+              className="ui-sheet-card"
+              style={{ marginBottom: 36 }}
               extra={
                 <Tooltip title="Lump sum document: hides qty/unit/rate/amount for all items and shows a single total you enter directly, instead of the calculated total">
                   <Space onClick={(e) => e.stopPropagation()}>
-                    <span style={{ fontSize: 12, color: '#8c8c8c' }}>Lump Sum Document</span>
+                    <span style={{ fontSize: 12, color: '#73726e' }}>Lump Sum Document</span>
                     <Switch
                       checked={isLumpSumDocument}
                       onChange={setIsLumpSumDocument}
@@ -1943,8 +1929,8 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                         parser={value => value!.replace(/\$\s?|(,*)/g, '') as any}
                       />
                     </Form.Item>
-                    <div style={{ textAlign: 'right', fontSize: '20px', color: '#1890ff' }}>
-                      <strong>Total: {formatCurrency(calculateGrandTotal.total)}</strong>
+                    <div style={{ textAlign: 'right', fontSize: '18px', fontWeight: 600, color: '#37352f' }}>
+                      Total: {formatCurrency(calculateGrandTotal.total)}
                     </div>
                   </Col>
                 </Row>
@@ -1959,7 +1945,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                           <div>
                             <span style={{ fontWeight: 'bold' }}>Adjustments</span>
                             <Tooltip title="Add custom adjustments (e.g., Holiday Premium, Discount, O&P) that are applied in order to the subtotal">
-                              <span style={{ marginLeft: '8px', color: '#8c8c8c', fontSize: '12px', cursor: 'help' }}>ℹ️</span>
+                              <span style={{ marginLeft: '8px', color: '#73726e', fontSize: '12px', cursor: 'help' }}>ℹ️</span>
                             </Tooltip>
                           </div>
                           <Button
@@ -1984,7 +1970,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                           </div>
                         )}
                         {adjustments.length === 0 && (
-                          <div style={{ padding: '8px 0', color: '#8c8c8c', fontSize: '12px' }}>
+                          <div style={{ padding: '8px 0', color: '#73726e', fontSize: '12px' }}>
                             No adjustments. Use legacy O&P field below, or add custom adjustments above.
                           </div>
                         )}
@@ -1994,9 +1980,9 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                             <div key={adj.id} style={{
                               marginBottom: 12,
                               padding: 12,
-                              border: '1px solid #f0f0f0',
+                              border: '1px solid #e9e9e7',
                               borderRadius: 4,
-                              background: '#fafafa'
+                              background: '#f7f7f5'
                             }}>
                               <Row gutter={[8, 8]} align="middle">
                                 <Col xs={18} sm={6}>
@@ -2191,8 +2177,8 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                       </div>
                     )}
                     <Divider style={{ margin: '8px 0' }} />
-                    <div style={{ fontSize: '20px', color: '#1890ff' }}>
-                      <strong>Total: {formatCurrency(calculateGrandTotal.total)}</strong>
+                    <div style={{ fontSize: '18px', fontWeight: 600, color: '#37352f' }}>
+                      Total: {formatCurrency(calculateGrandTotal.total)}
                     </div>
                   </div>
                 </Col>
@@ -2204,13 +2190,9 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
           {/* Payment Schedule */}
           <Col xs={24}>
             <Card
-              title={
-                <Space>
-                  <DollarOutlined />
-                  Payment Schedule
-                </Space>
-              }
-              style={{ marginBottom: 24 }}
+              title="Payment Schedule"
+              className="ui-sheet-card"
+              style={{ marginBottom: 36 }}
               extra={
                 <Button
                   type="dashed"
@@ -2234,7 +2216,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
               }
             >
               {paymentSchedule.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '16px 0', color: '#8c8c8c' }}>
+                <div style={{ textAlign: 'center', padding: '16px 0', color: '#73726e' }}>
                   No payment schedule defined. Click "Add Payment" to create milestones.
                 </div>
               ) : (
@@ -2303,7 +2285,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                         </Col>
                         <Col xs={4} sm={3} style={{ textAlign: 'right' }}>
                           <Space size={4}>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: '#1890ff' }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: '#37352f' }}>
                               {formatCurrency(computedAmount)}
                             </span>
                             <Button
@@ -2331,13 +2313,13 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                     }, 0);
                     const diff = calculateGrandTotal.total - scheduleTotal;
                     return (
-                      <div style={{ marginTop: 8, padding: '8px 12px', background: '#fafafa', borderRadius: 6 }}>
+                      <div style={{ marginTop: 8, padding: '8px 12px', background: '#f7f7f5', borderRadius: 6 }}>
                         <Row justify="space-between">
                           <span>Schedule Total:</span>
                           <strong>{formatCurrency(scheduleTotal)}</strong>
                         </Row>
                         {Math.abs(diff) > 0.01 && (
-                          <Row justify="space-between" style={{ color: diff > 0 ? '#faad14' : '#ff4d4f' }}>
+                          <Row justify="space-between" style={{ color: diff > 0 ? '#cb912f' : '#d44c47' }}>
                             <span>{diff > 0 ? 'Remaining:' : 'Over:'}</span>
                             <strong>{formatCurrency(Math.abs(diff))}</strong>
                           </Row>
@@ -2352,7 +2334,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
           {/* Notes and Terms */}
           <Col xs={24}>
-            <Card title="Notes & Terms" style={{ marginBottom: 24 }}>
+            <Card title="Notes & Terms" className="ui-sheet-card" style={{ marginBottom: 36 }}>
               <Row gutter={16}>
                 <Col xs={24} md={12}>
                   <Form.Item name="notes" label="Notes">

@@ -68,9 +68,9 @@ const getDaysRemaining = (trashedAt: string): number => {
 
 /** Get color for remaining days badge */
 const getDaysRemainingColor = (days: number): string => {
-  if (days <= 3) return '#ff4d4f';
-  if (days <= 7) return '#fa8c16';
-  return '#8c8c8c';
+  if (days <= 3) return '#d44c47';
+  if (days <= 7) return '#d9730d';
+  return '#73726e';
 };
 
 const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId, isActive }) => {
@@ -167,7 +167,7 @@ const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId
 
     Modal.confirm({
       title: 'Restore Photos',
-      icon: <UndoOutlined style={{ color: '#52c41a' }} />,
+      icon: <UndoOutlined style={{ color: '#448361' }} />,
       content: `Are you sure you want to restore ${selectedPhotos.size} photo(s)?`,
       okText: 'Restore',
       okType: 'primary',
@@ -187,11 +187,11 @@ const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId
 
     Modal.confirm({
       title: 'Permanently Delete Photos',
-      icon: <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />,
+      icon: <ExclamationCircleOutlined style={{ color: '#d44c47' }} />,
       content: (
         <div>
           <p>Are you sure you want to permanently delete {selectedPhotos.size} photo(s)?</p>
-          <p style={{ color: '#ff4d4f', fontWeight: 'bold' }}>
+          <p style={{ color: '#d44c47', fontWeight: 'bold' }}>
             This action cannot be undone!
           </p>
         </div>
@@ -277,7 +277,7 @@ const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId
       <Card size="small" className="compact-card-sm" style={{ marginBottom: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Space>
-            <DeleteOutlined style={{ color: '#ff4d4f' }} />
+            <DeleteOutlined style={{ color: '#d44c47' }} />
             <Title level={5} style={{ margin: 0 }}>
               Trash ({trashedPhotos.length} photos)
             </Title>
@@ -343,7 +343,7 @@ const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId
                   size="small"
                   className="compact-card-sm"
                   style={{
-                    border: selectedPhotos.has(photo.id) ? '2px solid #1890ff' : undefined,
+                    border: selectedPhotos.has(photo.id) ? '2px solid #1f74c9' : undefined,
                     opacity: 0.85
                   }}
                   cover={
@@ -351,7 +351,7 @@ const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId
                       style={{
                         position: 'relative',
                         paddingTop: '100%',
-                        backgroundColor: '#f0f0f0',
+                        backgroundColor: '#e9e9e7',
                         cursor: 'pointer'
                       }}
                       onClick={() => toggleSelection(photo.id)}
@@ -368,12 +368,12 @@ const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId
                             flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            color: '#bfbfbf',
+                            color: '#a5a29a',
                             gap: 4,
                           }}
                         >
                           <PictureOutlined style={{ fontSize: 28 }} />
-                          <Text style={{ fontSize: 10, color: '#bfbfbf' }}>Unavailable</Text>
+                          <Text style={{ fontSize: 10, color: '#a5a29a' }}>Unavailable</Text>
                         </div>
                       ) : (
                         // NOTE: no `fallback` prop here — rc-image runs its own

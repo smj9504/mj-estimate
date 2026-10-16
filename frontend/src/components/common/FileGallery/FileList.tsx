@@ -141,30 +141,30 @@ const FileList: React.FC<FileListProps> = ({
     const contentType = file.contentType || file.mimeType || '';
 
     if (contentType.startsWith('image/')) {
-      return <PictureOutlined style={{ fontSize: 24, color: '#52c41a' }} />;
+      return <PictureOutlined style={{ fontSize: 24, color: '#448361' }} />;
     }
 
     if (contentType === 'application/pdf') {
-      return <FilePdfOutlined style={{ fontSize: 24, color: '#ff4d4f' }} />;
+      return <FilePdfOutlined style={{ fontSize: 24, color: '#d44c47' }} />;
     }
 
     if (contentType.includes('word') || contentType.includes('document')) {
-      return <FileWordOutlined style={{ fontSize: 24, color: '#1890ff' }} />;
+      return <FileWordOutlined style={{ fontSize: 24, color: '#1f74c9' }} />;
     }
 
     if (contentType.includes('excel') || contentType.includes('spreadsheet')) {
-      return <FileExcelOutlined style={{ fontSize: 24, color: '#52c41a' }} />;
+      return <FileExcelOutlined style={{ fontSize: 24, color: '#448361' }} />;
     }
 
     if (contentType.includes('powerpoint') || contentType.includes('presentation')) {
-      return <FilePptOutlined style={{ fontSize: 24, color: '#fa8c16' }} />;
+      return <FilePptOutlined style={{ fontSize: 24, color: '#d9730d' }} />;
     }
 
     if (contentType.startsWith('text/')) {
-      return <FileTextOutlined style={{ fontSize: 24, color: '#722ed1' }} />;
+      return <FileTextOutlined style={{ fontSize: 24, color: '#9065b0' }} />;
     }
 
-    return <FileOutlined style={{ fontSize: 24, color: '#8c8c8c' }} />;
+    return <FileOutlined style={{ fontSize: 24, color: '#73726e' }} />;
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -264,7 +264,7 @@ const FileList: React.FC<FileListProps> = ({
         size={listLayout === 'detailed' ? 64 : 40}
         icon={getFileIcon(file)}
         shape="square"
-        style={{ backgroundColor: '#f5f5f5' }}
+        style={{ backgroundColor: '#f7f7f5' }}
       />
     );
 
@@ -334,8 +334,8 @@ const FileList: React.FC<FileListProps> = ({
         key={file.id}
         actions={actions}
         style={{
-          backgroundColor: isSelected ? '#e6f7ff' : 'transparent',
-          borderLeft: isSelected ? '3px solid #1890ff' : 'none',
+          backgroundColor: isSelected ? '#e7f3f8' : 'transparent',
+          borderLeft: isSelected ? '3px solid #1f74c9' : 'none',
           padding: listLayout === 'detailed' ? '16px' : '12px',
           cursor: 'pointer',
           transition: 'background-color 0.15s ease, border-left 0.15s ease' // Smooth visual feedback
@@ -360,7 +360,7 @@ const FileList: React.FC<FileListProps> = ({
         style={{
           backgroundColor: 'white',
           borderRadius: 8,
-          border: '1px solid #f0f0f0'
+          border: '1px solid #e9e9e7'
         }}
       />
 

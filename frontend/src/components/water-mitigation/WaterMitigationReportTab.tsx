@@ -879,13 +879,13 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     <div style={{ minHeight: isMobile ? 'auto' : 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
       <div style={{
-        padding: isMobile ? '12px' : '16px 24px',
-        borderBottom: '1px solid #f0f0f0',
+        padding: '0 0 12px',
+        borderBottom: '1px solid #e9e9e7',
         background: '#fff'
       }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-          <Title level={isMobile ? 5 : 3} style={{ margin: 0, marginRight: 'auto', width: isMobile ? '100%' : 'auto' }}>
-            <FileTextOutlined /> Photo Report Builder
+          <Title level={4} style={{ margin: 0, marginRight: 'auto', width: isMobile ? '100%' : 'auto', fontSize: 16 }}>
+            Photo Report Builder
           </Title>
 
           {/* Primary actions */}
@@ -953,14 +953,16 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
             }}
             trigger={['click']}
           >
-            <Button size={isMobile ? 'small' : 'middle'} icon={<DownOutlined />}>More</Button>
+            <Button size={isMobile ? 'small' : 'middle'}>
+              More <DownOutlined style={{ fontSize: 10 }} />
+            </Button>
           </Dropdown>
 
           {/* Format + Date — compact row */}
           <Select
             value={pdfTemplateVariant}
             onChange={(val) => setPdfTemplateVariant(val)}
-            style={{ width: 95 }}
+            style={{ width: 116 }}
             size={isMobile ? 'small' : 'middle'}
           >
             <Select.Option value="a">Format A</Select.Option>
@@ -984,7 +986,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
       <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', overflow: isMobile ? 'visible' : 'hidden' }}>
         {/* Section Navigation - Sidebar on desktop, dropdown on mobile */}
         {isMobile ? (
-          <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0', background: '#fafafa', display: 'flex', gap: 8 }}>
+          <div style={{ padding: '10px 0', borderBottom: '1px solid #e9e9e7', background: '#fff', display: 'flex', gap: 8 }}>
             <Select
               value={selectedSectionId || 'cover'}
               onChange={(value) => setSelectedSectionId(value)}
@@ -992,20 +994,20 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
               style={{ flex: 1 }}
               size="small"
             />
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleAddSection} size="small">
+            <Button icon={<PlusOutlined />} onClick={handleAddSection} size="small">
               Add
             </Button>
           </div>
         ) : (
           <div style={{
             width: 250,
-            borderRight: '1px solid #f0f0f0',
-            background: '#fafafa',
+            borderRight: '1px solid #e9e9e7',
+            background: '#f7f7f5',
             display: 'flex',
             flexDirection: 'column'
           }}>
-            <div style={{ padding: 16, borderBottom: '1px solid #f0f0f0' }}>
-              <Button type="primary" icon={<PlusOutlined />} onClick={handleAddSection} block>
+            <div style={{ padding: '10px 8px 6px' }}>
+              <Button type="text" icon={<PlusOutlined />} onClick={handleAddSection} block style={{ justifyContent: 'flex-start', color: '#5f5e5b' }}>
                 New Section
               </Button>
             </div>
@@ -1062,7 +1064,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
 
               {/* Global Layout Setting */}
               {sections.length > 0 && (
-                <div style={{ marginTop: 24, padding: 16, background: '#f6f8fa', borderRadius: 8, border: '1px solid #e8e8e8' }}>
+                <div style={{ marginTop: 24, padding: 16, background: '#f7f7f5', borderRadius: 8, border: '1px solid #e9e9e7' }}>
                   <Title level={5} style={{ margin: 0, marginBottom: 12 }}>
                     <LayoutOutlined /> Photos per Page (All Sections)
                   </Title>
@@ -1096,7 +1098,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
           ) : currentSection ? (
             <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
               {/* Section Header */}
-              <div style={{ padding: isMobile ? 12 : 24, borderBottom: '1px solid #f0f0f0' }}>
+              <div style={{ padding: isMobile ? 12 : 24, borderBottom: '1px solid #e9e9e7' }}>
                 <Row justify="space-between" align="middle" gutter={[8, 8]}>
                   <Col flex="auto">
                     {editingSectionTitle ? (
@@ -1124,7 +1126,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                         }}
                       >
                         {currentSection.title}
-                        <EditOutlined style={{ marginLeft: 8, fontSize: 16, color: '#8c8c8c' }} />
+                        <EditOutlined style={{ marginLeft: 8, fontSize: 16, color: '#73726e' }} />
                       </Title>
                     )}
                     <Text type="secondary">{currentSection.photos.length} Photos</Text>
@@ -1217,7 +1219,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                             hoverable
                             styles={{ body: { padding: 8 } }}
                             cover={
-                              <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', background: '#fafafa' }}>
+                              <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', background: '#f7f7f5' }}>
                                 <Image
                                   src={photo.thumbnail_url || `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photo.id}/preview?size=thumbnail`}
                                   alt={photo.caption || 'Photo'}
@@ -1266,7 +1268,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                               >
                                 {Object.entries(AI_CATEGORY_LABELS).map(([key, label]) => (
                                   <Select.Option key={key} value={key}>
-                                    <span style={{ color: AI_CATEGORY_COLORS[key] || '#1890ff', fontSize: 11 }}>
+                                    <span style={{ color: AI_CATEGORY_COLORS[key] || '#1f74c9', fontSize: 11 }}>
                                       {label}
                                     </span>
                                   </Select.Option>
@@ -1285,7 +1287,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                                 onClick={(e) => e.stopPropagation()}
                               />
                               {photo.taken_date && (
-                                <div style={{ color: '#8c8c8c', fontSize: 10 }}>
+                                <div style={{ color: '#73726e', fontSize: 10 }}>
                                   {formatDatePdfStyle(photo.taken_date)}
                                 </div>
                               )}
@@ -1396,7 +1398,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
           ))}
         </Select>
         {selectedTemplateId && (
-          <div style={{ marginTop: 16, padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
+          <div style={{ marginTop: 16, padding: 12, background: '#f7f7f5', borderRadius: 4 }}>
             <Text type="secondary">
               <strong>Note:</strong> This will replace all current sections with the template sections.
               Photos will need to be added to each section after applying the template.

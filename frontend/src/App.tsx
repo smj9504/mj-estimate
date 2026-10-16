@@ -13,6 +13,8 @@ import Layout from './components/common/Layout';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import { useNetworkStatus } from './hooks/useNetworkStatus';
 import 'antd/dist/reset.css';
+// After the antd reset so its body rules don't win
+import './styles/notion.css';
 
 // =====================================================
 // LAZY LOADED PAGES (Code Splitting)

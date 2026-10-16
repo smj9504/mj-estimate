@@ -16,7 +16,6 @@ import {
   Select,
   message,
   Collapse,
-  Tag,
   Tooltip,
   Typography,
   Popconfirm,
@@ -26,7 +25,6 @@ import {
   Col,
   Empty,
   Spin,
-  Badge,
   Alert,
   Grid
 } from 'antd';
@@ -35,7 +33,6 @@ import {
   DeleteOutlined,
   EditOutlined,
   CalculatorOutlined,
-  EnvironmentOutlined,
   ToolOutlined,
   AppstoreAddOutlined,
   ReloadOutlined,
@@ -45,6 +42,7 @@ import {
   DollarOutlined
 } from '@ant-design/icons';
 import waterMitigationService from '../../services/waterMitigationService';
+import { Pill, humanize, type TagTone } from '../common/ui';
 import type {
   ScopeLocation,
   ScopeLocationCreate,
@@ -552,13 +550,12 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     }
   };
 
-  // Item type color
-  const getItemTypeColor = (type: string) => {
+  // Item type tone: standard is the default case, so it stays grey
+  const getItemTypeTone = (type: string): TagTone => {
     switch (type) {
-      case 'standard': return 'blue';
       case 'demolition': return 'orange';
-      case 'custom': return 'green';
-      default: return 'default';
+      case 'custom': return 'purple';
+      default: return 'gray';
     }
   };
 
@@ -570,7 +567,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       key: 'item_type',
       width: 100,
       render: (type: string) => (
-        <Tag color={getItemTypeColor(type)}>{type.toUpperCase()}</Tag>
+        <Pill tone={getItemTypeTone(type)}>{humanize(type)}</Pill>
       )
     },
     {
@@ -579,7 +576,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       key: 'name',
       render: (name: string, record: ScopeItem) => (
         <Space direction="vertical" size={0}>
-          <Text strong>{name}</Text>
+          <Text style={{ fontWeight: 500 }}>{name}</Text>
           {record.material_weight && (
             <Text type="secondary" style={{ fontSize: '12px' }}>
               {record.material_weight.material_type} ({record.material_weight.dry_weight_per_unit} lb/{record.material_weight.unit})
@@ -587,9 +584,9 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
           )}
           {record.line_item && (
             <Tooltip title={`Rate: $${record.line_item.untaxed_unit_price?.toFixed(2) || '0.00'}/${record.line_item.unit || 'EA'}`}>
-              <Tag color="green" style={{ fontSize: '11px', marginTop: 2 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
                 <DollarOutlined /> {record.line_item.description.substring(0, 30)}{record.line_item.description.length > 30 ? '...' : ''}
-              </Tag>
+              </Text>
             </Tooltip>
           )}
         </Space>
@@ -655,9 +652,9 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       key: 'include_in_debris',
       width: 80,
       render: (include: boolean) => include ? (
-        <CheckCircleOutlined style={{ color: '#52c41a' }} />
+        <CheckCircleOutlined style={{ color: '#448361' }} />
       ) : (
-        <span style={{ color: '#bfbfbf' }}>—</span>
+        <span style={{ color: '#a5a29a' }}>—</span>
       )
     },
     {
@@ -665,11 +662,14 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       key: 'actions',
       width: 100,
       render: (_: any, record: ScopeItem) => (
-        <Space>
+        <Space size={0}>
           <Button
             type="text"
+            size="small"
+            className="ui-icon-btn"
             icon={<EditOutlined />}
             onClick={() => handleEditItem(record)}
+            aria-label="Edit item"
           />
           <Popconfirm
             title="Delete this item?"
@@ -677,12 +677,37 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
             okText="Yes"
             cancelText="No"
           >
-            <Button type="text" danger icon={<DeleteOutlined />} />
+            <Button type="text" size="small" className="ui-icon-btn ui-icon-btn--danger" icon={<DeleteOutlined />} aria-label="Delete item" />
           </Popconfirm>
         </Space>
       )
     }
   ];
+
+  // Phones: one row per item, same cells as the table
+  const renderMobileItems = (items: ScopeItem[]) => {
+    const cell = (key: string, item: ScopeItem) => {
+      const col: any = itemColumns.find(c => c.key === key);
+      return col.render(col.dataIndex ? (item as any)[col.dataIndex] : undefined, item);
+    };
+    return (
+      <div className="ui-row-list" style={{ margin: 0 }}>
+        {items.map(item => (
+          <div key={item.id} className="ui-row" style={{ cursor: 'default', padding: '10px 0' }}>
+            <div className="ui-row-body">
+              {cell('name', item)}
+              <div className="ui-row-meta" style={{ marginTop: 4 }}>
+                {cell('item_type', item)}
+                {cell('quantity', item)}
+                {item.include_in_debris && <span>Debris</span>}
+              </div>
+            </div>
+            {cell('actions', item)}
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   // Render location panel header
   const renderLocationHeader = (location: ScopeLocation) => {
@@ -693,41 +718,41 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     const partiallyInvoiced = invoicedCount > 0 && invoicedCount < totalItems;
 
     return (
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', width: '100%', flexWrap: 'wrap', gap: 4 }}>
-        <Space wrap size={4}>
-          <EnvironmentOutlined />
-          <Text strong>{location.name}</Text>
-          {location.floor && <Tag>{location.floor}</Tag>}
-          {location.room_type && <Tag color="blue">{location.room_type}</Tag>}
-          <Badge count={totalItems} style={{ backgroundColor: '#1890ff' }} />
-          {allInvoiced && (
-            <Tag color="purple">
-              <CheckCircleOutlined /> Invoiced
-            </Tag>
-          )}
-          {partiallyInvoiced && (
-            <Tag color="orange">
-              <CheckCircleOutlined /> {invoicedCount}/{totalItems}
-            </Tag>
-          )}
-        </Space>
-        <Space onClick={(e) => e.stopPropagation()} size={4}>
-          <Button
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => handleEditLocation(location)}
-          >
-            {isMobile ? '' : 'Edit'}
-          </Button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%', gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <Text style={{ fontWeight: 600, fontSize: 15 }}>{location.name}</Text>
+            {allInvoiced && (
+              <Pill tone="purple" icon={<CheckCircleOutlined />}>Invoiced</Pill>
+            )}
+            {partiallyInvoiced && (
+              <Tooltip title={`${invoicedCount} of ${totalItems} items invoiced`}>
+                <Pill tone="orange" icon={<CheckCircleOutlined />}>{invoicedCount}/{totalItems}</Pill>
+              </Tooltip>
+            )}
+          </div>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            {[location.floor, location.room_type, `${totalItems} ${totalItems === 1 ? 'item' : 'items'}`].filter(Boolean).join(' · ')}
+          </Text>
+        </div>
+        <Space onClick={(e) => e.stopPropagation()} size={0} style={{ flexShrink: 0 }}>
+          <Tooltip title="Edit">
+            <Button
+              type="text"
+              size="small"
+              className="ui-icon-btn"
+              icon={<EditOutlined />}
+              onClick={() => handleEditLocation(location)}
+              aria-label="Edit location"
+            />
+          </Tooltip>
           <Popconfirm
             title="Delete this location and all items?"
             onConfirm={() => handleDeleteLocation(location.id)}
             okText="Yes"
             cancelText="No"
           >
-            <Button size="small" danger icon={<DeleteOutlined />}>
-              {isMobile ? '' : 'Delete'}
-            </Button>
+            <Button type="text" size="small" className="ui-icon-btn ui-icon-btn--danger" icon={<DeleteOutlined />} aria-label="Delete location" />
           </Popconfirm>
         </Space>
       </div>
@@ -746,13 +771,12 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     <div className="wm-scope-tab">
       {/* Scope of Work Section */}
       <Card
-        className="compact-card"
-        style={{ marginBottom: 16 }}
+        className="ui-sheet-card"
+        style={{ marginBottom: 32 }}
         title={
-          <Space size={4} wrap>
-            <ToolOutlined />
+          <Space size={8} wrap>
             <span>Scope of Work</span>
-            <Tag>{locations.length} Location(s)</Tag>
+            <Text type="secondary" style={{ fontWeight: 400, fontSize: 13 }}>{locations.length} Location(s)</Text>
           </Space>
         }
         extra={
@@ -774,9 +798,11 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                 okButtonProps={{ danger: true }}
               >
                 <Button
-                  danger
+                  type="text"
+                  className="ui-icon-btn ui-icon-btn--danger"
                   icon={<DeleteOutlined />}
-                  size={isMobile ? 'small' : 'middle'}
+                  size="middle"
+                  aria-label="Delete All"
                 >
                   {isMobile ? '' : 'Delete All'}
                 </Button>
@@ -786,7 +812,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
               type="primary"
               icon={<PlusOutlined />}
               onClick={handleAddLocation}
-              size={isMobile ? 'small' : 'middle'}
+              size="middle"
             >
               {isMobile ? 'Add' : 'Add Location'}
             </Button>
@@ -806,6 +832,8 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
         ) : (
           <Collapse
             accordion
+            ghost
+            className="ui-collapse-rows"
             defaultActiveKey={locations[0]?.id}
             items={locations.map((location) => ({
               key: location.id,
@@ -820,39 +848,37 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                     />
                   )}
 
-                  <Space style={{ marginBottom: 16 }} wrap size={isMobile ? 4 : 8}>
+                  <Space style={{ marginBottom: 12 }} wrap size={6}>
                     <Button
-                      type="primary"
                       icon={<AppstoreAddOutlined />}
                       onClick={() => handleAddFromStandard(location.id)}
-                      size={isMobile ? 'small' : 'middle'}
+                      size="small"
                     >
                       {isMobile ? 'Templates' : 'From Templates'}
                     </Button>
                     <Button
                       icon={<PlusOutlined />}
                       onClick={() => handleAddItem(location.id, 'custom' as ScopeItemType)}
-                      size={isMobile ? 'small' : 'middle'}
+                      size="small"
                     >
                       Custom
                     </Button>
                     <Button
                       icon={<ToolOutlined />}
                       onClick={() => handleAddItem(location.id, 'demolition' as ScopeItemType)}
-                      size={isMobile ? 'small' : 'middle'}
+                      size="small"
                     >
                       Demolition
                     </Button>
                   </Space>
 
                   {location.scope_items && location.scope_items.length > 0 ? (
-                    <Table
+                    isMobile ? renderMobileItems(location.scope_items) : <Table
                       dataSource={location.scope_items}
                       columns={itemColumns}
                       rowKey="id"
                       pagination={false}
                       size="small"
-                      scroll={isMobile ? { x: 600 } : undefined}
                     />
                   ) : (
                     <Empty
@@ -870,6 +896,8 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       {/* Debris Calculation Summary */}
       {debrisCalculation && (
         <Collapse
+          ghost
+          className="ui-collapse-rows"
           defaultActiveKey={['debris-calc']}
           style={{ marginBottom: 16 }}
           items={[
@@ -877,19 +905,16 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
               key: 'debris-calc',
               label: (
                 <Space size={4} wrap>
-                  <CalculatorOutlined />
-                  <Text strong>{isMobile ? 'Debris' : 'Debris Calculation Summary'}</Text>
-                  <Tag color="blue">{debrisCalculation.total_weight_ton.toFixed(2)} tons</Tag>
-                  {!isMobile && debrisCalculation.bag_count && (
-                    <Tag color="green">
-                      ~{debrisCalculation.bag_count} bags (42-gal)
-                    </Tag>
-                  )}
-                  {!isMobile && debrisCalculation.dumpster_recommendation && (
-                    <Tag color="orange">
-                      {debrisCalculation.dumpster_recommendation.count}x {debrisCalculation.dumpster_recommendation.size}
-                    </Tag>
-                  )}
+                  <Text style={{ fontWeight: 600, fontSize: 15 }}>{isMobile ? 'Debris' : 'Debris Calculation Summary'}</Text>
+                  <Text type="secondary" style={{ fontSize: 13 }}>
+                    {[
+                      `${debrisCalculation.total_weight_ton.toFixed(2)} tons`,
+                      !isMobile && debrisCalculation.bag_count ? `~${debrisCalculation.bag_count} bags (42-gal)` : null,
+                      !isMobile && debrisCalculation.dumpster_recommendation
+                        ? `${debrisCalculation.dumpster_recommendation.count}x ${debrisCalculation.dumpster_recommendation.size}`
+                        : null,
+                    ].filter(Boolean).join(' · ')}
+                  </Text>
                 </Space>
               ),
               extra: (
@@ -997,7 +1022,6 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       {!debrisCalculation && locations.some(l => l.scope_items?.some(i => i.include_in_debris)) && (
         <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Button
-            type="primary"
             icon={<CalculatorOutlined />}
             onClick={handleCalculateDebris}
             loading={calculatingDebris}
@@ -1005,7 +1029,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
             Calculate Debris
           </Button>
           <Tooltip title="Debris 계산을 먼저 실행해야 Invoice Configuration을 진행할 수 있습니다.">
-            <QuestionCircleOutlined style={{ color: '#1890ff', cursor: 'help' }} />
+            <QuestionCircleOutlined style={{ color: '#a5a29a', cursor: 'help' }} />
           </Tooltip>
         </div>
       )}
@@ -1144,7 +1168,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
 
                       return Object.entries(grouped).map(([categoryName, items]) => (
                         <div key={categoryName} style={{ marginBottom: 16 }}>
-                          <Text strong style={{ display: 'block', marginBottom: 8, color: '#1890ff' }}>
+                          <Text strong style={{ display: 'block', marginBottom: 8, color: '#1f74c9' }}>
                             {categoryName}
                           </Text>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -1160,7 +1184,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                                     padding: '8px 12px',
                                     textAlign: 'left',
                                     whiteSpace: 'normal',
-                                    borderColor: isSelected ? '#1890ff' : undefined
+                                    borderColor: isSelected ? '#1f74c9' : undefined
                                   }}
                                 >
                                   <div>
@@ -1168,13 +1192,10 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                                       {isSelected && <CheckCircleOutlined style={{ marginRight: 4 }} />}
                                       {item.name}
                                     </div>
-                                    <div style={{ fontSize: 11, color: isSelected ? 'rgba(255,255,255,0.85)' : '#888' }}>
-                                      <Tag
-                                        color={getItemTypeColor(item.item_type)}
-                                        style={{ marginRight: 4, fontSize: 10 }}
-                                      >
-                                        {item.item_type}
-                                      </Tag>
+                                    <div style={{ fontSize: 11, color: isSelected ? 'rgba(255,255,255,0.85)' : '#73726e' }}>
+                                      <Pill tone={getItemTypeTone(item.item_type)} style={{ marginRight: 4 }}>
+                                        {humanize(item.item_type)}
+                                      </Pill>
                                       {item.unit}
                                     </div>
                                   </div>
@@ -1195,7 +1216,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                       size="small"
                       title={
                         <Space>
-                          <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                          <CheckCircleOutlined style={{ color: '#448361' }} />
                           <span>Selected Items ({selectedTemplateItems.size})</span>
                         </Space>
                       }
@@ -1220,7 +1241,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                               alignItems: 'center',
                               justifyContent: 'space-between',
                               padding: '8px',
-                              background: '#fafafa',
+                              background: '#f7f7f5',
                               borderRadius: 4
                             }}
                           >
@@ -1340,7 +1361,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
               <Space>
                 Quantity
                 <Tooltip title="Enter a number or formula (e.g., 10*12+5*8)">
-                  <CalculatorOutlined style={{ color: '#1890ff' }} />
+                  <CalculatorOutlined style={{ color: '#1f74c9' }} />
                 </Tooltip>
               </Space>
             }
@@ -1435,7 +1456,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                     <Space>
                       Material Type
                       <Tooltip title="Select the material type for accurate debris weight calculation. All material types are shown regardless of unit.">
-                        <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                        <QuestionCircleOutlined style={{ color: '#1f74c9' }} />
                       </Tooltip>
                     </Space>
                   }
@@ -1493,7 +1514,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       {/* Inline styles for editable quantity hover effect */}
       <style>{`
         .editable-quantity:hover {
-          background-color: #f0f5ff;
+          background-color: #eef5fa;
         }
       `}</style>
     </div>

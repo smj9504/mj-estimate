@@ -98,13 +98,13 @@ const SortableSection: React.FC<SortableSectionProps> = ({
               touchAction: 'none',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#f0f0f0';
+              e.currentTarget.style.backgroundColor = '#e9e9e7';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.backgroundColor = 'transparent';
             }}
           >
-            <HolderOutlined style={{ color: '#8c8c8c', fontSize: '14px' }} />
+            <HolderOutlined style={{ color: '#73726e', fontSize: '14px' }} />
           </div>
           <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{section.title}</strong>
           <Badge count={section.items.length} style={{ marginLeft: 4, flexShrink: 0 }} />
@@ -113,7 +113,7 @@ const SortableSection: React.FC<SortableSectionProps> = ({
           {!hideAmounts && onToggleLumpSum && (
             <Tooltip title="Lump sum: enter one total for this section instead of computing it from items">
               <Space size={4} onClick={(e) => e.stopPropagation()}>
-                <span style={{ fontSize: 12, color: '#8c8c8c' }}>Lump Sum</span>
+                <span style={{ fontSize: 12, color: '#73726e' }}>Lump Sum</span>
                 <Switch
                   size="small"
                   checked={section.isLumpSum || false}
@@ -202,13 +202,13 @@ const SortableSection: React.FC<SortableSectionProps> = ({
                   transition: 'background-color 0.2s',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#f0f0f0';
+                  e.currentTarget.style.backgroundColor = '#e9e9e7';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.backgroundColor = 'transparent';
                 }}
               >
-                <HolderOutlined style={{ color: '#8c8c8c', fontSize: '14px' }} />
+                <HolderOutlined style={{ color: '#73726e', fontSize: '14px' }} />
               </div>
               <strong>{section.title}</strong>
               <Badge count={section.items.length} style={{ marginLeft: 8 }} />

@@ -5,13 +5,11 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  Card, Statistic, Row, Col, Tag, Typography, Spin, Divider, Tooltip,
+  Card, Divider, Typography, Spin, Tooltip,
   Upload, Button, Modal, Table, InputNumber, Alert, message, Space,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  DollarOutlined, ArrowUpOutlined, ArrowDownOutlined,
-  FileTextOutlined, SafetyCertificateOutlined, InfoCircleOutlined,
   UploadOutlined, FilePdfOutlined, EditOutlined,
   CheckOutlined, CloseOutlined,
 } from '@ant-design/icons';
@@ -22,6 +20,7 @@ import {
   type WMEstimateSection,
 } from '../../services/waterMitigationService';
 import { fileService } from '../../services/fileService';
+import { Pill, PropertyList, type PropertyItem } from '../common/ui';
 
 const { Text } = Typography;
 
@@ -175,7 +174,7 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
       showUploadList={false}
       beforeUpload={(file) => { handleFile(file as File); return false; }}
     >
-      <Button size="small" icon={<UploadOutlined />} loading={parsing}>
+      <Button type="text" size="small" icon={<UploadOutlined />} loading={parsing} style={{ color: '#73726e' }}>
         {parsing ? 'Reading...' : 'Upload Estimate'}
       </Button>
     </Upload>
@@ -210,215 +209,175 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
   const diffPositive = comparison.difference != null && comparison.difference > 0;
   const diffNegative = comparison.difference != null && comparison.difference < 0;
 
-  return (
-    <Card
-      size="small"
-      title={
-        <span>
-          <DollarOutlined style={{ marginRight: 6 }} />
-          Invoice vs Insurance Estimate
-        </span>
-      }
-      style={{ marginTop: 16 }}
-    >
-      <Row gutter={[16, 16]}>
-        {/* Our Invoice */}
-        <Col xs={24} md={12}>
-          <div style={{
-            background: '#f0f5ff', borderRadius: 8, padding: '12px 16px',
-            border: '1px solid #d6e4ff',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-              <FileTextOutlined style={{ color: '#1890ff' }} />
-              <Text strong>Our Invoice</Text>
-              {our_invoice?.invoice_number && (
-                <Tag color="blue" style={{ fontSize: 11 }}>#{our_invoice.invoice_number}</Tag>
-              )}
-            </div>
-            {our_invoice ? (
-              <Statistic
-                value={our_invoice.total_amount}
-                precision={2}
-                prefix="$"
-                valueStyle={{ fontSize: 24, fontWeight: 'bold', color: '#1890ff' }}
-              />
-            ) : (
-              <Text type="secondary">No invoice generated</Text>
-            )}
-          </div>
-        </Col>
+  const insuranceValue = editing ? (
+    <div>
+      <Space.Compact style={{ width: '100%', maxWidth: 320 }}>
+        <InputNumber
+          autoFocus
+          min={0}
+          step={0.01}
+          prefix="$"
+          style={{ width: '100%' }}
+          value={manualAmount ?? undefined}
+          onChange={(v) => setManualAmount(v ?? null)}
+          onPressEnter={handleSaveManual}
+          placeholder="0.00"
+        />
+        <Button
+          type="primary"
+          icon={<CheckOutlined />}
+          loading={savingManual}
+          disabled={manualAmount == null}
+          onClick={handleSaveManual}
+          aria-label="Save amount"
+        />
+        <Button
+          icon={<CloseOutlined />}
+          disabled={savingManual}
+          onClick={() => { setEditing(false); setManualAmount(null); }}
+          aria-label="Cancel"
+        />
+      </Space.Compact>
+      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+        Saved as the water mitigation RCV. This updates the claim and the
+        comparison below.
+      </Text>
+    </div>
+  ) : wmSec ? (
+    <div>
+      <Text strong>{fmt(wmSec.rcv)}</Text> <Text type="secondary">RCV</Text>
+      <div style={{ fontSize: 13, color: '#73726e', marginTop: 2 }}>
+        Depreciation -{fmt(wmSec.depreciation)} · Net ACV {fmt(wmSec.net_acv)}
+        {(wmSec.overhead_amount > 0 || wmSec.profit_amount > 0) && (
+          <Tooltip title="Overhead & Profit included in RCV">
+            <span> · O&P: {fmt(wmSec.overhead_amount)} + {fmt(wmSec.profit_amount)}</span>
+          </Tooltip>
+        )}
+      </div>
+    </div>
+  ) : insurance_estimate?.wm_estimate_amount ? (
+    <Text strong>{fmt(insurance_estimate.wm_estimate_amount)}</Text>
+  ) : (
+    <Text type="secondary">
+      {insurance_estimate?.wm_cost_status === 'not_received'
+        ? 'Not yet received from insurance'
+        : insurance_estimate?.wm_cost_status === 'included_in_rebuild'
+        ? 'Included in rebuild estimate'
+        : 'No WM estimate available'}
+    </Text>
+  );
 
-        {/* Insurance Estimate */}
-        <Col xs={24} md={12}>
-          <div style={{
-            background: '#fff7e6', borderRadius: 8, padding: '12px 16px',
-            border: '1px solid #ffe7ba',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-              <SafetyCertificateOutlined style={{ color: '#fa8c16' }} />
-              <Text strong>Insurance Estimate (WM)</Text>
+  const items: PropertyItem[] = [
+    {
+      key: 'invoice',
+      label: 'Our Invoice',
+      value: our_invoice ? (
+        <span>
+          <Text strong>{fmt(our_invoice.total_amount)}</Text>
+          {our_invoice.invoice_number && (
+            <Text type="secondary"> · #{our_invoice.invoice_number}</Text>
+          )}
+        </span>
+      ) : (
+        <Text type="secondary">No invoice generated</Text>
+      ),
+    },
+    {
+      key: 'insurance',
+      label: 'Insurance Estimate (WM)',
+      value: (
+        <div>
+          {(insurance_estimate?.negotiation_type ||
+            (insurance_estimate?.estimate_category === 'water_mitigation' &&
+              insurance_estimate?.wm_cost_status === 'included_in_rebuild') ||
+            insurance_estimate?.document_file_id) && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
               {insurance_estimate?.negotiation_type && (
-                <Tag style={{ fontSize: 11 }}>{insurance_estimate.negotiation_type}</Tag>
+                <Pill tone="gray">{insurance_estimate.negotiation_type}</Pill>
               )}
               {insurance_estimate?.estimate_category === 'water_mitigation' &&
                 insurance_estimate?.wm_cost_status === 'included_in_rebuild' && (
-                <Tag color="purple" style={{ fontSize: 11 }}>from combined</Tag>
+                <Pill tone="purple">from combined</Pill>
               )}
-              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-                {insurance_estimate?.document_file_id && (
-                  <Tooltip title={insurance_estimate.document_name || 'View estimate PDF'}>
-                    <a
-                      href={`${fileService.getDownloadUrl(insurance_estimate.document_file_id)}?inline=true`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 16 }} />
-                    </a>
-                  </Tooltip>
-                )}
-                {!editing && (
-                  <Tooltip title="Enter the amount manually">
-                    <Button size="small" icon={<EditOutlined />} onClick={startEditing} />
-                  </Tooltip>
-                )}
-                {uploadButton}
-              </div>
+              {insurance_estimate?.document_file_id && (
+                <a
+                  href={`${fileService.getDownloadUrl(insurance_estimate.document_file_id)}?inline=true`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                >
+                  <FilePdfOutlined />
+                  {insurance_estimate.document_name || 'View estimate PDF'}
+                </a>
+              )}
             </div>
-            {editing ? (
-              <div>
-                <Space.Compact style={{ width: '100%' }}>
-                  <InputNumber
-                    autoFocus
-                    min={0}
-                    step={0.01}
-                    prefix="$"
-                    style={{ width: '100%' }}
-                    value={manualAmount ?? undefined}
-                    onChange={(v) => setManualAmount(v ?? null)}
-                    onPressEnter={handleSaveManual}
-                    placeholder="0.00"
-                  />
-                  <Button
-                    type="primary"
-                    icon={<CheckOutlined />}
-                    loading={savingManual}
-                    disabled={manualAmount == null}
-                    onClick={handleSaveManual}
-                  />
-                  <Button
-                    icon={<CloseOutlined />}
-                    disabled={savingManual}
-                    onClick={() => { setEditing(false); setManualAmount(null); }}
-                  />
-                </Space.Compact>
-                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
-                  Saved as the water mitigation RCV. This updates the claim and the
-                  comparison below.
-                </Text>
-              </div>
-            ) : wmSec ? (
-              <>
-                <Statistic
-                  value={wmSec.rcv}
-                  precision={2}
-                  prefix="$"
-                  valueStyle={{ fontSize: 24, fontWeight: 'bold', color: '#fa8c16' }}
-                  suffix={<Text type="secondary" style={{ fontSize: 12 }}>RCV</Text>}
-                />
-                <Divider style={{ margin: '8px 0' }} />
-                <Row gutter={8}>
-                  <Col span={8}>
-                    <div style={{ textAlign: 'center' }}>
-                      <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>RCV</Text>
-                      <Text strong style={{ fontSize: 13 }}>{fmt(wmSec.rcv)}</Text>
-                    </div>
-                  </Col>
-                  <Col span={8}>
-                    <div style={{ textAlign: 'center' }}>
-                      <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>Depreciation</Text>
-                      <Text strong style={{ fontSize: 13, color: '#ff4d4f' }}>
-                        -{fmt(wmSec.depreciation)}
-                      </Text>
-                    </div>
-                  </Col>
-                  <Col span={8}>
-                    <div style={{ textAlign: 'center' }}>
-                      <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>Net ACV</Text>
-                      <Text strong style={{ fontSize: 13, color: '#52c41a' }}>{fmt(wmSec.net_acv)}</Text>
-                    </div>
-                  </Col>
-                </Row>
-                {(wmSec.overhead_amount > 0 || wmSec.profit_amount > 0) && (
-                  <div style={{ marginTop: 6, fontSize: 11, color: '#8c8c8c' }}>
-                    <Tooltip title="Overhead & Profit included in RCV">
-                      <InfoCircleOutlined style={{ marginRight: 4 }} />
-                      O&P: {fmt(wmSec.overhead_amount)} + {fmt(wmSec.profit_amount)}
-                    </Tooltip>
-                  </div>
-                )}
-              </>
-            ) : insurance_estimate?.wm_estimate_amount ? (
-              <Statistic
-                value={insurance_estimate.wm_estimate_amount}
-                precision={2}
-                prefix="$"
-                valueStyle={{ fontSize: 24, fontWeight: 'bold', color: '#fa8c16' }}
-              />
-            ) : (
-              <Text type="secondary">
-                {insurance_estimate?.wm_cost_status === 'not_received'
-                  ? 'Not yet received from insurance'
-                  : insurance_estimate?.wm_cost_status === 'included_in_rebuild'
-                  ? 'Included in rebuild estimate'
-                  : 'No WM estimate available'}
-              </Text>
-            )}
-          </div>
-        </Col>
-      </Row>
-
-      {/* Difference Banner */}
-      {comparison.difference != null && comparison.insurance_total > 0 && (
-        <div style={{
-          marginTop: 12, padding: '8px 16px', borderRadius: 6,
-          background: diffPositive ? '#fff1f0' : diffNegative ? '#f6ffed' : '#fafafa',
-          border: `1px solid ${diffPositive ? '#ffa39e' : diffNegative ? '#b7eb8f' : '#d9d9d9'}`,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          flexWrap: 'wrap', gap: 8,
-        }}>
-          <Text>
-            {diffPositive ? (
-              <><ArrowUpOutlined style={{ color: '#ff4d4f' }} /> Our invoice is <Text strong style={{ color: '#ff4d4f' }}>higher</Text> by</>
-            ) : diffNegative ? (
-              <><ArrowDownOutlined style={{ color: '#52c41a' }} /> Our invoice is <Text strong style={{ color: '#52c41a' }}>lower</Text> by</>
-            ) : (
-              <>Amounts match</>
-            )}
-          </Text>
-          <div>
-            <Text strong style={{ fontSize: 16 }}>
-              {fmt(Math.abs(comparison.difference))}
-            </Text>
-            {comparison.difference_pct != null && (
-              <Tag
-                color={diffPositive ? 'red' : diffNegative ? 'green' : 'default'}
-                style={{ marginLeft: 6, fontSize: 11 }}
-              >
-                {diffPositive ? '+' : ''}{comparison.difference_pct}%
-              </Tag>
-            )}
-          </div>
-        </div>
-      )}
-
-      {insurance_estimate?.negotiation_date && (
-        <div style={{ marginTop: 6, fontSize: 11, color: '#8c8c8c', textAlign: 'right' }}>
-          Insurance estimate received: {new Date(insurance_estimate.negotiation_date).toLocaleDateString()}
-          {insurance_estimate.negotiation_revision && (
-            <> (Rev. {insurance_estimate.negotiation_revision})</>
           )}
+          {insuranceValue}
         </div>
-      )}
+      ),
+    },
+  ];
+
+  if (comparison.difference != null && comparison.insurance_total > 0) {
+    items.push({
+      key: 'difference',
+      label: 'Difference',
+      value: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span>
+            {diffPositive ? 'Our invoice is higher by ' : diffNegative ? 'Our invoice is lower by ' : 'Amounts match'}
+            {(diffPositive || diffNegative) && <Text strong>{fmt(Math.abs(comparison.difference))}</Text>}
+          </span>
+          {comparison.difference_pct != null && (
+            <Pill tone={diffPositive ? 'red' : diffNegative ? 'green' : 'gray'}>
+              {diffPositive ? '+' : ''}{comparison.difference_pct}%
+            </Pill>
+          )}
+        </span>
+      ),
+    });
+  }
+
+  if (insurance_estimate?.negotiation_date) {
+    items.push({
+      key: 'received',
+      label: 'Estimate received',
+      value: (
+        <span>
+          {new Date(insurance_estimate.negotiation_date).toLocaleDateString()}
+          {insurance_estimate.negotiation_revision && (
+            <Text type="secondary"> (Rev. {insurance_estimate.negotiation_revision})</Text>
+          )}
+        </span>
+      ),
+    });
+  }
+
+  return (
+    <Card
+      size="small"
+      className="ui-sheet-card"
+      title="Invoice vs Insurance Estimate"
+      extra={
+        <Space size={4}>
+          {!editing && (
+            <Tooltip title="Enter the amount manually">
+              <Button
+                type="text"
+                size="small"
+                icon={<EditOutlined />}
+                onClick={startEditing}
+                aria-label="Enter the amount manually"
+                style={{ color: '#73726e' }}
+              />
+            </Tooltip>
+          )}
+          {uploadButton}
+        </Space>
+      }
+      style={{ marginTop: 0 }}
+    >
+      <PropertyList items={items} labelWidth={168} />
 
       <Modal
         title="Confirm Water Mitigation Amount"
@@ -441,7 +400,7 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
         {pendingFile && (
           <div style={{ marginBottom: 12 }}>
             <Space size={6}>
-              <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+              <FilePdfOutlined style={{ color: '#d44c47' }} />
               <Text type="secondary" style={{ fontSize: 12 }}>{pendingFile.name}</Text>
             </Space>
           </div>

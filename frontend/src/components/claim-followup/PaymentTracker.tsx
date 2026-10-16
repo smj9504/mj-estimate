@@ -208,7 +208,7 @@ const PaymentTracker: React.FC<PaymentTrackerProps> = ({
             prefix="$"
             precision={2}
             loading={isLoading}
-            valueStyle={{ fontSize: 16, color: (summary?.total_insurance_paid || 0) > 0 ? '#3f8600' : undefined }}
+            valueStyle={{ fontSize: 16, color: (summary?.total_insurance_paid || 0) > 0 ? '#448361' : undefined }}
           />
         </Col>
         <Col xs={12} sm={6}>
@@ -218,7 +218,7 @@ const PaymentTracker: React.FC<PaymentTrackerProps> = ({
             prefix={isUnderpaid ? '-$' : '$'}
             precision={2}
             loading={isLoading}
-            valueStyle={{ fontSize: 16, color: hasDifference ? (isUnderpaid ? '#cf1322' : '#3f8600') : undefined }}
+            valueStyle={{ fontSize: 16, color: hasDifference ? (isUnderpaid ? '#b5403b' : '#448361') : undefined }}
           />
         </Col>
         <Col xs={12} sm={6}>

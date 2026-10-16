@@ -903,7 +903,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
                     {
                       key: 'holiday',
                       label: holidayPremium ? 'Holiday Premium ON' : 'Holiday Premium OFF',
-                      icon: <GiftOutlined style={{ color: holidayPremium ? '#ff4d4f' : undefined }} />,
+                      icon: <GiftOutlined style={{ color: holidayPremium ? '#d44c47' : undefined }} />,
                       onClick: () => setHolidayPremium(!holidayPremium)
                     },
                     { type: 'divider' },
@@ -983,7 +983,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
                   onChange={(e) => setHolidayPremium(e.target.checked)}
                 >
                   <Space size={4}>
-                    <GiftOutlined style={{ color: holidayPremium ? '#ff4d4f' : undefined }} />
+                    <GiftOutlined style={{ color: holidayPremium ? '#d44c47' : undefined }} />
                     <span style={{ fontSize: 12 }}>Holiday</span>
                   </Space>
                 </Checkbox>
@@ -1033,14 +1033,14 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
             <Statistic
               title="Unmatched Items"
               value={unmatchedCount}
-              valueStyle={{ color: '#faad14' }}
+              valueStyle={{ color: '#cb912f' }}
               prefix={<WarningOutlined />}
             />
           ) : (
             <Statistic
               title="Status"
               value="All Matched"
-              valueStyle={{ color: '#52c41a', fontSize: isMobile ? 18 : undefined }}
+              valueStyle={{ color: '#448361', fontSize: isMobile ? 18 : undefined }}
               prefix={<CheckCircleOutlined />}
             />
           )}
@@ -1084,7 +1084,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
       {loading || generating ? (
         <div style={{ textAlign: 'center', padding: 40 }}>
           <Spin />
-          <div style={{ marginTop: 8, color: '#8c8c8c', fontSize: 14 }}>{generating ? 'Generating configurations...' : 'Loading...'}</div>
+          <div style={{ marginTop: 8, color: '#73726e', fontSize: 14 }}>{generating ? 'Generating configurations...' : 'Loading...'}</div>
         </div>
       ) : configs.length === 0 ? (
         <Empty
@@ -1202,7 +1202,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
                   value={previewData.total}
                   precision={2}
                   prefix="$"
-                  valueStyle={{ color: '#1890ff' }}
+                  valueStyle={{ color: '#1f74c9' }}
                 />
               </Col>
               <Col xs={12} sm={8}>

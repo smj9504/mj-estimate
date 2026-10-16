@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Alert, Button, Card, Collapse, Divider, Form, Grid, Input, List, Result,
-  Select, Space, Spin, Steps, Table, Tag, Typography, message,
+  Alert, Button, Collapse, Divider, Form, Grid, Input, List, Result,
+  Select, Space, Spin, Steps, Table, Typography, message,
 } from 'antd';
 import {
   ArrowLeftOutlined, ArrowRightOutlined, CheckCircleOutlined,
@@ -19,8 +19,9 @@ import {
 import RoomComparePanel, {
   RoomEstimateItem,
 } from '../components/repair-spec/RoomComparePanel';
+import { PageHeader, Pill, humanize } from '../components/common/ui';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 const { useBreakpoint } = Grid;
 
 const RepairEstimateWizard: React.FC = () => {
@@ -158,15 +159,15 @@ const RepairEstimateWizard: React.FC = () => {
                 <List.Item
                   style={{
                     cursor: 'pointer',
-                    backgroundColor: isSelected ? '#e6f7ff' : undefined,
+                    backgroundColor: isSelected ? '#e7f3f8' : undefined,
                   }}
                   onClick={() => handleSelectExtraction(ext.id)}
                 >
                   <Space style={{ width: '100%', justifyContent: 'space-between' }}>
                     <Space>
-                      {isSelected && <CheckCircleOutlined style={{ color: '#1890ff' }} />}
+                      {isSelected && <CheckCircleOutlined style={{ color: '#1f74c9' }} />}
                       <Text strong={isSelected}>{label}</Text>
-                      {ext.carrier && <Tag>{ext.carrier}</Tag>}
+                      {ext.carrier && <Pill tone="gray">{ext.carrier}</Pill>}
                     </Space>
                     <Text type="secondary">{ext.item_count} items</Text>
                   </Space>
@@ -232,14 +233,15 @@ const RepairEstimateWizard: React.FC = () => {
 
     return (
       <Space direction="vertical" style={{ width: '100%' }} size={16}>
-        {address && (
-          <Card size="small">
-            <Text strong>Address: </Text>
-            <Text>{address}</Text>
-          </Card>
-        )}
-
-        <Text strong>Total: {allItems.length} items across {byRoom.size} rooms</Text>
+        <div>
+          {address && (
+            <div style={{ marginBottom: 4 }}>
+              <Text type="secondary">Address: </Text>
+              <Text strong>{address}</Text>
+            </div>
+          )}
+          <Text>Total: {allItems.length} items across {byRoom.size} rooms</Text>
+        </div>
 
         <Collapse
           defaultActiveKey={Array.from(byRoom.keys())}
@@ -248,7 +250,7 @@ const RepairEstimateWizard: React.FC = () => {
             label: (
               <Space>
                 <Text strong>{roomName}</Text>
-                <Tag>{items.length} items</Tag>
+                <Text type="secondary">{items.length} items</Text>
               </Space>
             ),
             children: (
@@ -264,12 +266,9 @@ const RepairEstimateWizard: React.FC = () => {
                     key: 'scope',
                     width: 80,
                     render: (_, row: RoomEstimateItem) => (
-                      <Tag
-                        color={row.condition_scope === 'affected' ? 'blue' : 'red'}
-                        style={{ fontSize: 11 }}
-                      >
-                        {row.condition_scope.toUpperCase()}
-                      </Tag>
+                      <Pill tone={row.condition_scope === 'affected' ? 'blue' : 'red'}>
+                        {humanize(row.condition_scope)}
+                      </Pill>
                     ),
                   },
                   {
@@ -304,9 +303,9 @@ const RepairEstimateWizard: React.FC = () => {
                     key: 'source',
                     width: 80,
                     render: (v: string) => (
-                      <Tag color={v === 'template' ? 'green' : 'default'} style={{ fontSize: 11 }}>
-                        {v}
-                      </Tag>
+                      <Pill tone={v === 'template' ? 'green' : 'gray'}>
+                        {humanize(v)}
+                      </Pill>
                     ),
                   },
                 ]}
@@ -336,33 +335,33 @@ const RepairEstimateWizard: React.FC = () => {
   ];
 
   return (
-    <div>
-      <Space style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Button
-          icon={<ArrowLeftOutlined />}
-          onClick={() => navigate('/repair-templates')}
-          size={isMobile ? 'small' : 'middle'}
-        >
-          {isMobile ? '' : 'Back'}
-        </Button>
-        <Title level={isMobile ? 4 : 3} style={{ margin: 0 }}>
-          Repair Estimate Wizard
-        </Title>
-      </Space>
+    <div style={{ maxWidth: 960 }}>
+      <PageHeader
+        leading={
+          <Button
+            type="text"
+            icon={<ArrowLeftOutlined />}
+            onClick={() => navigate('/repair-templates')}
+            aria-label="Back to repair templates"
+          />
+        }
+        title="Repair Estimate Wizard"
+      />
 
-      <Card size={isMobile ? 'small' : 'default'}>
+      <div>
         <Steps
           current={currentStep}
           items={steps}
-          size={isMobile ? 'small' : 'default'}
-          style={{ marginBottom: 24 }}
+          size="small"
+          responsive={false}
+          style={{ marginBottom: 28 }}
         />
 
         {currentStep === 0 && renderStep1()}
         {currentStep === 1 && renderStep2()}
         {currentStep === 2 && renderStep3()}
 
-        <Divider />
+        <Divider style={{ margin: '24px 0 16px' }} />
 
         <Space style={{ display: 'flex', justifyContent: 'space-between' }}>
           <Button
@@ -385,7 +384,7 @@ const RepairEstimateWizard: React.FC = () => {
             </Button>
           )}
         </Space>
-      </Card>
+      </div>
     </div>
   );
 };

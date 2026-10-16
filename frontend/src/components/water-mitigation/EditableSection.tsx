@@ -20,7 +20,7 @@ const EditableSection: React.FC<EditableSectionProps> = ({
   children,
   onSave,
   style,
-  className = 'compact-card'
+  className = 'ui-sheet-card'
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -48,28 +48,32 @@ const EditableSection: React.FC<EditableSectionProps> = ({
   };
 
   const extra = isEditing ? (
-    <Space>
+    <Space size={6}>
       <Button
-        type="primary"
-        icon={<SaveOutlined />}
-        onClick={handleSave}
-        loading={loading}
-      >
-        Save
-      </Button>
-      <Button
+        size="small"
         icon={<CloseOutlined />}
         onClick={handleCancel}
         disabled={loading}
       >
         Cancel
       </Button>
+      <Button
+        type="primary"
+        size="small"
+        icon={<SaveOutlined />}
+        onClick={handleSave}
+        loading={loading}
+      >
+        Save
+      </Button>
     </Space>
   ) : (
     <Button
-      type="default"
+      type="text"
+      size="small"
       icon={<EditOutlined />}
       onClick={handleEdit}
+      style={{ color: '#73726e' }}
     >
       Edit
     </Button>

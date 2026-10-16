@@ -26,6 +26,7 @@ import type {
   MagicPlanSyncResult,
 } from '../../types/waterMitigation';
 import { magicPlanService } from '../../services/waterMitigationService';
+import { Pill } from '../common/ui';
 import {
   addPendingUpload,
   getPendingUploads,
@@ -107,7 +108,7 @@ const AiResultsGrid: React.FC<{
       <Space size={4}>
         <span style={{
           display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
-          background: AI_CATEGORY_COLORS[value] || '#bfbfbf',
+          background: AI_CATEGORY_COLORS[value] || '#a5a29a',
         }} />
         {label}
       </Space>
@@ -130,8 +131,8 @@ const AiResultsGrid: React.FC<{
           return (
             <Col key={record.photo_id} xs={12} sm={8} md={6}>
               <div style={{
-                border: isRemoved ? '2px solid #ff4d4f' : isDup ? (isBest ? '2px solid #52c41a' : '2px solid #faad14') : '1px solid #f0f0f0',
-                borderRadius: 8, overflow: 'hidden', background: isRemoved ? '#fff1f0' : '#fff',
+                border: isRemoved ? '2px solid #d44c47' : isDup ? (isBest ? '2px solid #448361' : '2px solid #cb912f') : '1px solid #e9e9e7',
+                borderRadius: 8, overflow: 'hidden', background: isRemoved ? '#fdebec' : '#fff',
                 opacity: isRemoved ? 0.6 : 1,
                 position: 'relative',
               }}>
@@ -175,7 +176,7 @@ const AiResultsGrid: React.FC<{
                 {isDup && isBest && !isRemoved && (
                   <div style={{
                     position: 'absolute', top: 4, left: 4, zIndex: 10,
-                    background: '#52c41a', color: '#fff', borderRadius: 4,
+                    background: '#448361', color: '#fff', borderRadius: 4,
                     fontSize: 10, padding: '1px 6px', fontWeight: 600,
                     display: 'flex', alignItems: 'center', gap: 3,
                   }}>
@@ -186,18 +187,18 @@ const AiResultsGrid: React.FC<{
                 {isDup && !isBest && !isRemoved && (
                   <div style={{
                     position: 'absolute', top: 4, left: 4, zIndex: 10,
-                    background: '#faad14', color: '#fff', borderRadius: 4,
+                    background: '#cb912f', color: '#fff', borderRadius: 4,
                     fontSize: 10, padding: '1px 6px', fontWeight: 600,
                   }}>
                     Dup
                   </div>
                 )}
-                <div style={{ height: 130, background: '#fafafa', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                <div style={{ height: 130, background: '#f7f7f5', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                   {thumbUrl ? (
                     <img src={thumbUrl} alt="" loading="lazy" style={{ width: '100%', height: 130, objectFit: 'cover', display: 'block' }}
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                   ) : (
-                    <CameraOutlined style={{ fontSize: 32, color: '#d9d9d9' }} />
+                    <CameraOutlined style={{ fontSize: 32, color: '#dfdfdc' }} />
                   )}
                 </div>
                 <div style={{ padding: '8px 10px' }}>
@@ -213,7 +214,7 @@ const AiResultsGrid: React.FC<{
                         style={{ width: '100%', marginBottom: 6 }}
                         options={categoryOptions} />
                       <Progress percent={pct} size="small"
-                        strokeColor={pct >= 80 ? '#52c41a' : pct >= 60 ? '#faad14' : '#ff4d4f'}
+                        strokeColor={pct >= 80 ? '#448361' : pct >= 60 ? '#cb912f' : '#d44c47'}
                         format={(p) => `${p}%`} style={{ marginBottom: 4 }} />
                       {meta && (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
@@ -623,7 +624,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       await api.post('/api/water-mitigation/categories', {
         category_name: categoryName,
         category_type: 'custom',
-        color_code: '#1890ff'
+        color_code: '#1f74c9'
       }, {
         params: { client_id: clientId }
       });
@@ -1333,15 +1334,13 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       display: 'flex',
       flexDirection: 'column',
       background: '#fff',
-      border: '1px solid #f0f0f0',
-      borderRadius: 8,
       overflow: 'hidden'
     }}>
       {/* Toolbar */}
       <div style={{
-        padding: isMobile ? '8px 12px' : '12px 16px',
+        padding: '0 0 10px',
         background: '#fff',
-        borderBottom: '1px solid #f0f0f0',
+        borderBottom: '1px solid #e9e9e7',
         display: 'flex',
         alignItems: 'center',
         gap: 8,
@@ -1357,23 +1356,18 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
           ].map(tab => (
             <Button
               key={tab.key || 'all'}
-              type={sourceFilter === tab.key ? 'primary' : 'text'}
+              type="text"
               size="small"
+              aria-pressed={sourceFilter === tab.key}
+              className={`ui-view-tab${sourceFilter === tab.key ? ' is-selected' : ''}`}
               onClick={() => setSourceFilter(tab.key)}
-              style={{
-                borderRadius: 6,
-                fontSize: 12,
-                fontWeight: sourceFilter === tab.key ? 500 : 400,
-              }}
             >
               {tab.label}
             </Button>
           ))}
           {currentProjectId && (
             <Tooltip title={`CompanyCam ID: ${currentProjectId}`}>
-              <Tag color="blue" style={{ margin: 0, lineHeight: '22px', fontSize: 11 }}>
-                <CheckCircleOutlined style={{ marginRight: 3 }} />Linked
-              </Tag>
+              <Pill tone="green" icon={<CheckCircleOutlined />} style={{ alignSelf: 'center' }}>Linked</Pill>
             </Tooltip>
           )}
         </div>
@@ -1382,8 +1376,8 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           {/* Sync / Export progress inline */}
           {isSyncing && progressInfo && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: '#f6ffed', borderRadius: 6, border: '1px solid #b7eb8f' }}>
-              <SyncOutlined spin style={{ color: '#52c41a' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: '#edf3ec', borderRadius: 6, border: '1px solid #d3e5d0' }}>
+              <SyncOutlined spin style={{ color: '#448361' }} />
               <Text style={{ fontSize: 12 }}>
                 Syncing… {progressInfo.synced + progressInfo.skipped} photos
               </Text>
@@ -1391,8 +1385,8 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             </div>
           )}
           {!isSyncing && syncStatus.status === 'running' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px', background: '#e6f7ff', borderRadius: 6, border: '1px solid #91d5ff' }}>
-              <SyncOutlined spin style={{ color: '#1890ff', fontSize: 12 }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px', background: '#e7f3f8', borderRadius: 6, border: '1px solid #c6e0ee' }}>
+              <SyncOutlined spin style={{ color: '#1f74c9', fontSize: 12 }} />
               <Text style={{ fontSize: 12 }}>Sync running</Text>
               <Button size="small" onClick={() => { setIsSyncing(true); startPolling(); }}>Resume</Button>
               <Button type="text" danger size="small" icon={<CloseCircleOutlined />} onClick={handleCancel} loading={cancelMutation.isPending} style={{ padding: '0 4px' }} />
@@ -1401,8 +1395,8 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
           {isExporting && (() => {
             const ep = getExportProgressInfo();
             return (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: '#e6f7ff', borderRadius: 6, border: '1px solid #91d5ff' }}>
-                <CloudUploadOutlined style={{ color: '#1890ff' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: '#e7f3f8', borderRadius: 6, border: '1px solid #c6e0ee' }}>
+                <CloudUploadOutlined style={{ color: '#1f74c9' }} />
                 <Text style={{ fontSize: 12 }}>
                   Exporting {ep?.uploaded || 0}/{ep?.total || 0}
                 </Text>
@@ -1499,14 +1493,14 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             <span>
               Sync completed! <strong>{syncStatus.synced_count}</strong> new photos added
               {(syncStatus.skipped_existing || 0) > 0 && (
-                <span style={{ color: '#8c8c8c', marginLeft: 8 }}>
+                <span style={{ color: '#73726e', marginLeft: 8 }}>
                   ({syncStatus.skipped_existing} skipped)
                 </span>
               )}
             </span>
           }
           closable
-          style={{ borderRadius: 0, border: 'none', borderBottom: '1px solid #b7eb8f' }}
+          style={{ borderRadius: 0, border: 'none', borderBottom: '1px solid #d3e5d0' }}
         />
       )}
 
@@ -1538,7 +1532,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       {/* Main Content Area */}
       <div style={{
         flex: 1,
-        padding: isMobile ? '8px' : '16px',
+        padding: '8px 0 0',
         overflow: 'hidden',
         background: '#fff'
       }}>
@@ -1685,7 +1679,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       <Modal
         title={
           <Space>
-            <SearchOutlined style={{ color: '#1890ff' }} />
+            <SearchOutlined style={{ color: '#1f74c9' }} />
             <span>Find CompanyCam Project</span>
           </Space>
         }
@@ -1743,8 +1737,8 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                   <List.Item
                     style={{
                       cursor: 'pointer',
-                      backgroundColor: selectedProject?.id === project.id ? '#e6f7ff' : 'transparent',
-                      borderLeft: selectedProject?.id === project.id ? '3px solid #1890ff' : '3px solid transparent',
+                      backgroundColor: selectedProject?.id === project.id ? '#e7f3f8' : 'transparent',
+                      borderLeft: selectedProject?.id === project.id ? '3px solid #1f74c9' : '3px solid transparent',
                       padding: '12px 16px'
                     }}
                     onClick={() => setSelectedProject(project)}
@@ -1793,7 +1787,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             <>
               <div>
                 <Text strong style={{ display: 'block', marginBottom: 4 }}>
-                  CompanyCam Project ID <span style={{ color: '#ff4d4f' }}>*</span>
+                  CompanyCam Project ID <span style={{ color: '#d44c47' }}>*</span>
                 </Text>
                 <Input
                   placeholder="e.g., 12345678"
@@ -1870,10 +1864,10 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           {/* Create new link */}
           <div style={{
-            background: '#fafafa',
+            background: '#f7f7f5',
             borderRadius: 8,
             padding: 16,
-            border: '1px solid #f0f0f0',
+            border: '1px solid #e9e9e7',
           }}>
             <Text strong style={{ display: 'block', marginBottom: 8 }}>New Upload Link</Text>
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
@@ -1966,7 +1960,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       <Modal
         title={
           <Space>
-            <RobotOutlined style={{ color: '#722ed1' }} />
+            <RobotOutlined style={{ color: '#9065b0' }} />
             <span>AI Photo Classification</span>
           </Space>
         }
@@ -2048,7 +2042,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                   color={f.color}
                   style={{
                     cursor: 'pointer',
-                    border: aiFilter === f.key ? '2px solid #1890ff' : undefined,
+                    border: aiFilter === f.key ? '2px solid #1f74c9' : undefined,
                     fontWeight: aiFilter === f.key ? 600 : undefined,
                   }}
                   onClick={() => { setAiFilter(f.key); setAiPage(1); }}
@@ -2103,7 +2097,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                 </Button>
               )}
               {aiDetectingDuplicates && (
-                <span style={{ marginLeft: 'auto', fontSize: 12, color: '#8c8c8c' }}>
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: '#73726e' }}>
                   <Spin size="small" /> Analyzing images...
                 </span>
               )}
@@ -2111,7 +2105,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                 <Button
                   size="small"
                   type="primary"
-                  style={{ background: '#faad14', borderColor: '#faad14', marginLeft: aiDuplicateGroups.length > 0 ? 'auto' : undefined }}
+                  style={{ background: '#cb912f', borderColor: '#cb912f', marginLeft: aiDuplicateGroups.length > 0 ? 'auto' : undefined }}
                   onClick={() => {
                     const newOverrides = { ...aiOverrides };
                     for (const g of aiDuplicateGroups) {
@@ -2157,7 +2151,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       <Modal
         title={
           <Space>
-            <CloudDownloadOutlined style={{ color: '#722ed1' }} />
+            <CloudDownloadOutlined style={{ color: '#9065b0' }} />
             <span>Sync from MagicPlan</span>
           </Space>
         }
@@ -2177,7 +2171,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             loading={mpSyncing}
             disabled={!mpSelectedProject}
             onClick={handleMagicPlanSync}
-            style={{ background: '#722ed1', borderColor: '#722ed1' }}
+            style={{ background: '#9065b0', borderColor: '#9065b0' }}
           >
             Sync Photos
           </Button>
@@ -2193,7 +2187,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                 <div>Photos synced: <strong>{mpSyncResult.photos_synced}</strong></div>
                 <div>Photos skipped (existing): <strong>{mpSyncResult.photos_skipped}</strong></div>
                 {mpSyncResult.errors.length > 0 && (
-                  <div style={{ marginTop: 8, color: '#ff4d4f' }}>
+                  <div style={{ marginTop: 8, color: '#d44c47' }}>
                     Errors: {mpSyncResult.errors.slice(0, 3).join(', ')}
                   </div>
                 )}
@@ -2222,7 +2216,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                     </Tag>
                   </div>
                 }
-                style={{ cursor: 'pointer', border: mpSelectedProject?.project_id === mpAutoMatch.project_id ? '2px solid #52c41a' : undefined }}
+                style={{ cursor: 'pointer', border: mpSelectedProject?.project_id === mpAutoMatch.project_id ? '2px solid #448361' : undefined }}
                 onClick={() => setMpSelectedProject(mpAutoMatch)}
               />
             )}
@@ -2239,8 +2233,8 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                     <List.Item
                       style={{
                         cursor: 'pointer',
-                        background: mpSelectedProject?.project_id === item.project_id ? '#f0f5ff' : undefined,
-                        borderLeft: mpSelectedProject?.project_id === item.project_id ? '3px solid #1890ff' : '3px solid transparent',
+                        background: mpSelectedProject?.project_id === item.project_id ? '#eef5fa' : undefined,
+                        borderLeft: mpSelectedProject?.project_id === item.project_id ? '3px solid #1f74c9' : '3px solid transparent',
                         paddingLeft: 12,
                       }}
                       onClick={() => setMpSelectedProject(item)}

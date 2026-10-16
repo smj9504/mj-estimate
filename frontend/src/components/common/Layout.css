@@ -20,60 +20,102 @@
   top: 0;
 }
 
-/* Smooth transitions for sidebar elements */
-.ant-layout-sider {
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+/* ---- Sidebar: warm grey rail, ink text ---- */
+.app-sider.ant-layout-sider {
+  background: var(--color-neutral-50) !important;
+  border-right: 1px solid var(--color-neutral-200);
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-.ant-layout-sider .ant-menu {
+.app-sider.ant-layout-sider-collapsed {
+  border-right-color: var(--color-neutral-200);
+}
+
+/* On phones the rail floats over the page */
+.app-sider--floating.ant-layout-sider {
+  box-shadow: var(--shadow-high);
+  border-right: none;
+}
+
+.app-sider .ant-menu {
+  background: transparent !important;
   border-right: none !important;
+  font-size: 14px;
 }
 
-/* Custom scrollbar for sidebar menu */
-.ant-layout-sider .ant-menu::-webkit-scrollbar {
-  width: 6px;
+.app-sider .ant-menu-inline .ant-menu-item,
+.app-sider .ant-menu-inline .ant-menu-submenu-title {
+  width: calc(100% - 16px);
 }
 
-.ant-layout-sider .ant-menu::-webkit-scrollbar-track {
-  background: var(--color-sidebar-start);
+.app-sider .ant-menu-item-selected {
+  font-weight: 500;
 }
 
-.ant-layout-sider .ant-menu::-webkit-scrollbar-thumb {
-  background: #4a5568;
-  border-radius: var(--radius-xs);
+.app-sider .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  color: var(--color-neutral-900);
 }
 
-.ant-layout-sider .ant-menu::-webkit-scrollbar-thumb:hover {
-  background: #5a6578;
+.app-sider .ant-menu .ant-menu-item .anticon,
+.app-sider .ant-menu .ant-menu-submenu-title .anticon {
+  color: var(--color-neutral-600);
 }
 
-/* Logo area styling */
+.app-sider .ant-menu .ant-menu-item-selected .anticon {
+  color: var(--color-neutral-900);
+}
+
+/* Logo area: workspace switcher look */
 .sidebar-logo {
-  height: 64px;
+  height: 52px;
   display: flex;
   align-items: center;
-  color: white;
-  font-weight: bold;
-  transition: padding 0.3s ease, font-size 0.3s ease;
-  border-bottom: 1px solid var(--color-sidebar-end);
-  background: linear-gradient(135deg, var(--color-sidebar-start) 0%, var(--color-sidebar-end) 100%);
+  color: var(--color-neutral-900);
+  transition: padding 0.2s ease;
+}
+
+.sidebar-workspace {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.sidebar-workspace-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: var(--color-neutral-900);
+  color: var(--color-surface);
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.sidebar-workspace-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Toggle button styling */
 .sidebar-toggle-btn {
-  color: white !important;
+  color: var(--color-neutral-600) !important;
   border: none !important;
   box-shadow: none !important;
   background: transparent !important;
-  transition: background-color 0.3s ease !important;
+  transition: background-color 0.15s ease !important;
 }
 
 .sidebar-toggle-btn:hover {
-  background: rgba(255, 255, 255, 0.1) !important;
-}
-
-.sidebar-toggle-btn:focus {
-  background: transparent !important;
+  background: var(--color-ink-hover) !important;
+  color: var(--color-neutral-900) !important;
 }
 
 .sidebar-toggle-btn:focus:not(:focus-visible) {
@@ -82,23 +124,44 @@
 
 /* Header toggle button styling */
 .header-toggle-btn {
-  transition: background-color 0.3s ease;
+  color: var(--color-neutral-700);
+  transition: background-color 0.15s ease;
   border-radius: var(--radius-md);
 }
 
 .header-toggle-btn:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--color-ink-hover);
 }
 
-/* Menu item enhancements */
-.ant-menu-dark .ant-menu-item:hover {
-  background-color: rgba(255, 255, 255, 0.1) !important;
-  transition: background-color 0.3s ease;
+/* Account button in the header */
+.header-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  margin-left: 8px;
+  padding: 0 8px 0 4px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-neutral-900);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease;
 }
 
-.ant-menu-dark .ant-menu-submenu-title:hover {
-  background-color: rgba(255, 255, 255, 0.1) !important;
-  transition: background-color 0.3s ease;
+.header-user:hover {
+  background: var(--color-ink-hover);
+}
+
+.header-user-avatar.ant-avatar {
+  background: var(--tag-brown-bg);
+  color: var(--tag-brown-text);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 /* Content area responsive margins */
@@ -120,7 +183,8 @@
   backdrop-filter: blur(2px);
 }
 
-/* Mobile-only: sidebar overlays content */
+/* Phones and small tablets: the rail overlays content and the bottom nav
+   is shown (Layout switches to mobile at <= 768px, so these match). */
 @media (max-width: 768px) {
   .ant-layout-sider {
     z-index: var(--z-sidebar) !important;
@@ -129,48 +193,21 @@
   .ant-layout-sider-collapsed {
     width: 0 !important;
     min-width: 0 !important;
-  }
-}
-
-/* Tablet responsiveness */
-@media (max-width: 768px) {
-  .sidebar-logo {
-    font-size: 16px !important;
-    padding: 0 var(--space-sm) !important;
+    border-right: none !important;
   }
 
   .main-content {
-    margin: var(--space-lg) !important;
+    /* Clear the bottom nav bar */
+    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)) !important;
   }
 }
 
-/* Mobile phones */
-@media (max-width: 576px) {
-  .main-content {
-    margin: var(--space-sm) !important;
-    /* Extra bottom padding to clear the bottom nav bar */
-    padding-bottom: calc(56px + var(--space-sm) + env(safe-area-inset-bottom, 0px)) !important;
-  }
-
-  .ant-layout-header {
-    padding: 0 var(--space-md) !important;
-  }
-
-  /* Larger touch targets for sidebar menu items on mobile */
-  .ant-menu-dark .ant-menu-item,
-  .ant-menu-dark .ant-menu-submenu-title {
-    min-height: 44px !important;
-    line-height: 44px !important;
-    margin-block: 2px !important;
-  }
-}
-
-/* Touch device enhancements */
+/* Touch devices: larger targets in the rail */
 @media (pointer: coarse) {
-  .ant-menu-dark .ant-menu-item,
-  .ant-menu-dark .ant-menu-submenu-title {
-    min-height: 44px !important;
-    line-height: 44px !important;
+  .app-sider .ant-menu-item,
+  .app-sider .ant-menu-submenu-title {
+    min-height: 40px !important;
+    line-height: 40px !important;
   }
 }
 
@@ -186,9 +223,10 @@
   justify-content: space-around;
   height: 56px;
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  background: var(--color-surface);
-  border-top: 1px solid var(--color-neutral-400);
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: saturate(180%) blur(8px);
+  -webkit-backdrop-filter: saturate(180%) blur(8px);
+  border-top: 1px solid var(--color-neutral-200);
 }
 
 .bottom-nav-item {
@@ -202,7 +240,7 @@
   background: none;
   cursor: pointer;
   color: var(--color-neutral-600);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
   line-height: 1;
   padding: 6px 0;
@@ -216,11 +254,11 @@
 }
 
 .bottom-nav-item.active {
-  color: var(--color-primary);
+  color: var(--color-neutral-900);
 }
 
 .bottom-nav-item:active {
-  color: var(--color-primary-deep);
+  color: var(--color-neutral-900);
 }
 
 /* Prominent "Create" button in center */
@@ -228,24 +266,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--color-primary);
+  width: 32px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--color-neutral-900);
   color: var(--color-surface);
-  font-size: 18px;
-  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.35);
-  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+  font-size: 14px;
+  transition: background-color 0.15s ease;
 }
 
 .bottom-nav-item.bottom-nav-create:active .anticon {
-  background: var(--color-primary-deep);
-  box-shadow: 0 1px 4px rgba(24, 144, 255, 0.25);
-}
-
-.bottom-nav-item.bottom-nav-create span:last-child {
-  color: var(--color-primary);
-  font-weight: 600;
+  background: #000;
 }
 
 /* Enhanced focus states for accessibility — only on keyboard navigation */

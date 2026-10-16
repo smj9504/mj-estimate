@@ -322,7 +322,7 @@ const TemplateFormModal: React.FC<TemplateFormModalProps> = ({
 
         {sections.length === 0 && (
           <Card>
-            <div style={{ textAlign: 'center', padding: 20, color: '#8c8c8c' }}>
+            <div style={{ textAlign: 'center', padding: 20, color: '#73726e' }}>
               No sections added. Click "Add Section" to create sections.
             </div>
           </Card>

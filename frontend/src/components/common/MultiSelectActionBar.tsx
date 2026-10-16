@@ -82,7 +82,7 @@ const MultiSelectActionBar: React.FC<MultiSelectActionBarProps> = ({
           right: 0,
           zIndex: zIndexScale.actionBar,
           backgroundColor: '#fff',
-          borderTop: '2px solid #1890ff',
+          borderTop: '2px solid #1f74c9',
           boxShadow: '0 -4px 12px rgba(0, 0, 0, 0.15)',
           padding: '12px 16px',
           display: 'flex',
@@ -102,7 +102,7 @@ const MultiSelectActionBar: React.FC<MultiSelectActionBarProps> = ({
             size="small"
             icon={<CloseOutlined />}
             onClick={onClearSelection}
-            style={{ color: '#8c8c8c' }}
+            style={{ color: '#73726e' }}
           />
         </div>
 
@@ -159,7 +159,7 @@ const MultiSelectActionBar: React.FC<MultiSelectActionBarProps> = ({
                   cursor: isSameSection ? 'not-allowed' : 'pointer',
                   opacity: isSameSection ? 0.4 : 1,
                   padding: '12px 16px',
-                  borderBottom: '1px solid #f0f0f0',
+                  borderBottom: '1px solid #e9e9e7',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
@@ -167,8 +167,8 @@ const MultiSelectActionBar: React.FC<MultiSelectActionBarProps> = ({
                 onClick={() => { if (!isSameSection) handleSectionSelect(section.index); }}
               >
                 <span style={{ fontWeight: 500 }}>{section.title}</span>
-                {!isSameSection && <RightOutlined style={{ color: '#8c8c8c' }} />}
-                {isSameSection && <span style={{ color: '#8c8c8c', fontSize: 12 }}>Current</span>}
+                {!isSameSection && <RightOutlined style={{ color: '#73726e' }} />}
+                {isSameSection && <span style={{ color: '#73726e', fontSize: 12 }}>Current</span>}
               </div>
             );
           })}

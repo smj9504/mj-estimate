@@ -170,7 +170,7 @@ const SheetPAMappingButton: React.FC<SheetPAMappingButtonProps> = ({ onApplied }
                 <div>
                   <div style={{ fontWeight: 500 }}>{option.label}</div>
                   {(found?.contact?.company_name || found?.contact?.title) && (
-                    <div style={{ fontSize: 11, color: '#8c8c8c' }}>
+                    <div style={{ fontSize: 11, color: '#73726e' }}>
                       {[found?.contact?.company_name, found?.contact?.title].filter(Boolean).join(' · ')}
                     </div>
                   )}
@@ -191,7 +191,7 @@ const SheetPAMappingButton: React.FC<SheetPAMappingButtonProps> = ({ onApplied }
           <div>
             <div style={{ fontWeight: 500, fontSize: 13 }}>{record.contact.name}</div>
             {record.contact.company_name && (
-              <div style={{ fontSize: 11, color: '#8c8c8c' }}>{record.contact.company_name}</div>
+              <div style={{ fontSize: 11, color: '#73726e' }}>{record.contact.company_name}</div>
             )}
           </div>
         );

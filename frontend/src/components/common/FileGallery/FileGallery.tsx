@@ -514,7 +514,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
           style={compact ? undefined : { minWidth: 150 }}
           onChange={handleBulkCategoryUpdate}
           value={undefined}
-          suffixIcon={<TagOutlined style={{ color: '#667eea' }} />}
+          suffixIcon={<TagOutlined style={{ color: '#73726e' }} />}
         >
           <Select.Option key="uncategorized" value="">
             Clear Category
@@ -532,11 +532,6 @@ const FileGallery: React.FC<FileGalleryProps> = ({
           size={compact ? 'middle' : 'small'}
           icon={<CalendarOutlined style={{}} />}
           onClick={() => setDateChangeModalVisible(true)}
-          style={{
-            borderRadius: '6px',
-            borderColor: '#667eea',
-            color: '#667eea'
-          }}
         >
           {compact ? 'Date' : 'Change Date'}
         </Button>
@@ -591,12 +586,12 @@ const FileGallery: React.FC<FileGalleryProps> = ({
                 alignItems: 'center',
                 gap: '8px',
                 padding: '4px 12px',
-                background: '#f5f5f5',
+                background: '#f7f7f5',
                 borderRadius: '6px',
-                border: '1px solid #d9d9d9'
+                border: '1px solid #dfdfdc'
               }}>
                 <Tooltip title="Fewer larger images">
-                  <MinusOutlined style={{ fontSize: '12px', color: '#8c8c8c', cursor: 'pointer' }} onClick={() => setGridSize(Math.max(2, gridSize - 1))} />
+                  <MinusOutlined style={{ fontSize: '12px', color: '#73726e', cursor: 'pointer' }} onClick={() => setGridSize(Math.max(2, gridSize - 1))} />
                 </Tooltip>
                 <Slider
                   min={2}
@@ -607,7 +602,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
                   tooltip={{ formatter: (val) => `${val} per row` }}
                 />
                 <Tooltip title="More smaller images">
-                  <PlusOutlined style={{ fontSize: '12px', color: '#8c8c8c', cursor: 'pointer' }} onClick={() => setGridSize(Math.min(8, gridSize + 1))} />
+                  <PlusOutlined style={{ fontSize: '12px', color: '#73726e', cursor: 'pointer' }} onClick={() => setGridSize(Math.min(8, gridSize + 1))} />
                 </Tooltip>
               </div>
             )}
@@ -635,23 +630,22 @@ const FileGallery: React.FC<FileGalleryProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
-                padding: showInlineBulkActions ? '4px' : 0,
-                background: showInlineBulkActions ? '#f0f5ff' : 'transparent',
-                border: showInlineBulkActions ? '1px solid #d6e4ff' : '1px solid transparent',
-                borderRadius: showInlineBulkActions ? '24px' : 0,
+                padding: showInlineBulkActions ? '3px' : 0,
+                background: showInlineBulkActions ? '#f7f7f5' : 'transparent',
+                border: '1px solid transparent',
+                borderRadius: showInlineBulkActions ? '8px' : 0,
                 flexWrap: 'wrap'
               }}>
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  background: '#37352f',
                   color: 'white',
-                  padding: '5px 14px',
-                  borderRadius: '20px',
+                  padding: '3px 10px',
+                  borderRadius: '6px',
                   fontSize: '13px',
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap',
-                  boxShadow: '0 2px 8px rgba(102, 126, 234, 0.35)'
+                  fontWeight: 500,
+                  whiteSpace: 'nowrap'
                 }}>
                   <CheckSquareOutlined style={{ marginRight: 6 }} />
                   {currentSelectedFiles.length} selected
@@ -669,13 +663,6 @@ const FileGallery: React.FC<FileGalleryProps> = ({
                 type="primary"
                 icon={<UploadOutlined style={{}} />}
                 onClick={() => setUploadModalVisible(true)}
-                style={{
-                  borderRadius: '6px',
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                  border: 'none',
-                  fontWeight: 500,
-                  boxShadow: '0 2px 8px rgba(102, 126, 234, 0.35)'
-                }}
               >
                 {isCompactToolbar
                   ? 'Upload'
@@ -708,7 +695,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
                 gap: 6,
                 color: '#5b4fc4',
                 fontSize: 12,
-                background: '#fafafa',
+                background: '#f7f7f5',
                 paddingLeft: 8
               }}>
                 <LoadingOutlined style={{ animation: 'spin 1s linear infinite' }} />
@@ -856,7 +843,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
                   alignItems: 'center',
                   marginBottom: 16,
                   paddingBottom: 8,
-                  borderBottom: '2px solid #f0f0f0'
+                  borderBottom: '2px solid #e9e9e7'
                 }}>
                   {allowMultiSelect && (
                     <Checkbox
@@ -884,10 +871,10 @@ const FileGallery: React.FC<FileGalleryProps> = ({
             {isFetchingNextPage ? (
               <div style={{ textAlign: 'center' }}>
                 <Spin size="small" />
-                <p style={{ marginTop: 8, color: '#8c8c8c' }}>Loading more photos...</p>
+                <p style={{ marginTop: 8, color: '#73726e' }}>Loading more photos...</p>
               </div>
             ) : !hasNextPage && filteredFiles.length > 0 ? (
-              <p style={{ textAlign: 'center', margin: '16px 0', color: '#8c8c8c' }}>End</p>
+              <p style={{ textAlign: 'center', margin: '16px 0', color: '#73726e' }}>End</p>
             ) : null}
           </div>
         )}
@@ -996,7 +983,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
                 <Spin size="small" />
               </div>
             ) : !hasNextPage && filteredFiles.length > 0 ? (
-              <p style={{ textAlign: 'center', margin: '16px 0', color: '#8c8c8c' }}>End</p>
+              <p style={{ textAlign: 'center', margin: '16px 0', color: '#73726e' }}>End</p>
             ) : null}
           </div>
         )}
@@ -1086,7 +1073,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
           {getDateChangePreview() && (
             <div style={{
               padding: 12,
-              background: '#f5f5f5',
+              background: '#f7f7f5',
               borderRadius: 4,
               fontSize: 13
             }}>

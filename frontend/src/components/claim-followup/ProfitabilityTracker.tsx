@@ -119,7 +119,7 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
               <Statistic title="PA Fee" value={p?.pa_fee_amount || 0}
                 prefix="-$" precision={2} loading={isLoading}
                 suffix={`(${p?.pa_fee_percentage}%)`}
-                valueStyle={{ fontSize: 15, color: '#cf1322' }} />
+                valueStyle={{ fontSize: 15, color: '#b5403b' }} />
               <Text type="secondary" style={{ fontSize: 11 }}>
                 ({formatCurrency(p?.current_rcv)} − {formatCurrency(p?.deductible)} ded.) × {p?.pa_fee_percentage}%
               </Text>
@@ -133,13 +133,13 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
         <Col xs={12} sm={6}>
           <Statistic title="Total Expenses" value={p?.total_expenses || 0}
             prefix="-$" precision={2} loading={isLoading}
-            valueStyle={{ fontSize: 15, color: (p?.total_expenses || 0) > 0 ? '#cf1322' : undefined }} />
+            valueStyle={{ fontSize: 15, color: (p?.total_expenses || 0) > 0 ? '#b5403b' : undefined }} />
         </Col>
         <Col xs={12} sm={6}>
           <Statistic title="Net Profit" value={Math.abs(netProfit)}
             prefix={isProfitable ? '$' : '-$'} precision={2} loading={isLoading}
             suffix={<span style={{ fontSize: 12 }}>({netMargin}%)</span>}
-            valueStyle={{ fontSize: 15, color: isProfitable ? '#3f8600' : '#cf1322' }} />
+            valueStyle={{ fontSize: 15, color: isProfitable ? '#448361' : '#b5403b' }} />
         </Col>
       </Row>
 

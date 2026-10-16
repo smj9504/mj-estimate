@@ -207,7 +207,7 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
             size="small"
             icon={<CloseOutlined />}
             onClick={() => setEditingTypeId(null)}
-            style={{ color: '#ff4d4f' }}
+            style={{ color: '#d44c47' }}
           />
         </Space>
       );
@@ -269,14 +269,14 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
             icon={<CheckOutlined />}
             onClick={saveInvoiceAmount}
             loading={savingAmount}
-            style={{ color: '#52c41a' }}
+            style={{ color: '#448361' }}
           />
           <Button
             type="text"
             size="small"
             icon={<CloseOutlined />}
             onClick={cancelEditAmount}
-            style={{ color: '#ff4d4f' }}
+            style={{ color: '#d44c47' }}
           />
         </Space>
       );
@@ -433,11 +433,11 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
                     onChange={(e) => handleSelectOne(doc.id, e.target.checked)}
                   />
                   {doc.document_type === 'Photo' || doc.document_type === 'photo_report' || doc.document_type === 'Photo Report' ? (
-                    <FileImageOutlined style={{ fontSize: 32, color: '#eb2f96' }} />
+                    <FileImageOutlined style={{ fontSize: 32, color: '#c14c8a' }} />
                   ) : doc.document_type === 'Sketch' ? (
-                    <FileOutlined style={{ fontSize: 32, color: '#13c2c2' }} />
+                    <FileOutlined style={{ fontSize: 32, color: '#337ea9' }} />
                   ) : (
-                    <FilePdfOutlined style={{ fontSize: 32, color: '#ff4d4f' }} />
+                    <FilePdfOutlined style={{ fontSize: 32, color: '#d44c47' }} />
                   )}
                 </div>
               }

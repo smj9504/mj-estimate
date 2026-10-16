@@ -1,5 +1,5 @@
 import React from 'react';
-import { Radio } from 'antd';
+import { Segmented } from 'antd';
 import { AppstoreOutlined, UnorderedListOutlined, BorderOutlined } from '@ant-design/icons';
 import { ViewMode } from './types';
 
@@ -10,22 +10,16 @@ interface ViewModeSelectorProps {
 
 const ViewModeSelector: React.FC<ViewModeSelectorProps> = ({ value, onChange }) => {
   return (
-    <Radio.Group
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      buttonStyle="solid"
+    <Segmented
       size="small"
-    >
-      <Radio.Button value="grid">
-        <AppstoreOutlined style={{}} /> Grid
-      </Radio.Button>
-      <Radio.Button value="list">
-        <UnorderedListOutlined style={{}} /> List
-      </Radio.Button>
-      <Radio.Button value="card">
-        <BorderOutlined style={{}} /> Card
-      </Radio.Button>
-    </Radio.Group>
+      value={value}
+      onChange={(v) => onChange(v as ViewMode)}
+      options={[
+        { value: 'grid', label: 'Grid', icon: <AppstoreOutlined /> },
+        { value: 'list', label: 'List', icon: <UnorderedListOutlined /> },
+        { value: 'card', label: 'Card', icon: <BorderOutlined /> },
+      ]}
+    />
   );
 };
 

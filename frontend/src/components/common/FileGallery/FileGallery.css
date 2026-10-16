@@ -5,14 +5,13 @@
   display: flex;
   flex-direction: column;
   background: #fff;
-  border-radius: 8px;
   overflow: hidden;
 }
 
 .file-gallery-header {
-  padding: 12px 16px 10px;
-  border-bottom: 1px solid #f0f0f0;
-  background: #fafafa;
+  padding: 4px 0 10px;
+  border-bottom: 1px solid var(--color-neutral-200);
+  background: #fff;
 }
 
 /* Scroll region for the photo grid. Sits directly under the filter row —
@@ -35,25 +34,25 @@
 }
 
 .file-upload-zone .ant-upload-drag {
-  border: 2px dashed #d9d9d9;
+  border: 2px dashed #dfdfdc;
   border-radius: 8px;
-  background: #fafafa;
+  background: #f7f7f5;
   transition: border-color 0.3s ease, background-color 0.3s ease;
 }
 
 .file-upload-zone .ant-upload-drag:hover {
-  border-color: #1890ff;
+  border-color: #1f74c9;
   background: #f0f9ff;
 }
 
 .file-upload-zone .ant-upload-drag.ant-upload-drag-hover {
-  border-color: #1890ff;
+  border-color: #1f74c9;
   background: #f0f9ff;
 }
 
 /* Date Grouping Styles */
 .date-grouped-files {
-  padding: 8px;
+  padding: 8px 0;
 }
 
 .date-group {
@@ -67,16 +66,9 @@
 .date-group-header {
   display: flex;
   align-items: center;
-  margin-bottom: 8px;
-  border-bottom: 1px solid #f0f0f0;
-  background: #fafafa;
-  padding: 6px 12px;
-  border-radius: 6px;
-  transition: background-color 0.2s ease;
-}
-
-.date-group-header:hover {
-  background: #f5f5f5;
+  margin-bottom: 10px;
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--color-neutral-200);
 }
 
 .date-group-header .ant-checkbox-wrapper {
@@ -86,14 +78,14 @@
 .date-group-header h5 {
   margin: 0;
   flex: 1;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
-  color: #262626;
+  color: var(--color-neutral-900);
 }
 
 .date-group-header .ant-typography {
-  font-size: 14px;
-  color: #8c8c8c;
+  font-size: 13px;
+  color: var(--color-neutral-600);
 }
 
 /* Category Manager Styles */
@@ -114,7 +106,7 @@
 }
 
 .category-manager .ant-tag:focus-visible {
-  outline: 2px solid #1890ff;
+  outline: 2px solid #1f74c9;
   outline-offset: 2px;
 }
 
@@ -132,9 +124,10 @@
   align-items: center;
   gap: 12px;
   padding: 10px 16px;
-  background: #fff;
-  border-top: 1px solid #d6e4ff;
-  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: saturate(180%) blur(8px);
+  -webkit-backdrop-filter: saturate(180%) blur(8px);
+  border-top: 1px solid var(--color-neutral-200);
   animation: bulk-bar-in 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -151,12 +144,12 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  padding: 5px 12px;
-  border-radius: 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--color-neutral-900);
   color: #fff;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -292,8 +285,28 @@
 }
 
 .file-grid-item:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 0 0 1px var(--color-neutral-400);
+}
+
+/* Image cards end where the image ends: no empty body band (the global
+   phone rule pads every .ant-card-body) */
+.file-grid-item.ant-card > .ant-card-body:empty {
+  display: none;
+}
+
+/* Category label on a thumbnail: white text with the category's dot */
+.file-grid-category {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  height: 18px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #37352f;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
 }
 
 .file-grid-item .ant-card-cover {
@@ -309,9 +322,7 @@
   transition: transform 0.3s ease;
 }
 
-.file-image:hover {
-  transform: scale(1.05);
-}
+
 
 .file-overlay {
   position: absolute;
@@ -337,29 +348,29 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fafafa;
-  border: 1px dashed #d9d9d9;
+  background: #f7f7f5;
+  border: 1px dashed #dfdfdc;
   cursor: pointer;
   transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .file-document-icon:hover {
   background: #f0f9ff;
-  border-color: #1890ff;
+  border-color: #1f74c9;
 }
 
 /* List View Styles */
 .file-list {
   background: white;
   border-radius: 8px;
-  border: 1px solid #f0f0f0;
+  border: 1px solid #e9e9e7;
   overflow: hidden;
 }
 
 .file-list .ant-list-item {
   transition: background-color 0.2s ease;
   cursor: pointer;
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid #f7f7f5;
 }
 
 .file-list .ant-list-item:hover {
@@ -371,8 +382,7 @@
 }
 
 .file-list .ant-list-item.selected {
-  background: #e6f7ff;
-  border-left: 3px solid #1890ff;
+  background: #eef5fc;
 }
 
 /* Card View Styles */
@@ -389,20 +399,19 @@
 }
 
 .file-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 0 0 1px var(--color-neutral-400);
 }
 
 .file-card.selected {
-  border-color: #1890ff;
-  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.15);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
 }
 
 /* View Mode Selector Styles */
 .view-mode-selector .ant-radio-group {
   background: white;
   border-radius: 6px;
-  border: 1px solid #d9d9d9;
+  border: 1px solid #dfdfdc;
   overflow: hidden;
 }
 
@@ -412,12 +421,12 @@
 }
 
 .view-mode-selector .ant-radio-button-wrapper:hover {
-  background: #f5f5f5;
+  background: #f7f7f5;
 }
 
 .view-mode-selector .ant-radio-button-wrapper-checked {
-  background: #1890ff;
-  color: white;
+  background: var(--color-ink-selected);
+  color: var(--color-neutral-900);
 }
 
 /* Loading and Empty States */
@@ -434,7 +443,7 @@
   align-items: center;
   height: 300px;
   flex-direction: column;
-  color: #8c8c8c;
+  color: #73726e;
 }
 
 .file-gallery-empty .ant-empty-image {
@@ -476,7 +485,7 @@
 
 .file-actions .ant-btn {
   border: none;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-elevated);
 }
 
 /* Selection Checkbox */
@@ -504,7 +513,7 @@
 
 .file-info-meta {
   font-size: 11px;
-  color: #8c8c8c;
+  color: #73726e;
   line-height: 1.2;
 }
 
@@ -529,9 +538,6 @@
     grid-template-columns: repeat(2, 1fr) !important;
   }
 
-  .date-group-header {
-    padding: 6px 10px;
-  }
 
   .date-group-header h5 {
     font-size: 14px;
@@ -586,37 +592,8 @@
   }
 }
 
-/* Dark mode support (optional) */
-@media (prefers-color-scheme: dark) {
-  .file-gallery {
-    background: #1f1f1f;
-    color: #fff;
-  }
-
-  .file-gallery-header {
-    background: #262626;
-    border-bottom-color: #434343;
-  }
-
-  .file-gallery-bulk-bar {
-    background: #1f1f1f;
-    border-top-color: #434343;
-  }
-
-  .file-document-icon {
-    background: #262626;
-    border-color: #434343;
-  }
-
-  .file-list {
-    background: #1f1f1f;
-    border-color: #434343;
-  }
-
-  .file-list .ant-list-item {
-    border-bottom-color: #303030;
-  }
-}
+/* No dark-mode block: the app has no dark theme, and a dark gallery inside a
+   light page read as broken on phones set to dark mode. */
 
 /* Animation for file uploads */
 @keyframes fadeInUp {
@@ -648,7 +625,7 @@
 .file-grid-item:focus,
 .file-list .ant-list-item:focus,
 .file-card:focus {
-  outline: 2px solid #1890ff;
+  outline: 2px solid #1f74c9;
   outline-offset: 2px;
 }
 

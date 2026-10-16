@@ -253,7 +253,7 @@ const GenerateContractModal: React.FC<GenerateModalProps> = ({
   const StepPreview = prefillLoading ? (
     <div style={{ textAlign: 'center', padding: 40 }}>
       <Spin />
-      <div style={{ marginTop: 8, color: '#8c8c8c' }}>Loading claim data...</div>
+      <div style={{ marginTop: 8, color: '#73726e' }}>Loading claim data...</div>
     </div>
   ) : prefillData ? (
     <div style={{ maxHeight: 400, overflow: 'auto' }}>
@@ -262,7 +262,7 @@ const GenerateContractModal: React.FC<GenerateModalProps> = ({
         if (!catData || Object.keys(catData).length === 0) return null;
         return (
           <div key={category} style={{ marginBottom: 16 }}>
-            <Text strong style={{ fontSize: 13, color: '#1677ff' }}>
+            <Text strong style={{ fontSize: 13, color: '#1f74c9' }}>
               {CATEGORY_LABELS[category] || category}
             </Text>
             <Divider style={{ margin: '4px 0 8px' }} />
@@ -321,7 +321,7 @@ const GenerateContractModal: React.FC<GenerateModalProps> = ({
   // Step 3: Success
   const StepSuccess = created ? (
     <div style={{ textAlign: 'center' }}>
-      <CheckCircleOutlined style={{ fontSize: 56, color: '#52c41a', marginBottom: 12 }} />
+      <CheckCircleOutlined style={{ fontSize: 56, color: '#448361', marginBottom: 12 }} />
       <Title level={4} style={{ marginBottom: 4 }}>Contract Generated</Title>
       <Paragraph type="secondary" style={{ marginBottom: 24 }}>
         Share the signing link with the homeowner.
@@ -329,7 +329,7 @@ const GenerateContractModal: React.FC<GenerateModalProps> = ({
       {created.signingUrl ? (
         <div>
           <div style={{
-            background: '#f5f5f5', border: '1px solid #d9d9d9', borderRadius: 8,
+            background: '#f7f7f5', border: '1px solid #dfdfdc', borderRadius: 8,
             padding: '12px 16px', wordBreak: 'break-all', fontFamily: 'monospace',
             fontSize: 13, marginBottom: 12,
           }}>
@@ -365,7 +365,7 @@ const GenerateContractModal: React.FC<GenerateModalProps> = ({
 
   return (
     <Modal
-      title={<Space><FileTextOutlined style={{ color: '#1677ff' }} />Generate Contract</Space>}
+      title={<Space><FileTextOutlined style={{ color: '#1f74c9' }} />Generate Contract</Space>}
       open={open}
       onCancel={currentStep === 3 ? onClose : undefined}
       closable={currentStep === 3 || !createMutation.isPending}
@@ -568,7 +568,7 @@ const WMContractTab: React.FC<WMContractTabProps> = ({
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Space>
-          <FileTextOutlined style={{ fontSize: 18, color: '#1677ff' }} />
+          <FileTextOutlined style={{ fontSize: 18, color: '#1f74c9' }} />
           <Text strong style={{ fontSize: 16 }}>Contracts</Text>
           {companyName && <Tag color="blue">{companyName}</Tag>}
         </Space>

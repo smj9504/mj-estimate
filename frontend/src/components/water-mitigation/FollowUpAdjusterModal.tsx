@@ -227,7 +227,7 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
           {/* Adjuster/Recipients Info Banner */}
           {(info.preset_emails?.length || info.adjuster.name) && (
             <div style={{
-              background: '#f6ffed', border: '1px solid #b7eb8f',
+              background: '#edf3ec', border: '1px solid #d3e5d0',
               borderRadius: 6, padding: '8px 12px', marginBottom: 12,
             }}>
               {(info.preset_emails && info.preset_emails.length > 1) ? (
@@ -236,7 +236,7 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
                   {info.preset_emails.map((p, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
                       <Text strong style={{ fontSize: 13 }}>{p.name || p.email}</Text>
-                      {p.name && <Text style={{ fontSize: 12, color: '#1890ff' }}>{p.email}</Text>}
+                      {p.name && <Text style={{ fontSize: 12, color: '#1f74c9' }}>{p.email}</Text>}
                       {p.role !== 'adjuster' && (
                         <Tag color="blue" style={{ fontSize: 10 }}>{p.role}</Tag>
                       )}
@@ -248,7 +248,7 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
                   <Text style={{ fontSize: 12, color: '#555' }}>Adjuster:</Text>
                   <Text strong style={{ fontSize: 13 }}>{info.adjuster.name}</Text>
                   {info.adjuster.email && (
-                    <Text style={{ fontSize: 12, color: '#1890ff' }}>{info.adjuster.email}</Text>
+                    <Text style={{ fontSize: 12, color: '#1f74c9' }}>{info.adjuster.email}</Text>
                   )}
                 </div>
               )}
@@ -258,14 +258,14 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
           {/* PA Info */}
           {info.pa.email && (
             <div style={{
-              background: '#f0f5ff', border: '1px solid #adc6ff',
+              background: '#eef5fa', border: '1px solid #c6e0ee',
               borderRadius: 6, padding: '8px 12px', marginBottom: 12,
               display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
             }}>
-              <MailOutlined style={{ color: '#1890ff' }} />
+              <MailOutlined style={{ color: '#1f74c9' }} />
               <Text style={{ fontSize: 12, color: '#555' }}>BCC (PA copy):</Text>
               {info.pa.name && <Text strong style={{ fontSize: 13 }}>{info.pa.name}</Text>}
-              <Text style={{ fontSize: 12, color: '#1890ff' }}>{info.pa.email}</Text>
+              <Text style={{ fontSize: 12, color: '#1f74c9' }}>{info.pa.email}</Text>
             </div>
           )}
 
@@ -430,7 +430,7 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
                       style={{
                         display: 'flex', alignItems: 'center', gap: 8,
                         padding: '4px 8px', borderRadius: 4,
-                        background: ready ? '#f6ffed' : '#fff2f0',
+                        background: ready ? '#edf3ec' : '#fdebec',
                         cursor: ready ? 'pointer' : 'default',
                         opacity: ready ? 1 : 0.7,
                       }}
@@ -442,9 +442,9 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
                         onChange={() => toggleDoc(key)}
                       />
                       {ready ? (
-                        <CheckCircleFilled style={{ color: '#52c41a', fontSize: 14 }} />
+                        <CheckCircleFilled style={{ color: '#448361', fontSize: 14 }} />
                       ) : (
-                        <CloseCircleFilled style={{ color: '#ff4d4f', fontSize: 14 }} />
+                        <CloseCircleFilled style={{ color: '#d44c47', fontSize: 14 }} />
                       )}
                       <Text style={{ fontSize: 13 }}>{DOC_LABELS[key]}</Text>
                       {!ready && (
@@ -466,7 +466,7 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
               <Space direction="vertical" size={2}>
                 {selectedDocs.map(key => (
                   <Space key={key} size={4}>
-                    <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                    <FilePdfOutlined style={{ color: '#d44c47' }} />
                     <Text style={{ fontSize: 12 }}>{DOC_LABELS[key]}</Text>
                   </Space>
                 ))}

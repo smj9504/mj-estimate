@@ -12,7 +12,6 @@ import {
   Descriptions,
   Button,
   Space,
-  Tag,
   message,
   Spin,
   Row,
@@ -56,6 +55,10 @@ import FollowUpAdjusterModal from '../components/water-mitigation/FollowUpAdjust
 import WMFinancialComparisonCard from '../components/water-mitigation/WMFinancialComparison';
 import WMContractTab from '../components/water-mitigation/WMContractTab';
 import AccuLynxSyncButton from '../components/common/AccuLynxSyncButton'; // AccuLynx: remove this line to fully remove the feature
+import { PageHeader, Pill, type TagTone } from '../components/common/ui';
+import { CompanyTag } from '../components/water-mitigation/paymentBoardShared';
+import { WMStatusPill, WM_STATUS_TONES } from '../components/water-mitigation/wmStatus';
+import { tagTones } from '../styles/tokens';
 
 const WMSketchTab = React.lazy(() => import('../components/water-mitigation/sketch/WMSketchTab'));
 
@@ -381,19 +384,9 @@ const WaterMitigationDetail: React.FC = () => {
     return '-';
   };
 
-  const getStatusColor = useCallback((status: JobStatus): string => {
-    const colors: Record<JobStatus, string> = {
-      'Lead': 'blue',
-      'Doc prepping': 'cyan',
-      'Sent to adjuster': 'geekblue',
-      'Follow up': 'orange',
-      'Paperwork received': 'purple',
-      'Estimate requested': 'magenta',
-      'Check received': 'green',
-      'Complete': 'success'
-    };
-    return colors[status] || 'default';
-  }, []);
+  // Timeline dot colour: the status pill's text tone
+  const getStatusColor = useCallback((status: JobStatus): string =>
+    tagTones[WM_STATUS_TONES[status] ?? 'gray'].text, []);
 
   // Memoize company select options
   const companyOptions = useMemo(() =>
@@ -421,150 +414,96 @@ const WaterMitigationDetail: React.FC = () => {
     );
   }
 
-  // Responsive column count for Descriptions
-  const descColumn = isMobile ? 1 : 2;
+  // Facts read as single-column property rows on every screen size
+  const descColumn = 1;
+  const propRows = { bordered: false, column: 1, colon: false, size: 'small' as const, className: 'ui-props-desc' };
+  const EMPTY = <span className="ui-props-empty">Empty</span>;
+
+  const moreMenuItems = [
+    {
+      key: 'send',
+      icon: <SendOutlined />,
+      label: 'Send to Adjuster',
+      onClick: () => setSendToAdjusterOpen(true),
+    },
+    ...(job.documents_sent_date ? [{
+      key: 'followup',
+      icon: <ReloadOutlined />,
+      label: 'Follow Up',
+      onClick: () => setFollowUpOpen(true),
+    }] : []),
+    ...(isMobile ? [
+      { type: 'divider' as const },
+      {
+        key: 'edit',
+        icon: <EditOutlined />,
+        label: 'Edit Job',
+        onClick: () => navigate(`/water-mitigation/${id}/edit`),
+      },
+    ] : []),
+  ];
 
   return (
-    <div style={{ padding: isMobile ? '0' : '24px' }}>
-      <Space direction="vertical" style={{ width: '100%' }} size={isMobile ? 'middle' : 'large'}>
-        {/* Header */}
-        <Card styles={{ body: { padding: isMobile ? '12px' : '24px' } }}>
-          {/* Mobile: compact stacked layout */}
-          {isMobile ? (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <h3 style={{ margin: 0, flex: 1, fontSize: 16, lineHeight: '1.3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {job.property_address}
-                </h3>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Tag color={job.active ? 'success' : 'default'} style={{ margin: 0 }}>
-                  {job.active ? 'ACTIVE' : 'INACTIVE'}
-                </Tag>
-                <Select
-                  value={job.status}
-                  onChange={handleStatusChange}
-                  style={{ flex: 1, minWidth: 120 }}
-                  options={JOB_STATUS_OPTIONS}
-                  suffixIcon={<SwapOutlined />}
-                  size="small"
-                />
-                <Dropdown
-                  menu={{
-                    items: [
-                      {
-                        key: 'send',
-                        icon: <SendOutlined />,
-                        label: 'Send to Adjuster',
-                        onClick: () => setSendToAdjusterOpen(true),
-                      },
-                      ...(job.documents_sent_date ? [{
-                        key: 'followup',
-                        icon: <ReloadOutlined />,
-                        label: 'Follow Up',
-                        onClick: () => setFollowUpOpen(true),
-                      }] : []),
-                      { type: 'divider' as const },
-                      {
-                        key: 'edit',
-                        icon: <EditOutlined />,
-                        label: 'Edit Job',
-                        onClick: () => navigate(`/water-mitigation/${id}/edit`),
-                      },
-                    ],
-                  }}
-                  trigger={['click']}
-                >
-                  <Button icon={<MoreOutlined />} size="small" />
-                </Dropdown>
-              </div>
-            </div>
-          ) : (
-            /* Desktop: horizontal layout — primary actions visible, secondary in dropdown */
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              flexWrap: 'wrap', justifyContent: 'space-between',
-            }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                minWidth: 0, flex: '1 1 auto',
-              }}>
-                <h2 style={{
-                  margin: 0, whiteSpace: 'nowrap',
-                  overflow: 'hidden', textOverflow: 'ellipsis',
-                }}>
-                  {job.property_address}
-                </h2>
-                <Tag color={job.active ? 'success' : 'default'} style={{ margin: 0, flexShrink: 0 }}>
-                  {job.active ? 'ACTIVE' : 'INACTIVE'}
-                </Tag>
-              </div>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                flexShrink: 0,
-              }}>
-                <Select
-                  value={job.status}
-                  onChange={handleStatusChange}
-                  style={{ width: 180 }}
-                  options={JOB_STATUS_OPTIONS}
-                  suffixIcon={<SwapOutlined />}
-                />
-                <Button
-                  type="primary"
-                  icon={<EditOutlined />}
-                  onClick={() => navigate(`/water-mitigation/${id}/edit`)}
-                >
-                  Edit
-                </Button>
-                <Dropdown
-                  menu={{
-                    items: [
-                      {
-                        key: 'send',
-                        icon: <SendOutlined />,
-                        label: 'Send to Adjuster',
-                        onClick: () => setSendToAdjusterOpen(true),
-                      },
-                      ...(job.documents_sent_date ? [{
-                        key: 'followup',
-                        icon: <ReloadOutlined />,
-                        label: 'Follow Up',
-                        onClick: () => setFollowUpOpen(true),
-                      }] : []),
-                    ],
-                  }}
-                  trigger={['click']}
-                >
-                  <Button icon={<MoreOutlined />} />
-                </Dropdown>
-              </div>
-            </div>
-          )}
-        </Card>
-
+    <div>
+      <PageHeader
+        title={job.property_address}
+        meta={
+          <>
+            {!job.active && <Pill tone="gray">Inactive</Pill>}
+            <CompanyTag company={job.company} />
+            {job.homeowner_name && <span>{job.homeowner_name}</span>}
+            {job.claim_number && <span>{job.claim_number}</span>}
+          </>
+        }
+        actions={
+          <>
+            <Select
+              className="wm-status-select"
+              value={job.status}
+              onChange={handleStatusChange}
+              style={{ width: isMobile ? 190 : 200 }}
+              options={JOB_STATUS_OPTIONS}
+              labelRender={({ value }) => <WMStatusPill status={value as JobStatus} />}
+              optionRender={(option) => <WMStatusPill status={option.value as JobStatus} />}
+              suffixIcon={<SwapOutlined />}
+              aria-label="Job status"
+            />
+            {!isMobile && (
+              <Button
+                icon={<EditOutlined />}
+                onClick={() => navigate(`/water-mitigation/${id}/edit`)}
+              >
+                Edit
+              </Button>
+            )}
+            <Dropdown menu={{ items: moreMenuItems }} trigger={['click']}>
+              <Button icon={<MoreOutlined />} aria-label="More actions" />
+            </Dropdown>
+          </>
+        }
+      />
+      <div>
         {/* Tabs */}
         <Tabs
           defaultActiveKey="details"
           activeKey={activeTab}
           onChange={handleTabChange}
-          size={isMobile ? 'small' : 'middle'}
-          tabBarStyle={isMobile ? { marginBottom: 8 } : undefined}
+          size="middle"
           items={[
             {
               key: 'details',
               label: 'Job Details',
               children: (
-                <Row gutter={[16, 16]}>
+                <Row gutter={isMobile ? [0, 32] : [48, 32]}>
                   {/* Job Details */}
                   <Col xs={24} lg={16}>
                     <EditableSection
                       title="Job Information"
                       onSave={handleSaveJobInfo}
-                      style={{ marginBottom: 16 }}
+                      style={{ marginBottom: 32 }}
                     >
                       {(isEditing) => (
-                        <Descriptions bordered column={descColumn} size={isMobile ? 'small' : 'default'}>
+                        <Descriptions {...propRows}>
                           <Descriptions.Item label="Property Address" span={descColumn}>
                             {isEditing ? (
                               <Input.TextArea
@@ -596,16 +535,12 @@ const WaterMitigationDetail: React.FC = () => {
                               />
                             ) : (
                               job.company ? (
-                                <span>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                  {job.company.company_code && <CompanyTag company={job.company} />}
                                   {job.company.name}
-                                  {job.company.company_code && (
-                                    <Tag color="blue" style={{ marginLeft: 8 }}>
-                                      {job.company.company_code}
-                                    </Tag>
-                                  )}
                                 </span>
                               ) : (
-                                <span style={{ color: '#8c8c8c' }}>Not assigned</span>
+                                <span style={{ color: '#a5a29a' }}>Not assigned</span>
                               )
                             )}
                           </Descriptions.Item>
@@ -618,7 +553,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 maxLength={255}
                               />
                             ) : (
-                              job.homeowner_name || '-'
+                              job.homeowner_name || EMPTY
                             )}
                           </Descriptions.Item>
                           <Descriptions.Item label="Phone">
@@ -630,7 +565,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 maxLength={50}
                               />
                             ) : (
-                              job.homeowner_phone || '-'
+                              job.homeowner_phone || EMPTY
                             )}
                           </Descriptions.Item>
                           <Descriptions.Item label="Email" span={descColumn}>
@@ -643,7 +578,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 maxLength={255}
                               />
                             ) : (
-                              job.homeowner_email || '-'
+                              job.homeowner_email || EMPTY
                             )}
                           </Descriptions.Item>
                         </Descriptions>
@@ -653,10 +588,10 @@ const WaterMitigationDetail: React.FC = () => {
                     <EditableSection
                       title="Insurance Information"
                       onSave={handleSaveInsurance}
-                      style={{ marginBottom: 16 }}
+                      style={{ marginBottom: 32 }}
                     >
                       {(isEditing) => (
-                        <Descriptions bordered column={descColumn} size={isMobile ? 'small' : 'default'}>
+                        <Descriptions {...propRows}>
                           <Descriptions.Item label="Insurance Company" span={descColumn}>
                             {isEditing ? (
                               <Input
@@ -666,7 +601,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 maxLength={255}
                               />
                             ) : (
-                              job.insurance_company || '-'
+                              job.insurance_company || EMPTY
                             )}
                           </Descriptions.Item>
                           <Descriptions.Item label="Policy Number">
@@ -678,7 +613,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 maxLength={100}
                               />
                             ) : (
-                              job.insurance_policy_number || '-'
+                              job.insurance_policy_number || EMPTY
                             )}
                           </Descriptions.Item>
                           <Descriptions.Item label="Claim Number">
@@ -690,7 +625,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 maxLength={100}
                               />
                             ) : (
-                              job.claim_number || '-'
+                              job.claim_number || EMPTY
                             )}
                           </Descriptions.Item>
                           {/* AccuLynx: remove this Descriptions.Item to fully remove the feature */}
@@ -709,7 +644,7 @@ const WaterMitigationDetail: React.FC = () => {
                                   notes: job.claim_number ? `Claim #${job.claim_number}` : undefined,
                                 }}
                               />
-                            ) : '-'}
+                            ) : EMPTY}
                           </Descriptions.Item>
                           <Descriptions.Item label="Date of Loss">
                             {isEditing ? (
@@ -722,7 +657,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 placeholder="Select date of loss"
                               />
                             ) : (
-                              job.date_of_loss ? dayjs(job.date_of_loss).format('MMM D, YYYY') : '-'
+                              job.date_of_loss ? dayjs(job.date_of_loss).format('MMM D, YYYY') : EMPTY
                             )}
                           </Descriptions.Item>
                           <Descriptions.Item
@@ -730,7 +665,7 @@ const WaterMitigationDetail: React.FC = () => {
                               <Space size={4}>
                                 <span>{isMobile ? 'Start Date' : 'Mitigation Start Date'}</span>
                                 <Tooltip title="Start date of the water mitigation work. Used for photo report and photo date bulk update.">
-                                  <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                                  <InfoCircleOutlined style={{ color: '#a5a29a' }} />
                                 </Tooltip>
                               </Space>
                             }
@@ -744,7 +679,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 placeholder="Select start date"
                               />
                             ) : (
-                              job.mitigation_start_date ? dayjs(job.mitigation_start_date).format('MMM D, YYYY') : '-'
+                              job.mitigation_start_date ? dayjs(job.mitigation_start_date).format('MMM D, YYYY') : EMPTY
                             )}
                           </Descriptions.Item>
                           <Descriptions.Item
@@ -753,7 +688,7 @@ const WaterMitigationDetail: React.FC = () => {
                               <Space size={4}>
                                 <span>{isMobile ? 'End Date' : 'Mitigation End Date'}</span>
                                 <Tooltip title="End date of the water mitigation work. Used for photo report and photo date bulk update.">
-                                  <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                                  <InfoCircleOutlined style={{ color: '#a5a29a' }} />
                                 </Tooltip>
                               </Space>
                             }
@@ -771,13 +706,11 @@ const WaterMitigationDetail: React.FC = () => {
                                 }}
                               />
                             ) : (
-                              job.mitigation_end_date ? dayjs(job.mitigation_end_date).format('MMM D, YYYY') : '-'
+                              job.mitigation_end_date ? dayjs(job.mitigation_end_date).format('MMM D, YYYY') : EMPTY
                             )}
                           </Descriptions.Item>
                           <Descriptions.Item label="Mitigation Period" span={descColumn}>
-                            <Tag color={job.mitigation_start_date && job.mitigation_end_date ? 'green' : 'default'}>
-                              {formatMitigationPeriod()}
-                            </Tag>
+                            {formatMitigationPeriod()}
                           </Descriptions.Item>
                         </Descriptions>
                       )}
@@ -785,22 +718,22 @@ const WaterMitigationDetail: React.FC = () => {
 
                     <Card
                       title="Adjuster Contact Info"
-                      style={{ marginBottom: 16 }}
-                      styles={{ body: { padding: isMobile ? '12px' : undefined } }}
+                      className="ui-sheet-card"
+                      style={{ marginBottom: 32 }}
                     >
-                      <Descriptions bordered column={descColumn} size={isMobile ? 'small' : 'default'}>
+                      <Descriptions {...propRows}>
                         <Descriptions.Item label="Adjuster Name">
-                          {job.adjuster_name || '-'}
+                          {job.adjuster_name || EMPTY}
                         </Descriptions.Item>
                         <Descriptions.Item label="Phone">
                           {job.adjuster_phone ? (
                             <a href={`tel:${job.adjuster_phone}`}>{job.adjuster_phone}</a>
-                          ) : '-'}
+                          ) : EMPTY}
                         </Descriptions.Item>
                         <Descriptions.Item label="Email" span={descColumn}>
                           {job.adjuster_email ? (
                             <a href={`mailto:${job.adjuster_email}`}>{job.adjuster_email}</a>
-                          ) : '-'}
+                          ) : EMPTY}
                         </Descriptions.Item>
                         {job.adjuster_emails && job.adjuster_emails.length > 0 && (
                           <Descriptions.Item label="Additional Contacts" span={descColumn}>
@@ -809,7 +742,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 <div key={idx} style={{ marginBottom: idx < job.adjuster_emails!.length - 1 ? 4 : 0 }}>
                                   <span style={{ fontWeight: 500 }}>{contact.name}</span>
                                   {contact.role && (
-                                    <Tag color="blue" style={{ marginLeft: 8, fontSize: 11 }}>{contact.role}</Tag>
+                                    <Pill tone="gray" style={{ marginLeft: 8 }}>{contact.role}</Pill>
                                   )}
                                   <span style={{ marginLeft: 8 }}>
                                     <a href={`mailto:${contact.email}`}>{contact.email}</a>
@@ -825,9 +758,10 @@ const WaterMitigationDetail: React.FC = () => {
                     <EditableSection
                       title="Financial Information"
                       onSave={handleSaveFinancial}
+                      style={{ marginBottom: 32 }}
                     >
                       {(isEditing) => (
-                        <Descriptions bordered column={descColumn} size={isMobile ? 'small' : 'default'}>
+                        <Descriptions {...propRows}>
                           <Descriptions.Item label="Documents Sent Date" span={descColumn}>
                             {isEditing ? (
                               <DatePicker
@@ -837,7 +771,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 style={{ width: '100%' }}
                               />
                             ) : (
-                              job.documents_sent_date ? dayjs(job.documents_sent_date).format('YYYY-MM-DD') : '-'
+                              job.documents_sent_date ? dayjs(job.documents_sent_date).format('YYYY-MM-DD') : EMPTY
                             )}
                           </Descriptions.Item>
                           <Descriptions.Item label="Invoice Number">
@@ -849,7 +783,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 maxLength={100}
                               />
                             ) : (
-                              job.invoice_number || '-'
+                              job.invoice_number || EMPTY
                             )}
                           </Descriptions.Item>
                           <Descriptions.Item label="Invoice Amount">
@@ -863,7 +797,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 style={{ width: '100%' }}
                               />
                             ) : (
-                              job.invoice_amount ? `$${job.invoice_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'
+                              job.invoice_amount ? `$${job.invoice_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : EMPTY
                             )}
                           </Descriptions.Item>
                           {documentInvoices.length > 0 && !isEditing && (
@@ -871,16 +805,16 @@ const WaterMitigationDetail: React.FC = () => {
                               <div>
                                 {documentInvoices.map((inv, idx) => (
                                   <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: idx < documentInvoices.length - 1 ? 4 : 0 }}>
-                                    <span style={{ color: '#595959', fontSize: 13 }}>{inv.filename}</span>
-                                    <span style={{ fontWeight: 500, color: '#52c41a' }}>
+                                    <span style={{ color: '#5f5e5b', fontSize: 13 }}>{inv.filename}</span>
+                                    <span style={{ fontWeight: 500, color: '#448361' }}>
                                       ${inv.invoice_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </span>
                                   </div>
                                 ))}
                                 {documentInvoices.length > 1 && (
-                                  <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 4, marginTop: 4, display: 'flex', justifyContent: 'space-between' }}>
+                                  <div style={{ borderTop: '1px solid #e9e9e7', paddingTop: 4, marginTop: 4, display: 'flex', justifyContent: 'space-between' }}>
                                     <span style={{ fontWeight: 600 }}>Total</span>
-                                    <span style={{ fontWeight: 600, color: '#52c41a' }}>
+                                    <span style={{ fontWeight: 600, color: '#448361' }}>
                                       ${documentInvoices.reduce((sum, inv) => sum + inv.invoice_amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </span>
                                   </div>
@@ -897,7 +831,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 maxLength={100}
                               />
                             ) : (
-                              job.check_number || '-'
+                              job.check_number || EMPTY
                             )}
                           </Descriptions.Item>
                           <Descriptions.Item label="Check Date">
@@ -909,7 +843,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 style={{ width: '100%' }}
                               />
                             ) : (
-                              job.check_date ? dayjs(job.check_date).format('YYYY-MM-DD') : '-'
+                              job.check_date ? dayjs(job.check_date).format('YYYY-MM-DD') : EMPTY
                             )}
                           </Descriptions.Item>
                           <Descriptions.Item label="Check Amount" span={descColumn}>
@@ -923,7 +857,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 style={{ width: '100%' }}
                               />
                             ) : (
-                              job.check_amount ? `$${job.check_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'
+                              job.check_amount ? `$${job.check_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : EMPTY
                             )}
                           </Descriptions.Item>
                           <Descriptions.Item label="Payment Status" span={descColumn}>
@@ -945,17 +879,17 @@ const WaterMitigationDetail: React.FC = () => {
                               </Select>
                             ) : (
                               job.payment_status ? (
-                                <Tag color={{
-                                  pending: 'orange', issued: 'blue', homeowner_holding: 'volcano',
-                                  lost: 'red', reissued: 'purple', received: 'green', partial: 'cyan',
-                                }[job.payment_status] || 'default'}>
+                                <Pill tone={({
+                                  pending: 'orange', issued: 'blue', homeowner_holding: 'brown',
+                                  lost: 'red', reissued: 'purple', received: 'green', partial: 'yellow',
+                                } as Record<string, TagTone>)[job.payment_status] || 'gray'}>
                                   {{
                                     pending: 'Pending', issued: 'Issued (Amt Unknown)',
                                     homeowner_holding: 'Homeowner Holding', lost: 'Check Lost',
                                     reissued: 'Reissued', received: 'Received', partial: 'Partial',
                                   }[job.payment_status] || job.payment_status}
-                                </Tag>
-                              ) : '-'
+                                </Pill>
+                              ) : EMPTY
                             )}
                           </Descriptions.Item>
                           <Descriptions.Item label="Payment Note" span={descColumn}>
@@ -968,7 +902,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 maxLength={500}
                               />
                             ) : (
-                              job.payment_note ? <span style={{ whiteSpace: 'pre-wrap' }}>{job.payment_note}</span> : '-'
+                              job.payment_note ? <span style={{ whiteSpace: 'pre-wrap' }}>{job.payment_note}</span> : EMPTY
                             )}
                           </Descriptions.Item>
                         </Descriptions>
@@ -983,26 +917,26 @@ const WaterMitigationDetail: React.FC = () => {
                     )}
 
                     {job.notes && (
-                      <Card title="Notes" style={{ marginTop: 16 }}>
-                        <p style={{ whiteSpace: 'pre-wrap' }}>{job.notes}</p>
+                      <Card title="Notes" className="ui-sheet-card" style={{ marginTop: 32 }}>
+                        <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{job.notes}</p>
                       </Card>
                     )}
                   </Col>
 
                   {/* Status History */}
                   <Col xs={24} lg={8}>
-                    <Card title="Status History">
+                    <Card title="Status History" className="ui-sheet-card">
                       <Timeline
                         items={statusHistory.map((history) => ({
                           key: history.id,
                           color: getStatusColor(history.new_status as JobStatus),
                           children: (
                             <>
-                              <p style={{ margin: 0, fontWeight: 'bold' }}>
+                              <p style={{ margin: 0, fontWeight: 500 }}>
                                 {history.new_status}
                               </p>
-                              <p style={{ margin: 0, fontSize: '12px', color: '#8c8c8c' }}>
-                                {new Date(history.changed_at).toLocaleString()}
+                              <p style={{ margin: 0, fontSize: '12px', color: '#73726e' }}>
+                                {dayjs(history.changed_at).format('MMM D, YYYY h:mm A')}
                               </p>
                               {history.notes && (
                                 <p style={{ margin: '4px 0 0', fontSize: '13px' }}>
@@ -1015,29 +949,29 @@ const WaterMitigationDetail: React.FC = () => {
                       />
                     </Card>
 
-                    <Card title="Integration Info" style={{ marginTop: 16 }}>
-                      <Descriptions bordered column={1} size="small">
+                    <Card title="Integration Info" className="ui-sheet-card" style={{ marginTop: 32 }}>
+                      <Descriptions {...propRows}>
                         <Descriptions.Item label="Photos">
                           {job.photo_count || 0}
                         </Descriptions.Item>
                         <Descriptions.Item label="CompanyCam Project">
-                          {job.companycam_project_id || '-'}
+                          {job.companycam_project_id || EMPTY}
                         </Descriptions.Item>
                         <Descriptions.Item label="PA (Sheet)">
-                          {job.google_sheet_name || '-'}
+                          {job.google_sheet_name || EMPTY}
                         </Descriptions.Item>
                         <Descriptions.Item label="Google Sheet Row">
-                          {job.google_sheet_row_number || '-'}
+                          {job.google_sheet_row_number || EMPTY}
                         </Descriptions.Item>
                         <Descriptions.Item label="Last CompanyCam Sync">
                           {job.companycam_last_sync
                             ? new Date(job.companycam_last_sync).toLocaleString()
-                            : '-'}
+                            : EMPTY}
                         </Descriptions.Item>
                         <Descriptions.Item label="Last Sheets Sync">
                           {job.sheets_last_sync
                             ? new Date(job.sheets_last_sync).toLocaleString()
-                            : '-'}
+                            : EMPTY}
                         </Descriptions.Item>
                       </Descriptions>
                     </Card>
@@ -1124,7 +1058,7 @@ const WaterMitigationDetail: React.FC = () => {
             }
           ]}
         />
-      </Space>
+      </div>
 
       {/* Edit Modal */}
       <JobFormModal
@@ -1146,10 +1080,8 @@ const WaterMitigationDetail: React.FC = () => {
         <Space direction="vertical" style={{ width: '100%' }}>
           <p>
             Are you sure you want to change the status from{' '}
-            <Tag color={getStatusColor(job.status)}>{job.status}</Tag> to{' '}
-            <Tag color={selectedStatus ? getStatusColor(selectedStatus) : 'default'}>
-              {selectedStatus}
-            </Tag>?
+            <WMStatusPill status={job.status} /> to{' '}
+            <WMStatusPill status={selectedStatus} />?
           </p>
           <div>
             <label style={{ display: 'block', marginBottom: '8px' }}>
@@ -1163,7 +1095,7 @@ const WaterMitigationDetail: React.FC = () => {
                 width: '100%',
                 minHeight: '80px',
                 padding: '8px',
-                border: '1px solid #d9d9d9',
+                border: '1px solid #dfdfdc',
                 borderRadius: '6px',
                 resize: 'vertical'
               }}

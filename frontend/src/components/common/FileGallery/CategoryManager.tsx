@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Space, Tag, Button, Input, message, Checkbox, Tooltip } from 'antd';
-import { PlusOutlined, LeftOutlined, RightOutlined, FilterOutlined } from '@ant-design/icons';
+import { Space, Tag, Button, Input, message, Tooltip } from 'antd';
+import { PlusOutlined, LeftOutlined, RightOutlined, FilterOutlined, CheckOutlined } from '@ant-design/icons';
+import { getCategoryColor } from './categoryColors';
 
 interface CategoryManagerProps {
   categories: string[];
@@ -12,23 +13,6 @@ interface CategoryManagerProps {
 }
 
 // Category color mapping for visual distinction
-const getCategoryColor = (category: string): string => {
-  const colorMap: Record<string, string> = {
-    'all': '#1890ff',
-    'uncategorized': '#d9d9d9',
-    'wet-area': '#13c2c2',
-    'pre-mitigation-moving': '#faad14',
-    'demolition': '#f5222d',
-    'containment': '#722ed1',
-    'protection': '#52c41a',
-    'drying-process': '#2f54eb',
-    'day-1': '#eb2f96',
-    'day-2': '#fa8c16',
-    'day-3': '#a0d911',
-    'documentation': '#1890ff',
-  };
-  return colorMap[category] || '#1890ff';
-};
 
 const CategoryManager: React.FC<CategoryManagerProps> = ({
   categories,
@@ -168,13 +152,7 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
   };
 
   return (
-    <div className="category-manager" style={{
-      marginTop: 8,
-      background: '#fafafa',
-      borderRadius: '8px',
-      padding: '6px 12px',
-      border: '1px solid #f0f0f0'
-    }}>
+    <div className="category-manager" style={{ marginTop: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         {/* Filter Icon and Label */}
         <div style={{
@@ -183,21 +161,21 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
           gap: '6px',
           flexShrink: 0
         }}>
-          <FilterOutlined style={{ fontSize: '14px', color: '#5b4fc4' }} />
-          <span style={{
+          <FilterOutlined style={{ fontSize: '14px', color: '#73726e' }} />
+          <span className="category-manager-label" style={{
             fontSize: '13px',
-            fontWeight: 600,
-            color: '#333',
+            fontWeight: 500,
+            color: '#5f5e5b',
             whiteSpace: 'nowrap'
           }}>
-            Filter
+            <span className="category-manager-label-text">Filter</span>
             {getSelectedCount() > 0 && (
               <span style={{
                 marginLeft: '6px',
-                background: '#5b4fc4',
+                background: '#37352f',
                 color: 'white',
-                borderRadius: '10px',
-                padding: '2px 8px',
+                borderRadius: '4px',
+                padding: '1px 6px',
                 fontSize: '11px',
                 fontWeight: 500
               }}>
@@ -241,37 +219,23 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
             const color = getCategoryColor(category);
 
             return (
+              // Notion view-filter chip: quiet grey until selected, then ink
+              // with a check. The category colour stays as a small dot so
+              // categories still read apart without a rainbow of borders.
               <Tag
                 key={category}
-                color={selected ? color : 'default'}
-                style={{
-                  cursor: 'pointer',
-                  borderRadius: '16px',
-                  padding: '3px 12px',
-                  fontSize: '12px',
-                  fontWeight: selected ? 600 : 400,
-                  border: selected ? `2px solid ${color}` : '1px solid #d9d9d9',
-                  background: selected ? `${color}15` : 'white',
-                  color: selected ? color : '#595959',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  whiteSpace: 'nowrap',
-                  transition: 'all 0.2s ease',
-                  boxShadow: selected ? `0 2px 8px ${color}25` : 'none'
-                }}
+                role="button"
+                aria-pressed={selected}
+                className={`ui-filter-chip${selected ? ' is-selected' : ''}`}
                 onClick={() => handleCategoryClick(category)}
               >
-                {multiSelect && category !== 'all' && (
-                  <Checkbox
-                    checked={selected}
-                    style={{
-                      marginRight: 0,
-                      pointerEvents: 'none'
-                    }}
-                  />
+                {category !== 'all' && (
+                  <span className="ui-filter-chip-dot" style={{ background: color }} aria-hidden="true" />
                 )}
                 {getCategoryDisplayName(category)}
+                {multiSelect && selected && category !== 'all' && (
+                  <CheckOutlined className="ui-filter-chip-check" aria-hidden="true" />
+                )}
               </Tag>
             );
           })}
@@ -321,10 +285,8 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
                   icon={<PlusOutlined style={{}} />}
                   onClick={() => setIsCreating(true)}
                   style={{
-                    borderRadius: '16px',
-                    flexShrink: 0,
-                    borderColor: '#667eea',
-                    color: '#667eea'
+                    borderRadius: '6px',
+                    flexShrink: 0
                   }}
                 >
                   New

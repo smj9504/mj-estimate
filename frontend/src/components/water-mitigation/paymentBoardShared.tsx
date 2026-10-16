@@ -6,7 +6,7 @@
 
 import React, { useEffect, useState } from 'react';
 import dayjs from 'dayjs';
-import { Button, Input, Space, Tag, Typography } from 'antd';
+import { Button, Input, Space, Typography } from 'antd';
 import {
   ArrowRightOutlined,
   CheckCircleFilled,
@@ -15,6 +15,8 @@ import {
   PlusOutlined,
 } from '@ant-design/icons';
 import type { CheckRecipient } from '../../types/waterMitigation';
+import { Pill, toneFromKey } from '../common/ui';
+import { tagTones } from '../../styles/tokens';
 
 const { Text } = Typography;
 
@@ -25,7 +27,7 @@ export const CHECK_RECIPIENT_OPTIONS: { value: CheckRecipient; label: string }[]
 ];
 
 /** Faint green tint for rows whose payment has arrived */
-export const RECEIVED_ROW_BG = '#f6ffed';
+export const RECEIVED_ROW_BG = '#f6f9f5';
 
 export const formatMoney = (value?: number | null): string => {
   if (value === null || value === undefined) return '—';
@@ -66,53 +68,44 @@ export const writeBoolPref = (key: string, value: boolean) => {
 // Colour AND an arrow glyph, so contractor vs customer reads without relying on colour alone.
 export const CheckRecipientTag: React.FC<{ value?: CheckRecipient | null }> = ({ value }) => {
   if (value === 'contractor') {
-    return (
-      <Tag color="blue" icon={<ArrowRightOutlined />}>Contractor</Tag>
-    );
+    return <Pill tone="blue" icon={<ArrowRightOutlined />}>Contractor</Pill>;
   }
   if (value === 'customer') {
-    return (
-      <Tag color="orange" icon={<ArrowRightOutlined />}>Customer</Tag>
-    );
+    return <Pill tone="orange" icon={<ArrowRightOutlined />}>Customer</Pill>;
   }
   if (value === 'pa') {
-    return (
-      <Tag color="purple" icon={<ArrowRightOutlined />}>PA</Tag>
-    );
+    return <Pill tone="purple" icon={<ArrowRightOutlined />}>PA</Pill>;
   }
-  return <Tag>—</Tag>;
+  return <Pill tone="gray">—</Pill>;
 };
 
-// Solid fills (white text) so a company never reads like the light status / check-to tags.
-// All dark enough for white text to stay readable.
-const COMPANY_TAG_COLORS = [
-  '#006d75', '#9e1068', '#ad4e00', '#3f6600',
-  '#391085', '#a8071a', '#003eb3', '#614700',
-];
-
-/** Same company always gets the same colour, picked from its id */
-const companyTagColor = (id: string): string => {
-  let hash = 0;
-  for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  return COMPANY_TAG_COLORS[Math.abs(hash) % COMPANY_TAG_COLORS.length];
-};
-
-/** WM company shown by its code (name when it has none) */
+/**
+ * WM company shown by its code (name when it has none). Each company keeps
+ * its own pastel tone, picked from its id. It is a square monogram tile, not
+ * a pill, so it never reads as one more status tag next to the job status.
+ */
 export const CompanyTag: React.FC<{
   company?: { id: string; name: string; company_code?: string | null } | null;
   style?: React.CSSProperties;
-}> = ({ company, style }) =>
-  company ? (
-    <Tag color={companyTagColor(company.id)} style={style}>
+}> = ({ company, style }) => {
+  if (!company) return null;
+  const tone = tagTones[toneFromKey(company.id)];
+  return (
+    <span
+      className="ui-monogram"
+      title={company.name}
+      style={{ background: tone.bg, color: tone.text, ...style }}
+    >
       {company.company_code || company.name}
-    </Tag>
-  ) : null;
+    </span>
+  );
+};
 
 export const ReceivedTag: React.FC<{ received?: boolean }> = ({ received }) =>
   received ? (
-    <Tag color="success" icon={<CheckCircleFilled />}>Received</Tag>
+    <Pill tone="green" icon={<CheckCircleFilled />}>Received</Pill>
   ) : (
-    <Tag icon={<ClockCircleOutlined />}>Pending</Tag>
+    <Pill tone="gray" icon={<ClockCircleOutlined />}>Pending</Pill>
   );
 
 /**
@@ -195,7 +188,7 @@ export const EditableNote: React.FC<{
       style={{ cursor: 'text', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: compact ? 12 : 13 }}
     >
       <Text>{value}</Text>
-      <EditOutlined style={{ marginLeft: 6, color: '#8c8c8c', fontSize: 12 }} />
+      <EditOutlined style={{ marginLeft: 6, color: '#a5a29a', fontSize: 12 }} />
       {updatedAt && (
         <Text type="secondary" style={{ display: 'block', fontSize: 11, marginTop: 2 }}>
           {dayjs(updatedAt).format('MM/DD/YY h:mm A')}

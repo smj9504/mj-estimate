@@ -123,14 +123,14 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 const FILE_ICON_MAP: Record<string, React.ReactNode> = {
-  'application/pdf': <FilePdfOutlined style={{ color: '#ff4d4f' }} />,
-  'image/': <FileImageOutlined style={{ color: '#1890ff' }} />,
+  'application/pdf': <FilePdfOutlined style={{ color: '#d44c47' }} />,
+  'image/': <FileImageOutlined style={{ color: '#1f74c9' }} />,
 };
 
 function getFileIcon(type: string) {
   if (type === 'application/pdf') return FILE_ICON_MAP['application/pdf'];
   if (type.startsWith('image/')) return FILE_ICON_MAP['image/'];
-  return <FileOutlined style={{ color: '#8c8c8c' }} />;
+  return <FileOutlined style={{ color: '#73726e' }} />;
 }
 
 function formatFileSize(bytes: number): string {
@@ -563,10 +563,10 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
           ) : wmDocReadiness ? (
             <div
               style={{
-                border: '1px solid #f0f0f0',
+                border: '1px solid #e9e9e7',
                 borderRadius: 6,
                 padding: '8px 12px',
-                background: '#fafafa',
+                background: '#f7f7f5',
               }}
             >
               <Row gutter={[8, 4]}>
@@ -582,9 +582,9 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
                       >
                         <Space size={4}>
                           {isReady ? (
-                            <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 12 }} />
+                            <CheckCircleOutlined style={{ color: '#448361', fontSize: 12 }} />
                           ) : (
-                            <CloseCircleOutlined style={{ color: '#ff4d4f', fontSize: 12 }} />
+                            <CloseCircleOutlined style={{ color: '#d44c47', fontSize: 12 }} />
                           )}
                           <span style={{ fontSize: 13 }}>
                             {WM_DOC_LABELS[docKey] || docKey}
@@ -823,7 +823,7 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
           {previewMode ? (
             <div
               style={{
-                border: '1px solid #d9d9d9',
+                border: '1px solid #dfdfdc',
                 borderRadius: 4,
                 padding: 16,
                 minHeight: 200,
@@ -866,10 +866,10 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
         {attachedFiles.length > 0 && (
           <div
             style={{
-              border: '1px solid #f0f0f0',
+              border: '1px solid #e9e9e7',
               borderRadius: 6,
               padding: '4px 0',
-              background: '#fafafa',
+              background: '#f7f7f5',
             }}
           >
             <List

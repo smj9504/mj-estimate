@@ -11,50 +11,72 @@
 // Colors
 // ---------------------------------------------------------------------------
 
+// Warm, Notion-like neutrals. Accent blue is reserved for primary actions,
+// links and selection; everything else is ink on white.
 export const colors = {
   // Primary
-  primary: '#1890ff',
-  primaryHover: '#40a9ff',
-  primaryDeep: '#096dd9',
+  primary: '#1f74c9',
+  primaryHover: '#1a64ae',
+  primaryDeep: '#155594',
 
   // Secondary
-  purple: '#722ed1',
+  purple: '#9065b0',
 
   // Status
-  success: '#52c41a',
-  successLight: '#f6ffed',
-  warning: '#fa8c16',
-  warningLight: '#fff7e6',
-  error: '#ff4d4f',
-  errorDeep: '#cf1322',
-  errorLight: '#fff2f0',
+  success: '#448361',
+  successLight: '#edf3ec',
+  warning: '#d9730d',
+  warningLight: '#fbecdd',
+  error: '#d44c47',
+  errorDeep: '#b5403b',
+  errorLight: '#fdebec',
 
   // Neutral
-  neutral900: '#1f1f1f',  // Ink — page titles, primary data
-  neutral800: '#262626',  // Charcoal — body text, table cells
-  neutral700: '#595959',  // Steel — secondary text, metadata
-  neutral600: '#8c8c8c',  // Ash — tertiary text, placeholders, disabled
-  neutral400: '#d9d9d9',  // Silver — borders, dividers, input outlines
-  neutral200: '#f0f0f0',  // Smoke — subtle dividers, table headers
-  neutral100: '#f5f5f5',  // Mist — secondary surfaces, hover
-  neutral50: '#fafafa',   // Frost — lightest surface, alternating rows
-  surface: '#ffffff',     // White — primary card/content background
+  neutral900: '#37352f',  // Ink — page titles, primary data, body text
+  neutral800: '#37352f',  // Ink — body text, table cells
+  neutral700: '#5f5e5b',  // Secondary text, metadata
+  neutral600: '#73726e',  // Tertiary text, labels, placeholders
+  neutral400: '#dfdfdc',  // Input outlines, strong dividers
+  neutral200: '#e9e9e7',  // Hairline dividers
+  neutral100: '#f1f1ef',  // Hover, secondary surfaces
+  neutral50: '#f7f7f5',   // Sidebar, quiet panels
+  surface: '#ffffff',     // Page
 
   // Sidebar
-  sidebarStart: '#001529',
-  sidebarEnd: '#1f1f1f',
+  sidebarStart: '#f7f7f5',
+  sidebarEnd: '#f7f7f5',
 
-  // Tag variants
-  tagCyanBg: '#e6f4ff',
-  tagCyanText: '#0958d9',
-  tagCyanBorder: '#91caff',
-  tagPurpleBg: '#f9f0ff',
-  tagPurpleText: '#531dab',
-  tagPurpleBorder: '#d3adf7',
-  tagVolcanoBg: '#fff2e8',
-  tagVolcanoText: '#d4380d',
-  tagVolcanoBorder: '#ffbb96',
+  // Tag variants (kept for older call sites; map onto the pastel palette)
+  tagCyanBg: '#e7f3f8',
+  tagCyanText: '#337ea9',
+  tagCyanBorder: '#e7f3f8',
+  tagPurpleBg: '#f6f3f9',
+  tagPurpleText: '#9065b0',
+  tagPurpleBorder: '#f6f3f9',
+  tagVolcanoBg: '#fbecdd',
+  tagVolcanoText: '#d9730d',
+  tagVolcanoBorder: '#fbecdd',
 } as const;
+
+// ---------------------------------------------------------------------------
+// Pastel tag palette — borderless pills for status and category values
+// ---------------------------------------------------------------------------
+
+export type TagTone =
+  | 'gray' | 'brown' | 'orange' | 'yellow' | 'green'
+  | 'blue' | 'purple' | 'pink' | 'red';
+
+export const tagTones: Record<TagTone, { bg: string; text: string }> = {
+  gray: { bg: '#f1f1ef', text: '#6f6e69' },
+  brown: { bg: '#f4eeee', text: '#8a5a45' },
+  orange: { bg: '#fbecdd', text: '#a65208' },
+  yellow: { bg: '#fbf3db', text: '#8f6714' },
+  green: { bg: '#edf3ec', text: '#3f7a5a' },
+  blue: { bg: '#e7f3f8', text: '#2f74a0' },
+  purple: { bg: '#f6f3f9', text: '#8459a5' },
+  pink: { bg: '#faf1f5', text: '#b5427f' },
+  red: { bg: '#fdebec', text: '#b93a35' },
+};
 
 // ---------------------------------------------------------------------------
 // Spacing (8px grid)
@@ -75,10 +97,10 @@ export const spacing = {
 
 export const radius = {
   xs: 3,   // Micro elements (scrollbar thumbs)
-  sm: 4,   // Small interactive elements
-  md: 6,   // Buttons, inputs, tags — system default
+  sm: 4,   // Tags, small interactive elements
+  md: 6,   // Buttons, inputs — system default
   lg: 8,   // Cards, dialogs, content areas
-  xl: 12,  // Pill shapes (status tags, badges)
+  xl: 12,  // Sheets, large panels
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -86,8 +108,8 @@ export const radius = {
 // ---------------------------------------------------------------------------
 
 export const fontFamily = {
-  system: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif",
-  mono: "source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace",
+  system: "ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Helvetica, 'Apple Color Emoji', Arial, sans-serif",
+  mono: "SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace",
 } as const;
 
 export const typography = {
@@ -103,13 +125,15 @@ export const typography = {
 // Shadows (from DESIGN.md Elevation & Depth)
 // ---------------------------------------------------------------------------
 
+// Flat by default: surfaces separate with hairlines, only floating layers
+// (menus, popovers, dialogs) cast a shadow.
 export const shadows = {
-  ambient: '0 1px 3px rgba(0, 0, 0, 0.1)',
-  header: '0 1px 4px rgba(0, 21, 41, 0.08)',
-  hover: '0 2px 8px rgba(0, 0, 0, 0.15)',
-  elevated: '0 4px 12px rgba(0, 0, 0, 0.15)',
-  high: '0 8px 24px rgba(0, 0, 0, 0.12)',
-  bottomBar: '0 -4px 12px rgba(0, 0, 0, 0.15)',
+  ambient: 'none',
+  header: 'none',
+  hover: '0 1px 2px rgba(15, 15, 15, 0.06)',
+  elevated: 'rgba(15, 15, 15, 0.05) 0 0 0 1px, rgba(15, 15, 15, 0.1) 0 3px 6px, rgba(15, 15, 15, 0.2) 0 9px 24px',
+  high: 'rgba(15, 15, 15, 0.05) 0 0 0 1px, rgba(15, 15, 15, 0.1) 0 5px 10px, rgba(15, 15, 15, 0.2) 0 15px 40px',
+  bottomBar: '0 -1px 0 rgba(55, 53, 47, 0.09)',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -143,6 +167,6 @@ export const zIndex = {
 // ---------------------------------------------------------------------------
 
 export const sidebar = {
-  expandedWidth: 280,
-  collapsedWidth: 80,
+  expandedWidth: 240,
+  collapsedWidth: 64,
 } as const;

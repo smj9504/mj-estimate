@@ -386,7 +386,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
                   </Form.Item>
                   <MinusCircleOutlined
                     onClick={() => remove(name)}
-                    style={{ color: '#ff4d4f', cursor: 'pointer' }}
+                    style={{ color: '#d44c47', cursor: 'pointer' }}
                   />
                 </Space>
               ))}

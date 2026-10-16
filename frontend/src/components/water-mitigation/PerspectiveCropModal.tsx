@@ -22,7 +22,7 @@ interface PerspectiveCropModalProps {
 }
 
 const CORNER_RADIUS = 12;
-const CORNER_COLORS = ['#ff4d4f', '#52c41a', '#1890ff', '#faad14']; // TL, TR, BR, BL
+const CORNER_COLORS = ['#d44c47', '#448361', '#1f74c9', '#cb912f']; // TL, TR, BR, BL
 const CORNER_LABELS = ['TL', 'TR', 'BR', 'BL'];
 
 const PerspectiveCropModal: React.FC<PerspectiveCropModalProps> = ({
@@ -120,7 +120,7 @@ const PerspectiveCropModal: React.FC<PerspectiveCropModalProps> = ({
 
     // Draw quadrilateral border
     ctx.beginPath();
-    ctx.strokeStyle = '#1890ff';
+    ctx.strokeStyle = '#1f74c9';
     ctx.lineWidth = 2;
     points.forEach((p, i) => {
       const px = p.x * canvas.width;
@@ -311,7 +311,7 @@ const PerspectiveCropModal: React.FC<PerspectiveCropModalProps> = ({
             height={canvasSize.height}
             style={{
               cursor: dragging !== null ? 'grabbing' : 'crosshair',
-              border: '1px solid #d9d9d9',
+              border: '1px solid #dfdfdc',
               borderRadius: 4,
               touchAction: 'none',
               maxWidth: '100%',

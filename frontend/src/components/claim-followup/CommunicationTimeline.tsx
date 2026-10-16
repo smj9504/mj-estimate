@@ -51,9 +51,9 @@ const ToggleContent: React.FC<{ html?: string; text?: string; label?: string }> 
           style={{
             marginTop: 6,
             padding: '8px 10px',
-            background: '#fafafa',
+            background: '#f7f7f5',
             borderRadius: 6,
-            border: '1px solid #f0f0f0',
+            border: '1px solid #e9e9e7',
             fontSize: 13,
             maxHeight: 300,
             overflow: 'auto',

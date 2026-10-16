@@ -245,12 +245,12 @@ const PhotoSelectorModal: React.FC<PhotoSelectorModalProps> = ({
                   hoverable
                   onClick={() => handleTogglePhoto(photo.id)}
                   style={{
-                    border: isSelected ? '2px solid #1890ff' : '1px solid #d9d9d9',
+                    border: isSelected ? '2px solid #1f74c9' : '1px solid #dfdfdc',
                     position: 'relative'
                   }}
                   styles={{ body: { padding: 8 } }}
                   cover={
-                    <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', background: '#fafafa' }}>
+                    <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', background: '#f7f7f5' }}>
                       <Image
                         src={getImageUrl(photo)}
                         alt={photo.caption || 'Photo'}
@@ -286,7 +286,7 @@ const PhotoSelectorModal: React.FC<PhotoSelectorModalProps> = ({
                       </Tag>
                     )}
                     {photo.taken_date && (
-                      <div style={{ color: '#8c8c8c', fontSize: 10, marginTop: 4 }}>
+                      <div style={{ color: '#73726e', fontSize: 10, marginTop: 4 }}>
                         {new Date(photo.taken_date).toLocaleDateString()}
                       </div>
                     )}

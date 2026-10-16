@@ -265,14 +265,14 @@ const ClaimFollowUpDetail: React.FC = () => {
           const isStageOverdue = stageTask ? isOverdue(stageTask) : false;
 
           let bgColor: string; let txtColor: string; let border: string;
-          if (isResolved) { bgColor = '#f6ffed'; txtColor = '#52c41a'; border = '1px solid #b7eb8f'; }
-          else if (isStageOverdue) { bgColor = '#ff4d4f'; txtColor = '#fff'; border = 'none'; }
-          else if (isActive) { bgColor = '#1890ff'; txtColor = '#fff'; border = 'none'; }
-          else { bgColor = '#d9d9d9'; txtColor = '#999'; border = 'none'; }
+          if (isResolved) { bgColor = '#edf3ec'; txtColor = '#448361'; border = '1px solid #d3e5d0'; }
+          else if (isStageOverdue) { bgColor = '#d44c47'; txtColor = '#fff'; border = 'none'; }
+          else if (isActive) { bgColor = '#1f74c9'; txtColor = '#fff'; border = 'none'; }
+          else { bgColor = '#dfdfdc'; txtColor = '#999'; border = 'none'; }
 
           return (
             <React.Fragment key={stage}>
-              {idx > 0 && <RightOutlined style={{ fontSize: 10, color: '#d9d9d9' }} />}
+              {idx > 0 && <RightOutlined style={{ fontSize: 10, color: '#dfdfdc' }} />}
               <Tag style={{ backgroundColor: bgColor, color: txtColor, border, fontSize: 11, margin: 0, lineHeight: '22px' }}>
                 {isResolved && <CheckCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />}
                 {getStageLabel(stage)}
@@ -293,7 +293,7 @@ const ClaimFollowUpDetail: React.FC = () => {
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/claim-followup')} />
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <EnvironmentOutlined style={{ color: '#1890ff', fontSize: 16 }} />
+            <EnvironmentOutlined style={{ color: '#1f74c9', fontSize: 16 }} />
             <Title level={4} style={{ margin: 0 }}>{claimInfo?.property_address || 'Loading...'}</Title>
           </div>
           <Space size={8} style={{ marginTop: 4 }}>
@@ -326,7 +326,7 @@ const ClaimFollowUpDetail: React.FC = () => {
 
         {/* PA Info */}
         {claimInfo?.pa_name && (
-          <div style={{ marginBottom: 12, padding: '6px 8px', background: '#f0f5ff', borderRadius: 6, borderLeft: '3px solid #597ef7' }}>
+          <div style={{ marginBottom: 12, padding: '6px 8px', background: '#eef5fa', borderRadius: 6, borderLeft: '3px solid #597ef7' }}>
             <Text strong style={{ fontSize: 12, color: '#2f54eb', display: 'block', marginBottom: 2 }}>Public Adjuster</Text>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12 }}>
               <span><Text type="secondary" style={{ fontSize: 11 }}>Name: </Text>{claimInfo.pa_name}</span>
@@ -345,7 +345,7 @@ const ClaimFollowUpDetail: React.FC = () => {
 
         {/* Supplement Status */}
         {Object.keys(supplementStatuses).length > 0 && (
-          <div style={{ marginBottom: 12, padding: '6px 8px', background: '#fafafa', borderRadius: 6 }}>
+          <div style={{ marginBottom: 12, padding: '6px 8px', background: '#f7f7f5', borderRadius: 6 }}>
             <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Supplement Status</Text>
             <Space size={4} wrap>
               {supplementStatuses['identified'] && <Tag color="orange" style={{ margin: 0, cursor: 'pointer' }} onClick={() => navigate('/supplements')}>Review Needed ({supplementStatuses['identified']})</Tag>}
@@ -360,14 +360,14 @@ const ClaimFollowUpDetail: React.FC = () => {
 
         <Row gutter={[8, 8]}>
           <Col span={8}>
-            <Statistic title="Active Tasks" value={activeTasks.length} valueStyle={{ fontSize: 18, color: '#1890ff' }} />
+            <Statistic title="Active Tasks" value={activeTasks.length} valueStyle={{ fontSize: 18, color: '#1f74c9' }} />
           </Col>
           <Col span={8}>
-            <Statistic title="Resolved" value={resolvedTasks.length} valueStyle={{ fontSize: 18, color: '#52c41a' }} />
+            <Statistic title="Resolved" value={resolvedTasks.length} valueStyle={{ fontSize: 18, color: '#448361' }} />
           </Col>
           <Col span={8}>
             <Statistic title="Next Follow-up" value={nextFollowupDate ? dayjs(nextFollowupDate).format('MM/DD') : '-'}
-              valueStyle={{ fontSize: 18, color: hasOverdue ? '#cf1322' : undefined }} />
+              valueStyle={{ fontSize: 18, color: hasOverdue ? '#b5403b' : undefined }} />
           </Col>
         </Row>
       </Card>

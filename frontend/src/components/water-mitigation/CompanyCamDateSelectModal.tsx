@@ -142,7 +142,7 @@ const CompanyCamDateSelectModal: React.FC<CompanyCamDateSelectModalProps> = ({
     <Modal
       title={
         <Space>
-          <CloudDownloadOutlined style={{ color: '#1890ff' }} />
+          <CloudDownloadOutlined style={{ color: '#1f74c9' }} />
           <span>Select Dates to Import</span>
         </Space>
       }
@@ -181,7 +181,7 @@ const CompanyCamDateSelectModal: React.FC<CompanyCamDateSelectModalProps> = ({
             <RangePicker size="small" onChange={handleRangeChange} allowClear />
           </Space>
 
-          <div style={{ border: '1px solid #f0f0f0', borderRadius: 6 }}>
+          <div style={{ border: '1px solid #e9e9e7', borderRadius: 6 }}>
             {buckets.map(bucket => {
               const key = bucket.date ?? UNKNOWN_KEY;
               const isSelected = selected.has(key);
@@ -194,9 +194,9 @@ const CompanyCamDateSelectModal: React.FC<CompanyCamDateSelectModalProps> = ({
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     padding: '8px 12px',
-                    borderBottom: '1px solid #f0f0f0',
+                    borderBottom: '1px solid #e9e9e7',
                     cursor: 'pointer',
-                    background: isSelected ? '#e6f7ff' : 'transparent',
+                    background: isSelected ? '#e7f3f8' : 'transparent',
                   }}
                 >
                   <Space>

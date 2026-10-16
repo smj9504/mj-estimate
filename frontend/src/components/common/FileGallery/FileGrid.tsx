@@ -1,5 +1,5 @@
 import React, { useState, memo, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Card, Image, Typography, Modal, Checkbox, Tag, message } from 'antd';
+import { Card, Image, Typography, Modal, Checkbox, message } from 'antd';
 import {
   EyeOutlined,
   DownloadOutlined,
@@ -7,6 +7,7 @@ import {
   FileOutlined
 } from '@ant-design/icons';
 import { FileItem, FileCategory } from './types';
+import { getCategoryColor } from './categoryColors';
 import { fileService } from '../../../services/fileService';
 import dayjs from 'dayjs';
 
@@ -60,7 +61,7 @@ const LazyImage: React.FC<LazyImageProps> = memo(({ src, fallbackSrc, alt, enabl
       width: '100%',
       height: '100%',
       position: 'relative',
-      backgroundColor: '#f0f0f0',
+      backgroundColor: '#e9e9e7',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center'
@@ -70,7 +71,7 @@ const LazyImage: React.FC<LazyImageProps> = memo(({ src, fallbackSrc, alt, enabl
         <div style={{
           position: 'absolute',
           inset: 0,
-          background: 'linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%)',
+          background: 'linear-gradient(90deg, #e9e9e7 25%, #e0e0e0 50%, #e9e9e7 75%)',
           backgroundSize: '200% 100%',
           animation: 'shimmer 1.5s infinite'
         }} />
@@ -174,7 +175,7 @@ const FileCardItem = memo<FileCardItemProps>(({
         }
       }}
       cover={
-        <div style={{ position: 'relative', width: '100%', aspectRatio: '3 / 4', overflow: 'hidden', background: '#f5f5f5' }}>
+        <div style={{ position: 'relative', width: '100%', aspectRatio: '3 / 4', overflow: 'hidden', background: '#f7f7f5' }}>
           {isImage ? (
             <>
               <LazyImage
@@ -206,17 +207,15 @@ const FileCardItem = memo<FileCardItemProps>(({
                   {dayjs(file.uploadDate || file.createdAt).format('MMM D, YYYY')}
                 </Text>
                 {file.category && (
-                  <Tag 
-                    color="blue" 
-                    style={{ 
-                      margin: 0, 
-                      fontSize: '10px',
-                      padding: '0 4px',
-                      lineHeight: '18px'
-                    }}
-                  >
+                  // Same dot colour as the category's filter chip
+                  <span className="file-grid-category">
+                    <span
+                      className="ui-filter-chip-dot"
+                      style={{ background: getCategoryColor(file.category) }}
+                      aria-hidden="true"
+                    />
                     {file.category}
-                  </Tag>
+                  </span>
                 )}
               </div>
               {/* Action buttons overlay - visible on hover */}
@@ -267,7 +266,7 @@ const FileCardItem = memo<FileCardItemProps>(({
             </>
           ) : (
             <div className="file-document-icon">
-              <FileOutlined style={{ fontSize: 48, color: '#8c8c8c' }} />
+              <FileOutlined style={{ fontSize: 48, color: '#73726e' }} />
             </div>
           )}
 
@@ -316,7 +315,7 @@ const FileCardItem = memo<FileCardItemProps>(({
       ] : undefined}
       size="small"
       style={{
-        border: isSelected ? '2px solid #1890ff' : '1px solid #f0f0f0',
+        border: isSelected ? '2px solid #1f74c9' : '1px solid #e9e9e7',
         cursor: 'pointer',
         transition: 'border-color 0.15s ease' // Smooth visual feedback
       }}
@@ -550,7 +549,7 @@ const FileGrid: React.FC<FileGridProps> = ({
         width: 32px;
         height: 32px;
         border-radius: 50%;
-        background: #1890ff;
+        background: #1f74c9;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -559,11 +558,11 @@ const FileGrid: React.FC<FileGridProps> = ({
       }
 
       .overlay-btn:hover {
-        background: #40a9ff;
+        background: #1a64ae;
       }
 
       .overlay-btn-danger {
-        background: #ff4d4f;
+        background: #d44c47;
       }
 
       .overlay-btn-danger:hover {
@@ -576,8 +575,8 @@ const FileGrid: React.FC<FileGridProps> = ({
         display: flex;
         align-items: center;
         justify-content: center;
-        background: #fafafa;
-        border: 1px dashed #d9d9d9;
+        background: #f7f7f5;
+        border: 1px dashed #dfdfdc;
         cursor: pointer;
       }
     `;

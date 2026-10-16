@@ -1,146 +1,489 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-03T00:00:00Z",
+  "generatedAt": "2026-10-16T00:00:00Z",
   "title": "Design System: MJ Estimate",
   "extensions": {
     "colorMeta": {
-      "primary": {
+      "accent-blue": {
         "role": "primary",
-        "displayName": "Action Blue",
-        "canonical": "#1890ff",
-        "tonalRamp": ["#002766", "#003a8c", "#0050b3", "#096dd9", "#1890ff", "#40a9ff", "#69c0ff", "#91d5ff", "#bae7ff", "#e6f7ff"]
+        "displayName": "Ledger Blue",
+        "canonical": "#1f74c9",
+        "tonalRamp": [
+          "#0d2f52",
+          "#124373",
+          "#155594",
+          "#1a64ae",
+          "#1f74c9",
+          "#5a9ad9",
+          "#a9cbee",
+          "#eef5fc"
+        ]
       },
-      "primary-hover": {
+      "accent-blue-hover": {
         "role": "primary",
-        "displayName": "Action Blue Hover",
-        "canonical": "#40a9ff",
+        "displayName": "Ledger Blue Hover",
+        "canonical": "#1a64ae",
+        "tonalRamp": [
+          "#0d2f52",
+          "#124373",
+          "#155594",
+          "#1a64ae",
+          "#1f74c9",
+          "#5a9ad9",
+          "#a9cbee",
+          "#eef5fc"
+        ]
+      },
+      "accent-blue-deep": {
+        "role": "primary",
+        "displayName": "Ledger Blue Pressed",
+        "canonical": "#155594",
+        "tonalRamp": [
+          "#0d2f52",
+          "#124373",
+          "#155594",
+          "#1a64ae",
+          "#1f74c9",
+          "#5a9ad9",
+          "#a9cbee",
+          "#eef5fc"
+        ]
+      },
+      "row-selected": {
+        "role": "primary",
+        "displayName": "Selection Wash",
+        "canonical": "#eef5fc",
+        "tonalRamp": [
+          "#0d2f52",
+          "#124373",
+          "#155594",
+          "#1a64ae",
+          "#1f74c9",
+          "#5a9ad9",
+          "#a9cbee",
+          "#eef5fc"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Warm Ink",
+        "canonical": "#37352f",
+        "tonalRamp": [
+          "#37352f",
+          "#5f5e5b",
+          "#73726e",
+          "#a5a29a",
+          "#dfdfdc",
+          "#e9e9e7",
+          "#f1f1ef",
+          "#f7f7f5"
+        ]
+      },
+      "ink-secondary": {
+        "role": "neutral",
+        "displayName": "Secondary Ink",
+        "canonical": "#5f5e5b",
+        "tonalRamp": [
+          "#37352f",
+          "#5f5e5b",
+          "#73726e",
+          "#a5a29a",
+          "#dfdfdc",
+          "#e9e9e7",
+          "#f1f1ef",
+          "#f7f7f5"
+        ]
+      },
+      "ink-tertiary": {
+        "role": "neutral",
+        "displayName": "Label Grey",
+        "canonical": "#73726e",
+        "tonalRamp": [
+          "#37352f",
+          "#5f5e5b",
+          "#73726e",
+          "#a5a29a",
+          "#dfdfdc",
+          "#e9e9e7",
+          "#f1f1ef",
+          "#f7f7f5"
+        ]
+      },
+      "faint-glyph": {
+        "role": "neutral",
+        "displayName": "Faint Glyph",
+        "canonical": "#a5a29a",
+        "tonalRamp": [
+          "#37352f",
+          "#5f5e5b",
+          "#73726e",
+          "#a5a29a",
+          "#dfdfdc",
+          "#e9e9e7",
+          "#f1f1ef",
+          "#f7f7f5"
+        ]
+      },
+      "border-strong": {
+        "role": "neutral",
+        "displayName": "Control Border",
+        "canonical": "#dfdfdc",
+        "tonalRamp": [
+          "#37352f",
+          "#5f5e5b",
+          "#73726e",
+          "#a5a29a",
+          "#dfdfdc",
+          "#e9e9e7",
+          "#f1f1ef",
+          "#f7f7f5"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#e9e9e7",
+        "tonalRamp": [
+          "#37352f",
+          "#5f5e5b",
+          "#73726e",
+          "#a5a29a",
+          "#dfdfdc",
+          "#e9e9e7",
+          "#f1f1ef",
+          "#f7f7f5"
+        ]
+      },
+      "quiet-fill": {
+        "role": "neutral",
+        "displayName": "Quiet Fill",
+        "canonical": "#f1f1ef",
+        "tonalRamp": [
+          "#37352f",
+          "#5f5e5b",
+          "#73726e",
+          "#a5a29a",
+          "#dfdfdc",
+          "#e9e9e7",
+          "#f1f1ef",
+          "#f7f7f5"
+        ]
+      },
+      "sidebar-paper": {
+        "role": "neutral",
+        "displayName": "Sidebar Paper",
+        "canonical": "#f7f7f5",
+        "tonalRamp": [
+          "#37352f",
+          "#5f5e5b",
+          "#73726e",
+          "#a5a29a",
+          "#dfdfdc",
+          "#e9e9e7",
+          "#f1f1ef",
+          "#f7f7f5"
+        ]
+      },
+      "page-white": {
+        "role": "neutral",
+        "displayName": "Page White",
+        "canonical": "#ffffff",
         "tonalRamp": []
       },
-      "primary-deep": {
-        "role": "primary",
-        "displayName": "Action Blue Deep",
-        "canonical": "#096dd9",
+      "ink-hover": {
+        "role": "neutral",
+        "displayName": "Ink Hover",
+        "canonical": "rgba(55, 53, 47, 0.06)",
+        "tonalRamp": []
+      },
+      "ink-selected": {
+        "role": "neutral",
+        "displayName": "Ink Selected",
+        "canonical": "rgba(55, 53, 47, 0.08)",
         "tonalRamp": []
       },
       "success": {
         "role": "secondary",
         "displayName": "Success Green",
-        "canonical": "#52c41a",
-        "tonalRamp": ["#092b00", "#135200", "#237804", "#389e0d", "#52c41a", "#73d13d", "#95de64", "#b7eb8f", "#d9f7be", "#f6ffed"]
+        "canonical": "#448361",
+        "tonalRamp": []
       },
       "warning": {
         "role": "secondary",
         "displayName": "Warning Orange",
-        "canonical": "#fa8c16",
-        "tonalRamp": ["#612500", "#873800", "#ad4e00", "#d46b08", "#fa8c16", "#ffa940", "#ffc069", "#ffd591", "#ffe7ba", "#fff7e6"]
+        "canonical": "#d9730d",
+        "tonalRamp": []
       },
       "error": {
         "role": "secondary",
         "displayName": "Error Red",
-        "canonical": "#ff4d4f",
-        "tonalRamp": ["#5c0011", "#820014", "#a8071a", "#cf1322", "#f5222d", "#ff4d4f", "#ff7875", "#ffa39e", "#ffccc7", "#fff1f0"]
+        "canonical": "#d44c47",
+        "tonalRamp": []
       },
-      "purple": {
+      "error-deep": {
+        "role": "secondary",
+        "displayName": "Error Red Deep",
+        "canonical": "#b5403b",
+        "tonalRamp": []
+      },
+      "tag-gray-bg": {
         "role": "tertiary",
-        "displayName": "Indicator Purple",
-        "canonical": "#722ed1",
-        "tonalRamp": ["#120338", "#22075e", "#391085", "#531dab", "#722ed1", "#9254de", "#b37feb", "#d3adf7", "#efdbff", "#f9f0ff"]
+        "displayName": "Gray tag background",
+        "canonical": "#f1f1ef",
+        "tonalRamp": [
+          "#6f6e69",
+          "#f1f1ef"
+        ]
       },
-      "neutral-900": {
-        "role": "neutral",
-        "displayName": "Ink",
-        "canonical": "#1f1f1f",
-        "tonalRamp": []
+      "tag-gray-text": {
+        "role": "tertiary",
+        "displayName": "Gray tag text",
+        "canonical": "#6f6e69",
+        "tonalRamp": [
+          "#6f6e69",
+          "#f1f1ef"
+        ]
       },
-      "neutral-800": {
-        "role": "neutral",
-        "displayName": "Charcoal",
-        "canonical": "#262626",
-        "tonalRamp": []
+      "tag-brown-bg": {
+        "role": "tertiary",
+        "displayName": "Brown tag background",
+        "canonical": "#f4eeee",
+        "tonalRamp": [
+          "#8a5a45",
+          "#f4eeee"
+        ]
       },
-      "neutral-700": {
-        "role": "neutral",
-        "displayName": "Steel",
-        "canonical": "#595959",
-        "tonalRamp": []
+      "tag-brown-text": {
+        "role": "tertiary",
+        "displayName": "Brown tag text",
+        "canonical": "#8a5a45",
+        "tonalRamp": [
+          "#8a5a45",
+          "#f4eeee"
+        ]
       },
-      "neutral-600": {
-        "role": "neutral",
-        "displayName": "Ash",
-        "canonical": "#8c8c8c",
-        "tonalRamp": []
+      "tag-orange-bg": {
+        "role": "tertiary",
+        "displayName": "Orange tag background",
+        "canonical": "#fbecdd",
+        "tonalRamp": [
+          "#a65208",
+          "#fbecdd"
+        ]
       },
-      "neutral-400": {
-        "role": "neutral",
-        "displayName": "Silver",
-        "canonical": "#d9d9d9",
-        "tonalRamp": []
+      "tag-orange-text": {
+        "role": "tertiary",
+        "displayName": "Orange tag text",
+        "canonical": "#a65208",
+        "tonalRamp": [
+          "#a65208",
+          "#fbecdd"
+        ]
       },
-      "neutral-200": {
-        "role": "neutral",
-        "displayName": "Smoke",
-        "canonical": "#f0f0f0",
-        "tonalRamp": []
+      "tag-yellow-bg": {
+        "role": "tertiary",
+        "displayName": "Yellow tag background",
+        "canonical": "#fbf3db",
+        "tonalRamp": [
+          "#8f6714",
+          "#fbf3db"
+        ]
       },
-      "neutral-100": {
-        "role": "neutral",
-        "displayName": "Mist",
-        "canonical": "#f5f5f5",
-        "tonalRamp": []
+      "tag-yellow-text": {
+        "role": "tertiary",
+        "displayName": "Yellow tag text",
+        "canonical": "#8f6714",
+        "tonalRamp": [
+          "#8f6714",
+          "#fbf3db"
+        ]
       },
-      "neutral-50": {
-        "role": "neutral",
-        "displayName": "Frost",
-        "canonical": "#fafafa",
-        "tonalRamp": []
+      "tag-green-bg": {
+        "role": "tertiary",
+        "displayName": "Green tag background",
+        "canonical": "#edf3ec",
+        "tonalRamp": [
+          "#3f7a5a",
+          "#edf3ec"
+        ]
       },
-      "surface": {
-        "role": "neutral",
-        "displayName": "White",
-        "canonical": "#ffffff",
-        "tonalRamp": []
+      "tag-green-text": {
+        "role": "tertiary",
+        "displayName": "Green tag text",
+        "canonical": "#3f7a5a",
+        "tonalRamp": [
+          "#3f7a5a",
+          "#edf3ec"
+        ]
       },
-      "sidebar-start": {
-        "role": "neutral",
-        "displayName": "Sidebar Navy",
-        "canonical": "#001529",
-        "tonalRamp": []
+      "tag-blue-bg": {
+        "role": "tertiary",
+        "displayName": "Blue tag background",
+        "canonical": "#e7f3f8",
+        "tonalRamp": [
+          "#2f74a0",
+          "#e7f3f8"
+        ]
       },
-      "sidebar-end": {
-        "role": "neutral",
-        "displayName": "Sidebar Dark",
-        "canonical": "#1f1f1f",
-        "tonalRamp": []
+      "tag-blue-text": {
+        "role": "tertiary",
+        "displayName": "Blue tag text",
+        "canonical": "#2f74a0",
+        "tonalRamp": [
+          "#2f74a0",
+          "#e7f3f8"
+        ]
+      },
+      "tag-purple-bg": {
+        "role": "tertiary",
+        "displayName": "Purple tag background",
+        "canonical": "#f6f3f9",
+        "tonalRamp": [
+          "#8459a5",
+          "#f6f3f9"
+        ]
+      },
+      "tag-purple-text": {
+        "role": "tertiary",
+        "displayName": "Purple tag text",
+        "canonical": "#8459a5",
+        "tonalRamp": [
+          "#8459a5",
+          "#f6f3f9"
+        ]
+      },
+      "tag-pink-bg": {
+        "role": "tertiary",
+        "displayName": "Pink tag background",
+        "canonical": "#faf1f5",
+        "tonalRamp": [
+          "#b5427f",
+          "#faf1f5"
+        ]
+      },
+      "tag-pink-text": {
+        "role": "tertiary",
+        "displayName": "Pink tag text",
+        "canonical": "#b5427f",
+        "tonalRamp": [
+          "#b5427f",
+          "#faf1f5"
+        ]
+      },
+      "tag-red-bg": {
+        "role": "tertiary",
+        "displayName": "Red tag background",
+        "canonical": "#fdebec",
+        "tonalRamp": [
+          "#b93a35",
+          "#fdebec"
+        ]
+      },
+      "tag-red-text": {
+        "role": "tertiary",
+        "displayName": "Red tag text",
+        "canonical": "#b93a35",
+        "tonalRamp": [
+          "#b93a35",
+          "#fdebec"
+        ]
       }
     },
     "typographyMeta": {
-      "display": { "displayName": "Display", "purpose": "Page titles only — one per screen maximum." },
-      "headline": { "displayName": "Headline", "purpose": "Section headers within a page, sidebar logo text." },
-      "title": { "displayName": "Title", "purpose": "Card headers, modal titles, group labels." },
-      "body": { "displayName": "Body", "purpose": "Standard content text, table cells, form labels. The workhorse." },
-      "label": { "displayName": "Label", "purpose": "Metadata, timestamps, secondary descriptions." },
-      "mono": { "displayName": "Monospace", "purpose": "Code references, Xactimate line codes, financial calculations." }
+      "display": {
+        "displayName": "Page Title",
+        "purpose": "One per page, on the sheet; 22px under 768px."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "antd h3 inside pages."
+      },
+      "title": {
+        "displayName": "Section Title",
+        "purpose": "Section headings over a hairline, modal titles."
+      },
+      "row-title": {
+        "displayName": "Row Title",
+        "purpose": "Record title in the phone row list."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Text, cells, property labels and values; buttons at 500."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Meta lines, table headers (500), breadcrumbs, phone property labels."
+      },
+      "label": {
+        "displayName": "Pill Label",
+        "purpose": "Pills and tags; monograms use 11px/600."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Code and identifiers."
+      }
     },
     "shadows": [
-      { "name": "ambient", "value": "0 1px 3px rgba(0,0,0,0.1)", "purpose": "Content cards at rest — barely perceptible separation." },
-      { "name": "header", "value": "0 1px 4px rgba(0,21,41,0.08)", "purpose": "Sticky header shadow with sidebar hue continuity." },
-      { "name": "hover", "value": "0 2px 8px rgba(0,0,0,0.15)", "purpose": "Interactive card hover states — subtle lift feedback." },
-      { "name": "elevated", "value": "0 4px 12px rgba(0,0,0,0.15)", "purpose": "Modals, dropdown menus, and floating action bars." },
-      { "name": "high", "value": "0 8px 24px rgba(0,0,0,0.12)", "purpose": "Gallery lightbox overlays and full-screen modals." },
-      { "name": "bottom-bar", "value": "0 -4px 12px rgba(0,0,0,0.15)", "purpose": "Upward-casting shadow for fixed bottom action bars." }
+      {
+        "name": "hover",
+        "value": "0 1px 2px rgba(15, 15, 15, 0.06)",
+        "purpose": "Hoverable cards on hover."
+      },
+      {
+        "name": "elevated",
+        "value": "rgba(15, 15, 15, 0.05) 0 0 0 1px, rgba(15, 15, 15, 0.1) 0 3px 6px, rgba(15, 15, 15, 0.2) 0 9px 24px",
+        "purpose": "Menus, select dropdowns, pickers, popovers."
+      },
+      {
+        "name": "high",
+        "value": "rgba(15, 15, 15, 0.05) 0 0 0 1px, rgba(15, 15, 15, 0.1) 0 5px 10px, rgba(15, 15, 15, 0.2) 0 15px 40px",
+        "purpose": "Highest floating layers."
+      },
+      {
+        "name": "input-focus",
+        "value": "0 0 0 2px rgba(31, 116, 201, 0.18)",
+        "purpose": "Input, number, picker focus ring."
+      }
     ],
     "motion": [
-      { "name": "ease-standard", "value": "cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "Default easing for layout transitions (sidebar collapse, content shift)." },
-      { "name": "ease-default", "value": "ease", "purpose": "General-purpose easing for color and opacity transitions." },
-      { "name": "duration-fast", "value": "200ms", "purpose": "Hover states, opacity toggles, color shifts." },
-      { "name": "duration-standard", "value": "300ms", "purpose": "Layout transitions, sidebar collapse, content reflow." }
+      {
+        "name": "fast",
+        "value": "0.1s",
+        "purpose": "antd motionDurationFast."
+      },
+      {
+        "name": "mid",
+        "value": "0.15s",
+        "purpose": "Hover fills and nav colour changes."
+      },
+      {
+        "name": "slow",
+        "value": "0.2s",
+        "purpose": "antd motionDurationSlow; sidebar width uses cubic-bezier(0.4, 0, 0.2, 1)."
+      },
+      {
+        "name": "row-hover",
+        "value": "background-color 0.12s ease",
+        "purpose": "Property-row hover wash."
+      }
     ],
     "breakpoints": [
-      { "name": "mobile", "value": "576px" },
-      { "name": "tablet", "value": "768px" },
-      { "name": "desktop", "value": "1024px" },
-      { "name": "wide", "value": "1200px" },
-      { "name": "ultrawide", "value": "1920px" }
+      {
+        "name": "xs",
+        "value": "576px"
+      },
+      {
+        "name": "sm",
+        "value": "768px"
+      },
+      {
+        "name": "md",
+        "value": "992px"
+      },
+      {
+        "name": "lg",
+        "value": "1200px"
+      }
     ]
   },
   "components": [
@@ -148,90 +491,132 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Main action button for form submissions, confirmations, and primary CTAs.",
-      "html": "<button class=\"ds-btn-primary\">Save Estimate</button>",
-      "css": ".ds-btn-primary { background: #1890ff; color: #fff; padding: 4px 16px; font-size: 14px; font-weight: 400; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border: 1px solid #1890ff; border-radius: 6px; cursor: pointer; line-height: 1.5714; transition: background 0.2s ease, border-color 0.2s ease; } .ds-btn-primary:hover { background: #40a9ff; border-color: #40a9ff; } .ds-btn-primary:focus-visible { outline: 2px solid #1890ff; outline-offset: 2px; }"
+      "description": "The one accent action per page header, top right.",
+      "html": "<button class=\"ds-btn-primary\">New Job</button>",
+      "css": ".ds-btn-primary{font-family:ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif;height:32px;padding:0 12px;border:1px solid transparent;border-radius:6px;background:#1f74c9;color:#fff;font-size:14px;font-weight:500;cursor:pointer;transition:background-color .15s} .ds-btn-primary:hover{background:#1a64ae} .ds-btn-primary:active{background:#155594} .ds-btn-primary:focus-visible{outline:2px solid rgba(31,116,201,.55);outline-offset:1px}"
     },
     {
       "name": "Default Button",
       "kind": "button",
       "refersTo": "button-default",
-      "description": "Secondary action button for cancel, back, and non-primary operations.",
-      "html": "<button class=\"ds-btn-default\">Cancel</button>",
-      "css": ".ds-btn-default { background: #fff; color: #262626; padding: 4px 16px; font-size: 14px; font-weight: 400; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border: 1px solid #d9d9d9; border-radius: 6px; cursor: pointer; line-height: 1.5714; transition: color 0.2s ease, border-color 0.2s ease; } .ds-btn-default:hover { color: #1890ff; border-color: #1890ff; } .ds-btn-default:focus-visible { outline: 2px solid #1890ff; outline-offset: 2px; }"
+      "description": "Secondary actions: white with a control border, ink text.",
+      "html": "<button class=\"ds-btn-default\">Manager Link</button>",
+      "css": ".ds-btn-default{font-family:ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif;height:32px;padding:0 12px;border:1px solid #dfdfdc;border-radius:6px;background:#fff;color:#37352f;font-size:14px;font-weight:500;cursor:pointer;transition:background-color .15s} .ds-btn-default:hover{background:#f7f7f5} .ds-btn-default:focus-visible{outline:2px solid rgba(31,116,201,.55);outline-offset:1px}"
     },
     {
       "name": "Text Input",
       "kind": "input",
-      "refersTo": "input-default",
-      "description": "Standard text input for forms — estimates, client info, claim details.",
-      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Enter claim number\" />",
-      "css": ".ds-input { background: #fff; color: #262626; padding: 4px 11px; font-size: 14px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border: 1px solid #d9d9d9; border-radius: 6px; line-height: 1.5714; width: 100%; box-sizing: border-box; transition: border-color 0.2s ease; } .ds-input::placeholder { color: #8c8c8c; } .ds-input:hover { border-color: #40a9ff; } .ds-input:focus { border-color: #1890ff; outline: none; box-shadow: 0 0 0 2px rgba(24,144,255,0.2); } .ds-input:disabled { background: #f5f5f5; color: #8c8c8c; cursor: not-allowed; }"
+      "refersTo": "input",
+      "description": "Control-border field with a faint blue ring on focus.",
+      "html": "<input class=\"ds-input\" placeholder=\"Search address, homeowner, claim...\">",
+      "css": ".ds-input{font-family:ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif;height:32px;padding:0 11px;border:1px solid #dfdfdc;border-radius:6px;background:#fff;color:#37352f;font-size:14px;width:280px;transition:border-color .15s,box-shadow .15s} .ds-input::placeholder{color:#73726e} .ds-input:hover{border-color:#c8c7c3} .ds-input:focus{outline:none;border-color:#1f74c9;box-shadow:0 0 0 2px rgba(31,116,201,.18)}"
     },
     {
-      "name": "Standard Card",
-      "kind": "card",
-      "refersTo": "card-standard",
-      "description": "Content container for grouping related information — estimate sections, job details, dashboard stats.",
-      "html": "<div class=\"ds-card\"><div class=\"ds-card-title\">Claim Details</div><div class=\"ds-card-body\">Content area for structured data display.</div></div>",
-      "css": ".ds-card { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); } .ds-card-title { font-size: 16px; font-weight: 600; color: #262626; margin-bottom: 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; } .ds-card-body { font-size: 14px; color: #595959; line-height: 1.5714; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }"
-    },
-    {
-      "name": "Status Tag (Cyan)",
+      "name": "Status Pills",
       "kind": "chip",
-      "refersTo": "tag-cyan",
-      "description": "Pill-shaped status indicator for claim states and categories — blue variant for informational status.",
-      "html": "<span class=\"ds-tag ds-tag-cyan\">In Progress</span>",
-      "css": ".ds-tag { display: inline-block; padding: 2px 8px; font-size: 12px; line-height: 1.3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border-radius: 12px; border: 1px solid transparent; } .ds-tag-cyan { background: #e6f4ff; color: #0958d9; border-color: #91caff; } .ds-tag-purple { background: #f9f0ff; color: #531dab; border-color: #d3adf7; } .ds-tag-volcano { background: #fff2e8; color: #d4380d; border-color: #ffbb96; } .ds-tag-success { background: #f6ffed; color: #389e0d; border-color: #b7eb8f; } .ds-tag-default { background: #fafafa; color: #595959; border-color: #d9d9d9; }"
+      "refersTo": "pill",
+      "description": "Borderless pastel pills in sentence case; the Water Mitigation status map.",
+      "html": "<span class=\"ds-pill\" style=\"background:#f1f1ef;color:#6f6e69\">Lead</span> <span class=\"ds-pill\" style=\"background:#f4eeee;color:#8a5a45\">Doc prepping</span> <span class=\"ds-pill\" style=\"background:#e7f3f8;color:#2f74a0\">Sent to adjuster</span> <span class=\"ds-pill\" style=\"background:#fbecdd;color:#a65208\">Follow up</span> <span class=\"ds-pill\" style=\"background:#f6f3f9;color:#8459a5\">Paperwork received</span> <span class=\"ds-pill\" style=\"background:#faf1f5;color:#b5427f\">Estimate requested</span> <span class=\"ds-pill\" style=\"background:#fbf3db;color:#8f6714\">Check received</span> <span class=\"ds-pill\" style=\"background:#edf3ec;color:#3f7a5a\">Complete</span>",
+      "css": ".ds-pill{font-family:ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif;display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radius:4px;font-size:12px;font-weight:500;line-height:20px;white-space:nowrap;margin:0 4px 4px 0}"
+    },
+    {
+      "name": "Company Monogram",
+      "kind": "custom",
+      "refersTo": "company-monogram",
+      "description": "Square pastel tile with the company code, toned by id; never a pill.",
+      "html": "<span class=\"ds-mono\" style=\"background:#faf1f5;color:#b5427f\" title=\"Northside Builders\">NB</span> <span class=\"ds-mono\" style=\"background:#f6f3f9;color:#8459a5\" title=\"MJ\">MJ</span>",
+      "css": ".ds-mono{font-family:ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif;display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 4px;border-radius:4px;font-size:11px;font-weight:600;line-height:1;letter-spacing:.02em}"
+    },
+    {
+      "name": "Property Rows",
+      "kind": "custom",
+      "refersTo": "property-label",
+      "description": "Signature: grey label column, ink value column, no borders.",
+      "html": "<dl class=\"ds-props\"><div class=\"ds-props-row\"><dt>Property Address</dt><dd>77 Harbor View Ln, Plano, TX 75024</dd></div><div class=\"ds-props-row\"><dt>Homeowner Name</dt><dd>Sarah Whitman</dd></div><div class=\"ds-props-row\"><dt>AccuLynx</dt><dd class=\"ds-props-empty\">Empty</dd></div></dl>",
+      "css": ".ds-props{font-family:ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif;margin:0;width:520px} .ds-props-row{display:grid;grid-template-columns:160px minmax(0,1fr);gap:8px;min-height:34px;padding:6px;margin:0 -6px;border-radius:4px;transition:background-color .12s ease} .ds-props-row:hover{background:rgba(55,53,47,.03)} .ds-props dt{color:#73726e;font-size:14px;font-weight:400;line-height:22px} .ds-props dd{margin:0;color:#37352f;font-size:14px;line-height:22px} .ds-props dd.ds-props-empty{color:#73726e}"
+    },
+    {
+      "name": "Section Sheet",
+      "kind": "card",
+      "refersTo": "section-heading",
+      "description": "A section as a heading over a hairline, not a boxed card.",
+      "html": "<section class=\"ds-sheet\"><header><h3>Job Information</h3><button>Edit</button></header><p>Section content sits directly on the page.</p></section>",
+      "css": ".ds-sheet{font-family:ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif;width:520px;color:#37352f} .ds-sheet header{display:flex;justify-content:space-between;align-items:center;padding-bottom:6px;margin-bottom:8px;border-bottom:1px solid #e9e9e7} .ds-sheet h3{margin:0;font-size:16px;font-weight:600} .ds-sheet button{font-family:inherit;border:none;background:transparent;color:#5f5e5b;font-size:14px;padding:2px 8px;border-radius:6px;cursor:pointer} .ds-sheet button:hover{background:rgba(55,53,47,.06);color:#37352f} .ds-sheet button:focus-visible{outline:2px solid rgba(31,116,201,.55);outline-offset:1px} .ds-sheet p{font-size:14px;margin:6px 0 0}"
     },
     {
       "name": "Sidebar Navigation",
       "kind": "nav",
-      "refersTo": "sidebar-nav",
-      "description": "Dark full-height sidebar with gradient background — primary navigation for all app sections.",
-      "html": "<nav class=\"ds-sidebar\"><div class=\"ds-sidebar-logo\">MJ Estimate</div><a class=\"ds-sidebar-item\" href=\"#\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"currentColor\"><path d=\"M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z\"/></svg><span>Dashboard</span></a><a class=\"ds-sidebar-item ds-sidebar-item-active\" href=\"#\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"currentColor\"><path d=\"M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z\"/></svg><span>Estimates</span></a></nav>",
-      "css": ".ds-sidebar { background: linear-gradient(135deg, #001529 0%, #1f1f1f 100%); color: rgba(255,255,255,0.85); width: 280px; min-height: 200px; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; } .ds-sidebar-logo { padding: 16px 24px; font-size: 20px; font-weight: 600; color: #fff; border-bottom: 1px solid rgba(255,255,255,0.1); } .ds-sidebar-item { display: flex; align-items: center; gap: 12px; padding: 10px 24px; color: rgba(255,255,255,0.65); text-decoration: none; font-size: 14px; transition: color 0.2s ease, background 0.2s ease; cursor: pointer; } .ds-sidebar-item:hover { color: #fff; background: rgba(255,255,255,0.08); } .ds-sidebar-item-active { color: #fff; background: rgba(24,144,255,0.15); border-right: 3px solid #1890ff; } .ds-sidebar-item svg { flex-shrink: 0; opacity: 0.85; }"
+      "refersTo": "sidebar",
+      "description": "Warm-grey paper rail; selection is an ink wash, never blue.",
+      "html": "<nav class=\"ds-side\"><a tabindex=\"0\">Dashboard</a><a tabindex=\"0\" class=\"on\">Water Mitigation</a><a tabindex=\"0\">Rebuild Projects</a><a tabindex=\"0\">Work Orders</a></nav>",
+      "css": ".ds-side{font-family:ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif;width:240px;padding:8px 0;background:#f7f7f5;border-right:1px solid #e9e9e7;display:flex;flex-direction:column;gap:2px} .ds-side a{display:flex;align-items:center;height:30px;margin:0 8px;padding:0 12px;border-radius:6px;font-size:14px;color:#5f5e5b;cursor:pointer;transition:background-color .15s} .ds-side a:hover{background:rgba(55,53,47,.06);color:#37352f} .ds-side a:focus-visible{outline:2px solid rgba(31,116,201,.55);outline-offset:1px} .ds-side a.on{background:rgba(55,53,47,.08);color:#37352f;font-weight:500}"
     },
     {
-      "name": "Data Table Row",
+      "name": "Phone Row",
       "kind": "custom",
-      "refersTo": null,
-      "description": "Table row pattern for claim lists, estimate lists, and work order tables — the most-used component in the system.",
-      "html": "<table class=\"ds-table\"><thead><tr><th>Claim #</th><th>Client</th><th>Status</th><th>Amount</th></tr></thead><tbody><tr><td>CLM-2024-0142</td><td>Johnson Residence</td><td><span class=\"ds-tag ds-tag-cyan\">In Progress</span></td><td>$12,450.00</td></tr><tr class=\"ds-table-row-hover\"><td>CLM-2024-0138</td><td>Park Commercial</td><td><span class=\"ds-tag ds-tag-success\">Approved</span></td><td>$28,900.00</td></tr></tbody></table>",
-      "css": ".ds-table { width: 100%; border-collapse: collapse; font-size: 14px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; } .ds-table th { background: #fafafa; padding: 8px 6px; text-align: left; font-weight: 600; color: #595959; font-size: 12px; border-bottom: 1px solid #f0f0f0; } .ds-table td { padding: 8px 6px; color: #262626; border-bottom: 1px solid #f0f0f0; } .ds-table tbody tr:hover, .ds-table .ds-table-row-hover { background: #fafafa; }"
+      "refersTo": "mobile-row",
+      "description": "One tappable block per record on phones: status pill, title, meta.",
+      "html": "<div class=\"ds-row\" tabindex=\"0\"><span class=\"ds-row-pill\">Follow up</span><b>915 Willow Bend Rd, Plano, TX 75024</b><span class=\"ds-row-meta\"><i>NB</i>Maria Gonzalez &nbsp; Claim: CLM-24-8923</span></div>",
+      "css": ".ds-row{font-family:ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif;width:360px;display:flex;flex-direction:column;gap:3px;padding:12px 16px;border-top:1px solid #e9e9e7;border-bottom:1px solid #e9e9e7;background:#fff;cursor:pointer} .ds-row:active{background:rgba(55,53,47,.04)} .ds-row:focus-visible{outline:2px solid rgba(31,116,201,.55);outline-offset:1px} .ds-row-pill{align-self:flex-start;height:20px;line-height:20px;padding:0 6px;border-radius:4px;background:#fbecdd;color:#a65208;font-size:12px;font-weight:500;margin-bottom:3px} .ds-row b{font-size:15px;font-weight:500;line-height:1.35;color:#37352f} .ds-row-meta{font-size:13px;color:#73726e} .ds-row-meta i{font-style:normal;display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 4px;border-radius:4px;background:#faf1f5;color:#b5427f;font-size:11px;font-weight:600;margin-right:6px}"
     }
   ],
   "narrative": {
-    "northStar": "The Claim Command Center",
-    "overview": "A calm, structured operations hub where restoration professionals manage complex insurance claims without the interface competing for attention. The system communicates through clarity, not decoration: clean data surfaces, predictable component behavior, and deliberate use of color only where it earns its place. Every screen should feel like an instrument panel — dense with useful information, yet quiet until something demands action.\n\nThe design language inherits from Ant Design 5.x and extends it conservatively. System fonts keep the interface fast and platform-native. The 8px spacing grid creates consistent rhythm without visible rigidity. Color enters the UI through semantic meaning (status, priority, category) rather than brand expression — the product's identity lives in its information architecture, not its palette.\n\nThe interface serves two contexts simultaneously: a desktop command center for office-based claim management, and a stripped-down field mode for tablet use on construction sites. Both share the same component vocabulary but differ in density and touch accommodation.",
+    "northStar": "The White Sheet",
+    "overview": "The page is a sheet of white paper, not a card sitting on a grey board. Content sits directly on it: a semibold page title, a quiet meta line, one row of filters, then rows of records. Sections are a 16px heading over a single hairline, not boxed cards nested in boxed cards. Facts on a detail page read as Notion property rows: a grey label column, an ink value column, and no table borders. The sidebar is a slightly warmer paper (#f7f7f5) separated by a hairline, never a navy rail.\n\nColour is rationed. Everything is warm ink on white; the one accent blue is reserved for primary actions, links, focus and selection. State is carried by nine borderless pastel tones in sentence case, and company identity by a small square monogram tile in its own pastel tone, so a company never reads as one more status. Depth is near-zero: hairlines separate surfaces at rest, and only floating layers (menus, popovers, dialogs, the sticky phone nav) lift off the page.\n\nThe system is built inside Ant Design 5 through theme tokens (`antTheme.ts`), a global surface layer (`notion.css`) that reaches what tokens cannot, and three primitives (Pill, PageHeader, PropertyList). Density is a working back office: 14px body, 32px controls, 30px menu items, 34px property rows. It is used as often on a phone in the field as at a desk.\n\n**Coverage boundary.** The system is fully applied only to the app shell, the global theme, Water Mitigation list and detail, Estimate Creation, and the Repair Estimate Wizard. Claim Follow-up pages are owned by a concurrent session and are not yet on this system. About 80 other pages inherit only the theme tokens and the global tag, table and card overrides; they still contain hardcoded legacy antd hex colours and inline styles. Treat those pages as unmigrated, not as precedent.",
     "keyCharacteristics": [
-      "Information-dense without feeling crowded — tight spacing, small type, maximum data per viewport",
-      "Color is semantic, not decorative — blue for primary actions, green/orange/red for status",
-      "Flat surfaces with minimal elevation — shadows appear only on hover and modals",
-      "System fonts for speed and platform familiarity",
-      "Sidebar navigation with dark background provides spatial grounding"
+      "White page, warm-grey sidebar, hairline (#e9e9e7) separation, no shadow at rest.",
+      "One accent blue for actions, links, focus and selection; money and totals stay ink.",
+      "Nine borderless pastel tag pairs, sentence case, 4px radius, 12px/500.",
+      "Company identity as a square pastel monogram tile, never a pill.",
+      "Property rows (grey label, ink value, no borders) for detail facts.",
+      "System sans throughout, 14px body, 24px semibold page titles.",
+      "Phone-first affordances: 52px top bar, 56px bottom nav, single-column row list."
     ],
     "rules": [
-      { "name": "The Semantic-Only Rule", "body": "Color is never used for decoration or brand expression in the application UI. Every colored element communicates a specific state, status, or interactive affordance. If removing the color would lose information, it belongs. If removing it would only lose aesthetics, it doesn't.", "section": "colors" },
-      { "name": "The 14px Floor Rule", "body": "Interactive text (buttons, links, form labels) never drops below 14px. Smaller sizes are reserved for non-interactive metadata. On mobile (<576px), body text may compress to 12px for density, but touch targets remain at 14px minimum.", "section": "typography" },
-      { "name": "The No-Max-Width Rule", "body": "Content areas never impose a max-width. Tables, dashboards, and forms stretch to use available screen real estate. Restoration professionals often work on wide monitors with multiple claims visible — artificial width constraints waste their primary resource: screen space.", "section": "layout" },
-      { "name": "The Flat-By-Default Rule", "body": "Surfaces are flat at rest. Shadows appear only as a response to state (hover, focus, elevation change) or to establish overlay hierarchy (modals, drawers, dropdowns). A shadow on a static, non-interactive card means the elevation vocabulary is being diluted.", "section": "elevation" }
+      {
+        "name": "The One Accent Rule",
+        "body": "Blue means \"you can act here\" or \"this is selected\". Totals, amounts and record titles stay ink, however important they are.",
+        "section": "colors"
+      },
+      {
+        "name": "The Same Key, Same Tone Rule",
+        "body": "A value that has a colour gets it from a fixed map (status) or from a stable hash of its id (companies, `toneFromKey`), so it reads the same colour on every page. The hash draws from seven tones and skips gray (reads as empty) and red (reads as an error).",
+        "section": "colors"
+      },
+      {
+        "name": "The Sentence Case Rule",
+        "body": "Statuses and labels are humanized to sentence case (\"Awaiting response\", not \"AWAITING_RESPONSE\"); `humanize()` exists for raw enum values. Uppercase appears only where the data itself is a code, such as a company's short code in its monogram.",
+        "section": "typography"
+      },
+      {
+        "name": "The Grey Label Rule",
+        "body": "Labels are regular weight (400) in Label Grey; values are ink. Weight never distinguishes a label from its value.",
+        "section": "typography"
+      },
+      {
+        "name": "The Only Floaters Cast Shadows Rule",
+        "body": "If it sits on the page, it is flat with a hairline. If it floats above the page, it gets the Elevated shadow. Nothing in between.",
+        "section": "elevation"
+      }
     ],
     "dos": [
-      "Do use the 8px spacing grid. All padding, margin, and gap values should be multiples of 4px (4, 8, 12, 16, 24, 32).",
-      "Do use semantic color only — every colored element must communicate state, status, or interactive affordance.",
-      "Do include focus ring styles (2px solid #1890ff, 2px offset) on every interactive element.",
-      "Do provide prefers-reduced-motion overrides that disable transitions and animations.",
-      "Do use compact card padding (12px) and small cell padding (6px 4px) on mobile viewports.",
-      "Do keep interactive text at 14px minimum. Smaller sizes are for metadata only."
+      "Do put content directly on the white page; use a 16px/600 heading over a 1px hairline (#e9e9e7) to start a section.",
+      "Do show detail facts as property rows: grey 400 label column (160px desktop, 136px phone), ink value column, no borders, \"Empty\" for missing values.",
+      "Do use the Pill primitive with one of the nine tones for any value that carries state, in sentence case, and take its tone from a fixed map or `toneFromKey`.",
+      "Do show a company as its square monogram tile, toned by its id.",
+      "Do reserve Ledger Blue (#1f74c9) for primary actions, links, focus and selection; keep amounts and totals in ink.",
+      "Do use the PageHeader primitive: 24px/600 title (22px on phones), 13px grey meta line, actions on the right that wrap below on phones.",
+      "Do give only floating layers (menus, popovers, pickers, modals) the Elevated shadow.",
+      "Do take colours from `tokens.ts` / `tokens.css` variables instead of hex literals when migrating a page."
     ],
     "donts": [
-      "Don't add shadows to static, non-interactive surfaces. Shadows are earned through interaction or overlay hierarchy.",
-      "Don't impose max-width constraints on content areas. Let tables and dashboards use full viewport width.",
-      "Don't use color for decoration. If removing the color doesn't remove information, the color doesn't belong.",
-      "Don't use custom fonts. The system font stack is intentional — loading external fonts adds latency and breaks the native-tool feel.",
-      "Don't scale elements on hover (transform: scale) in data-dense views. Reserve scale transforms for gallery thumbnails and icon buttons only.",
-      "Don't mix border-radius values within a single component. Cards are 8px, buttons are 6px, pills are 12px — don't combine."
+      "Don't wrap page sections in bordered, shadowed cards, or nest cards inside cards.",
+      "Don't use a dark or navy sidebar, or a blue active bar on navigation; selection is an ink wash.",
+      "Don't give tags borders, saturated antd colours, or ALL-CAPS enum text.",
+      "Don't render a company as a pill, or use gray or red for a company tone.",
+      "Don't colour money, totals or record titles blue.",
+      "Don't set readable text in Faint Glyph (#a5a29a); it is for decorative icons only.",
+      "Don't treat unmigrated pages (Claim Follow-up and the roughly 80 legacy pages) as precedent for colour or spacing."
     ]
   }
 }

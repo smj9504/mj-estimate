@@ -574,8 +574,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                           }
                         }}
                         style={{
-                          border: isSelected ? '2px solid #1890ff' : '1px solid #d9d9d9',
-                          background: isSelected ? '#e6f4ff' : undefined,
+                          border: isSelected ? '2px solid #1f74c9' : '1px solid #dfdfdc',
+                          background: isSelected ? '#e7f3f8' : undefined,
                         }}
                       >
                         <Space direction="vertical" size={2} style={{ width: '100%' }}>
@@ -667,7 +667,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                 <>
                   <strong>EWA requires exactly 1 photo.</strong>
                   {!dateOfLoss && (
-                    <span style={{ color: '#ff4d4f', display: 'block', marginTop: 4 }}>
+                    <span style={{ color: '#d44c47', display: 'block', marginTop: 4 }}>
                       ⚠️ Date of Loss is missing. Please update job information before generating EWA.
                     </span>
                   )}
@@ -681,7 +681,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
 
             <div style={{
               height: selectedPhotoIds.length > 0 ? (isMobile ? '250px' : '350px') : (isMobile ? '300px' : '500px'),
-              border: '1px solid #d9d9d9',
+              border: '1px solid #dfdfdc',
               borderRadius: 4,
               overflow: 'hidden',
               transition: 'height 0.3s ease'
@@ -695,7 +695,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                 }}>
                   <div style={{ textAlign: 'center' }}>
                     <Spin size="large" />
-                    <div style={{ marginTop: 12, color: '#8c8c8c', fontSize: 14 }}>Generating PDF...</div>
+                    <div style={{ marginTop: 12, color: '#73726e', fontSize: 14 }}>Generating PDF...</div>
                   </div>
                 </div>
               ) : (
@@ -756,9 +756,9 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                 maxHeight: '140px',
                 overflowY: 'auto',
                 padding: '8px',
-                background: '#fafafa',
+                background: '#f7f7f5',
                 borderRadius: 8,
-                border: '1px solid #e8e8e8'
+                border: '1px solid #e9e9e7'
               }}>
                 {selectedPhotoIds.map((photoId, index) => {
                   const rotation = photoRotations[photoId] || 0;
@@ -781,7 +781,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          background: '#f0f0f0',
+                          background: '#e9e9e7',
                           borderRadius: 4
                         }}>
                           <img
@@ -823,7 +823,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                             size="small"
                             icon={<RotateRightOutlined />}
                             onClick={() => handleRotatePhoto(photoId)}
-                            style={{ color: '#1890ff' }}
+                            style={{ color: '#1f74c9' }}
                           />
                         </Tooltip>
                         <Tooltip title="Perspective Crop">
@@ -836,7 +836,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                               setCropPhotoUrl(getPhotoFullUrl(photoId));
                               setCropModalOpen(true);
                             }}
-                            style={{ color: '#722ed1' }}
+                            style={{ color: '#9065b0' }}
                           />
                         </Tooltip>
                         <Tooltip title="Remove">
@@ -845,7 +845,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                             size="small"
                             icon={<CloseOutlined />}
                             onClick={() => handleRemovePhoto(photoId)}
-                            style={{ color: '#ff4d4f' }}
+                            style={{ color: '#d44c47' }}
                           />
                         </Tooltip>
                       </div>

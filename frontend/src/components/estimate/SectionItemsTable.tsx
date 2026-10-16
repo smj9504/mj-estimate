@@ -77,7 +77,7 @@ const SectionItemsTable: React.FC<SectionItemsTableProps> = memo(({
             {value ? <div dangerouslySetInnerHTML={{ __html: value }} /> : null}
             {record.note && (
               <Tooltip title={<div dangerouslySetInnerHTML={{ __html: record.note }} />}>
-                <FileTextFilled style={{ color: '#1890ff', cursor: 'help', flexShrink: 0 }} />
+                <FileTextFilled style={{ color: '#1f74c9', cursor: 'help', flexShrink: 0 }} />
               </Tooltip>
             )}
           </div>

@@ -36,7 +36,7 @@ import {
 } from '@ant-design/icons';
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
-import { colors, shadows, spacing, radius, zIndex as zIndexScale, sidebar, breakpoints } from '../../styles/tokens';
+import { colors, shadows, spacing, zIndex as zIndexScale, sidebar, breakpoints } from '../../styles/tokens';
 import CommandPalette from './CommandPalette';
 import AppBreadcrumbs from './AppBreadcrumbs';
 import { BreadcrumbProvider } from '../../contexts/BreadcrumbContext';
@@ -50,7 +50,7 @@ interface LayoutProps {
 
 // Static styles extracted to avoid re-creation on every render
 const rootLayoutStyle: React.CSSProperties = { minHeight: '100vh' };
-const menuStyle: React.CSSProperties = { border: 'none', height: 'calc(100vh - 64px)', overflowY: 'auto' };
+const menuStyle: React.CSSProperties = { border: 'none', height: 'calc(100vh - 52px)', overflowY: 'auto', padding: '4px 0 24px' };
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navigate = useNavigate();
@@ -434,8 +434,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       }
     }
 
-    // Default to dashboard if no match found
-    return ['/dashboard'];
+    // No menu entry for this route (e.g. /create/estimate): highlight nothing
+    // rather than pretending the user is on the dashboard
+    return [];
   }, [location.pathname, menuItems]);
 
   // Auto-expand parent menus based on current location (only when expanded)
@@ -478,16 +479,20 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const logoStyle = useMemo<React.CSSProperties>(() => ({
     justifyContent: collapsed ? 'center' : 'space-between',
-    padding: collapsed ? '0' : `0 ${spacing.lg}px`,
-    fontSize: collapsed ? '16px' : '20px',
+    padding: collapsed ? '0' : `0 ${spacing.sm}px 0 ${spacing.md}px`,
   }), [collapsed]);
 
   const headerStyle = useMemo<React.CSSProperties>(() => ({
-    padding: isMobile ? `0 ${spacing.md}px` : `0 ${spacing.xl}px`,
-    background: colors.surface,
+    padding: isMobile ? `0 ${spacing.sm}px 0 ${spacing.xs}px` : `0 ${spacing.lg}px`,
+    height: 52,
+    lineHeight: '52px',
+    background: 'rgba(255, 255, 255, 0.92)',
+    backdropFilter: 'saturate(180%) blur(8px)',
+    WebkitBackdropFilter: 'saturate(180%) blur(8px)',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
+    borderBottom: `1px solid ${colors.neutral200}`,
     boxShadow: shadows.header,
     position: 'sticky',
     top: 0,
@@ -496,16 +501,15 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const contentAreaStyle = useMemo<React.CSSProperties>(() => ({
     marginLeft: isMobile ? 0 : (collapsed ? sidebar.collapsedWidth : sidebar.expandedWidth),
-    transition: 'margin-left 0.3s ease',
+    transition: 'margin-left 0.2s ease',
+    background: colors.surface,
   }), [isMobile, collapsed]);
 
+  // The page is the sheet: no card around it, just gutters.
   const contentStyle = useMemo<React.CSSProperties>(() => ({
-    margin: isMobile ? spacing.sm : spacing.xl,
-    minHeight: 'calc(100vh - 112px)',
-    padding: isMobile ? spacing.sm : spacing.xl,
+    minHeight: 'calc(100vh - 52px)',
+    padding: isMobile ? `${spacing.md}px ${spacing.lg}px` : `${spacing.xl}px ${spacing.xxl + 8}px ${spacing.xxl}px`,
     background: colors.surface,
-    borderRadius: radius.lg,
-    boxShadow: shadows.ambient,
   }), [isMobile]);
 
   const userMenuItems = [
@@ -577,14 +581,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         collapsed={collapsed}
         onCollapse={setCollapsed}
         breakpoint="md"
-        collapsedWidth={isMobile ? 0 : 80}
-        width={280}
+        collapsedWidth={isMobile ? 0 : sidebar.collapsedWidth}
+        width={sidebar.expandedWidth}
         style={siderStyle}
         trigger={null}
+        theme="light"
+        className={`app-sider${isMobile && !collapsed ? ' app-sider--floating' : ''}`}
       >
         <div ref={siderRef}>
           <div className="sidebar-logo" style={logoStyle}>
-            {collapsed ? 'SW' : 'SimpleWorks'}
+            <span className="sidebar-workspace">
+              <span className="sidebar-workspace-mark" aria-hidden="true">S</span>
+              {!collapsed && <span className="sidebar-workspace-name">SimpleWorks</span>}
+            </span>
             {!collapsed && (
               <Button
                 type="text"
@@ -597,7 +606,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </div>
           <nav aria-label="Main navigation">
             <Menu
-              theme="dark"
+              theme="light"
               mode="inline"
               selectedKeys={selectedKeys}
               openKeys={openKeys}
@@ -623,27 +632,29 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               className="header-toggle-btn"
               style={{
                 fontSize: '16px',
-                width: 44,
-                height: 44,
+                width: 40,
+                height: 40,
                 flexShrink: 0,
               }}
               aria-label="Expand sidebar"
             />
           )}
-          <div style={{ flex: 1, paddingLeft: collapsed ? '8px' : '0', minWidth: 0, overflow: 'hidden' }}>
+          <div style={{ flex: 1, paddingLeft: collapsed ? '4px' : '0', minWidth: 0, overflow: 'hidden', fontSize: 14 }}>
             {selectedCompany && (
               <Space size={4}>
-                {!isMobile && <span style={{ color: colors.neutral700 }}>Company:</span>}
-                <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedCompany.name}</strong>
+                {!isMobile && <span style={{ color: colors.neutral600 }}>Company</span>}
+                <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedCompany.name}</span>
               </Space>
             )}
           </div>
           <CommandPalette menuItems={menuItems} />
           <Dropdown menu={{ items: userMenuItems, onClick: handleMenuClick }} placement="bottomRight">
-            <Space style={{ cursor: 'pointer', flexShrink: 0, marginLeft: 8 }}>
-              <Avatar icon={<UserOutlined />} size={isMobile ? 'small' : 'default'} />
+            <button type="button" className="header-user" aria-label="Account menu">
+              <Avatar size={24} className="header-user-avatar">
+                {(user?.full_name || user?.username || 'U').charAt(0).toUpperCase()}
+              </Avatar>
               {!isMobile && <span>{user?.full_name || user?.username || 'User'}</span>}
-            </Space>
+            </button>
           </Dropdown>
         </Header>
         <Content id="main-content" style={contentStyle} tabIndex={-1}>

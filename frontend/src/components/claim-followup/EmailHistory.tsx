@@ -221,7 +221,7 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
 
       <style>{`
         .email-awaiting {
-          background-color: #fffbe6 !important;
+          background-color: #fbf3db !important;
         }
       `}</style>
     </>

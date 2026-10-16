@@ -169,7 +169,7 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
       return (
         <div style={{ textAlign: 'center', padding: 40 }}>
           <Spin />
-          <div style={{ marginTop: 8, color: '#8c8c8c', fontSize: 14 }}>Loading invoices...</div>
+          <div style={{ marginTop: 8, color: '#73726e', fontSize: 14 }}>Loading invoices...</div>
         </div>
       );
     }
@@ -207,7 +207,7 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
                 value={invoiceHistory.total_invoiced}
                 precision={2}
                 prefix={<DollarOutlined />}
-                valueStyle={{ color: '#52c41a' }}
+                valueStyle={{ color: '#448361' }}
               />
             </Card>
           </Col>
@@ -256,7 +256,7 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
                   description={
                     <div>
                       <p>Are you sure you want to delete this invoice?</p>
-                      <p style={{ color: '#ff4d4f', fontSize: 12 }}>
+                      <p style={{ color: '#d44c47', fontSize: 12 }}>
                         This will also reset the scope items' invoiced status.
                       </p>
                     </div>
@@ -284,13 +284,13 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
                     width: 48,
                     height: 48,
                     borderRadius: 8,
-                    background: '#f6ffed',
+                    background: '#edf3ec',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     flexShrink: 0
                   }}>
-                    <FileTextOutlined style={{ fontSize: 24, color: '#52c41a' }} />
+                    <FileTextOutlined style={{ fontSize: 24, color: '#448361' }} />
                   </div>
                 }
                 title={

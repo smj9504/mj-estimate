@@ -137,30 +137,30 @@ const FileCard: React.FC<FileCardProps> = ({
     const contentType = file.contentType || file.mimeType || '';
 
     if (contentType.startsWith('image/')) {
-      return <PictureOutlined style={{ fontSize: 32, color: '#52c41a' }} />;
+      return <PictureOutlined style={{ fontSize: 32, color: '#448361' }} />;
     }
 
     if (contentType === 'application/pdf') {
-      return <FilePdfOutlined style={{ fontSize: 32, color: '#ff4d4f' }} />;
+      return <FilePdfOutlined style={{ fontSize: 32, color: '#d44c47' }} />;
     }
 
     if (contentType.includes('word') || contentType.includes('document')) {
-      return <FileWordOutlined style={{ fontSize: 32, color: '#1890ff' }} />;
+      return <FileWordOutlined style={{ fontSize: 32, color: '#1f74c9' }} />;
     }
 
     if (contentType.includes('excel') || contentType.includes('spreadsheet')) {
-      return <FileExcelOutlined style={{ fontSize: 32, color: '#52c41a' }} />;
+      return <FileExcelOutlined style={{ fontSize: 32, color: '#448361' }} />;
     }
 
     if (contentType.includes('powerpoint') || contentType.includes('presentation')) {
-      return <FilePptOutlined style={{ fontSize: 32, color: '#fa8c16' }} />;
+      return <FilePptOutlined style={{ fontSize: 32, color: '#d9730d' }} />;
     }
 
     if (contentType.startsWith('text/')) {
-      return <FileTextOutlined style={{ fontSize: 32, color: '#722ed1' }} />;
+      return <FileTextOutlined style={{ fontSize: 32, color: '#9065b0' }} />;
     }
 
-    return <FileOutlined style={{ fontSize: 32, color: '#8c8c8c' }} />;
+    return <FileOutlined style={{ fontSize: 32, color: '#73726e' }} />;
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -244,7 +244,7 @@ const FileCard: React.FC<FileCardProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: '#fafafa',
+          backgroundColor: '#f7f7f5',
           cursor: 'pointer',
           position: 'relative'
         }}
@@ -274,7 +274,7 @@ const FileCard: React.FC<FileCardProps> = ({
         style={{
           width: 280,
           margin: 8,
-          border: isSelected ? '2px solid #1890ff' : '1px solid #f0f0f0',
+          border: isSelected ? '2px solid #1f74c9' : '1px solid #e9e9e7',
           transition: 'all 0.2s ease'
         }}
         hoverable

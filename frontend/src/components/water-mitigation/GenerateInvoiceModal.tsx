@@ -331,7 +331,7 @@ const GenerateInvoiceModal: React.FC<GenerateInvoiceModalProps> = ({
             style={{
               maxHeight: 300,
               overflowY: 'auto',
-              border: '1px solid #d9d9d9',
+              border: '1px solid #dfdfdc',
               borderRadius: 4,
               padding: 8,
             }}
@@ -345,7 +345,7 @@ const GenerateInvoiceModal: React.FC<GenerateInvoiceModalProps> = ({
 
               return (
                 <div key={location.id} style={{ marginBottom: 16 }}>
-                  <Text strong style={{ color: '#1890ff' }}>
+                  <Text strong style={{ color: '#1f74c9' }}>
                     {location.name}
                   </Text>
                   <div style={{ marginLeft: 16, marginTop: 8 }}>

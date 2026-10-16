@@ -276,7 +276,7 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
           <Progress
             percent={uploadProgress}
             status={uploadProgress === 100 ? 'success' : 'active'}
-            strokeColor={uploadProgress === 100 ? '#52c41a' : '#1890ff'}
+            strokeColor={uploadProgress === 100 ? '#448361' : '#1f74c9'}
             showInfo={true}
           />
           <div style={{ marginTop: 8, textAlign: 'center', color: '#666', fontSize: '12px' }}>

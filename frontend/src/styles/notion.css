@@ -1,0 +1,674 @@
+/**
+ * Global surface layer — the parts the antd theme tokens cannot reach.
+ * Imported once in App.tsx, after tokens.css.
+ *
+ * - Tags: every preset antd colour folds onto the nine pastel tones,
+ *   borderless, so existing <Tag color="blue"> call sites calm down
+ *   without touching them.
+ * - Tables, cards, headings: hairlines, quiet headers.
+ * - Browser surfaces: selection, scrollbars, focus ring.
+ */
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-surface);
+  color: var(--color-neutral-900);
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Helvetica, 'Apple Color Emoji', Arial, sans-serif;
+  font-feature-settings: 'tnum' 0;
+}
+
+::selection {
+  background: rgba(35, 131, 226, 0.22);
+}
+
+/* ---- Scrollbars ---- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d3d1cb transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #d3d1cb;
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #aeaca6;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- Focus ---- */
+:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+}
+
+/* ---- Numbers line up in money columns ---- */
+.ant-table-cell,
+.ant-statistic-content,
+.ant-descriptions-item-content {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   Tags — borderless pastel pills
+   ============================================================ */
+.ant-tag {
+  border-color: transparent;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 20px;
+  padding-inline: 6px;
+  margin-inline-end: 4px;
+  font-weight: 500;
+}
+.ant-tag .anticon + span,
+.ant-tag > span + .anticon {
+  margin-inline-start: 4px;
+}
+
+.ant-tag-default,
+.ant-tag:not([class*='ant-tag-']):not(.ant-tag-has-color),
+.ant-tag-default-inverse {
+  background: var(--tag-gray-bg);
+  color: var(--tag-gray-text);
+}
+
+.ant-tag.ant-tag-blue, .ant-tag.ant-tag-blue-inverse,
+.ant-tag.ant-tag-geekblue, .ant-tag.ant-tag-geekblue-inverse,
+.ant-tag.ant-tag-cyan, .ant-tag.ant-tag-cyan-inverse,
+.ant-tag.ant-tag-processing {
+  background: var(--tag-blue-bg);
+  color: var(--tag-blue-text);
+  border-color: transparent;
+}
+.ant-tag.ant-tag-green, .ant-tag.ant-tag-green-inverse,
+.ant-tag.ant-tag-lime, .ant-tag.ant-tag-lime-inverse,
+.ant-tag.ant-tag-success {
+  background: var(--tag-green-bg);
+  color: var(--tag-green-text);
+  border-color: transparent;
+}
+.ant-tag.ant-tag-orange, .ant-tag.ant-tag-orange-inverse,
+.ant-tag.ant-tag-volcano, .ant-tag.ant-tag-volcano-inverse,
+.ant-tag.ant-tag-warning {
+  background: var(--tag-orange-bg);
+  color: var(--tag-orange-text);
+  border-color: transparent;
+}
+.ant-tag.ant-tag-gold, .ant-tag.ant-tag-gold-inverse,
+.ant-tag.ant-tag-yellow, .ant-tag.ant-tag-yellow-inverse {
+  background: var(--tag-yellow-bg);
+  color: var(--tag-yellow-text);
+  border-color: transparent;
+}
+.ant-tag.ant-tag-red, .ant-tag.ant-tag-red-inverse,
+.ant-tag.ant-tag-error {
+  background: var(--tag-red-bg);
+  color: var(--tag-red-text);
+  border-color: transparent;
+}
+.ant-tag.ant-tag-purple, .ant-tag.ant-tag-purple-inverse {
+  background: var(--tag-purple-bg);
+  color: var(--tag-purple-text);
+  border-color: transparent;
+}
+.ant-tag.ant-tag-magenta, .ant-tag.ant-tag-magenta-inverse,
+.ant-tag.ant-tag-pink, .ant-tag.ant-tag-pink-inverse {
+  background: var(--tag-pink-bg);
+  color: var(--tag-pink-text);
+  border-color: transparent;
+}
+
+/* Tags given a raw hex colour keep it, but lose the heavy border */
+.ant-tag.ant-tag-has-color {
+  border-color: transparent;
+}
+
+/* Status badges: smaller dot, ink text */
+.ant-badge-status-text {
+  color: var(--color-neutral-900);
+}
+
+/* ============================================================
+   Cards — hairline sheets, no shadow
+   ============================================================ */
+.ant-card {
+  box-shadow: none;
+}
+.ant-card-bordered {
+  border-color: var(--color-neutral-200);
+}
+.ant-card .ant-card-head {
+  border-bottom-color: var(--color-neutral-200);
+  min-height: 44px;
+}
+.ant-card .ant-card-head-title {
+  font-weight: 600;
+}
+.ant-card-hoverable:hover {
+  box-shadow: var(--shadow-hover);
+  border-color: var(--color-neutral-400);
+}
+
+/* ============================================================
+   Tables — quiet headers, hairline rows
+   ============================================================ */
+.ant-table-wrapper .ant-table-thead > tr > th {
+  font-weight: 500;
+  font-size: 13px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.ant-table-wrapper .ant-table-thead > tr > th::before {
+  display: none;
+}
+.ant-table-wrapper .ant-table-tbody > tr > td {
+  border-bottom-color: var(--color-neutral-200);
+}
+.ant-table-wrapper .ant-table-cell-fix-left,
+.ant-table-wrapper .ant-table-cell-fix-right {
+  background: var(--color-surface);
+}
+
+/* ============================================================
+   Bordered Descriptions — read as property rows, not a grid
+   ============================================================ */
+.ant-descriptions-bordered .ant-descriptions-view {
+  border-color: var(--color-neutral-200);
+}
+.ant-descriptions-bordered .ant-descriptions-item-label {
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+.ant-descriptions-bordered .ant-descriptions-row {
+  border-bottom-color: var(--color-neutral-200);
+}
+.ant-descriptions-bordered .ant-descriptions-item-label,
+.ant-descriptions-bordered .ant-descriptions-item-content {
+  border-inline-end-color: var(--color-neutral-200);
+}
+
+/* ============================================================
+   Headings — ink, semibold, tight
+   ============================================================ */
+h1.ant-typography,
+h2.ant-typography,
+h3.ant-typography,
+h4.ant-typography {
+  letter-spacing: -0.01em;
+}
+
+/* ============================================================
+   Messages / notifications / popovers — soft layered shadow
+   ============================================================ */
+.ant-dropdown .ant-dropdown-menu,
+.ant-select-dropdown,
+.ant-picker-dropdown .ant-picker-panel-container,
+.ant-popover .ant-popover-inner {
+  box-shadow: var(--shadow-elevated);
+}
+
+/* ============================================================
+   UI primitives (components/common/ui)
+   ============================================================ */
+
+/* Pill */
+.ui-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.ui-pill-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ui-pill-icon {
+  display: inline-flex;
+  font-size: 11px;
+}
+
+/* Page header */
+.ui-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 24px;
+  flex-wrap: wrap;
+  margin: 4px 0 20px;
+}
+.ui-page-header-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 320px;
+}
+.ui-page-header-leading {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.ui-page-header-titles {
+  min-width: 0;
+}
+.ui-page-title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--color-neutral-900);
+  overflow-wrap: anywhere;
+}
+.ui-page-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.ui-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .ui-page-header {
+    margin: 0 0 16px;
+    align-items: stretch;
+  }
+  .ui-page-header-main {
+    flex-basis: 100%;
+  }
+  .ui-page-title {
+    font-size: 22px;
+  }
+  .ui-page-actions {
+    flex-wrap: wrap;
+  }
+}
+
+/* Property rows */
+.ui-props {
+  margin: 0;
+}
+.ui-props-row {
+  display: grid;
+  grid-template-columns: var(--ui-props-label, 160px) minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 6px;
+  margin: 0 -6px;
+  border-radius: 4px;
+  transition: background-color 0.12s ease;
+}
+.ui-props-row:hover {
+  background: rgba(55, 53, 47, 0.03);
+}
+.ui-props-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  color: var(--color-neutral-600);
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.ui-props-icon {
+  display: inline-flex;
+  font-size: 14px;
+  color: #a5a29a;
+}
+.ui-props-value {
+  margin: 0;
+  min-height: 22px;
+  color: var(--color-neutral-900);
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.ui-props-empty {
+  color: var(--color-neutral-600);
+}
+
+@media (max-width: 576px) {
+  .ui-props-row {
+    grid-template-columns: 136px minmax(0, 1fr);
+  }
+  .ui-props-label {
+    font-size: 13px;
+  }
+}
+
+/* Company monogram: a square tile, so it never reads as a status pill */
+.ui-monogram {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* Visible to screen readers only */
+.ui-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Section heading inside a page: Notion-style h3 with a hairline */
+.ui-section {
+  margin-top: 28px;
+}
+.ui-section:first-child {
+  margin-top: 0;
+}
+.ui-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.ui-section-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+
+/* List rows for phones: one tappable block per record */
+.ui-row-list {
+  margin: 0 -16px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.ui-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-neutral-200);
+  background: var(--color-surface);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ui-row:active {
+  background: rgba(55, 53, 47, 0.04);
+}
+.ui-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.ui-row-title {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--color-neutral-900);
+}
+.ui-row-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin-top: 3px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.ui-row-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+/* Toolbar: one row of filters above a list */
+.ui-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.ui-toolbar-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+@media (max-width: 768px) {
+  .ui-toolbar-end {
+    margin-left: 0;
+  }
+}
+
+/* Link that reads as ink (record titles in tables) */
+.ui-ink-link {
+  color: var(--color-neutral-900);
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  background-image: linear-gradient(currentColor, currentColor);
+  background-size: 0 1px;
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+}
+.ui-ink-link:hover {
+  color: var(--color-neutral-900);
+  background-size: 100% 1px;
+}
+
+/* Flat section: a Card that reads as a heading + content on the page */
+.ui-sheet-card.ant-card {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+.ui-sheet-card.ant-card > .ant-card-head {
+  min-height: 0;
+  padding: 0 0 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--color-neutral-200);
+  font-size: 16px;
+}
+.ui-sheet-card.ant-card > .ant-card-head .ant-card-head-title {
+  padding: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.ui-sheet-card.ant-card > .ant-card-head .ant-card-extra {
+  padding: 0;
+}
+.ui-sheet-card.ant-card > .ant-card-body {
+  padding: 6px 0 0 !important;
+}
+
+/* Descriptions laid out as property rows (use with bordered={false} column={1}) */
+.ui-props-desc.ant-descriptions .ant-descriptions-row > td,
+.ui-props-desc.ant-descriptions .ant-descriptions-row > th {
+  padding: 0 !important;
+}
+.ui-props-desc.ant-descriptions .ant-descriptions-item-container {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  min-height: 34px;
+  padding: 6px 6px;
+  margin: 0 -6px;
+  border-radius: 4px;
+  transition: background-color 0.12s ease;
+}
+.ui-props-desc.ant-descriptions .ant-descriptions-item-container:hover {
+  background: rgba(55, 53, 47, 0.03);
+}
+.ui-props-desc.ant-descriptions .ant-descriptions-item-label {
+  color: var(--color-neutral-600);
+  font-size: 14px;
+  line-height: 22px;
+  min-width: 0;
+}
+.ui-props-desc.ant-descriptions .ant-descriptions-item-label::after {
+  display: none;
+}
+.ui-props-desc.ant-descriptions .ant-descriptions-item-content {
+  color: var(--color-neutral-900);
+  font-size: 14px;
+  line-height: 22px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 576px) {
+  .ui-props-desc.ant-descriptions .ant-descriptions-item-container {
+    grid-template-columns: 136px minmax(0, 1fr);
+  }
+  .ui-props-desc.ant-descriptions .ant-descriptions-item-label {
+    font-size: 13px;
+  }
+
+  /* R2: section headings wrap rather than ellipsize next to their buttons */
+  .ui-sheet-card.ant-card > .ant-card-head .ant-card-head-wrapper {
+    align-items: flex-start;
+  }
+  .ui-sheet-card.ant-card > .ant-card-head .ant-card-head-title {
+    white-space: normal;
+    overflow: visible;
+  }
+}
+
+/* Quiet icon buttons: grey until hovered; destructive ones turn red on hover */
+.ant-btn.ui-icon-btn {
+  color: var(--color-neutral-600);
+}
+.ant-btn.ui-icon-btn:not(:disabled):hover {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-hover);
+}
+.ant-btn.ui-icon-btn--danger:not(:disabled):hover {
+  color: var(--color-error);
+  background: var(--tag-red-bg);
+}
+
+/* Collapse as a list of rows divided by hairlines (use with ghost) */
+.ui-collapse-rows.ant-collapse > .ant-collapse-item {
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.ui-collapse-rows.ant-collapse > .ant-collapse-item > .ant-collapse-header {
+  padding: 12px 4px;
+  align-items: flex-start;
+}
+.ui-collapse-rows.ant-collapse > .ant-collapse-item > .ant-collapse-header .ant-collapse-expand-icon {
+  padding-top: 3px;
+  color: var(--color-neutral-600);
+}
+.ui-collapse-rows.ant-collapse > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
+  padding: 0 4px 16px 28px;
+}
+@media (max-width: 576px) {
+  .ui-collapse-rows.ant-collapse > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
+    padding-left: 4px;
+  }
+}
+
+/* View tabs (e.g. photo source: All / CompanyCam / MagicPlan / Upload) */
+.ant-btn.ui-view-tab {
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.ant-btn.ui-view-tab:not(:disabled):hover {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-hover);
+}
+.ant-btn.ui-view-tab.is-selected {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-selected);
+  font-weight: 500;
+}
+
+/* Filter chips: grey outline until selected, then ink fill with a check */
+.ant-tag.ui-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  margin: 0;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-neutral-200);
+  background: #fff;
+  color: var(--color-neutral-700);
+  font-size: 13px;
+  font-weight: 400;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.ant-tag.ui-filter-chip:hover {
+  background: var(--color-ink-hover);
+}
+.ant-tag.ui-filter-chip.is-selected {
+  background: var(--color-ink-selected);
+  border-color: transparent;
+  color: var(--color-neutral-900);
+  font-weight: 500;
+}
+.ui-filter-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.ui-filter-chip-check {
+  font-size: 11px;
+}
+
+/* Photo filter bar: phones keep the funnel icon and drop the word, so the
+   chips get the width */
+@media (max-width: 576px) {
+  .category-manager-label-text {
+    display: none;
+  }
+}

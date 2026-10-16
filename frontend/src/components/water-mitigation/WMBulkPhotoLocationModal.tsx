@@ -205,8 +205,8 @@ const WMBulkPhotoLocationModal: React.FC<WMBulkPhotoLocationModalProps> = ({
           <div
             style={{
               padding: 12,
-              background: '#f0f5ff',
-              border: '1px solid #d6e4ff',
+              background: '#eef5fa',
+              border: '1px solid #d9e8f3',
               borderRadius: 8,
               marginBottom: 16,
             }}
@@ -273,8 +273,8 @@ const WMBulkPhotoLocationModal: React.FC<WMBulkPhotoLocationModalProps> = ({
                     alignItems: 'center',
                     gap: 8,
                     padding: '8px 6px',
-                    borderBottom: '1px solid #f0f0f0',
-                    background: isChanged ? '#fffbe6' : 'transparent',
+                    borderBottom: '1px solid #e9e9e7',
+                    background: isChanged ? '#fbf3db' : 'transparent',
                   }}
                 >
                   <Image
