@@ -58,6 +58,31 @@ export const contractTemplateService = {
     return data;
   },
 
+  // file_url is a storage path, not a browsable URL — go through the backend proxy.
+  async getPdfBlob(id: string) {
+    const { data } = await api.get(`/api/contracts/templates/${id}/pdf`, {
+      responseType: 'blob',
+    });
+    return new Blob([data], { type: 'application/pdf' });
+  },
+
+  async openPdf(id: string) {
+    // Open the tab synchronously so the popup blocker doesn't swallow it after the await.
+    const win = window.open('', '_blank');
+    try {
+      const url = URL.createObjectURL(await this.getPdfBlob(id));
+      if (win) {
+        win.location.href = url;
+      } else {
+        window.open(url, '_blank');
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      win?.close();
+      throw err;
+    }
+  },
+
   async getFieldMappings(id: string) {
     const { data } = await api.get(`/api/contracts/templates/${id}/field-mappings`);
     return data as FieldMappingResponse;

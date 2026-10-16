@@ -34,6 +34,7 @@ import {
   FilePdfOutlined,
   FormOutlined,
   PlusOutlined,
+  SwapOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
 import { contractTemplateService } from '../services/contractService';
@@ -141,6 +142,19 @@ const ContractTemplateManagement: React.FC = () => {
     },
   });
 
+  // Swaps only the file; field mappings on the template are left untouched.
+  const replacePdfMutation = useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) =>
+      contractTemplateService.uploadPdf(id, file),
+    onSuccess: () => {
+      message.success('PDF replaced. Field mappings were kept.');
+      queryClient.invalidateQueries({ queryKey: ['contract-templates'] });
+    },
+    onError: (err: any) => {
+      message.error(err?.response?.data?.detail || 'Failed to replace PDF.');
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => contractTemplateService.delete(id),
     onSuccess: () => {
@@ -232,6 +246,14 @@ const ContractTemplateManagement: React.FC = () => {
     });
   };
 
+  const handleViewPdf = async (id: string) => {
+    try {
+      await contractTemplateService.openPdf(id);
+    } catch (err: any) {
+      message.error(err?.response?.status === 404 ? 'PDF file not found. Please re-upload.' : 'Failed to open PDF.');
+    }
+  };
+
   const formatBytes = (bytes?: number) => {
     if (!bytes) return '—';
     if (bytes < 1024) return `${bytes} B`;
@@ -291,9 +313,7 @@ const ContractTemplateManagement: React.FC = () => {
             size="small"
             type="link"
             icon={<FilePdfOutlined />}
-            href={record.file_url}
-            target="_blank"
-            rel="noopener noreferrer"
+            onClick={() => handleViewPdf(record.id)}
           >
             View PDF
           </Button>
@@ -330,6 +350,22 @@ const ContractTemplateManagement: React.FC = () => {
               disabled={!record.file_url || record.file_available === false}
             />
           </Tooltip>
+          <Upload
+            accept=".pdf"
+            showUploadList={false}
+            beforeUpload={(file) => {
+              replacePdfMutation.mutate({ id: record.id, file });
+              return false;
+            }}
+          >
+            <Tooltip title="Replace PDF (keeps field mappings)">
+              <Button
+                icon={<SwapOutlined />}
+                size="small"
+                loading={replacePdfMutation.isPending && replacePdfMutation.variables?.id === record.id}
+              />
+            </Tooltip>
+          </Upload>
           <Tooltip title="Edit">
             <Button
               icon={<EditOutlined />}
@@ -497,6 +533,11 @@ const ContractTemplateManagement: React.FC = () => {
             {editing && editing.file_name && fileList.length === 0 && (
               <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
                 Current: {editing.file_name}
+              </Text>
+            )}
+            {editing && (
+              <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+                Field mappings are kept when the PDF is replaced.
               </Text>
             )}
           </Form.Item>
