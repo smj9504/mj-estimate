@@ -242,6 +242,11 @@ const SupplementDetail: React.FC = () => {
     queryKey: ['email-accounts-for-supplement'],
     queryFn: () => emailIngestionService.listAccounts(),
   });
+  // Only these can appear in the From dropdowns, so a default picked from
+  // anything wider has no matching option and the Select shows its raw id.
+  const sendableEmailAccounts = emailAccounts.filter(
+    (a: any) => a.is_active && a.can_send !== false
+  );
 
   const { data: bathroomEstimatesForBid = [] } = useQuery({
     queryKey: ['bathroom-estimates-for-bid'],
@@ -429,8 +434,8 @@ const SupplementDetail: React.FC = () => {
         .filter(Boolean);
       setPaDescriptionDraft(descLines.join('\n'));
       setPaExtraFiles([]);
-      if (emailAccounts.length > 0 && !paSelectedAccountId) {
-        setPaSelectedAccountId(emailAccounts[0].id);
+      if (!sendableEmailAccounts.some((a: any) => a.id === paSelectedAccountId)) {
+        setPaSelectedAccountId(sendableEmailAccounts[0]?.id);
       }
       setSendPaModalOpen(true);
     } catch {
@@ -1884,7 +1889,7 @@ const SupplementDetail: React.FC = () => {
                   <Select
                     placeholder="Default email account"
                     allowClear
-                    options={emailAccounts.map((acc: any) => ({
+                    options={sendableEmailAccounts.map((acc: any) => ({
                       value: acc.id, label: acc.email_address || acc.name,
                     }))}
                   />
@@ -2075,7 +2080,7 @@ const SupplementDetail: React.FC = () => {
 
             <div style={{ marginBottom: 12 }}>
               <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>From:</Text>
-              {emailAccounts.length > 0 && (
+              {sendableEmailAccounts.length > 0 && (
                 <Select
                   value={paManualFromEmail ? undefined : paSelectedAccountId}
                   onChange={(val) => { setPaSelectedAccountId(val); setPaManualFromEmail(''); }}
@@ -2083,7 +2088,7 @@ const SupplementDetail: React.FC = () => {
                   placeholder="Select email account..."
                   allowClear
                   disabled={!!paManualFromEmail}
-                  options={emailAccounts.filter((a: any) => a.is_active).map((a: any) => ({
+                  options={sendableEmailAccounts.map((a: any) => ({
                     value: a.id,
                     label: `${a.display_name} (${a.email_address})`,
                   }))}
