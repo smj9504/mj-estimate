@@ -46,6 +46,24 @@ export const claimFollowUpService = {
     return data;
   },
 
+  /**
+   * Every task, page by page. The dashboard groups tasks into claims, so a
+   * single capped page silently drops claims or shows half a pipeline.
+   */
+  async getAllTasks(params?: { sort_by?: string; sort_order?: string }): Promise<FollowUpTask[]> {
+    const pageSize = 500;
+    const all: FollowUpTask[] = [];
+    const seen = new Set<string>();
+    for (let page = 1; page <= 50; page++) {
+      const batch = await this.getTasks({ ...params, page, page_size: pageSize });
+      batch.forEach(t => {
+        if (!seen.has(t.id)) { seen.add(t.id); all.push(t); }
+      });
+      if (batch.length < pageSize) break;
+    }
+    return all;
+  },
+
   async getTasksByClaimId(claimId: string): Promise<FollowUpTask[]> {
     const { data } = await api.get(`${BASE_URL}/tasks/by-claim/${claimId}`);
     return data;

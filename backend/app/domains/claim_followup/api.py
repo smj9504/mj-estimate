@@ -163,7 +163,7 @@ async def list_tasks(
     overdue_only: bool = Query(False),
     depreciation_phase: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=1000),
     sort_by: str = Query("due_date"),
     sort_order: str = Query("asc"),
 ):

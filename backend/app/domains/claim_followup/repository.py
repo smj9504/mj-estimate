@@ -78,9 +78,11 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
         # Sorting
         sort_column = getattr(FollowUpTask, sort_by, FollowUpTask.next_followup_date)
         if sort_order == "desc":
-            query = query.order_by(sort_column.desc())
+            query = query.order_by(sort_column.desc(), FollowUpTask.id)
         else:
-            query = query.order_by(sort_column.asc())
+            query = query.order_by(sort_column.asc(), FollowUpTask.id)
+        # id tiebreaker: many tasks share a NULL/equal sort value, and
+        # without a total order consecutive pages can skip or repeat rows.
 
         # Pagination
         offset = (page - 1) * page_size
@@ -176,6 +178,23 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
             except Exception:
                 pass
 
+        # Pre-fetch received payment totals per claim in one query
+        received_by_claim: Dict[str, float] = {}
+        if claim_ids:
+            try:
+                from app.domains.client.models import ClaimPayment
+                from sqlalchemy import func as payfunc
+                pay_rows = self.db_session.query(
+                    ClaimPayment.claim_id,
+                    payfunc.sum(ClaimPayment.amount),
+                ).filter(
+                    ClaimPayment.claim_id.in_(claim_ids)
+                ).group_by(ClaimPayment.claim_id).all()
+                for cid, total in pay_rows:
+                    received_by_claim[str(cid)] = float(total or 0)
+            except Exception:
+                pass
+
         # Pre-fetch appraisal/attorney-referral task ids per claim (for
         # depreciation_recovery enrichment) in one query instead of one
         # per task
@@ -254,6 +273,19 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                     )
                     d['bid_estimate_summary'] = bid_summary_map.get(
                         str(t.claim_id), {}
+                    )
+                    # Same expected basis as ClaimFollowUpService.get_payment_summary
+                    d['claim_expected_amount'] = float(
+                        t.claim.final_invoice_amount
+                        or t.claim.our_estimate_amount
+                        or t.claim.current_rcv
+                        or 0
+                    )
+                    d['claim_received_amount'] = received_by_claim.get(
+                        str(t.claim_id), 0.0
+                    )
+                    d['claim_deductible'] = float(
+                        t.claim.insurance_deductible or 0
                     )
                     # Depreciation recovery enrichment
                     if t.task_type == 'depreciation_recovery':

@@ -147,6 +147,10 @@ export interface FollowUpTask {
   wm_cost_status?: string;
   has_insurance_estimate?: boolean;
   bid_estimate_summary?: Record<string, number>;
+  // Claim money picture (same basis as ClaimPaymentSummary)
+  claim_expected_amount?: number;
+  claim_received_amount?: number;
+  claim_deductible?: number;
   // Depreciation recovery enrichment
   depreciation_amount?: number;
   has_pending_supplements?: boolean;

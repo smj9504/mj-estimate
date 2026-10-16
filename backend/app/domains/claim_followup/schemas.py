@@ -163,6 +163,10 @@ class FollowUpTaskResponse(FollowUpTaskBase):
     wm_cost_status: Optional[str] = None
     has_insurance_estimate: Optional[bool] = None
     bid_estimate_summary: Optional[Dict[str, Any]] = None
+    # Claim money picture, same basis as GET /claims/{id}/payments
+    claim_expected_amount: Optional[float] = None
+    claim_received_amount: Optional[float] = None
+    claim_deductible: Optional[float] = None
 
     # Depreciation recovery enrichment
     depreciation_amount: Optional[float] = None

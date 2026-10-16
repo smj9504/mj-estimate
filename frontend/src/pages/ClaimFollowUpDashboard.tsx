@@ -19,10 +19,8 @@ import {
   Col,
   Statistic,
   Tooltip,
-  Badge,
   Dropdown,
   Collapse,
-  Progress,
   Upload,
   Drawer,
   Descriptions,
@@ -30,6 +28,7 @@ import {
   Tabs,
   Popconfirm,
   Alert,
+  Skeleton,
 } from 'antd';
 import type { FormInstance } from 'antd';
 import {
@@ -47,13 +46,11 @@ import {
   EditOutlined,
   DeleteOutlined,
   UploadOutlined,
-  EnvironmentOutlined,
   RightOutlined,
   FilePdfOutlined,
   HistoryOutlined,
   UserOutlined,
   PhoneOutlined,
-  ExclamationCircleOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
 } from '@ant-design/icons';
@@ -264,8 +261,10 @@ const aggregateByStage = (
       const stageTasks = stageMap.get(stage)!;
 
       // Worst (most urgent) status across all tasks in this stage
+      // Start above every rank so a lone resolved task reads "resolved",
+      // not the 'cancelled' placeholder.
       let worstStatus = 'cancelled';
-      let worstPri = 5;
+      let worstPri = Number.POSITIVE_INFINITY;
       stageTasks.forEach(t => {
         const effective = isOverdueFn(t) ? 'overdue' : t.status;
         const pri = STAGE_STATUS_PRIORITY[effective] ?? 5;
@@ -304,7 +303,6 @@ interface ClaimGroup {
   insurance_company: string;
   tasks: FollowUpTask[];
   activeStages: Set<TaskType>;
-  currentStage: TaskType | null;
   hasOverdue: boolean;
   hasUrgent: boolean;
   wmCostStatus: string;
@@ -317,12 +315,327 @@ interface ClaimGroup {
   pa_company: string;
   pa_email: string;
   pa_phone: string;
+  expectedAmount: number;
+  receivedAmount: number;
+  deductible: number;
+  hasPaymentIssue: boolean;
+  progress: ClaimProgress | null;
 }
 
 const formatCurrency = (val?: number) => {
   if (val == null) return '$0.00';
   return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
+
+const formatWholeDollars = (val: number) =>
+  `$${Math.round(val).toLocaleString('en-US')}`;
+
+// ── Claim progress model ──
+// One fixed track per claim so the same stage always sits in the same place,
+// plus a single "focus" stage that answers "what is this claim on right now".
+
+const isTaskActive = (t: FollowUpTask) => !['resolved', 'cancelled'].includes(t.status);
+
+const isTaskOverdue = (task: FollowUpTask) => {
+  const date = task.next_followup_date || task.due_date;
+  if (!date) return false;
+  // awaiting_confirmation은 다른 사람의 확인을 기다리는 상태 → overdue 아님
+  return dayjs(date).isBefore(dayjs()) && ACTIONABLE_STATUSES.includes(task.status);
+};
+
+const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  received: 'Received',
+  issued: 'Issued',
+  homeowner_holding: 'HO Holding',
+  lost: 'Lost',
+  reissued: 'Reissued',
+  partial: 'Partial',
+  pending: 'Pending',
+};
+
+// Payment states that need someone to chase the money.
+const PAYMENT_ISSUE_STATUSES = ['homeowner_holding', 'lost', 'partial'];
+
+const TASK_STATUS_PHRASES: Record<string, string> = {
+  pending: 'To do',
+  awaiting_response: 'Awaiting response',
+  awaiting_confirmation: 'Awaiting confirmation',
+  responded: 'Responded',
+  resolved: 'Done',
+  overdue: 'Overdue',
+  cancelled: 'Cancelled',
+};
+
+const TASK_STATUS_LABELS: Record<string, string> = {
+  pending: 'Pending',
+  awaiting_response: 'Awaiting response',
+  awaiting_confirmation: 'Awaiting confirmation',
+  responded: 'Responded',
+  resolved: 'Resolved',
+  overdue: 'Overdue',
+  cancelled: 'Cancelled',
+};
+
+const ROLE_SHORT_LABELS: Record<string, string> = {
+  public_adjuster: 'PA',
+  adjuster: 'Adjuster',
+  contractor: 'Contractor',
+};
+
+// overdue/issue: needs attention · active: ours to move · waiting: on someone
+// else · todo: expected next but not started · done · none: not reached / n/a
+type StepState = 'overdue' | 'issue' | 'active' | 'waiting' | 'todo' | 'done' | 'none';
+
+interface ProgressStep {
+  key: string;
+  label: string;
+  shortLabel: string;
+  title: string;
+  state: StepState;
+  detail: string;
+  note?: string;
+  activeTask?: FollowUpTask;
+  resolvedTask?: FollowUpTask;
+}
+
+interface ClaimProgress {
+  track: ProgressStep[];
+  /** Off-track stages (dispute, other docs, custom…) with open work */
+  extras: ProgressStep[];
+  focus: ProgressStep | null;
+}
+
+const TRACK_SLOTS: { key: string; label: string; shortLabel: string; title: string; types: TaskType[] }[] = [
+  { key: 'wm_docs', label: 'WM Docs', shortLabel: 'Docs', title: 'WM docs', types: ['wm_docs_sent'] },
+  { key: 'estimate', label: 'Estimate', shortLabel: 'Est.', title: 'Insurance estimate', types: ['estimate_request'] },
+  { key: 'wm_payment', label: 'WM $', shortLabel: 'WM $', title: 'WM payment', types: ['wm_payment_check'] },
+  { key: 'rebuild_payment', label: 'Rebuild $', shortLabel: 'Rebuild', title: 'Rebuild payment', types: ['payment_check'] },
+  { key: 'supplement', label: 'Supplement', shortLabel: 'Supp.', title: 'Supplement', types: ['supplement_estimate_prep', 'supplement_sent'] },
+  { key: 'depreciation', label: 'Depreciation', shortLabel: 'Dep.', title: 'Depreciation', types: ['depreciation_recovery'] },
+];
+
+const TRACK_TYPES = new Set<string>(TRACK_SLOTS.flatMap(s => s.types));
+
+// Legend order: attention first, then ours, then everyone else.
+const STAGE_LEGEND: { state: StepState; label: string }[] = [
+  { state: 'overdue', label: 'Overdue' },
+  { state: 'issue', label: 'Payment / denial issue' },
+  { state: 'active', label: 'In progress (ours)' },
+  { state: 'waiting', label: 'Waiting on others' },
+  { state: 'todo', label: 'Next, not started' },
+  { state: 'done', label: 'Done' },
+  { state: 'none', label: 'Not reached' },
+];
+
+// A denied claim's dispute path outranks routine stages as the focus.
+const DENIAL_TYPES = ['dispute', 'appraisal', 'attorney_referral'];
+
+const stateFromTasks = (active: FollowUpTask[], resolved: FollowUpTask[]): StepState => {
+  if (active.some(isTaskOverdue)) return 'overdue';
+  if (active.length > 0) {
+    return active.every(t => t.status === 'awaiting_confirmation') ? 'waiting' : 'active';
+  }
+  return resolved.length > 0 ? 'done' : 'none';
+};
+
+const buildClaimProgress = (group: ClaimGroup): ClaimProgress => {
+  const byTypes = (types: string[]) => {
+    const tasks = group.tasks.filter(t => types.includes(t.task_type));
+    return {
+      active: tasks.filter(isTaskActive),
+      resolved: tasks.filter(t => t.status === 'resolved'),
+    };
+  };
+
+  const makeStep = (
+    key: string, label: string, shortLabel: string, title: string, types: string[],
+  ): ProgressStep => {
+    const { active, resolved } = byTypes(types);
+    const primary = active.find(isTaskOverdue) || active[0];
+    return {
+      key, label, shortLabel, title,
+      state: stateFromTasks(active, resolved),
+      detail: primary
+        ? (TASK_STATUS_PHRASES[primary.status] || primary.status)
+        : resolved.length > 0 ? 'Done' : '',
+      activeTask: primary,
+      resolvedTask: resolved[0],
+    };
+  };
+
+  const applyPaymentStatus = (step: ProgressStep) => {
+    const task = step.activeTask || step.resolvedTask;
+    const status = task?.payment_status;
+    step.note = task?.payment_note || undefined;
+    if (!status || status === 'pending') return;
+    step.detail = PAYMENT_STATUS_LABELS[status] || status;
+    if (PAYMENT_ISSUE_STATUSES.includes(status) && step.state !== 'overdue') {
+      step.state = 'issue';
+    }
+  };
+
+  // Supplement summary from supplement records + bid items
+  const ss = group.supplementStatuses;
+  const suppTotal = Object.values(ss).reduce((a, b) => a + b, 0);
+  const suppApproved = ss['approved'] || 0;
+  const suppDenied = ss['denied'] || 0;
+  const suppSubmitted = ss['submitted'] || ss['under_review'] || 0;
+  const suppInProgress = ss['in_progress'] || ss['identified'] || 0;
+  const bid = group.bidEstimateSummary;
+  const bidTotal = Object.values(bid).reduce((a, b) => a + b, 0);
+  const bidDraft = bid['draft'] || 0;
+  const bidSent = bid['sent'] || 0;
+  const allSuppApproved = suppApproved > 0 && suppApproved === suppTotal;
+  const allSuppDenied = suppDenied > 0 && suppDenied === suppTotal;
+  let suppDetail = '';
+  if (allSuppApproved) suppDetail = `Approved (${suppApproved})`;
+  else if (allSuppDenied) suppDetail = 'Denied';
+  else if (suppSubmitted > 0) suppDetail = 'Submitted';
+  else if (bidSent > 0) suppDetail = `Sent to PA${bidDraft > 0 ? ` (${bidSent}/${bidTotal})` : ''}`;
+  else if (suppInProgress > 0 || bidDraft > 0) suppDetail = `Estimating${bidTotal > 0 ? ` (${bidTotal})` : ''}`;
+  else if (suppTotal > 0) suppDetail = `${suppTotal} open`;
+
+  const track = TRACK_SLOTS.map(slot => {
+    const step = makeStep(slot.key, slot.label, slot.shortLabel, slot.title, slot.types);
+
+    switch (slot.key) {
+      case 'wm_docs':
+        if (step.activeTask?.status === 'awaiting_response') step.detail = 'Sent, awaiting response';
+        else if (step.state === 'done') step.detail = 'Sent';
+        break;
+
+      case 'estimate':
+        if (group.hasInsuranceEstimate && (step.state === 'none' || step.state === 'done')) {
+          step.state = 'done';
+          step.detail = 'Received';
+        } else if (step.state === 'none') {
+          const docs = byTypes(['wm_docs_sent']);
+          if (docs.resolved.length > 0 && docs.active.length === 0) {
+            step.state = 'waiting';
+            step.detail = 'Awaiting initial estimate';
+          }
+        }
+        break;
+
+      case 'wm_payment':
+        if (step.state === 'none') {
+          if (group.wmCostStatus === 'included_in_rebuild') {
+            step.state = 'done';
+            step.detail = 'In rebuild payment';
+          } else if (group.wmCostStatus === 'separate_estimate') {
+            step.state = 'todo';
+            step.detail = 'Not started';
+          }
+        }
+        applyPaymentStatus(step);
+        break;
+
+      case 'rebuild_payment':
+        if (step.state === 'none' && group.hasInsuranceEstimate) {
+          step.state = 'todo';
+          step.detail = 'Not started';
+        }
+        applyPaymentStatus(step);
+        break;
+
+      case 'supplement': {
+        const prep = byTypes(['supplement_estimate_prep']);
+        const sent = byTypes(['supplement_sent']);
+        const sentHasTasks = sent.active.length + sent.resolved.length > 0;
+        if (!sentHasTasks && prep.active.length === 0 && group.hasInsuranceEstimate) {
+          // No follow-up task for sending — derive from the supplement records
+          if (allSuppApproved) step.state = 'done';
+          else if (suppSubmitted > 0 || bidSent > 0) step.state = 'waiting';
+          else step.state = 'todo';
+          step.detail = suppDetail || 'Needs supplement';
+        } else if (step.state !== 'none') {
+          if (suppDetail) step.detail = suppDetail;
+          else if (prep.active.length > 0 && sent.active.length === 0) step.detail = 'Preparing estimate';
+        }
+        if (allSuppDenied && step.state !== 'overdue') step.state = 'issue';
+        if (!step.note) {
+          if (bidSent > 0) step.note = `${bidSent} bid item(s) sent to PA`;
+          else if (bidDraft > 0) step.note = `${bidDraft} bid item(s) in draft`;
+        }
+        break;
+      }
+
+      case 'depreciation': {
+        const phase = (step.activeTask || step.resolvedTask)?.depreciation_phase;
+        if (phase) {
+          step.detail = DEPRECIATION_PHASE_LABELS[phase as keyof typeof DEPRECIATION_PHASE_LABELS] || phase;
+        }
+        break;
+      }
+    }
+    return step;
+  });
+
+  // Off-track stages only appear while they have open work; their full
+  // history stays in the expanded stage table.
+  const extraTypes = Array.from(new Set(
+    group.tasks
+      .filter(t => !TRACK_TYPES.has(t.task_type) && isTaskActive(t))
+      .map(t => t.task_type as string),
+  )).sort((a, b) => {
+    const rank = (t: string) => {
+      const d = DENIAL_TYPES.indexOf(t);
+      if (d >= 0) return d;
+      const s = STAGE_ORDER.indexOf(t as TaskType);
+      return s >= 0 ? 10 + s : 100;
+    };
+    return rank(a) - rank(b);
+  });
+  const extras = extraTypes.map(type => {
+    const label = getStageLabel(type);
+    return makeStep(type, label, label, label, [type]);
+  });
+
+  const dueOf = (s: ProgressStep) =>
+    s.activeTask?.next_followup_date || s.activeTask?.due_date || '';
+  const all = [...track, ...extras];
+  const focus =
+    all.filter(s => s.state === 'overdue').sort((a, b) => dueOf(a).localeCompare(dueOf(b)))[0]
+    || extras.find(s => DENIAL_TYPES.includes(s.key) && s.state === 'active')
+    || [...track].reverse().find(s => s.state === 'active')
+    || extras.find(s => s.state === 'active')
+    || all.find(s => s.state === 'issue')
+    || track.find(s => s.state === 'todo')
+    || all.find(s => s.state === 'waiting')
+    || null;
+
+  return { track, extras, focus };
+};
+
+const needsSupplementWriting = (group: ClaimGroup) =>
+  (group.supplementStatuses['identified'] || 0) > 0
+  || (group.supplementStatuses['in_progress'] || 0) > 0;
+
+type QuickFilter = 'overdue' | 'due_week' | 'supp_writing' | 'payment_issue';
+
+const QUICK_FILTERS: { key: QuickFilter; label: string; hint: string; match: (g: ClaimGroup) => boolean }[] = [
+  {
+    key: 'overdue', label: 'Overdue',
+    hint: 'A follow-up date has passed on a stage that is ours to move',
+    match: g => g.hasOverdue,
+  },
+  {
+    key: 'due_week', label: 'Due in 7 days',
+    hint: 'Next follow-up falls within the coming week',
+    match: g => !g.hasOverdue && !!g.nextFollowupDate
+      && dayjs(g.nextFollowupDate).isBefore(dayjs().add(7, 'day')),
+  },
+  {
+    key: 'supp_writing', label: 'Supplement to write',
+    hint: 'Supplement identified or in progress, not yet submitted',
+    match: needsSupplementWriting,
+  },
+  {
+    key: 'payment_issue', label: 'Payment issues',
+    hint: 'A payment is held by the homeowner, lost, or only partly in',
+    match: g => g.hasPaymentIssue,
+  },
+];
 
 export const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
   const navigate = useNavigate();
@@ -493,12 +806,12 @@ export const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) 
       .filter(([k]) => k !== 'combined')
       .map(([key, cfg]) => [key, {
         label: cfg.label,
-        color: cfg.tagColor === 'cyan' ? '#0958d9' : cfg.tagColor === 'purple' ? '#531dab' : cfg.tagColor === 'volcano' ? '#d4380d' : '#595959',
-        bg: cfg.tagColor === 'cyan' ? '#e6f4ff' : cfg.tagColor === 'purple' ? '#f9f0ff' : cfg.tagColor === 'volcano' ? '#fff2e8' : '#fafafa',
-        border: cfg.tagColor === 'cyan' ? '#91caff' : cfg.tagColor === 'purple' ? '#d3adf7' : cfg.tagColor === 'volcano' ? '#ffbb96' : '#d9d9d9',
+        color: cfg.tagColor === 'cyan' ? '#0958d9' : cfg.tagColor === 'purple' ? '#531dab' : cfg.tagColor === 'volcano' ? '#d4380d' : '#5f5e5b',
+        bg: cfg.tagColor === 'cyan' ? '#e7f3f8' : cfg.tagColor === 'purple' ? '#f6f3f9' : cfg.tagColor === 'volcano' ? '#fff2e8' : '#f7f7f5',
+        border: cfg.tagColor === 'cyan' ? '#c6e0ee' : cfg.tagColor === 'purple' ? '#e3d8ee' : cfg.tagColor === 'volcano' ? '#ffbb96' : '#dfdfdc',
       }])
     ),
-    other: { label: 'Other', color: '#595959', bg: '#fafafa', border: '#d9d9d9' },
+    other: { label: 'Other', color: '#5f5e5b', bg: '#f7f7f5', border: '#dfdfdc' },
   };
 
   // Track latest per category for "LATEST" badge
@@ -550,8 +863,8 @@ export const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) 
                 key={ver.id}
                 style={{
                   marginBottom: 6, padding: '8px 10px', borderRadius: 6,
-                  border: isEditing ? '1px solid #faad14' : isLatestInCategory ? '1px solid #1890ff' : '1px solid #f0f0f0',
-                  background: isEditing ? '#fffbe6' : isLatestInCategory ? '#f6fbff' : '#fff',
+                  border: isEditing ? '1px solid #cb912f' : isLatestInCategory ? '1px solid #1f74c9' : '1px solid #e9e9e7',
+                  background: isEditing ? '#fbf3db' : isLatestInCategory ? '#f6fbff' : '#fff',
                 }}
               >
                 {/* Header row */}
@@ -578,7 +891,7 @@ export const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) 
                           target="_blank" rel="noopener noreferrer"
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11 }}
                         >
-                          <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                          <FilePdfOutlined style={{ color: '#d44c47' }} />
                           PDF
                         </a>
                       )}
@@ -699,7 +1012,7 @@ export const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) 
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        <Button size="small" type="text" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />} style={{ fontSize: 11 }}>
+                        <Button size="small" type="text" icon={<FilePdfOutlined style={{ color: '#d44c47' }} />} style={{ fontSize: 11 }}>
                           PDF
                         </Button>
                       </a>
@@ -736,7 +1049,7 @@ export const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) 
 
                 {/* Section Breakdown */}
                 {(hasSections || isEditing) && (
-                  <div style={{ marginTop: 6, borderTop: '1px dashed #e8e8e8', paddingTop: 6 }}>
+                  <div style={{ marginTop: 6, borderTop: '1px dashed #e9e9e7', paddingTop: 6 }}>
                     {Object.keys(SECTION_COLORS).map(cat => {
                       const group = grouped[cat];
                       if (!group || group.items.length === 0) return null;
@@ -864,10 +1177,10 @@ export const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) 
                       onClick={() => navigate(`/supplements/${sup.id}`)}
                       style={{
                         padding: '6px 10px', marginBottom: 4, borderRadius: 6,
-                        border: '1px solid #f0f0f0', background: '#fafafa', cursor: 'pointer',
+                        border: '1px solid #e9e9e7', background: '#f7f7f5', cursor: 'pointer',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.background = '#f0f5ff'; e.currentTarget.style.borderColor = '#adc6ff'; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = '#fafafa'; e.currentTarget.style.borderColor = '#f0f0f0'; }}
+                      onMouseEnter={e => { e.currentTarget.style.background = '#eef5fa'; e.currentTarget.style.borderColor = '#c6e0ee'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = '#f7f7f5'; e.currentTarget.style.borderColor = '#e9e9e7'; }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
@@ -885,7 +1198,7 @@ export const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) 
                       )}
                       {/* Bid item PDFs under this supplement */}
                       {supBidItems.length > 0 && (
-                        <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px dashed #e8e8e8' }}>
+                        <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px dashed #e9e9e7' }}>
                           {supBidItems.map((item: any) => (
                             <div
                               key={item.id}
@@ -907,7 +1220,7 @@ export const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) 
                                 rel="noopener noreferrer"
                                 onClick={e => e.stopPropagation()}
                               >
-                                <Button type="text" size="small" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />} style={{ fontSize: 11 }}>
+                                <Button type="text" size="small" icon={<FilePdfOutlined style={{ color: '#d44c47' }} />} style={{ fontSize: 11 }}>
                                   PDF
                                 </Button>
                               </a>
@@ -935,6 +1248,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
   const [hideResolved, setHideResolved] = useState(true);
   const [supplementFilter, setSupplementFilter] = useState<string | undefined>(undefined);
+  const [quickFilter, setQuickFilter] = useState<QuickFilter | undefined>(undefined);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [resolveModalOpen, setResolveModalOpen] = useState(false);
   const [resolveOutcome, setResolveOutcome] = useState<string | undefined>();
@@ -972,17 +1286,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
   const [resolveForm] = Form.useForm();
 
   // Queries
-  const { data: stats, isLoading: statsLoading } = useQuery({
-    queryKey: ['followup-stats'],
-    queryFn: () => claimFollowUpService.getDashboardStats(),
-  });
-
+  // Always load every task: claims are built from all of their tasks, and the
+  // Status/Type filters pick claims client-side. Filtering on the server cut
+  // each claim's pipeline down to the matching tasks only.
   const { data: tasks = [], isLoading: tasksLoading, refetch: refetchTasks } = useQuery({
-    queryKey: ['followup-tasks', statusFilter, typeFilter],
-    queryFn: () => claimFollowUpService.getTasks({
-      status: statusFilter,
-      task_type: typeFilter,
-      page_size: 100,
+    queryKey: ['followup-tasks', 'all'],
+    queryFn: () => claimFollowUpService.getAllTasks({
       sort_by: 'next_followup_date',
       sort_order: 'asc',
     }),
@@ -1009,7 +1318,6 @@ const ClaimFollowUpDashboard: React.FC = () => {
           insurance_company: task.insurance_company || '',
           tasks: [],
           activeStages: new Set<TaskType>(),
-          currentStage: null,
           hasOverdue: false,
           hasUrgent: false,
           wmCostStatus: '',
@@ -1022,10 +1330,20 @@ const ClaimFollowUpDashboard: React.FC = () => {
           pa_company: task.pa_company || '',
           pa_email: task.pa_email || '',
           pa_phone: task.pa_phone || '',
+          expectedAmount: task.claim_expected_amount || 0,
+          receivedAmount: task.claim_received_amount || 0,
+          deductible: task.claim_deductible || 0,
+          hasPaymentIssue: false,
+          progress: null,
         });
       }
       const group = groupMap.get(key)!;
       group.tasks.push(task);
+
+      if (PAYMENT_TASK_TYPES.includes(task.task_type)
+          && task.payment_status && PAYMENT_ISSUE_STATUSES.includes(task.payment_status)) {
+        group.hasPaymentIssue = true;
+      }
 
       // Merge supplement statuses from task
       if (task.supplement_statuses) {
@@ -1066,7 +1384,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
       // Check overdue — awaiting_confirmation은 타인 확인 대기이므로 제외
       const date = task.next_followup_date || task.due_date;
-      if (date && dayjs(date).isBefore(dayjs()) && ACTIONABLE_STATUSES.includes(task.status)) {
+      if (isTaskOverdue(task)) {
         group.hasOverdue = true;
       }
 
@@ -1078,14 +1396,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
       }
     });
 
-    // Determine current stage for each group (latest active stage in order)
     groupMap.forEach((group) => {
-      for (let i = STAGE_ORDER.length - 1; i >= 0; i--) {
-        if (group.activeStages.has(STAGE_ORDER[i])) {
-          group.currentStage = STAGE_ORDER[i];
-          break;
-        }
-      }
+      group.progress = buildClaimProgress(group);
     });
 
     // Sort: overdue first, then urgent, then by nextFollowupDate
@@ -1100,25 +1412,49 @@ const ClaimFollowUpDashboard: React.FC = () => {
     });
   }, [tasks]);
 
-  // Filter claim groups: hide resolved, supplement filter
+  // A task counts toward the Status/Type filters when it matches both.
+  const taskMatchesFilters = useCallback((t: FollowUpTask) => {
+    if (typeFilter && t.task_type !== typeFilter) return false;
+    if (statusFilter === 'overdue') return t.status === 'overdue' || isTaskOverdue(t);
+    if (statusFilter && t.status !== statusFilter) return false;
+    return true;
+  }, [statusFilter, typeFilter]);
+
+  // Claim-level counts for the quick filters (claims with open work only)
+  const quickCounts = useMemo(() => {
+    const open = claimGroups.filter(g => g.tasks.some(isTaskActive));
+    const counts: Record<string, number> = { all: open.length };
+    QUICK_FILTERS.forEach(f => { counts[f.key] = open.filter(f.match).length; });
+    return counts;
+  }, [claimGroups]);
+
+  // Filter claim groups: status/type, hide resolved, quick filter, supplement filter
   const filteredClaimGroups = useMemo(() => {
     let filtered = claimGroups;
+    const hidingResolved = hideResolved && statusFilter !== 'resolved';
 
-    // Hide resolved: only show claims with at least one active task
-    // Skip when status filter explicitly selects resolved
-    if (hideResolved && statusFilter !== 'resolved') {
-      filtered = filtered.filter(group =>
-        group.tasks.some(t => !['resolved', 'cancelled'].includes(t.status))
-      );
+    if (statusFilter || typeFilter) {
+      // A claim shows when one of its tasks matches; its pipeline still
+      // uses every task so the row never shows half a claim.
+      filtered = filtered.filter(group => {
+        const matching = group.tasks.filter(taskMatchesFilters);
+        if (matching.length === 0) return false;
+        return hidingResolved ? matching.some(isTaskActive) : true;
+      });
+    } else if (hidingResolved) {
+      // Hide resolved: only show claims with at least one active task
+      filtered = filtered.filter(group => group.tasks.some(isTaskActive));
+    }
+
+    if (quickFilter) {
+      const qf = QUICK_FILTERS.find(f => f.key === quickFilter);
+      if (qf) filtered = filtered.filter(g => g.tasks.some(isTaskActive) && qf.match(g));
     }
 
     // Supplement filter
     if (supplementFilter === 'needs_writing') {
       // Supplements identified or in progress (not yet submitted)
-      filtered = filtered.filter(group =>
-        (group.supplementStatuses['identified'] || 0) > 0
-        || (group.supplementStatuses['in_progress'] || 0) > 0
-      );
+      filtered = filtered.filter(needsSupplementWriting);
     } else if (supplementFilter === 'submitted') {
       // Supplements submitted or under review (waiting for response)
       filtered = filtered.filter(group =>
@@ -1128,7 +1464,20 @@ const ClaimFollowUpDashboard: React.FC = () => {
     }
 
     return filtered;
-  }, [claimGroups, hideResolved, supplementFilter]);
+  }, [claimGroups, hideResolved, statusFilter, typeFilter, taskMatchesFilters, quickFilter, supplementFilter]);
+
+  const visibleTaskCount = useMemo(
+    () => filteredClaimGroups.reduce((n, g) => n + g.tasks.filter(taskMatchesFilters).length, 0),
+    [filteredClaimGroups, taskMatchesFilters],
+  );
+
+  const hasAnyFilter = !!(statusFilter || typeFilter || supplementFilter || quickFilter);
+  const clearFilters = () => {
+    setStatusFilter(undefined);
+    setTypeFilter(undefined);
+    setSupplementFilter(undefined);
+    setQuickFilter(undefined);
+  };
 
   // Any task on a claim carries that claim's PA/adjuster enrichment, so one
   // task is enough to resolve the contact behind an assigned role.
@@ -1300,13 +1649,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
     });
   };
 
-  const isOverdue = (task: FollowUpTask) => {
-    const date = task.next_followup_date || task.due_date;
-    if (!date) return false;
-    // awaiting_confirmation은 다른 사람의 확인을 기다리는 상태 → overdue 아님
-    return dayjs(date).isBefore(dayjs()) &&
-      ACTIONABLE_STATUSES.includes(task.status);
-  };
+  const isOverdue = isTaskOverdue;
 
   // Helper: open resolve modal for a given task
   const openResolveForTask = async (task: FollowUpTask) => {
@@ -1391,11 +1734,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
       dataIndex: 'status',
       key: 'status',
       width: 140,
-      render: (status: string) => (
-        <Tag color={STATUS_COLORS[status] || 'default'}>
-          {status.replace('_', ' ').toUpperCase()}
-        </Tag>
-      ),
+      render: (status: string) => {
+        const label = TASK_STATUS_LABELS[status] || status.replace(/_/g, ' ');
+        if (status === 'overdue') return <Text type="danger" strong>{label}</Text>;
+        const muted = ['resolved', 'cancelled', 'awaiting_confirmation'].includes(status);
+        return <Text type={muted ? 'secondary' : undefined}>{label}</Text>;
+      },
     },
     {
       title: 'Priority',
@@ -1404,13 +1748,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
       width: 90,
       render: (priority: string, record: StageAggregated) => {
         if (record.status === 'resolved' || record.status === 'cancelled') {
-          return <Tag color="default">-</Tag>;
+          return <Text type="secondary">-</Text>;
         }
-        return (
-          <Tag color={PRIORITY_TAG_COLORS[priority] || 'default'}>
-            {priority.toUpperCase()}
-          </Tag>
-        );
+        const label = priority.charAt(0).toUpperCase() + priority.slice(1);
+        if (priority === 'urgent') return <Text type="danger" strong>{label}</Text>;
+        if (priority === 'high') return <Text type="warning" strong>{label}</Text>;
+        return <Text type="secondary">{label}</Text>;
       },
     },
     {
@@ -1443,9 +1786,9 @@ const ClaimFollowUpDashboard: React.FC = () => {
           <Space direction="vertical" size={0}>
             <Text style={{ fontSize: 12 }}>{record.assigned_to_name}</Text>
             {record.assigned_to_role && (
-              <Tag style={{ fontSize: 10, margin: 0 }}>
-                {record.assigned_to_role === 'public_adjuster' ? 'PA' : record.assigned_to_role}
-              </Tag>
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                {ROLE_SHORT_LABELS[record.assigned_to_role] || record.assigned_to_role}
+              </Text>
             )}
           </Space>
         );
@@ -1595,317 +1938,152 @@ const ClaimFollowUpDashboard: React.FC = () => {
     });
   };
 
-  // Stage pipeline indicator for a claim group
-  const renderStagePipeline = (group: ClaimGroup) => {
-    const resolvedTypes = new Set(
-      group.tasks.filter(t => t.status === 'resolved').map(t => t.task_type)
+  // ── Claim row renderers ──
+
+  // Clicking a stage keeps its old shortcut: open work → resolve, done → reopen.
+  const handleStepClick = (step: ProgressStep) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (step.activeTask) {
+      openResolveForTask(step.activeTask);
+    } else if (step.resolvedTask) {
+      const task = step.resolvedTask;
+      Modal.confirm({
+        title: 'Reopen Task',
+        content: `Reopen "${task.title || step.title}"?`,
+        okText: 'Reopen',
+        onOk: () => reopenMutation.mutate(task.id),
+      });
+    }
+  };
+
+  const stepTooltip = (step: ProgressStep) => {
+    const action = step.activeTask ? 'Click to resolve' : step.resolvedTask ? 'Click to reopen' : '';
+    return [
+      step.detail ? `${step.title}: ${step.detail}` : step.title,
+      step.note,
+      action,
+    ].filter(Boolean).join(' — ');
+  };
+
+  const renderStep = (step: ProgressStep, variant: 'track' | 'extra') => {
+    const tip = stepTooltip(step);
+    const clickable = !!(step.activeTask || step.resolvedTask);
+    const className = variant === 'track'
+      ? `cf-step cf-step--${step.state}`
+      : `cf-extra cf-extra--${step.state}`;
+    const content = variant === 'track' ? (
+      <>
+        <span className="cf-step-bar" />
+        <span className="cf-step-label">{isMobile ? step.shortLabel : step.label}</span>
+      </>
+    ) : (
+      <>{step.label}{step.detail ? ` · ${step.detail}` : ''}</>
     );
-    const activeTypes = group.activeStages;
-
-    // Virtual resolved stages based on claim data (no task needed)
-    const virtualResolved = new Set<TaskType>();
-    if (group.wmCostStatus === 'included_in_rebuild'
-        && !resolvedTypes.has('wm_payment_check')
-        && !activeTypes.has('wm_payment_check')) {
-      virtualResolved.add('wm_payment_check');
-    }
-
-    // Virtual pending: WM payment needs tracking but no task created yet
-    const virtualPending = new Set<TaskType>();
-    if (group.wmCostStatus === 'separate_estimate'
-        && !resolvedTypes.has('wm_payment_check')
-        && !activeTypes.has('wm_payment_check')) {
-      virtualPending.add('wm_payment_check');
-    }
-    // Ensure rebuild payment shows when the insurance estimate exists but no
-    // task yet. 기준은 보험사 견적서 수령 여부 — wmCostStatus는 WM 비용 처리
-    // 방식일 뿐이라 rebuild payment 표시 조건으로는 맞지 않는다.
-    if (group.hasInsuranceEstimate
-        && !resolvedTypes.has('payment_check')
-        && !activeTypes.has('payment_check')) {
-      virtualPending.add('payment_check');
-    }
-
-    // Supplement status summary from group data
-    const suppStatuses = group.supplementStatuses;
-    const suppTotal = Object.values(suppStatuses).reduce((a, b) => a + b, 0);
-    const suppApproved = suppStatuses['approved'] || 0;
-    const suppDenied = suppStatuses['denied'] || 0;
-    const suppSubmitted = suppStatuses['submitted'] || suppStatuses['under_review'] || 0;
-    const suppInProgress = suppStatuses['in_progress'] || suppStatuses['identified'] || 0;
-
-    // Bid estimate summary
-    const bidSummary = group.bidEstimateSummary;
-    const bidTotal = Object.values(bidSummary).reduce((a, b) => a + b, 0);
-    const bidDraft = bidSummary['draft'] || 0;
-    const bidSent = bidSummary['sent'] || 0;
-
-    // Virtual supplement stage: show when estimate received but no supplement task
-    if (group.hasInsuranceEstimate
-        && !resolvedTypes.has('supplement_sent')
-        && !activeTypes.has('supplement_sent')) {
-      if (suppTotal > 0 || bidTotal > 0) {
-        // Supplement work exists but no follow-up task → show as virtual
-        if (suppApproved > 0 && suppApproved === suppTotal) {
-          virtualResolved.add('supplement_sent');
-        } else {
-          virtualPending.add('supplement_sent');
-        }
-      } else {
-        // No supplement work at all → show as pending hint
-        virtualPending.add('supplement_sent');
-      }
-    }
-
-    // Only show stages that this claim actually has tasks for (or virtual)
-    const relevantStages = STAGE_ORDER.filter(
-      stage => resolvedTypes.has(stage) || activeTypes.has(stage)
-        || virtualResolved.has(stage) || virtualPending.has(stage)
+    return (
+      <Tooltip key={step.key} title={tip}>
+        {clickable ? (
+          <button type="button" className={className} onClick={handleStepClick(step)} aria-label={tip}>
+            {content}
+          </button>
+        ) : (
+          <span className={className} aria-label={tip} onClick={e => e.stopPropagation()}>
+            {content}
+          </span>
+        )}
+      </Tooltip>
     );
-    // Append custom stages (not in STAGE_ORDER) at the end
-    const knownSet = new Set<string>(STAGE_ORDER);
-    const allTaskTypes = new Set(group.tasks.map(t => t.task_type));
-    allTaskTypes.forEach(tt => {
-      if (!knownSet.has(tt)) relevantStages.push(tt);
-    });
+  };
 
-    if (relevantStages.length === 0) return null;
-
-    // Payment status labels for display
-    const PAYMENT_STATUS_LABELS: Record<string, string> = {
-      received: 'Received',
-      issued: 'Issued',
-      homeowner_holding: 'HO Holding',
-      lost: 'Lost',
-      reissued: 'Reissued',
-      partial: 'Partial',
-      pending: 'Pending',
-    };
-
-    // Determine overall claim progress.
-    // Payment 단계는 완료 판정에서 제외한다: supplement로 추가 수령이 가능하고
-    // 분할 수령도 되기 때문에 애초에 '종결'되는 단계가 아니다. payment가
-    // 미결이라는 이유로 claim 전체가 미완료로 보이면 안 된다.
-    const isPaymentStageType = (s: string) =>
-      s === 'payment_check' || s === 'wm_payment_check';
-    const hasActiveOrPending = relevantStages.some(
-      s => !isPaymentStageType(s) && (activeTypes.has(s) || virtualPending.has(s))
+  // Fixed-slot stage track: the same stage sits in the same place on every claim.
+  const renderStageTrack = (group: ClaimGroup) => {
+    const progress = group.progress;
+    if (!progress) return null;
+    return (
+      <div className="cf-track-row">
+        <div className="cf-track">
+          {progress.track.map(step => renderStep(step, 'track'))}
+        </div>
+        {progress.extras.length > 0 && (
+          <div className="cf-extras">
+            {progress.extras.map(step => renderStep(step, 'extra'))}
+          </div>
+        )}
+      </div>
     );
-    const allResolved = !hasActiveOrPending;
+  };
 
-    // --- Special case: WM Docs only ---
-    const onlyWmDocs = relevantStages.length === 1 && relevantStages[0] === 'wm_docs_sent';
-    const wmDocsResolved = resolvedTypes.has('wm_docs_sent') && !activeTypes.has('wm_docs_sent');
-
-    if (onlyWmDocs && wmDocsResolved) {
-      // No estimate yet, only WM docs resolved → waiting
+  const renderDue = (step: ProgressStep) => {
+    const task = step.activeTask;
+    const date = task?.next_followup_date || task?.due_date;
+    if (!date) return null;
+    const d = dayjs(date);
+    const full = d.format('YYYY-MM-DD HH:mm');
+    if (step.state === 'overdue') {
+      const days = dayjs().startOf('day').diff(d.startOf('day'), 'day');
       return (
-        <Space size={4}>
-          <Tag style={{ backgroundColor: 'transparent', color: '#b7b7b7', border: '1px solid #e8e8e8', fontSize: 10, margin: 0, lineHeight: '20px', opacity: 0.7 }}>
-            <CheckCircleOutlined style={{ marginRight: 3, fontSize: 9 }} />Docs Sent
-          </Tag>
-          <RightOutlined style={{ fontSize: 10, color: '#d9d9d9' }} />
-          <Tag style={{ backgroundColor: '#fff7e6', color: '#d48806', border: '1px dashed #ffc069', fontSize: 11, margin: 0, lineHeight: '20px' }}>
-            <ClockCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />Awaiting Initial Estimate
-          </Tag>
-        </Space>
+        <Tooltip title={`Follow-up was due ${full}`}>
+          <Text type="danger" strong className="cf-due">
+            {days >= 1 ? `${days} day${days === 1 ? '' : 's'} overdue` : 'Due today'}
+          </Text>
+        </Tooltip>
       );
     }
+    return (
+      <Tooltip title={full}>
+        <Text type="secondary" className="cf-due">
+          {d.isSame(dayjs(), 'day') ? 'Follow up today' : `Follow up ${d.fromNow()}`}
+        </Text>
+      </Tooltip>
+    );
+  };
 
-    if (onlyWmDocs && activeTypes.has('wm_docs_sent')) {
+  // "What is this claim on right now" — one line, read before the track.
+  const renderHeadline = (group: ClaimGroup) => {
+    const focus = group.progress?.focus;
+    if (!focus) {
+      const anyDone = group.progress?.track.some(s => s.state === 'done');
       return (
-        <Tag style={{ backgroundColor: '#1890ff', color: '#fff', border: 'none', fontSize: 11, margin: 0, lineHeight: '20px' }}>
-          Docs Sent - Awaiting Response
-        </Tag>
+        <div className="cf-headline">
+          <Text type="secondary">{anyDone ? 'No open stages' : 'No stages yet'}</Text>
+        </div>
       );
     }
+    const task = focus.activeTask;
+    const who = task?.assigned_to_name
+      ? `${task.assigned_to_name}${task.assigned_to_role ? ` (${ROLE_SHORT_LABELS[task.assigned_to_role] || task.assigned_to_role})` : ''}`
+      : '';
+    return (
+      <div className="cf-headline">
+        <span className="cf-headline-main">
+          <Text strong className={`cf-focus cf-focus--${focus.state}`}>{focus.title}</Text>
+          {focus.detail && <Text className="cf-headline-detail">{focus.detail}</Text>}
+          {who && <Text type="secondary" className="cf-headline-who">{who}</Text>}
+        </span>
+        {renderDue(focus)}
+      </div>
+    );
+  };
 
-    // --- Build pipeline tags ---
-    const tags: React.ReactNode[] = [];
-
-    relevantStages.forEach((stage, idx) => {
-      const isResolved = resolvedTypes.has(stage);
-      const isActive = activeTypes.has(stage);
-      const stageTask = group.tasks.find(t => t.task_type === stage && !['resolved', 'cancelled'].includes(t.status));
-      const resolvedTask = group.tasks.find(t => t.task_type === stage && t.status === 'resolved');
-      const anyTask = stageTask || resolvedTask;
-      const isStageOverdue = stageTask ? isOverdue(stageTask) : false;
-
-      const isVirtualResolved = virtualResolved.has(stage);
-      const isVirtualPending = virtualPending.has(stage);
-      const resolved = (isResolved && !isActive) || isVirtualResolved;
-
-      const laterStagesExist = relevantStages.slice(idx + 1).some(
-        s => activeTypes.has(s) || virtualPending.has(s) || resolvedTypes.has(s) || virtualResolved.has(s)
-      );
-      const isPastStage = resolved && laterStagesExist;
-
-      // Payment-specific
-      const isPaymentStage = isPaymentStageType(stage);
-      const paymentStatus = anyTask?.payment_status;
-      const paymentNeedsAttention = isPaymentStage && paymentStatus
-        && ['homeowner_holding', 'lost', 'partial'].includes(paymentStatus);
-      // 타인 확인 대기 — 내가 할 일이 아니라는 걸 색으로 구분
-      const awaitingConfirmation = stageTask?.status === 'awaiting_confirmation';
-
-      let bgColor: string;
-      let txtColor: string;
-      let border: string;
-
-      if (awaitingConfirmation && !paymentNeedsAttention) {
-        bgColor = '#f9f0ff'; txtColor = '#722ed1'; border = '1px dashed #d3adf7';
-      } else if (paymentNeedsAttention) {
-        bgColor = '#fff7e6'; txtColor = '#d48806'; border = '1px solid #ffc069';
-      } else if (isPastStage || (resolved && allResolved && isPaymentStage)) {
-        // Past or final resolved payment → subtle gray
-        bgColor = 'transparent'; txtColor = '#b7b7b7'; border = '1px solid #e8e8e8';
-      } else if (resolved && allResolved) {
-        bgColor = '#f6ffed'; txtColor = '#52c41a'; border = '1px solid #b7eb8f';
-      } else if (resolved) {
-        bgColor = '#f6ffed'; txtColor = '#52c41a'; border = '1px solid #b7eb8f';
-      } else if (isStageOverdue) {
-        bgColor = '#ff4d4f'; txtColor = '#fff'; border = 'none';
-      } else if (isActive) {
-        bgColor = '#1890ff'; txtColor = '#fff'; border = 'none';
-      } else if (isVirtualPending) {
-        bgColor = '#fff7e6'; txtColor = '#fa8c16'; border = '1px dashed #ffc069';
-      } else {
-        bgColor = '#d9d9d9'; txtColor = '#999'; border = 'none';
-      }
-
-      // Build label
-      let label = getStageLabel(stage);
-      const SHORT_LABELS: Record<string, string> = {
-        wm_docs_sent: 'Docs',
-        payment_check: 'Rebuild $',
-        wm_payment_check: 'WM $',
-      };
-      if (isPastStage) {
-        label = SHORT_LABELS[stage] || label;
-      }
-      if (isPaymentStage && paymentStatus && paymentStatus !== 'pending') {
-        const statusLabel = PAYMENT_STATUS_LABELS[paymentStatus] || paymentStatus;
-        label = isPastStage
-          ? `${SHORT_LABELS[stage] || label}: ${statusLabel}`
-          : `${getStageLabel(stage)}: ${statusLabel}`;
-      } else if (awaitingConfirmation) {
-        label = `${SHORT_LABELS[stage] || label}: Awaiting Confirm`;
-      }
-
-      // Supplement stage: show detailed status (tasks or virtual)
-      if (stage === 'supplement_sent') {
-        if (suppApproved > 0 && suppApproved === suppTotal) {
-          label = isPastStage ? 'Supp: Approved' : `Supplement: Approved (${suppApproved})`;
-        } else if (suppDenied > 0 && suppDenied === suppTotal) {
-          label = 'Supp: Denied';
-          bgColor = '#fff1f0'; txtColor = '#cf1322'; border = '1px solid #ffa39e';
-        } else if (suppSubmitted > 0) {
-          label = isPastStage ? 'Supp: Submitted' : 'Supplement: Submitted';
-          bgColor = '#1890ff'; txtColor = '#fff'; border = 'none';
-        } else if (bidSent > 0) {
-          label = isPastStage
-            ? 'Sent to PA'
-            : `Sent to PA${bidDraft > 0 ? ` (${bidSent}/${bidTotal})` : ''}`;
-          bgColor = '#1890ff'; txtColor = '#fff'; border = 'none';
-        } else if (suppInProgress > 0 || bidDraft > 0) {
-          label = `Estimating${bidTotal > 0 ? ` (${bidTotal})` : ''}`;
-          bgColor = '#1890ff'; txtColor = '#fff'; border = 'none';
-        } else if (suppTotal > 0) {
-          label = `Supplement (${suppTotal})`;
-        } else if (isVirtualPending && group.hasInsuranceEstimate) {
-          label = 'Need Supplement';
-        }
-      }
-
-      // Depreciation recovery stage: show current phase
-      if (stage === 'depreciation_recovery' && anyTask?.depreciation_phase) {
-        const phaseLabel = DEPRECIATION_PHASE_LABELS[anyTask.depreciation_phase as keyof typeof DEPRECIATION_PHASE_LABELS] || anyTask.depreciation_phase;
-        label = isPastStage ? `Dep: ${phaseLabel}` : `Depreciation: ${phaseLabel}`;
-      }
-
-      const paymentNote = anyTask?.payment_note;
-      let tooltipText = paymentNote
-        || (isPastStage ? `${getStageLabel(stage)} - Done` : '');
-      // Supplement tooltip with bid item detail
-      if (stage === 'supplement_sent' && !tooltipText) {
-        if (bidSent > 0) tooltipText = `${bidSent} bid item(s) sent to PA`;
-        else if (bidDraft > 0) tooltipText = `${bidDraft} bid item(s) in draft`;
-        else if (isVirtualPending && group.hasInsuranceEstimate) {
-          tooltipText = 'Create supplement estimate to compare with insurance estimate';
-        }
-      }
-
-      const icon = paymentNeedsAttention
-        ? <ExclamationCircleOutlined style={{ marginRight: 3, fontSize: isPastStage ? 9 : 10 }} />
-        : isVirtualPending
-        ? <ClockCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />
-        : (resolved || isPastStage)
-        ? <CheckCircleOutlined style={{ marginRight: 3, fontSize: isPastStage ? 9 : 10 }} />
-        : null;
-
-      // Click handler: active → resolve, resolved → reopen
-      const isClickable = !!(stageTask || resolvedTask);
-      const handleStageClick = isClickable ? (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (stageTask && !['resolved', 'cancelled'].includes(stageTask.status)) {
-          openResolveForTask(stageTask);
-        } else if (resolvedTask && resolvedTask.status === 'resolved') {
-          Modal.confirm({
-            title: 'Reopen Task',
-            content: `Reopen "${resolvedTask.title || getStageLabel(stage)}"?`,
-            okText: 'Reopen',
-            onOk: () => reopenMutation.mutate(resolvedTask.id),
-          });
-        }
-      } : undefined;
-
-      const tagEl = (
-        <Tag
-          style={{
-            backgroundColor: bgColor,
-            color: txtColor,
-            border,
-            fontSize: isPastStage ? 10 : 11,
-            margin: 0,
-            whiteSpace: 'nowrap',
-            lineHeight: '20px',
-            opacity: isPastStage ? 0.7 : 1,
-            cursor: isClickable ? 'pointer' : 'default',
-          }}
-          onClick={handleStageClick}
-        >
-          {icon}{label}
-        </Tag>
-      );
-
-      const tooltipFull = isClickable
-        ? (tooltipText ? `${tooltipText} (Click to ${resolved ? 'reopen' : 'resolve'})` : `Click to ${resolved ? 'reopen' : 'resolve'}`)
-        : tooltipText;
-
-      tags.push(
-        <React.Fragment key={stage}>
-          {idx > 0 && <RightOutlined style={{ fontSize: 10, color: '#d9d9d9' }} />}
-          {tooltipFull ? <Tooltip title={tooltipFull}>{tagEl}</Tooltip> : tagEl}
-        </React.Fragment>
-      );
-
-      // Insert "Estimate Received" indicator between wm_docs and supplement
-      if (stage === 'wm_docs_sent' && resolved && group.hasInsuranceEstimate
-          && relevantStages.includes('supplement_sent')) {
-        tags.push(
-          <React.Fragment key="est-received">
-            <RightOutlined style={{ fontSize: 10, color: '#d9d9d9' }} />
-            <Tag style={{ backgroundColor: 'transparent', color: '#b7b7b7', border: '1px solid #e8e8e8', fontSize: 10, margin: 0, lineHeight: '20px', opacity: 0.7 }}>
-              <CheckCircleOutlined style={{ marginRight: 3, fontSize: 9 }} />Est. Received
-            </Tag>
-          </React.Fragment>
-        );
-      }
-    });
-
-    // (virtual supplement stage is now handled above via virtualPending/virtualResolved)
-
-    return <Space size={4} wrap>{tags}</Space>;
+  const renderMoney = (group: ClaimGroup) => {
+    const { expectedAmount: expected, receivedAmount: received, deductible } = group;
+    if (!expected && !received) {
+      return <Text type="secondary" className="cf-money">No amounts yet</Text>;
+    }
+    const tip = [
+      `Received ${formatCurrency(received)}`,
+      expected ? `of ${formatCurrency(expected)} expected` : '',
+      deductible ? `· deductible ${formatCurrency(deductible)}` : '',
+    ].filter(Boolean).join(' ');
+    return (
+      <Tooltip title={tip}>
+        <span className="cf-money">
+          <Text strong>{formatWholeDollars(received)}</Text>
+          <Text type="secondary">
+            {expected ? ` of ${formatWholeDollars(expected)} received` : ' received'}
+          </Text>
+        </span>
+      </Tooltip>
+    );
   };
 
   // Which resolve-form sections apply depends on the task's stage — each
@@ -1927,50 +2105,36 @@ const ClaimFollowUpDashboard: React.FC = () => {
         </Space>
       </div>
 
-      {/* Stats Cards */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={12} sm={6}>
-          <Card size="small">
-            <Statistic
-              title="Pending"
-              value={stats?.pending || 0}
-              prefix={<ClockCircleOutlined style={{ color: '#1890ff' }} />}
-              loading={statsLoading}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card size="small">
-            <Statistic
-              title="Awaiting Response"
-              value={stats?.awaiting_response || 0}
-              prefix={<MailOutlined style={{ color: '#fa8c16' }} />}
-              loading={statsLoading}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card size="small">
-            <Statistic
-              title="Overdue"
-              value={stats?.overdue || 0}
-              valueStyle={{ color: (stats?.overdue || 0) > 0 ? '#cf1322' : undefined }}
-              prefix={<AlertOutlined style={{ color: '#cf1322' }} />}
-              loading={statsLoading}
-            />
-          </Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card size="small">
-            <Statistic
-              title="Total Active"
-              value={stats?.total_tasks || 0}
-              prefix={<FileTextOutlined />}
-              loading={statsLoading}
-            />
-          </Card>
-        </Col>
-      </Row>
+      {/* Quick filters — counts are claims with open work, not tasks */}
+      <div className="cf-quick" role="group" aria-label="Quick filters">
+        <button
+          type="button"
+          className={`cf-quick-item${!quickFilter ? ' is-selected' : ''}`}
+          aria-pressed={!quickFilter}
+          onClick={() => setQuickFilter(undefined)}
+        >
+          <span className="cf-quick-count">{tasksLoading ? '–' : quickCounts.all}</span>
+          <span className="cf-quick-label">Active claims</span>
+        </button>
+        {QUICK_FILTERS.map(f => {
+          const count = quickCounts[f.key] || 0;
+          const selected = quickFilter === f.key;
+          const alert = f.key === 'overdue' && count > 0;
+          return (
+            <Tooltip key={f.key} title={f.hint}>
+              <button
+                type="button"
+                className={`cf-quick-item${selected ? ' is-selected' : ''}${alert ? ' is-alert' : ''}`}
+                aria-pressed={selected}
+                onClick={() => setQuickFilter(selected ? undefined : f.key)}
+              >
+                <span className="cf-quick-count">{tasksLoading ? '–' : count}</span>
+                <span className="cf-quick-label">{f.label}</span>
+              </button>
+            </Tooltip>
+          );
+        })}
+      </div>
 
       {/* Filters */}
       <Card size="small" style={{ marginBottom: 16 }}>
@@ -2030,11 +2194,23 @@ const ClaimFollowUpDashboard: React.FC = () => {
           </Col>
           <Col xs={12} sm={4}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              {filteredClaimGroups.length} claims, {tasks.length} tasks
+              {filteredClaimGroups.length} claims, {visibleTaskCount} tasks
             </Text>
           </Col>
         </Row>
       </Card>
+
+      {/* What the stage colours mean — reuses the track's own bar styles */}
+      {filteredClaimGroups.length > 0 && (
+        <ul className="cf-legend" aria-label="Stage colors">
+          {STAGE_LEGEND.map(item => (
+            <li key={item.state} className={`cf-legend-item cf-step--${item.state}`}>
+              <span className="cf-step-bar" aria-hidden="true" />
+              {item.label}
+            </li>
+          ))}
+        </ul>
+      )}
 
       {/* Claim Groups */}
       <Collapse
@@ -2042,129 +2218,48 @@ const ClaimFollowUpDashboard: React.FC = () => {
         onChange={(keys) => setExpandedClaims(keys as string[])}
         style={{ background: 'transparent', border: 'none' }}
         items={filteredClaimGroups.map((group) => {
-          const activeTasks = group.tasks.filter(t => !['resolved', 'cancelled'].includes(t.status));
-          const resolvedTasks = group.tasks.filter(t => t.status === 'resolved');
-          const totalTasks = group.tasks.length;
-          const progressPct = totalTasks > 0 ? Math.round((resolvedTasks.length / totalTasks) * 100) : 0;
+          const insEmail = insuranceEmails[group.insurance_company];
+          const paTip = `PA: ${group.pa_name}${group.pa_company ? ` (${group.pa_company})` : ''}${group.pa_email ? ` · ${group.pa_email}` : ''}${group.pa_phone ? ` · ${group.pa_phone}` : ''}`;
 
           return {
             key: group.claim_id,
-            style: {
-              marginBottom: 12,
-              border: group.hasOverdue ? '1px solid #ffccc7' : '1px solid #f0f0f0',
-              borderRadius: 8,
-              background: '#fff',
-            },
+            className: group.hasOverdue ? 'cf-claim-item cf-claim-item--overdue' : 'cf-claim-item',
             label: (
-              <div style={{ width: '100%' }}>
-                {/* Row 1: Address + meta + badges */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 0', minWidth: 0 }}>
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', minWidth: 0 }}
+              <div className="cf-claim">
+                {/* Who: address, carrier, claim #, PA — and is money in */}
+                <div className="cf-claim-top">
+                  <div className="cf-claim-id">
+                    <a
+                      className="cf-address"
+                      href={`/claim-followup/claim/${group.claim_id}`}
                       onClick={(e) => {
+                        e.preventDefault();
                         e.stopPropagation();
                         navigate(`/claim-followup/claim/${group.claim_id}`);
                       }}
                     >
-                      <EnvironmentOutlined style={{ color: group.hasOverdue ? '#ff4d4f' : '#1890ff', fontSize: 14, flexShrink: 0 }} />
-                      <Text
-                        strong
-                        className="claim-followup-address-link"
-                        style={{
-                          fontSize: isMobile ? 13 : 14,
-                          color: group.hasOverdue ? '#cf1322' : '#1890ff',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {group.property_address || 'No Address'}
-                      </Text>
-                    </div>
-                    {!isMobile && (
-                      <>
-                        {(() => {
-                          const insEmail = insuranceEmails[group.insurance_company];
-                          const tag = (
-                            <Tag style={{ fontSize: 11, margin: 0, flexShrink: 0 }}>
-                              {group.insurance_company || 'N/A'}
-                              {insEmail && <MailOutlined style={{ marginLeft: 4, fontSize: 10, color: '#1890ff' }} />}
-                            </Tag>
-                          );
-                          return insEmail
-                            ? <Tooltip title={insEmail}>{tag}</Tooltip>
-                            : tag;
-                        })()}
-                        <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>
-                          #{group.claim_number}
-                        </Text>
-                        {group.pa_name && (
-                          <Tooltip title={`PA: ${group.pa_name}${group.pa_company ? ` (${group.pa_company})` : ''}${group.pa_email ? ` · ${group.pa_email}` : ''}${group.pa_phone ? ` · ${group.pa_phone}` : ''}`}>
-                            <Tag color="geekblue" style={{ fontSize: 10, margin: 0, flexShrink: 0 }}>
-                              PA: {group.pa_name}
-                            </Tag>
-                          </Tooltip>
-                        )}
-                      </>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                    {group.nextFollowupDate && (
-                      <Tooltip title={`Next: ${dayjs(group.nextFollowupDate).format('YYYY-MM-DD')}`}>
-                        <Text
-                          type={group.hasOverdue ? 'danger' : 'secondary'}
-                          style={{ fontSize: 11 }}
-                        >
-                          {dayjs(group.nextFollowupDate).fromNow()}
-                        </Text>
-                      </Tooltip>
-                    )}
-                    {totalTasks > 1 && (
-                      <Tooltip title={`${resolvedTasks.length}/${totalTasks} resolved`}>
-                        <Progress
-                          percent={progressPct}
-                          size="small"
-                          style={{ width: 50, margin: 0 }}
-                          strokeColor={progressPct === 100 ? '#52c41a' : '#1890ff'}
-                          trailColor="#e8e8e8"
-                          showInfo={false}
-                        />
-                      </Tooltip>
-                    )}
-                    <Badge
-                      count={activeTasks.length}
-                      style={{ backgroundColor: group.hasOverdue ? '#ff4d4f' : '#1890ff' }}
-                    />
-                  </div>
-                </div>
-                {/* Row 2: Mobile meta info */}
-                {isMobile && (
-                  <div style={{ marginTop: 2, display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                    {(() => {
-                      const insEmail = insuranceEmails[group.insurance_company];
-                      const tag = (
-                        <Tag style={{ fontSize: 10, margin: 0 }}>
+                      {group.property_address || 'No Address'}
+                    </a>
+                    <span className="cf-meta">
+                      <Tooltip title={insEmail}>
+                        <span>
                           {group.insurance_company || 'N/A'}
-                          {insEmail && <MailOutlined style={{ marginLeft: 3, fontSize: 9, color: '#1890ff' }} />}
-                        </Tag>
-                      );
-                      return insEmail
-                        ? <Tooltip title={insEmail}>{tag}</Tooltip>
-                        : tag;
-                    })()}
-                    <Text type="secondary" style={{ fontSize: 10 }}>
-                      #{group.claim_number}
-                    </Text>
-                    {group.pa_name && (
-                      <Tag color="geekblue" style={{ fontSize: 9, margin: 0 }}>PA: {group.pa_name}</Tag>
-                    )}
+                          {insEmail && <MailOutlined className="cf-meta-icon" aria-label={insEmail} />}
+                        </span>
+                      </Tooltip>
+                      <span>#{group.claim_number}</span>
+                      {group.pa_name && (
+                        <Tooltip title={paTip}>
+                          <span>PA: {group.pa_name}</span>
+                        </Tooltip>
+                      )}
+                    </span>
                   </div>
-                )}
-                {/* Row 3: Stage pipeline + Supplement status */}
-                <div style={{ marginTop: 8, overflow: 'hidden' }}>
-                  {renderStagePipeline(group)}
+                  {renderMoney(group)}
                 </div>
+                {/* Where: the one stage this claim is on, and when it is due */}
+                {renderHeadline(group)}
+                {renderStageTrack(group)}
               </div>
             ),
             children: (
@@ -2206,9 +2301,20 @@ const ClaimFollowUpDashboard: React.FC = () => {
         })}
       />
 
+      {tasksLoading && (
+        <Card size="small"><Skeleton active paragraph={{ rows: 3 }} /></Card>
+      )}
+
       {filteredClaimGroups.length === 0 && !tasksLoading && (
         <Card style={{ textAlign: 'center', padding: 40 }}>
-          <Text type="secondary">No follow-up tasks found</Text>
+          {hasAnyFilter ? (
+            <Space direction="vertical" size={8}>
+              <Text type="secondary">No claims match these filters</Text>
+              <Button size="small" onClick={clearFilters}>Clear filters</Button>
+            </Space>
+          ) : (
+            <Text type="secondary">No follow-up tasks found</Text>
+          )}
         </Card>
       )}
 
@@ -2385,7 +2491,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
       >
         <Form form={resolveForm} layout="vertical">
           {isPaymentTask && (
-            <div style={{ marginBottom: 12, padding: '6px 8px', background: '#fafafa', borderRadius: 4 }}>
+            <div style={{ marginBottom: 12, padding: '6px 8px', background: '#f7f7f5', borderRadius: 4 }}>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 Payment stage — just record the payment status below. No estimate info needed here.
               </Text>
@@ -2393,7 +2499,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
           )}
 
           {!isPaymentTask && !isEstimateOutcomeTask && (
-            <div style={{ marginBottom: 12, padding: '6px 8px', background: '#fafafa', borderRadius: 4 }}>
+            <div style={{ marginBottom: 12, padding: '6px 8px', background: '#f7f7f5', borderRadius: 4 }}>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 Add resolution notes if needed, then click Resolve to complete this stage.
               </Text>
@@ -2421,19 +2527,19 @@ const ClaimFollowUpDashboard: React.FC = () => {
               <Select placeholder="What would you like to do?" onChange={(v) => setResolveDeniedAction(v)}>
                 <Select.Option value="complete">
                   <span>Complete</span>
-                  <span style={{ color: '#8c8c8c', fontSize: 12, marginLeft: 8 }}>Close the claim</span>
+                  <span style={{ color: '#73726e', fontSize: 12, marginLeft: 8 }}>Close the claim</span>
                 </Select.Option>
                 <Select.Option value="dispute">
                   <span>Dispute</span>
-                  <span style={{ color: '#8c8c8c', fontSize: 12, marginLeft: 8 }}>Create estimate & dispute with insurance</span>
+                  <span style={{ color: '#73726e', fontSize: 12, marginLeft: 8 }}>Create estimate & dispute with insurance</span>
                 </Select.Option>
                 <Select.Option value="appraisal">
                   <span>Appraisal</span>
-                  <span style={{ color: '#8c8c8c', fontSize: 12, marginLeft: 8 }}>Proceed to appraisal process</span>
+                  <span style={{ color: '#73726e', fontSize: 12, marginLeft: 8 }}>Proceed to appraisal process</span>
                 </Select.Option>
                 <Select.Option value="attorney">
                   <span>Attorney</span>
-                  <span style={{ color: '#8c8c8c', fontSize: 12, marginLeft: 8 }}>Refer to attorney</span>
+                  <span style={{ color: '#73726e', fontSize: 12, marginLeft: 8 }}>Refer to attorney</span>
                 </Select.Option>
               </Select>
             </Form.Item>
@@ -2444,8 +2550,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
               <Form.Item label="Insurance Estimate PDF">
                 <Space direction="vertical" style={{ width: '100%' }}>
                   {existingPdfName && !resolveFile && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', background: '#f6ffed', borderRadius: 4, border: '1px solid #b7eb8f' }}>
-                      <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', background: '#edf3ec', borderRadius: 4, border: '1px solid #d3e5d0' }}>
+                      <FilePdfOutlined style={{ color: '#d44c47' }} />
                       {existingPdfId ? (
                         <a href={`${fileService.getDownloadUrl(existingPdfId)}?inline=true`} target="_blank" rel="noopener noreferrer" style={{ flex: 1, fontSize: 12 }}>
                           {existingPdfName}
@@ -2502,13 +2608,13 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 </div>
 
                 {(parsedSections || []).length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '12px', background: '#fafafa', borderRadius: 6, marginBottom: 8 }}>
+                  <div style={{ textAlign: 'center', padding: '12px', background: '#f7f7f5', borderRadius: 6, marginBottom: 8 }}>
                     <Text type="secondary">No sections. Upload PDF to auto-parse or add manually.</Text>
                   </div>
                 ) : (
                   <>
                     {(parsedSections || []).map((section, idx) => (
-                      <div key={idx} style={{ background: '#fafafa', borderRadius: 6, padding: '8px 10px', marginBottom: 6 }}>
+                      <div key={idx} style={{ background: '#f7f7f5', borderRadius: 6, padding: '8px 10px', marginBottom: 6 }}>
                         <Row gutter={8} align="middle">
                           <Col flex="auto">
                             <Input
@@ -2568,7 +2674,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
               </div>
 
               {/* Totals (auto-calculated) */}
-              <div style={{ background: '#e6f7ff', borderRadius: 6, padding: '10px 12px', marginBottom: 12 }}>
+              <div style={{ background: '#e7f3f8', borderRadius: 6, padding: '10px 12px', marginBottom: 12 }}>
                 <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Totals</Text>
                 <Row gutter={[8, 8]}>
                   <Col xs={12} sm={6}>
@@ -2599,7 +2705,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
               </div>
 
               {/* WM Cost Status */}
-              <div style={{ background: '#f6ffed', borderRadius: 6, padding: '10px 12px', marginBottom: 12, border: '1px solid #b7eb8f' }}>
+              <div style={{ background: '#edf3ec', borderRadius: 6, padding: '10px 12px', marginBottom: 12, border: '1px solid #d3e5d0' }}>
                 <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Water Mitigation Costs</Text>
                 <Form.Item
                   name="wm_cost_status"
@@ -2629,8 +2735,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
                         <div style={{ marginTop: 8 }}>
                           <Form.Item label="WM Estimate PDF (Optional)" style={{ marginBottom: 8 }}>
                             {existingWmPdfName && !resolveWmFile && (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', marginBottom: 6, background: '#f6ffed', borderRadius: 4, border: '1px solid #b7eb8f' }}>
-                                <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', marginBottom: 6, background: '#edf3ec', borderRadius: 4, border: '1px solid #d3e5d0' }}>
+                                <FilePdfOutlined style={{ color: '#d44c47' }} />
                                 {existingWmPdfId ? (
                                   <a href={`${fileService.getDownloadUrl(existingWmPdfId)}?inline=true`} target="_blank" rel="noopener noreferrer" style={{ flex: 1, fontSize: 12 }}>
                                     {existingWmPdfName}
@@ -2683,8 +2789,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
                     }
                     if (wmStatus === 'not_received') {
                       return (
-                        <div style={{ marginTop: 8, padding: '6px 8px', background: '#fff7e6', borderRadius: 4, border: '1px solid #ffd591' }}>
-                          <Text style={{ fontSize: 12, color: '#d48806' }}>
+                        <div style={{ marginTop: 8, padding: '6px 8px', background: '#fbecdd', borderRadius: 4, border: '1px solid #f6dcc1' }}>
+                          <Text style={{ fontSize: 12, color: '#a87b1e' }}>
                             A <strong>WM Payment Check</strong> follow-up task will be auto-created to request WM cost coverage from the insurance company.
                           </Text>
                         </div>
@@ -2699,7 +2805,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
           {/* WM Estimate Only - just WM amount, no rebuild info needed */}
           {resolveOutcome === 'wm_estimate_only' && (
-            <div style={{ background: '#f6ffed', borderRadius: 6, padding: '10px 12px', marginBottom: 12, border: '1px solid #b7eb8f' }}>
+            <div style={{ background: '#edf3ec', borderRadius: 6, padding: '10px 12px', marginBottom: 12, border: '1px solid #d3e5d0' }}>
               <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Water Mitigation Estimate</Text>
               <Form.Item name="wm_estimate_amount" label="WM Amount (if known)">
                 <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} placeholder="Enter if known" />
@@ -2718,8 +2824,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   <Button icon={<UploadOutlined />} size="small">Upload WM PDF</Button>
                 </Upload>
               </Form.Item>
-              <div style={{ marginTop: 8, padding: '6px 8px', background: '#e6f7ff', borderRadius: 4, border: '1px solid #91d5ff' }}>
-                <Text style={{ fontSize: 12, color: '#1890ff' }}>
+              <div style={{ marginTop: 8, padding: '6px 8px', background: '#e7f3f8', borderRadius: 4, border: '1px solid #c6e0ee' }}>
+                <Text style={{ fontSize: 12, color: '#1f74c9' }}>
                   Amount and PDF are both optional. Rebuild estimate can be added later.
                 </Text>
               </div>
@@ -2728,7 +2834,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
           {/* Payment Status for payment tasks */}
           {isPaymentTask && (
-            <div style={{ background: '#e6f7ff', borderRadius: 6, padding: '10px 12px', marginBottom: 12, border: '1px solid #91d5ff' }}>
+            <div style={{ background: '#e7f3f8', borderRadius: 6, padding: '10px 12px', marginBottom: 12, border: '1px solid #c6e0ee' }}>
               <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Payment Status</Text>
               <Form.Item name="payment_status" style={{ marginBottom: 8 }} rules={[{ required: true, message: 'Select payment status' }]}>
                 <Select placeholder="What is the payment status?">
@@ -2771,12 +2877,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
             </Col>
             <Col span={8}>
               <Statistic title="Received" value={paymentSummary.total_received}
-                precision={2} prefix="$" valueStyle={{ fontSize: 16, color: '#52c41a' }} />
+                precision={2} prefix="$" valueStyle={{ fontSize: 16, color: '#448361' }} />
             </Col>
             <Col span={8}>
               <Statistic title="Remaining" value={paymentSummary.remaining}
                 precision={2} prefix="$"
-                valueStyle={{ fontSize: 16, color: paymentSummary.remaining > 0 ? '#cf1322' : '#8c8c8c' }} />
+                valueStyle={{ fontSize: 16, color: paymentSummary.remaining > 0 ? '#b5403b' : '#73726e' }} />
             </Col>
           </Row>
         )}
@@ -2990,7 +3096,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
           {/* Payment Status for payment tasks */}
           {selectedTask && ['payment_check', 'wm_payment_check'].includes(selectedTask.task_type) && (
-            <div style={{ background: '#e6f7ff', borderRadius: 6, padding: '10px 12px', marginTop: 8, border: '1px solid #91d5ff' }}>
+            <div style={{ background: '#e7f3f8', borderRadius: 6, padding: '10px 12px', marginTop: 8, border: '1px solid #c6e0ee' }}>
               <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Payment Status</Text>
               <Form.Item name="payment_status" style={{ marginBottom: 8 }}>
                 <Select placeholder="Payment status" allowClear>
@@ -3012,7 +3118,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
         {/* Estimate Data Section */}
         <Divider style={{ margin: '12px 0 8px' }} />
-        <div style={{ border: '1px solid #f0f0f0', borderRadius: 6, padding: '10px 12px' }}>
+        <div style={{ border: '1px solid #e9e9e7', borderRadius: 6, padding: '10px 12px' }}>
           <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>Insurance Estimate Data</Text>
 
           {/* Existing uploaded PDFs */}
@@ -3029,8 +3135,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
                     background: '#f6fbff', borderRadius: 4, border: '1px solid #e6f0fa', marginBottom: 4,
                   }}>
                     {est.file_download_id
-                      ? <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 14 }} />
-                      : <FileTextOutlined style={{ color: '#8c8c8c', fontSize: 14 }} />
+                      ? <FilePdfOutlined style={{ color: '#d44c47', fontSize: 14 }} />
+                      : <FileTextOutlined style={{ color: '#73726e', fontSize: 14 }} />
                     }
                     <div style={{ flex: 1, minWidth: 0 }}>
                       {est.file_download_id ? (
@@ -3222,13 +3328,13 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 <div style={{ marginBottom: 12 }}>
                   <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>Stage Pipeline</Text>
                   <Space size={4} wrap>
-                    {renderStagePipeline(group)}
+                    {renderStageTrack(group)}
                   </Space>
                 </div>
 
                 {/* PA Info */}
                 {group.pa_name && (
-                  <div style={{ marginBottom: 12, padding: '6px 8px', background: '#f0f5ff', borderRadius: 6, borderLeft: '3px solid #597ef7' }}>
+                  <div style={{ marginBottom: 12, padding: '6px 8px', background: '#eef5fa', borderRadius: 6, borderLeft: '3px solid #597ef7' }}>
                     <Text strong style={{ fontSize: 12, color: '#2f54eb', display: 'block', marginBottom: 2 }}>Public Adjuster</Text>
                     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12 }}>
                       <span><Text type="secondary" style={{ fontSize: 11 }}>Name: </Text>{group.pa_name}</span>
@@ -3260,7 +3366,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   if (!hasSupp && !hasResolvedEstimate && group.pendingInfoRequests === 0) return null;
 
                   return (
-                    <div style={{ marginBottom: 12, padding: '6px 8px', background: '#fafafa', borderRadius: 6 }}>
+                    <div style={{ marginBottom: 12, padding: '6px 8px', background: '#f7f7f5', borderRadius: 6 }}>
                       <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Supplement Status</Text>
                       <Space size={4} wrap>
                         {hasSupp ? (
@@ -3309,10 +3415,10 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
                 <Row gutter={[8, 8]}>
                   <Col span={8}>
-                    <Statistic title="Active Tasks" value={activeTasks.length} valueStyle={{ fontSize: 18, color: '#1890ff' }} />
+                    <Statistic title="Active Tasks" value={activeTasks.length} valueStyle={{ fontSize: 18, color: '#1f74c9' }} />
                   </Col>
                   <Col span={8}>
-                    <Statistic title="Resolved" value={resolvedTasks.length} valueStyle={{ fontSize: 18, color: '#52c41a' }} />
+                    <Statistic title="Resolved" value={resolvedTasks.length} valueStyle={{ fontSize: 18, color: '#448361' }} />
                   </Col>
                   <Col span={8}>
                     <Statistic
@@ -3320,7 +3426,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                       value={group.nextFollowupDate ? dayjs(group.nextFollowupDate).format('MM/DD') : '-'}
                       valueStyle={{
                         fontSize: 18,
-                        color: group.hasOverdue ? '#cf1322' : undefined,
+                        color: group.hasOverdue ? '#b5403b' : undefined,
                       }}
                     />
                   </Col>
@@ -3525,7 +3631,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
               {detailTask.resolution_notes && (
                 <div style={{ marginTop: 8 }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>Resolution Notes</Text>
-                  <div style={{ padding: '4px 8px', background: '#fafafa', borderRadius: 4, marginTop: 2 }}>
+                  <div style={{ padding: '4px 8px', background: '#f7f7f5', borderRadius: 4, marginTop: 2 }}>
                     <Text style={{ fontSize: 13 }}>{detailTask.resolution_notes}</Text>
                   </div>
                 </div>
@@ -3584,26 +3690,142 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
       <style>{`
         .ant-table-row-overdue {
-          background-color: #fff2f0 !important;
+          background-color: #fdebec !important;
         }
         .ant-table-row-overdue:hover > td {
           background-color: #ffece8 !important;
-        }
-        .claim-followup-address-link:hover {
-          text-decoration: underline;
         }
         .ant-collapse > .ant-collapse-item > .ant-collapse-header {
           padding: 12px 16px !important;
           align-items: flex-start !important;
         }
+
+        /* Quick filters */
+        .cf-quick {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+        .cf-quick-item {
+          display: flex; align-items: baseline; gap: 8px;
+          padding: 8px 12px; min-height: 44px;
+          background: #fff; border: 1px solid var(--color-neutral-200, #e9e9e7); border-radius: var(--radius-md, 6px);
+          font: inherit; text-align: left; cursor: pointer;
+          transition: border-color .15s ease-out, background-color .15s ease-out;
+        }
+        .cf-quick-item:hover { border-color: var(--color-neutral-400, #dfdfdc); background: var(--color-ink-hover, rgba(55,53,47,.06)); }
+        
+        .cf-quick-item.is-selected { border-color: var(--color-primary, #1f74c9); background: var(--tag-blue-bg, #e7f3f8); }
+        .cf-quick-count {
+          font-size: 20px; font-weight: 600; line-height: 1.2;
+          color: var(--color-neutral-900, #37352f); font-variant-numeric: tabular-nums;
+        }
+        .cf-quick-item.is-alert .cf-quick-count { color: var(--tag-red-text, #b93a35); }
+        .cf-quick-label { font-size: 12px; color: var(--color-neutral-700, #5f5e5b); }
+
+        /* Claim rows */
+        .ant-collapse > .cf-claim-item {
+          margin-bottom: 8px;
+          border: 1px solid var(--color-neutral-200, #e9e9e7) !important;
+          border-radius: var(--radius-md, 6px) !important;
+          background: var(--color-surface, #fff);
+          overflow: hidden;
+        }
+        .ant-collapse > .cf-claim-item--overdue { border-color: #efc2c0 !important; }
+        .cf-claim-item > .ant-collapse-header { flex-wrap: nowrap !important; }
+        .cf-claim-item > .ant-collapse-header > .ant-collapse-header-text { min-width: 0; }
+        .cf-claim { display: flex; flex-direction: column; gap: 6px; width: 100%; min-width: 0; }
+        .cf-claim-top {
+          display: flex; align-items: baseline; justify-content: space-between;
+          gap: 4px 16px; flex-wrap: wrap;
+        }
+        .cf-claim-id {
+          display: flex; align-items: baseline; gap: 4px 10px;
+          flex-wrap: wrap; flex: 1 1 260px; min-width: 0;
+        }
+        .cf-address {
+          font-size: 14px; font-weight: 600; color: var(--color-neutral-900, #37352f);
+          max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .cf-address:hover { color: var(--color-primary, #1f74c9); text-decoration: underline; text-underline-offset: 2px; }
+        
+        .cf-meta { display: inline-flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; color: var(--color-neutral-600, #73726e); }
+        .cf-meta-icon { margin-left: 4px; font-size: 11px; }
+        .cf-money { font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+        .cf-headline {
+          display: flex; align-items: baseline; justify-content: space-between;
+          gap: 2px 16px; flex-wrap: wrap; font-size: 13px;
+        }
+        .cf-headline-main { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 0 8px; min-width: 0; }
+        .cf-headline-detail::before, .cf-headline-who::before { content: '·'; margin-right: 8px; color: var(--color-neutral-400, #dfdfdc); }
+        .cf-focus--overdue { color: var(--tag-red-text, #b93a35) !important; }
+        .cf-focus--issue { color: var(--tag-orange-text, #a65208) !important; }
+        .cf-due { font-size: 12px; white-space: nowrap; }
+
+        /* Stage track: fixed slots, colour only where attention is needed */
+        .cf-track-row { display: flex; align-items: flex-end; gap: 6px 16px; flex-wrap: wrap; }
+        .cf-track { display: flex; gap: 4px; flex: 1 1 360px; max-width: 600px; min-width: 0; }
+        .cf-step {
+          flex: 1 1 0; min-width: 0;
+          display: flex; flex-direction: column; gap: 4px;
+          padding: 2px 0; margin: 0; background: none; border: 0;
+          font: inherit; text-align: left; cursor: default;
+        }
+        button.cf-step { cursor: pointer; }
+        .cf-step-bar {
+          display: block; height: 6px; border-radius: 3px; background: var(--color-neutral-100, #f1f1ef);
+          transition: background-color .15s ease-out, box-shadow .15s ease-out;
+        }
+        .cf-step-label {
+          font-size: 11px; line-height: 14px; color: var(--color-neutral-600, #73726e);
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .cf-step--done .cf-step-bar { background: #b9b7b0; }
+        .cf-step--active .cf-step-bar { background: var(--color-neutral-900, #37352f); }
+        .cf-step--active .cf-step-label { color: var(--color-neutral-900, #37352f); font-weight: 600; }
+        .cf-step--overdue .cf-step-bar { background: var(--color-error, #d44c47); }
+        .cf-step--overdue .cf-step-label { color: var(--tag-red-text, #b93a35); font-weight: 600; }
+        .cf-step--issue .cf-step-bar { background: var(--color-warning, #d9730d); }
+        .cf-step--issue .cf-step-label { color: var(--tag-orange-text, #a65208); font-weight: 600; }
+        .cf-step--waiting .cf-step-bar {
+          background: repeating-linear-gradient(-45deg, #b9b7b0 0 3px, #f1f1ef 3px 6px);
+        }
+        .cf-step--waiting .cf-step-label, .cf-step--todo .cf-step-label { color: var(--color-neutral-700, #5f5e5b); }
+        .cf-step--todo .cf-step-bar { background: #fff; box-shadow: inset 0 0 0 1px #b9b7b0; }
+        button.cf-step:hover .cf-step-bar { box-shadow: 0 0 0 2px rgba(55,53,47,.1); }
+        button.cf-step--todo:hover .cf-step-bar { box-shadow: inset 0 0 0 1px #b9b7b0, 0 0 0 2px rgba(55,53,47,.1); }
+        button.cf-step:hover .cf-step-label { text-decoration: underline; text-underline-offset: 2px; }
+        button.cf-step:focus-visible { border-radius: var(--radius-sm, 4px); }
+
+        .cf-extras { display: flex; flex-wrap: wrap; gap: 4px; }
+        .cf-extra {
+          font: inherit; font-size: 12px; line-height: 20px;
+          padding: 0 8px; border-radius: var(--radius-sm, 4px); border: 1px solid var(--color-neutral-200, #e9e9e7);
+          background: var(--color-neutral-50, #f7f7f5); color: var(--color-neutral-700, #5f5e5b); cursor: default;
+        }
+        button.cf-extra { cursor: pointer; }
+        button.cf-extra:hover { border-color: var(--color-neutral-400, #dfdfdc); }
+        .cf-extra--active { color: var(--color-neutral-900, #37352f); border-color: var(--color-neutral-400, #dfdfdc); }
+        .cf-extra--overdue { color: var(--tag-red-text, #b93a35); border-color: #efc2c0; background: var(--tag-red-bg, #fdebec); }
+
+        .cf-legend {
+          display: flex; flex-wrap: wrap; gap: 4px 16px;
+          margin: 0 0 8px; padding: 0 4px; list-style: none;
+          font-size: 12px; color: var(--color-neutral-700, #5f5e5b);
+        }
+        .cf-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+        .cf-legend-item .cf-step-bar { width: 20px; flex: none; }
         .ant-collapse-content-box {
           padding: 8px 12px 12px !important;
-          border-top: 1px solid #f0f0f0;
+          border-top: 1px solid #e9e9e7;
         }
         @media (max-width: 576px) {
           .ant-collapse > .ant-collapse-item > .ant-collapse-header {
             padding: 8px 12px !important;
           }
+          .cf-step-label { font-size: 10px; }
           .ant-modal {
             margin: 8px !important;
           }
