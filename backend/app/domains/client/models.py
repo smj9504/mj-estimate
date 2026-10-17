@@ -62,6 +62,10 @@ class Client(Base, BaseModel):
     notes = Column(Text)
     is_active = Column(Boolean, default=True)
 
+    # Where the client came from: NULL = entered in this app,
+    # 'acculynx' = created by the AccuLynx archive import
+    source = Column(String(20), nullable=True)
+
     # Relationships
     claims = relationship("Claim", back_populates="client", cascade="all, delete-orphan", lazy='select')
     invoices = relationship("Invoice", back_populates="client_ref", foreign_keys="Invoice.client_id", lazy='select')

@@ -190,7 +190,24 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
             logger.error(f"Error getting client with claims: {e}")
             raise
 
-    def get_all_with_counts(self, filters=None, order_by=None, limit=None, offset=None) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _filter_source(query, source: Optional[str]):
+        """source: 'acculynx' = AccuLynx archive import, 'manual' = entered here"""
+        if source == 'acculynx':
+            return query.filter(Client.source == 'acculynx')
+        if source == 'manual':
+            return query.filter(or_(Client.source.is_(None), Client.source != 'acculynx'))
+        return query
+
+    def count_by_source(self) -> Dict[str, int]:
+        imported = self.db_session.query(func.count(Client.id)).filter(
+            Client.source == 'acculynx'
+        ).scalar() or 0
+        total = self.db_session.query(func.count(Client.id)).scalar() or 0
+        return {'manual': total - imported, 'acculynx': imported}
+
+    def get_all_with_counts(self, filters=None, order_by=None, limit=None, offset=None,
+                            source: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get all clients with claim counts, ordered by latest claim activity"""
         try:
             # Subquery: latest claim activity per client
@@ -219,6 +236,7 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                 for key, value in filters.items():
                     if hasattr(Client, key):
                         query = query.filter(getattr(Client, key) == value)
+            query = self._filter_source(query, source)
 
             query = query.group_by(
                 Client.id,
@@ -253,11 +271,12 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
             logger.error(f"Error getting clients with counts: {e}")
             raise
 
-    def search_by_name(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+    def search_by_name(self, query: str, limit: int = 20,
+                       source: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search clients by display_name, address, phone, or email"""
         try:
             search_term = f"%{query}%"
-            clients = self.db_session.query(Client).filter(
+            clients = self._filter_source(self.db_session.query(Client), source).filter(
                 or_(
                     Client.display_name.ilike(search_term),
                     Client.address.ilike(search_term),

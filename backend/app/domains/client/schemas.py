@@ -546,6 +546,7 @@ class ClientListResponse(BaseModel):
     email: Optional[str] = None
     insurance_company: Optional[str] = None
     is_active: bool = True
+    source: Optional[str] = None
     claim_count: int = 0
     created_at: Optional[datetime] = None
 

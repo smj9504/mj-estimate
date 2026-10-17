@@ -39,14 +39,16 @@ class ClientService(BaseService[Dict[str, Any], str]):
             logger.error(f"Error getting client with claims: {e}")
             raise
 
-    def get_all_with_counts(self, filters=None, order_by=None, limit=None, offset=None) -> List[Dict[str, Any]]:
+    def get_all_with_counts(self, filters=None, order_by=None, limit=None, offset=None,
+                            source: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get all clients with claim counts"""
         try:
             session = self.database.get_readonly_session()
             try:
                 repo = self._get_repository_instance(session)
                 return repo.get_all_with_counts(
-                    filters=filters, order_by=order_by, limit=limit, offset=offset
+                    filters=filters, order_by=order_by, limit=limit, offset=offset,
+                    source=source,
                 )
             finally:
                 session.close()
@@ -54,13 +56,25 @@ class ClientService(BaseService[Dict[str, Any], str]):
             logger.error(f"Error getting clients with counts: {e}")
             raise
 
-    def search(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+    def search(self, query: str, limit: int = 20, source: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search clients by name"""
         try:
             session = self.database.get_readonly_session()
             try:
                 repo = self._get_repository_instance(session)
-                return repo.search_by_name(query, limit)
+                return repo.search_by_name(query, limit, source=source)
+            finally:
+                session.close()
+        except Exception as e:
+            logger.error(f"Error searching clients: {e}")
+            raise
+
+    def count_by_source(self) -> Dict[str, int]:
+        """Client totals for the list's 'entered here' / 'AccuLynx' tabs"""
+        try:
+            session = self.database.get_readonly_session()
+            try:
+                return self._get_repository_instance(session).count_by_source()
             finally:
                 session.close()
         except Exception as e:

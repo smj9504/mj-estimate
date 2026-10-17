@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   Card,
   Table,
@@ -17,6 +17,7 @@ import {
   Col,
   Divider,
   Checkbox,
+  Segmented,
 } from 'antd';
 import {
   PlusOutlined,
@@ -29,7 +30,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { clientService } from '../services/clientService';
-import type { Client, ClientCreate, ClientListItem, OwnerInfo } from '../types/client';
+import type { Client, ClientCreate, ClientListItem, ClientSourceFilter, OwnerInfo } from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 
@@ -344,6 +345,7 @@ const ClientFormModal: React.FC<ClientFormModalProps> = ({
 const ClientList: React.FC = () => {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 350);
+  const [source, setSource] = useState<ClientSourceFilter>('manual');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
 
@@ -356,12 +358,14 @@ const ClientList: React.FC = () => {
     isLoading,
     error,
   } = useQuery({
-    queryKey: ['clients', debouncedSearch],
+    queryKey: ['clients', source, debouncedSearch],
     queryFn: () =>
-      clientService.list({ search: debouncedSearch || undefined, limit: 200 }),
+      clientService.list({ search: debouncedSearch || undefined, source, limit: 1000 }),
+    placeholderData: keepPreviousData,
   });
 
   const clients: ClientListItem[] = data?.clients ?? [];
+  const counts = data?.counts;
 
   // ── Mutations ──────────────────────────────
   const createMutation = useMutation({
@@ -560,20 +564,36 @@ const ClientList: React.FC = () => {
         </Row>
       </Card>
 
-      {/* Filters */}
-      <Card style={{ marginBottom: 16 }}>
-        <Input
-          prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
-          placeholder="Search by name, phone, email..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          allowClear
-          style={{ maxWidth: 400 }}
-        />
-      </Card>
-
       {/* Table */}
       <Card>
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            marginBottom: 12,
+          }}
+        >
+          <Segmented<ClientSourceFilter>
+            value={source}
+            onChange={setSource}
+            options={[
+              { value: 'manual', label: `Entered here${counts ? ` (${counts.manual})` : ''}` },
+              { value: 'acculynx', label: `From AccuLynx${counts ? ` (${counts.acculynx})` : ''}` },
+            ]}
+          />
+          <Input
+            prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
+            placeholder="Search name, phone, email..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            allowClear
+            style={{ width: 240, maxWidth: '100%' }}
+          />
+        </div>
+
         <Table<ClientListItem>
           rowKey="id"
           columns={columns}

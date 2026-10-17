@@ -505,6 +505,11 @@ export interface ClientListItem {
   email?: string;
   insurance_company?: string;
   is_active: boolean;
+  /** null/undefined = entered in this app, 'acculynx' = AccuLynx archive import */
+  source?: 'acculynx' | null;
   claim_count: number;
   created_at?: string;
 }
+
+/** Which clients the list shows: entered in this app, or imported from AccuLynx */
+export type ClientSourceFilter = 'manual' | 'acculynx';

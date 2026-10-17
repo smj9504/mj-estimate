@@ -91,13 +91,15 @@ async def list_clients(
     limit: int = 100,
     search: Optional[str] = None,
     is_active: Optional[bool] = None,
+    source: Optional[str] = None,  # 'acculynx' | 'manual'
     service: ClientService = Depends(_get_client_service),
 ):
     """List all clients with claim counts"""
     try:
+        counts = service.count_by_source()
         if search:
-            clients = service.search(search, limit=limit)
-            return {"clients": clients, "total": len(clients)}
+            clients = service.search(search, limit=limit, source=source)
+            return {"clients": clients, "total": len(clients), "counts": counts}
 
         filters = {}
         if is_active is not None:
@@ -107,8 +109,10 @@ async def list_clients(
             filters=filters if filters else None,
             limit=limit,
             offset=skip,
+            source=source,
         )
-        return {"clients": clients, "total": len(clients), "skip": skip, "limit": limit}
+        return {"clients": clients, "total": len(clients), "skip": skip, "limit": limit,
+                "counts": counts}
     except Exception as e:
         logger.error(f"Error listing clients: {e}")
         raise HTTPException(status_code=500, detail=str(e))

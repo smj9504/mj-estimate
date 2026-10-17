@@ -7,6 +7,7 @@ import type {
   Client,
   ClientCreate,
   ClientListItem,
+  ClientSourceFilter,
   ClientAllDocumentsResponse,
   Claim,
   ClaimCreate,
@@ -31,9 +32,19 @@ import type {
 // ============================================================
 
 export const clientService = {
-  async list(params?: { skip?: number; limit?: number; search?: string; is_active?: boolean }) {
+  async list(params?: {
+    skip?: number;
+    limit?: number;
+    search?: string;
+    is_active?: boolean;
+    source?: ClientSourceFilter;
+  }) {
     const { data } = await api.get('/api/clients/', { params });
-    return data as { clients: ClientListItem[]; total: number };
+    return data as {
+      clients: ClientListItem[];
+      total: number;
+      counts?: Record<ClientSourceFilter, number>;
+    };
   },
 
   async search(q: string, limit = 20) {

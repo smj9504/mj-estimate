@@ -274,6 +274,7 @@ class ArchiveImporter:
             phone=clip(fields["phone"], 50),
             email=clip(fields["email"], 255),
             notes="Imported from AccuLynx",
+            source="acculynx",
             is_active=True,
         )
         self.session.add(client)

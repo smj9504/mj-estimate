@@ -421,6 +421,8 @@ _NEEDED_COLUMNS = [
     ("water_mitigation_jobs", "payment_received_at", "TIMESTAMPTZ"),
     ("water_mitigation_jobs", "payment_received_by", "VARCHAR(100)"),
     ("water_mitigation_jobs", "payment_note_updated_at", "TIMESTAMPTZ"),
+    # Client origin: NULL = entered here, 'acculynx' = archive import
+    ("clients", "source", "VARCHAR(20)"),
     # Follow-up payment tracking
     ("followup_tasks", "payment_status", "VARCHAR(50)"),
     ("followup_tasks", "payment_note", "TEXT"),
