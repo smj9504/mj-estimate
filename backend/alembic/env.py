@@ -52,6 +52,7 @@ import app.domains.water_mitigation.models
 
 # Client management
 import app.domains.client.models
+import app.domains.acculynx_archive.models
 
 # Contract system
 import app.domains.contract.models

@@ -71,6 +71,9 @@ import ClaimNotes from '../components/client/ClaimNotes';
 import ClaimPhotosSection from '../components/client/ClaimPhotosSection';
 import AccuLynxSyncButton from '../components/common/AccuLynxSyncButton'; // AccuLynx: remove this line to fully remove the feature
 import ClaimTodos from '../components/client/ClaimTodos';
+import AccuLynxArchiveTab from '../components/client/AccuLynxArchiveTab';
+import { acculynxArchiveService } from '../services/acculynxArchiveService';
+import { HistoryOutlined } from '@ant-design/icons';
 import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory, ReceivedEmails } from '../components/claim-followup';
 import type { ClaimContact } from '../components/claim-followup/EmailComposer';
 import type {
@@ -2520,6 +2523,13 @@ const ClientDetail: React.FC = () => {
     enabled: !!id,
   });
 
+  // Jobs archived from AccuLynx - the tab only shows when there are some
+  const { data: archivedJobs = [], isLoading: archivedJobsLoading } = useQuery({
+    queryKey: ['acculynx-archive-jobs', id],
+    queryFn: () => acculynxArchiveService.listClientJobs(id!),
+    enabled: !!id,
+  });
+
   const updateMutation = useMutation({
     mutationFn: (payload: Partial<ClientCreate>) => clientService.update(id!, payload),
     onSuccess: () => {
@@ -2609,6 +2619,21 @@ const ClientDetail: React.FC = () => {
       ),
       children: <AllDocumentsTab client={client} />,
     },
+    ...(archivedJobs.length > 0
+      ? [
+          {
+            key: 'acculynx-history',
+            label: (
+              <Space>
+                <HistoryOutlined />
+                AccuLynx History
+                <Badge count={archivedJobs.length} style={{ backgroundColor: '#8c8c8c' }} />
+              </Space>
+            ),
+            children: <AccuLynxArchiveTab jobs={archivedJobs} isLoading={archivedJobsLoading} />,
+          },
+        ]
+      : []),
   ];
 
   const createDocumentItems = [
