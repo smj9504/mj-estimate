@@ -1,75 +1,62 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Card, Table, Button, Space, Tag, Modal, Form, Input, InputNumber,
-  Select, message, Typography, Row, Col, Statistic, Tooltip, Badge,
-  Dropdown, Alert, Checkbox, Tabs,
+  Table, Button, Modal, Form, Input, InputNumber,
+  Select, message, Row, Col, Tooltip,
+  Dropdown, Alert, Checkbox, Segmented, Grid, List,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined,
-  DeleteOutlined, EllipsisOutlined,
-  FilePdfOutlined,
+  DeleteOutlined, MoreOutlined,
+  FilePdfOutlined, ClockCircleOutlined,
 } from '@ant-design/icons';
-import dayjs from 'dayjs';
 import { supplementService } from '../services/supplementService';
 import { fileService } from '../services/fileService';
 import ClaimSearchSelect from '../components/common/ClaimSearchSelect';
+import { PageHeader, Pill } from '../components/common/ui';
+import { tagTones } from '../styles/tokens';
+import {
+  SupplementStatusPill, SUPPLEMENT_STATUS_TONES, REQUIRED_ESTIMATE_OPTIONS,
+  requiredEstimateLabels, formatCurrency, formatSignedCurrency, supplementStatusLabel,
+} from '../components/supplement/supplementUi';
 import type {
   SupplementRequest, SupplementRequestCreate,
 } from '../types/supplement';
 import type { ColumnsType } from 'antd/es/table';
 
-const { Title, Text } = Typography;
+const { useBreakpoint } = Grid;
 
-const STATUS_COLORS: Record<string, string> = {
-  identified: 'blue', in_progress: 'processing', submitted: 'orange',
-  under_review: 'geekblue', approved: 'green', denied: 'red', withdrawn: 'default',
-};
+/** Status filters in workflow order; withdrawn is reachable through All */
+const STATUS_FILTERS = ['identified', 'in_progress', 'submitted', 'under_review', 'approved', 'denied'] as const;
 
-const BID_TYPE_LABELS: Record<string, string> = {
-  xactimate: 'Xactimate', bathroom: 'Bathroom', cabinet: 'Cabinet', packing: 'Packing',
-  roofing: 'Roofing', kitchen: 'Kitchen', flooring: 'Flooring', other: 'Other',
-};
-
-const BID_STATUS_COLORS: Record<string, string> = {
-  draft: 'default', sent: 'blue', approved: 'green', revision_needed: 'orange', denied: 'red',
-};
-
-const REQUIRED_ESTIMATE_OPTIONS = [
-  { key: 'xactimate', label: 'Xactimate' },
-  { key: 'pack_in_out', label: 'Pack-in / Pack-out' },
-  { key: 'cabinet', label: 'Cabinet' },
-  { key: 'bathroom', label: 'Bathroom' },
-  { key: 'roofing', label: 'Roofing' },
-  { key: 'kitchen', label: 'Kitchen' },
-  { key: 'flooring', label: 'Flooring' },
-];
-
-const formatCurrency = (val?: number) => {
-  if (val == null) return '$0.00';
-  return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-};
+/** How many pending-review estimates show before "Show all" */
+const REVIEW_PREVIEW_COUNT = 4;
 
 const SupplementManagement: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [activeTab, setActiveTab] = useState<string>('supplement');
   const [statusFilter, setStatusFilter] = useState<string | undefined>('identified');
+  const [search, setSearch] = useState('');
+  const [showAllReview, setShowAllReview] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createForm] = Form.useForm();
   const [claimPaInfo, setClaimPaInfo] = useState<{ pa_name: string; pa_email: string } | null>(null);
   const [claimPaLoading, setClaimPaLoading] = useState(false);
 
   const isEstimateRequest = activeTab === 'estimate_request';
+  const noun = isEstimateRequest ? 'estimate request' : 'supplement';
 
   // Queries
-  const { data: stats, isLoading: statsLoading } = useQuery({
+  const { data: stats } = useQuery({
     queryKey: ['supplement-stats'],
     queryFn: () => supplementService.getStats(),
   });
 
-  const { data: supplements = [], isLoading, refetch } = useQuery({
+  const { data: supplements = [], isLoading, isFetching, refetch } = useQuery({
     queryKey: ['supplements', statusFilter, activeTab],
     queryFn: () => supplementService.list({ status: statusFilter, request_type: activeTab, page_size: 100 }),
   });
@@ -78,6 +65,16 @@ const SupplementManagement: React.FC = () => {
     queryKey: ['supplements-pending-review'],
     queryFn: () => supplementService.getPendingReview(),
   });
+
+  // Search runs over the rows already loaded (the list is capped at 100)
+  const visibleSupplements = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return supplements;
+    return supplements.filter(s =>
+      [s.claim_number, s.property_address, s.insurance_company, s.title, s.homeowner_name]
+        .some(v => v?.toLowerCase().includes(q)),
+    );
+  }, [supplements, search]);
 
   // Pre-load insurance estimate file IDs for all supplements in the list
   const [estimateFileMap, setEstimateFileMap] = useState<Record<string, string>>({});
@@ -149,181 +146,317 @@ const SupplementManagement: React.FC = () => {
     },
   });
 
+  const confirmDelete = (r: SupplementRequest) => Modal.confirm({
+    title: `Delete this ${noun}?`,
+    content: r.title,
+    okText: 'Delete',
+    okButtonProps: { danger: true },
+    onOk: () => deleteMutation.mutate(r.id),
+  });
+
+  const rowMenu = (r: SupplementRequest) => ({
+    items: [
+      { key: 'delete', label: 'Delete', danger: true, icon: <DeleteOutlined />, onClick: () => confirmDelete(r) },
+    ],
+  });
+
+  const openDetail = (r: SupplementRequest) => navigate(`/supplements/${r.id}`);
+
+  const estimatePdfLink = (r: SupplementRequest) => {
+    const fileId = estimateFileMap[r.claim_id];
+    if (!fileId) return null;
+    return (
+      <Tooltip title="Insurance estimate PDF">
+        <a
+          className="sup-pdf-link"
+          href={`${fileService.getDownloadUrl(fileId)}?inline=true`}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={e => e.stopPropagation()}
+          aria-label={`Open insurance estimate PDF for claim ${r.claim_number || ''}`}
+        >
+          <FilePdfOutlined />
+        </a>
+      </Tooltip>
+    );
+  };
+
   const columns: ColumnsType<SupplementRequest> = [
     {
       title: 'Claim #',
       key: 'claim',
-      width: 140,
-      render: (_, r) => {
-        const fileId = estimateFileMap[r.claim_id];
-        return (
-          <div style={{ cursor: 'pointer' }} onClick={() => navigate(`/supplements/${r.id}`)}>
-            <div>
-              <Text strong style={{ color: '#1890ff' }}>{r.claim_number || '-'}</Text>
-              {fileId && (
-                <a
-                  href={`${fileService.getDownloadUrl(fileId)}?inline=true`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={e => e.stopPropagation()}
-                  style={{ marginLeft: 6 }}
-                >
-                  <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 13 }} />
-                </a>
-              )}
-            </div>
-            <Text type="secondary" style={{ fontSize: 11 }}>{r.insurance_company}</Text>
-          </div>
-        );
-      },
+      width: 170,
+      render: (_, r) => (
+        <div>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span className="ui-ink-link">{r.claim_number || 'No claim #'}</span>
+            {estimatePdfLink(r)}
+          </span>
+          {r.insurance_company && <div className="sup-cell-meta">{r.insurance_company}</div>}
+        </div>
+      ),
     },
     {
       title: 'Address', dataIndex: 'property_address', key: 'address', ellipsis: true,
       render: (addr: string, r) => (
-        <Text style={{ cursor: 'pointer', color: '#1890ff' }} onClick={() => navigate(`/supplements/${r.id}`)}>
-          {addr || '-'}
-        </Text>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{addr || r.title}</div>
+          {r.homeowner_name && <div className="sup-cell-meta">{r.homeowner_name}</div>}
+        </div>
       ),
+    },
+    {
+      title: 'Status', dataIndex: 'status', key: 'status', width: 130,
+      render: (s: string) => <SupplementStatusPill status={s} />,
     },
     ...(!isEstimateRequest ? [
       {
-        title: 'Original', dataIndex: 'original_amount', key: 'original', width: 100,
-        align: 'right' as const, render: formatCurrency,
+        title: 'Original', dataIndex: 'original_amount', key: 'original', width: 120,
+        align: 'right' as const,
+        render: (v: number) => <span className="sup-money-muted">{formatCurrency(v)}</span>,
       },
       {
-        title: 'Supplement', dataIndex: 'supplement_amount', key: 'supplement', width: 100,
-        align: 'right' as const, render: (v: number) => <Text strong>{formatCurrency(v)}</Text>,
+        title: 'Supplement', dataIndex: 'supplement_amount', key: 'supplement', width: 120,
+        align: 'right' as const, render: (v: number) => <span className="sup-money">{formatCurrency(v)}</span>,
       },
       {
-        title: 'Diff', dataIndex: 'difference', key: 'diff', width: 95, align: 'right' as const,
+        title: 'Diff', dataIndex: 'difference', key: 'diff', width: 120, align: 'right' as const,
         render: (v: number) => (
-          <Text type={v > 0 ? 'success' : v < 0 ? 'danger' : undefined}>{formatCurrency(v)}</Text>
+          <span className={v > 0 ? 'sup-diff-up' : v < 0 ? 'sup-diff-down' : 'sup-money-muted'}>
+            {formatSignedCurrency(v)}
+          </span>
         ),
       },
     ] : [
       {
-        title: 'Our Estimate', dataIndex: 'our_estimate_amount', key: 'our_estimate', width: 120,
-        align: 'right' as const, render: (v: number) => <Text strong>{formatCurrency(v)}</Text>,
+        title: 'Our Estimate', dataIndex: 'our_estimate_amount', key: 'our_estimate', width: 140,
+        align: 'right' as const, render: (v: number) => <span className="sup-money">{formatCurrency(v)}</span>,
       },
     ]),
     {
-      title: 'Status', dataIndex: 'status', key: 'status', width: 110,
-      render: (s: string) => <Tag color={STATUS_COLORS[s] || 'default'}>{s.replace('_', ' ').toUpperCase()}</Tag>,
-    },
-    {
-      title: 'Required', key: 'required_estimates', width: 200,
+      title: 'Required', key: 'required_estimates', width: 190,
       responsive: ['xl'],
       render: (_, r) => {
-        const re = r.required_estimates || {};
-        const active = Object.entries(re).filter(([, v]) => v);
-        if (active.length === 0) return <Text type="secondary">-</Text>;
-        return (
-          <Space size={[0, 4]} wrap>
-            {active.map(([k]) => {
-              const opt = REQUIRED_ESTIMATE_OPTIONS.find(o => o.key === k);
-              return <Tag key={k} color="blue">{opt?.label || k}</Tag>;
-            })}
-          </Space>
-        );
+        const labels = requiredEstimateLabels(r.required_estimates);
+        return labels.length
+          ? <span className="sup-cell-meta" style={{ marginTop: 0 }}>{labels.join(', ')}</span>
+          : <span className="ui-props-empty">—</span>;
       },
     },
     {
-      title: 'Bids', dataIndex: 'bid_item_count', key: 'bid_items', width: 55, align: 'center',
+      title: 'Bids', dataIndex: 'bid_item_count', key: 'bid_items', width: 64, align: 'right',
       responsive: ['lg'],
-      render: (c: number) => <Badge count={c} showZero style={{ backgroundColor: c > 0 ? '#1890ff' : '#d9d9d9' }} />,
+      render: (c: number) => <span className={c > 0 ? undefined : 'ui-props-empty'}>{c || 0}</span>,
     },
     {
-      title: '', key: 'actions', width: 44, align: 'center',
+      title: <span className="ui-sr-only">Actions</span>, key: 'actions', width: 48, align: 'center',
       render: (_, r) => (
-        <Dropdown menu={{
-          items: [
-            { key: 'delete', label: 'Delete', danger: true, icon: <DeleteOutlined />,
-              onClick: () => Modal.confirm({ title: 'Delete?', onOk: () => deleteMutation.mutate(r.id) }) },
-          ],
-        }}>
-          <Button type="text" size="small" icon={<EllipsisOutlined />} />
+        <Dropdown menu={rowMenu(r)} trigger={['click']}>
+          <Button type="text" size="small" className="ui-icon-btn" icon={<MoreOutlined />} aria-label="Row actions" />
         </Dropdown>
       ),
     },
   ];
 
+  // Phone row: status first, then the address, then claim and money
+  const renderMobileItem = (r: SupplementRequest) => {
+    const labels = requiredEstimateLabels(r.required_estimates);
+    return (
+      <div className="ui-row" onClick={() => openDetail(r)}>
+        <div className="ui-row-body">
+          <div className="ui-row-tags">
+            <SupplementStatusPill status={r.status} />
+          </div>
+          <span className="ui-row-title">{r.property_address || r.title}</span>
+          <div className="ui-row-meta">
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {r.claim_number || 'No claim #'}
+              {estimatePdfLink(r)}
+            </span>
+            {r.insurance_company && <span>{r.insurance_company}</span>}
+            {(r.bid_item_count || 0) > 0 && <span>Bids: {r.bid_item_count}</span>}
+          </div>
+          <div className="ui-row-meta sup-row-money">
+            {isEstimateRequest ? (
+              <span>Our estimate <span className="sup-money">{formatCurrency(r.our_estimate_amount)}</span></span>
+            ) : (
+              <>
+                <span>Supplement <span className="sup-money">{formatCurrency(r.supplement_amount)}</span></span>
+                <span className={r.difference > 0 ? 'sup-diff-up' : r.difference < 0 ? 'sup-diff-down' : undefined}>
+                  {formatSignedCurrency(r.difference)}
+                </span>
+              </>
+            )}
+          </div>
+          {labels.length > 0 && <div className="ui-row-meta">{labels.join(', ')}</div>}
+        </div>
+        <div onClick={e => e.stopPropagation()}>
+          <Dropdown menu={rowMenu(r)} trigger={['click']}>
+            <Button type="text" icon={<MoreOutlined />} aria-label="Row actions" style={{ marginRight: -8 }} />
+          </Dropdown>
+        </div>
+      </div>
+    );
+  };
+
+  const statusCount = (key: string) => (stats ? (stats as any)[key] ?? 0 : undefined);
+  const reviewItems = showAllReview ? pendingReview : pendingReview.slice(0, REVIEW_PREVIEW_COUNT);
+
+  const emptyText = search.trim()
+    ? `No ${noun}s match "${search.trim()}"`
+    : statusFilter
+      ? `No ${supplementStatusLabel(statusFilter).toLowerCase()} ${noun}s`
+      : `No ${noun}s yet`;
+
   return (
-    <div style={{ padding: '0 4px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={3} style={{ margin: 0 }}>Estimates</Title>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => refetch()}>Refresh</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
-            {isEstimateRequest ? 'New Estimate Request' : 'New Supplement'}
-          </Button>
-        </Space>
+    <div>
+      <PageHeader
+        title="Estimates"
+        meta={isLoading ? undefined : (
+          <span>
+            {visibleSupplements.length} {visibleSupplements.length === 1 ? noun : `${noun}s`}
+            {statusFilter ? ` · ${supplementStatusLabel(statusFilter).toLowerCase()}` : ''}
+          </span>
+        )}
+        actions={
+          <>
+            <Tooltip title="Refresh">
+              <Button icon={<ReloadOutlined spin={isFetching && !isLoading} />} onClick={() => refetch()} aria-label="Refresh" />
+            </Tooltip>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
+              {isEstimateRequest ? 'New Estimate Request' : 'New Supplement'}
+            </Button>
+          </>
+        }
+      />
+
+      {/* Request type + search */}
+      <div className="ui-toolbar">
+        <Segmented
+          value={activeTab}
+          onChange={(key) => { setActiveTab(key as string); setStatusFilter(undefined); }}
+          options={[
+            { value: 'supplement', label: 'Supplements' },
+            { value: 'estimate_request', label: 'Estimate Requests' },
+          ]}
+        />
+        <div className="ui-toolbar-end" style={isMobile ? { width: '100%' } : undefined}>
+          <Input.Search
+            placeholder="Search claim, address, carrier..."
+            allowClear
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: isMobile ? '100%' : 280 }}
+            aria-label={`Search ${noun}s`}
+          />
+        </div>
       </div>
 
-      <Tabs
-        activeKey={activeTab}
-        onChange={(key) => { setActiveTab(key); setStatusFilter(undefined); }}
-        items={[
-          { key: 'supplement', label: 'Supplements' },
-          { key: 'estimate_request', label: 'Estimate Requests' },
-        ]}
-        style={{ marginBottom: 0 }}
-      />
+      {/* Status filter: one quiet view tab per status, its colour kept as a dot */}
+      <div className="sup-status-tabs" role="group" aria-label="Filter by status">
+        <Button
+          type="text"
+          size="small"
+          aria-pressed={!statusFilter}
+          className={`ui-view-tab${!statusFilter ? ' is-selected' : ''}`}
+          onClick={() => setStatusFilter(undefined)}
+        >
+          All
+          {statusCount('total') !== undefined && <span className="sup-tab-count">{statusCount('total')}</span>}
+        </Button>
+        {STATUS_FILTERS.map(key => (
+          <Button
+            key={key}
+            type="text"
+            size="small"
+            aria-pressed={statusFilter === key}
+            className={`ui-view-tab${statusFilter === key ? ' is-selected' : ''}`}
+            onClick={() => setStatusFilter(key)}
+          >
+            <span
+              className="ui-filter-chip-dot"
+              style={{ background: tagTones[SUPPLEMENT_STATUS_TONES[key]].text }}
+              aria-hidden="true"
+            />
+            {supplementStatusLabel(key)}
+            {statusCount(key) !== undefined && <span className="sup-tab-count">{statusCount(key)}</span>}
+          </Button>
+        ))}
+      </div>
 
-      {/* Status Sub-tabs */}
-      <Tabs
-        activeKey={statusFilter || 'all'}
-        onChange={(key) => setStatusFilter(key === 'all' ? undefined : key)}
-        size="small"
-        style={{ marginBottom: 16 }}
-        items={[
-          { key: 'all', label: `All${stats ? ` (${stats.total || 0})` : ''}` },
-          { key: 'identified', label: <span style={{ color: '#1890ff' }}>Identified{stats ? ` (${stats.identified || 0})` : ''}</span> },
-          { key: 'in_progress', label: <span style={{ color: '#722ed1' }}>In Progress{stats ? ` (${stats.in_progress || 0})` : ''}</span> },
-          { key: 'submitted', label: <span style={{ color: '#fa8c16' }}>Submitted{stats ? ` (${stats.submitted || 0})` : ''}</span> },
-          { key: 'under_review', label: <span style={{ color: '#2f54eb' }}>Under Review{stats ? ` (${stats.under_review || 0})` : ''}</span> },
-          { key: 'approved', label: <span style={{ color: '#52c41a' }}>Approved{stats ? ` (${stats.approved || 0})` : ''}</span> },
-          { key: 'denied', label: <span style={{ color: '#cf1322' }}>Denied{stats ? ` (${stats.denied || 0})` : ''}</span> },
-        ]}
-      />
-
-      {/* Pending Review Alert */}
+      {/* Insurance estimates that arrived but nobody has looked at yet */}
       {!isEstimateRequest && pendingReview.length > 0 && (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message={
-            <span>
-              <strong>{pendingReview.length} estimate{pendingReview.length > 1 ? 's' : ''} pending review</strong>
-              {' — '}Insurance estimates received but not yet reviewed for supplement needs.
+        <section className="sup-review" aria-label="Estimates pending review">
+          <div className="sup-review-head">
+            <Pill tone="orange" icon={<ClockCircleOutlined />}>
+              {pendingReview.length} estimate{pendingReview.length > 1 ? 's' : ''} pending review
+            </Pill>
+            <span className="sup-review-note">
+              Insurance estimates received but not yet reviewed for supplement needs.
             </span>
-          }
-          description={
-            <Space direction="vertical" size={4} style={{ marginTop: 4 }}>
-              {pendingReview.map(s => (
-                <Button
-                  key={s.id}
-                  type="link"
-                  size="small"
-                  style={{ padding: 0, height: 'auto', whiteSpace: 'normal', textAlign: 'left', wordBreak: 'break-word' }}
-                  onClick={() => navigate(`/supplements/${s.id}`)}
+          </div>
+          <ul className="sup-review-list">
+            {reviewItems.map(s => (
+              <li key={s.id}>
+                <a
+                  className="ui-ink-link"
+                  href={`/supplements/${s.id}`}
+                  onClick={e => { e.preventDefault(); navigate(`/supplements/${s.id}`); }}
                 >
-                  {s.title} — {s.claim_number || 'No claim #'} ({s.insurance_company || 'N/A'})
-                </Button>
-              ))}
-            </Space>
-          }
+                  {s.title}
+                </a>
+                <span className="sup-review-meta">
+                  {s.claim_number || 'No claim #'} · {s.insurance_company || 'N/A'}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {pendingReview.length > REVIEW_PREVIEW_COUNT && (
+            <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={() => setShowAllReview(v => !v)}>
+              {showAllReview ? 'Show fewer' : `Show all ${pendingReview.length}`}
+            </Button>
+          )}
+        </section>
+      )}
+
+      {/* Mobile: row list / Desktop: table */}
+      {isMobile ? (
+        <List
+          className="ui-row-list"
+          dataSource={visibleSupplements}
+          loading={isLoading}
+          renderItem={renderMobileItem}
+          locale={{ emptyText }}
+          pagination={visibleSupplements.length > 20 ? {
+            pageSize: 20,
+            size: 'small',
+            align: 'center',
+          } : false}
+        />
+      ) : (
+        <Table
+          dataSource={visibleSupplements}
+          columns={columns}
+          rowKey="id"
+          loading={isLoading}
+          size="middle"
+          scroll={{ x: 820 }}
+          locale={{ emptyText }}
+          onRow={(record) => ({
+            onClick: (e) => {
+              const target = e.target as HTMLElement;
+              if (target.closest('a, button, .ant-dropdown-trigger, .ant-btn')) return;
+              openDetail(record);
+            },
+            style: { cursor: 'pointer' },
+          })}
+          pagination={{ pageSize: 20, hideOnSinglePage: true, showTotal: t => `${t} ${isEstimateRequest ? 'estimate requests' : 'supplements'}` }}
         />
       )}
 
-      <Card>
-        <Table dataSource={supplements} columns={columns} rowKey="id" loading={isLoading}
-          size="small" scroll={{ x: 700 }}
-          pagination={{ pageSize: 20, showTotal: t => `${t} ${isEstimateRequest ? 'estimate requests' : 'supplements'}` }} />
-      </Card>
-
       {/* Create Modal */}
-      <Modal title={isEstimateRequest ? 'Create Estimate Request' : 'Create Supplement Request'} open={createModalOpen} width={550}
+      <Modal title={isEstimateRequest ? 'Create Estimate Request' : 'Create Supplement Request'} open={createModalOpen} width={560}
+        okText="Create"
         onOk={() => createForm.validateFields().then(v => {
           const { required_estimate_keys, ...rest } = v;
           const required_estimates: Record<string, boolean> = {};
@@ -338,7 +471,7 @@ const SupplementManagement: React.FC = () => {
           setClaimPaInfo(null);
         }}
         confirmLoading={createMutation.isPending}>
-        <Form form={createForm} layout="vertical" size="small">
+        <Form form={createForm} layout="vertical">
           <Form.Item name="claim_id" label="Claim" rules={[{ required: true, message: 'Please select a claim' }]}>
             <ClaimSearchSelect onChange={id => handleClaimSelect(id)} loading={claimPaLoading} />
           </Form.Item>
@@ -346,11 +479,11 @@ const SupplementManagement: React.FC = () => {
             <Alert
               type="info"
               message={`PA auto-assigned: ${claimPaInfo.pa_name}${claimPaInfo.pa_email ? ` (${claimPaInfo.pa_email})` : ''}`}
-              style={{ marginBottom: 12 }}
+              style={{ marginBottom: 16 }}
               showIcon
             />
           )}
-          <Form.Item name="title" label="Title" rules={[{ required: true }]}>
+          <Form.Item name="title" label="Title" rules={[{ required: true, message: 'Please enter a title' }]}>
             <Input placeholder={isEstimateRequest ? 'e.g., Estimate Request - 123 Main St' : 'e.g., Supplement for bathroom rebuild'} />
           </Form.Item>
           <Form.Item name="reason" label="Reason">
@@ -362,12 +495,12 @@ const SupplementManagement: React.FC = () => {
             </Form.Item>
           ) : (
             <Row gutter={12}>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Form.Item name="original_amount" label="Original Amount">
                   <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Form.Item name="supplement_amount" label="Supplement Amount">
                   <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
                 </Form.Item>
@@ -375,12 +508,12 @@ const SupplementManagement: React.FC = () => {
             </Row>
           )}
           <Row gutter={12}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="submitted_to" label="Submit To (PA Name)">
                 <Input placeholder="Auto-filled from claim PA" />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="submitted_to_email" label="PA Email">
                 <Input placeholder="Auto-filled from claim PA" />
               </Form.Item>
@@ -392,9 +525,9 @@ const SupplementManagement: React.FC = () => {
               { value: 'high', label: 'High' }, { value: 'urgent', label: 'Urgent' },
             ]} />
           </Form.Item>
-          <Form.Item name="required_estimate_keys" label="Required Estimates">
-            <Checkbox.Group>
-              <Row>
+          <Form.Item name="required_estimate_keys" label="Required Estimates" style={{ marginBottom: 0 }}>
+            <Checkbox.Group style={{ width: '100%' }}>
+              <Row gutter={[0, 8]}>
                 {REQUIRED_ESTIMATE_OPTIONS.map(opt => (
                   <Col span={12} key={opt.key}>
                     <Checkbox value={opt.key}>{opt.label}</Checkbox>

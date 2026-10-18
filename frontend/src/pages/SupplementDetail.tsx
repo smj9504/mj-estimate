@@ -2,16 +2,17 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Card, Button, Space, Tag, Modal, Form, Input, InputNumber,
+  Button, Space, Modal, Form, Input, InputNumber,
   Select, message, Typography, Row, Col, Tooltip,
-  Collapse, Descriptions, DatePicker, Divider, Empty, Checkbox, Alert, Upload,
-  Spin, Badge, Table,
+  Collapse, DatePicker, Divider, Checkbox, Alert, Upload,
+  Spin, Table, Grid,
 } from 'antd';
 import {
   ArrowLeftOutlined, FileTextOutlined,
   SendOutlined, PhoneOutlined,
   FilePdfOutlined, SaveOutlined, UploadOutlined,
   LoadingOutlined, ThunderboltOutlined, PlusOutlined, DeleteOutlined,
+  SwapOutlined, InfoCircleOutlined, CheckOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../services/api';
@@ -24,6 +25,13 @@ import { bathroomEstimateService } from '../services/bathroomEstimateService';
 import { cabinetEstimateService } from '../services/cabinetEstimateService';
 import { listEstimates as listPackingEstimates } from '../services/packingEstimateService';
 import { companyService } from '../services/companyService';
+import { useBreadcrumbTitle } from '../contexts/BreadcrumbContext';
+import { PageHeader, Pill, PropertyList, humanize, type TagTone } from '../components/common/ui';
+import { CompanyTag } from '../components/water-mitigation/paymentBoardShared';
+import {
+  SupplementStatusPill, SUPPLEMENT_STATUSES, supplementStatusLabel,
+  BID_TYPE_LABELS, REQUIRED_ESTIMATE_OPTIONS, formatCurrency, formatSignedCurrency,
+} from '../components/supplement/supplementUi';
 import type {
   SupplementRequest, BidItemEstimate, BidItemEstimateCreate,
   SupplementFollowUp, BidItemType,
@@ -84,28 +92,19 @@ const groupSectionsByCategory = (sections: NegotiationSection[]) => {
   return grouped;
 };
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 const { TextArea } = Input;
 
-const STATUS_COLORS: Record<string, string> = {
-  identified: 'blue', in_progress: 'processing', submitted: 'orange',
-  under_review: 'geekblue', approved: 'green', denied: 'red', withdrawn: 'default',
-};
+const { useBreakpoint } = Grid;
 
-const BID_TYPE_LABELS: Record<string, string> = {
-  xactimate: 'Xactimate', bathroom: 'Bathroom', cabinet: 'Cabinet', packing: 'Packing',
-  roofing: 'Roofing', kitchen: 'Kitchen', flooring: 'Flooring', other: 'Other',
+/** Info requests waiting on someone read warm; a partial answer is yellow; done is green */
+const INFO_STATUS_TONES: Record<string, TagTone> = {
+  pending: 'orange',
+  sent: 'orange',
+  awaiting_response: 'orange',
+  partially_resolved: 'yellow',
+  resolved: 'green',
 };
-
-const REQUIRED_ESTIMATE_OPTIONS = [
-  { key: 'xactimate', label: 'Xactimate' },
-  { key: 'pack_in_out', label: 'Pack-in / Pack-out' },
-  { key: 'cabinet', label: 'Cabinet' },
-  { key: 'bathroom', label: 'Bathroom' },
-  { key: 'roofing', label: 'Roofing' },
-  { key: 'kitchen', label: 'Kitchen' },
-  { key: 'flooring', label: 'Flooring' },
-];
 
 // Maps a Required Estimates checkbox key to the Bid Item Estimate `estimate_type`
 // it corresponds to, so checking a box can auto-create the matching bid item.
@@ -139,15 +138,12 @@ const ESTIMATE_ID_FIELD_MAP: Record<string, string> = {
   roofing: 'roofing_estimate_id',
 };
 
-const formatCurrency = (val?: number) => {
-  if (val == null) return '$0.00';
-  return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-};
-
 const SupplementDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
 
   const [bidItemModalOpen, setBidItemModalOpen] = useState(false);
   const [followupModalOpen, setFollowupModalOpen] = useState(false);
@@ -225,6 +221,7 @@ const SupplementDetail: React.FC = () => {
     queryFn: () => supplementService.get(id!),
     enabled: !!id,
   });
+  useBreadcrumbTitle(supplement?.title || null);
 
   const { data: allCompanies = [] } = useQuery({
     queryKey: ['companies-for-supplement'],
@@ -527,12 +524,17 @@ const SupplementDetail: React.FC = () => {
       return null;
     }
     return (
-      <div style={{ padding: 24 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/supplements')}>
-          Back to Supplements
-        </Button>
-        <div style={{ marginTop: 24, textAlign: 'center' }}>
-          <Text type="danger">Failed to load supplement.</Text>
+      <div className="sup-error">
+        <h1 className="ui-section-title">Failed to load supplement.</h1>
+        <p>Check your connection, then try again.</p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <Button type="primary" icon={<ReloadOutlined />}
+            onClick={() => queryClient.invalidateQueries({ queryKey: ['supplement', id] })}>
+            Try again
+          </Button>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/supplements')}>
+            Back to Supplements
+          </Button>
         </div>
       </div>
     );
@@ -576,122 +578,917 @@ const SupplementDetail: React.FC = () => {
     } catch { message.error('Failed to save'); } finally { setSavingSections(false); }
   };
 
-  return (
-    <div style={{ padding: '0 4px' }}>
-      {/* Page Header */}
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 20, gap: 12, flexWrap: 'wrap' }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/supplements')}>
-          Back
-        </Button>
-        <Title level={4} style={{ margin: 0, flex: 1 }}>
-          {supplement.title}
-        </Title>
-        <Tag color={STATUS_COLORS[supplement.status] || 'default'} style={{ fontSize: 13, padding: '2px 10px' }}>
-          {supplement.status?.replace('_', ' ').toUpperCase()}
-        </Tag>
-      </div>
+  const hasBidPdf = !!supplement.bid_items?.some(i => i.custom_document_file_id);
+  const bidItems = supplement.bid_items || [];
+  const wmCompany = supplement.wm_company_id
+    ? (allCompanies as any[]).find(c => c.id === supplement.wm_company_id)
+      || { id: supplement.wm_company_id, name: supplement.wm_company_name || 'Company' }
+    : null;
+  const isHighPriority = supplement.priority === 'high' || supplement.priority === 'urgent';
 
-      {/* Info + Status */}
-      <Card style={{ marginBottom: 16 }}>
-        <Row gutter={24} align="top">
-          <Col xs={24} md={15}>
-            <Descriptions size="small" column={2}>
-              <Descriptions.Item label="Claim #">{supplement.claim_number}</Descriptions.Item>
-              <Descriptions.Item label="Insurance">{supplement.insurance_company}</Descriptions.Item>
-              <Descriptions.Item label="Homeowner">{supplement.homeowner_name || '-'}</Descriptions.Item>
-              <Descriptions.Item label="Deductible">
-                {editingDeductible ? (
-                  <Space size={4} wrap>
-                    <InputNumber size="small" min={0} step={100} prefix="$" style={{ width: 120 }} autoFocus
-                      value={deductibleDraft.deductible}
-                      onChange={v => setDeductibleDraft(d => ({ ...d, deductible: v || 0 }))}
-                      onPressEnter={saveDeductible} />
-                    <Text type="secondary" style={{ fontSize: 12 }}>Discount</Text>
-                    <InputNumber size="small" min={0} max={deductibleDraft.deductible} step={100} prefix="$" style={{ width: 120 }}
-                      value={deductibleDraft.discount}
-                      onChange={v => setDeductibleDraft(d => ({ ...d, discount: v || 0 }))}
-                      onPressEnter={saveDeductible} />
-                    <Button size="small" type="primary" loading={updateMutation.isPending}
-                      onClick={saveDeductible}>Save</Button>
-                    <Button size="small" onClick={() => setEditingDeductible(false)}>Cancel</Button>
-                  </Space>
-                ) : (
-                  <Space size={4} wrap>
-                    <Text>{formatCurrency(supplement.deductible)}</Text>
-                    {(supplement.deductible_discount || 0) > 0 && (
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        − {formatCurrency(supplement.deductible_discount)} discount ={' '}
-                        <Text strong style={{ fontSize: 12 }}>
-                          {formatCurrency((supplement.deductible || 0) - (supplement.deductible_discount || 0))}
-                        </Text>{' '}homeowner owes
-                      </Text>
-                    )}
-                    <Button type="text" size="small" style={{ fontSize: 11, padding: '0 4px' }}
-                      onClick={() => {
-                        setDeductibleDraft({
-                          deductible: supplement.deductible || 0,
-                          discount: supplement.deductible_discount || 0,
-                        });
-                        setEditingDeductible(true);
-                      }}>
-                      Edit
-                    </Button>
-                  </Space>
-                )}
-              </Descriptions.Item>
-              <Descriptions.Item label="Address" span={2}>{supplement.property_address || '-'}</Descriptions.Item>
-              <Descriptions.Item label="Status">
-                <Select size="small" value={supplement.status} style={{ width: 140 }}
-                  onChange={v => updateMutation.mutate({ status: v })}
-                  options={['identified','in_progress','submitted','under_review','approved','denied','withdrawn']
-                    .map(s => ({ value: s, label: s.replace('_',' ').toUpperCase() }))} />
-              </Descriptions.Item>
-              <Descriptions.Item label="Priority">{supplement.priority}</Descriptions.Item>
-              {supplement.request_type === 'estimate_request' ? (
-                <Descriptions.Item label="Our Estimate">
-                  <Text strong>{formatCurrency(supplement.our_estimate_amount)}</Text>
-                </Descriptions.Item>
-              ) : (
-                <>
-                  <Descriptions.Item label="Original">{formatCurrency(supplement.original_amount)}</Descriptions.Item>
-                  <Descriptions.Item label="Supplement">{formatCurrency(supplement.supplement_amount)}</Descriptions.Item>
-                  <Descriptions.Item label="Difference">
-                    <Text type={supplement.difference > 0 ? 'success' : 'danger'}>
-                      {formatCurrency(supplement.difference)}
-                    </Text>
-                  </Descriptions.Item>
-                </>
-              )}
-              <Descriptions.Item label="Submitted To">{supplement.submitted_to || '-'}</Descriptions.Item>
-            </Descriptions>
+  const openEstimateUpload = () => {
+    uploadEstimateForm.resetFields();
+    setUploadEstimateFileId(null);
+    setUploadEstimateFileName(null);
+    setUploadEstimateModalOpen(true);
+  };
+
+  const saveRequiredEstimates = () => {
+    const required_estimates: Record<string, boolean> = {};
+    REQUIRED_ESTIMATE_OPTIONS.forEach(opt => {
+      required_estimates[opt.key] = editedRequiredEstimates.includes(opt.key);
+    });
+    const hasAnyChecked = editedRequiredEstimates.length > 0;
+    const updateData: Partial<SupplementRequest> = { required_estimates };
+    if (hasAnyChecked && supplement.status === 'identified') {
+      updateData.status = 'in_progress';
+    }
+    const previouslyChecked = Object.entries(supplement.required_estimates || {})
+      .filter(([, v]) => v).map(([k]) => k);
+    const newlyChecked = editedRequiredEstimates.filter(k => !previouslyChecked.includes(k));
+    const newlyUnchecked = previouslyChecked.filter(k => !editedRequiredEstimates.includes(k));
+
+    updateMutation.mutate(updateData, {
+      onSuccess: async () => {
+        setRequiredEstimatesDirty(false);
+        queryClient.invalidateQueries({ queryKey: ['supplements-pending-review'] });
+
+        // Auto-create a blank bid item for each newly checked
+        // required estimate that doesn't already have one.
+        const currentBidItems = supplement.bid_items || [];
+        const toCreate = newlyChecked
+          .map(key => REQUIRED_ESTIMATE_TO_BID_TYPE[key])
+          .filter((type): type is BidItemType => !!type)
+          .filter(type => !currentBidItems.some(i => i.estimate_type === type));
+
+        // Auto-remove bid items for unchecked estimates, but only
+        // if they're still empty (untouched since auto-creation).
+        const toRemove = newlyUnchecked
+          .map(key => REQUIRED_ESTIMATE_TO_BID_TYPE[key])
+          .filter((type): type is BidItemType => !!type)
+          .map(type => currentBidItems.find(i => i.estimate_type === type))
+          .filter((item): item is BidItemEstimate => !!item && isEmptyBidItem(item));
+
+        if (toCreate.length === 0 && toRemove.length === 0) return;
+
+        try {
+          await Promise.all([
+            ...toCreate.map(type => supplementService.createBidItem(supplement.id, {
+              supplement_id: supplement.id,
+              estimate_type: type,
+              title: BID_TYPE_LABELS[type] || type,
+            })),
+            ...toRemove.map(item => supplementService.deleteBidItem(supplement.id, item.id)),
+          ]);
+          refreshSupplement();
+        } catch {
+          message.error('Failed to sync bid items with required estimates');
+        }
+      },
+    });
+  };
+
+  // Uploading a bid item PDF also tries to read its total so the amount fills itself
+  const uploadBidItemPdf = async (item: BidItemEstimate, file: File, isReplace: boolean) => {
+    if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
+    try {
+      const uploaded = await fileService.uploadFiles([file], 'supplement_bid_item', item.id, 'estimate_pdf');
+      if (uploaded.length > 0) {
+        const mutData: any = { custom_document_file_id: uploaded[0].id, custom_document_file_name: file.name };
+        // Auto-extract total amount from PDF
+        try {
+          const result = await supplementService.extractBidItemTotal(file);
+          if (result?.total_amount && result.total_amount > 0) {
+            mutData.custom_amount = result.total_amount;
+            message.success(`Extracted total: ${formatCurrency(result.total_amount)}`);
+          } else if (!isReplace) {
+            message.success('PDF uploaded');
+          }
+        } catch {
+          if (!isReplace) message.success('PDF uploaded');
+        }
+        updateBidItemMutation.mutate({
+          supplementId: supplement.id,
+          itemId: item.id,
+          data: mutData,
+        });
+      }
+    } catch { message.error('Upload failed'); }
+    return false;
+  };
+
+  const deleteBidItem = (item: BidItemEstimate) => Modal.confirm({
+    title: 'Delete this bid item?',
+    content: item.title,
+    okText: 'Delete',
+    okButtonProps: { danger: true },
+    onOk: () => {
+      supplementService.deleteBidItem(supplement.id, item.id).then(() => {
+        message.success('Deleted');
+        refreshSupplement();
+      });
+    },
+  });
+
+  const renderBidTitle = (item: BidItemEstimate) => (
+    <div style={{ minWidth: 0 }}>
+      <Text
+        className="sup-bid-title"
+        editable={{
+          tooltip: 'Edit title',
+          onChange: (val) => {
+            updateBidItemMutation.mutate({
+              supplementId: supplement.id,
+              itemId: item.id,
+              data: { title: val },
+            });
+          },
+        }}
+      >
+        {item.title}
+      </Text>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, marginTop: 2 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Text
+            type="secondary"
+            className={`sup-bid-notes${item.description ? '' : ' sup-bid-notes--empty'}`}
+            editable={{
+              tooltip: 'Edit scope notes (included in PA email)',
+              onChange: (val) => {
+                updateBidItemMutation.mutate({
+                  supplementId: supplement.id,
+                  itemId: item.id,
+                  data: { description: val || '' },
+                });
+              },
+            }}
+          >
+            {item.description || ''}
+          </Text>
+          {!item.description && (
+            <button
+              type="button"
+              className="sup-add-notes"
+              onClick={(e) => {
+                const editBtn = (e.currentTarget.previousElementSibling as HTMLElement)?.querySelector('.ant-typography-edit');
+                if (editBtn) (editBtn as HTMLElement).click();
+              }}
+            >
+              + Add scope notes
+            </button>
+          )}
+        </div>
+        {item.description && item.description.trim() && (
+          <Tooltip title="AI polish">
+            <Button
+              type="text"
+              size="small"
+              className="ui-icon-btn"
+              aria-label="Polish scope notes with AI"
+              icon={polishingItemId === item.id ? <LoadingOutlined /> : <ThunderboltOutlined />}
+              disabled={polishingItemId === item.id}
+              style={{ height: 22, width: 22 }}
+              onClick={async () => {
+                setPolishingItemId(item.id);
+                try {
+                  const result = await supplementService.polishScopeNotes(
+                    item.description || '', item.estimate_type,
+                  );
+                  if (result.polished) {
+                    updateBidItemMutation.mutate({
+                      supplementId: supplement.id,
+                      itemId: item.id,
+                      data: { description: result.polished },
+                    });
+                    message.success('Scope notes polished');
+                  }
+                } catch {
+                  message.error('Failed to polish notes');
+                } finally {
+                  setPolishingItemId(null);
+                }
+              }}
+            />
+          </Tooltip>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderBidAmount = (item: BidItemEstimate) => {
+    const v = item.custom_amount;
+    return (
+      <div>
+        <InputNumber
+          key={`${item.id}-${v}`}
+          min={0}
+          step={0.01}
+          prefix="$"
+          defaultValue={v || 0}
+          aria-label={`Amount for ${item.title}`}
+          className={item.included_in_xactimate ? 'sup-amount-struck' : undefined}
+          style={{ width: '100%' }}
+          formatter={val => `${val}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+          parser={val => val?.replace(/[,$]/g, '') as any}
+          onBlur={(e) => {
+            const raw = e.target.value?.replace(/[,$]/g, '');
+            const num = parseFloat(raw || '0');
+            if (num !== (v || 0)) {
+              updateBidItemMutation.mutate({
+                supplementId: supplement.id,
+                itemId: item.id,
+                data: { custom_amount: num },
+              });
+            }
+          }}
+          onPressEnter={(e) => (e.target as HTMLInputElement).blur()}
+        />
+        {item.estimate_type === 'xactimate' && inXactTotal > 0 && (
+          <div className="sup-net-line">
+            <span>− {formatCurrency(inXactTotal)}</span>
+            <strong>= {formatCurrency(xactNet)}</strong>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderInXact = (item: BidItemEstimate, withLabel = false) => item.estimate_type === 'xactimate' ? (
+    withLabel ? null : <span className="ui-props-empty">—</span>
+  ) : (
+    <Tooltip title="Xactimate에 이 항목 금액이 포함되어 있으면 체크">
+      <Checkbox
+        checked={item.included_in_xactimate}
+        aria-label="Included in Xactimate"
+        onChange={e => {
+          updateBidItemMutation.mutate({
+            supplementId: supplement.id,
+            itemId: item.id,
+            data: { included_in_xactimate: e.target.checked },
+          });
+        }}
+      >
+        {withLabel ? 'In Xactimate' : null}
+      </Checkbox>
+    </Tooltip>
+  );
+
+  const renderBidPdf = (item: BidItemEstimate) => {
+    const linkedType = item.bathroom_estimate_id ? 'bathroom'
+      : item.cabinet_estimate_id ? 'cabinet'
+      : item.pack_calculation_id ? 'packing'
+      : null;
+    const linkedId = item.bathroom_estimate_id || item.cabinet_estimate_id || item.pack_calculation_id || null;
+    return (
+      <div className="sup-pdf-cell">
+        {linkedType && linkedId && (
+          <Tooltip title={`View ${BID_TYPE_LABELS[linkedType]} Estimate PDF`}>
+            <Button
+              type="text"
+              size="small"
+              className="ui-icon-btn"
+              icon={<FileTextOutlined />}
+              loading={pdfLoading}
+              onClick={() => openEstimatePdf(linkedType, linkedId)}
+            >
+              Estimate
+            </Button>
+          </Tooltip>
+        )}
+        {item.custom_document_file_id ? (
+          <>
+            <Tooltip title={item.custom_document_file_name || 'View uploaded PDF'}>
+              <a
+                className="sup-pdf-link"
+                href={`${fileService.getDownloadUrl(item.custom_document_file_id)}?inline=true`}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Open ${item.custom_document_file_name || 'uploaded PDF'}`}
+              >
+                <FilePdfOutlined />
+              </a>
+            </Tooltip>
+            <Upload
+              accept=".pdf"
+              maxCount={1}
+              showUploadList={false}
+              beforeUpload={(file) => uploadBidItemPdf(item, file as unknown as File, true)}
+            >
+              <Tooltip title="Replace uploaded PDF">
+                <Button type="text" size="small" className="ui-icon-btn" icon={<UploadOutlined />} aria-label="Replace uploaded PDF" />
+              </Tooltip>
+            </Upload>
+          </>
+        ) : (
+          <Upload
+            accept=".pdf"
+            maxCount={1}
+            showUploadList={false}
+            beforeUpload={(file) => uploadBidItemPdf(item, file as unknown as File, false)}
+          >
+            <Button size="small" icon={<UploadOutlined />}>
+              Upload
+            </Button>
+          </Upload>
+        )}
+      </div>
+    );
+  };
+
+  const renderBidDelete = (item: BidItemEstimate) => (
+    <Tooltip title="Delete">
+      <Button
+        type="text" size="small"
+        className="ui-icon-btn ui-icon-btn--danger"
+        aria-label={`Delete ${item.title}`}
+        icon={<DeleteOutlined />}
+        onClick={() => deleteBidItem(item)}
+      />
+    </Tooltip>
+  );
+
+  return (
+    <div>
+      <PageHeader
+        title={supplement.title}
+        meta={
+          <>
+            {supplement.request_type === 'estimate_request' && <Pill tone="gray">Estimate request</Pill>}
+            {supplement.claim_number && <span>{supplement.claim_number}</span>}
+            {supplement.insurance_company && <span>{supplement.insurance_company}</span>}
+            {supplement.homeowner_name && <span>{supplement.homeowner_name}</span>}
+            {supplement.submitted_date && (
+              <span>
+                Last sent {dayjs(supplement.submitted_date).format('MM/DD/YYYY')}
+                {supplement.submitted_to && ` to ${supplement.submitted_to}`}
+              </span>
+            )}
+          </>
+        }
+        actions={
+          <>
+            <Select
+              className="sup-status-select"
+              value={supplement.status}
+              onChange={v => updateMutation.mutate({ status: v })}
+              style={{ width: 170 }}
+              options={SUPPLEMENT_STATUSES.map(s => ({ value: s, label: supplementStatusLabel(s) }))}
+              labelRender={({ value }) => <SupplementStatusPill status={value as string} />}
+              optionRender={(option) => <SupplementStatusPill status={option.value as string} />}
+              suffixIcon={<SwapOutlined />}
+              aria-label="Supplement status"
+            />
+            <Tooltip title={hasBidPdf ? undefined : 'Upload bid item PDFs first'}>
+              <span>
+                <Button
+                  type="primary"
+                  icon={<SendOutlined />}
+                  onClick={openSendPaModal}
+                  disabled={!hasBidPdf}
+                >
+                  Send to PA
+                </Button>
+              </span>
+            </Tooltip>
+          </>
+        }
+      />
+
+      <Row gutter={isMobile ? [0, 36] : [48, 36]}>
+        <Col xs={24} lg={16}>
+          {/* Details */}
+          <section className="ui-section">
+            <div className="ui-section-head">
+              <h2 className="ui-section-title">Details</h2>
+            </div>
+            <Row gutter={[32, 0]}>
+              <Col xs={24} md={12}>
+                <PropertyList
+                  labelWidth={112}
+                  items={[
+                    { key: 'claim', label: 'Claim #', value: supplement.claim_number },
+                    { key: 'insurance', label: 'Insurance', value: supplement.insurance_company },
+                    { key: 'homeowner', label: 'Homeowner', value: supplement.homeowner_name },
+                    { key: 'address', label: 'Address', value: supplement.property_address },
+                    {
+                      key: 'deductible',
+                      label: 'Deductible',
+                      value: editingDeductible ? (
+                        <div className="sup-inline-edit">
+                          <InputNumber size="small" min={0} step={100} prefix="$" style={{ width: 130 }} autoFocus
+                            aria-label="Deductible"
+                            value={deductibleDraft.deductible}
+                            onChange={v => setDeductibleDraft(d => ({ ...d, deductible: v || 0 }))}
+                            onPressEnter={saveDeductible} />
+                          <span className="sup-field-label">Discount</span>
+                          <InputNumber size="small" min={0} max={deductibleDraft.deductible} step={100} prefix="$" style={{ width: 130 }}
+                            aria-label="Deductible discount"
+                            value={deductibleDraft.discount}
+                            onChange={v => setDeductibleDraft(d => ({ ...d, discount: v || 0 }))}
+                            onPressEnter={saveDeductible} />
+                          <span style={{ display: 'inline-flex', gap: 6 }}>
+                            <Button size="small" type="primary" loading={updateMutation.isPending}
+                              onClick={saveDeductible}>Save</Button>
+                            <Button size="small" onClick={() => setEditingDeductible(false)}>Cancel</Button>
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="sup-inline-value">
+                          <span>
+                            <span className="sup-money">{formatCurrency(supplement.deductible)}</span>
+                            {(supplement.deductible_discount || 0) > 0 && (
+                              <span className="sup-cell-meta">
+                                − {formatCurrency(supplement.deductible_discount)} discount ={' '}
+                                <strong>
+                                  {formatCurrency((supplement.deductible || 0) - (supplement.deductible_discount || 0))}
+                                </strong>{' '}homeowner owes
+                              </span>
+                            )}
+                          </span>
+                          <Button type="text" size="small" className="ui-icon-btn sup-edit-btn"
+                            onClick={() => {
+                              setDeductibleDraft({
+                                deductible: supplement.deductible || 0,
+                                discount: supplement.deductible_discount || 0,
+                              });
+                              setEditingDeductible(true);
+                            }}>
+                            Edit
+                          </Button>
+                        </div>
+                      ),
+                    },
+                  ]}
+                />
+              </Col>
+              <Col xs={24} md={12}>
+                <PropertyList
+                  labelWidth={112}
+                  items={[
+                    {
+                      key: 'priority',
+                      label: 'Priority',
+                      value: supplement.priority
+                        ? (isHighPriority
+                          ? <Pill tone={supplement.priority === 'urgent' ? 'red' : 'orange'}>{humanize(supplement.priority)}</Pill>
+                          : humanize(supplement.priority))
+                        : null,
+                    },
+                    ...(supplement.request_type === 'estimate_request' ? [
+                      { key: 'ours', label: 'Our Estimate', value: <span className="sup-money sup-money-strong">{formatCurrency(supplement.our_estimate_amount)}</span> },
+                    ] : [
+                      { key: 'original', label: 'Original', value: <span className="sup-money">{formatCurrency(supplement.original_amount)}</span> },
+                      { key: 'supplement', label: 'Supplement', value: <span className="sup-money sup-money-strong">{formatCurrency(supplement.supplement_amount)}</span> },
+                      {
+                        key: 'difference',
+                        label: 'Difference',
+                        value: (
+                          <span className={supplement.difference > 0 ? 'sup-diff-up' : supplement.difference < 0 ? 'sup-diff-down' : 'sup-money'}>
+                            {formatSignedCurrency(supplement.difference)}
+                          </span>
+                        ),
+                      },
+                    ]),
+                    { key: 'submitted_to', label: 'Submitted To', value: supplement.submitted_to },
+                  ]}
+                />
+              </Col>
+            </Row>
             {supplement.reason && (
-              <div style={{ marginTop: 8 }}>
-                <Text type="secondary">Reason:</Text>
-                <div>{supplement.reason}</div>
+              <PropertyList
+                labelWidth={112}
+                items={[{ key: 'reason', label: 'Reason', value: <span style={{ whiteSpace: 'pre-wrap' }}>{supplement.reason}</span> }]}
+              />
+            )}
+          </section>
+
+          {/* Insurance company estimates */}
+          <section className="ui-section">
+            <div className="ui-section-head">
+              <h2 className="ui-section-title">
+                Insurance Company Estimates
+                {estimateVersions.length > 0 && (
+                  <span className="sup-section-count">
+                    {estimateVersions.length} version{estimateVersions.length > 1 ? 's' : ''}
+                  </span>
+                )}
+              </h2>
+              <Button size="small" icon={<UploadOutlined />} onClick={openEstimateUpload}>
+                Upload New Estimate
+              </Button>
+            </div>
+
+            {estimateVersionsLoading ? (
+              <div className="sup-empty">
+                <LoadingOutlined style={{ marginRight: 8 }} />
+                Loading...
+              </div>
+            ) : estimateVersions.length === 0 ? (
+              <div className="sup-empty">
+                No insurance estimates uploaded yet.{' '}
+                <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={openEstimateUpload}>
+                  Upload the carrier's estimate
+                </Button>
+              </div>
+            ) : (
+              <div>
+                {estimateVersions.map((ver, idx) => {
+                  const isEditing = editingSectionsVerId === ver.id;
+                  const sections = isEditing ? editingSections : (ver.sections_data || []);
+                  return (
+                    <div key={ver.id} className="sup-version">
+                      {/* Header row: revision + PDF + replace */}
+                      <div className="sup-version-head">
+                        <div className="sup-version-title">
+                          <span className="sup-version-rev">Rev #{ver.revision_number}</span>
+                          {ver.revision_type && <span>{humanize(ver.revision_type)}</span>}
+                          {idx === 0 && <Pill tone="blue">Latest</Pill>}
+                        </div>
+                        <div className="sup-version-actions">
+                          {ver.file_download_id ? (
+                            <a
+                              className="sup-file-chip"
+                              href={`${fileService.getDownloadUrl(ver.file_download_id)}?inline=true`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={ver.document_name || 'View PDF'}
+                            >
+                              <FilePdfOutlined className="sup-pdf-icon" />
+                              <span>{ver.document_name || 'View PDF'}</span>
+                            </a>
+                          ) : null}
+                          <Upload accept=".pdf" maxCount={1} showUploadList={false}
+                            disabled={replacingEstimateId === ver.id}
+                            beforeUpload={async (file) => {
+                              if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
+                              setReplacingEstimateId(ver.id);
+                              try {
+                                const uploaded = await fileService.uploadFiles([file], 'negotiation', supplement.claim_id, 'insurance_estimate');
+                                if (uploaded.length > 0) {
+                                  await supplementService.replaceInsuranceEstimatePdf(supplement.claim_id, ver.id, uploaded[0].id);
+                                  message.success('PDF replaced');
+                                  supplementService.listInsuranceEstimates(supplement.claim_id).then(setEstimateVersions);
+                                }
+                              } catch { message.error('Failed to replace PDF'); }
+                              finally { setReplacingEstimateId(null); }
+                              return false;
+                            }}>
+                            <Button type="text" size="small" className="ui-icon-btn"
+                              icon={replacingEstimateId === ver.id ? <LoadingOutlined /> : <UploadOutlined />}
+                              disabled={replacingEstimateId === ver.id}>
+                              {replacingEstimateId === ver.id ? 'Replacing...' : 'Replace'}
+                            </Button>
+                          </Upload>
+                        </div>
+                      </div>
+
+                      {/* Date / Notes */}
+                      {(ver.date_received || ver.received_from || ver.notes) && (
+                        <div className="sup-version-meta">
+                          {ver.date_received && <span>Received {dayjs(ver.date_received).format('MM/DD/YYYY')}</span>}
+                          {ver.received_from && <span>From {ver.received_from}</span>}
+                          {ver.notes && <span className="sup-version-notes">{ver.notes}</span>}
+                        </div>
+                      )}
+
+                      {/* Totals */}
+                      {isEditing ? (
+                        <div className="sup-figures">
+                          <label className="sup-figure">
+                            <span className="sup-figure-label">RCV</span>
+                            <InputNumber size="small" prefix="$" style={{ width: '100%' }}
+                              value={editingTotals.rcv}
+                              onChange={v => setEditingTotals(t => ({ ...t, rcv: v || 0, acv: (v || 0) - t.dep }))}
+                            />
+                          </label>
+                          <label className="sup-figure">
+                            <span className="sup-figure-label">ACV</span>
+                            <InputNumber size="small" prefix="$" style={{ width: '100%' }}
+                              value={editingTotals.acv}
+                              onChange={v => setEditingTotals(t => ({ ...t, acv: v || 0 }))}
+                            />
+                          </label>
+                          <label className="sup-figure">
+                            <span className="sup-figure-label">Depreciation</span>
+                            <InputNumber size="small" prefix="$" style={{ width: '100%' }}
+                              value={editingTotals.dep}
+                              onChange={v => setEditingTotals(t => ({ ...t, dep: v || 0, acv: t.rcv - (v || 0) }))}
+                            />
+                          </label>
+                          <label className="sup-figure">
+                            <span className="sup-figure-label">Deductible</span>
+                            <InputNumber size="small" prefix="$" style={{ width: '100%' }}
+                              value={editingTotals.ded}
+                              onChange={v => setEditingTotals(t => ({ ...t, ded: v || 0 }))}
+                            />
+                          </label>
+                          {/* With sections, Save lives under the section breakdown */}
+                          {!ver.sections_data?.length && (
+                            <div className="sup-figures-actions">
+                              <Button size="small" type="primary" loading={savingSections}
+                                onClick={() => saveEstimateTotals(ver.id)}>Save</Button>
+                              <Button size="small" onClick={() => setEditingSectionsVerId(null)}>Cancel</Button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="sup-figures">
+                          <div className="sup-figure">
+                            <span className="sup-figure-label">RCV</span>
+                            <span className="sup-figure-value sup-money-strong">{formatCurrency(ver.rcv_amount)}</span>
+                          </div>
+                          <div className="sup-figure">
+                            <span className="sup-figure-label">ACV</span>
+                            <span className="sup-figure-value sup-money-strong">{formatCurrency(ver.acv_amount)}</span>
+                          </div>
+                          <div className="sup-figure">
+                            <span className="sup-figure-label">Depreciation</span>
+                            <span className="sup-figure-value">{formatCurrency(ver.depreciation_amount)}</span>
+                          </div>
+                          <div className="sup-figure">
+                            <span className="sup-figure-label">Deductible</span>
+                            <span className="sup-figure-value">{formatCurrency(ver.deductible)}</span>
+                          </div>
+                          <div className="sup-figures-actions">
+                            <Button type="text" size="small" className="ui-icon-btn sup-edit-btn"
+                              aria-label={`Edit totals for revision ${ver.revision_number}`}
+                              onClick={() => {
+                                setEditingSectionsVerId(ver.id);
+                                setEditingSections((ver.sections_data || []).map((s: any) => ({ ...s })));
+                                setEditingTotals({ rcv: ver.rcv_amount || 0, acv: ver.acv_amount || 0, dep: ver.depreciation_amount || 0, ded: ver.deductible || 0 });
+                              }}>Edit</Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {ver.sections_data && ver.sections_data.length > 0 && (
+                        <Collapse
+                          ghost
+                          size="small"
+                          className="sup-sections-collapse"
+                          // Remount on edit so the breakdown (and its Save) opens
+                          key={isEditing ? 'editing' : 'viewing'}
+                          defaultActiveKey={isEditing ? ['sections'] : undefined}
+                          items={[{
+                            key: 'sections',
+                            label: `Section breakdown · ${sections.length} section${sections.length === 1 ? '' : 's'}`,
+                            children: isEditing ? (
+                              <div>
+                                {editingSections.map((sec: any, sIdx: number) => (
+                                  <div key={sIdx} className="sup-edit-block">
+                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                      <Input size="small" placeholder="Section name" value={sec.section_name}
+                                        aria-label="Section name"
+                                        onChange={e => {
+                                          const u = [...editingSections]; u[sIdx] = { ...u[sIdx], section_name: e.target.value }; setEditingSections(u);
+                                        }} />
+                                      <Button size="small" type="text" className="ui-icon-btn ui-icon-btn--danger" icon={<DeleteOutlined />}
+                                        aria-label="Remove section"
+                                        onClick={() => {
+                                          const u = editingSections.filter((_: any, i: number) => i !== sIdx);
+                                          setEditingSections(u);
+                                          const totRcv = u.reduce((s: number, x: any) => s + (x.rcv || 0), 0);
+                                          const totDep = u.reduce((s: number, x: any) => s + (x.depreciation || 0), 0);
+                                          setEditingTotals(t => ({ ...t, rcv: totRcv, dep: totDep, acv: totRcv - totDep }));
+                                        }} />
+                                    </div>
+                                    <div className="sup-figures sup-figures--3">
+                                      <label className="sup-figure">
+                                        <span className="sup-figure-label">RCV</span>
+                                        <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                                          value={sec.rcv} onChange={v => {
+                                            const u = [...editingSections]; const rcv = v || 0; const dep = u[sIdx].depreciation || 0;
+                                            u[sIdx] = { ...u[sIdx], rcv, net_acv: rcv - dep }; setEditingSections(u);
+                                            const totRcv = u.reduce((s: number, x: any) => s + (x.rcv || 0), 0);
+                                            const totDep = u.reduce((s: number, x: any) => s + (x.depreciation || 0), 0);
+                                            setEditingTotals(t => ({ ...t, rcv: totRcv, dep: totDep, acv: totRcv - totDep }));
+                                          }} />
+                                      </label>
+                                      <label className="sup-figure">
+                                        <span className="sup-figure-label">Depreciation</span>
+                                        <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                                          value={sec.depreciation} onChange={v => {
+                                            const u = [...editingSections]; const dep = v || 0; const rcv = u[sIdx].rcv || 0;
+                                            u[sIdx] = { ...u[sIdx], depreciation: dep, net_acv: rcv - dep }; setEditingSections(u);
+                                            const totRcv = u.reduce((s: number, x: any) => s + (x.rcv || 0), 0);
+                                            const totDep = u.reduce((s: number, x: any) => s + (x.depreciation || 0), 0);
+                                            setEditingTotals(t => ({ ...t, rcv: totRcv, dep: totDep, acv: totRcv - totDep }));
+                                          }} />
+                                      </label>
+                                      <label className="sup-figure">
+                                        <span className="sup-figure-label">Net ACV</span>
+                                        <InputNumber size="small" prefix="$" style={{ width: '100%' }} value={sec.net_acv} disabled />
+                                      </label>
+                                    </div>
+                                  </div>
+                                ))}
+                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                                  <Button size="small" icon={<PlusOutlined />} onClick={() => {
+                                    setEditingSections([...editingSections, { section_name: '', rcv: 0, depreciation: 0, net_acv: 0 }]);
+                                  }}>Add Section</Button>
+                                  <Button size="small" type="primary" loading={savingSections}
+                                    onClick={() => saveEstimateTotals(ver.id)}>Save</Button>
+                                  <Button size="small" onClick={() => setEditingSectionsVerId(null)}>Cancel</Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="sup-breakdown">
+                                {ver.sections_data.map((s: any, sIdx: number) => (
+                                  <div key={sIdx} className="sup-breakdown-row">
+                                    <span className="sup-breakdown-name">{s.section_name}</span>
+                                    <span className="sup-breakdown-nums">
+                                      <span>RCV {formatCurrency(s.rcv || 0)}</span>
+                                      <span className="sup-muted">Dep {formatCurrency(s.depreciation || 0)}</span>
+                                      <span className="sup-muted">ACV {formatCurrency(s.net_acv || 0)}</span>
+                                    </span>
+                                  </div>
+                                ))}
+                                {/* Edit via the Edit button next to totals */}
+                              </div>
+                            ),
+                          }]}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
-          </Col>
-          <Col xs={24} md={9}>
-            <div style={{ padding: '10px 12px', background: '#fafafa', borderRadius: 6, height: '100%' }}>
-              <Text strong style={{ display: 'block', marginBottom: 10 }}>Assigned Companies</Text>
-              <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                <div>
-                  <Text type="secondary" style={{ fontSize: 11 }}>Water Mitigation</Text>
-                  <div style={{ marginTop: 2 }}>
-                    {supplement.wm_company_name ? (
-                      <Tag color="cyan">{supplement.wm_company_name}</Tag>
-                    ) : (
-                      <Text type="secondary" style={{ fontSize: 12 }}>Not assigned</Text>
-                    )}
-                  </div>
+          </section>
+
+          {/* Bid item estimates */}
+          <section className="ui-section">
+            <div className="ui-section-head">
+              <h2 className="ui-section-title">
+                Bid Item Estimates
+                {bidItems.length > 0 && <span className="sup-section-count">{bidItems.length}</span>}
+              </h2>
+              <Button size="small" icon={<PlusOutlined />} onClick={() => setBidItemModalOpen(true)}>
+                Add Bid Item
+              </Button>
+            </div>
+
+            {/* Required estimates: checking one creates its bid item on save */}
+            <div className="sup-required">
+              <span className="sup-required-label">Required estimates</span>
+              <Checkbox.Group
+                className="sup-required-options"
+                value={editedRequiredEstimates}
+                onChange={(checkedValues) => {
+                  setEditedRequiredEstimates(checkedValues as string[]);
+                  setRequiredEstimatesDirty(true);
+                }}
+                options={REQUIRED_ESTIMATE_OPTIONS.map(opt => ({ value: opt.key, label: opt.label }))}
+              />
+              {requiredEstimatesDirty && (
+                <div className="sup-required-save">
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<SaveOutlined />}
+                    loading={updateMutation.isPending}
+                    onClick={saveRequiredEstimates}
+                  >
+                    Save
+                  </Button>
+                  <span className="sup-field-label">Checked estimates get a bid item</span>
                 </div>
-                <div>
-                  <Text type="secondary" style={{ fontSize: 11 }}>Rebuild (Supplement)</Text>
-                  <div style={{ marginTop: 2 }}>
+              )}
+            </div>
+
+            {bidItems.length === 0 ? (
+              <div className="sup-empty">
+                No bid items yet. Check a required estimate above or{' '}
+                <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={() => setBidItemModalOpen(true)}>
+                  add a bid item
+                </Button>.
+              </div>
+            ) : (
+              <>
+                {hasXactimate && inXactTotal > 0 && (
+                  <div className="sup-note">
+                    <InfoCircleOutlined aria-hidden="true" />
+                    <span>Some items are included in Xactimate. Net Xactimate = {formatCurrency(xactNet)}.</span>
+                  </div>
+                )}
+
+                {isMobile ? (
+                  <div className="sup-bid-list">
+                    {bidItems.map(item => (
+                      <div key={item.id} className="sup-bid-row">
+                        <div className="sup-bid-row-top">
+                          <Pill tone="gray">{BID_TYPE_LABELS[item.estimate_type] || item.estimate_type}</Pill>
+                          <div style={{ flex: 1 }} />
+                          {renderBidDelete(item)}
+                        </div>
+                        {renderBidTitle(item)}
+                        <div className="sup-bid-row-controls">
+                          <div style={{ flex: '1 1 160px' }}>{renderBidAmount(item)}</div>
+                          {hasXactimate && renderInXact(item, true)}
+                          {renderBidPdf(item)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <Table
+                    size="small"
+                    className="sup-bid-table"
+                    dataSource={bidItems}
+                    rowKey="id"
+                    pagination={false}
+                    scroll={{ x: 640 }}
+                    columns={[
+                      { title: 'Type', dataIndex: 'estimate_type', key: 'type', width: 104,
+                        render: (v: string) => <Pill tone="gray">{BID_TYPE_LABELS[v] || v}</Pill> },
+                      { title: 'Title / Notes', key: 'title', render: (_: any, item: BidItemEstimate) => renderBidTitle(item) },
+                      { title: 'Amount', dataIndex: 'custom_amount', key: 'amount', width: 150, align: 'right' as const,
+                        render: (_: any, item: BidItemEstimate) => renderBidAmount(item) },
+                      ...(hasXactimate ? [{
+                        title: 'In Xact', key: 'in_xact', width: 72, align: 'center' as const,
+                        render: (_: any, item: BidItemEstimate) => renderInXact(item),
+                      }] : []),
+                      { title: 'PDF', key: 'pdf', width: 120, align: 'center' as const,
+                        render: (_: any, item: BidItemEstimate) => renderBidPdf(item) },
+                      { title: <span className="ui-sr-only">Delete</span>, key: 'del', width: 40, align: 'center' as const,
+                        render: (_: any, item: BidItemEstimate) => renderBidDelete(item) },
+                    ]}
+                  />
+                )}
+
+                {/* Summary */}
+                <div className="sup-totals">
+                  {hasXactimate && inXactTotal > 0 && (
+                    <div className="sup-totals-breakdown">
+                      <div className="sup-totals-row">
+                        <span>Xactimate</span>
+                        <span>{formatCurrency(xactOriginal)}</span>
+                      </div>
+                      {inXactItems.map(i => (
+                        <div key={i.id} className="sup-totals-row sup-totals-row--sub">
+                          <span>− {BID_TYPE_LABELS[i.estimate_type] || i.estimate_type}: {i.title}</span>
+                          <span>−{formatCurrency(i.custom_amount)}</span>
+                        </div>
+                      ))}
+                      <div className="sup-totals-row">
+                        <span>Xactimate (net)</span>
+                        <strong>{formatCurrency(xactNet)}</strong>
+                      </div>
+                      {inXactItems.map(i => (
+                        <div key={i.id} className="sup-totals-row">
+                          <span>{BID_TYPE_LABELS[i.estimate_type] || i.estimate_type}: {i.title}</span>
+                          <span>{formatCurrency(i.custom_amount)}</span>
+                        </div>
+                      ))}
+                      {separateItems.map(i => (
+                        <div key={i.id} className="sup-totals-row">
+                          <span>{BID_TYPE_LABELS[i.estimate_type] || i.estimate_type}: {i.title}</span>
+                          <span>{formatCurrency(i.custom_amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="sup-totals-grand">
+                    <span>Supplement Total</span>
+                    <span>{formatCurrency(hasXactimate && inXactTotal > 0 ? supplementTotal : supplement.supplement_amount)}</span>
+                  </div>
+                  {!hasBidPdf && (
+                    <div className="sup-totals-hint">Upload bid item PDFs first, then send the supplement to the PA from the top of the page.</div>
+                  )}
+                </div>
+              </>
+            )}
+          </section>
+        </Col>
+
+        <Col xs={24} lg={8}>
+          {/* People on this claim */}
+          <section className="ui-section">
+            <div className="ui-section-head">
+              <h2 className="ui-section-title">Assigned Companies</h2>
+            </div>
+            <PropertyList
+              labelWidth={112}
+              items={[
+                {
+                  key: 'wm',
+                  label: 'Water Mitigation',
+                  value: wmCompany ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      {(wmCompany as any).company_code && <CompanyTag company={wmCompany as any} />}
+                      {wmCompany.name}
+                    </span>
+                  ) : <span className="ui-props-empty">Not assigned</span>,
+                },
+                {
+                  key: 'rebuild',
+                  label: 'Rebuild',
+                  value: (
                     <Select
                       size="small"
                       style={{ width: '100%' }}
                       placeholder="Select rebuild company..."
+                      aria-label="Rebuild company"
                       value={supplement.rebuild_company_id || undefined}
                       loading={assignRebuildCompanyMutation.isPending}
                       allowClear
@@ -709,782 +1506,23 @@ const SupplementDetail: React.FC = () => {
                         .filter((c: any) => c.is_active && c.id !== supplement.wm_company_id)
                         .map((c: any) => ({ value: c.id, label: c.name }))}
                     />
-                  </div>
-                </div>
-                <div>
-                  <Text type="secondary" style={{ fontSize: 11 }}>Public Adjuster (PA)</Text>
-                  <div style={{ marginTop: 2 }}>
-                    {paDisplayInfo?.pa_name ? (
-                      <Space direction="vertical" size={0}>
-                        <Text strong style={{ fontSize: 13 }}>{paDisplayInfo.pa_name}</Text>
-                        {paDisplayInfo.pa_email && (
-                          <Text type="secondary" style={{ fontSize: 11 }}>{paDisplayInfo.pa_email}</Text>
-                        )}
-                        {paDisplayInfo.pa_phone && (
-                          <Text type="secondary" style={{ fontSize: 11 }}>{paDisplayInfo.pa_phone}</Text>
-                        )}
-                        {paDisplayInfo.pa_company && (
-                          <Tag color="purple" style={{ marginTop: 2, fontSize: 11 }}>{paDisplayInfo.pa_company}</Tag>
-                        )}
-                      </Space>
-                    ) : (
-                      <Text type="secondary" style={{ fontSize: 12 }}>Not assigned</Text>
-                    )}
-                  </div>
-                </div>
-              </Space>
-            </div>
-          </Col>
-        </Row>
-      </Card>
-
-      {/* Insurance Company Estimates + Required Estimates + Bid Items */}
-      <Row gutter={16} align="top" style={{ marginBottom: 16 }}>
-      <Col xs={24} lg={10}>
-      <Card style={{ marginBottom: 12 }}>
-        <Collapse
-          size="small"
-          defaultActiveKey={['insurance-estimates']}
-          items={[{
-            key: 'insurance-estimates',
-            label: (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', paddingRight: 8 }}>
-                <Space>
-                  <FileTextOutlined />
-                  <Text strong>Insurance Company Estimates</Text>
-                  {estimateVersions.length > 0 && (
-                    <Tag color="blue">{estimateVersions.length} version{estimateVersions.length > 1 ? 's' : ''}</Tag>
-                  )}
-                </Space>
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<UploadOutlined />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    uploadEstimateForm.resetFields();
-                    setUploadEstimateFileId(null);
-                    setUploadEstimateFileName(null);
-                    setUploadEstimateModalOpen(true);
-                  }}
-                >
-                  Upload New Estimate
-                </Button>
-              </div>
-            ),
-            children: estimateVersionsLoading ? (
-              <div style={{ textAlign: 'center', padding: 16 }}>
-                <LoadingOutlined style={{ marginRight: 8 }} />
-                <Text type="secondary">Loading...</Text>
-              </div>
-            ) : (
-              <div>
-                {estimateVersions.length === 0 ? (
-                  <Empty description="No insurance estimates uploaded yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                ) : (
-                  <div>
-                    {estimateVersions.map((ver, idx) => (
-                      <Card
-                        key={ver.id}
-                        size="small"
-                        style={{
-                          marginBottom: 8,
-                          border: idx === 0 ? '1px solid #1890ff' : '1px solid #f0f0f0',
-                          background: idx === 0 ? '#f6fbff' : '#fff',
-                        }}
-                      >
-                        <div>
-                          {/* Header row: tags + PDF + replace */}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
-                            <Space size={6} wrap>
-                              <Tag color={idx === 0 ? 'blue' : 'default'}>Rev #{ver.revision_number}</Tag>
-                              <Tag color={
-                                ver.revision_type === 'initial' ? 'green' :
-                                ver.revision_type === 'supplement' ? 'orange' :
-                                ver.revision_type === 're_inspection' ? 'purple' :
-                                ver.revision_type === 'appraisal' ? 'cyan' :
-                                ver.revision_type === 'final' ? 'gold' : 'default'
-                              }>
-                                {ver.revision_type?.replace('_', ' ').toUpperCase()}
-                              </Tag>
-                              {idx === 0 && <Tag color="processing">LATEST</Tag>}
-                            </Space>
-                            <Space size={4}>
-                              {ver.file_download_id ? (
-                                <a href={`${fileService.getDownloadUrl(ver.file_download_id)}?inline=true`} target="_blank" rel="noopener noreferrer">
-                                  <Button size="small" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />}>
-                                    <span style={{ display: 'inline-block', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
-                                      {ver.document_name || 'View PDF'}
-                                    </span>
-                                  </Button>
-                                </a>
-                              ) : null}
-                              <Upload accept=".pdf" maxCount={1} showUploadList={false}
-                                disabled={replacingEstimateId === ver.id}
-                                beforeUpload={async (file) => {
-                                  if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
-                                  setReplacingEstimateId(ver.id);
-                                  try {
-                                    const uploaded = await fileService.uploadFiles([file], 'negotiation', supplement.claim_id, 'insurance_estimate');
-                                    if (uploaded.length > 0) {
-                                      await supplementService.replaceInsuranceEstimatePdf(supplement.claim_id, ver.id, uploaded[0].id);
-                                      message.success('PDF replaced');
-                                      supplementService.listInsuranceEstimates(supplement.claim_id).then(setEstimateVersions);
-                                    }
-                                  } catch { message.error('Failed to replace PDF'); }
-                                  finally { setReplacingEstimateId(null); }
-                                  return false;
-                                }}>
-                                <Button type="text" size="small"
-                                  icon={replacingEstimateId === ver.id ? <LoadingOutlined /> : <UploadOutlined />}
-                                  disabled={replacingEstimateId === ver.id} style={{ fontSize: 11 }}>
-                                  {replacingEstimateId === ver.id ? '...' : 'Replace'}
-                                </Button>
-                              </Upload>
-                            </Space>
-                          </div>
-
-                          {/* Date / Notes */}
-                          {(ver.date_received || ver.received_from || ver.notes) && (
-                            <div style={{ fontSize: 11, marginBottom: 4, color: '#8c8c8c' }}>
-                              {ver.date_received && <span>Received: {dayjs(ver.date_received).format('MM/DD/YYYY')}</span>}
-                              {ver.received_from && <span>{ver.date_received ? ' · ' : ''}From: {ver.received_from}</span>}
-                              {ver.notes && <span style={{ display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ver.notes}</span>}
-                            </div>
-                          )}
-
-                          {/* Totals */}
-                          {editingSectionsVerId === ver.id ? (
-                            <Row gutter={[8, 4]} style={{ marginTop: 4 }}>
-                              <Col span={12}>
-                                <Text type="secondary" style={{ fontSize: 10 }}>RCV</Text>
-                                <InputNumber size="small" prefix="$" style={{ width: '100%' }}
-                                  value={editingTotals.rcv}
-                                  onChange={v => setEditingTotals(t => ({ ...t, rcv: v || 0, acv: (v || 0) - t.dep }))}
-                                />
-                              </Col>
-                              <Col span={12}>
-                                <Text type="secondary" style={{ fontSize: 10 }}>ACV</Text>
-                                <InputNumber size="small" prefix="$" style={{ width: '100%' }}
-                                  value={editingTotals.acv}
-                                  onChange={v => setEditingTotals(t => ({ ...t, acv: v || 0 }))}
-                                />
-                              </Col>
-                              <Col span={12}>
-                                <Text type="secondary" style={{ fontSize: 10 }}>Depreciation</Text>
-                                <InputNumber size="small" prefix="$" style={{ width: '100%' }}
-                                  value={editingTotals.dep}
-                                  onChange={v => setEditingTotals(t => ({ ...t, dep: v || 0, acv: t.rcv - (v || 0) }))}
-                                />
-                              </Col>
-                              <Col span={12}>
-                                <Text type="secondary" style={{ fontSize: 10 }}>Deductible</Text>
-                                <InputNumber size="small" prefix="$" style={{ width: '100%' }}
-                                  value={editingTotals.ded}
-                                  onChange={v => setEditingTotals(t => ({ ...t, ded: v || 0 }))}
-                                />
-                              </Col>
-                              {/* With sections, Save lives under the section breakdown */}
-                              {!ver.sections_data?.length && (
-                                <Col span={24}>
-                                  <Space style={{ marginTop: 4 }}>
-                                    <Button size="small" type="primary" loading={savingSections}
-                                      onClick={() => saveEstimateTotals(ver.id)}>Save</Button>
-                                    <Button size="small" onClick={() => setEditingSectionsVerId(null)}>Cancel</Button>
-                                  </Space>
-                                </Col>
-                              )}
-                            </Row>
-                          ) : (
-                            <div style={{ display: 'flex', gap: 12, fontSize: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                              <span><Text type="secondary">RCV: </Text><Text strong>{formatCurrency(ver.rcv_amount)}</Text></span>
-                              <span><Text type="secondary">ACV: </Text><Text strong>{formatCurrency(ver.acv_amount)}</Text></span>
-                              <span><Text type="secondary">Dep: </Text><Text>{formatCurrency(ver.depreciation_amount)}</Text></span>
-                              <span><Text type="secondary">Ded: </Text><Text>{formatCurrency(ver.deductible)}</Text></span>
-                              <Button type="text" size="small" style={{ fontSize: 11, padding: '0 4px' }}
-                                onClick={() => {
-                                  setEditingSectionsVerId(ver.id);
-                                  setEditingSections((ver.sections_data || []).map((s: any) => ({ ...s })));
-                                  setEditingTotals({ rcv: ver.rcv_amount || 0, acv: ver.acv_amount || 0, dep: ver.depreciation_amount || 0, ded: ver.deductible || 0 });
-                                }}>Edit</Button>
-                            </div>
-                          )}
-                        </div>
-
-                        {ver.sections_data && ver.sections_data.length > 0 && (() => {
-                          const isEditing = editingSectionsVerId === ver.id;
-                          return (
-                            <Collapse size="small" style={{ marginTop: 8 }} items={[{
-                              key: 'sections',
-                              label: (
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                                  <Text style={{ fontSize: 11 }}>Section Breakdown ({(isEditing ? editingSections : ver.sections_data).length} sections)</Text>
-                                </div>
-                              ),
-                              children: isEditing ? (
-                                <div>
-                                  {editingSections.map((sec: any, idx: number) => (
-                                    <div key={idx} style={{ background: '#fafafa', borderRadius: 6, padding: '8px 10px', marginBottom: 6 }}>
-                                      <Row gutter={8} align="middle">
-                                        <Col flex="auto">
-                                          <Input size="small" placeholder="Section name" value={sec.section_name}
-                                            onChange={e => {
-                                              const u = [...editingSections]; u[idx] = { ...u[idx], section_name: e.target.value }; setEditingSections(u);
-                                            }} />
-                                        </Col>
-                                        <Col flex="none">
-                                          <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => {
-                                            const u = editingSections.filter((_: any, i: number) => i !== idx);
-                                            setEditingSections(u);
-                                            const totRcv = u.reduce((s: number, x: any) => s + (x.rcv || 0), 0);
-                                            const totDep = u.reduce((s: number, x: any) => s + (x.depreciation || 0), 0);
-                                            setEditingTotals(t => ({ ...t, rcv: totRcv, dep: totDep, acv: totRcv - totDep }));
-                                          }} />
-                                        </Col>
-                                      </Row>
-                                      <Row gutter={8} style={{ marginTop: 4 }}>
-                                        <Col span={8}>
-                                          <Text type="secondary" style={{ fontSize: 11 }}>RCV</Text>
-                                          <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
-                                            value={sec.rcv} onChange={v => {
-                                              const u = [...editingSections]; const rcv = v || 0; const dep = u[idx].depreciation || 0;
-                                              u[idx] = { ...u[idx], rcv, net_acv: rcv - dep }; setEditingSections(u);
-                                              const totRcv = u.reduce((s: number, x: any) => s + (x.rcv || 0), 0);
-                                              const totDep = u.reduce((s: number, x: any) => s + (x.depreciation || 0), 0);
-                                              setEditingTotals(t => ({ ...t, rcv: totRcv, dep: totDep, acv: totRcv - totDep }));
-                                            }} />
-                                        </Col>
-                                        <Col span={8}>
-                                          <Text type="secondary" style={{ fontSize: 11 }}>Depreciation</Text>
-                                          <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
-                                            value={sec.depreciation} onChange={v => {
-                                              const u = [...editingSections]; const dep = v || 0; const rcv = u[idx].rcv || 0;
-                                              u[idx] = { ...u[idx], depreciation: dep, net_acv: rcv - dep }; setEditingSections(u);
-                                              const totRcv = u.reduce((s: number, x: any) => s + (x.rcv || 0), 0);
-                                              const totDep = u.reduce((s: number, x: any) => s + (x.depreciation || 0), 0);
-                                              setEditingTotals(t => ({ ...t, rcv: totRcv, dep: totDep, acv: totRcv - totDep }));
-                                            }} />
-                                        </Col>
-                                        <Col span={8}>
-                                          <Text type="secondary" style={{ fontSize: 11 }}>Net ACV</Text>
-                                          <InputNumber size="small" prefix="$" style={{ width: '100%' }} value={sec.net_acv} disabled />
-                                        </Col>
-                                      </Row>
-                                    </div>
-                                  ))}
-                                  <Space style={{ marginTop: 4 }}>
-                                    <Button size="small" icon={<PlusOutlined />} onClick={() => {
-                                      setEditingSections([...editingSections, { section_name: '', rcv: 0, depreciation: 0, net_acv: 0 }]);
-                                    }}>Add Section</Button>
-                                    <Button size="small" type="primary" loading={savingSections}
-                                      onClick={() => saveEstimateTotals(ver.id)}>Save</Button>
-                                    <Button size="small" onClick={() => setEditingSectionsVerId(null)}>Cancel</Button>
-                                  </Space>
-                                </div>
-                              ) : (
-                                <div>
-                                  {ver.sections_data.map((s: any, sIdx: number) => (
-                                    <div key={sIdx} style={{
-                                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                      padding: '4px 8px', borderRadius: 4, marginBottom: 2,
-                                      background: '#fafafa',
-                                    }}>
-                                      <Text style={{ fontSize: 12 }}>{s.section_name}</Text>
-                                      <Text style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
-                                        RCV {formatCurrency(s.rcv || 0)}
-                                        <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>Dep {formatCurrency(s.depreciation || 0)}</Text>
-                                        <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>ACV {formatCurrency(s.net_acv || 0)}</Text>
-                                      </Text>
-                                    </div>
-                                  ))}
-                                  {/* Edit via the Edit button next to totals */}
-                                </div>
-                              ),
-                            }]} />
-                          );
-                        })()}
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ),
-          }]}
-        />
-      </Card>
-
-      <Card>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <Text strong>Required Estimates</Text>
-          {requiredEstimatesDirty && (
-            <Button
-              size="small"
-              type="primary"
-              icon={<SaveOutlined />}
-              loading={updateMutation.isPending}
-              onClick={() => {
-                const required_estimates: Record<string, boolean> = {};
-                REQUIRED_ESTIMATE_OPTIONS.forEach(opt => {
-                  required_estimates[opt.key] = editedRequiredEstimates.includes(opt.key);
-                });
-                const hasAnyChecked = editedRequiredEstimates.length > 0;
-                const updateData: Partial<SupplementRequest> = { required_estimates };
-                if (hasAnyChecked && supplement.status === 'identified') {
-                  updateData.status = 'in_progress';
-                }
-                const previouslyChecked = Object.entries(supplement.required_estimates || {})
-                  .filter(([, v]) => v).map(([k]) => k);
-                const newlyChecked = editedRequiredEstimates.filter(k => !previouslyChecked.includes(k));
-                const newlyUnchecked = previouslyChecked.filter(k => !editedRequiredEstimates.includes(k));
-
-                updateMutation.mutate(updateData, {
-                  onSuccess: async () => {
-                    setRequiredEstimatesDirty(false);
-                    queryClient.invalidateQueries({ queryKey: ['supplements-pending-review'] });
-
-                    // Auto-create a blank bid item for each newly checked
-                    // required estimate that doesn't already have one.
-                    const bidItems = supplement.bid_items || [];
-                    const toCreate = newlyChecked
-                      .map(key => REQUIRED_ESTIMATE_TO_BID_TYPE[key])
-                      .filter((type): type is BidItemType => !!type)
-                      .filter(type => !bidItems.some(i => i.estimate_type === type));
-
-                    // Auto-remove bid items for unchecked estimates, but only
-                    // if they're still empty (untouched since auto-creation).
-                    const toRemove = newlyUnchecked
-                      .map(key => REQUIRED_ESTIMATE_TO_BID_TYPE[key])
-                      .filter((type): type is BidItemType => !!type)
-                      .map(type => bidItems.find(i => i.estimate_type === type))
-                      .filter((item): item is BidItemEstimate => !!item && isEmptyBidItem(item));
-
-                    if (toCreate.length === 0 && toRemove.length === 0) return;
-
-                    try {
-                      await Promise.all([
-                        ...toCreate.map(type => supplementService.createBidItem(supplement.id, {
-                          supplement_id: supplement.id,
-                          estimate_type: type,
-                          title: BID_TYPE_LABELS[type] || type,
-                        })),
-                        ...toRemove.map(item => supplementService.deleteBidItem(supplement.id, item.id)),
-                      ]);
-                      refreshSupplement();
-                    } catch {
-                      message.error('Failed to sync bid items with required estimates');
-                    }
-                  },
-                });
-              }}
-            >
-              Save
-            </Button>
-          )}
-        </div>
-        <Checkbox.Group
-          value={editedRequiredEstimates}
-          onChange={(checkedValues) => {
-            setEditedRequiredEstimates(checkedValues as string[]);
-            setRequiredEstimatesDirty(true);
-          }}
-        >
-          <Row>
-            {REQUIRED_ESTIMATE_OPTIONS.map(opt => (
-              <Col span={24} key={opt.key}>
-                <Checkbox value={opt.key}>{opt.label}</Checkbox>
-              </Col>
-            ))}
-          </Row>
-        </Checkbox.Group>
-      </Card>
-      </Col>
-      <Col xs={24} lg={14}>
-      {/* Bid Items */}
-      <Card>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <Text strong>Bid Item Estimates</Text>
-          <Button size="small" icon={<PlusOutlined />} onClick={() => setBidItemModalOpen(true)}>
-            Add Bid Item
-          </Button>
-        </div>
-
-        {(supplement.bid_items || []).length === 0 ? (
-          <Empty description="No bid items yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        ) : (
-          <>
-            {hasXactimate && inXactTotal > 0 && (
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 8 }}
-                message={
-                  <Text style={{ fontSize: 12 }}>
-                    Some items are included in Xactimate. Net Xactimate = {formatCurrency(xactNet)}.
-                  </Text>
-                }
-              />
-            )}
-            <Table
-              size="small"
-              dataSource={supplement.bid_items || []}
-              rowKey="id"
-              pagination={false}
-              scroll={{ x: 600 }}
-              style={{ fontSize: 12 }}
-              rowClassName={() => 'bid-item-row'}
-              columns={[
-                { title: 'Type', dataIndex: 'estimate_type', key: 'type', width: 100,
-                  render: (v: string) => <Tag>{BID_TYPE_LABELS[v] || v}</Tag> },
-                { title: 'Title / Notes', key: 'title', render: (_: any, item: BidItemEstimate) => (
-                  <div>
-                    <Text
-                      style={{ fontSize: 13 }}
-                      editable={{
-                        tooltip: 'Edit title',
-                        onChange: (val) => {
-                          updateBidItemMutation.mutate({
-                            supplementId: supplement.id,
-                            itemId: item.id,
-                            data: { title: val },
-                          });
-                        },
-                      }}
-                    >
-                      {item.title}
-                    </Text>
-                    <div style={{ marginTop: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-                        <div style={{ flex: 1 }}>
-                          <Text
-                            type="secondary"
-                            style={{ fontSize: 11, whiteSpace: 'pre-wrap' }}
-                            editable={{
-                              tooltip: 'Edit scope notes (included in PA email)',
-                              onChange: (val) => {
-                                updateBidItemMutation.mutate({
-                                  supplementId: supplement.id,
-                                  itemId: item.id,
-                                  data: { description: val || '' },
-                                });
-                              },
-                            }}
-                          >
-                            {item.description || ''}
-                          </Text>
-                          {!item.description && (
-                            <Text
-                              type="secondary"
-                              style={{ fontSize: 11, fontStyle: 'italic', cursor: 'pointer', color: '#bbb' }}
-                              onClick={(e) => {
-                                const editBtn = (e.currentTarget.previousElementSibling as HTMLElement)?.querySelector('.ant-typography-edit');
-                                if (editBtn) (editBtn as HTMLElement).click();
-                              }}
-                            >
-                              + Add scope notes
-                            </Text>
-                          )}
-                        </div>
-                        {item.description && item.description.trim() && (
-                          <Tooltip title="AI polish">
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={polishingItemId === item.id ? <LoadingOutlined /> : <ThunderboltOutlined />}
-                              disabled={polishingItemId === item.id}
-                              style={{ padding: '0 4px', height: 20, fontSize: 11, color: '#722ed1' }}
-                              onClick={async () => {
-                                setPolishingItemId(item.id);
-                                try {
-                                  const result = await supplementService.polishScopeNotes(
-                                    item.description || '', item.estimate_type,
-                                  );
-                                  if (result.polished) {
-                                    updateBidItemMutation.mutate({
-                                      supplementId: supplement.id,
-                                      itemId: item.id,
-                                      data: { description: result.polished },
-                                    });
-                                    message.success('Scope notes polished');
-                                  }
-                                } catch {
-                                  message.error('Failed to polish notes');
-                                } finally {
-                                  setPolishingItemId(null);
-                                }
-                              }}
-                            />
-                          </Tooltip>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ) },
-                { title: 'Amount', dataIndex: 'custom_amount', width: 140, align: 'right' as const,
-                  render: (v: number | undefined, item: BidItemEstimate) => (
-                    <div>
-                      <InputNumber
-                        key={`${item.id}-${v}`}
-                        size="small"
-                        min={0}
-                        step={0.01}
-                        prefix="$"
-                        defaultValue={v || 0}
-                        style={{
-                          width: '100%',
-                          ...(item.included_in_xactimate ? { textDecoration: 'line-through', color: '#8c8c8c' } : {}),
-                        }}
-                        formatter={val => `${val}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                        parser={val => val?.replace(/[,$]/g, '') as any}
-                        onBlur={(e) => {
-                          const raw = e.target.value?.replace(/[,$]/g, '');
-                          const num = parseFloat(raw || '0');
-                          if (num !== (v || 0)) {
-                            updateBidItemMutation.mutate({
-                              supplementId: supplement.id,
-                              itemId: item.id,
-                              data: { custom_amount: num },
-                            });
-                          }
-                        }}
-                        onPressEnter={(e) => (e.target as HTMLInputElement).blur()}
-                      />
-                      {item.estimate_type === 'xactimate' && inXactTotal > 0 && (
-                        <div style={{ marginTop: 2 }}>
-                          <Text type="secondary" style={{ fontSize: 11 }}>
-                            − {formatCurrency(inXactTotal)}
-                          </Text>
-                          <br />
-                          <Text strong style={{ fontSize: 12, color: '#1890ff' }}>
-                            = {formatCurrency(xactNet)}
-                          </Text>
-                        </div>
-                      )}
-                    </div>
-                  ) },
-                ...(hasXactimate ? [{
-                  title: 'In Xact', key: 'in_xact', width: 70, align: 'center' as const,
-                  render: (_: any, item: BidItemEstimate) => item.estimate_type === 'xactimate' ? (
-                    <Text type="secondary">-</Text>
-                  ) : (
-                    <Tooltip title="Xactimate에 이 항목 금액이 포함되어 있으면 체크">
-                      <Checkbox
-                        checked={item.included_in_xactimate}
-                        onChange={e => {
-                          updateBidItemMutation.mutate({
-                            supplementId: supplement.id,
-                            itemId: item.id,
-                            data: { included_in_xactimate: e.target.checked },
-                          });
-                        }}
-                      />
-                    </Tooltip>
                   ),
-                }] : []),
-                { title: 'PDF', key: 'pdf', width: 90, align: 'center' as const,
-                  render: (_: any, item: BidItemEstimate) => {
-                    const linkedType = item.bathroom_estimate_id ? 'bathroom'
-                      : item.cabinet_estimate_id ? 'cabinet'
-                      : item.pack_calculation_id ? 'packing'
-                      : null;
-                    const linkedId = item.bathroom_estimate_id || item.cabinet_estimate_id || item.pack_calculation_id || null;
-                    return (
-                      <Space size={2} direction="vertical" align="center">
-                        {linkedType && linkedId && (
-                          <Tooltip title={`View ${BID_TYPE_LABELS[linkedType]} Estimate PDF`}>
-                            <Button
-                              type="link"
-                              size="small"
-                              icon={<FilePdfOutlined style={{ color: '#1890ff' }} />}
-                              loading={pdfLoading}
-                              onClick={() => openEstimatePdf(linkedType, linkedId)}
-                              style={{ padding: 0, fontSize: 11 }}
-                            >
-                              Estimate
-                            </Button>
-                          </Tooltip>
-                        )}
-                        {item.custom_document_file_id ? (
-                          <Space size={4}>
-                            <Tooltip title={item.custom_document_file_name || 'View uploaded PDF'}>
-                              <a href={`${fileService.getDownloadUrl(item.custom_document_file_id)}?inline=true`}
-                                target="_blank" rel="noopener noreferrer">
-                                <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 14 }} />
-                              </a>
-                            </Tooltip>
-                            <Upload
-                              accept=".pdf"
-                              maxCount={1}
-                              showUploadList={false}
-                              beforeUpload={async (file) => {
-                                if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
-                                try {
-                                  const uploaded = await fileService.uploadFiles([file], 'supplement_bid_item', item.id, 'estimate_pdf');
-                                  if (uploaded.length > 0) {
-                                    const mutData: any = { custom_document_file_id: uploaded[0].id, custom_document_file_name: file.name };
-                                    // Auto-extract total amount from PDF
-                                    try {
-                                      const result = await supplementService.extractBidItemTotal(file as unknown as File);
-                                      if (result?.total_amount && result.total_amount > 0) {
-                                        mutData.custom_amount = result.total_amount;
-                                        message.success(`Extracted total: ${formatCurrency(result.total_amount)}`);
-                                      }
-                                    } catch { /* silent */ }
-                                    updateBidItemMutation.mutate({
-                                      supplementId: supplement.id,
-                                      itemId: item.id,
-                                      data: mutData,
-                                    });
-                                  }
-                                } catch { message.error('Upload failed'); }
-                                return false;
-                              }}
-                            >
-                              <Tooltip title="Replace uploaded PDF">
-                                <Button type="text" size="small" icon={<UploadOutlined />} style={{ padding: 0, width: 22, height: 22 }} />
-                              </Tooltip>
-                            </Upload>
-                          </Space>
-                        ) : (
-                          <Upload
-                            accept=".pdf"
-                            maxCount={1}
-                            showUploadList={false}
-                            beforeUpload={async (file) => {
-                              if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
-                              try {
-                                const uploaded = await fileService.uploadFiles([file], 'supplement_bid_item', item.id, 'estimate_pdf');
-                                if (uploaded.length > 0) {
-                                  const mutData: any = { custom_document_file_id: uploaded[0].id, custom_document_file_name: file.name };
-                                  // Auto-extract total amount from PDF
-                                  try {
-                                    const result = await supplementService.extractBidItemTotal(file as unknown as File);
-                                    if (result?.total_amount && result.total_amount > 0) {
-                                      mutData.custom_amount = result.total_amount;
-                                      message.success(`Extracted total: ${formatCurrency(result.total_amount)}`);
-                                    } else {
-                                      message.success('PDF uploaded');
-                                    }
-                                  } catch {
-                                    message.success('PDF uploaded');
-                                  }
-                                  updateBidItemMutation.mutate({
-                                    supplementId: supplement.id,
-                                    itemId: item.id,
-                                    data: mutData,
-                                  });
-                                }
-                              } catch { message.error('Upload failed'); }
-                              return false;
-                            }}
-                          >
-                            <Button type="link" size="small" icon={<UploadOutlined />} style={{ padding: 0, fontSize: 11 }}>
-                              Upload
-                            </Button>
-                          </Upload>
-                        )}
-                      </Space>
-                    );
-                  } },
-                { title: '', key: 'del', width: 36, align: 'center' as const,
-                  render: (_: any, item: BidItemEstimate) => (
-                    <Tooltip title="Delete">
-                      <Button
-                        type="text" size="small" danger
-                        icon={<DeleteOutlined />}
-                        onClick={() => Modal.confirm({
-                          title: 'Delete this bid item?',
-                          onOk: () => {
-                            supplementService.deleteBidItem(supplement.id, item.id).then(() => {
-                              message.success('Deleted');
-                              refreshSupplement();
-                            });
-                          },
-                        })}
-                      />
-                    </Tooltip>
-                  ) },
+                },
+                {
+                  key: 'pa',
+                  label: 'Public Adjuster',
+                  value: paDisplayInfo?.pa_name ? (
+                    <div className="sup-contact">
+                      <span className="sup-contact-name">{paDisplayInfo.pa_name}</span>
+                      {paDisplayInfo.pa_company && <span>{paDisplayInfo.pa_company}</span>}
+                      {paDisplayInfo.pa_email && <a href={`mailto:${paDisplayInfo.pa_email}`}>{paDisplayInfo.pa_email}</a>}
+                      {paDisplayInfo.pa_phone && <a href={`tel:${paDisplayInfo.pa_phone}`}>{paDisplayInfo.pa_phone}</a>}
+                    </div>
+                  ) : <span className="ui-props-empty">Not assigned</span>,
+                },
               ]}
             />
-
-            {/* Summary */}
-            <div style={{
-              marginTop: 8, padding: '8px 12px',
-              background: '#fafafa', borderRadius: 6, fontSize: 13,
-            }}>
-              {hasXactimate && inXactTotal > 0 && (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Text type="secondary">Xactimate</Text>
-                    <Text>{formatCurrency(xactOriginal)}</Text>
-                  </div>
-                  {inXactItems.map(i => (
-                    <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', color: '#8c8c8c' }}>
-                      <Text type="secondary" style={{ fontSize: 12, paddingLeft: 12 }}>
-                        − {BID_TYPE_LABELS[i.estimate_type] || i.estimate_type}: {i.title}
-                      </Text>
-                      <Text type="secondary" style={{ fontSize: 12 }}>−{formatCurrency(i.custom_amount)}</Text>
-                    </div>
-                  ))}
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Text type="secondary">Xactimate (net)</Text>
-                    <Text strong>{formatCurrency(xactNet)}</Text>
-                  </div>
-                  {inXactItems.map(i => (
-                    <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Text type="secondary">{BID_TYPE_LABELS[i.estimate_type] || i.estimate_type}: {i.title}</Text>
-                      <Text>{formatCurrency(i.custom_amount)}</Text>
-                    </div>
-                  ))}
-                  {separateItems.map(i => (
-                    <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Text type="secondary">{BID_TYPE_LABELS[i.estimate_type] || i.estimate_type}: {i.title}</Text>
-                      <Text>{formatCurrency(i.custom_amount)}</Text>
-                    </div>
-                  ))}
-                  <Divider style={{ margin: '4px 0' }} />
-                </>
-              )}
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Text strong>Supplement Total</Text>
-                <Text strong style={{ color: '#1890ff', fontSize: 14 }}>
-                  {formatCurrency(hasXactimate && inXactTotal > 0 ? supplementTotal : supplement.supplement_amount)}
-                </Text>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* Send to PA */}
-        {(supplement.bid_items || []).length > 0 && (
-          <div style={{ margin: '16px 0', textAlign: 'center' }}>
-            <Button
-              type="primary"
-              size="large"
-              icon={<SendOutlined />}
-              onClick={openSendPaModal}
-              disabled={!supplement.bid_items?.some(i => i.custom_document_file_id)}
-            >
-              Send to PA
-            </Button>
-            {!supplement.bid_items?.some(i => i.custom_document_file_id) && (
-              <div style={{ marginTop: 4 }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>Upload bid item PDFs first</Text>
-              </div>
-            )}
-            {supplement.submitted_date && (
-              <div style={{ marginTop: 4 }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  Last sent: {dayjs(supplement.submitted_date).format('MM/DD/YYYY')}
-                  {supplement.submitted_to && ` to ${supplement.submitted_to}`}
-                </Text>
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
-      </Col>
-      </Row>
-
+          </section>
       {/* Pending Info Requests */}
       {(() => {
         const infoRequests = followups.filter(fu => fu.followup_type === 'info_request');
@@ -1592,24 +1630,25 @@ const SupplementDetail: React.FC = () => {
 
         return (
           <>
-            {/* Pending Info Requests Card */}
-            <Card style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <Space>
-                  <Text strong>Pending Info</Text>
+            {/* Pending info requests */}
+            <section className="ui-section">
+              <div className="ui-section-head">
+                <h2 className="ui-section-title">
+                  Pending Info
                   {pendingInfoRequests.length > 0 && (
-                    <Badge count={pendingInfoRequests.length} style={{ backgroundColor: '#fa8c16' }} />
+                    <Pill tone="orange" style={{ marginLeft: 8 }}>{pendingInfoRequests.length} open</Pill>
                   )}
-                </Space>
-                <Space size={4}>
+                </h2>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                   {pendingInfoRequests.length > 0 && (
-                    <Button size="small" icon={checkingReplies ? <LoadingOutlined /> : <ThunderboltOutlined />}
+                    <Button size="small" type="text" className="ui-icon-btn"
+                      icon={checkingReplies ? <LoadingOutlined /> : <ReloadOutlined />}
                       disabled={checkingReplies}
                       onClick={triggerReplyCheck}>
                       {checkingReplies ? 'Checking...' : 'Check Replies'}
                     </Button>
                   )}
-                  <Button size="small" type="primary" ghost icon={<SendOutlined />}
+                  <Button size="small" icon={<SendOutlined />}
                     onClick={() => {
                       setInfoRequestModalOpen(true);
                       if (paDisplayInfo?.pa_email) {
@@ -1622,12 +1661,12 @@ const SupplementDetail: React.FC = () => {
                     }}>
                     Request Info
                   </Button>
-                </Space>
+                </div>
               </div>
 
               {infoRequests.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 12, color: '#8c8c8c' }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>No info requests yet. Click "Request Info" when you need information from PA or contractor.</Text>
+                <div className="sup-empty">
+                  No info requests yet. Click "Request Info" when you need information from PA or contractor.
                 </div>
               ) : (
                 <div>
@@ -1636,216 +1675,158 @@ const SupplementDetail: React.FC = () => {
                     const unresolvedCount = (fu.items_needed || []).filter(i => !i.resolved).length;
                     const totalCount = (fu.items_needed || []).length;
                     const hasReply = fu.response_summary || fu.reply_body_html || (fu.reply_attachment_ids || []).length > 0;
+                    const conv: Array<{ type: string; date: string; sender: string; body_html: string; summary?: string }> = fu.conversation || [];
+                    const showThread = conv.length > 0 || hasReply;
+                    const infoStatus = fu.info_status || 'pending';
 
-                    return (
-                      <div
-                        key={fu.id}
-                        style={{
-                          marginBottom: 6, padding: '8px 10px', borderRadius: 6,
-                          border: '1px solid #f0f0f0',
-                          background: '#fafafa',
-                        }}
-                      >
-                        {/* Header */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                          <div>
-                            <Space size={4} wrap>
-                              <Tag style={{ margin: 0, fontSize: 11 }}>
-                                {fu.request_to_type === 'public_adjuster' ? 'PA' : 'Contractor'}
-                              </Tag>
-                              <Text type="secondary" style={{ fontSize: 11 }}>
-                                {(fu.info_status || 'pending').replace(/_/g, ' ')}
-                              </Text>
-                              {(fu.follow_up_count || 0) > 0 && (
-                                <Text type="secondary" style={{ fontSize: 10 }}>
-                                  (follow-up x{fu.follow_up_count})
-                                </Text>
-                              )}
-                            </Space>
-                            <div style={{ fontSize: 11, marginTop: 2 }}>
-                              <Text type="secondary">To: </Text>
-                              <Text style={{ fontSize: 11 }}>{fu.contact_name || fu.contact_email}</Text>
-                              {fu.contact_name && fu.contact_email && (
-                                <Text type="secondary" style={{ fontSize: 11 }}> ({fu.contact_email})</Text>
-                              )}
+                    const replyControls = isPending && (
+                      <div className="sup-thread-actions">
+                        {replyingToId === fu.id ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
+                            <Input.TextArea
+                              rows={2}
+                              autoFocus
+                              placeholder="Type your reply..."
+                              aria-label="Reply"
+                              value={replyText}
+                              onChange={e => setReplyText(e.target.value)}
+                            />
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <Button size="small" type="primary"
+                                icon={<SendOutlined />}
+                                loading={sendingReply}
+                                disabled={!replyText.trim()}
+                                onClick={async () => {
+                                  setSendingReply(true);
+                                  try {
+                                    await supplementService.replyToInfoRequest(
+                                      supplement.id, fu.id,
+                                      { body_html: `<p>${replyText.replace(/\n/g, '<br/>')}</p>` }
+                                    );
+                                    message.success('Reply sent');
+                                    setReplyingToId(null);
+                                    setReplyText('');
+                                    loadFollowups(supplement.id);
+                                  } catch { message.error('Failed to send reply'); }
+                                  finally { setSendingReply(false); }
+                                }}>
+                                Send
+                              </Button>
+                              <Button size="small" onClick={() => { setReplyingToId(null); setReplyText(''); }}>
+                                Cancel
+                              </Button>
                             </div>
                           </div>
-                          <Space size={4}>
-                            {isPending && (
-                              <Button size="small" type="text"
-                                icon={<SendOutlined />}
-                                loading={resendingId === fu.id}
-                                onClick={() => handleResend(fu)}
-                                style={{ fontSize: 11, padding: '0 4px' }}>
-                                Follow up
+                        ) : (
+                          <>
+                            <Button size="small" type="text" className="ui-icon-btn" icon={<SendOutlined />}
+                              onClick={() => setReplyingToId(fu.id)}>
+                              Reply
+                            </Button>
+                            <Button size="small" type="text" className="ui-icon-btn" icon={<SendOutlined />}
+                              loading={resendingId === fu.id}
+                              onClick={() => handleResend(fu)}>
+                              Follow up
+                            </Button>
+                            {!hasReply && (
+                              <Button size="small" type="text" className="ui-icon-btn" icon={<CheckOutlined />}
+                                onClick={() => handleMarkResponse(fu)}>
+                                Mark as responded
                               </Button>
                             )}
-                            <Text type="secondary" style={{ fontSize: 10 }}>
-                              {fu.created_at ? dayjs(fu.created_at).format('MM/DD HH:mm') : ''}
-                            </Text>
-                          </Space>
+                          </>
+                        )}
+                      </div>
+                    );
+
+                    return (
+                      <article key={fu.id} className="sup-thread">
+                        {/* Header */}
+                        <div className="sup-thread-head">
+                          <div className="sup-thread-tags">
+                            <Pill tone={INFO_STATUS_TONES[infoStatus] || 'gray'}>{humanize(infoStatus)}</Pill>
+                            <span className="sup-thread-to">
+                              {fu.request_to_type === 'public_adjuster' ? 'PA' : 'Contractor'}
+                            </span>
+                            {(fu.follow_up_count || 0) > 0 && (
+                              <span className="sup-muted">Follow-up ×{fu.follow_up_count}</span>
+                            )}
+                          </div>
+                          <time className="sup-muted">
+                            {fu.created_at ? dayjs(fu.created_at).format('MM/DD HH:mm') : ''}
+                          </time>
+                        </div>
+                        <div className="sup-thread-contact">
+                          To {fu.contact_name || fu.contact_email}
+                          {fu.contact_name && fu.contact_email && <span className="sup-muted"> · {fu.contact_email}</span>}
                         </div>
 
                         {/* Checklist items */}
-                        {(fu.items_needed || []).length > 0 && (
-                          <div style={{ marginTop: 2 }}>
-                            <Text type="secondary" style={{ fontSize: 10 }}>
+                        {totalCount > 0 && (
+                          <div className="sup-checklist">
+                            <div className="sup-checklist-count">
                               {unresolvedCount === 0 ? 'All items resolved' : `${unresolvedCount}/${totalCount} pending`}
-                            </Text>
+                            </div>
                             {(fu.items_needed || []).map((item, idx) => (
-                              <div key={idx} style={{
-                                display: 'flex', alignItems: 'center', gap: 6,
-                                padding: '2px 0', fontSize: 12,
-                              }}>
-                                <Checkbox
-                                  checked={item.resolved}
-                                  onChange={() => handleToggleItem(fu, idx)}
-                                  style={{ fontSize: 12 }}
-                                />
-                                <Text
-                                  style={{ fontSize: 12 }}
-                                  delete={item.resolved}
-                                  type={item.resolved ? 'secondary' : undefined}
-                                >
-                                  {item.description}
-                                </Text>
-                              </div>
+                              <Checkbox
+                                key={idx}
+                                checked={item.resolved}
+                                onChange={() => handleToggleItem(fu, idx)}
+                                className={item.resolved ? 'is-resolved' : undefined}
+                              >
+                                {item.description}
+                              </Checkbox>
                             ))}
                           </div>
                         )}
 
                         {/* Conversation thread */}
-                        {(() => {
-                          const conv: Array<{type: string; date: string; sender: string; body_html: string; summary?: string}> = fu.conversation || [];
-                          const showThread = conv.length > 0 || hasReply;
-                          return showThread ? (
-                            <div style={{ marginTop: 6 }}>
-                              {conv.length > 0 ? conv.map((msg, mIdx) => (
-                                <div key={mIdx} style={{
-                                  marginBottom: 4, padding: '6px 8px', borderRadius: 4,
-                                  background: msg.type === 'sent' ? '#e6f7ff' : '#fff',
-                                  border: msg.type === 'sent' ? '1px solid #91d5ff' : '1px solid #e8e8e8',
-                                  marginLeft: msg.type === 'sent' ? 20 : 0,
-                                  marginRight: msg.type === 'received' ? 20 : 0,
-                                }}>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                                    <Text strong style={{ fontSize: 10, color: msg.type === 'sent' ? '#1677ff' : '#52c41a' }}>
-                                      {msg.type === 'sent' ? 'Sent' : 'Reply'}
-                                      {msg.sender ? ` · ${msg.sender.split('@')[0]}` : ''}
-                                    </Text>
-                                    <Text type="secondary" style={{ fontSize: 10 }}>
-                                      {msg.date ? dayjs(msg.date).format('MM/DD HH:mm') : ''}
-                                    </Text>
-                                  </div>
-                                  {msg.body_html && (
-                                    <div
-                                      style={{ fontSize: 12, maxHeight: 150, overflow: 'auto' }}
-                                      dangerouslySetInnerHTML={{ __html: msg.body_html }}
-                                    />
-                                  )}
-                                  {!msg.body_html && msg.summary && (
-                                    <div style={{ fontSize: 12 }}>{msg.summary}</div>
-                                  )}
+                        {showThread && (
+                          <div className="sup-messages">
+                            {conv.length > 0 ? conv.map((msg, mIdx) => (
+                              <div key={mIdx} className={`sup-msg ${msg.type === 'sent' ? 'is-sent' : 'is-received'}`}>
+                                <div className="sup-msg-head">
+                                  <span className="sup-msg-who">
+                                    {msg.type === 'sent' ? 'Sent' : 'Reply'}
+                                    {msg.sender ? ` · ${msg.sender.split('@')[0]}` : ''}
+                                  </span>
+                                  <span>{msg.date ? dayjs(msg.date).format('MM/DD HH:mm') : ''}</span>
                                 </div>
-                              )) : hasReply ? (
-                                /* Fallback for older followups without conversation array */
-                                <div style={{ padding: '6px 8px', background: '#fff', borderRadius: 4, border: '1px solid #e8e8e8' }}>
-                                  <Text type="secondary" style={{ fontSize: 10 }}>
-                                    Reply {fu.response_date ? `- ${dayjs(fu.response_date).format('MM/DD HH:mm')}` : ''}
-                                  </Text>
-                                  {fu.reply_body_html && (
-                                    <div
-                                      style={{ fontSize: 12, padding: '4px 6px', background: '#fafafa', borderRadius: 3, marginTop: 4, maxHeight: 150, overflow: 'auto' }}
-                                      dangerouslySetInnerHTML={{ __html: fu.reply_body_html }}
-                                    />
-                                  )}
+                                {msg.body_html && (
+                                  <div className="sup-msg-body" dangerouslySetInnerHTML={{ __html: msg.body_html }} />
+                                )}
+                                {!msg.body_html && msg.summary && (
+                                  <div className="sup-msg-body">{msg.summary}</div>
+                                )}
+                              </div>
+                            )) : (
+                              /* Fallback for older followups without conversation array */
+                              <div className="sup-msg is-received">
+                                <div className="sup-msg-head">
+                                  <span className="sup-msg-who">Reply</span>
+                                  <span>{fu.response_date ? dayjs(fu.response_date).format('MM/DD HH:mm') : ''}</span>
                                 </div>
-                              ) : null}
+                                {fu.reply_body_html && (
+                                  <div className="sup-msg-body" dangerouslySetInnerHTML={{ __html: fu.reply_body_html }} />
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
 
-                              {/* Reply input */}
-                              {isPending && (
-                                <div style={{ marginTop: 4 }}>
-                                  {replyingToId === fu.id ? (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                      <Input.TextArea
-                                        rows={2}
-                                        placeholder="Type your reply..."
-                                        value={replyText}
-                                        onChange={e => setReplyText(e.target.value)}
-                                        style={{ fontSize: 12 }}
-                                      />
-                                      <Space size={4}>
-                                        <Button size="small" type="primary"
-                                          icon={<SendOutlined />}
-                                          loading={sendingReply}
-                                          disabled={!replyText.trim()}
-                                          onClick={async () => {
-                                            setSendingReply(true);
-                                            try {
-                                              await supplementService.replyToInfoRequest(
-                                                supplement.id, fu.id,
-                                                { body_html: `<p>${replyText.replace(/\n/g, '<br/>')}</p>` }
-                                              );
-                                              message.success('Reply sent');
-                                              setReplyingToId(null);
-                                              setReplyText('');
-                                              loadFollowups(supplement.id);
-                                            } catch { message.error('Failed to send reply'); }
-                                            finally { setSendingReply(false); }
-                                          }}>
-                                          Send
-                                        </Button>
-                                        <Button size="small" onClick={() => { setReplyingToId(null); setReplyText(''); }}>
-                                          Cancel
-                                        </Button>
-                                      </Space>
-                                    </div>
-                                  ) : (
-                                    <Space size={4}>
-                                      <Button size="small" type="text" icon={<SendOutlined />}
-                                        style={{ fontSize: 11, padding: '0 4px' }}
-                                        onClick={() => setReplyingToId(fu.id)}>
-                                        Reply
-                                      </Button>
-                                      {!hasReply && (
-                                        <Button size="small" type="text" style={{ fontSize: 11, padding: '0 4px' }}
-                                          onClick={() => handleMarkResponse(fu)}>
-                                          Mark as responded
-                                        </Button>
-                                      )}
-                                    </Space>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          ) : isPending ? (
-                            <div style={{ marginTop: 4 }}>
-                              <Space size={4}>
-                                <Button size="small" type="text" icon={<SendOutlined />}
-                                  style={{ fontSize: 11, padding: '0 4px' }}
-                                  onClick={() => setReplyingToId(fu.id)}>
-                                  Reply
-                                </Button>
-                                <Button size="small" type="text" style={{ fontSize: 11, padding: '0 4px' }}
-                                  onClick={() => handleMarkResponse(fu)}>
-                                  Mark as responded
-                                </Button>
-                              </Space>
-                            </div>
-                          ) : null;
-                        })()}
+                        {replyControls}
 
                         {fu.last_follow_up_date && (
-                          <Text type="secondary" style={{ fontSize: 10, display: 'block', marginTop: 2 }}>
-                            Last follow-up: {dayjs(fu.last_follow_up_date).format('MM/DD HH:mm')}
-                          </Text>
+                          <div className="sup-muted" style={{ marginTop: 4 }}>
+                            Last follow-up {dayjs(fu.last_follow_up_date).format('MM/DD HH:mm')}
+                          </div>
                         )}
-                      </div>
+                      </article>
                     );
                   })}
                 </div>
               )}
-            </Card>
+            </section>
 
             {/* Info Request Modal */}
             <Modal
@@ -1979,69 +1960,55 @@ const SupplementDetail: React.FC = () => {
             </Modal>
 
             {/* Follow-ups (general only) */}
-            <Card>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <Text strong>Follow-ups ({generalFollowups.length})</Text>
+            <section className="ui-section">
+              <div className="ui-section-head">
+                <h2 className="ui-section-title">
+                  Follow-ups
+                  {generalFollowups.length > 0 && <span className="sup-section-count">{generalFollowups.length}</span>}
+                </h2>
                 <Button size="small" icon={<PhoneOutlined />} onClick={() => setFollowupModalOpen(true)}>
                   Log Follow-up
                 </Button>
               </div>
 
               {generalFollowups.length === 0 ? (
-                <Empty description="No follow-ups yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                <div className="sup-empty">No follow-ups yet. Log calls, texts and emails with the PA here.</div>
               ) : (
                 <div>
                   {generalFollowups.map((fu) => (
-                    <Card
-                      key={fu.id}
-                      size="small"
-                      style={{
-                        marginBottom: 6,
-                        border: fu.response_received ? '1px solid #b7eb8f' : '1px solid #f0f0f0',
-                        background: fu.response_received ? '#f6ffed' : '#fff',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div style={{ flex: 1 }}>
-                          <Space size={6} style={{ marginBottom: 4 }}>
-                            <Tag color={
-                              fu.contact_method === 'email' ? 'blue' :
-                              fu.contact_method === 'phone' ? 'green' :
-                              fu.contact_method === 'text' ? 'purple' : 'default'
-                            }>
-                              {fu.contact_method?.toUpperCase()}
-                            </Tag>
-                            {fu.response_received && <Tag color="success">Response Received</Tag>}
-                          </Space>
-                          {fu.contact_name && (
-                            <div style={{ fontSize: 12 }}>
-                              <Text type="secondary">To: </Text>
-                              <Text>{fu.contact_name}</Text>
-                              {fu.contact_email && <Text type="secondary"> ({fu.contact_email})</Text>}
-                            </div>
-                          )}
-                          {fu.summary && (
-                            <div style={{ fontSize: 12, marginTop: 2 }}>{fu.summary}</div>
-                          )}
-                          {fu.response_summary && (
-                            <div style={{ fontSize: 12, marginTop: 4, padding: '4px 8px', background: '#e6fffb', borderRadius: 4 }}>
-                              <Text type="secondary" style={{ fontSize: 11 }}>Response: </Text>
-                              {fu.response_summary}
-                            </div>
-                          )}
+                    <article key={fu.id} className="sup-thread">
+                      <div className="sup-thread-head">
+                        <div className="sup-thread-tags">
+                          <span className="sup-thread-method">{fu.contact_method ? humanize(fu.contact_method) : 'Note'}</span>
+                          {fu.response_received && <Pill tone="green" icon={<CheckOutlined />}>Response received</Pill>}
                         </div>
-                        <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap', marginLeft: 8 }}>
+                        <time className="sup-muted">
                           {fu.created_at ? dayjs(fu.created_at).format('MM/DD/YY HH:mm') : ''}
-                        </Text>
+                        </time>
                       </div>
-                    </Card>
+                      {fu.contact_name && (
+                        <div className="sup-thread-contact">
+                          To {fu.contact_name}
+                          {fu.contact_email && <span className="sup-muted"> · {fu.contact_email}</span>}
+                        </div>
+                      )}
+                      {fu.summary && <div className="sup-thread-text">{fu.summary}</div>}
+                      {fu.response_summary && (
+                        <div className="sup-msg is-received" style={{ marginTop: 8 }}>
+                          <div className="sup-msg-head"><span className="sup-msg-who">Response</span></div>
+                          <div className="sup-msg-body">{fu.response_summary}</div>
+                        </div>
+                      )}
+                    </article>
                   ))}
                 </div>
               )}
-            </Card>
+            </section>
           </>
         );
       })()}
+        </Col>
+      </Row>
 
       {/* ─── Send to PA Modal ─── */}
       <Modal
@@ -2066,15 +2033,14 @@ const SupplementDetail: React.FC = () => {
         {paInfo && (
           <div>
             {(paInfo.pa_name || paInfo.pa_email) && (
-              <div style={{
-                background: '#f0f5ff', border: '1px solid #adc6ff',
-                borderRadius: 6, padding: '8px 12px', marginBottom: 12,
+              <div className="sup-quiet-box" style={{
+                padding: '8px 12px', marginBottom: 12,
                 display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
               }}>
-                <Text style={{ fontSize: 12, color: '#555' }}>Assigned PA:</Text>
+                <Text type="secondary" style={{ fontSize: 13 }}>Assigned PA:</Text>
                 {paInfo.pa_name && <Text strong style={{ fontSize: 13 }}>{paInfo.pa_name}</Text>}
                 {paInfo.pa_company && <Text type="secondary" style={{ fontSize: 12 }}>{paInfo.pa_company}</Text>}
-                {paInfo.pa_email && <Text style={{ fontSize: 12, color: '#1890ff' }}>{paInfo.pa_email}</Text>}
+                {paInfo.pa_email && <Text style={{ fontSize: 13 }}>{paInfo.pa_email}</Text>}
               </div>
             )}
 
@@ -2182,9 +2148,9 @@ const SupplementDetail: React.FC = () => {
             </div>
 
             {/* AI Description Polish */}
-            <div style={{ marginBottom: 12, background: '#f9f0ff', border: '1px solid #d3adf7', borderRadius: 6, padding: 12 }}>
+            <div className="sup-quiet-box" style={{ marginBottom: 12, padding: 12 }}>
               <Text strong style={{ display: 'block', marginBottom: 4 }}>
-                <ThunderboltOutlined style={{ color: '#722ed1', marginRight: 4 }} />
+                <ThunderboltOutlined style={{ color: 'var(--tag-purple-text)', marginRight: 4 }} />
                 AI Scope Description (Xactimate 수정사항 정리)
               </Text>
               <Input.TextArea
@@ -2280,9 +2246,9 @@ const SupplementDetail: React.FC = () => {
                   .filter(i => i.custom_document_file_id)
                   .map(i => (
                     <Space key={i.id} size={4}>
-                      <FilePdfOutlined style={{ color: '#ff4d4f' }} />
-                      <Text style={{ fontSize: 12 }}>{i.custom_document_file_name || i.title}</Text>
-                      <Tag style={{ fontSize: 11 }}>{formatCurrency(i.custom_amount)}</Tag>
+                      <FilePdfOutlined className="sup-pdf-icon" />
+                      <Text style={{ fontSize: 13 }}>{i.custom_document_file_name || i.title}</Text>
+                      <Text type="secondary" className="sup-money" style={{ fontSize: 13 }}>{formatCurrency(i.custom_amount)}</Text>
                     </Space>
                   ))}
                 {!(supplement.bid_items || []).some(i => i.custom_document_file_id) && (
@@ -2406,7 +2372,7 @@ const SupplementDetail: React.FC = () => {
                 <Button
                   size="small"
                   type="link"
-                  icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />}
+                  icon={<FilePdfOutlined className="sup-pdf-icon" />}
                   loading={pdfLoading}
                   style={{ padding: '2px 0', marginTop: 4 }}
                   onClick={() => openEstimatePdf(bidItemType, linkedEstimateId)}
@@ -2433,15 +2399,12 @@ const SupplementDetail: React.FC = () => {
             {bidItemFile ? (
               <div>
                 <Space>
-                  <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                  <FilePdfOutlined className="sup-pdf-icon" />
                   <Text ellipsis style={{ maxWidth: 250 }}>{bidItemFile.name}</Text>
                   <Button type="link" size="small" danger onClick={() => { setBidItemFile(null); setBidItemParsedAmounts(null); }}>Remove</Button>
                 </Space>
                 {bidItemParsedAmounts && (
-                  <div style={{
-                    marginTop: 8, padding: '8px 12px', background: '#f6ffed',
-                    borderRadius: 6, border: '1px solid #b7eb8f', fontSize: 12,
-                  }}>
+                  <div className="sup-quiet-box" style={{ marginTop: 8, padding: '8px 12px', fontSize: 13 }}>
                     <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                       <span><Text type="secondary">RCV: </Text><Text strong>{formatCurrency(bidItemParsedAmounts.rcv_amount)}</Text></span>
                       <span><Text type="secondary">ACV: </Text><Text strong>{formatCurrency(bidItemParsedAmounts.acv_amount)}</Text></span>
@@ -2613,7 +2576,7 @@ const SupplementDetail: React.FC = () => {
             <Space>
               {uploadEstimateFileId && (
                 <>
-                  <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                  <FilePdfOutlined className="sup-pdf-icon" />
                   <Text style={{ fontSize: 12 }}>{uploadEstimateFileName}</Text>
                   <Button type="text" size="small" danger
                     onClick={() => { setUploadEstimateFileId(null); setUploadEstimateFileName(null); setUploadEstimateSections([]); }}>
@@ -2674,13 +2637,13 @@ const SupplementDetail: React.FC = () => {
             </div>
 
             {uploadEstimateSections.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 12, background: '#fafafa', borderRadius: 6 }}>
+              <div className="sup-quiet-box" style={{ textAlign: 'center', padding: 12 }}>
                 <Text type="secondary">No sections. Upload PDF to auto-parse or add manually.</Text>
               </div>
             ) : (
               <>
                 {uploadEstimateSections.map((section: any, idx: number) => (
-                  <div key={idx} style={{ background: '#fafafa', borderRadius: 6, padding: '8px 10px', marginBottom: 6 }}>
+                  <div key={idx} className="sup-edit-block">
                     <Row gutter={8} align="middle">
                       <Col flex="auto">
                         <Input size="small" placeholder="Section name" value={section.section_name}
@@ -2743,7 +2706,7 @@ const SupplementDetail: React.FC = () => {
           </div>
 
           {/* Totals */}
-          <div style={{ background: '#fafafa', borderRadius: 6, padding: '10px 12px', marginBottom: 12 }}>
+          <div className="sup-quiet-box" style={{ padding: '10px 12px', marginBottom: 12 }}>
             <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Totals</Text>
             <Row gutter={[8, 8]}>
               <Col xs={12} sm={6}>

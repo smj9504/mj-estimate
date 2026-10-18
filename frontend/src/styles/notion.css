@@ -672,3 +672,627 @@ h4.ant-typography {
     display: none;
   }
 }
+
+/* ============================================================
+   Supplements (list + detail)
+   ============================================================ */
+
+/* Money: ink, tabular, never blue. The sign of a difference carries the
+   meaning; colour only backs it up. */
+.sup-money,
+.sup-money-muted,
+.sup-diff-up,
+.sup-diff-down,
+.sup-figure-value,
+.sup-totals,
+.sup-breakdown-nums {
+  font-variant-numeric: tabular-nums;
+}
+.sup-money-muted {
+  color: var(--color-neutral-600);
+}
+.sup-money-strong {
+  font-weight: 600;
+}
+.sup-diff-up {
+  color: var(--tag-green-text);
+  font-weight: 500;
+}
+.sup-diff-down {
+  color: var(--tag-red-text);
+  font-weight: 500;
+}
+
+.sup-cell-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sup-muted {
+  color: var(--color-neutral-600);
+  font-size: 13px;
+}
+.sup-field-label {
+  color: var(--color-neutral-600);
+  font-size: 13px;
+}
+
+/* PDF glyph: the one file type that keeps its colour, muted to the red tone */
+.sup-pdf-icon,
+.sup-pdf-link {
+  color: var(--tag-red-text);
+}
+.sup-pdf-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  font-size: 14px;
+}
+.sup-pdf-link:hover {
+  color: var(--tag-red-text);
+  background: var(--tag-red-bg);
+}
+
+/* List: status view tabs with a tone dot and a quiet count */
+.sup-status-tabs {
+  display: flex;
+  gap: 2px;
+  margin: -4px 0 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sup-status-tabs::-webkit-scrollbar {
+  display: none;
+}
+.sup-status-tabs .ant-btn.ui-view-tab {
+  flex-shrink: 0;
+  gap: 6px;
+}
+.sup-tab-count {
+  color: var(--color-neutral-600);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.sup-row-money {
+  color: var(--color-neutral-900);
+}
+
+/* List: estimates waiting for review */
+.sup-review {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 8px;
+  background: var(--color-neutral-50);
+}
+.sup-review-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.sup-review-note {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.sup-review-list {
+  margin: 8px 0 4px;
+  padding: 0;
+  list-style: none;
+}
+.sup-review-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  padding: 3px 0;
+}
+.sup-review-meta {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+
+/* Detail: section head count and empty lines */
+.sup-section-count {
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.ui-section-title .ui-pill {
+  font-weight: 500;
+  vertical-align: 2px;
+}
+.sup-empty {
+  padding: 12px 0;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.sup-quiet-box {
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 6px;
+  background: var(--color-neutral-50);
+}
+.sup-edit-block {
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  background: var(--color-neutral-50);
+}
+.sup-inline-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.sup-inline-value {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ant-btn.sup-edit-btn {
+  height: 22px;
+  padding: 0 6px;
+  font-size: 13px;
+}
+.sup-contact {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.sup-contact-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.sup-contact a {
+  color: var(--color-neutral-700);
+  overflow-wrap: anywhere;
+}
+.sup-contact a:hover {
+  color: var(--color-primary);
+}
+
+/* Status select in the page header shows the pill itself */
+.sup-status-select .ant-select-selection-item {
+  display: flex;
+  align-items: center;
+}
+
+/* Detail: insurance estimate versions, divided by hairlines */
+.sup-version {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.sup-version:last-child {
+  border-bottom: none;
+}
+.sup-version-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.sup-version-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  color: var(--color-neutral-700);
+}
+.sup-version-rev {
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.sup-version-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.sup-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-900);
+  transition: background-color 0.12s ease;
+}
+.sup-file-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sup-file-chip:hover {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-hover);
+}
+.sup-version-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.sup-version-notes {
+  flex-basis: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Figures: label over value, four across, two on phones */
+.sup-figures {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 8px 16px;
+  margin-top: 10px;
+}
+.sup-figures--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 6px;
+}
+.sup-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.sup-figure-label {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+.sup-figure-value {
+  font-size: 14px;
+  color: var(--color-neutral-900);
+}
+.sup-figures-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+@media (max-width: 576px) {
+  .sup-figures {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sup-figures-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+.sup-sections-collapse.ant-collapse {
+  margin-top: 8px;
+}
+.sup-sections-collapse.ant-collapse > .ant-collapse-item > .ant-collapse-header {
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.sup-sections-collapse.ant-collapse > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
+  padding: 4px 0 0;
+}
+.sup-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding: 5px 0;
+  border-top: 1px solid var(--color-neutral-200);
+  font-size: 13px;
+}
+.sup-breakdown-name {
+  color: var(--color-neutral-900);
+}
+.sup-breakdown-nums {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  color: var(--color-neutral-900);
+}
+
+/* Detail: required estimates sit on top of the bid items they create */
+.sup-required {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 4px 0 12px;
+}
+.sup-required-label {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.sup-required-options.ant-checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 4px;
+}
+.sup-required-save {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-basis: 100%;
+}
+.sup-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.sup-note .anticon {
+  margin-top: 3px;
+  color: var(--tag-blue-text);
+}
+
+/* Detail: bid items */
+.sup-bid-table .ant-table-tbody > tr > td {
+  vertical-align: top;
+}
+.sup-bid-title {
+  font-weight: 500;
+}
+.sup-bid-notes.ant-typography {
+  display: block;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+/* Empty notes: the "+ Add scope notes" button stands in for the bare pencil
+   (it still clicks that pencil); the editor itself must stay visible */
+.sup-bid-notes--empty:not(.ant-typography-edit-content) {
+  display: none !important;
+}
+.sup-bid-table .ant-typography-edit,
+.sup-bid-list .ant-typography-edit {
+  color: var(--color-neutral-600) !important;
+}
+.sup-bid-table .ant-typography-edit:hover,
+.sup-bid-list .ant-typography-edit:hover {
+  color: var(--color-neutral-900) !important;
+}
+.sup-add-notes {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  cursor: pointer;
+}
+.sup-add-notes:hover {
+  color: var(--color-neutral-900);
+}
+.sup-amount-struck .ant-input-number-input {
+  text-decoration: line-through;
+  color: var(--color-neutral-600);
+}
+.sup-net-line {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.sup-net-line strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.sup-pdf-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.sup-bid-list {
+  border-top: 1px solid var(--color-neutral-200);
+}
+.sup-bid-row {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.sup-bid-row-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.sup-bid-row-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 10px;
+}
+
+/* Detail: totals close the bid list */
+.sup-totals {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-neutral-200);
+  font-size: 14px;
+}
+.sup-totals-breakdown {
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.sup-totals-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+  color: var(--color-neutral-700);
+}
+.sup-totals-row > span:last-child,
+.sup-totals-row > strong {
+  color: var(--color-neutral-900);
+  white-space: nowrap;
+}
+.sup-totals-row--sub {
+  padding-left: 12px;
+  font-size: 13px;
+}
+.sup-totals-row--sub > span:last-child {
+  color: var(--color-neutral-600);
+}
+.sup-totals-grand {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.sup-totals-hint {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+
+/* Detail: info requests and follow-ups as a quiet activity feed */
+.sup-thread {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.sup-thread:last-child {
+  border-bottom: none;
+}
+.sup-thread-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sup-thread-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.sup-thread-head time {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.sup-thread-to,
+.sup-thread-method {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.sup-thread-contact {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+  overflow-wrap: anywhere;
+}
+.sup-thread-text {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--color-neutral-900);
+  white-space: pre-wrap;
+}
+.sup-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
+.sup-checklist .ant-checkbox-wrapper {
+  margin-inline-start: 0;
+  font-size: 13px;
+}
+.sup-checklist .ant-checkbox-wrapper.is-resolved {
+  color: var(--color-neutral-600);
+  text-decoration: line-through;
+}
+.sup-checklist-count {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+.sup-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.sup-msg {
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.sup-msg.is-sent {
+  margin-left: 16px;
+  background: var(--color-neutral-50);
+}
+.sup-msg.is-received {
+  margin-right: 16px;
+  border: 1px solid var(--color-neutral-200);
+  background: var(--color-surface);
+}
+.sup-msg-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.sup-msg-who {
+  font-weight: 500;
+  color: var(--color-neutral-700);
+}
+.sup-msg.is-received .sup-msg-who {
+  color: var(--tag-green-text);
+}
+.sup-msg-body {
+  max-height: 160px;
+  overflow: auto;
+  color: var(--color-neutral-900);
+  overflow-wrap: anywhere;
+}
+.sup-msg-body p {
+  margin: 0 0 4px;
+}
+.sup-thread-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 6px 0 0 -7px;
+}
+
+.sup-error {
+  max-width: 420px;
+  margin: 64px auto;
+  text-align: center;
+  color: var(--color-neutral-700);
+}
+.sup-error p {
+  margin: 6px 0 16px;
+}
