@@ -114,7 +114,7 @@ async def upload_eagleview(
 
 
 @router.get("/", response_model=SidingEstimateListResponse)
-async def list_estimates(
+def list_estimates(
     claim_id: Optional[str] = Query(None),
     company_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
@@ -138,13 +138,13 @@ async def list_estimates(
 
 
 @router.get("/phase-labels")
-async def get_phase_labels(current_user=Depends(get_current_user)):
+def get_phase_labels(current_user=Depends(get_current_user)):
     """Get phase label definitions."""
     return SIDING_PHASE_LABELS
 
 
 @router.get("/{estimate_id}", response_model=SidingEstimateResponse)
-async def get_estimate(
+def get_estimate(
     estimate_id: str,
     service: SidingEstimateService = Depends(_get_service),
     current_user=Depends(get_current_user),
@@ -156,7 +156,7 @@ async def get_estimate(
 
 
 @router.post("/", response_model=SidingEstimateResponse, status_code=201)
-async def create_estimate(
+def create_estimate(
     data: SidingEstimateCreate,
     service: SidingEstimateService = Depends(_get_service),
     current_user=Depends(get_current_user),
@@ -169,7 +169,7 @@ async def create_estimate(
 
 
 @router.put("/{estimate_id}", response_model=SidingEstimateResponse)
-async def update_estimate(
+def update_estimate(
     estimate_id: str,
     data: SidingEstimateUpdate,
     service: SidingEstimateService = Depends(_get_service),
@@ -182,7 +182,7 @@ async def update_estimate(
 
 
 @router.delete("/{estimate_id}")
-async def delete_estimate(
+def delete_estimate(
     estimate_id: str,
     service: SidingEstimateService = Depends(_get_service),
     current_user=Depends(get_current_user),
@@ -196,7 +196,7 @@ async def delete_estimate(
 
 
 @router.post("/{estimate_id}/line-items")
-async def add_line_item(
+def add_line_item(
     estimate_id: str,
     data: SidingEstimateLineItemCreate,
     service: SidingEstimateService = Depends(_get_service),
@@ -209,7 +209,7 @@ async def add_line_item(
 
 
 @router.put("/{estimate_id}/line-items/{item_id}")
-async def update_line_item(
+def update_line_item(
     estimate_id: str,
     item_id: str,
     data: SidingEstimateLineItemUpdate,
@@ -223,7 +223,7 @@ async def update_line_item(
 
 
 @router.delete("/{estimate_id}/line-items/{item_id}")
-async def delete_line_item(
+def delete_line_item(
     estimate_id: str,
     item_id: str,
     service: SidingEstimateService = Depends(_get_service),
@@ -235,7 +235,7 @@ async def delete_line_item(
 
 
 @router.delete("/{estimate_id}/phases/{phase}")
-async def delete_phase(
+def delete_phase(
     estimate_id: str,
     phase: int,
     service: SidingEstimateService = Depends(_get_service),
@@ -249,7 +249,7 @@ async def delete_phase(
 
 
 @router.post("/{estimate_id}/generate", response_model=SidingEstimateResponse)
-async def generate_line_items(
+def generate_line_items(
     estimate_id: str,
     service: SidingEstimateService = Depends(_get_service),
     current_user=Depends(get_current_user),
@@ -262,7 +262,7 @@ async def generate_line_items(
 
 
 @router.post("/{estimate_id}/recalculate", response_model=SidingEstimateResponse)
-async def recalculate_totals(
+def recalculate_totals(
     estimate_id: str,
     service: SidingEstimateService = Depends(_get_service),
     current_user=Depends(get_current_user),

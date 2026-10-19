@@ -14,7 +14,7 @@ router = APIRouter()
 
 
 @router.get("/lifecycle/stats")
-async def get_lifecycle_stats():
+def get_lifecycle_stats():
     """Get unified stats across all claim lifecycle domains"""
     from app.domains.claim_followup.service import ClaimFollowUpService
     from app.domains.supplement.service import SupplementService
@@ -32,7 +32,7 @@ async def get_lifecycle_stats():
 
 
 @router.get("/lifecycle/overdue")
-async def get_overdue_items():
+def get_overdue_items():
     """Get all overdue follow-up tasks"""
     from app.domains.claim_followup.service import ClaimFollowUpService
     service = ClaimFollowUpService()
@@ -47,7 +47,7 @@ async def get_overdue_items():
 
 
 @router.get("/lifecycle/payment-gaps")
-async def get_payment_gaps(min_difference: float = Query(0, ge=0)):
+def get_payment_gaps(min_difference: float = Query(0, ge=0)):
     """Get claims where insurance estimate was received but payment not fully collected"""
     from app.core.database_factory import get_database
     from app.domains.client.models import Claim, Client
@@ -107,7 +107,7 @@ async def get_payment_gaps(min_difference: float = Query(0, ge=0)):
 
 
 @router.get("/lifecycle/pending-estimates")
-async def get_pending_estimates():
+def get_pending_estimates():
     """Get WM jobs with 'Sent to adjuster' status - awaiting insurance estimate"""
     from app.core.database_factory import get_database
     from app.domains.water_mitigation.models import WaterMitigationJob
@@ -140,7 +140,7 @@ async def get_pending_estimates():
 
 
 @router.get("/lifecycle/wm-doc-prep")
-async def get_wm_doc_prep():
+def get_wm_doc_prep():
     """Get WM jobs with 'Lead' or 'Doc prepping' status - need documents prepared"""
     from app.core.database_factory import get_database
     from app.domains.water_mitigation.models import WaterMitigationJob
@@ -171,7 +171,7 @@ async def get_wm_doc_prep():
 
 
 @router.get("/lifecycle/supplement-work")
-async def get_supplement_work():
+def get_supplement_work():
     """Get supplements with 'identified' or 'in_progress' status - need estimate work"""
     from app.core.database_factory import get_database
     from app.domains.supplement.models import SupplementRequest
@@ -209,7 +209,7 @@ async def get_supplement_work():
 
 
 @router.get("/lifecycle/active-rebuilds")
-async def get_active_rebuilds():
+def get_active_rebuilds():
     """Get rebuild projects currently in progress"""
     from app.domains.rebuild.service import RebuildService
     service = RebuildService()

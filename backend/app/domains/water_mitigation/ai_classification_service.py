@@ -22,6 +22,7 @@ Cost optimization:
 - Cache layer avoids duplicate API calls
 """
 
+import asyncio
 import base64
 import io
 import json
@@ -675,7 +676,10 @@ class AIClassificationService:
 
         try:
             # Resize image (1280px for better meter LCD reading accuracy)
-            resized_data, resized_mime = _resize_image(image_data, max_size=1280)
+            # PIL resize is blocking CPU work - run it on a worker thread
+            resized_data, resized_mime = await asyncio.to_thread(
+                _resize_image, image_data, max_size=1280
+            )
 
             response_text = await self._call_gemini(
                 prompt=CLASSIFICATION_PROMPT,
@@ -773,8 +777,8 @@ class AIClassificationService:
         """
         try:
             # Higher resolution for better surface detail
-            resized_data, resized_mime = _resize_image(
-                image_data, max_size=1536
+            resized_data, resized_mime = await asyncio.to_thread(
+                _resize_image, image_data, max_size=1536
             )
 
             response_text = await self._call_gemini(

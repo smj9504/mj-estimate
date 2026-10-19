@@ -6,6 +6,7 @@ Integrates with Google Cloud Vision API for material detection (fallback provide
 
 from .base import MaterialDetectionProvider
 from app.core.config import settings
+import asyncio
 import logging
 import time
 from typing import Dict, Any, Optional
@@ -100,13 +101,13 @@ class GoogleVisionProvider(MaterialDetectionProvider):
                 logger.info(f"Downloaded image from URL: {image_path}")
             else:
                 # Local file
-                with open(image_path, 'rb') as image_file:
-                    image.content = image_file.read()
+                image.content = await asyncio.to_thread(Path(image_path).read_bytes)
                 logger.info(f"Loaded local image: {image_path}")
 
             # Perform label detection and object localization
-            label_response = self.client.label_detection(image=image)
-            object_response = self.client.object_localization(image=image)
+            # Sync gRPC client calls - run off the event loop
+            label_response = await asyncio.to_thread(self.client.label_detection, image=image)
+            object_response = await asyncio.to_thread(self.client.object_localization, image=image)
 
             # Log detected labels for debugging
             labels = [f"{label.description}({label.score:.2f})" for label in label_response.label_annotations[:5]]

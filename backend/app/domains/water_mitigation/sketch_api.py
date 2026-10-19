@@ -712,8 +712,11 @@ async def _load_image_bytes(sketch: WMFloorSketch, db: Session) -> bytes:
         raise ValueError("Could not load background image from storage")
 
     if provider != "local" and file_id:
+        import asyncio
+
         storage = StorageFactory().get_instance()
-        data = storage.download(file_id)
+        # Storage download is blocking network I/O - keep it off the event loop
+        data = await asyncio.to_thread(storage.download, file_id)
         if hasattr(data, "read"):
             return data.read()
         return data
@@ -731,7 +734,9 @@ async def _load_image_bytes(sketch: WMFloorSketch, db: Session) -> bytes:
                 Path(__file__).parent.parent.parent / "uploads" / rel
             )
         if local_path.exists():
-            return local_path.read_bytes()
+            import asyncio
+
+            return await asyncio.to_thread(local_path.read_bytes)
 
     raise ValueError("Could not load background image from storage")
 

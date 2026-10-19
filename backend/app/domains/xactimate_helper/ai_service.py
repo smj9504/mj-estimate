@@ -8,6 +8,7 @@ Step 4: Correction Feedback (prior corrections applied)
 Step 5: Description AI Generation (missing descriptions)
 """
 
+import asyncio
 import base64
 import json
 import logging
@@ -74,8 +75,7 @@ async def extract_keywords_from_photo(photo_data: str) -> List[str]:
     try:
         # Determine if photo_data is a file path or base64
         if Path(photo_data).exists():
-            with open(photo_data, "rb") as f:
-                image_bytes = f.read()
+            image_bytes = await asyncio.to_thread(Path(photo_data).read_bytes)
             image_b64 = base64.b64encode(image_bytes).decode("utf-8")
             media_type = "image/jpeg"  # Default; could detect from extension
         else:
@@ -84,7 +84,8 @@ async def extract_keywords_from_photo(photo_data: str) -> List[str]:
 
         if "claude" in vision_model.lower():
             client = _get_anthropic()
-            response = client.messages.create(
+            response = await asyncio.to_thread(
+                client.messages.create,
                 model=vision_model,
                 max_tokens=1024,
                 system=VISION_SYSTEM_PROMPT,
@@ -112,7 +113,8 @@ async def extract_keywords_from_photo(photo_data: str) -> List[str]:
         else:
             # OpenAI GPT-4o-mini
             client = _get_openai()
-            response = client.chat.completions.create(
+            response = await asyncio.to_thread(
+                client.chat.completions.create,
                 model=vision_model,
                 max_tokens=1024,
                 messages=[
@@ -167,7 +169,8 @@ async def generate_embedding(text: str) -> List[float]:
     embedding_model = getattr(settings, "XACT_EMBEDDING_MODEL", "text-embedding-3-small")
     try:
         client = _get_openai()
-        response = client.embeddings.create(
+        response = await asyncio.to_thread(
+            client.embeddings.create,
             model=embedding_model,
             input=text,
         )
@@ -187,7 +190,8 @@ async def generate_embeddings_batch(texts: List[str]) -> List[List[float]]:
         all_embeddings = []
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
-            response = client.embeddings.create(
+            response = await asyncio.to_thread(
+                client.embeddings.create,
                 model=embedding_model,
                 input=batch,
             )
@@ -277,7 +281,8 @@ Candidate line items (select from these ONLY):
     try:
         if "claude" in matching_model.lower():
             client = _get_anthropic()
-            response = client.messages.create(
+            response = await asyncio.to_thread(
+                client.messages.create,
                 model=matching_model,
                 max_tokens=2048,
                 system=MATCHING_SYSTEM_PROMPT,
@@ -286,7 +291,8 @@ Candidate line items (select from these ONLY):
             text = response.content[0].text
         else:
             client = _get_openai()
-            response = client.chat.completions.create(
+            response = await asyncio.to_thread(
+                client.chat.completions.create,
                 model=matching_model,
                 max_tokens=2048,
                 messages=[
@@ -375,7 +381,8 @@ async def generate_description(
     try:
         if "claude" in desc_model.lower():
             client = _get_anthropic()
-            response = client.messages.create(
+            response = await asyncio.to_thread(
+                client.messages.create,
                 model=desc_model,
                 max_tokens=512,
                 system=prompt,
@@ -384,7 +391,8 @@ async def generate_description(
             body = response.content[0].text.strip()
         else:
             client = _get_openai()
-            response = client.chat.completions.create(
+            response = await asyncio.to_thread(
+                client.chat.completions.create,
                 model=desc_model,
                 max_tokens=512,
                 messages=[

@@ -21,14 +21,14 @@ router = APIRouter(tags=["xactimate"])
 
 # Category endpoints
 @router.get("/categories", response_model=List[XactimateCategoryResponse])
-async def get_categories(db: Session = Depends(get_db)):
+def get_categories(db: Session = Depends(get_db)):
     """Get all Xactimate categories"""
     service = XactimateCategoryService(db)
     return service.get_all()
 
 
 @router.get("/categories/{category_code}", response_model=XactimateCategoryResponse)
-async def get_category(category_code: str, db: Session = Depends(get_db)):
+def get_category(category_code: str, db: Session = Depends(get_db)):
     """Get category by code"""
     service = XactimateCategoryService(db)
     category = service.get_by_code(category_code)
@@ -38,14 +38,14 @@ async def get_category(category_code: str, db: Session = Depends(get_db)):
 
 
 @router.post("/categories", response_model=XactimateCategoryResponse)
-async def create_category(category_data: XactimateCategoryCreate, db: Session = Depends(get_db)):
+def create_category(category_data: XactimateCategoryCreate, db: Session = Depends(get_db)):
     """Create new Xactimate category"""
     service = XactimateCategoryService(db)
     return service.create(category_data.dict())
 
 
 @router.put("/categories/{category_code}", response_model=XactimateCategoryResponse)
-async def update_category(category_code: str, category_data: XactimateCategoryUpdate, db: Session = Depends(get_db)):
+def update_category(category_code: str, category_data: XactimateCategoryUpdate, db: Session = Depends(get_db)):
     """Update Xactimate category"""
     service = XactimateCategoryService(db)
     
@@ -70,7 +70,7 @@ async def update_category(category_code: str, category_data: XactimateCategoryUp
 
 
 @router.delete("/categories/{category_code}")
-async def delete_category(category_code: str, db: Session = Depends(get_db)):
+def delete_category(category_code: str, db: Session = Depends(get_db)):
     """Delete Xactimate category"""
     service = XactimateCategoryService(db)
     
@@ -93,7 +93,7 @@ async def delete_category(category_code: str, db: Session = Depends(get_db)):
 
 # Item endpoints
 @router.get("/items/search", response_model=XactimateSearchResponse)
-async def search_items(
+def search_items(
     search_term: Optional[str] = Query(None),
     category_code: Optional[str] = Query(None),
     item_code: Optional[str] = Query(None),
@@ -128,7 +128,7 @@ async def search_items(
 
 
 @router.get("/items/{item_id}", response_model=XactimateItemResponse)
-async def get_item(item_id: int, include_components: bool = Query(True), db: Session = Depends(get_db)):
+def get_item(item_id: int, include_components: bool = Query(True), db: Session = Depends(get_db)):
     """Get Xactimate item by ID"""
     service = XactimateItemService(db)
     item = service.get_by_id(item_id)
@@ -138,7 +138,7 @@ async def get_item(item_id: int, include_components: bool = Query(True), db: Ses
 
 
 @router.get("/items/by-code/{item_code}", response_model=XactimateItemResponse)
-async def get_item_by_code(item_code: str, include_components: bool = Query(True), db: Session = Depends(get_db)):
+def get_item_by_code(item_code: str, include_components: bool = Query(True), db: Session = Depends(get_db)):
     """Get Xactimate item by item code"""
     service = XactimateItemService(db)
     item = service.get_by_item_code(item_code, include_components)
@@ -148,7 +148,7 @@ async def get_item_by_code(item_code: str, include_components: bool = Query(True
 
 
 @router.get("/items/by-category/{category_code}", response_model=List[XactimateItemResponse])
-async def get_items_by_category(
+def get_items_by_category(
     category_code: str, 
     limit: int = Query(100, ge=1, le=500),
     include_components: bool = Query(False),
@@ -160,28 +160,28 @@ async def get_items_by_category(
 
 
 @router.post("/items/latest", response_model=List[XactimateItemResponse])
-async def get_latest_items(item_codes: List[str], db: Session = Depends(get_db)):
+def get_latest_items(item_codes: List[str], db: Session = Depends(get_db)):
     """Get latest versions of items by codes"""
     service = XactimateItemService(db)
     return service.get_latest_by_item_codes(item_codes)
 
 
 @router.get("/items/history/{item_code}", response_model=List[XactimateItemResponse])
-async def get_price_history(item_code: str, db: Session = Depends(get_db)):
+def get_price_history(item_code: str, db: Session = Depends(get_db)):
     """Get price history for an item"""
     service = XactimateItemService(db)
     return service.get_price_history(item_code)
 
 
 @router.post("/items", response_model=XactimateItemResponse)
-async def create_item(item_data: XactimateItemCreate, db: Session = Depends(get_db)):
+def create_item(item_data: XactimateItemCreate, db: Session = Depends(get_db)):
     """Create new Xactimate item with components"""
     service = XactimateItemService(db)
     return service.create_with_components(item_data)
 
 
 @router.put("/items/{item_id}", response_model=XactimateItemResponse)
-async def update_item(
+def update_item(
     item_id: int, 
     item_data: XactimateItemUpdate, 
     components_data: Optional[List[XactimateComponentCreate]] = None,
@@ -196,7 +196,7 @@ async def update_item(
 
 
 @router.delete("/items/{item_id}")
-async def delete_item(item_id: int, db: Session = Depends(get_db)):
+def delete_item(item_id: int, db: Session = Depends(get_db)):
     """Delete Xactimate item"""
     service = XactimateItemService(db)
     deleted = service.delete(item_id)
@@ -207,14 +207,14 @@ async def delete_item(item_id: int, db: Session = Depends(get_db)):
 
 # Component endpoints
 @router.get("/items/{item_id}/components", response_model=List[XactimateComponentResponse])
-async def get_item_components(item_id: int, db: Session = Depends(get_db)):
+def get_item_components(item_id: int, db: Session = Depends(get_db)):
     """Get all components for an item"""
     service = XactimateComponentService(db)
     return service.get_by_item_id(item_id)
 
 
 @router.get("/components/by-type/{component_type}", response_model=List[XactimateComponentResponse])
-async def get_components_by_type(
+def get_components_by_type(
     component_type: str, 
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db)
@@ -225,7 +225,7 @@ async def get_components_by_type(
 
 
 @router.post("/items/{item_id}/components", response_model=List[XactimateComponentResponse])
-async def create_item_components(
+def create_item_components(
     item_id: int, 
     components_data: List[XactimateComponentCreate], 
     db: Session = Depends(get_db)
@@ -236,7 +236,7 @@ async def create_item_components(
 
 
 @router.get("/components/{component_id}", response_model=XactimateComponentResponse)
-async def get_component(component_id: int, db: Session = Depends(get_db)):
+def get_component(component_id: int, db: Session = Depends(get_db)):
     """Get component by ID"""
     service = XactimateComponentService(db)
     component = service.get_by_id(component_id)
@@ -246,7 +246,7 @@ async def get_component(component_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/components/{component_id}", response_model=XactimateComponentResponse)
-async def update_component(
+def update_component(
     component_id: int, 
     component_data: XactimateComponentUpdate, 
     db: Session = Depends(get_db)
@@ -260,7 +260,7 @@ async def update_component(
 
 
 @router.delete("/components/{component_id}")
-async def delete_component(component_id: int, db: Session = Depends(get_db)):
+def delete_component(component_id: int, db: Session = Depends(get_db)):
     """Delete component"""
     service = XactimateComponentService(db)
     deleted = service.delete(component_id)
@@ -271,7 +271,7 @@ async def delete_component(component_id: int, db: Session = Depends(get_db)):
 
 # Unified search endpoint
 @router.get("/unified/search", response_model=UnifiedSearchResponse)
-async def unified_search(
+def unified_search(
     search_term: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
     item_type: Optional[str] = Query("ALL"),

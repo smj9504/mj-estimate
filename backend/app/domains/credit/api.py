@@ -31,7 +31,7 @@ def get_credit_service():
 
 # Customer Credit endpoints
 @router.get("/", response_model=CustomerCreditsResponse)
-async def get_customer_credits(
+def get_customer_credits(
     search: Optional[str] = Query(None, description="Search term"),
     credit_type: Optional[CreditType] = Query(None, description="Filter by credit type"),
     status: Optional[CreditStatus] = Query(None, description="Filter by status"),
@@ -67,7 +67,7 @@ async def get_customer_credits(
 
 
 @router.get("/{credit_id}", response_model=CustomerCreditResponse)
-async def get_customer_credit(
+def get_customer_credit(
     credit_id: UUID,
     service: CreditService = Depends(get_credit_service)
 ):
@@ -85,7 +85,7 @@ async def get_customer_credit(
 
 
 @router.post("/", response_model=CustomerCreditResponse)
-async def create_customer_credit(
+def create_customer_credit(
     credit: CustomerCreditCreate,
     service: CreditService = Depends(get_credit_service)
 ):
@@ -102,7 +102,7 @@ async def create_customer_credit(
 
 
 @router.put("/{credit_id}", response_model=CustomerCreditResponse)
-async def update_customer_credit(
+def update_customer_credit(
     credit_id: UUID,
     credit: CustomerCreditUpdate,
     service: CreditService = Depends(get_credit_service)
@@ -127,7 +127,7 @@ async def update_customer_credit(
 
 
 @router.post("/{credit_id}/use", response_model=CustomerCreditResponse)
-async def use_customer_credit(
+def use_customer_credit(
     credit_id: UUID,
     amount_to_use: Decimal = Query(..., description="Amount to use from credit"),
     work_order_id: Optional[UUID] = Query(None, description="Work order ID"),
@@ -153,7 +153,7 @@ async def use_customer_credit(
 
 # Discount Rule endpoints
 @router.get("/discount-rules/", response_model=DiscountRulesResponse)
-async def get_discount_rules(
+def get_discount_rules(
     search: Optional[str] = Query(None, description="Search term"),
     discount_type: Optional[DiscountType] = Query(None, description="Filter by discount type"),
     company_id: Optional[UUID] = Query(None, description="Filter by company ID"),
@@ -181,7 +181,7 @@ async def get_discount_rules(
 
 
 @router.post("/discount-rules/", response_model=DiscountRuleResponse)
-async def create_discount_rule(
+def create_discount_rule(
     rule: DiscountRuleCreate,
     service: CreditService = Depends(get_credit_service)
 ):
@@ -198,7 +198,7 @@ async def create_discount_rule(
 
 
 @router.post("/apply-discount/", response_model=AppliedDiscountResponse)
-async def apply_discount(
+def apply_discount(
     work_order_id: UUID = Query(..., description="Work order ID"),
     staff_id: UUID = Query(..., description="Staff applying discount"),
     discount_rule_id: Optional[UUID] = Query(None, description="Discount rule ID"),
@@ -226,7 +226,7 @@ async def apply_discount(
 
 
 @router.post("/validate-code/")
-async def validate_discount_code(
+def validate_discount_code(
     discount_code: str = Query(..., description="Discount code to validate"),
     work_order_amount: Decimal = Query(..., description="Work order total amount"),
     service: CreditService = Depends(get_credit_service)
@@ -242,7 +242,7 @@ async def validate_discount_code(
 
 # Utility endpoints
 @router.get("/credit-types/list")
-async def get_credit_types():
+def get_credit_types():
     """Get list of available credit types"""
     return {
         "credit_types": [
@@ -253,7 +253,7 @@ async def get_credit_types():
 
 
 @router.get("/discount-types/list")
-async def get_discount_types():
+def get_discount_types():
     """Get list of available discount types"""
     return {
         "discount_types": [
@@ -264,7 +264,7 @@ async def get_discount_types():
 
 
 @router.get("/credit-statuses/list")
-async def get_credit_statuses():
+def get_credit_statuses():
     """Get list of available credit statuses"""
     return {
         "statuses": [
@@ -275,7 +275,7 @@ async def get_credit_statuses():
 
 
 @router.get("/dashboard/stats")
-async def get_credit_dashboard_stats(
+def get_credit_dashboard_stats(
     company_id: Optional[UUID] = Query(None, description="Filter by company ID"),
     service: CreditService = Depends(get_credit_service)
 ):
@@ -289,7 +289,7 @@ async def get_credit_dashboard_stats(
 
 
 @router.post("/generate-credit-number")
-async def generate_credit_number(
+def generate_credit_number(
     service: CreditService = Depends(get_credit_service)
 ):
     """Generate a new credit number"""

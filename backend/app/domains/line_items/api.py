@@ -143,7 +143,7 @@ async def warm_category_caches(categories: List, cache: CacheService):
 
 
 @router.get("/categories/search", response_model=List[Dict[str, Any]])
-async def search_categories(
+def search_categories(
     q: str = Query(..., min_length=1, description="Search query for categories"),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db)
@@ -229,7 +229,7 @@ async def get_categories_for_modal(
 
 
 @router.post("/categories", response_model=LineItemCategoryResponse, status_code=status.HTTP_201_CREATED)
-async def create_category(
+def create_category(
     category: LineItemCategoryCreate,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_user)
@@ -254,7 +254,7 @@ async def create_category(
 
 
 @router.put("/categories/{category_code}", response_model=LineItemCategoryResponse)
-async def update_category(
+def update_category(
     category_code: str,
     update: LineItemCategoryUpdate,
     db: Session = Depends(get_db),
@@ -470,7 +470,7 @@ async def bulk_create_line_items(
 
 
 @router.get("/{line_item_id}/notes", response_model=List[LineItemNoteResponse])
-async def get_line_item_notes(
+def get_line_item_notes(
     line_item_id: UUID,
     db: Session = Depends(get_db)
 ):
@@ -565,7 +565,7 @@ async def search_line_items_simple(
 
 
 @router.get("/modal/items", response_model=List[Dict[str, Any]])
-async def get_line_items_for_modal(
+def get_line_items_for_modal(
     category: Optional[str] = Query(None, description="Filter by category code"),
     search_term: Optional[str] = Query(None, description="Search in multiple keywords"),
     page: int = Query(1, ge=1),
@@ -631,7 +631,7 @@ async def get_line_items_for_modal(
 
 
 @router.get("/modal/search", response_model=List[Dict[str, Any]])
-async def search_line_items_for_modal(
+def search_line_items_for_modal(
     q: str = Query(..., min_length=1, description="Multi-keyword search query"),
     category: Optional[str] = Query(None, description="Filter by category code"), 
     limit: int = Query(100, ge=1, le=200),
@@ -915,7 +915,7 @@ async def get_notes(
 
 
 @router.get("/notes/templates")
-async def get_note_templates(
+def get_note_templates(
     category: Optional[str] = Query(None, description="Category code for filtering templates"),
     db: Session = Depends(get_db),
     cache: CacheService = Depends(get_cache)

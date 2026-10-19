@@ -65,63 +65,64 @@ class CacheService:
             )
             self.redis_client = InMemoryCache()
     
+    async def _call(self, method: str, *args):
+        """Run a client call without blocking the event loop.
+
+        The redis client is synchronous and every call is a network round
+        trip, so it runs in a worker thread. The in-memory fallback is just a
+        dict lookup and runs inline.
+        """
+        fn = getattr(self.redis_client, method)
+        if asyncio.iscoroutinefunction(fn):
+            return await fn(*args)
+        if isinstance(self.redis_client, InMemoryCache):
+            return fn(*args)
+        return await asyncio.to_thread(fn, *args)
+
     async def get(self, key: str) -> Optional[str]:
         """Get value from cache"""
         try:
-            if asyncio.iscoroutinefunction(self.redis_client.get):
-                value = await self.redis_client.get(key)
-            else:
-                value = self.redis_client.get(key)
-            return value
+            return await self._call("get", key)
         except Exception as e:
             logger.error(f"Cache get error for key {key}: {e}")
             return None
-    
+
     async def set(self, key: str, value: str, ttl: int = 3600) -> bool:
         """Set value in cache with TTL in seconds"""
         try:
-            if asyncio.iscoroutinefunction(self.redis_client.setex):
-                result = await self.redis_client.setex(key, ttl, value)
-            else:
-                result = self.redis_client.setex(key, ttl, value)
+            result = await self._call("setex", key, ttl, value)
             return bool(result)
         except Exception as e:
             logger.error(f"Cache set error for key {key}: {e}")
             return False
-    
+
     async def delete(self, key: str) -> bool:
         """Delete value from cache"""
         try:
-            if asyncio.iscoroutinefunction(self.redis_client.delete):
-                result = await self.redis_client.delete(key)
-            else:
-                result = self.redis_client.delete(key)
+            result = await self._call("delete", key)
             return bool(result)
         except Exception as e:
             logger.error(f"Cache delete error for key {key}: {e}")
             return False
-    
+
     async def delete_pattern(self, pattern: str) -> int:
         """Delete all keys matching pattern"""
         try:
             if isinstance(self.redis_client, InMemoryCache):
                 return self.redis_client.delete_pattern(pattern)
-            
-            keys = self.redis_client.keys(pattern)
+
+            keys = await self._call("keys", pattern)
             if keys:
-                return self.redis_client.delete(*keys)
+                return await self._call("delete", *keys)
             return 0
         except Exception as e:
             logger.error(f"Cache delete pattern error for {pattern}: {e}")
             return 0
-    
+
     async def exists(self, key: str) -> bool:
         """Check if key exists in cache"""
         try:
-            if asyncio.iscoroutinefunction(self.redis_client.exists):
-                result = await self.redis_client.exists(key)
-            else:
-                result = self.redis_client.exists(key)
+            result = await self._call("exists", key)
             return bool(result)
         except Exception as e:
             logger.error(f"Cache exists error for key {key}: {e}")

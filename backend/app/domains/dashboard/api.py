@@ -2,6 +2,8 @@
 Dashboard API endpoints
 """
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional
 from datetime import datetime
@@ -18,19 +20,19 @@ router = APIRouter()
 
 
 @router.get("/test")
-async def test_dashboard():
+def test_dashboard():
     """Test endpoint to verify dashboard API is working"""
     return {"message": "Dashboard API is working", "timestamp": datetime.utcnow()}
 
 
 @router.get("/debug-simple")
-async def debug_simple():
+def debug_simple():
     """Simple debug endpoint"""
     return {"status": "working", "timestamp": datetime.utcnow()}
 
 
 @router.get("/debug-admin-basic")
-async def debug_admin_basic():
+def debug_admin_basic():
     """Test admin dashboard without authentication - basic version"""
     try:
         from app.domains.dashboard.service import DashboardService
@@ -68,7 +70,7 @@ async def debug_admin_basic():
 
 
 @router.get("/user", response_model=UserDashboardData)
-async def get_user_dashboard(
+def get_user_dashboard(
     time_period: TimePeriod = Query(TimePeriod.WEEK),
     include_completed: bool = Query(True),
     include_draft: bool = Query(False),
@@ -91,7 +93,7 @@ async def get_user_dashboard(
 
 
 @router.get("/manager", response_model=ManagerDashboardData)
-async def get_manager_dashboard(
+def get_manager_dashboard(
     time_period: TimePeriod = Query(TimePeriod.WEEK),
     include_completed: bool = Query(True),
     include_draft: bool = Query(False),
@@ -136,8 +138,8 @@ async def get_admin_dashboard(
     if current_staff.role not in [StaffRole.admin, StaffRole.super_admin]:
         raise HTTPException(status_code=403, detail="Access denied. Admin role required.")
 
-    # Try to get from cache first
-    cache = CacheService()
+    # Try to get from cache first (constructor connects + pings Redis synchronously)
+    cache = await asyncio.to_thread(CacheService)
     cache_key = f"dashboard:admin:{current_staff.id}:{time_period.value}"
 
     try:
@@ -159,7 +161,9 @@ async def get_admin_dashboard(
     )
 
     try:
-        dashboard_data = service.get_admin_dashboard(str(current_staff.id), filters)
+        dashboard_data = await asyncio.to_thread(
+            service.get_admin_dashboard, str(current_staff.id), filters
+        )
 
         # Cache the result for 30 seconds
         try:
@@ -174,7 +178,7 @@ async def get_admin_dashboard(
 
 
 @router.get("/my-work-orders")
-async def get_my_work_orders(
+def get_my_work_orders(
     status: Optional[str] = Query(None),
     priority: Optional[str] = Query(None),
     include_overdue: bool = Query(True),
@@ -240,7 +244,7 @@ async def get_my_work_orders(
 
 
 @router.get("/document-completions")
-async def get_document_completions(
+def get_document_completions(
     time_period: TimePeriod = Query(TimePeriod.WEEK),
     current_staff: Staff = Depends(get_current_staff)
 ):
@@ -255,7 +259,7 @@ async def get_document_completions(
 
 
 @router.get("/revision-required")
-async def get_revision_required_documents(
+def get_revision_required_documents(
     current_staff: Staff = Depends(get_current_staff)
 ):
     """Get documents requiring revision for the current user"""
@@ -269,7 +273,7 @@ async def get_revision_required_documents(
 
 
 @router.patch("/work-order/{work_order_id}/revision")
-async def update_revision_status(
+def update_revision_status(
     work_order_id: str,
     revision_requested: bool,
     revision_notes: Optional[str] = None,

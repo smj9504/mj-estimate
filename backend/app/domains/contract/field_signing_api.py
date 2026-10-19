@@ -74,7 +74,7 @@ class SendEmailRequest(BaseModel):
 
 
 @router.get("/companies")
-async def get_companies_with_templates():
+def get_companies_with_templates():
     """List companies that have active contract templates."""
     try:
         from app.core.database_factory import get_database
@@ -107,7 +107,7 @@ async def get_companies_with_templates():
 
 
 @router.get("/companies/{company_id}/contracts")
-async def get_company_contracts(company_id: str):
+def get_company_contracts(company_id: str):
     """List existing contract instances for a company (for field signing)."""
     try:
         service, _ = _get_services()
@@ -119,7 +119,7 @@ async def get_company_contracts(company_id: str):
 
 
 @router.get("/companies/{company_id}/templates")
-async def get_company_templates(company_id: str):
+def get_company_templates(company_id: str):
     """List active contract templates for a company."""
     try:
         from app.core.database_factory import get_database
@@ -141,7 +141,7 @@ class FieldContractCreateRequest(BaseModel):
 
 
 @router.post("/create")
-async def create_field_contract(data: FieldContractCreateRequest):
+def create_field_contract(data: FieldContractCreateRequest):
     """
     Create a contract instance from a template for field signing.
     Does not require claim_id or client_id — fields are filled on-site.
@@ -166,7 +166,7 @@ async def create_field_contract(data: FieldContractCreateRequest):
 
 
 @router.get("/{token}/view")
-async def get_contract_for_field(token: str, request: Request):
+def get_contract_for_field(token: str, request: Request):
     """
     Get contract data for field signing, including prefill_data and field_mappings.
     Similar to signing_api GET /{token} but with extra data for field editing.
@@ -273,7 +273,7 @@ async def get_contract_for_field(token: str, request: Request):
 
 
 @router.put("/{token}/prefill")
-async def update_prefill(token: str, data: PrefillUpdateRequest):
+def update_prefill(token: str, data: PrefillUpdateRequest):
     """Update prefill data and regenerate filled PDF."""
     try:
         service, _ = _get_services()

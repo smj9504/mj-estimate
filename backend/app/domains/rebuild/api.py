@@ -36,12 +36,12 @@ def _get_service():
 # ============================================================
 
 @router.get("/rebuild/contractors", response_model=List[RebuildContractorResponse])
-async def list_contractors():
+def list_contractors():
     return _get_service().get_contractors()
 
 
 @router.get("/rebuild/contractors/{contractor_id}", response_model=RebuildContractorResponse)
-async def get_contractor(contractor_id: str):
+def get_contractor(contractor_id: str):
     result = _get_service().get_contractor(contractor_id)
     if not result:
         raise HTTPException(status_code=404, detail="Contractor not found")
@@ -49,7 +49,7 @@ async def get_contractor(contractor_id: str):
 
 
 @router.post("/rebuild/contractors", response_model=RebuildContractorResponse)
-async def create_contractor(data: RebuildContractorCreate):
+def create_contractor(data: RebuildContractorCreate):
     try:
         return _get_service().create_contractor(data.dict())
     except Exception as e:
@@ -57,7 +57,7 @@ async def create_contractor(data: RebuildContractorCreate):
 
 
 @router.patch("/rebuild/contractors/{contractor_id}", response_model=RebuildContractorResponse)
-async def update_contractor(contractor_id: str, data: RebuildContractorUpdate):
+def update_contractor(contractor_id: str, data: RebuildContractorUpdate):
     result = _get_service().update_contractor(contractor_id, data.dict(exclude_unset=True))
     if not result:
         raise HTTPException(status_code=404, detail="Contractor not found")
@@ -65,7 +65,7 @@ async def update_contractor(contractor_id: str, data: RebuildContractorUpdate):
 
 
 @router.delete("/rebuild/contractors/{contractor_id}")
-async def delete_contractor(contractor_id: str):
+def delete_contractor(contractor_id: str):
     if not _get_service().delete_contractor(contractor_id):
         raise HTTPException(status_code=404, detail="Contractor not found")
     return {"success": True}
@@ -76,7 +76,7 @@ async def delete_contractor(contractor_id: str):
 # ============================================================
 
 @router.get("/rebuild/projects", response_model=List[RebuildProjectResponse])
-async def list_projects(
+def list_projects(
     status: Optional[str] = Query(None),
     contractor_id: Optional[str] = Query(None),
     claim_id: Optional[str] = Query(None),
@@ -91,17 +91,17 @@ async def list_projects(
 
 
 @router.get("/rebuild/projects/stats", response_model=RebuildDashboardStats)
-async def get_project_stats():
+def get_project_stats():
     return _get_service().get_dashboard_stats()
 
 
 @router.get("/rebuild/projects/by-claim/{claim_id}", response_model=List[RebuildProjectResponse])
-async def get_projects_by_claim(claim_id: str):
+def get_projects_by_claim(claim_id: str):
     return _get_service().get_projects_by_claim(claim_id)
 
 
 @router.get("/rebuild/projects/{project_id}", response_model=RebuildProjectResponse)
-async def get_project(project_id: str):
+def get_project(project_id: str):
     result = _get_service().get_project(project_id)
     if not result:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -109,7 +109,7 @@ async def get_project(project_id: str):
 
 
 @router.post("/rebuild/projects", response_model=RebuildProjectResponse)
-async def create_project(data: RebuildProjectCreate):
+def create_project(data: RebuildProjectCreate):
     try:
         return _get_service().create_project(data.dict())
     except Exception as e:
@@ -117,7 +117,7 @@ async def create_project(data: RebuildProjectCreate):
 
 
 @router.patch("/rebuild/projects/{project_id}", response_model=RebuildProjectResponse)
-async def update_project(project_id: str, data: RebuildProjectUpdate):
+def update_project(project_id: str, data: RebuildProjectUpdate):
     result = _get_service().update_project(project_id, data.dict(exclude_unset=True))
     if not result:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -125,7 +125,7 @@ async def update_project(project_id: str, data: RebuildProjectUpdate):
 
 
 @router.delete("/rebuild/projects/{project_id}")
-async def delete_project(project_id: str):
+def delete_project(project_id: str):
     if not _get_service().delete_project(project_id):
         raise HTTPException(status_code=404, detail="Project not found")
     return {"success": True}
@@ -136,12 +136,12 @@ async def delete_project(project_id: str):
 # ============================================================
 
 @router.get("/rebuild/projects/{project_id}/docs", response_model=List[RebuildCompletionDocResponse])
-async def list_completion_docs(project_id: str):
+def list_completion_docs(project_id: str):
     return _get_service().get_completion_docs(project_id)
 
 
 @router.post("/rebuild/projects/{project_id}/docs", response_model=RebuildCompletionDocResponse)
-async def create_completion_doc(project_id: str, data: RebuildCompletionDocCreate):
+def create_completion_doc(project_id: str, data: RebuildCompletionDocCreate):
     doc_data = data.dict()
     doc_data['project_id'] = project_id
     try:
@@ -151,7 +151,7 @@ async def create_completion_doc(project_id: str, data: RebuildCompletionDocCreat
 
 
 @router.patch("/rebuild/projects/{project_id}/docs/{doc_id}", response_model=RebuildCompletionDocResponse)
-async def update_completion_doc(project_id: str, doc_id: str, data: RebuildCompletionDocUpdate):
+def update_completion_doc(project_id: str, doc_id: str, data: RebuildCompletionDocUpdate):
     result = _get_service().update_completion_doc(doc_id, data.dict(exclude_unset=True))
     if not result:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -159,7 +159,7 @@ async def update_completion_doc(project_id: str, doc_id: str, data: RebuildCompl
 
 
 @router.delete("/rebuild/projects/{project_id}/docs/{doc_id}")
-async def delete_completion_doc(project_id: str, doc_id: str):
+def delete_completion_doc(project_id: str, doc_id: str):
     if not _get_service().delete_completion_doc(doc_id):
         raise HTTPException(status_code=404, detail="Document not found")
     return {"success": True}
@@ -170,19 +170,19 @@ async def delete_completion_doc(project_id: str, doc_id: str):
 # ============================================================
 
 @router.get("/rebuild/projects/{project_id}/available-templates")
-async def get_available_templates(project_id: str):
+def get_available_templates(project_id: str):
     """Get contract templates for the project's contractor."""
     return _get_service().get_available_templates(project_id)
 
 
 @router.get("/rebuild/projects/{project_id}/prefill-data")
-async def get_prefill_data(project_id: str):
+def get_prefill_data(project_id: str):
     """Get prefill data for document generation."""
     return _get_service().get_prefill_data(project_id)
 
 
 @router.post("/rebuild/projects/{project_id}/generate-doc", response_model=RebuildCompletionDocResponse)
-async def generate_document(project_id: str, data: Dict[str, Any]):
+def generate_document(project_id: str, data: Dict[str, Any]):
     """Generate a filled PDF from a contract template."""
     try:
         return _get_service().generate_document(project_id, data)
@@ -227,7 +227,7 @@ async def photos_to_pdf(
 # ============================================================
 
 @router.get("/rebuild/projects/{project_id}/docs/{doc_id}/pdf")
-async def serve_completion_doc_pdf(project_id: str, doc_id: str):
+def serve_completion_doc_pdf(project_id: str, doc_id: str):
     """Serve completion doc PDF from cloud or local storage."""
     from pathlib import Path
     from starlette.responses import Response

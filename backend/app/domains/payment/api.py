@@ -30,7 +30,7 @@ def get_payment_service():
 
 # Payment endpoints
 @router.get("/", response_model=PaymentsResponse)
-async def get_payments(
+def get_payments(
     search: Optional[str] = Query(None, description="Search term"),
     status: Optional[PaymentStatus] = Query(None, description="Filter by status"),
     payment_method: Optional[PaymentMethod] = Query(None, description="Filter by payment method"),
@@ -66,7 +66,7 @@ async def get_payments(
 
 
 @router.get("/{payment_id}", response_model=PaymentResponse)
-async def get_payment(
+def get_payment(
     payment_id: UUID,
     service: PaymentService = Depends(get_payment_service)
 ):
@@ -84,7 +84,7 @@ async def get_payment(
 
 
 @router.post("/", response_model=PaymentResponse)
-async def create_payment(
+def create_payment(
     payment: PaymentCreate,
     service: PaymentService = Depends(get_payment_service)
 ):
@@ -101,7 +101,7 @@ async def create_payment(
 
 
 @router.put("/{payment_id}", response_model=PaymentResponse)
-async def update_payment(
+def update_payment(
     payment_id: UUID,
     payment: PaymentUpdate,
     service: PaymentService = Depends(get_payment_service)
@@ -126,7 +126,7 @@ async def update_payment(
 
 
 @router.delete("/{payment_id}")
-async def delete_payment(
+def delete_payment(
     payment_id: UUID,
     service: PaymentService = Depends(get_payment_service)
 ):
@@ -145,7 +145,7 @@ async def delete_payment(
 
 # Billing Schedule endpoints
 @router.get("/schedules/", response_model=BillingSchedulesResponse)
-async def get_billing_schedules(
+def get_billing_schedules(
     search: Optional[str] = Query(None, description="Search term"),
     billing_cycle: Optional[BillingCycle] = Query(None, description="Filter by billing cycle"),
     company_id: Optional[UUID] = Query(None, description="Filter by company ID"),
@@ -171,7 +171,7 @@ async def get_billing_schedules(
 
 
 @router.post("/schedules/", response_model=BillingScheduleResponse)
-async def create_billing_schedule(
+def create_billing_schedule(
     schedule: BillingScheduleCreate,
     service: PaymentService = Depends(get_payment_service)
 ):
@@ -189,7 +189,7 @@ async def create_billing_schedule(
 
 # Payment Refund endpoints
 @router.get("/{payment_id}/refunds/", response_model=PaymentRefundsResponse)
-async def get_payment_refunds(
+def get_payment_refunds(
     payment_id: UUID,
     service: PaymentService = Depends(get_payment_service)
 ):
@@ -203,7 +203,7 @@ async def get_payment_refunds(
 
 
 @router.post("/{payment_id}/refunds/", response_model=PaymentRefundResponse)
-async def create_payment_refund(
+def create_payment_refund(
     payment_id: UUID,
     refund: PaymentRefundCreate,
     service: PaymentService = Depends(get_payment_service)
@@ -226,7 +226,7 @@ async def create_payment_refund(
 
 # Utility endpoints
 @router.get("/methods/list")
-async def get_payment_methods():
+def get_payment_methods():
     """Get list of available payment methods"""
     return {
         "payment_methods": [
@@ -237,7 +237,7 @@ async def get_payment_methods():
 
 
 @router.get("/statuses/list")
-async def get_payment_statuses():
+def get_payment_statuses():
     """Get list of available payment statuses"""
     return {
         "statuses": [
@@ -248,7 +248,7 @@ async def get_payment_statuses():
 
 
 @router.get("/cycles/list")
-async def get_billing_cycles():
+def get_billing_cycles():
     """Get list of available billing cycles"""
     return {
         "billing_cycles": [
@@ -259,7 +259,7 @@ async def get_billing_cycles():
 
 
 @router.get("/dashboard/stats")
-async def get_payment_dashboard_stats(
+def get_payment_dashboard_stats(
     company_id: Optional[UUID] = Query(None, description="Filter by company ID"),
     service: PaymentService = Depends(get_payment_service)
 ):
@@ -273,7 +273,7 @@ async def get_payment_dashboard_stats(
 
 
 @router.post("/generate-number")
-async def generate_payment_number(
+def generate_payment_number(
     service: PaymentService = Depends(get_payment_service)
 ):
     """Generate a new payment number"""

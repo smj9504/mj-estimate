@@ -20,7 +20,7 @@ class TemplateListResponse(BaseModel):
     templates: Dict[str, str]
 
 @router.post("/register")
-async def register_template(registration: TemplateRegistration):
+def register_template(registration: TemplateRegistration):
     """Register a new template"""
     try:
         from app.common.services.template_manager import get_template_manager
@@ -38,7 +38,7 @@ async def register_template(registration: TemplateRegistration):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/list", response_model=TemplateListResponse)
-async def list_templates():
+def list_templates():
     """List all registered templates"""
     try:
         from app.common.services.template_manager import get_template_manager
@@ -53,7 +53,7 @@ async def list_templates():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/{template_key}")
-async def remove_template(template_key: str):
+def remove_template(template_key: str):
     """Remove a registered template"""
     try:
         from app.common.services.template_manager import get_template_manager
@@ -68,7 +68,7 @@ async def remove_template(template_key: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{template_key}/exists")
-async def check_template_exists(template_key: str):
+def check_template_exists(template_key: str):
     """Check if a template exists"""
     try:
         from app.common.services.template_manager import get_template_manager

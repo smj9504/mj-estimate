@@ -120,7 +120,7 @@ async def create_detection_job(
 
 
 @router.get("/jobs/{job_id}", response_model=MaterialDetectionJobResponse)
-async def get_detection_job(
+def get_detection_job(
     job_id: UUID,
     service: MaterialDetectionService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)
@@ -147,7 +147,7 @@ async def get_detection_job(
 
 
 @router.get("/jobs", response_model=MaterialDetectionJobList)
-async def list_detection_jobs(
+def list_detection_jobs(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(20, ge=1, le=100, description="Maximum number of records to return"),
     status: Optional[str] = Query(None, description="Filter by job status"),
@@ -188,7 +188,7 @@ async def list_detection_jobs(
 
 
 @router.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_detection_job(
+def delete_detection_job(
     job_id: UUID,
     service: MaterialDetectionService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)
@@ -215,7 +215,7 @@ async def delete_detection_job(
 # ===== Statistics Endpoints =====
 
 @router.get("/jobs/{job_id}/statistics", response_model=dict)
-async def get_job_statistics(
+def get_job_statistics(
     job_id: UUID,
     service: MaterialDetectionService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)
@@ -245,7 +245,7 @@ async def get_job_statistics(
 
 
 @router.get("/statistics", response_model=dict)
-async def get_overall_statistics(
+def get_overall_statistics(
     service: MaterialDetectionService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)
 ):
@@ -304,7 +304,7 @@ async def health_check(
 # ===== Detected Materials Endpoints =====
 
 @router.get("/materials/{material_id}", response_model=DetectedMaterialResponse)
-async def get_detected_material(
+def get_detected_material(
     material_id: UUID,
     service: MaterialDetectionService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)
@@ -334,7 +334,7 @@ async def get_detected_material(
 
 
 @router.put("/materials/{material_id}", response_model=DetectedMaterialResponse)
-async def update_detected_material(
+def update_detected_material(
     material_id: UUID,
     updates: DetectedMaterialUpdate,
     service: MaterialDetectionService = Depends(get_service),
@@ -375,7 +375,7 @@ async def update_detected_material(
 
 
 @router.delete("/materials/{material_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_detected_material(
+def delete_detected_material(
     material_id: UUID,
     service: MaterialDetectionService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)
@@ -410,7 +410,7 @@ async def delete_detected_material(
 # ===== Bulk Operations =====
 
 @router.post("/materials/bulk-update")
-async def bulk_update_materials(
+def bulk_update_materials(
     material_ids: List[UUID],
     updates: DetectedMaterialUpdate,
     service: MaterialDetectionService = Depends(get_service),
@@ -453,7 +453,7 @@ async def bulk_update_materials(
 
 
 @router.post("/materials/bulk-delete")
-async def bulk_delete_materials(
+def bulk_delete_materials(
     material_ids: List[UUID],
     service: MaterialDetectionService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)
@@ -503,7 +503,7 @@ from datetime import datetime as dt
 
 
 @router.get("/jobs/{job_id}/export/csv")
-async def export_job_materials_csv(
+def export_job_materials_csv(
     job_id: UUID,
     service: MaterialDetectionService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)
@@ -549,7 +549,7 @@ async def export_job_materials_csv(
 
 
 @router.get("/jobs/{job_id}/export/excel")
-async def export_job_materials_excel(
+def export_job_materials_excel(
     job_id: UUID,
     service: MaterialDetectionService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)

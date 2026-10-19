@@ -32,7 +32,7 @@ def get_staff_service():
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(
+def login(
     login_data: LoginRequest,
     service: StaffService = Depends(get_staff_service)
 ):
@@ -51,7 +51,7 @@ async def login(
 
 
 @router.post("/change-password")
-async def change_password(
+def change_password(
     password_data: ChangePasswordRequest,
     current_staff_id: UUID = Query(..., description="Current staff ID"),
     service: StaffService = Depends(get_staff_service)
@@ -79,7 +79,7 @@ async def change_password(
 
 
 @router.get("/", response_model=StaffListResponse)
-async def get_staff_members(
+def get_staff_members(
     search: Optional[str] = Query(None, description="Search term"),
     role: Optional[StaffRole] = Query(None, description="Filter by role"),
     department: Optional[str] = Query(None, description="Filter by department"),
@@ -107,7 +107,7 @@ async def get_staff_members(
 
 
 @router.get("/{staff_id}", response_model=StaffResponse)
-async def get_staff_member(
+def get_staff_member(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service)
 ):
@@ -125,7 +125,7 @@ async def get_staff_member(
 
 
 @router.post("/", response_model=StaffResponse)
-async def create_staff_member(
+def create_staff_member(
     staff: StaffCreate,
     service: StaffService = Depends(get_staff_service)
 ):
@@ -142,7 +142,7 @@ async def create_staff_member(
 
 
 @router.put("/{staff_id}", response_model=StaffResponse)
-async def update_staff_member(
+def update_staff_member(
     staff_id: UUID,
     staff: StaffUpdate,
     service: StaffService = Depends(get_staff_service),
@@ -171,7 +171,7 @@ async def update_staff_member(
 
 
 @router.delete("/{staff_id}")
-async def delete_staff_member(
+def delete_staff_member(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service)
 ):
@@ -189,7 +189,7 @@ async def delete_staff_member(
 
 
 @router.get("/{staff_id}/permissions", response_model=StaffPermissionResponse)
-async def get_staff_permissions(
+def get_staff_permissions(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service)
 ):
@@ -203,7 +203,7 @@ async def get_staff_permissions(
 
 
 @router.put("/{staff_id}/permissions", response_model=StaffPermissionResponse)
-async def update_staff_permissions(
+def update_staff_permissions(
     staff_id: UUID,
     permissions: StaffPermissionUpdate,
     service: StaffService = Depends(get_staff_service),
@@ -226,7 +226,7 @@ async def update_staff_permissions(
 
 
 @router.get("/audit-logs/", response_model=AuditLogResponse)
-async def get_audit_logs(
+def get_audit_logs(
     staff_id: Optional[UUID] = Query(None, description="Filter by staff ID"),
     action: Optional[str] = Query(None, description="Filter by action"),
     entity_type: Optional[str] = Query(None, description="Filter by entity type"),
@@ -258,7 +258,7 @@ async def get_audit_logs(
 
 # Utility endpoints
 @router.get("/roles/list")
-async def get_staff_roles():
+def get_staff_roles():
     """Get list of available staff roles"""
     return {
         "roles": [
@@ -269,7 +269,7 @@ async def get_staff_roles():
 
 
 @router.get("/dashboard/stats")
-async def get_staff_dashboard_stats(
+def get_staff_dashboard_stats(
     company_id: Optional[UUID] = Query(None, description="Filter by company ID"),
     service: StaffService = Depends(get_staff_service)
 ):
@@ -283,7 +283,7 @@ async def get_staff_dashboard_stats(
 
 
 @router.post("/generate-number")
-async def generate_staff_number(
+def generate_staff_number(
     company_id: UUID = Query(..., description="Company ID"),
     service: StaffService = Depends(get_staff_service)
 ):
@@ -299,7 +299,7 @@ async def generate_staff_number(
 # ========== Google Drive Settings Endpoints ==========
 
 @router.get("/{staff_id}/gdrive-settings", response_model=GoogleDriveSettingsResponse)
-async def get_gdrive_settings(
+def get_gdrive_settings(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service)
 ):
@@ -323,7 +323,7 @@ async def get_gdrive_settings(
 
 
 @router.put("/{staff_id}/gdrive-settings", response_model=GoogleDriveSettingsResponse)
-async def update_gdrive_settings(
+def update_gdrive_settings(
     staff_id: UUID,
     settings_data: GoogleDriveSettingsUpdate,
     service: StaffService = Depends(get_staff_service),
@@ -384,7 +384,7 @@ async def update_gdrive_settings(
 
 
 @router.post("/{staff_id}/gdrive-settings/test", response_model=GoogleDriveTestResponse)
-async def test_gdrive_connection(
+def test_gdrive_connection(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service)
 ):
@@ -462,7 +462,7 @@ async def test_gdrive_connection(
 # ========== Google OAuth 2.0 Endpoints ==========
 
 @router.get("/{staff_id}/gdrive-oauth/status", response_model=GoogleOAuthStatusResponse)
-async def get_gdrive_oauth_status(
+def get_gdrive_oauth_status(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service)
 ):
@@ -505,7 +505,7 @@ async def get_gdrive_oauth_status(
 
 
 @router.post("/{staff_id}/gdrive-oauth/init", response_model=GoogleOAuthInitResponse)
-async def init_gdrive_oauth(
+def init_gdrive_oauth(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service)
 ):
@@ -541,7 +541,7 @@ async def init_gdrive_oauth(
 
 
 @router.post("/{staff_id}/gdrive-oauth/callback", response_model=GoogleOAuthCallbackResponse)
-async def gdrive_oauth_callback(
+def gdrive_oauth_callback(
     staff_id: UUID,
     callback_data: GoogleOAuthCallbackRequest,
     service: StaffService = Depends(get_staff_service),
@@ -589,7 +589,7 @@ async def gdrive_oauth_callback(
 
 
 @router.post("/{staff_id}/gdrive-oauth/disconnect")
-async def disconnect_gdrive_oauth(
+def disconnect_gdrive_oauth(
     staff_id: UUID,
     service: StaffService = Depends(get_staff_service),
     cache: CacheService = Depends(get_cache)
@@ -639,7 +639,7 @@ async def disconnect_gdrive_oauth(
 
 
 @router.get("/{staff_id}/gdrive-oauth/folders", response_model=GoogleDriveFolderListResponse)
-async def list_gdrive_folders(
+def list_gdrive_folders(
     staff_id: UUID,
     parent_id: str = Query("root", description="Parent folder ID"),
     service: StaffService = Depends(get_staff_service)
@@ -672,7 +672,7 @@ async def list_gdrive_folders(
 
 
 @router.post("/{staff_id}/gdrive-oauth/folders", response_model=GoogleDriveFolderResponse)
-async def create_gdrive_folder(
+def create_gdrive_folder(
     staff_id: UUID,
     folder_data: GoogleDriveFolderCreateRequest,
     service: StaffService = Depends(get_staff_service)
@@ -709,7 +709,7 @@ async def create_gdrive_folder(
 
 
 @router.post("/{staff_id}/gdrive-oauth/select-folder")
-async def select_gdrive_folder(
+def select_gdrive_folder(
     staff_id: UUID,
     folder_data: GoogleDriveFolderSelectRequest,
     service: StaffService = Depends(get_staff_service),

@@ -27,14 +27,14 @@ def _get_service():
 # ── Auth-based endpoints MUST come before /{token}/ routes ──
 
 @public_router.get("/auth/claims")
-async def list_claims_by_company(company_id: str = Query(None)):
+def list_claims_by_company(company_id: str = Query(None)):
     """List claims for a company, or all claims if no company_id."""
     service = _get_service()
     return service.get_claims_for_company(company_id)
 
 
 @public_router.get("/auth/claims/{claim_id}/payments")
-async def get_payments_by_company(
+def get_payments_by_company(
     claim_id: str, company_id: str = Query(None)
 ):
     """Get payments for a claim (used by logged-in contractors)."""
@@ -43,7 +43,7 @@ async def get_payments_by_company(
 
 
 @public_router.post("/auth/claims/{claim_id}/payments")
-async def create_payment_by_company(
+def create_payment_by_company(
     claim_id: str, data: ContractorPaymentCreate
 ):
     """Create payment (used by logged-in contractors)."""
@@ -112,7 +112,7 @@ async def upload_check_photo_auth(file: UploadFile = File(...)):
 # ── Token-based endpoints (dynamic /{token}/ routes) ──
 
 @public_router.get("/{token}/validate")
-async def validate_token(token: str):
+def validate_token(token: str):
     """Validate a contractor portal token."""
     service = _get_service()
     result = service.validate_token(token)
@@ -126,7 +126,7 @@ async def validate_token(token: str):
 
 
 @public_router.get("/{token}/claims")
-async def list_claims(token: str):
+def list_claims(token: str):
     """List all claims across all companies for this contractor."""
     service = _get_service()
     info = service.validate_token(token)
@@ -136,7 +136,7 @@ async def list_claims(token: str):
 
 
 @public_router.get("/{token}/claims/{claim_id}/payments")
-async def get_payments(token: str, claim_id: str):
+def get_payments(token: str, claim_id: str):
     """Get payments for a specific claim with summary."""
     service = _get_service()
     info = service.validate_token(token)
@@ -146,7 +146,7 @@ async def get_payments(token: str, claim_id: str):
 
 
 @public_router.post("/{token}/claims/{claim_id}/payments")
-async def create_payment(token: str, claim_id: str, data: ContractorPaymentCreate):
+def create_payment(token: str, claim_id: str, data: ContractorPaymentCreate):
     """Create a new payment entry from the contractor portal."""
     service = _get_service()
     info = service.validate_token(token)
@@ -224,7 +224,7 @@ admin_router = APIRouter()
 
 
 @admin_router.post("/tokens")
-async def create_token(data: TokenCreateRequest):
+def create_token(data: TokenCreateRequest):
     """Generate a portal token for a company contact."""
     service = _get_service()
     result = service.create_token(data.company_contact_id)
@@ -234,14 +234,14 @@ async def create_token(data: TokenCreateRequest):
 
 
 @admin_router.get("/tokens")
-async def list_tokens(company_id: str = Query(None)):
+def list_tokens(company_id: str = Query(None)):
     """List all active portal tokens."""
     service = _get_service()
     return service.list_tokens(company_id)
 
 
 @admin_router.delete("/tokens/{token_id}")
-async def deactivate_token(token_id: str):
+def deactivate_token(token_id: str):
     """Deactivate a portal token."""
     service = _get_service()
     if not service.deactivate_token(token_id):

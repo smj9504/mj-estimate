@@ -20,7 +20,7 @@ service = PaymentConfigService()
 
 # Payment Method endpoints
 @router.get("/payment-methods", response_model=List[PaymentMethodResponse])
-async def get_payment_methods(
+def get_payment_methods(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     active_only: bool = Query(True),
@@ -31,7 +31,7 @@ async def get_payment_methods(
 
 
 @router.get("/payment-methods/{method_id}", response_model=PaymentMethodResponse)
-async def get_payment_method(
+def get_payment_method(
     method_id: str,
     db: Session = Depends(get_db)
 ):
@@ -43,7 +43,7 @@ async def get_payment_method(
 
 
 @router.post("/payment-methods", response_model=PaymentMethodResponse)
-async def create_payment_method(
+def create_payment_method(
     method: PaymentMethodCreate,
     db: Session = Depends(get_db),
     current_staff: dict = Depends(require_admin)
@@ -56,7 +56,7 @@ async def create_payment_method(
 
 
 @router.put("/payment-methods/{method_id}", response_model=PaymentMethodResponse)
-async def update_payment_method(
+def update_payment_method(
     method_id: str,
     method: PaymentMethodUpdate,
     db: Session = Depends(get_db),
@@ -70,7 +70,7 @@ async def update_payment_method(
 
 
 @router.delete("/payment-methods/{method_id}")
-async def delete_payment_method(
+def delete_payment_method(
     method_id: str,
     db: Session = Depends(get_db),
     current_staff: dict = Depends(require_admin)
@@ -83,7 +83,7 @@ async def delete_payment_method(
 
 # Payment Frequency endpoints
 @router.get("/payment-frequencies", response_model=List[PaymentFrequencyResponse])
-async def get_payment_frequencies(
+def get_payment_frequencies(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     active_only: bool = Query(True),
@@ -94,7 +94,7 @@ async def get_payment_frequencies(
 
 
 @router.get("/payment-frequencies/{frequency_id}", response_model=PaymentFrequencyResponse)
-async def get_payment_frequency(
+def get_payment_frequency(
     frequency_id: str,
     db: Session = Depends(get_db)
 ):
@@ -106,7 +106,7 @@ async def get_payment_frequency(
 
 
 @router.post("/payment-frequencies", response_model=PaymentFrequencyResponse)
-async def create_payment_frequency(
+def create_payment_frequency(
     frequency: PaymentFrequencyCreate,
     db: Session = Depends(get_db),
     current_staff: dict = Depends(require_admin)
@@ -119,7 +119,7 @@ async def create_payment_frequency(
 
 
 @router.put("/payment-frequencies/{frequency_id}", response_model=PaymentFrequencyResponse)
-async def update_payment_frequency(
+def update_payment_frequency(
     frequency_id: str,
     frequency: PaymentFrequencyUpdate,
     db: Session = Depends(get_db),
@@ -139,7 +139,7 @@ async def update_payment_frequency(
 
 
 @router.delete("/payment-frequencies/{frequency_id}")
-async def delete_payment_frequency(
+def delete_payment_frequency(
     frequency_id: str,
     db: Session = Depends(get_db),
     current_staff: dict = Depends(require_admin)

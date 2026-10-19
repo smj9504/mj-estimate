@@ -23,6 +23,7 @@ not set, both public functions raise HTTPException(503) with a clear message.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -823,7 +824,10 @@ async def _analyze_room_with_claude(
 
         content = []
         for img in images:
-            media_type, img_data = _compress_image_base64(img, max_bytes=per_image_limit)
+            # PIL decode/re-encode is CPU-bound; keep it off the event loop
+            media_type, img_data = await asyncio.to_thread(
+                _compress_image_base64, img, max_bytes=per_image_limit
+            )
             content.append({
                 "type": "image",
                 "source": {
@@ -1016,7 +1020,9 @@ async def analyze_room_photos(
 
     _require_vision_dependencies()
 
-    deduplicated = _select_diverse_images(
+    # Decodes every image with PIL — run off the event loop
+    deduplicated = await asyncio.to_thread(
+        _select_diverse_images,
         images,
         max_images=max_images,
         threshold=dedup_threshold,
@@ -1149,14 +1155,12 @@ async def analyze_room_with_retry(
         (RoomAnalysisResponse, None, None) on success
         (None, error_code, error_message) on terminal failure
     """
-    import asyncio
-
     _require_vision_dependencies()
 
     if not images:
         return None, "IMAGE_ERROR", "No images provided"
 
-    deduplicated = _select_diverse_images(images)
+    deduplicated = await asyncio.to_thread(_select_diverse_images, images)
     if not deduplicated:
         return None, "IMAGE_ERROR", "No valid images after filtering"
 

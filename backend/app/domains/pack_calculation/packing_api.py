@@ -118,7 +118,7 @@ async def analyze_room(
 
 
 @router.post("/analyze-batch")
-async def analyze_batch(
+def analyze_batch(
     request: BatchRoomAnalysisRequest,
     current_user: Staff = Depends(get_current_user),
 ):

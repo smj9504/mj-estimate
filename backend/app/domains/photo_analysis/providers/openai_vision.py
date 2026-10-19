@@ -66,6 +66,34 @@ class OpenAIVisionProvider(PhotoAnalysisProvider):
         localhost_indicators = ['localhost', '127.0.0.1', '0.0.0.0', '192.168.', '10.', '172.']
         return any(indicator in url.lower() for indicator in localhost_indicators)
 
+    def _encode_image_to_data_url(self, image_bytes: bytes) -> str:
+        """Resize image and convert to a base64 JPEG data URL (sync, CPU-bound)."""
+        # Open and resize image for cost optimization
+        img = Image.open(BytesIO(image_bytes))
+        original_size = img.size
+        img.thumbnail(self.target_image_size, Image.Resampling.LANCZOS)
+
+        # Convert to RGB if necessary (remove alpha channel)
+        if img.mode in ('RGBA', 'LA', 'P'):
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+            img = background
+
+        # Convert to base64 data URL
+        buffer = BytesIO()
+        img.save(buffer, format='JPEG', quality=85)
+        buffer.seek(0)
+        base64_data = base64.b64encode(buffer.read()).decode('utf-8')
+
+        data_url = f"data:image/jpeg;base64,{base64_data}"
+
+        logger.info(f"Image converted to base64: {original_size} -> {img.size}, "
+                   f"data URL length: {len(data_url)} chars")
+
+        return data_url
+
     async def _optimize_image(self, photo_url: str) -> str:
         """
         Optimize image and convert to base64 data URL for OpenAI Vision API.
@@ -121,8 +149,7 @@ class OpenAIVisionProvider(PhotoAnalysisProvider):
                     if not full_path.exists():
                         raise FileNotFoundError(f"File not found at path: {full_path}")
 
-                    with open(full_path, 'rb') as f:
-                        image_bytes = f.read()
+                    image_bytes = await asyncio.to_thread(full_path.read_bytes)
                     logger.info(f"Successfully read {len(image_bytes)} bytes from {full_path}")
                 except Exception as file_error:
                     logger.error(f"File read failed: {file_error}")
@@ -130,35 +157,12 @@ class OpenAIVisionProvider(PhotoAnalysisProvider):
             else:
                 # For external URLs, download via HTTP
                 logger.info(f"External URL detected - downloading via HTTP: {photo_url}")
-                response = requests.get(photo_url, timeout=30)
+                response = await asyncio.to_thread(requests.get, photo_url, timeout=30)
                 response.raise_for_status()
                 image_bytes = response.content
 
-            # Open and resize image for cost optimization
-            img = Image.open(BytesIO(image_bytes))
-            original_size = img.size
-            img.thumbnail(self.target_image_size, Image.Resampling.LANCZOS)
-
-            # Convert to RGB if necessary (remove alpha channel)
-            if img.mode in ('RGBA', 'LA', 'P'):
-                background = Image.new('RGB', img.size, (255, 255, 255))
-                if img.mode == 'P':
-                    img = img.convert('RGBA')
-                background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
-                img = background
-
-            # Convert to base64 data URL
-            buffer = BytesIO()
-            img.save(buffer, format='JPEG', quality=85)
-            buffer.seek(0)
-            base64_data = base64.b64encode(buffer.read()).decode('utf-8')
-
-            data_url = f"data:image/jpeg;base64,{base64_data}"
-
-            logger.info(f"Image converted to base64: {original_size} -> {img.size}, "
-                       f"data URL length: {len(data_url)} chars")
-
-            return data_url
+            # Resize + base64-encode off the event loop (PIL work is CPU-bound)
+            return await asyncio.to_thread(self._encode_image_to_data_url, image_bytes)
 
         except Exception as e:
             logger.error(f"Image optimization/base64 conversion failed: {e}")

@@ -15,7 +15,7 @@ router = APIRouter()
 
 # Document Types endpoints
 @router.get("/document-types/", response_model=List[schemas.DocumentTypeResponse])
-async def get_document_types(
+def get_document_types(
     skip: int = 0,
     limit: int = 100,
     active_only: bool = True,
@@ -27,7 +27,7 @@ async def get_document_types(
 
 
 @router.get("/document-types/{document_type_id}", response_model=schemas.DocumentTypeResponse)
-async def get_document_type(
+def get_document_type(
     document_type_id: UUID,
     db: Session = Depends(get_db)
 ):
@@ -39,7 +39,7 @@ async def get_document_type(
 
 
 @router.post("/document-types/", response_model=schemas.DocumentTypeResponse)
-async def create_document_type(
+def create_document_type(
     document_type: schemas.DocumentTypeCreate,
     db: Session = Depends(get_db)
 ):
@@ -60,7 +60,7 @@ async def create_document_type(
 
 
 @router.put("/document-types/{document_type_id}", response_model=schemas.DocumentTypeResponse)
-async def update_document_type(
+def update_document_type(
     document_type_id: UUID,
     document_type: schemas.DocumentTypeUpdate,
     db: Session = Depends(get_db)
@@ -84,7 +84,7 @@ async def update_document_type(
 
 
 @router.delete("/document-types/{document_type_id}")
-async def delete_document_type(
+def delete_document_type(
     document_type_id: UUID,
     db: Session = Depends(get_db)
 ):
@@ -95,7 +95,7 @@ async def delete_document_type(
 
 
 @router.post("/document-types/{document_type_id}/calculate-fee")
-async def calculate_document_fee(
+def calculate_document_fee(
     document_type_id: UUID,
     params: schemas.FeeCalculationParams,
     db: Session = Depends(get_db)
@@ -109,7 +109,7 @@ async def calculate_document_fee(
 
 # Trades endpoints
 @router.get("/trades/", response_model=List[schemas.TradeResponse])
-async def get_trades(
+def get_trades(
     skip: int = 0,
     limit: int = 100,
     active_only: bool = True,
@@ -121,7 +121,7 @@ async def get_trades(
 
 
 @router.get("/trades/{trade_id}", response_model=schemas.TradeResponse)
-async def get_trade(
+def get_trade(
     trade_id: UUID,
     db: Session = Depends(get_db)
 ):
@@ -133,7 +133,7 @@ async def get_trade(
 
 
 @router.post("/trades/", response_model=schemas.TradeResponse)
-async def create_trade(
+def create_trade(
     trade: schemas.TradeCreate,
     db: Session = Depends(get_db)
 ):
@@ -143,7 +143,7 @@ async def create_trade(
 
 
 @router.put("/trades/{trade_id}", response_model=schemas.TradeResponse)
-async def update_trade(
+def update_trade(
     trade_id: UUID,
     trade: schemas.TradeUpdate,
     db: Session = Depends(get_db)
@@ -157,7 +157,7 @@ async def update_trade(
 
 
 @router.delete("/trades/{trade_id}")
-async def delete_trade(
+def delete_trade(
     trade_id: UUID,
     db: Session = Depends(get_db)
 ):
@@ -169,7 +169,7 @@ async def delete_trade(
 
 # Measurement Report Types endpoints
 @router.get("/measurement-report-types/", response_model=List[schemas.MeasurementReportTypeResponse])
-async def get_measurement_report_types(
+def get_measurement_report_types(
     skip: int = 0,
     limit: int = 100,
     active_only: bool = True,
@@ -181,7 +181,7 @@ async def get_measurement_report_types(
 
 
 @router.get("/measurement-report-types/{report_type_id}", response_model=schemas.MeasurementReportTypeResponse)
-async def get_measurement_report_type(
+def get_measurement_report_type(
     report_type_id: UUID,
     db: Session = Depends(get_db)
 ):
@@ -193,7 +193,7 @@ async def get_measurement_report_type(
 
 
 @router.post("/measurement-report-types/", response_model=schemas.MeasurementReportTypeResponse)
-async def create_measurement_report_type(
+def create_measurement_report_type(
     report_type: schemas.MeasurementReportTypeCreate,
     db: Session = Depends(get_db)
 ):
@@ -202,7 +202,7 @@ async def create_measurement_report_type(
 
 
 @router.put("/measurement-report-types/{report_type_id}", response_model=schemas.MeasurementReportTypeResponse)
-async def update_measurement_report_type(
+def update_measurement_report_type(
     report_type_id: UUID,
     report_type: schemas.MeasurementReportTypeUpdate,
     db: Session = Depends(get_db)
@@ -215,7 +215,7 @@ async def update_measurement_report_type(
 
 
 @router.delete("/measurement-report-types/{report_type_id}")
-async def delete_measurement_report_type(
+def delete_measurement_report_type(
     report_type_id: UUID,
     db: Session = Depends(get_db)
 ):
@@ -226,7 +226,7 @@ async def delete_measurement_report_type(
 
 
 @router.post("/measurement-report-types/{report_type_id}/calculate-fee")
-async def calculate_report_fee(
+def calculate_report_fee(
     report_type_id: UUID,
     rush: bool = False,
     db: Session = Depends(get_db)

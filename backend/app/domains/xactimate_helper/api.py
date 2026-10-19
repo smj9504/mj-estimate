@@ -107,7 +107,7 @@ def get_embedding_service() -> XactEmbeddingService:
 
 
 @router.post("/rooms", response_model=XactRoomResponse, tags=["Xactimate Helper"])
-async def create_room(data: XactRoomCreate):
+def create_room(data: XactRoomCreate):
     """Create a new room for AI analysis."""
     svc = get_room_service()
     room = svc.create(data.model_dump(exclude_none=True))
@@ -115,7 +115,7 @@ async def create_room(data: XactRoomCreate):
 
 
 @router.get("/rooms/{room_id}", response_model=XactRoomResponse, tags=["Xactimate Helper"])
-async def get_room(room_id: UUID):
+def get_room(room_id: UUID):
     """Get room details."""
     svc = get_room_service()
     room = svc.get_by_id(room_id)
@@ -125,7 +125,7 @@ async def get_room(room_id: UUID):
 
 
 @router.patch("/rooms/{room_id}", response_model=XactRoomResponse, tags=["Xactimate Helper"])
-async def update_room(room_id: UUID, data: XactRoomUpdate):
+def update_room(room_id: UUID, data: XactRoomUpdate):
     """Update room details."""
     svc = get_room_service()
     room = svc.update(room_id, data.model_dump(exclude_none=True))
@@ -161,7 +161,7 @@ async def analyze_room(room_id: UUID, data: AnalyzeRequest):
 
 
 @router.get("/rooms/{room_id}/recommendations", tags=["Xactimate Helper"])
-async def get_recommendations(room_id: UUID):
+def get_recommendations(room_id: UUID):
     """
     Get the latest AI recommendations for a room.
     (Returns stored recommendations from the last analysis.)
@@ -204,7 +204,7 @@ async def save_correction(room_id: UUID, data: CorrectionCreate):
 
 
 @router.get("/rooms/{room_id}/corrections", tags=["Xactimate Helper"])
-async def get_corrections(room_id: UUID):
+def get_corrections(room_id: UUID):
     """Get correction history for a room."""
     svc = get_correction_service()
     return svc.get_by_room(room_id)
@@ -216,7 +216,7 @@ async def get_corrections(room_id: UUID):
 
 
 @router.get("/rooms/{room_id}/line-items", tags=["Xactimate Helper"])
-async def get_room_line_items(room_id: UUID):
+def get_room_line_items(room_id: UUID):
     """Get confirmed line items for a room."""
     svc = get_room_service()
     items = svc.get_line_items(room_id)
@@ -235,7 +235,7 @@ async def get_room_line_items(room_id: UUID):
     response_model=list[DescriptionResponse],
     tags=["Xactimate Helper"],
 )
-async def get_item_descriptions(
+def get_item_descriptions(
     item_code: str,
     description_type: Optional[str] = Query(None),
     approved_only: bool = Query(False),
@@ -250,7 +250,7 @@ async def get_item_descriptions(
     response_model=DescriptionResponse,
     tags=["Xactimate Helper"],
 )
-async def create_description(data: DescriptionCreate):
+def create_description(data: DescriptionCreate):
     """Create a new justification description."""
     svc = get_description_service()
     return svc.create(data.model_dump())
@@ -261,7 +261,7 @@ async def create_description(data: DescriptionCreate):
     response_model=DescriptionResponse,
     tags=["Xactimate Helper"],
 )
-async def update_description(desc_id: UUID, data: DescriptionUpdate):
+def update_description(desc_id: UUID, data: DescriptionUpdate):
     """Update a justification description."""
     svc = get_description_service()
     result = svc.update(desc_id, data.model_dump(exclude_none=True))
@@ -275,7 +275,7 @@ async def update_description(desc_id: UUID, data: DescriptionUpdate):
     response_model=DescriptionResponse,
     tags=["Xactimate Helper"],
 )
-async def approve_description(desc_id: UUID):
+def approve_description(desc_id: UUID):
     """Approve an AI-generated description."""
     svc = get_description_service()
     result = svc.approve(desc_id)
@@ -285,7 +285,7 @@ async def approve_description(desc_id: UUID):
 
 
 @router.post("/descriptions/{desc_id}/copy", tags=["Xactimate Helper"])
-async def record_copy(desc_id: UUID):
+def record_copy(desc_id: UUID):
     """Record a copy event (increment usage_count)."""
     svc = get_description_service()
     return svc.record_copy(desc_id)
@@ -301,7 +301,7 @@ async def record_copy(desc_id: UUID):
     response_model=list[XactAssemblyResponse],
     tags=["Xactimate Helper"],
 )
-async def list_assemblies(
+def list_assemblies(
     damage_type: Optional[str] = Query(None),
     room_type: Optional[str] = Query(None),
 ):
@@ -315,7 +315,7 @@ async def list_assemblies(
     response_model=XactAssemblyResponse,
     tags=["Xactimate Helper"],
 )
-async def create_assembly(data: XactAssemblyCreate):
+def create_assembly(data: XactAssemblyCreate):
     """Create a new assembly template (admin)."""
     svc = get_assembly_service()
     return svc.create(data.model_dump())
@@ -326,7 +326,7 @@ async def create_assembly(data: XactAssemblyCreate):
     response_model=XactAssemblyResponse,
     tags=["Xactimate Helper"],
 )
-async def get_assembly(assembly_id: UUID):
+def get_assembly(assembly_id: UUID):
     """Get assembly template details."""
     svc = get_assembly_service()
     result = svc.get_by_id(assembly_id)
@@ -341,7 +341,7 @@ async def get_assembly(assembly_id: UUID):
 
 
 @router.get("/helper/line-items", tags=["Xactimate Helper"])
-async def search_helper_line_items(
+def search_helper_line_items(
     query: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
     is_active: bool = Query(True),
@@ -354,14 +354,14 @@ async def search_helper_line_items(
 
 
 @router.get("/helper/line-items/categories", tags=["Xactimate Helper"])
-async def get_helper_categories():
+def get_helper_categories():
     """Get all unique categories from xact_line_items."""
     svc = get_line_item_service()
     return svc.get_categories()
 
 
 @router.get("/helper/line-items/{item_code}", tags=["Xactimate Helper"])
-async def get_helper_line_item(item_code: str):
+def get_helper_line_item(item_code: str):
     """Get a specific line item from xact_line_items."""
     svc = get_line_item_service()
     item = svc.get_by_code(item_code)

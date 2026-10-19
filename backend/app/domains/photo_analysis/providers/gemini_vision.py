@@ -125,14 +125,13 @@ class GeminiVisionProvider(PhotoAnalysisProvider):
                 if not full_path.exists():
                     raise FileNotFoundError(f"File not found: {full_path}")
 
-                with open(full_path, 'rb') as f:
-                    image_bytes = f.read()
+                image_bytes = await asyncio.to_thread(full_path.read_bytes)
                 logger.info(f"Read {len(image_bytes)} bytes from {full_path}")
 
             else:
                 # Download from external URL
                 logger.info(f"Downloading image from: {photo_url[:100]}...")
-                response = requests.get(photo_url, timeout=30)
+                response = await asyncio.to_thread(requests.get, photo_url, timeout=30)
                 response.raise_for_status()
                 image_bytes = response.content
 
@@ -152,6 +151,11 @@ class GeminiVisionProvider(PhotoAnalysisProvider):
         Returns:
             Optimized image bytes
         """
+        # PIL resize/encode is CPU-bound; keep it off the event loop
+        return await asyncio.to_thread(self._optimize_image_sync, image_bytes)
+
+    def _optimize_image_sync(self, image_bytes: bytes) -> bytes:
+        """Sync implementation of _optimize_image."""
         try:
             img = Image.open(BytesIO(image_bytes))
             original_size = img.size

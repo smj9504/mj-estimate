@@ -1136,7 +1136,7 @@ else:
 
 # System information endpoints
 @app.api_route("/", methods=["GET", "HEAD"])
-async def root():
+def root():
     """Root endpoint with system information"""
     return {
         "name": "MJ Estimate API",
@@ -1153,7 +1153,7 @@ async def root():
 
 
 @app.api_route("/health", methods=["GET", "HEAD"])
-async def health_check(request: Request):
+def health_check(request: Request):
     """
     Lightweight health check endpoint for monitoring systems.
     Fast response - minimal checks for Render deployment health.
@@ -1235,7 +1235,9 @@ async def detailed_health_check(request: Request):
     """
     try:
         database = get_database()
-        db_healthy = database.health_check()
+        # SELECT 1 can hang for seconds while the DB wakes/reconnects; keep it off the loop
+        db_healthy = await asyncio.to_thread(database.health_check)
+        db_info = await asyncio.to_thread(db_factory.get_database_info)
 
         # Check external services
         external_services = await _check_external_services()
@@ -1260,7 +1262,7 @@ async def detailed_health_check(request: Request):
             "database": {
                 "provider": database.provider_name,
                 "healthy": db_healthy,
-                "info": db_factory.get_database_info()
+                "info": db_info
             },
             "external_services": external_services,
             "ai_classification": {
@@ -1290,7 +1292,7 @@ async def detailed_health_check(request: Request):
 
 
 @app.get("/system/info")
-async def system_info():
+def system_info():
     """Get detailed system information"""
     try:
         database = get_database()
@@ -1325,7 +1327,7 @@ async def system_info():
 
 
 @app.get("/system/database/switch/{provider}")
-async def switch_database_provider(provider: str):
+def switch_database_provider(provider: str):
     """
     Switch database provider (for testing/development only).
     

@@ -215,7 +215,7 @@ async def get_sync_history(
 
 
 @router.post("/cleanup-duplicates")
-async def cleanup_duplicate_jobs(
+def cleanup_duplicate_jobs(
     db: Session = Depends(get_db)
 ):
     """

@@ -7,6 +7,7 @@ Integrates with Roboflow API for construction material detection.
 from .base import MaterialDetectionProvider
 from app.core.config import settings
 from app.common.utils.temp_file import cleanup_temp_file
+import asyncio
 import logging
 import time
 from typing import Dict, Any, Optional
@@ -282,8 +283,8 @@ class RoboflowProvider(MaterialDetectionProvider):
             temp_fd, temp_path = tempfile.mkstemp(suffix=file_ext)
             os.close(temp_fd)
 
-            # Download to temporary file
-            blob.download_to_filename(temp_path)
+            # Download to temporary file (sync GCS SDK - run off the event loop)
+            await asyncio.to_thread(blob.download_to_filename, temp_path)
             logger.info(f"Downloaded from GCS: {gcs_url} -> {temp_path}")
 
             return temp_path

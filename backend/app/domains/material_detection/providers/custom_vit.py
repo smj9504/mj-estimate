@@ -225,12 +225,12 @@ class CustomViTProvider(MaterialDetectionProvider):
             bucket = storage_client.bucket(bucket_name)
             blob = bucket.blob(blob_path)
 
-            # Download to temporary file
+            # Download to temporary file (sync GCS SDK - run off the event loop)
             temp_fd, temp_path = tempfile.mkstemp(suffix=Path(blob_path).suffix)
             os.close(temp_fd)
-            blob.download_to_filename(temp_path)
+            await asyncio.to_thread(blob.download_to_filename, temp_path)
 
-            image = self.Image.open(temp_path).convert('RGB')
+            image = await asyncio.to_thread(self._open_rgb, temp_path)
             cleanup_temp_file(temp_path)  # Cross-platform cleanup
 
         elif image_path.startswith(('http://', 'https://')):
@@ -241,12 +241,16 @@ class CustomViTProvider(MaterialDetectionProvider):
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(image_path)
                 response.raise_for_status()
-                image = self.Image.open(io.BytesIO(response.content)).convert('RGB')
+                image = await asyncio.to_thread(self._open_rgb, io.BytesIO(response.content))
         else:
             # Local file
-            image = self.Image.open(image_path).convert('RGB')
+            image = await asyncio.to_thread(self._open_rgb, image_path)
 
         return image
+
+    def _open_rgb(self, source):
+        """Open and fully decode an image as RGB (sync, CPU-bound)."""
+        return self.Image.open(source).convert('RGB')
 
     async def _inference(
         self,
@@ -266,7 +270,7 @@ class CustomViTProvider(MaterialDetectionProvider):
             List of detected materials
         """
         # Preprocess image
-        inputs = self.processor(images=image, return_tensors="pt")
+        inputs = await asyncio.to_thread(self.processor, images=image, return_tensors="pt")
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         # Run inference in thread pool (blocking operation)

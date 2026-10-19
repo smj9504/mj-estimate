@@ -267,7 +267,7 @@ async def generate_estimate_from_inventory(
     summary="Export to Estimate Editor",
     description="Convert pack estimate result to Estimate Editor format."
 )
-async def export_to_estimate(
+def export_to_estimate(
     request: ExportToEstimateRequest,
     current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
@@ -303,7 +303,7 @@ async def export_to_estimate(
     summary="Set Custom Pricing Data",
     description="Set custom pricing data for estimate generation."
 )
-async def set_pricing_data(
+def set_pricing_data(
     request: SetPricingRequest,
     current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
@@ -330,7 +330,7 @@ async def set_pricing_data(
     summary="Get Default Pricing Data",
     description="Get the default pricing data used when no custom pricing is provided."
 )
-async def get_default_pricing():
+def get_default_pricing():
     """
     Get the default pricing data.
 
@@ -345,7 +345,7 @@ async def get_default_pricing():
     summary="Get Service Info",
     description="Get information about the pack estimate service."
 )
-async def get_service_info():
+def get_service_info():
     """
     Get service information and status.
     """
@@ -462,7 +462,7 @@ class UpdatePackEstimateRequest(BaseModel):
     summary="Save Pack Estimate",
     description="Save a pack estimate to the database for later retrieval."
 )
-async def save_pack_estimate(
+def save_pack_estimate(
     request: SavePackEstimateRequest,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
@@ -584,7 +584,7 @@ async def save_pack_estimate(
     summary="List Pack Estimates",
     description="List all saved pack estimates with pagination."
 )
-async def list_pack_estimates(
+def list_pack_estimates(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     status: Optional[str] = Query(None, description="Filter by status"),
@@ -673,7 +673,7 @@ async def list_pack_estimates(
     summary="Get Pack Estimate",
     description="Get a pack estimate by ID with full details."
 )
-async def get_pack_estimate(
+def get_pack_estimate(
     estimate_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
@@ -745,7 +745,7 @@ async def get_pack_estimate(
     summary="Update Pack Estimate",
     description="Update pack estimate metadata (job info, status, notes)."
 )
-async def update_pack_estimate(
+def update_pack_estimate(
     estimate_id: int,
     request: UpdatePackEstimateRequest,
     db: Session = Depends(get_db),
@@ -835,7 +835,7 @@ async def update_pack_estimate(
     summary="Delete Pack Estimate",
     description="Delete a pack estimate by ID."
 )
-async def delete_pack_estimate(
+def delete_pack_estimate(
     estimate_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)

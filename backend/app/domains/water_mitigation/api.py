@@ -4,6 +4,7 @@ Water Mitigation API endpoints
 
 from app.common.services.document_resources import MIB, DocumentResourceError
 
+import asyncio
 import logging
 import math
 import os
@@ -819,6 +820,48 @@ async def batch_preview_photos(
     return result
 
 
+def _write_preview_cache(cache_file: Path, data: bytes) -> None:
+    """Write a preview cache file atomically (temp file then rename)."""
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp_file = cache_file.with_suffix('.tmp')
+    tmp_file.write_bytes(data)
+    tmp_file.rename(cache_file)
+
+
+def _render_preview_and_cache(source, max_size, quality, cache_file: Path, photo_id) -> bytes:
+    """Optimize an image to WebP and save it to the preview disk cache.
+
+    Runs on a worker thread: PIL decode/encode and the file reads/writes are
+    blocking and would otherwise stall the single event loop worker.
+    `source` is the raw image bytes or a Path to read them from.
+    """
+    import io
+
+    from ..storage.optimization import ImageOptimizer
+
+    data = source.read_bytes() if isinstance(source, Path) else source
+    optimizer = ImageOptimizer()
+    optimized_file, metadata = optimizer.optimize(
+        io.BytesIO(data),
+        max_size=max_size,
+        quality=quality,
+        format='WebP',
+        preserve_exif=False
+    )
+    optimized_bytes = optimized_file.read()
+
+    try:
+        _write_preview_cache(cache_file, optimized_bytes)
+        logger.debug(
+            f"Cached preview for photo {photo_id}: "
+            f"{metadata.get('compression_ratio', '0%')} reduction"
+        )
+    except Exception as cache_err:
+        logger.warning(f"Failed to cache preview for {photo_id}: {cache_err}")
+
+    return optimized_bytes
+
+
 @router.get("/photos/{photo_id}/preview")
 async def preview_photo(
     photo_id: UUID,
@@ -826,11 +869,12 @@ async def preview_photo(
     service: WaterMitigationService = Depends(get_wm_service)
 ):
     """Get photo preview - supports CompanyCam, local, and cloud storage
-    
+
     Args:
         photo_id: Photo UUID
         size: Image size - 'thumbnail' (250px), 'web' (400px), or 'original' (full size)
     """
+    import asyncio
     import base64
 
     from app.core.cache import get_cache
@@ -898,8 +942,11 @@ async def preview_photo(
                 else:
                     # Get from CompanyCam API
                     companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
-                    photo_url = companycam_client.get_photo_url(external_id)
-                    
+                    # get_photo_url uses a sync httpx.Client - keep it off the event loop
+                    photo_url = await asyncio.to_thread(
+                        companycam_client.get_photo_url, external_id
+                    )
+
                     if photo_url:
                         # Cache the URL for 24 hours
                         await cache.set(cache_key_url, photo_url, ttl=86400)
@@ -1051,8 +1098,6 @@ async def preview_photo(
                 if size in ("thumbnail", "web") and media_type.startswith('image/'):
                     from fastapi.responses import Response
 
-                    from ..storage.optimization import ImageOptimizer
-
                     max_size = (250, 250) if size == "thumbnail" else (800, 800)
                     quality = 80 if size == "thumbnail" else 85
 
@@ -1071,27 +1116,10 @@ async def preview_photo(
 
                     try:
                         photo_bytes = await asyncio.to_thread(storage.download, storage_file_id)
-                        optimizer = ImageOptimizer()
-                        optimized_file, metadata = optimizer.optimize(
-                            io.BytesIO(photo_bytes),
-                            max_size=max_size,
-                            quality=quality,
-                            format='WebP',
-                            preserve_exif=False
+                        optimized_bytes = await asyncio.to_thread(
+                            _render_preview_and_cache,
+                            photo_bytes, max_size, quality, cache_file, photo_id,
                         )
-                        optimized_bytes = optimized_file.read()
-
-                        try:
-                            cache_dir.mkdir(parents=True, exist_ok=True)
-                            tmp_file = cache_file.with_suffix('.tmp')
-                            tmp_file.write_bytes(optimized_bytes)
-                            tmp_file.rename(cache_file)
-                            logger.debug(
-                                f"Cached {size} preview for GCS photo {photo_id}: "
-                                f"{metadata.get('compression_ratio', '0%')} reduction"
-                            )
-                        except Exception as cache_err:
-                            logger.warning(f"Failed to cache GCS preview for {photo_id}: {cache_err}")
 
                         return Response(
                             content=optimized_bytes,
@@ -1123,10 +1151,9 @@ async def preview_photo(
                 photo_bytes = await asyncio.to_thread(storage.download, storage_file_id)
 
                 try:
-                    original_cache_dir.mkdir(parents=True, exist_ok=True)
-                    tmp_file = original_cache_file.with_suffix('.tmp')
-                    tmp_file.write_bytes(photo_bytes)
-                    tmp_file.rename(original_cache_file)
+                    await asyncio.to_thread(
+                        _write_preview_cache, original_cache_file, photo_bytes
+                    )
                 except Exception as cache_err:
                     logger.warning(f"Failed to cache GCS original for {photo_id}: {cache_err}")
 
@@ -1141,7 +1168,8 @@ async def preview_photo(
 
             # For other cloud providers (S3, Azure, etc.): redirect to signed URL
             from fastapi.responses import RedirectResponse
-            signed_url = storage.get_url(file_path, expires_in=3600)
+            # get_url does a network existence check (e.g. B2 HEAD) - run off the loop
+            signed_url = await asyncio.to_thread(storage.get_url, file_path, expires_in=3600)
             return RedirectResponse(url=signed_url, status_code=302)
         except Exception as e:
             logger.error(f"Failed to serve cloud storage photo {photo_id}: {e}")
@@ -1188,11 +1216,7 @@ async def preview_photo(
     # Optimize image for web/thumbnail sizes with disk cache
     if size in ("thumbnail", "web") and media_type.startswith('image/'):
         try:
-            import io
-
             from fastapi.responses import Response
-
-            from ..storage.optimization import ImageOptimizer
 
             # Determine target size
             max_size = (250, 250) if size == "thumbnail" else (800, 800)
@@ -1215,33 +1239,11 @@ async def preview_photo(
                         }
                     )
 
-            # Cache miss - optimize and save to disk
-            with open(local_file_path, 'rb') as f:
-                file_data = io.BytesIO(f.read())
-
-            optimizer = ImageOptimizer()
-            optimized_file, metadata = optimizer.optimize(
-                file_data,
-                max_size=max_size,
-                quality=quality,
-                format='WebP',
-                preserve_exif=False
+            # Cache miss - read, optimize and save to disk on a worker thread
+            optimized_bytes = await asyncio.to_thread(
+                _render_preview_and_cache,
+                local_file_path, max_size, quality, cache_file, photo_id,
             )
-
-            optimized_bytes = optimized_file.read()
-
-            # Write to disk cache (async-safe: write to temp then rename)
-            try:
-                cache_dir.mkdir(parents=True, exist_ok=True)
-                tmp_file = cache_file.with_suffix('.tmp')
-                tmp_file.write_bytes(optimized_bytes)
-                tmp_file.rename(cache_file)
-                logger.debug(
-                    f"Cached {size} preview for photo {photo_id}: "
-                    f"{metadata.get('compression_ratio', '0%')} reduction"
-                )
-            except Exception as cache_err:
-                logger.warning(f"Failed to cache preview for {photo_id}: {cache_err}")
 
             return Response(
                 content=optimized_bytes,
@@ -1271,6 +1273,7 @@ async def download_photo(
     service: WaterMitigationService = Depends(get_wm_service)
 ):
     """Download photo as attachment (original quality)"""
+    import asyncio
     import io
     from fastapi.responses import StreamingResponse
 
@@ -1299,7 +1302,10 @@ async def download_photo(
             companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
             photo_url = file_path if file_path and file_path.startswith('https://') else None
             if not photo_url:
-                photo_url = companycam_client.get_photo_url(external_id)
+                # get_photo_url uses a sync httpx.Client - keep it off the event loop
+                photo_url = await asyncio.to_thread(
+                    companycam_client.get_photo_url, external_id
+                )
             if not photo_url:
                 raise HTTPException(status_code=404, detail="CompanyCam photo URL not found")
 
@@ -1371,7 +1377,7 @@ async def download_photo(
 
 
 @router.post("/photos/{photo_id}/perspective-crop")
-async def perspective_crop_photo(
+def perspective_crop_photo(
     photo_id: UUID,
     request: PerspectiveCropRequest,
     service: WaterMitigationService = Depends(get_wm_service),
@@ -2496,6 +2502,7 @@ async def generate_document_pdf(
     - Google Cloud Storage (GCS)
     - CompanyCam (remote download)
     """
+    import asyncio
     import tempfile
     temp_files = []  # Track temp files for cleanup
 
@@ -2554,7 +2561,9 @@ async def generate_document_pdf(
                 try:
                     storage = StorageFactory.get_instance(storage_provider)
                     logger.info(f"Downloading photo {photo_id} from {storage_provider}: {file_path_str}")
-                    photo_bytes = storage.download(file_path_str, max_bytes=30 * MIB)
+                    photo_bytes = await asyncio.to_thread(
+                        storage.download, file_path_str, max_bytes=30 * MIB
+                    )
 
                     if photo_bytes:
                         mime_type = photo_dict.get('mime_type', 'image/jpeg')
@@ -3401,7 +3410,8 @@ async def upload_annotated_pdf(
         content = await pdf_file.read()
 
         from app.common.utils.storage_helpers import upload_bytes_to_storage
-        storage_info = upload_bytes_to_storage(
+        storage_info = await asyncio.to_thread(
+            upload_bytes_to_storage,
             file_bytes=content,
             filename=safe_filename,
             context="water-mitigation",
@@ -3414,7 +3424,8 @@ async def upload_annotated_pdf(
         if source_pdf_file:
             source_content = await source_pdf_file.read()
             source_filename = f"_source_{safe_filename}"
-            source_pdf_info = upload_bytes_to_storage(
+            source_pdf_info = await asyncio.to_thread(
+                upload_bytes_to_storage,
                 file_bytes=source_content,
                 filename=source_filename,
                 context="water-mitigation",
@@ -3504,7 +3515,8 @@ async def upload_source_pdf(
         content = await pdf_file.read()
 
         from app.common.utils.storage_helpers import upload_bytes_to_storage
-        storage_info = upload_bytes_to_storage(
+        storage_info = await asyncio.to_thread(
+            upload_bytes_to_storage,
             file_bytes=content,
             filename=safe_filename,
             context="water-mitigation",
@@ -3738,7 +3750,7 @@ async def generate_photo_report(
 
 # Debug endpoint to check photo counts for a job
 @router.get("/jobs/{job_id}/photos/debug-count")
-async def debug_photo_count(
+def debug_photo_count(
     job_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service),
     db: DatabaseSession = Depends(get_db_session)
@@ -3964,7 +3976,7 @@ class AIClassifyResponse(BaseModel):
 
 
 @router.get("/jobs/{job_id}/ai-results")
-async def get_ai_results_for_job(
+def get_ai_results_for_job(
     job_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service),
     db: DatabaseSession = Depends(get_db_session)
@@ -4133,8 +4145,8 @@ async def ai_classify_photos(
                         try:
                             storage = StorageFactory.get_instance(provider)
                             if hasattr(storage, 'download'):
-                                image_data = storage.download(
-                                    storage_file_id
+                                image_data = await asyncio.to_thread(
+                                    storage.download, storage_file_id
                                 )
                                 logger.info(
                                     f"AI classify: photo {photo_id} "
@@ -4780,7 +4792,9 @@ async def _load_photo_image_data(photo_dict: dict) -> bytes | None:
                 try:
                     storage = StorageFactory.get_instance(provider)
                     if hasattr(storage, 'download'):
-                        image_data = storage.download(storage_file_id)
+                        image_data = await asyncio.to_thread(
+                            storage.download, storage_file_id
+                        )
                         break
                 except Exception:
                     continue
@@ -4852,7 +4866,8 @@ async def detect_duplicate_photos(
         if image_data is None:
             continue
 
-        img_hash = _compute_image_hash(image_data)
+        # PIL decode of the full image is CPU-heavy - keep it off the event loop
+        img_hash = await asyncio.to_thread(_compute_image_hash, image_data)
         if img_hash:
             photo_hashes.append((photo_id, img_hash, photo_dict))
 
@@ -5096,7 +5111,7 @@ def apply_sheet_pa_mappings(
 # ============================================================
 
 @router.get("/jobs/{job_id}/financial-comparison")
-async def get_financial_comparison(
+def get_financial_comparison(
     job_id: UUID,
     db: DatabaseSession = Depends(get_db_session),
 ):
@@ -5338,7 +5353,8 @@ async def parse_wm_insurance_estimate(
             raise
 
         from app.domains.client.negotiation_pdf_service import extract_summary_from_pdf
-        result = extract_summary_from_pdf(tmp_path)
+        # PDF text extraction is blocking CPU work - run it on a worker thread
+        result = await asyncio.to_thread(extract_summary_from_pdf, tmp_path)
         sections = result.get("sections") or []
 
         wm_index = _pick_wm_section(sections)
@@ -5537,7 +5553,7 @@ class WMManualEstimateRequest(BaseModel):
 
 
 @router.post("/jobs/{job_id}/insurance-estimate/manual")
-async def save_wm_insurance_estimate_manual(
+def save_wm_insurance_estimate_manual(
     job_id: UUID,
     payload: WMManualEstimateRequest,
     db: DatabaseSession = Depends(get_db_session),
@@ -5644,7 +5660,7 @@ def get_adjuster_email_service():
 
 
 @router.get("/jobs/{job_id}/adjuster-email-info")
-async def get_adjuster_email_info(job_id: UUID):
+def get_adjuster_email_info(job_id: UUID):
     """Get adjuster/PA info, document readiness, and email accounts for sending."""
     service = get_adjuster_email_service()
     try:
@@ -5663,7 +5679,7 @@ class DocumentSlotOverrideRequest(BaseModel):
 
 
 @router.get("/jobs/{job_id}/document-slot-overrides")
-async def get_document_slot_overrides(job_id: UUID):
+def get_document_slot_overrides(job_id: UUID):
     """List the job's manual slot -> document mappings."""
     service = get_adjuster_email_service()
     try:
@@ -5674,7 +5690,7 @@ async def get_document_slot_overrides(job_id: UUID):
 
 
 @router.put("/jobs/{job_id}/document-slot-overrides/{slot_key}")
-async def set_document_slot_override(
+def set_document_slot_override(
     job_id: UUID,
     slot_key: str,
     data: DocumentSlotOverrideRequest,
@@ -5697,7 +5713,7 @@ async def set_document_slot_override(
 
 
 @router.post("/jobs/{job_id}/generate-adjuster-email")
-async def generate_adjuster_email(
+def generate_adjuster_email(
     job_id: UUID,
     custom_notes: str = Query("", description="Additional notes to include"),
 ):
@@ -5757,7 +5773,7 @@ async def send_to_adjuster(job_id: UUID, data: SendToAdjusterRequest):
 # ============================================================
 
 @router.post("/jobs/{job_id}/generate-followup-email")
-async def generate_followup_email(
+def generate_followup_email(
     job_id: UUID,
     custom_notes: str = Query("", description="Additional notes to include"),
 ):

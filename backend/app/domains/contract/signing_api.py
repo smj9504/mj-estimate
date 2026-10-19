@@ -3,13 +3,11 @@ Public signing API - NO authentication required.
 Accessed via signing token URL.
 """
 
-import asyncio
 import json
 import logging
 from datetime import datetime
-from functools import partial
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from app.domains.contract.schemas import (
     SigningRequest, SigningResponse,
@@ -57,7 +55,7 @@ def _find_company_email_account(company_id):
 
 
 @router.get("/{token}")
-async def get_contract_for_signing(token: str, request: Request):
+def get_contract_for_signing(token: str, request: Request):
     """
     Public endpoint: Get contract details for the signing page.
     No authentication required - token is the auth.
@@ -257,7 +255,12 @@ def _extract_signer_editable_fields(contract: dict):
 
 
 @router.post("/{token}")
-async def sign_contract(token: str, data: SigningRequest, request: Request):
+def sign_contract(
+    token: str,
+    data: SigningRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
     """
     Public endpoint: Submit a signature for a contract.
     Captures signer info + IP + user agent for legal validity.
@@ -359,15 +362,10 @@ async def sign_contract(token: str, data: SigningRequest, request: Request):
                 user_agent=ua,
             )
 
-        # Send signed PDF notification emails in thread pool (don't block response)
-        try:
-            loop = asyncio.get_running_loop()
-            loop.run_in_executor(
-                None,
-                partial(_send_signed_notification, service, token, data.signer_name),
-            )
-        except Exception as e:
-            logger.warning(f"Post-signing email notification failed: {e}")
+        # Send signed PDF notification emails after the response (don't block it)
+        background_tasks.add_task(
+            _send_signed_notification, service, token, data.signer_name
+        )
 
         return SigningResponse(
             contract_id=result.get('contract_instance_id', ''),

@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/admin/settings", tags=["Admin - Settings"])
 
 
 @router.get("/route-personal-accounts", response_model=RoutePersonalAccountsSetting)
-async def get_route_personal_accounts_setting(
+def get_route_personal_accounts_setting(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_admin),
 ):
@@ -34,7 +34,7 @@ async def get_route_personal_accounts_setting(
 
 
 @router.put("/route-personal-accounts", response_model=RoutePersonalAccountsSetting)
-async def update_route_personal_accounts_setting(
+def update_route_personal_accounts_setting(
     data: RoutePersonalAccountsSetting,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_admin),

@@ -1,6 +1,7 @@
 """
 PDF Editor API endpoints
 """
+import asyncio
 import logging
 from typing import Optional
 
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/edit", response_model=PDFEditResponse)
-async def edit_pdf(
+def edit_pdf(
     request: PDFEditRequest,
     current_user: dict = Depends(get_current_user)
 ):
@@ -92,7 +93,8 @@ async def upload_and_edit_pdf(
             company_id = str(
                 current_user.get("company_id", "default")
             )
-            result = pdf_service.edit_pdf(
+            result = await asyncio.to_thread(
+                pdf_service.edit_pdf,
                 request=edit_request,
                 uploaded_by=user_id,
                 context="pdf_editor",

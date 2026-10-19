@@ -2,6 +2,7 @@
 Claim Follow-up API endpoints.
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -154,7 +155,7 @@ def _get_service():
 # ============================================================
 
 @router.get("/tasks", response_model=List[FollowUpTaskResponse])
-async def list_tasks(
+def list_tasks(
     status: Optional[str] = Query(None),
     task_type: Optional[str] = Query(None),
     priority: Optional[str] = Query(None),
@@ -186,21 +187,21 @@ async def list_tasks(
 
 
 @router.get("/tasks/stats", response_model=FollowUpDashboardStats)
-async def get_dashboard_stats():
+def get_dashboard_stats():
     """Get dashboard statistics"""
     service = _get_service()
     return service.get_dashboard_stats()
 
 
 @router.get("/tasks/by-claim/{claim_id}", response_model=List[FollowUpTaskResponse])
-async def get_tasks_by_claim(claim_id: str):
+def get_tasks_by_claim(claim_id: str):
     """Get all follow-up tasks for a specific claim"""
     service = _get_service()
     return service.get_tasks_by_claim(claim_id)
 
 
 @router.get("/tasks/{task_id}", response_model=FollowUpTaskResponse)
-async def get_task(task_id: str):
+def get_task(task_id: str):
     """Get a single follow-up task"""
     service = _get_service()
     task = service.get_task(task_id)
@@ -210,7 +211,7 @@ async def get_task(task_id: str):
 
 
 @router.post("/tasks", response_model=FollowUpTaskResponse)
-async def create_task(data: FollowUpTaskCreate):
+def create_task(data: FollowUpTaskCreate):
     """Create a new follow-up task"""
     service = _get_service()
     try:
@@ -221,7 +222,7 @@ async def create_task(data: FollowUpTaskCreate):
 
 
 @router.patch("/tasks/{task_id}", response_model=FollowUpTaskResponse)
-async def update_task(task_id: str, data: FollowUpTaskUpdate):
+def update_task(task_id: str, data: FollowUpTaskUpdate):
     """Update a follow-up task"""
     service = _get_service()
     update_data = data.dict(exclude_unset=True)
@@ -418,7 +419,7 @@ async def resolve_task(
             db = get_database()
             wm_file_content = await wm_estimate_file.read()
             # Auto-parse amount from PDF
-            auto_amount = _parse_pdf_amount(wm_file_content)
+            auto_amount = await asyncio.to_thread(_parse_pdf_amount, wm_file_content)
             if auto_amount and not wm_estimate_amount:
                 parsed_wm_amount = auto_amount
                 logger.info(f"Auto-parsed WM estimate amount from PDF: ${auto_amount:,.2f}")
@@ -574,7 +575,7 @@ async def save_task_estimate(
         try:
             db = get_database()
             wm_file_content = await wm_estimate_file.read()
-            auto_amount = _parse_pdf_amount(wm_file_content)
+            auto_amount = await asyncio.to_thread(_parse_pdf_amount, wm_file_content)
             if auto_amount and not wm_estimate_amount:
                 parsed_wm_amount = auto_amount
 
@@ -661,7 +662,7 @@ async def parse_estimate_pdf(file: UploadFile = File(...)):
             raise
 
         from app.domains.client.negotiation_pdf_service import extract_summary_from_pdf
-        result = extract_summary_from_pdf(tmp_path)
+        result = await asyncio.to_thread(extract_summary_from_pdf, tmp_path)
 
         # Check if summary extraction found meaningful data
         has_sections = bool(result.get("sections"))
@@ -685,7 +686,7 @@ async def parse_estimate_pdf(file: UploadFile = File(...)):
                 ocr_extractor=OcrFallbackExtractor(),
                 parser_resolver=InsuranceParserResolver(),
             )
-            pipeline_result = orchestrator.run(tmp_path)
+            pipeline_result = await asyncio.to_thread(orchestrator.run, tmp_path)
 
             if pipeline_result.items:
                 sections, totals = _build_summary_from_items(
@@ -725,7 +726,7 @@ async def parse_estimate_pdf(file: UploadFile = File(...)):
 
 
 @router.post("/tasks/{task_id}/reopen")
-async def reopen_task(task_id: str):
+def reopen_task(task_id: str):
     """Reopen a resolved follow-up task"""
     service = _get_service()
     result = service.reopen_task(task_id)
@@ -735,7 +736,7 @@ async def reopen_task(task_id: str):
 
 
 @router.post("/tasks/{task_id}/advance-depreciation")
-async def advance_depreciation_phase(
+def advance_depreciation_phase(
     task_id: str,
     new_phase: str = Form(...),
     sent_to: Optional[str] = Form(None),
@@ -758,7 +759,7 @@ async def advance_depreciation_phase(
 
 
 @router.delete("/tasks/{task_id}")
-async def delete_task(task_id: str):
+def delete_task(task_id: str):
     """Delete a follow-up task"""
     service = _get_service()
     success = service.delete_task(task_id)
@@ -772,7 +773,7 @@ async def delete_task(task_id: str):
 # ============================================================
 
 @router.get("/claims/{claim_id}/payments", response_model=ClaimPaymentSummary)
-async def get_claim_payments(claim_id: str):
+def get_claim_payments(claim_id: str):
     """Running payment picture for a claim, with every recorded receipt."""
     service = _get_service()
     try:
@@ -783,7 +784,7 @@ async def get_claim_payments(claim_id: str):
 
 
 @router.post("/claims/{claim_id}/payments", response_model=PaymentReceiptResponse)
-async def record_claim_payment(claim_id: str, payload: PaymentReceiptCreate):
+def record_claim_payment(claim_id: str, payload: PaymentReceiptCreate):
     """Record one payment received.
 
     Does not close the payment stage: more can arrive in later
@@ -800,7 +801,7 @@ async def record_claim_payment(claim_id: str, payload: PaymentReceiptCreate):
 
 
 @router.delete("/claims/{claim_id}/payments/{payment_id}")
-async def delete_claim_payment(claim_id: str, payment_id: str):
+def delete_claim_payment(claim_id: str, payment_id: str):
     """Remove a mis-entered payment record."""
     service = _get_service()
     success = service.delete_payment(payment_id)
@@ -814,7 +815,7 @@ async def delete_claim_payment(claim_id: str, payment_id: str):
 # ============================================================
 
 @router.get("/templates", response_model=List[EmailTemplateResponse])
-async def list_templates(
+def list_templates(
     template_type: Optional[str] = Query(None),
     company_id: Optional[str] = Query(None),
 ):
@@ -824,7 +825,7 @@ async def list_templates(
 
 
 @router.get("/templates/{template_id}", response_model=EmailTemplateResponse)
-async def get_template(template_id: str):
+def get_template(template_id: str):
     """Get a single email template"""
     service = _get_service()
     template = service.get_template(template_id)
@@ -834,7 +835,7 @@ async def get_template(template_id: str):
 
 
 @router.post("/templates", response_model=EmailTemplateResponse)
-async def create_template(data: EmailTemplateCreate):
+def create_template(data: EmailTemplateCreate):
     """Create a new email template"""
     service = _get_service()
     try:
@@ -845,7 +846,7 @@ async def create_template(data: EmailTemplateCreate):
 
 
 @router.patch("/templates/{template_id}", response_model=EmailTemplateResponse)
-async def update_template(template_id: str, data: EmailTemplateUpdate):
+def update_template(template_id: str, data: EmailTemplateUpdate):
     """Update an email template"""
     service = _get_service()
     update_data = data.dict(exclude_unset=True)
@@ -856,7 +857,7 @@ async def update_template(template_id: str, data: EmailTemplateUpdate):
 
 
 @router.delete("/templates/{template_id}")
-async def delete_template(template_id: str):
+def delete_template(template_id: str):
     """Delete (deactivate) an email template"""
     service = _get_service()
     success = service.delete_template(template_id)
@@ -866,7 +867,7 @@ async def delete_template(template_id: str):
 
 
 @router.post("/templates/{template_id}/render")
-async def render_template(template_id: str, variables: dict):
+def render_template(template_id: str, variables: dict):
     """Preview template with variable substitution"""
     service = _get_service()
     try:
@@ -880,21 +881,21 @@ async def render_template(template_id: str, variables: dict):
 # ============================================================
 
 @router.get("/communications/by-claim/{claim_id}", response_model=List[CommunicationLogResponse])
-async def get_communications_by_claim(claim_id: str):
+def get_communications_by_claim(claim_id: str):
     """Get all communications for a claim"""
     service = _get_service()
     return service.get_communications_by_claim(claim_id)
 
 
 @router.get("/communications/by-task/{task_id}", response_model=List[CommunicationLogResponse])
-async def get_communications_by_task(task_id: str):
+def get_communications_by_task(task_id: str):
     """Get all communications for a task"""
     service = _get_service()
     return service.get_communications_by_task(task_id)
 
 
 @router.post("/communications", response_model=CommunicationLogResponse)
-async def log_communication(data: CommunicationLogCreate):
+def log_communication(data: CommunicationLogCreate):
     """Log a communication event (phone call, email, etc.)"""
     service = _get_service()
     try:
@@ -905,7 +906,7 @@ async def log_communication(data: CommunicationLogCreate):
 
 
 @router.patch("/communications/{log_id}", response_model=CommunicationLogResponse)
-async def update_communication(log_id: str, data: CommunicationLogUpdate):
+def update_communication(log_id: str, data: CommunicationLogUpdate):
     """Update a communication log (e.g., mark response received)"""
     service = _get_service()
     update_data = data.dict(exclude_unset=True)
@@ -920,14 +921,14 @@ async def update_communication(log_id: str, data: CommunicationLogUpdate):
 # ============================================================
 
 @router.get("/emails/by-claim/{claim_id}", response_model=List[SentEmailResponse])
-async def get_sent_emails_by_claim(claim_id: str):
+def get_sent_emails_by_claim(claim_id: str):
     """Get all sent emails for a claim"""
     service = _get_service()
     return service.get_sent_emails_by_claim(claim_id)
 
 
 @router.get("/emails/by-task/{task_id}", response_model=List[SentEmailResponse])
-async def get_sent_emails_by_task(task_id: str):
+def get_sent_emails_by_task(task_id: str):
     """Get all sent emails for a task"""
     service = _get_service()
     return service.get_sent_emails_by_task(task_id)
@@ -947,7 +948,7 @@ def send_email(data: SendEmailRequest):
 
 
 @router.post("/emails/send-from-template", response_model=SentEmailResponse)
-async def send_from_template(data: SendFromTemplateRequest):
+def send_from_template(data: SendFromTemplateRequest):
     """Send an email using a template"""
     service = _get_service()
     try:
@@ -960,7 +961,7 @@ async def send_from_template(data: SendFromTemplateRequest):
 
 
 @router.post("/emails/generate-ai", response_model=GenerateAIEmailResponse)
-async def generate_ai_email(data: GenerateAIEmailRequest):
+def generate_ai_email(data: GenerateAIEmailRequest):
     """Generate email content using AI"""
     service = _get_service()
     try:
@@ -971,7 +972,7 @@ async def generate_ai_email(data: GenerateAIEmailRequest):
 
 
 @router.post("/emails/polish", response_model=PolishEmailResponse)
-async def polish_email(data: PolishEmailRequest):
+def polish_email(data: PolishEmailRequest):
     """Polish/rewrite an already-drafted email (shorten/lengthen/tone/proofread)"""
     service = _get_service()
     try:
@@ -984,7 +985,7 @@ async def polish_email(data: PolishEmailRequest):
 
 
 @router.post("/emails/{email_id}/mark-reply", response_model=SentEmailResponse)
-async def mark_reply_received(email_id: str, data: MarkReplyRequest):
+def mark_reply_received(email_id: str, data: MarkReplyRequest):
     """Mark a sent email as having received a reply"""
     service = _get_service()
     result = service.mark_reply(email_id, data.reply_summary)
@@ -1000,7 +1001,7 @@ _TRACKING_PIXEL_GIF = bytes.fromhex(
 
 
 @router.get("/emails/{email_id}/track-open.gif")
-async def track_email_open(email_id: str):
+def track_email_open(email_id: str):
     """Record an email open event and return a 1x1 transparent tracking pixel.
 
     Always returns the pixel image regardless of whether the email_id is
@@ -1022,7 +1023,7 @@ async def track_email_open(email_id: str):
 
 
 @router.post("/emails/test-smtp")
-async def test_smtp(account_id: Optional[str] = None):
+def test_smtp(account_id: Optional[str] = None):
     """Test SMTP connection"""
     from app.domains.claim_followup.smtp_service import test_smtp_connection
     result = test_smtp_connection(account_id)
@@ -1036,7 +1037,7 @@ async def test_smtp(account_id: Optional[str] = None):
 # ============================================================
 
 @router.post("/emails/check-replies")
-async def check_replies(account_id: Optional[str] = Query(None)):
+def check_replies(account_id: Optional[str] = Query(None)):
     """Check IMAP inboxes for replies to sent follow-up emails.
 
     Automatically updates SentEmail, FollowUpTask status,
@@ -1061,7 +1062,7 @@ async def check_replies(account_id: Optional[str] = Query(None)):
 # ============================================================
 
 @router.get("/claim-companies/{claim_id}")
-async def get_claim_companies(claim_id: str):
+def get_claim_companies(claim_id: str):
     """Get company assignments for a claim.
     Returns WM company and rebuild company IDs so the frontend
     can auto-select the correct email account.

@@ -41,7 +41,7 @@ def _get_service():
 # ============================================================
 
 @router.get("/accounts", response_model=List[EmailAccountResponse])
-async def list_accounts():
+def list_accounts():
     """Get all email accounts"""
     service = _get_service()
     accounts = service.get_all_accounts()
@@ -49,7 +49,7 @@ async def list_accounts():
 
 
 @router.post("/accounts", response_model=EmailAccountResponse)
-async def create_account(data: EmailAccountCreate):
+def create_account(data: EmailAccountCreate):
     """Create a new email account"""
     service = _get_service()
     try:
@@ -61,7 +61,7 @@ async def create_account(data: EmailAccountCreate):
 
 
 @router.get("/accounts/{account_id}", response_model=EmailAccountResponse)
-async def get_account(account_id: str):
+def get_account(account_id: str):
     """Get a single email account"""
     service = _get_service()
     account = service.get_account(account_id)
@@ -71,7 +71,7 @@ async def get_account(account_id: str):
 
 
 @router.put("/accounts/{account_id}", response_model=EmailAccountResponse)
-async def update_account(account_id: str, data: EmailAccountUpdate):
+def update_account(account_id: str, data: EmailAccountUpdate):
     """Update an email account"""
     service = _get_service()
     try:
@@ -86,7 +86,7 @@ async def update_account(account_id: str, data: EmailAccountUpdate):
 
 
 @router.delete("/accounts/{account_id}")
-async def delete_account(account_id: str):
+def delete_account(account_id: str):
     """Delete an email account"""
     service = _get_service()
     result = service.delete_account(account_id)
@@ -96,7 +96,7 @@ async def delete_account(account_id: str):
 
 
 @router.post("/accounts/{account_id}/test", response_model=EmailAccountTestResponse)
-async def test_account(account_id: str):
+def test_account(account_id: str):
     """Test IMAP connection for an account"""
     service = _get_service()
     return service.test_account(account_id)
@@ -107,7 +107,7 @@ async def test_account(account_id: str):
 # ============================================================
 
 @router.get("/oauth/authorize")
-async def get_oauth_url():
+def get_oauth_url():
     """Get Google OAuth authorization URL for email account"""
     service = _get_service()
     try:
@@ -118,7 +118,7 @@ async def get_oauth_url():
 
 
 @router.post("/oauth/callback", response_model=EmailAccountResponse)
-async def oauth_callback(data: EmailAccountOAuthConnect):
+def oauth_callback(data: EmailAccountOAuthConnect):
     """Complete OAuth flow and create/update email account"""
     service = _get_service()
     try:
@@ -155,7 +155,7 @@ def _parse_since(since: Optional[str]) -> Optional[datetime]:
         )
 
 @router.post("/poll", response_model=BatchPollResponse)
-async def poll_all(
+def poll_all(
     since: Optional[str] = Query(
         None, description="Backfill from this date (YYYY-MM-DD)"
     ),
@@ -177,7 +177,7 @@ async def poll_all(
 
 
 @router.post("/poll/{account_id}", response_model=PollResponse)
-async def poll_account(
+def poll_account(
     account_id: str,
     since: Optional[str] = Query(
         None, description="Backfill from this date (YYYY-MM-DD)"
@@ -202,7 +202,7 @@ async def poll_account(
 # ============================================================
 
 @router.get("/logs", response_model=List[IngestionLogResponse])
-async def list_logs(
+def list_logs(
     status: Optional[str] = Query(None, description="Filter by status"),
     account_id: Optional[str] = Query(None, description="Filter by account"),
     claim_id: Optional[str] = Query(None, description="Filter by matched claim"),
@@ -221,21 +221,21 @@ async def list_logs(
 
 
 @router.get("/logs/pending", response_model=List[IngestionLogResponse])
-async def list_pending_logs():
+def list_pending_logs():
     """Get logs that need manual review"""
     service = _get_service()
     return service.get_pending_logs()
 
 
 @router.get("/stats", response_model=IngestionStatsResponse)
-async def get_stats():
+def get_stats():
     """Get ingestion statistics"""
     service = _get_service()
     return service.get_stats()
 
 
 @router.post("/logs/{log_id}/assign", response_model=IngestionLogResponse)
-async def assign_log(log_id: str, data: ManualAssignRequest):
+def assign_log(log_id: str, data: ManualAssignRequest):
     """Manually assign a pending log to a client/claim"""
     service = _get_service()
     try:
@@ -248,7 +248,7 @@ async def assign_log(log_id: str, data: ManualAssignRequest):
 
 
 @router.post("/logs/{log_id}/skip", response_model=IngestionLogResponse)
-async def skip_log(log_id: str, data: SkipRequest):
+def skip_log(log_id: str, data: SkipRequest):
     """Skip a pending log"""
     service = _get_service()
     try:
@@ -265,7 +265,7 @@ async def skip_log(log_id: str, data: SkipRequest):
 # ============================================================
 
 @router.get("/received", response_model=ReceivedEmailListResponse)
-async def list_received_emails(
+def list_received_emails(
     claim_id: Optional[str] = Query(None, description="Only emails linked to this claim"),
     account_id: Optional[str] = Query(None, description="Filter by account"),
     unmatched: bool = Query(False, description="Only emails not linked to a claim"),
@@ -282,7 +282,7 @@ async def list_received_emails(
 
 
 @router.get("/received/{email_id}", response_model=ReceivedEmailDetailResponse)
-async def get_received_email(email_id: str):
+def get_received_email(email_id: str):
     """One received email with its body."""
     service = _get_service()
     email = service.get_received_email(email_id)
@@ -292,7 +292,7 @@ async def get_received_email(email_id: str):
 
 
 @router.post("/received/{email_id}/assign", response_model=ReceivedEmailResponse)
-async def assign_received_email(email_id: str, data: ReceivedEmailAssignRequest):
+def assign_received_email(email_id: str, data: ReceivedEmailAssignRequest):
     """Link a received email to a claim, or unlink it (claim_id null)."""
     service = _get_service()
     try:

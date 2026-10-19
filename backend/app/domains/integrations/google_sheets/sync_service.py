@@ -2,6 +2,7 @@
 Google Sheets sync service for Water Mitigation jobs
 """
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -182,7 +183,8 @@ class GoogleSheetsSyncService:
             # Process each row
             for row_idx, row in enumerate(data_rows, start=start_row + 1):
                 try:
-                    result = self._process_row(row, row_idx, sheet_name)
+                    # Row matching loads/fuzzy-matches jobs; keep it off the event loop
+                    result = await asyncio.to_thread(self._process_row, row, row_idx, sheet_name)
                     if result:
                         if result.get("created"):
                             stats["created"] += 1
@@ -251,7 +253,7 @@ class GoogleSheetsSyncService:
         Returns:
             Updated or created job, or None if row is empty
         """
-        result = self._process_row(row, row_number, sheet_name)
+        result = await asyncio.to_thread(self._process_row, row, row_number, sheet_name)
         return result.get("job") if result else None
 
     def _process_row(

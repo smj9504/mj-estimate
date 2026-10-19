@@ -12,7 +12,7 @@ from app.domains.document.service import DocumentService
 router = APIRouter()
 
 @router.get("/", response_model=PaginatedDocuments)
-async def get_documents(
+def get_documents(
     type: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     company_id: Optional[str] = Query(None),
@@ -50,7 +50,7 @@ async def get_documents(
         raise
 
 @router.get("/{document_id}")
-async def get_document(document_id: str):
+def get_document(document_id: str):
     """Get single document by ID"""
     service = DocumentService()
     document = service.get_document(document_id)
@@ -59,7 +59,7 @@ async def get_document(document_id: str):
     return {"data": document}
 
 @router.delete("/{document_id}")
-async def delete_document(document_id: str):
+def delete_document(document_id: str):
     """Delete document"""
     service = DocumentService()
     success = service.delete_document(document_id)
@@ -68,7 +68,7 @@ async def delete_document(document_id: str):
     return {"message": "Document deleted successfully"}
 
 @router.post("/{document_id}/duplicate")
-async def duplicate_document(document_id: str):
+def duplicate_document(document_id: str):
     """Duplicate document"""
     service = DocumentService()
     try:
@@ -80,7 +80,7 @@ async def duplicate_document(document_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/{document_id}/pdf")
-async def generate_pdf(document_id: str):
+def generate_pdf(document_id: str):
     """Generate PDF for document"""
     service = DocumentService()
     
@@ -100,7 +100,7 @@ async def generate_pdf(document_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{document_id}/send")
-async def send_document(document_id: str, email: str):
+def send_document(document_id: str, email: str):
     """Send document via email"""
     service = DocumentService()
     try:
@@ -112,7 +112,7 @@ async def send_document(document_id: str, email: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/export")
-async def export_documents(filter_params: DocumentFilter):
+def export_documents(filter_params: DocumentFilter):
     """Export documents to Excel"""
     service = DocumentService()
     try:

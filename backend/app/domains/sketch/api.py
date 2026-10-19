@@ -42,7 +42,7 @@ router = APIRouter()
 # ===== SKETCH ENDPOINTS =====
 
 @router.post("/", response_model=SketchResponse)
-async def create_sketch(sketch_data: SketchCreate, db=Depends(get_db)):
+def create_sketch(sketch_data: SketchCreate, db=Depends(get_db)):
     """Create a new sketch"""
     try:
         service = SketchService(db)
@@ -55,7 +55,7 @@ async def create_sketch(sketch_data: SketchCreate, db=Depends(get_db)):
 
 
 @router.get("/{sketch_id}", response_model=SketchResponse)
-async def get_sketch(
+def get_sketch(
     sketch_id: str,
     include_relations: bool = True,
     db=Depends(get_db)
@@ -75,7 +75,7 @@ async def get_sketch(
 
 
 @router.get("/company/{company_id}", response_model=List[SketchListResponse])
-async def get_sketches_by_company(
+def get_sketches_by_company(
     company_id: str,
     project_type: Optional[str] = None,
     status: Optional[str] = None,
@@ -103,7 +103,7 @@ async def get_sketches_by_company(
 
 
 @router.put("/{sketch_id}", response_model=SketchResponse)
-async def update_sketch(
+def update_sketch(
     sketch_id: str,
     sketch_data: SketchUpdate,
     db=Depends(get_db)
@@ -125,7 +125,7 @@ async def update_sketch(
 
 
 @router.delete("/{sketch_id}")
-async def delete_sketch(sketch_id: str, db=Depends(get_db)):
+def delete_sketch(sketch_id: str, db=Depends(get_db)):
     """Delete sketch"""
     try:
         service = SketchService(db)
@@ -141,7 +141,7 @@ async def delete_sketch(sketch_id: str, db=Depends(get_db)):
 
 
 @router.post("/{sketch_id}/duplicate", response_model=SketchResponse)
-async def duplicate_sketch(
+def duplicate_sketch(
     sketch_id: str,
     new_name: Optional[str] = None,
     db=Depends(get_db)
@@ -163,7 +163,7 @@ async def duplicate_sketch(
 # ===== ROOM ENDPOINTS =====
 
 @router.post("/{sketch_id}/rooms", response_model=RoomResponse)
-async def create_room(sketch_id: str, room_data: RoomCreate, db=Depends(get_db)):
+def create_room(sketch_id: str, room_data: RoomCreate, db=Depends(get_db)):
     """Create a new room"""
     try:
         # Ensure sketch_id matches the URL parameter
@@ -178,7 +178,7 @@ async def create_room(sketch_id: str, room_data: RoomCreate, db=Depends(get_db))
 
 
 @router.post("/{sketch_id}/rooms/bulk", response_model=List[RoomResponse])
-async def create_rooms_bulk(sketch_id: str, bulk_data: BulkRoomCreate, db=Depends(get_db)):
+def create_rooms_bulk(sketch_id: str, bulk_data: BulkRoomCreate, db=Depends(get_db)):
     """Create multiple rooms at once"""
     try:
         service = SketchService(db)
@@ -196,7 +196,7 @@ async def create_rooms_bulk(sketch_id: str, bulk_data: BulkRoomCreate, db=Depend
 
 
 @router.put("/rooms/{room_id}", response_model=RoomResponse)
-async def update_room(room_id: str, room_data: RoomUpdate, db=Depends(get_db)):
+def update_room(room_id: str, room_data: RoomUpdate, db=Depends(get_db)):
     """Update room"""
     try:
         service = SketchService(db)
@@ -214,7 +214,7 @@ async def update_room(room_id: str, room_data: RoomUpdate, db=Depends(get_db)):
 
 
 @router.delete("/rooms/{room_id}")
-async def delete_room(room_id: str, db=Depends(get_db)):
+def delete_room(room_id: str, db=Depends(get_db)):
     """Delete room"""
     try:
         service = SketchService(db)
@@ -232,7 +232,7 @@ async def delete_room(room_id: str, db=Depends(get_db)):
 # ===== WALL ENDPOINTS =====
 
 @router.post("/rooms/{room_id}/walls", response_model=WallResponse)
-async def create_wall(room_id: str, wall_data: WallCreate, db=Depends(get_db)):
+def create_wall(room_id: str, wall_data: WallCreate, db=Depends(get_db)):
     """Create a new wall"""
     try:
         # Ensure room_id matches the URL parameter
@@ -247,7 +247,7 @@ async def create_wall(room_id: str, wall_data: WallCreate, db=Depends(get_db)):
 
 
 @router.post("/rooms/{room_id}/walls/bulk", response_model=List[WallResponse])
-async def create_walls_bulk(room_id: str, bulk_data: BulkWallCreate, db=Depends(get_db)):
+def create_walls_bulk(room_id: str, bulk_data: BulkWallCreate, db=Depends(get_db)):
     """Create multiple walls at once"""
     try:
         service = SketchService(db)
@@ -265,7 +265,7 @@ async def create_walls_bulk(room_id: str, bulk_data: BulkWallCreate, db=Depends(
 
 
 @router.put("/walls/{wall_id}", response_model=WallResponse)
-async def update_wall(wall_id: str, wall_data: WallUpdate, db=Depends(get_db)):
+def update_wall(wall_id: str, wall_data: WallUpdate, db=Depends(get_db)):
     """Update wall"""
     try:
         service = SketchService(db)
@@ -283,7 +283,7 @@ async def update_wall(wall_id: str, wall_data: WallUpdate, db=Depends(get_db)):
 
 
 @router.delete("/walls/{wall_id}")
-async def delete_wall(wall_id: str, db=Depends(get_db)):
+def delete_wall(wall_id: str, db=Depends(get_db)):
     """Delete wall"""
     try:
         service = SketchService(db)
@@ -301,7 +301,7 @@ async def delete_wall(wall_id: str, db=Depends(get_db)):
 # ===== FIXTURE ENDPOINTS =====
 
 @router.post("/rooms/{room_id}/fixtures", response_model=FixtureResponse)
-async def create_fixture(room_id: str, fixture_data: FixtureCreate, db=Depends(get_db)):
+def create_fixture(room_id: str, fixture_data: FixtureCreate, db=Depends(get_db)):
     """Create a new fixture"""
     try:
         # Ensure room_id matches the URL parameter
@@ -316,7 +316,7 @@ async def create_fixture(room_id: str, fixture_data: FixtureCreate, db=Depends(g
 
 
 @router.post("/rooms/{room_id}/fixtures/bulk", response_model=List[FixtureResponse])
-async def create_fixtures_bulk(room_id: str, bulk_data: BulkFixtureCreate, db=Depends(get_db)):
+def create_fixtures_bulk(room_id: str, bulk_data: BulkFixtureCreate, db=Depends(get_db)):
     """Create multiple fixtures at once"""
     try:
         service = SketchService(db)
@@ -334,7 +334,7 @@ async def create_fixtures_bulk(room_id: str, bulk_data: BulkFixtureCreate, db=De
 
 
 @router.put("/fixtures/{fixture_id}", response_model=FixtureResponse)
-async def update_fixture(fixture_id: str, fixture_data: FixtureUpdate, db=Depends(get_db)):
+def update_fixture(fixture_id: str, fixture_data: FixtureUpdate, db=Depends(get_db)):
     """Update fixture"""
     try:
         service = SketchService(db)
@@ -352,7 +352,7 @@ async def update_fixture(fixture_id: str, fixture_data: FixtureUpdate, db=Depend
 
 
 @router.delete("/fixtures/{fixture_id}")
-async def delete_fixture(fixture_id: str, db=Depends(get_db)):
+def delete_fixture(fixture_id: str, db=Depends(get_db)):
     """Delete fixture"""
     try:
         service = SketchService(db)
@@ -370,7 +370,7 @@ async def delete_fixture(fixture_id: str, db=Depends(get_db)):
 # ===== MEASUREMENT ENDPOINTS =====
 
 @router.post("/{sketch_id}/measurements", response_model=MeasurementResponse)
-async def create_measurement(sketch_id: str, measurement_data: MeasurementCreate, db=Depends(get_db)):
+def create_measurement(sketch_id: str, measurement_data: MeasurementCreate, db=Depends(get_db)):
     """Create a new measurement"""
     try:
         # Ensure sketch_id matches the URL parameter
@@ -385,7 +385,7 @@ async def create_measurement(sketch_id: str, measurement_data: MeasurementCreate
 
 
 @router.put("/measurements/{measurement_id}", response_model=MeasurementResponse)
-async def update_measurement(measurement_id: str, measurement_data: MeasurementUpdate, db=Depends(get_db)):
+def update_measurement(measurement_id: str, measurement_data: MeasurementUpdate, db=Depends(get_db)):
     """Update measurement"""
     try:
         service = SketchService(db)
@@ -403,7 +403,7 @@ async def update_measurement(measurement_id: str, measurement_data: MeasurementU
 
 
 @router.delete("/measurements/{measurement_id}")
-async def delete_measurement(measurement_id: str, db=Depends(get_db)):
+def delete_measurement(measurement_id: str, db=Depends(get_db)):
     """Delete measurement"""
     try:
         service = SketchService(db)
@@ -421,7 +421,7 @@ async def delete_measurement(measurement_id: str, db=Depends(get_db)):
 # ===== CALCULATION ENDPOINTS =====
 
 @router.post("/calculate/area", response_model=AreaCalculationResponse)
-async def calculate_area(calculation_data: AreaCalculationRequest):
+def calculate_area(calculation_data: AreaCalculationRequest):
     """Calculate area and perimeter from geometry"""
     try:
         service = SketchService(None)  # No DB needed for this calculation
@@ -438,7 +438,7 @@ async def calculate_area(calculation_data: AreaCalculationRequest):
 
 
 @router.post("/{sketch_id}/calculate/costs", response_model=CostCalculationResponse)
-async def calculate_costs(
+def calculate_costs(
     sketch_id: str,
     calculation_data: CostCalculationRequest,
     db=Depends(get_db)
@@ -462,7 +462,7 @@ async def calculate_costs(
 # ===== BULK OPERATIONS =====
 
 @router.post("/bulk/sort-order")
-async def bulk_update_sort_order(
+def bulk_update_sort_order(
     entity_type: str,
     update_data: BulkUpdateOrder,
     db=Depends(get_db)
@@ -486,7 +486,7 @@ async def bulk_update_sort_order(
 
 
 @router.delete("/bulk/{entity_type}")
-async def bulk_delete(
+def bulk_delete(
     entity_type: str,
     delete_data: BulkDeleteRequest,
     db=Depends(get_db)
@@ -509,7 +509,7 @@ async def bulk_delete(
 # ===== INTEGRATION ENDPOINTS =====
 
 @router.post("/{sketch_id}/link/estimate/{estimate_id}")
-async def link_to_estimate(sketch_id: str, estimate_id: str, db=Depends(get_db)):
+def link_to_estimate(sketch_id: str, estimate_id: str, db=Depends(get_db)):
     """Link sketch to an estimate"""
     try:
         service = SketchService(db)
@@ -526,7 +526,7 @@ async def link_to_estimate(sketch_id: str, estimate_id: str, db=Depends(get_db))
 
 
 @router.post("/{sketch_id}/link/invoice/{invoice_id}")
-async def link_to_invoice(sketch_id: str, invoice_id: str, db=Depends(get_db)):
+def link_to_invoice(sketch_id: str, invoice_id: str, db=Depends(get_db)):
     """Link sketch to an invoice"""
     try:
         service = SketchService(db)
@@ -543,7 +543,7 @@ async def link_to_invoice(sketch_id: str, invoice_id: str, db=Depends(get_db)):
 
 
 @router.post("/{sketch_id}/sync/estimate/{estimate_id}")
-async def sync_with_estimate(sketch_id: str, estimate_id: str, db=Depends(get_db)):
+def sync_with_estimate(sketch_id: str, estimate_id: str, db=Depends(get_db)):
     """Sync sketch costs with estimate line items"""
     try:
         service = SketchService(db)
@@ -557,7 +557,7 @@ async def sync_with_estimate(sketch_id: str, estimate_id: str, db=Depends(get_db
 # ===== EXPORT/IMPORT ENDPOINTS =====
 
 @router.post("/{sketch_id}/export")
-async def export_sketch(
+def export_sketch(
     sketch_id: str,
     export_data: SketchExportRequest,
     db=Depends(get_db)
@@ -602,7 +602,7 @@ async def export_sketch(
 
 
 @router.post("/import", response_model=SketchImportResponse)
-async def import_sketch(
+def import_sketch(
     import_data: SketchImportRequest,
     db=Depends(get_db)
 ):
@@ -677,7 +677,7 @@ async def upload_sketch_file(
         )
 
         # Process import
-        result = await import_sketch(import_request, db)
+        result = import_sketch(import_request, db)
         return result
 
     except HTTPException:
@@ -690,7 +690,7 @@ async def upload_sketch_file(
 # ===== UTILITY ENDPOINTS =====
 
 @router.post("/validate/geometry")
-async def validate_geometry(geometry: Dict[str, Any]):
+def validate_geometry(geometry: Dict[str, Any]):
     """Validate geometry data structure"""
     try:
         service = SketchService(None)  # No DB needed for validation
@@ -705,7 +705,7 @@ async def validate_geometry(geometry: Dict[str, Any]):
 
 
 @router.post("/convert/units")
-async def convert_units(
+def convert_units(
     value: float,
     from_unit: str,
     to_unit: str

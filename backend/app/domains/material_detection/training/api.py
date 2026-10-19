@@ -41,7 +41,7 @@ def get_service(db: Session = Depends(get_db)) -> TrainingService:
 # ===== Dataset Endpoints =====
 
 @router.post("/datasets", response_model=TrainingDatasetResponse, status_code=201)
-async def create_dataset(
+def create_dataset(
     dataset_data: TrainingDatasetCreate,
     service: TrainingService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)
@@ -71,7 +71,7 @@ async def create_dataset(
 
 
 @router.get("/datasets/{dataset_id}", response_model=TrainingDatasetResponse)
-async def get_dataset(
+def get_dataset(
     dataset_id: UUID,
     service: TrainingService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)
@@ -85,7 +85,7 @@ async def get_dataset(
 
 
 @router.get("/datasets", response_model=List[TrainingDatasetResponse])
-async def list_datasets(
+def list_datasets(
     status: Optional[str] = Query(None, description="Filter by status"),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
@@ -106,7 +106,7 @@ async def list_datasets(
 
 
 @router.put("/datasets/{dataset_id}", response_model=TrainingDatasetResponse)
-async def update_dataset(
+def update_dataset(
     dataset_id: UUID,
     update_data: TrainingDatasetUpdate,
     service: TrainingService = Depends(get_service),
@@ -125,7 +125,7 @@ async def update_dataset(
 
 
 @router.delete("/datasets/{dataset_id}", status_code=204)
-async def delete_dataset(
+def delete_dataset(
     dataset_id: UUID,
     service: TrainingService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)
@@ -139,7 +139,7 @@ async def delete_dataset(
 # ===== Image Management Endpoints =====
 
 @router.post("/datasets/{dataset_id}/images", response_model=List[TrainingImageResponse], status_code=201)
-async def add_images_to_dataset(
+def add_images_to_dataset(
     dataset_id: UUID,
     file_ids: List[UUID],
     service: TrainingService = Depends(get_service),
@@ -166,7 +166,7 @@ async def add_images_to_dataset(
 
 
 @router.get("/datasets/{dataset_id}/images", response_model=List[TrainingImageResponse])
-async def get_dataset_images(
+def get_dataset_images(
     dataset_id: UUID,
     labeling_status: Optional[str] = Query(None, description="Filter by labeling status"),
     split_type: Optional[str] = Query(None, description="Filter by split type (train/val/test)"),
@@ -187,7 +187,7 @@ async def get_dataset_images(
 
 
 @router.put("/images/{image_id}/label", response_model=TrainingImageResponse)
-async def update_image_label(
+def update_image_label(
     image_id: UUID,
     label_data: TrainingImageLabel,
     service: TrainingService = Depends(get_service),
@@ -213,7 +213,7 @@ async def update_image_label(
 # ===== Auto-Labeling Endpoints =====
 
 @router.post("/datasets/{dataset_id}/auto-label", response_model=dict)
-async def auto_label_images(
+def auto_label_images(
     dataset_id: UUID,
     request: AutoLabelRequest,
     background_tasks: BackgroundTasks,
@@ -266,7 +266,7 @@ async def auto_label_images(
 
 
 @router.post("/cost-estimate", response_model=CostEstimateResponse)
-async def estimate_labeling_cost(
+def estimate_labeling_cost(
     request: CostEstimateRequest,
     service: TrainingService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)
@@ -286,7 +286,7 @@ async def estimate_labeling_cost(
 # ===== Dataset Split Endpoint =====
 
 @router.post("/datasets/{dataset_id}/assign-splits", response_model=dict)
-async def assign_splits(
+def assign_splits(
     dataset_id: UUID,
     service: TrainingService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)
@@ -315,7 +315,7 @@ async def assign_splits(
 # ===== Training Job Endpoints =====
 
 @router.post("/jobs", response_model=dict, status_code=201)
-async def start_training(
+def start_training(
     dataset_id: UUID = Query(..., description="Dataset ID to train on"),
     job_name: Optional[str] = Query(None, description="Optional job name"),
     epochs: int = Query(10, ge=1, le=100, description="Number of training epochs"),
@@ -367,7 +367,7 @@ async def start_training(
 
 
 @router.get("/jobs/{job_id}", response_model=dict)
-async def get_training_job(
+def get_training_job(
     job_id: UUID,
     service: TrainingService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)
@@ -404,7 +404,7 @@ async def get_training_job(
 
 
 @router.get("/jobs", response_model=List[dict])
-async def list_training_jobs(
+def list_training_jobs(
     dataset_id: Optional[UUID] = Query(None, description="Filter by dataset"),
     status: Optional[str] = Query(None, description="Filter by status"),
     skip: int = Query(0, ge=0),

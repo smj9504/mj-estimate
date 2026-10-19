@@ -30,7 +30,7 @@ auth_service = AuthService()
 
 
 @router.post("/register", response_model=StaffResponse)
-async def register(
+def register(
     staff_create: StaffCreate,
     current_staff: Staff = Depends(require_admin),
     db: Any = Depends(get_db)
@@ -69,7 +69,7 @@ async def register(
 
 @router.post("/login", response_model=Token)
 @limiter.limit(RATE_LIMITS["auth"])
-async def login(
+def login(
     request: Request,
     response: Response,
     login_request: LoginRequest,
@@ -156,7 +156,7 @@ async def login(
 
 
 @router.get("/me", response_model=StaffResponse)
-async def get_current_staff_info(
+def get_current_staff_info(
     current_staff: Staff = Depends(get_current_staff)
 ):
     """Get current staff member information"""
@@ -164,7 +164,7 @@ async def get_current_staff_info(
 
 
 @router.put("/me", response_model=StaffResponse)
-async def update_current_staff(
+def update_current_staff(
     staff_update: StaffUpdate,
     current_staff: Staff = Depends(get_current_staff),
     db: Any = Depends(get_db)
@@ -195,7 +195,7 @@ async def update_current_staff(
 
 
 @router.post("/me/change-password", response_model=dict)
-async def change_password(
+def change_password(
     password_change: ChangePasswordRequest,
     current_staff: Staff = Depends(get_current_staff),
     db: Any = Depends(get_db)
@@ -218,7 +218,7 @@ async def change_password(
 
 
 @router.get("/staff", response_model=List[StaffResponse])
-async def get_staff(
+def get_staff(
     current_staff: Staff = Depends(require_admin),
     db: Any = Depends(get_db)
 ):
@@ -239,7 +239,7 @@ async def get_staff(
 
 
 @router.put("/staff/{staff_id}", response_model=StaffResponse)
-async def update_staff_member(
+def update_staff_member(
     staff_id: str,
     staff_update: StaffUpdate,
     current_staff: Staff = Depends(require_admin),
@@ -260,7 +260,7 @@ async def update_staff_member(
 
 @router.post("/init-admin", response_model=dict)
 @limiter.limit(RATE_LIMITS["init"])
-async def initialize_admin(
+def initialize_admin(
     request: Request,
     response: Response,
     db: Any = Depends(get_db)
@@ -280,7 +280,7 @@ async def initialize_admin(
 
 @router.post("/password-reset/request", response_model=dict)
 @limiter.limit(RATE_LIMITS["password_reset"])
-async def request_password_reset(
+def request_password_reset(
     request: Request,
     response: Response,
     reset_request: PasswordResetRequest,
@@ -333,7 +333,7 @@ async def request_password_reset(
 
 @router.post("/password-reset/confirm", response_model=dict)
 @limiter.limit(RATE_LIMITS["password_reset"])
-async def confirm_password_reset(
+def confirm_password_reset(
     request: Request,
     response: Response,
     confirm_request: PasswordResetConfirm,
@@ -359,7 +359,7 @@ async def confirm_password_reset(
 
 
 @router.post("/password-reset/verify", response_model=dict)
-async def verify_reset_token(
+def verify_reset_token(
     token: str,
     db: Any = Depends(get_db)
 ):
@@ -381,11 +381,11 @@ async def verify_reset_token(
 
 # Backwards compatibility endpoints
 @router.get("/users", response_model=List[StaffResponse])
-async def get_users_compat(
+def get_users_compat(
     current_staff: Staff = Depends(require_admin),
     db: Any = Depends(get_db)
 ):
     """
     Get all users (backwards compatibility - redirects to staff)
     """
-    return await get_staff(current_staff, db)
+    return get_staff(current_staff, db)

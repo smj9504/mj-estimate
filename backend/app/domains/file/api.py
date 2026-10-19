@@ -119,7 +119,7 @@ async def upload_files(
 
 
 @router.get("/download/{file_id}")
-async def download_file(
+def download_file(
     file_id: str,
     inline: bool = Query(False, description="If true, display in browser instead of downloading"),
     service: FileService = Depends(get_file_service)
@@ -194,7 +194,7 @@ async def download_file(
 
 
 @router.get("/preview/{file_id}")
-async def preview_file(
+def preview_file(
     file_id: str,
     service: FileService = Depends(get_file_service)
 ):
@@ -285,7 +285,7 @@ async def preview_file(
 
 
 @router.get("/wm-photo/{photo_id}/preview")
-async def preview_wm_photo(
+def preview_wm_photo(
     photo_id: str,
     service: FileService = Depends(get_file_service)
 ):
@@ -340,7 +340,7 @@ async def preview_wm_photo(
 
 
 @router.get("/{context}/{context_id}", response_model=FilesResponse, response_model_by_alias=True)
-async def get_files(
+def get_files(
     context: str,
     context_id: str,
     category: Optional[str] = Query(None, description="Filter by category"),
@@ -384,7 +384,7 @@ async def get_files(
 
 
 @router.get("/{context}/{context_id}/count", response_model=FileCountResponse)
-async def get_file_count(
+def get_file_count(
     context: str,
     context_id: str,
     category: Optional[str] = Query(None, description="Filter by category"),
@@ -422,7 +422,7 @@ async def get_file_count(
 
 
 @router.get("/{context}/{context_id}/categories", response_model=CategoryListResponse)
-async def get_categories(
+def get_categories(
     context: str,
     context_id: str,
     is_active: bool = Query(True, description="Filter by active status"),
@@ -451,7 +451,7 @@ async def get_categories(
 
 
 @router.put("/{file_id}", response_model=FileResponse)
-async def update_file_metadata(
+def update_file_metadata(
     file_id: str,
     file_update: FileUpdate,
     service: FileService = Depends(get_file_service),
@@ -473,7 +473,7 @@ async def update_file_metadata(
 
 
 @router.delete("/{file_id}")
-async def delete_file(
+def delete_file(
     file_id: str,
     hard_delete: bool = Query(False, description="Permanently delete file"),
     context: Optional[str] = Query(None, description="File context (for special handling)"),

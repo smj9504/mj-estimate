@@ -52,7 +52,7 @@ def _get_claim_company_service():
 # ============================================================
 
 @router.get("/templates")
-async def list_templates(
+def list_templates(
     company_id: Optional[str] = None,
     service: ContractTemplateService = Depends(_get_template_service),
 ):
@@ -123,7 +123,7 @@ async def create_template(
 
 
 @router.get("/templates/{template_id}")
-async def get_template(
+def get_template(
     template_id: str,
     service: ContractTemplateService = Depends(_get_template_service),
 ):
@@ -139,7 +139,7 @@ async def get_template(
 
 
 @router.put("/templates/{template_id}")
-async def update_template(
+def update_template(
     template_id: str,
     data: ContractTemplateUpdate,
     service: ContractTemplateService = Depends(_get_template_service),
@@ -195,7 +195,7 @@ async def replace_template_pdf(
 
 
 @router.delete("/templates/{template_id}")
-async def delete_template(
+def delete_template(
     template_id: str,
     service: ContractTemplateService = Depends(_get_template_service),
 ):
@@ -215,7 +215,7 @@ async def delete_template(
 # ============================================================
 
 @router.get("/claims/{claim_id}/contracts")
-async def list_contracts(
+def list_contracts(
     claim_id: str,
     service: ContractInstanceService = Depends(_get_instance_service),
 ):
@@ -227,7 +227,7 @@ async def list_contracts(
 
 
 @router.post("/claims/{claim_id}/contracts")
-async def create_contract(
+def create_contract(
     claim_id: str,
     data: ContractInstanceCreate,
     service: ContractInstanceService = Depends(_get_instance_service),
@@ -244,7 +244,7 @@ async def create_contract(
 
 
 @router.get("/claims/{claim_id}/contracts/{contract_id}")
-async def get_contract(
+def get_contract(
     claim_id: str,
     contract_id: str,
     service: ContractInstanceService = Depends(_get_instance_service),
@@ -261,7 +261,7 @@ async def get_contract(
 
 
 @router.post("/claims/{claim_id}/contracts/{contract_id}/send")
-async def send_contract(
+def send_contract(
     claim_id: str,
     contract_id: str,
     service: ContractInstanceService = Depends(_get_instance_service),
@@ -547,7 +547,7 @@ def _build_email_html(
 
 
 @router.get("/email-templates")
-async def get_email_templates():
+def get_email_templates():
     """Return available email templates for the UI"""
     return {
         k: {
@@ -764,7 +764,7 @@ def send_contract_email(
 
 
 @router.post("/claims/{claim_id}/contracts/{contract_id}/void")
-async def void_contract(
+def void_contract(
     claim_id: str,
     contract_id: str,
     service: ContractInstanceService = Depends(
@@ -787,7 +787,7 @@ async def void_contract(
 @router.delete(
     "/claims/{claim_id}/contracts/{contract_id}"
 )
-async def delete_contract(
+def delete_contract(
     claim_id: str,
     contract_id: str,
     service: ContractInstanceService = Depends(
@@ -1013,7 +1013,7 @@ def send_reminder(
 # ============================================================
 
 @router.get("/claims/{claim_id}/companies")
-async def list_claim_companies(
+def list_claim_companies(
     claim_id: str,
     service: ClaimCompanyService = Depends(_get_claim_company_service),
 ):
@@ -1025,7 +1025,7 @@ async def list_claim_companies(
 
 
 @router.post("/claims/{claim_id}/companies")
-async def assign_company(
+def assign_company(
     claim_id: str,
     data: ClaimCompanyCreate,
     service: ClaimCompanyService = Depends(_get_claim_company_service),
@@ -1041,7 +1041,7 @@ async def assign_company(
 
 
 @router.delete("/claims/{claim_id}/companies/{assignment_id}")
-async def remove_company(
+def remove_company(
     claim_id: str,
     assignment_id: str,
     service: ClaimCompanyService = Depends(_get_claim_company_service),
@@ -1066,7 +1066,7 @@ async def remove_company(
 # ============================================================
 
 @router.get("/templates/{template_id}/field-mappings")
-async def get_field_mappings(
+def get_field_mappings(
     template_id: str,
     service: ContractTemplateService = Depends(_get_template_service),
 ):
@@ -1080,7 +1080,7 @@ async def get_field_mappings(
 
 
 @router.put("/templates/{template_id}/field-mappings")
-async def update_field_mappings(
+def update_field_mappings(
     template_id: str,
     data: FieldMappingUpdate,
     service: ContractTemplateService = Depends(_get_template_service),
@@ -1107,7 +1107,7 @@ async def update_field_mappings(
 # ============================================================
 
 @router.get("/claims/{claim_id}/prefill-preview")
-async def get_prefill_preview(
+def get_prefill_preview(
     claim_id: str,
     template_id: str,
     client_id: str,
@@ -1126,7 +1126,7 @@ async def get_prefill_preview(
 
 
 @router.get("/claims/{claim_id}/dashboard")
-async def get_claim_dashboard(
+def get_claim_dashboard(
     claim_id: str,
     service: ContractInstanceService = Depends(
         _get_instance_service
@@ -1144,7 +1144,7 @@ async def get_claim_dashboard(
 # ============================================================
 
 @router.put("/claims/{claim_id}/plumber-report")
-async def link_plumber_report(
+def link_plumber_report(
     claim_id: str,
     plumber_report_id: Optional[str] = None,
     db=Depends(get_db),
@@ -1171,7 +1171,7 @@ async def link_plumber_report(
 # ============================================================
 
 @router.get("/wm-jobs/{job_id}/contracts")
-async def list_wm_job_contracts(
+def list_wm_job_contracts(
     job_id: str,
     db=Depends(get_db),
     service: ContractInstanceService = Depends(_get_instance_service),
@@ -1196,7 +1196,7 @@ async def list_wm_job_contracts(
 
 
 @router.post("/wm-jobs/{job_id}/contracts")
-async def create_wm_job_contract(
+def create_wm_job_contract(
     job_id: str,
     data: ContractInstanceCreate,
     db=Depends(get_db),
@@ -1236,7 +1236,7 @@ async def create_wm_job_contract(
 
 
 @router.get("/wm-jobs/{job_id}/prefill-preview")
-async def get_wm_job_prefill_preview(
+def get_wm_job_prefill_preview(
     job_id: str,
     template_id: str,
     db=Depends(get_db),
@@ -1269,7 +1269,7 @@ async def get_wm_job_prefill_preview(
 
 
 @router.get("/wm-jobs/{job_id}/available-templates")
-async def get_wm_job_available_templates(
+def get_wm_job_available_templates(
     job_id: str,
     db=Depends(get_db),
     service: ContractTemplateService = Depends(_get_template_service),

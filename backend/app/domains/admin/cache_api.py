@@ -91,7 +91,7 @@ async def clear_cache(
 
 
 @router.post("/warm")
-async def warm_cache(
+def warm_cache(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_admin),
@@ -125,7 +125,7 @@ async def warm_cache(
 
 
 @router.get("/keys")
-async def list_cache_keys(
+def list_cache_keys(
     pattern: str = "*",
     limit: int = 100,
     db: Session = Depends(get_db),
@@ -197,7 +197,7 @@ async def list_cache_keys(
 
 
 @router.get("/stats")
-async def get_cache_statistics(
+def get_cache_statistics(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_admin),
     cache: CacheService = Depends(get_cache)

@@ -50,7 +50,7 @@ router = APIRouter(
 # to prevent FastAPI from matching everything against /{company_id}
 
 @router.get("/")
-async def get_companies(
+def get_companies(
     search: Optional[str] = Query(None, description="Search term for name, address, email, or phone"),
     city: Optional[str] = Query(None, description="Filter by city"),
     state: Optional[str] = Query(None, description="Filter by state"),
@@ -110,7 +110,7 @@ async def get_companies(
 
 
 @router.get("/insurance-emails")
-async def get_insurance_company_emails(
+def get_insurance_company_emails(
     service: CompanyService = Depends(get_company_service)
 ):
     """Get email lookup map for all insurance-type companies.
@@ -131,7 +131,7 @@ async def get_insurance_company_emails(
 
 
 @router.get("/test")
-async def test_companies():
+def test_companies():
     """Test endpoint to verify database connection - NO response_model to avoid serialization issues"""
     try:
         from app.domains.company.repository import CompanyRepository
@@ -162,7 +162,7 @@ async def test_companies():
 
 
 @router.get("/debug")
-async def debug_companies():
+def debug_companies():
     """Debug endpoint with comprehensive testing"""
     try:
         from app.core.database_factory import get_database
@@ -192,7 +192,7 @@ async def debug_companies():
 
 
 @router.get("/search", response_model=CompanyPaginatedResponse)
-async def search_companies(
+def search_companies(
     q: str = Query(..., description="Search term for name, address, email, or phone"),
     city: Optional[str] = Query(None, description="Filter by city"),
     state: Optional[str] = Query(None, description="Filter by state"),
@@ -227,7 +227,7 @@ async def search_companies(
 
 
 @router.get("/stats/summary")
-async def get_companies_stats_summary(
+def get_companies_stats_summary(
     service: CompanyService = Depends(get_company_service)
 ):
     """Get companies statistics summary"""
@@ -239,7 +239,7 @@ async def get_companies_stats_summary(
 
 
 @router.get("/stats")
-async def get_companies_with_stats(
+def get_companies_with_stats(
     service: CompanyService = Depends(get_company_service)
 ):
     """Get companies with invoice and estimate counts"""
@@ -251,7 +251,7 @@ async def get_companies_with_stats(
 
 
 @router.post("/", response_model=CompanyResponse, status_code=201)
-async def create_company(
+def create_company(
     company: CompanyCreate, 
     service: CompanyService = Depends(get_company_service)
 ):
@@ -265,7 +265,7 @@ async def create_company(
 
 # Path parameter routes MUST come LAST to prevent them from matching specific routes above
 @router.get("/by-email/{email}", response_model=CompanyResponse)
-async def get_company_by_email(
+def get_company_by_email(
     email: str,
     service: CompanyService = Depends(get_company_service)
 ):
@@ -282,7 +282,7 @@ async def get_company_by_email(
 
 
 @router.put("/{company_id}", response_model=CompanyResponse)
-async def update_company(
+def update_company(
     company_id: str, 
     company: CompanyUpdate, 
     service: CompanyService = Depends(get_company_service)
@@ -300,7 +300,7 @@ async def update_company(
 
 
 @router.delete("/{company_id}", status_code=204)
-async def delete_company(
+def delete_company(
     company_id: str, 
     service: CompanyService = Depends(get_company_service)
 ):
@@ -426,7 +426,7 @@ async def upload_w9(
 
 
 @router.delete("/{company_id}/w9", response_model=dict)
-async def delete_w9(
+def delete_w9(
     company_id: str,
     service: CompanyService = Depends(get_company_service),
 ):
@@ -453,7 +453,7 @@ async def delete_w9(
 
 
 @router.get("/{company_id}/w9")
-async def get_w9_info(
+def get_w9_info(
     company_id: str,
     service: CompanyService = Depends(get_company_service),
 ):
@@ -496,7 +496,7 @@ async def get_w9_info(
 
 
 @router.post("/{company_id}/set-default", response_model=CompanyResponse)
-async def set_default_company(
+def set_default_company(
     company_id: str,
     service: CompanyService = Depends(get_company_service)
 ):
@@ -512,7 +512,7 @@ async def set_default_company(
 
 # GET /{company_id} should be the VERY LAST route to avoid catching other specific paths
 @router.get("/{company_id}", response_model=CompanyDetailResponse)
-async def get_company(
+def get_company(
     company_id: str, 
     service: CompanyService = Depends(get_company_service)
 ):
@@ -558,7 +558,7 @@ def _get_contact_session():
 
 
 @router.get("/by-type/{company_type}")
-async def list_companies_by_type(company_type: str):
+def list_companies_by_type(company_type: str):
     """
     Companies of one type (e.g. public_adjuster), id + name only.
 
@@ -583,7 +583,7 @@ async def list_companies_by_type(company_type: str):
 
 
 @router.get("/contacts/all", response_model=list[CompanyContactResponse])
-async def list_all_contacts(
+def list_all_contacts(
     company_type: Optional[str] = Query(None, description="Filter by company type"),
 ):
     """List all active contacts, optionally filtered by company type."""
@@ -604,7 +604,7 @@ async def list_all_contacts(
 
 
 @router.get("/{company_id}/contacts", response_model=list[CompanyContactResponse])
-async def list_contacts(company_id: str):
+def list_contacts(company_id: str):
     """List contacts for a company."""
     session = _get_contact_session()
     try:
@@ -621,7 +621,7 @@ async def list_contacts(company_id: str):
 
 
 @router.post("/{company_id}/contacts", response_model=CompanyContactResponse, status_code=201)
-async def create_contact(company_id: str, data: CompanyContactCreate):
+def create_contact(company_id: str, data: CompanyContactCreate):
     """Add a contact to a company."""
     session = _get_contact_session()
     try:
@@ -650,7 +650,7 @@ async def create_contact(company_id: str, data: CompanyContactCreate):
 
 
 @router.put("/{company_id}/contacts/{contact_id}", response_model=CompanyContactResponse)
-async def update_contact(company_id: str, contact_id: str, data: CompanyContactUpdate):
+def update_contact(company_id: str, contact_id: str, data: CompanyContactUpdate):
     """Update a company contact."""
     session = _get_contact_session()
     try:
@@ -684,7 +684,7 @@ async def update_contact(company_id: str, contact_id: str, data: CompanyContactU
 
 
 @router.delete("/{company_id}/contacts/{contact_id}", status_code=204)
-async def delete_contact(company_id: str, contact_id: str):
+def delete_contact(company_id: str, contact_id: str):
     """Delete a company contact."""
     session = _get_contact_session()
     try:

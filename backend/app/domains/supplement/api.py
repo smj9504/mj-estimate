@@ -37,7 +37,7 @@ def _get_service():
 # ============================================================
 
 @router.get("/supplements", response_model=List[SupplementRequestResponse])
-async def list_supplements(
+def list_supplements(
     status: Optional[str] = Query(None),
     claim_id: Optional[str] = Query(None),
     priority: Optional[str] = Query(None),
@@ -58,13 +58,13 @@ async def list_supplements(
 
 
 @router.get("/supplements/stats", response_model=SupplementDashboardStats)
-async def get_supplement_stats():
+def get_supplement_stats():
     service = _get_service()
     return service.get_dashboard_stats()
 
 
 @router.get("/supplements/pending-review")
-async def get_pending_review_supplements():
+def get_pending_review_supplements():
     """Get supplements that need review (status=identified)"""
     service = _get_service()
     items = service.get_requests({'status': 'identified', 'page_size': 50})
@@ -74,13 +74,13 @@ async def get_pending_review_supplements():
 
 
 @router.get("/supplements/by-claim/{claim_id}", response_model=List[SupplementRequestResponse])
-async def get_supplements_by_claim(claim_id: str):
+def get_supplements_by_claim(claim_id: str):
     service = _get_service()
     return service.get_by_claim(claim_id)
 
 
 @router.get("/supplements/insurance-estimate/{claim_id}")
-async def get_latest_insurance_estimate(claim_id: str):
+def get_latest_insurance_estimate(claim_id: str):
     """Get the latest insurance company estimate (ClaimNegotiation) for a claim.
     Also resolves a valid file_download_id for the PDF document.
     """
@@ -149,7 +149,7 @@ async def get_latest_insurance_estimate(claim_id: str):
 
 
 @router.get("/supplements/insurance-estimates/{claim_id}")
-async def list_insurance_estimates(claim_id: str):
+def list_insurance_estimates(claim_id: str):
     """Get ALL insurance estimate versions (ClaimNegotiation) for a claim, ordered by revision_number desc."""
     try:
         from app.domains.client.models import Claim, ClaimNegotiation
@@ -259,7 +259,7 @@ async def list_insurance_estimates(claim_id: str):
 
 
 @router.post("/supplements/insurance-estimates/{claim_id}")
-async def upload_insurance_estimate(claim_id: str, data: dict):
+def upload_insurance_estimate(claim_id: str, data: dict):
     """Upload a new insurance estimate version for a claim.
 
     Request body:
@@ -412,7 +412,7 @@ async def upload_insurance_estimate(claim_id: str, data: dict):
 
 
 @router.patch("/supplements/insurance-estimates/{claim_id}/{negotiation_id}")
-async def update_insurance_estimate(claim_id: str, negotiation_id: str, data: dict):
+def update_insurance_estimate(claim_id: str, negotiation_id: str, data: dict):
     """Update an existing insurance estimate negotiation.
 
     Request body (all optional):
@@ -481,7 +481,7 @@ async def update_insurance_estimate(claim_id: str, negotiation_id: str, data: di
 
 
 @router.patch("/supplements/insurance-estimates/{claim_id}/{negotiation_id}/replace-pdf")
-async def replace_insurance_estimate_pdf(claim_id: str, negotiation_id: str, data: dict):
+def replace_insurance_estimate_pdf(claim_id: str, negotiation_id: str, data: dict):
     """Replace PDF for an existing insurance estimate negotiation.
 
     Request body:
@@ -527,7 +527,7 @@ async def replace_insurance_estimate_pdf(claim_id: str, negotiation_id: str, dat
 
 
 @router.post("/supplements/insurance-estimates/extract-pdf/{file_id}")
-async def extract_insurance_estimate_pdf(file_id: str):
+def extract_insurance_estimate_pdf(file_id: str):
     """Extract summary amounts (RCV, ACV, depreciation, deductible) from an uploaded PDF.
 
     Returns parsed totals and per-section breakdown for auto-filling the upload form.
@@ -689,7 +689,7 @@ async def extract_insurance_estimate_pdf(file_id: str):
 
 
 @router.delete("/supplements/insurance-estimates/{claim_id}/{negotiation_id}")
-async def delete_insurance_estimate(claim_id: str, negotiation_id: str):
+def delete_insurance_estimate(claim_id: str, negotiation_id: str):
     """Delete an insurance estimate negotiation record."""
     try:
         from app.domains.client.models import ClaimNegotiation
@@ -715,7 +715,7 @@ async def delete_insurance_estimate(claim_id: str, negotiation_id: str):
 
 
 @router.get("/supplements/{supplement_id}", response_model=SupplementRequestResponse)
-async def get_supplement(supplement_id: str):
+def get_supplement(supplement_id: str):
     service = _get_service()
     result = service.get_request(supplement_id)
     if not result:
@@ -724,7 +724,7 @@ async def get_supplement(supplement_id: str):
 
 
 @router.post("/supplements", response_model=SupplementRequestResponse)
-async def create_supplement(data: SupplementRequestCreate):
+def create_supplement(data: SupplementRequestCreate):
     service = _get_service()
     try:
         return service.create_request(data.dict())
@@ -734,7 +734,7 @@ async def create_supplement(data: SupplementRequestCreate):
 
 
 @router.patch("/supplements/{supplement_id}", response_model=SupplementRequestResponse)
-async def update_supplement(supplement_id: str, data: SupplementRequestUpdate):
+def update_supplement(supplement_id: str, data: SupplementRequestUpdate):
     service = _get_service()
     update_data = data.dict(exclude_unset=True)
     result = service.update_request(supplement_id, update_data)
@@ -744,7 +744,7 @@ async def update_supplement(supplement_id: str, data: SupplementRequestUpdate):
 
 
 @router.delete("/supplements/{supplement_id}")
-async def delete_supplement(supplement_id: str):
+def delete_supplement(supplement_id: str):
     service = _get_service()
     if not service.delete_request(supplement_id):
         raise HTTPException(status_code=404, detail="Supplement request not found")
@@ -756,13 +756,13 @@ async def delete_supplement(supplement_id: str):
 # ============================================================
 
 @router.get("/supplements/{supplement_id}/bid-items", response_model=List[BidItemEstimateResponse])
-async def list_bid_items(supplement_id: str):
+def list_bid_items(supplement_id: str):
     service = _get_service()
     return service.get_bid_items_by_supplement(supplement_id)
 
 
 @router.post("/supplements/{supplement_id}/bid-items", response_model=BidItemEstimateResponse)
-async def create_bid_item(supplement_id: str, data: BidItemEstimateCreate):
+def create_bid_item(supplement_id: str, data: BidItemEstimateCreate):
     service = _get_service()
     item_data = data.dict()
     item_data['supplement_id'] = supplement_id
@@ -774,7 +774,7 @@ async def create_bid_item(supplement_id: str, data: BidItemEstimateCreate):
 
 
 @router.patch("/supplements/{supplement_id}/bid-items/{item_id}", response_model=BidItemEstimateResponse)
-async def update_bid_item(supplement_id: str, item_id: str, data: BidItemEstimateUpdate):
+def update_bid_item(supplement_id: str, item_id: str, data: BidItemEstimateUpdate):
     service = _get_service()
     update_data = data.dict(exclude_unset=True)
     result = service.update_bid_item(item_id, update_data)
@@ -784,7 +784,7 @@ async def update_bid_item(supplement_id: str, item_id: str, data: BidItemEstimat
 
 
 @router.delete("/supplements/{supplement_id}/bid-items/{item_id}")
-async def delete_bid_item(supplement_id: str, item_id: str):
+def delete_bid_item(supplement_id: str, item_id: str):
     service = _get_service()
     if not service.delete_bid_item(item_id):
         raise HTTPException(status_code=404, detail="Bid item not found")
@@ -796,13 +796,13 @@ async def delete_bid_item(supplement_id: str, item_id: str):
 # ============================================================
 
 @router.get("/supplements/{supplement_id}/followups", response_model=List[SupplementFollowUpResponse])
-async def list_followups(supplement_id: str):
+def list_followups(supplement_id: str):
     service = _get_service()
     return service.get_followups(supplement_id)
 
 
 @router.post("/supplements/{supplement_id}/followups", response_model=SupplementFollowUpResponse)
-async def create_followup(supplement_id: str, data: SupplementFollowUpCreate):
+def create_followup(supplement_id: str, data: SupplementFollowUpCreate):
     service = _get_service()
     followup_data = data.dict()
     followup_data['supplement_id'] = supplement_id
@@ -814,7 +814,7 @@ async def create_followup(supplement_id: str, data: SupplementFollowUpCreate):
 
 
 @router.patch("/supplements/{supplement_id}/followups/{followup_id}", response_model=SupplementFollowUpResponse)
-async def update_followup(supplement_id: str, followup_id: str, data: SupplementFollowUpUpdate):
+def update_followup(supplement_id: str, followup_id: str, data: SupplementFollowUpUpdate):
     service = _get_service()
     update_data = data.dict(exclude_unset=True)
     result = service.update_followup(followup_id, update_data)
@@ -824,7 +824,7 @@ async def update_followup(supplement_id: str, followup_id: str, data: Supplement
 
 
 @router.post("/supplements/{supplement_id}/send-info-request")
-async def send_info_request(supplement_id: str, data: dict):
+def send_info_request(supplement_id: str, data: dict):
     """Send an info request email to PA or contractor and create a followup record.
 
     Request body:
@@ -848,7 +848,7 @@ async def send_info_request(supplement_id: str, data: dict):
 
 
 @router.post("/supplements/{supplement_id}/followups/{followup_id}/resend")
-async def resend_info_request(supplement_id: str, followup_id: str, data: dict = {}):
+def resend_info_request(supplement_id: str, followup_id: str, data: dict = {}):
     """Resend/follow-up on an existing info request.
 
     Request body (optional):
@@ -871,7 +871,7 @@ async def resend_info_request(supplement_id: str, followup_id: str, data: dict =
 # ============================================================
 
 @router.put("/supplements/claim/{claim_id}/rebuild-company")
-async def assign_rebuild_company(claim_id: str, data: dict):
+def assign_rebuild_company(claim_id: str, data: dict):
     """Assign or update the reconstruction company for a claim.
 
     Request body:
@@ -895,7 +895,7 @@ async def assign_rebuild_company(claim_id: str, data: dict):
 # ============================================================
 
 @router.get("/supplements/claim-pa/{claim_id}")
-async def get_claim_pa_info(claim_id: str):
+def get_claim_pa_info(claim_id: str):
     """Get PA contact info for a claim (used when creating a supplement)."""
     service = _get_service()
     result = service.get_claim_pa_info(claim_id)
@@ -903,7 +903,7 @@ async def get_claim_pa_info(claim_id: str):
 
 
 @router.get("/supplements/{supplement_id}/pa-info")
-async def get_pa_info(supplement_id: str):
+def get_pa_info(supplement_id: str):
     """Get PA contact info + CC candidates for a supplement."""
     service = _get_service()
     result = service.get_pa_info(supplement_id)
@@ -913,7 +913,7 @@ async def get_pa_info(supplement_id: str):
 
 
 @router.post("/supplements/{supplement_id}/generate-pa-email")
-async def generate_pa_email(
+def generate_pa_email(
     supplement_id: str,
     custom_notes: str = Query("", description="Additional notes to include"),
 ):
@@ -1041,7 +1041,7 @@ def reply_to_info_request(supplement_id: str, followup_id: str, data: dict):
 
 
 @router.post("/supplements/polish-scope-notes")
-async def polish_scope_notes(data: dict):
+def polish_scope_notes(data: dict):
     """Use AI to polish rough scope notes into professional language for PA communication.
 
     Request body:
@@ -1090,7 +1090,7 @@ async def polish_scope_notes(data: dict):
 
 
 @router.post("/supplements/polish-description-for-email")
-async def polish_description_for_email(data: dict):
+def polish_description_for_email(data: dict):
     """Use AI to organize rough bid item descriptions into professional HTML
     suitable for embedding in a PA email body.
 
@@ -1245,7 +1245,7 @@ async def extract_bid_item_total(file: UploadFile = File(...)):
         # Extract text from PDF
         from app.domains.insurance_extraction.extractors.pdf_text_extractor import PdfTextExtractor
         extractor = PdfTextExtractor()
-        pages = extractor.extract_pages(tmp_path)
+        pages = await asyncio.to_thread(extractor.extract_pages, tmp_path)
         full_text = "\n".join(pages)
 
         if not full_text.strip():

@@ -2,6 +2,7 @@
 Client, Claim, and ClaimNegotiation API endpoints
 """
 
+import asyncio
 import logging
 import os
 import tempfile
@@ -86,7 +87,7 @@ def _get_todo_service():
 # ============================================================
 
 @router.get("/", response_model=None)
-async def list_clients(
+def list_clients(
     skip: int = 0,
     limit: int = 100,
     search: Optional[str] = None,
@@ -119,7 +120,7 @@ async def list_clients(
 
 
 @router.post("/", response_model=None)
-async def create_client(
+def create_client(
     data: ClientCreate,
     db=Depends(get_db),
     service: ClientService = Depends(_get_client_service),
@@ -141,7 +142,7 @@ async def create_client(
 
 
 @router.get("/search")
-async def search_clients(
+def search_clients(
     q: str,
     limit: int = 20,
     service: ClientService = Depends(_get_client_service),
@@ -156,7 +157,7 @@ async def search_clients(
 
 
 @router.get("/claims/search")
-async def search_claims(
+def search_claims(
     q: Optional[str] = None,
     claim_id: Optional[str] = None,
     limit: int = 20,
@@ -207,7 +208,7 @@ async def search_claims(
 
 
 @router.get("/{client_id}", response_model=None)
-async def get_client(
+def get_client(
     client_id: str,
     service: ClientService = Depends(_get_client_service),
 ):
@@ -225,7 +226,7 @@ async def get_client(
 
 
 @router.put("/{client_id}", response_model=None)
-async def update_client(
+def update_client(
     client_id: str,
     data: ClientUpdate,
     service: ClientService = Depends(_get_client_service),
@@ -245,7 +246,7 @@ async def update_client(
 
 
 @router.delete("/{client_id}")
-async def delete_client(
+def delete_client(
     client_id: str,
     service: ClientService = Depends(_get_client_service),
 ):
@@ -267,7 +268,7 @@ async def delete_client(
 # ============================================================
 
 @router.get("/{client_id}/claims", response_model=None)
-async def list_claims(
+def list_claims(
     client_id: str,
     service: ClaimService = Depends(_get_claim_service),
     db=Depends(get_db),
@@ -303,7 +304,7 @@ async def list_claims(
 
 
 @router.get("/{client_id}/latest-date-of-loss", response_model=None)
-async def get_latest_date_of_loss(
+def get_latest_date_of_loss(
     client_id: str,
     db=Depends(get_db),
 ):
@@ -345,7 +346,7 @@ async def get_latest_date_of_loss(
 
 
 @router.post("/{client_id}/claims", response_model=None)
-async def create_claim(
+def create_claim(
     client_id: str,
     data: ClaimCreate,
     service: ClaimService = Depends(_get_claim_service),
@@ -362,7 +363,7 @@ async def create_claim(
 
 
 @router.get("/{client_id}/claims/{claim_id}", response_model=None)
-async def get_claim(
+def get_claim(
     client_id: str,
     claim_id: str,
     service: ClaimService = Depends(_get_claim_service),
@@ -424,7 +425,7 @@ def _sync_claim_pa_fields(update_dict: dict, contact_id: str) -> None:
 
 
 @router.put("/{client_id}/claims/{claim_id}", response_model=None)
-async def update_claim(
+def update_claim(
     client_id: str,
     claim_id: str,
     data: ClaimUpdate,
@@ -455,7 +456,7 @@ async def update_claim(
 
 
 @router.delete("/{client_id}/claims/{claim_id}")
-async def delete_claim(
+def delete_claim(
     client_id: str,
     claim_id: str,
     service: ClaimService = Depends(_get_claim_service),
@@ -474,7 +475,7 @@ async def delete_claim(
 
 
 @router.get("/{client_id}/claims/{claim_id}/documents", response_model=None)
-async def get_claim_documents(
+def get_claim_documents(
     client_id: str,
     claim_id: str,
     service: ClaimService = Depends(_get_claim_service),
@@ -546,7 +547,7 @@ async def extract_pdf_summary(
 
         # Extract summary sections
         from app.domains.client.negotiation_pdf_service import extract_summary_from_pdf
-        result = extract_summary_from_pdf(tmp_path)
+        result = await asyncio.to_thread(extract_summary_from_pdf, tmp_path)
 
         return {
             "sections": result["sections"],
@@ -570,7 +571,7 @@ async def extract_pdf_summary(
 
 
 @router.get("/{client_id}/claims/{claim_id}/negotiations", response_model=None)
-async def list_negotiations(
+def list_negotiations(
     client_id: str,
     claim_id: str,
     service: ClaimNegotiationService = Depends(_get_negotiation_service),
@@ -585,7 +586,7 @@ async def list_negotiations(
 
 
 @router.post("/{client_id}/claims/{claim_id}/negotiations", response_model=None)
-async def add_negotiation(
+def add_negotiation(
     client_id: str,
     claim_id: str,
     data: ClaimNegotiationCreate,
@@ -624,7 +625,7 @@ async def add_negotiation(
 
 
 @router.put("/{client_id}/claims/{claim_id}/negotiations/{negotiation_id}", response_model=None)
-async def update_negotiation(
+def update_negotiation(
     client_id: str,
     claim_id: str,
     negotiation_id: str,
@@ -664,7 +665,7 @@ async def update_negotiation(
 
 
 @router.delete("/{client_id}/claims/{claim_id}/negotiations/{negotiation_id}")
-async def delete_negotiation(
+def delete_negotiation(
     client_id: str,
     claim_id: str,
     negotiation_id: str,
@@ -688,7 +689,7 @@ async def delete_negotiation(
 # ============================================================
 
 @router.get("/{client_id}/claims/{claim_id}/payments", response_model=None)
-async def get_payments(
+def get_payments(
     client_id: str,
     claim_id: str,
     service: ClaimPaymentService = Depends(_get_payment_service),
@@ -702,7 +703,7 @@ async def get_payments(
 
 
 @router.get("/{client_id}/claims/{claim_id}/payment-summary", response_model=None)
-async def get_payment_summary(
+def get_payment_summary(
     client_id: str,
     claim_id: str,
     service: ClaimPaymentService = Depends(_get_payment_service),
@@ -718,7 +719,7 @@ async def get_payment_summary(
 
 
 @router.post("/{client_id}/claims/{claim_id}/payments", response_model=None)
-async def create_payment(
+def create_payment(
     client_id: str,
     claim_id: str,
     data: ClaimPaymentCreate,
@@ -735,7 +736,7 @@ async def create_payment(
 
 
 @router.put("/{client_id}/claims/{claim_id}/payments/{payment_id}", response_model=None)
-async def update_payment(
+def update_payment(
     client_id: str,
     claim_id: str,
     payment_id: str,
@@ -757,7 +758,7 @@ async def update_payment(
 
 
 @router.delete("/{client_id}/claims/{claim_id}/payments/{payment_id}")
-async def delete_payment(
+def delete_payment(
     client_id: str,
     claim_id: str,
     payment_id: str,
@@ -781,7 +782,7 @@ async def delete_payment(
 # ============================================================
 
 @router.get("/{client_id}/claims/{claim_id}/expenses", response_model=None)
-async def get_expenses(
+def get_expenses(
     client_id: str, claim_id: str,
     service: ClaimExpenseService = Depends(_get_expense_service),
 ):
@@ -790,7 +791,7 @@ async def get_expenses(
 
 
 @router.get("/{client_id}/claims/{claim_id}/profitability", response_model=None)
-async def get_profitability(
+def get_profitability(
     client_id: str, claim_id: str,
     service: ClaimExpenseService = Depends(_get_expense_service),
 ):
@@ -802,7 +803,7 @@ async def get_profitability(
 
 
 @router.post("/{client_id}/claims/{claim_id}/expenses", response_model=None)
-async def create_expense(
+def create_expense(
     client_id: str, claim_id: str, data: ClaimExpenseCreate,
     service: ClaimExpenseService = Depends(_get_expense_service),
 ):
@@ -816,7 +817,7 @@ async def create_expense(
 
 
 @router.put("/{client_id}/claims/{claim_id}/expenses/{expense_id}", response_model=None)
-async def update_expense(
+def update_expense(
     client_id: str, claim_id: str, expense_id: str, data: ClaimExpenseUpdate,
     service: ClaimExpenseService = Depends(_get_expense_service),
 ):
@@ -828,7 +829,7 @@ async def update_expense(
 
 
 @router.delete("/{client_id}/claims/{claim_id}/expenses/{expense_id}")
-async def delete_expense(
+def delete_expense(
     client_id: str, claim_id: str, expense_id: str,
     service: ClaimExpenseService = Depends(_get_expense_service),
 ):
@@ -843,7 +844,7 @@ async def delete_expense(
 # ============================================================
 
 @router.get("/{client_id}/claims/{claim_id}/activities", response_model=None)
-async def get_claim_activities(client_id: str, claim_id: str):
+def get_claim_activities(client_id: str, claim_id: str):
     """Get all activity history for a claim"""
     from app.core.database_factory import get_database
     from app.domains.client.models import ClaimActivity
@@ -877,7 +878,7 @@ async def get_claim_activities(client_id: str, claim_id: str):
 # ────────────────────────────────────────
 
 @router.get("/clients/{client_id}/all-documents")
-async def get_all_documents(
+def get_all_documents(
     client_id: str,
     doc_type: Optional[str] = None,
     claim_id: Optional[str] = None,
@@ -1121,7 +1122,7 @@ async def get_all_documents(
 # ============================================================
 
 @router.get("/{client_id}/claims/{claim_id}/notes", response_model=None)
-async def get_notes(
+def get_notes(
     client_id: str, claim_id: str,
     service: ClaimNoteService = Depends(_get_note_service),
 ):
@@ -1130,7 +1131,7 @@ async def get_notes(
 
 
 @router.post("/{client_id}/claims/{claim_id}/notes", response_model=None)
-async def create_note(
+def create_note(
     client_id: str, claim_id: str, data: ClaimNoteCreate,
     service: ClaimNoteService = Depends(_get_note_service),
 ):
@@ -1144,7 +1145,7 @@ async def create_note(
 
 
 @router.patch("/{client_id}/claims/{claim_id}/notes/{note_id}", response_model=None)
-async def update_note(
+def update_note(
     client_id: str, claim_id: str, note_id: str, data: ClaimNoteUpdate,
     service: ClaimNoteService = Depends(_get_note_service),
 ):
@@ -1156,7 +1157,7 @@ async def update_note(
 
 
 @router.delete("/{client_id}/claims/{claim_id}/notes/{note_id}")
-async def delete_note(
+def delete_note(
     client_id: str, claim_id: str, note_id: str,
     service: ClaimNoteService = Depends(_get_note_service),
 ):
@@ -1171,7 +1172,7 @@ async def delete_note(
 # ============================================================
 
 @router.get("/{client_id}/claims/{claim_id}/todos", response_model=None)
-async def get_todos(
+def get_todos(
     client_id: str, claim_id: str,
     service: ClaimTodoService = Depends(_get_todo_service),
 ):
@@ -1180,7 +1181,7 @@ async def get_todos(
 
 
 @router.post("/{client_id}/claims/{claim_id}/todos", response_model=None)
-async def create_todo(
+def create_todo(
     client_id: str, claim_id: str, data: ClaimTodoCreate,
     service: ClaimTodoService = Depends(_get_todo_service),
 ):
@@ -1194,7 +1195,7 @@ async def create_todo(
 
 
 @router.patch("/{client_id}/claims/{claim_id}/todos/{todo_id}", response_model=None)
-async def update_todo(
+def update_todo(
     client_id: str, claim_id: str, todo_id: str, data: ClaimTodoUpdate,
     service: ClaimTodoService = Depends(_get_todo_service),
 ):
@@ -1206,7 +1207,7 @@ async def update_todo(
 
 
 @router.delete("/{client_id}/claims/{claim_id}/todos/{todo_id}")
-async def delete_todo(
+def delete_todo(
     client_id: str, claim_id: str, todo_id: str,
     service: ClaimTodoService = Depends(_get_todo_service),
 ):
@@ -1224,7 +1225,7 @@ todo_dashboard_router = APIRouter()
 
 
 @todo_dashboard_router.get("/active", response_model=None)
-async def get_active_todos(
+def get_active_todos(
     include_completed: bool = False,
     service: ClaimTodoService = Depends(_get_todo_service),
 ):

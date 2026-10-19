@@ -194,7 +194,7 @@ def _convert_to_receipt_response(receipt: Dict[str, Any]) -> ReceiptResponse:
 # Receipt endpoints
 
 @router.get("/", response_model=ReceiptListResponse)
-async def list_receipts(
+def list_receipts(
     skip: int = 0,
     limit: int = 100,
     status: Optional[str] = None,
@@ -255,7 +255,7 @@ async def list_receipts(
 
 
 @router.post("/generate", response_model=ReceiptResponse)
-async def generate_receipt(
+def generate_receipt(
     request: ReceiptGenerateRequest,
     service: ReceiptService = Depends(get_receipt_service)
 ):
@@ -293,7 +293,7 @@ async def generate_receipt(
 
 
 @router.get("/by-invoice/{invoice_id}", response_model=List[ReceiptResponse])
-async def get_receipts_by_invoice(
+def get_receipts_by_invoice(
     invoice_id: str,
     service: ReceiptService = Depends(get_receipt_service)
 ):
@@ -318,7 +318,7 @@ async def get_receipts_by_invoice(
 
 
 @router.get("/by-invoice/{invoice_id}/number/{receipt_number}", response_model=ReceiptResponse)
-async def get_receipt_by_number(
+def get_receipt_by_number(
     invoice_id: str,
     receipt_number: str,
     service: ReceiptService = Depends(get_receipt_service)
@@ -360,7 +360,7 @@ async def get_receipt_by_number(
 
 
 @router.get("/{receipt_id}", response_model=ReceiptResponse)
-async def get_receipt(
+def get_receipt(
     receipt_id: str,
     service: ReceiptService = Depends(get_receipt_service)
 ):
@@ -380,7 +380,7 @@ async def get_receipt(
 
 
 @router.put("/{receipt_id}", response_model=ReceiptResponse)
-async def update_receipt(
+def update_receipt(
     receipt_id: str,
     receipt_data: ReceiptUpdate,
     service: ReceiptService = Depends(get_receipt_service)
@@ -415,7 +415,7 @@ async def update_receipt(
 
 
 @router.post("/{receipt_id}/void", response_model=ReceiptResponse)
-async def void_receipt(
+def void_receipt(
     receipt_id: str,
     reason: str,
     service: ReceiptService = Depends(get_receipt_service)
@@ -466,7 +466,7 @@ async def void_receipt(
 
 
 @router.delete("/{receipt_id}")
-async def delete_receipt(
+def delete_receipt(
     receipt_id: str,
     service: ReceiptService = Depends(get_receipt_service)
 ):
@@ -492,7 +492,7 @@ async def delete_receipt(
 # PDF generation endpoints
 
 @router.get("/{receipt_id}/html")
-async def generate_receipt_html(
+def generate_receipt_html(
     receipt_id: str,
     service: ReceiptService = Depends(get_receipt_service)
 ):
@@ -852,7 +852,7 @@ def generate_receipt_pdf(
 
 
 @router.post("/preview-html")
-async def preview_receipt_html(
+def preview_receipt_html(
     data: dict,
     service: ReceiptService = Depends(get_receipt_service)
 ):
@@ -1142,7 +1142,7 @@ def preview_receipt_pdf(
 # Receipt template endpoints
 
 @router.get("/templates/", response_model=List[ReceiptTemplateResponse])
-async def list_templates(
+def list_templates(
     active_only: bool = True,
     service: ReceiptTemplateService = Depends(get_receipt_template_service)
 ):
@@ -1176,7 +1176,7 @@ async def list_templates(
 
 
 @router.get("/templates/company/{company_id}", response_model=List[ReceiptTemplateResponse])
-async def list_templates_by_company(
+def list_templates_by_company(
     company_id: str,
     active_only: bool = True,
     service: ReceiptTemplateService = Depends(get_receipt_template_service)
@@ -1220,7 +1220,7 @@ async def list_templates_by_company(
 
 
 @router.get("/templates/default", response_model=ReceiptTemplateResponse)
-async def get_default_template(
+def get_default_template(
     service: ReceiptTemplateService = Depends(get_receipt_template_service)
 ):
     """Get the default receipt template"""
@@ -1248,7 +1248,7 @@ async def get_default_template(
 
 
 @router.post("/templates/", response_model=ReceiptTemplateResponse)
-async def create_template(
+def create_template(
     template_data: ReceiptTemplateCreate,
     service: ReceiptTemplateService = Depends(get_receipt_template_service)
 ):
@@ -1278,7 +1278,7 @@ async def create_template(
 
 
 @router.put("/templates/{template_id}", response_model=ReceiptTemplateResponse)
-async def update_template(
+def update_template(
     template_id: str,
     template_data: ReceiptTemplateUpdate,
     service: ReceiptTemplateService = Depends(get_receipt_template_service)
@@ -1316,7 +1316,7 @@ async def update_template(
 
 
 @router.post("/templates/{template_id}/set-default")
-async def set_default_template(
+def set_default_template(
     template_id: str,
     service: ReceiptTemplateService = Depends(get_receipt_template_service)
 ):
@@ -1340,7 +1340,7 @@ async def set_default_template(
 
 
 @router.delete("/templates/{template_id}")
-async def delete_template(
+def delete_template(
     template_id: str,
     service: ReceiptTemplateService = Depends(get_receipt_template_service)
 ):
@@ -1370,7 +1370,7 @@ async def delete_template(
 # Summary endpoint
 
 @router.get("/summary/stats")
-async def get_receipt_summary(
+def get_receipt_summary(
     service: ReceiptService = Depends(get_receipt_service)
 ):
     """Get receipt summary statistics"""

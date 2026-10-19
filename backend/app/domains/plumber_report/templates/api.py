@@ -22,7 +22,7 @@ def get_template_service(db: Session = Depends(get_db)) -> PlumberReportTemplate
 
 
 @router.get("/", response_model=List[PlumberReportTemplateListResponse])
-async def get_templates(
+def get_templates(
     company_id: str = Query(..., description="Company ID"),
     template_type: Optional[PlumberReportTemplateType] = Query(None, description="Filter by template type"),
     search: Optional[str] = Query(None, description="Search in name and description"),
@@ -43,7 +43,7 @@ async def get_templates(
 
 
 @router.get("/by-type/{template_type}", response_model=List[PlumberReportTemplateListResponse])
-async def get_templates_by_type(
+def get_templates_by_type(
     template_type: PlumberReportTemplateType,
     company_id: str = Query(..., description="Company ID"),
     service: PlumberReportTemplateService = Depends(get_template_service)
@@ -55,7 +55,7 @@ async def get_templates_by_type(
 
 
 @router.get("/quick/{template_type}", response_model=List[PlumberReportTemplateListResponse])
-async def get_quick_templates(
+def get_quick_templates(
     template_type: PlumberReportTemplateType,
     company_id: str = Query(..., description="Company ID"),
     service: PlumberReportTemplateService = Depends(get_template_service)
@@ -67,7 +67,7 @@ async def get_quick_templates(
 
 
 @router.get("/{template_id}", response_model=PlumberReportTemplateResponse)
-async def get_template(
+def get_template(
     template_id: str,
     service: PlumberReportTemplateService = Depends(get_template_service)
 ):
@@ -79,7 +79,7 @@ async def get_template(
 
 
 @router.post("/", response_model=PlumberReportTemplateResponse)
-async def create_template(
+def create_template(
     template_data: PlumberReportTemplateCreate,
     company_id: str = Query(..., description="Company ID"),
     user_id: str = Query(..., description="User ID creating the template"),
@@ -90,7 +90,7 @@ async def create_template(
 
 
 @router.put("/{template_id}", response_model=PlumberReportTemplateResponse)
-async def update_template(
+def update_template(
     template_id: str,
     update_data: PlumberReportTemplateUpdate,
     company_id: str = Query(..., description="Company ID"),
@@ -104,7 +104,7 @@ async def update_template(
 
 
 @router.delete("/{template_id}")
-async def delete_template(
+def delete_template(
     template_id: str,
     company_id: str = Query(..., description="Company ID"),
     service: PlumberReportTemplateService = Depends(get_template_service)
@@ -117,7 +117,7 @@ async def delete_template(
 
 
 @router.post("/{template_id}/use", response_model=PlumberReportTemplateContentResponse)
-async def use_template(
+def use_template(
     template_id: str,
     company_id: str = Query(..., description="Company ID"),
     user_id: str = Query(..., description="User ID using the template"),

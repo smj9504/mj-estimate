@@ -34,7 +34,7 @@ def get_categories(
 
 
 @router.post("/categories", response_model=MaterialCategoryResponse, status_code=status.HTTP_201_CREATED)
-async def create_category(
+def create_category(
     data: MaterialCategoryCreate,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_admin)
@@ -45,7 +45,7 @@ async def create_category(
 
 
 @router.put("/categories/{category_id}", response_model=MaterialCategoryResponse)
-async def update_category(
+def update_category(
     category_id: str,
     data: MaterialCategoryUpdate,
     db: Session = Depends(get_db),
@@ -57,7 +57,7 @@ async def update_category(
 
 
 @router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_category(
+def delete_category(
     category_id: str,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_admin)
@@ -110,7 +110,7 @@ def get_material(
 
 
 @router.post("/materials", response_model=MaterialWeightResponse, status_code=status.HTTP_201_CREATED)
-async def create_material(
+def create_material(
     data: MaterialWeightCreate,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_admin)
@@ -125,7 +125,7 @@ async def create_material(
 
 
 @router.put("/materials/{material_id}", response_model=MaterialWeightResponse)
-async def update_material(
+def update_material(
     material_id: str,
     data: MaterialWeightUpdate,
     db: Session = Depends(get_db),
@@ -141,7 +141,7 @@ async def update_material(
 
 
 @router.delete("/materials/{material_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_material(
+def delete_material(
     material_id: str,
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_admin)
@@ -243,7 +243,7 @@ def delete_debris_calculation(
 
 # Database Seeding Endpoint (Admin only)
 @router.post("/admin/seed-materials")
-async def seed_materials_database(
+def seed_materials_database(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(require_admin)
 ):

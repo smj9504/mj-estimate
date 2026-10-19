@@ -722,7 +722,7 @@ async def process_photo_deleted_event(
     response_model=List[CompanyCamPhotoResponse],
     summary="List CompanyCam Photos"
 )
-async def list_companycam_photos(
+def list_companycam_photos(
     job_id: Optional[str] = None,
     is_synced: Optional[bool] = None,
     limit: int = 100,
@@ -751,7 +751,7 @@ async def list_companycam_photos(
     response_model=CompanyCamStatsResponse,
     summary="CompanyCam Integration Statistics"
 )
-async def companycam_stats(db: Session = Depends(get_db)):
+def companycam_stats(db: Session = Depends(get_db)):
     """
     Get statistics for CompanyCam integration
     """
@@ -787,7 +787,7 @@ async def companycam_stats(db: Session = Depends(get_db)):
     response_model=List[WebhookEventResponse],
     summary="List Webhook Events"
 )
-async def list_webhook_events(
+def list_webhook_events(
     service_name: Optional[str] = None,
     event_type: Optional[str] = None,
     status: Optional[str] = None,
@@ -820,7 +820,7 @@ async def list_webhook_events(
     response_model=WebhookEventResponse,
     summary="Get Webhook Event Details"
 )
-async def get_webhook_event(
+def get_webhook_event(
     event_id: str,
     db: Session = Depends(get_db)
 ):
@@ -973,7 +973,7 @@ async def integration_health_check(db: Session = Depends(get_db)):
     response_model=List[IntegrationStats],
     summary="Integration Statistics"
 )
-async def integration_stats(db: Session = Depends(get_db)):
+def integration_stats(db: Session = Depends(get_db)):
     """
     Get statistics for all integration services
     """

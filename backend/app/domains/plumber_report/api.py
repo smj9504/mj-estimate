@@ -61,7 +61,7 @@ class AIGenerateRequest(BaseModel):
 
 
 @router.post("/generate-ai")
-async def generate_ai_report(request: AIGenerateRequest):
+def generate_ai_report(request: AIGenerateRequest):
     """Generate plumber report content using AI from job details"""
     try:
         result = generate_plumber_report(
@@ -84,7 +84,7 @@ async def generate_ai_report(request: AIGenerateRequest):
 
 
 @router.get("/generate-number", response_model=PlumberReportNumberResponse)
-async def generate_report_number(
+def generate_report_number(
     company_id: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
@@ -101,7 +101,7 @@ async def generate_report_number(
 
 
 @router.post("/", response_model=PlumberReportResponse)
-async def create_plumber_report(
+def create_plumber_report(
     report: PlumberReportCreate,
     db: Session = Depends(get_db),
     current_staff: Staff = Depends(get_current_staff)
@@ -142,7 +142,7 @@ async def create_plumber_report(
 
 
 @router.get("/", response_model=PlumberReportListResponse)
-async def get_plumber_reports(
+def get_plumber_reports(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     status: Optional[str] = Query(None),
@@ -173,7 +173,7 @@ async def get_plumber_reports(
 
 
 @router.get("/{report_id}", response_model=PlumberReportResponse)
-async def get_plumber_report(
+def get_plumber_report(
     report_id: UUID,
     db: Session = Depends(get_db)
 ):
@@ -188,7 +188,7 @@ async def get_plumber_report(
 
 
 @router.put("/{report_id}", response_model=PlumberReportResponse)
-async def update_plumber_report(
+def update_plumber_report(
     report_id: UUID,
     report_update: PlumberReportUpdate,
     db: Session = Depends(get_db),
@@ -209,7 +209,7 @@ async def update_plumber_report(
 
 
 @router.delete("/{report_id}")
-async def delete_plumber_report(
+def delete_plumber_report(
     report_id: UUID,
     db: Session = Depends(get_db)
 ):
@@ -223,7 +223,7 @@ async def delete_plumber_report(
 
 
 @router.post("/{report_id}/upload-photo")
-async def upload_report_photo(
+def upload_report_photo(
     report_id: UUID,
     file: UploadFile = File(...),
     category: str = Form(...),
@@ -299,7 +299,7 @@ def preview_pdf(
 
 
 @router.post("/preview-html")
-async def preview_html(
+def preview_html(
     pdf_request: PlumberReportPDFRequest
 ):
     """Preview report as HTML (fast, no WeasyPrint required)"""
@@ -316,7 +316,7 @@ async def preview_html(
 
 
 @router.get("/{report_id}/duplicate")
-async def duplicate_report(
+def duplicate_report(
     report_id: UUID,
     db: Session = Depends(get_db),
     current_staff: Staff = Depends(get_current_staff)
@@ -352,7 +352,7 @@ async def duplicate_report(
 # ================================================================
 
 @router.get("/{report_id}/pa-email-info")
-async def get_pa_email_info(
+def get_pa_email_info(
     report_id: UUID,
     db: Session = Depends(get_db)
 ):

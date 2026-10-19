@@ -33,7 +33,7 @@ router = APIRouter()
 
 
 @router.get("/generate-number", response_model=EstimateNumberResponse)
-async def generate_estimate_number(
+def generate_estimate_number(
     company_id: Optional[str] = None,
     estimate_type: Optional[str] = None,
     db=Depends(get_db)
@@ -83,7 +83,7 @@ async def generate_estimate_number(
 
 
 @router.get("/", response_model=List[EstimateListResponse])
-async def list_estimates(
+def list_estimates(
     skip: int = 0,
     limit: int = 100,
     client_name: Optional[str] = None,
@@ -134,7 +134,7 @@ async def list_estimates(
 
 
 @router.get("/insurance", response_model=List[EstimateListResponse])
-async def list_insurance_estimates(
+def list_insurance_estimates(
     skip: int = 0,
     limit: int = 100,
     db=Depends(get_db)
@@ -168,7 +168,7 @@ async def list_insurance_estimates(
 
 
 @router.get("/{estimate_id}", response_model=EstimateResponse)
-async def get_estimate(estimate_id: str, db=Depends(get_db)):
+def get_estimate(estimate_id: str, db=Depends(get_db)):
     """Get a specific estimate by ID"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -297,7 +297,7 @@ async def get_estimate(estimate_id: str, db=Depends(get_db)):
 
 
 @router.post("/", response_model=EstimateResponse)
-async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
+def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
     """Create a new estimate"""
     import logging
     logger = logging.getLogger(__name__)
@@ -494,7 +494,7 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
 
 
 @router.put("/{estimate_id}", response_model=EstimateResponse)
-async def update_estimate(
+def update_estimate(
     estimate_id: str,
     estimate_data: EstimateUpdate,
     db=Depends(get_db)
@@ -636,7 +636,7 @@ async def update_estimate(
 
 
 @router.delete("/{estimate_id}")
-async def delete_estimate(estimate_id: str, db=Depends(get_db)):
+def delete_estimate(estimate_id: str, db=Depends(get_db)):
     """Delete an estimate"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -655,7 +655,7 @@ async def delete_estimate(estimate_id: str, db=Depends(get_db)):
 
 
 @router.post("/{estimate_id}/accept")
-async def accept_estimate(estimate_id: str, db=Depends(get_db)):
+def accept_estimate(estimate_id: str, db=Depends(get_db)):
     """Accept an estimate"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -669,7 +669,7 @@ async def accept_estimate(estimate_id: str, db=Depends(get_db)):
 
 
 @router.post("/{estimate_id}/reject")
-async def reject_estimate(
+def reject_estimate(
     estimate_id: str, 
     reason: Optional[str] = None,
     db=Depends(get_db)
@@ -687,7 +687,7 @@ async def reject_estimate(
 
 
 @router.post("/{estimate_id}/convert-to-invoice")
-async def convert_estimate_to_invoice(estimate_id: str, db=Depends(get_db)):
+def convert_estimate_to_invoice(estimate_id: str, db=Depends(get_db)):
     """Convert estimate to invoice"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -707,7 +707,7 @@ async def convert_estimate_to_invoice(estimate_id: str, db=Depends(get_db)):
 
 
 @router.post("/{estimate_id}/duplicate", response_model=EstimateResponse)
-async def duplicate_estimate(estimate_id: str, db=Depends(get_db)):
+def duplicate_estimate(estimate_id: str, db=Depends(get_db)):
     """Duplicate an existing estimate"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -1025,7 +1025,7 @@ def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
 
 
 @router.post("/preview-html")
-async def preview_estimate_html(data: EstimatePDFRequest):
+def preview_estimate_html(data: EstimatePDFRequest):
     """Generate HTML preview from estimate data without saving"""
     import logging
     logger = logging.getLogger(__name__)

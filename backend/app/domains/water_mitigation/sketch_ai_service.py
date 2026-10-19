@@ -8,6 +8,7 @@ into editable sketch overlay elements.
 Provider priority: Anthropic → OpenAI (automatic fallback).
 """
 
+import asyncio
 import base64
 import json
 import logging
@@ -320,8 +321,9 @@ async def analyze_floor_plan(
 
     # Resize image to exact canvas dimensions (eliminates contain-fit offset guessing)
     try:
-        resized_bytes, media_type = _resize_image_to_canvas(
-            image_bytes, canvas_width, canvas_height
+        # PIL resize is blocking CPU work - run it on a worker thread
+        resized_bytes, media_type = await asyncio.to_thread(
+            _resize_image_to_canvas, image_bytes, canvas_width, canvas_height
         )
         print(f"[sketch_ai] Image resized to {canvas_width}x{canvas_height}")
     except Exception:

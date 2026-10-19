@@ -2,6 +2,7 @@
 File service for business logic operations
 """
 
+import asyncio
 import os
 import uuid
 import hashlib
@@ -96,8 +97,9 @@ class FileService(BaseService[File, str]):
             if context == 'water-mitigation':
                 metadata = await self._get_job_metadata(context_id)
 
-            # Upload to storage provider
-            result = self.storage.upload(
+            # Upload to storage provider (blocking network I/O - keep it off the event loop)
+            result = await asyncio.to_thread(
+                self.storage.upload,
                 file_data=file_data,
                 filename=original_filename,
                 context=context,

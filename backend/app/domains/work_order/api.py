@@ -80,7 +80,7 @@ def populate_staff_names(work_orders: List[dict], staff_service: StaffService) -
 
 
 @router.get("/", response_model=WorkOrdersResponse)
-async def get_work_orders(
+def get_work_orders(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(10, ge=1, le=100, description="Page size"),
     search: Optional[str] = Query(None, description="Search term for work order number, client name, email, phone, or description"),
@@ -167,7 +167,7 @@ async def get_work_orders(
 
 
 @router.get("/{work_order_id}", response_model=WorkOrderResponse)
-async def get_work_order(
+def get_work_order(
     work_order_id: UUID, 
     service: WorkOrderService = Depends(get_work_order_service),
     staff_service: StaffService = Depends(get_staff_service)
@@ -240,7 +240,7 @@ async def get_work_order(
 
 
 @router.post("/", response_model=WorkOrderResponse)
-async def create_work_order(
+def create_work_order(
     work_order: WorkOrderCreate, 
     service: WorkOrderService = Depends(get_work_order_service),
     current_staff: Staff = Depends(get_current_staff),
@@ -265,7 +265,7 @@ async def create_work_order(
 
 
 @router.put("/{work_order_id}", response_model=WorkOrderResponse)
-async def update_work_order(
+def update_work_order(
     work_order_id: UUID, 
     work_order: WorkOrderUpdate, 
     service: WorkOrderService = Depends(get_work_order_service),
@@ -318,7 +318,7 @@ async def update_work_order(
 
 
 @router.delete("/{work_order_id}")
-async def delete_work_order(
+def delete_work_order(
     work_order_id: UUID, 
     service: WorkOrderService = Depends(get_work_order_service),
     current_staff: Staff = Depends(get_current_staff)
@@ -337,7 +337,7 @@ async def delete_work_order(
 
 
 @router.patch("/{work_order_id}/status", response_model=WorkOrderResponse)
-async def update_work_order_status(
+def update_work_order_status(
     work_order_id: UUID,
     status: WorkOrderStatus = Body(..., description="New status for the work order"),
     notes: Optional[str] = Query(None, description="Optional notes about the status change"),
@@ -365,7 +365,7 @@ async def update_work_order_status(
 
 
 @router.get("/company/{company_id}", response_model=WorkOrdersResponse)
-async def get_work_orders_by_company(
+def get_work_orders_by_company(
     company_id: UUID,
     status: Optional[WorkOrderStatus] = Query(None, description="Filter by status"),
     service: WorkOrderService = Depends(get_work_order_service)
@@ -380,7 +380,7 @@ async def get_work_orders_by_company(
 
 
 @router.get("/staff/{staff_id}", response_model=WorkOrdersResponse)
-async def get_work_orders_by_staff(
+def get_work_orders_by_staff(
     staff_id: UUID,
     assigned_only: bool = Query(False, description="Only return assigned work orders"),
     service: WorkOrderService = Depends(get_work_order_service)
@@ -395,7 +395,7 @@ async def get_work_orders_by_staff(
 
 
 @router.get("/dashboard/stats")
-async def get_dashboard_stats(
+def get_dashboard_stats(
     company_id: Optional[UUID] = Query(None, description="Filter by company ID"),
     service: WorkOrderService = Depends(get_work_order_service)
 ):
@@ -409,7 +409,7 @@ async def get_dashboard_stats(
 
 
 @router.post("/generate-number")
-async def generate_work_order_number(
+def generate_work_order_number(
     company_id: UUID = Query(..., description="Company ID for work order"),
     service: WorkOrderService = Depends(get_work_order_service)
 ):
@@ -423,7 +423,7 @@ async def generate_work_order_number(
 
 
 @router.get("/statuses/list")
-async def get_work_order_statuses():
+def get_work_order_statuses():
     """Get list of available work order statuses"""
     return {
         "statuses": [
@@ -434,7 +434,7 @@ async def get_work_order_statuses():
 
 
 @router.get("/document-types/list")
-async def get_document_types(
+def get_document_types(
     db = Depends(get_database)
 ):
     """Get list of available document types from Document Types table"""
@@ -455,7 +455,7 @@ async def get_document_types(
 
 
 @router.get("/priorities/list")
-async def get_priority_levels():
+def get_priority_levels():
     """Get list of available priority levels"""
     return {
         "priorities": [
@@ -468,7 +468,7 @@ async def get_priority_levels():
 
 
 @router.get("/{work_order_id}/activities")
-async def get_work_order_activities(
+def get_work_order_activities(
     work_order_id: UUID,
     service: WorkOrderService = Depends(get_work_order_service)
 ):
@@ -482,7 +482,7 @@ async def get_work_order_activities(
 
 
 @router.post("/calculate-cost")
-async def calculate_work_order_cost(
+def calculate_work_order_cost(
     data: dict = Body(..., description="Cost calculation parameters"),
     service: WorkOrderService = Depends(get_work_order_service)
 ):
@@ -505,7 +505,7 @@ async def calculate_work_order_cost(
 
 
 @router.get("/{work_order_id}/files/count")
-async def get_work_order_file_count(
+def get_work_order_file_count(
     work_order_id: UUID,
     file_type: Optional[str] = Query(None, description="Filter by file type (image/document)")
 ):
@@ -536,7 +536,7 @@ async def get_work_order_file_count(
 
 
 @router.get("/{work_order_id}/debug")
-async def debug_work_order(
+def debug_work_order(
     work_order_id: UUID,
     service: WorkOrderService = Depends(get_work_order_service)
 ):

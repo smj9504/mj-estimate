@@ -93,7 +93,7 @@ async def analyze_photos(
     description="Retrieve a previously cached photo analysis result by cache key.",
     tags=["Photo Analysis"]
 )
-async def get_cached_analysis(
+def get_cached_analysis(
     cache_key: str,
     service: PhotoAnalysisService = Depends(get_service)
 ) -> PhotoAnalysisResponse:
@@ -141,7 +141,7 @@ async def get_cached_analysis(
     description="Remove all expired cache entries to free up database space.",
     tags=["Photo Analysis"]
 )
-async def cleanup_expired_cache(
+def cleanup_expired_cache(
     service: PhotoAnalysisService = Depends(get_service)
 ) -> JSONResponse:
     """
@@ -182,7 +182,7 @@ async def cleanup_expired_cache(
     description="Get information about the photo analysis service configuration and status.",
     tags=["Photo Analysis"]
 )
-async def get_service_info(
+def get_service_info(
     service: PhotoAnalysisService = Depends(get_service)
 ) -> JSONResponse:
     """
@@ -216,7 +216,7 @@ async def get_service_info(
     description="Check if the photo analysis service is healthy and operational.",
     tags=["Photo Analysis"]
 )
-async def health_check(
+def health_check(
     service: PhotoAnalysisService = Depends(get_service)
 ) -> JSONResponse:
     """

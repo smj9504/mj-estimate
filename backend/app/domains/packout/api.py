@@ -146,7 +146,7 @@ def search_packout_analyses(
 
 
 @router.post("/xactimate/import", response_model=XactimateImportResponse)
-async def import_xactimate_codes(
+def import_xactimate_codes(
     request: XactimateImportRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -186,7 +186,7 @@ async def import_xactimate_codes(
 
 
 @router.post("/xactimate/import-all")
-async def import_all_xactimate_codes(
+def import_all_xactimate_codes(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)

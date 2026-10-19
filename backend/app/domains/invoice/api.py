@@ -64,7 +64,7 @@ router = APIRouter()
 
 
 @router.get("/generate-number", response_model=InvoiceNumberResponse)
-async def generate_invoice_number(
+def generate_invoice_number(
     company_id: Optional[str] = None,
     db=Depends(get_db)
 ):
@@ -112,7 +112,7 @@ async def generate_invoice_number(
 
 
 @router.get("/")
-async def list_invoices(
+def list_invoices(
     skip: int = 0,
     limit: int = 100,
     client_name: Optional[str] = None,
@@ -189,7 +189,7 @@ async def list_invoices(
 
 
 @router.post("/", response_model=InvoiceResponse)
-async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
+def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
     """Create a new invoice"""
     import logging
     logger = logging.getLogger(__name__)
@@ -541,7 +541,7 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
 
 
 @router.put("/{invoice_id}", response_model=InvoiceResponse)
-async def update_invoice(
+def update_invoice(
     invoice_id: str,
     invoice_data: InvoiceUpdate,
     db=Depends(get_db)
@@ -1030,7 +1030,7 @@ async def update_invoice(
 
 
 @router.delete("/{invoice_id}")
-async def delete_invoice(invoice_id: str, db=Depends(get_db)):
+def delete_invoice(invoice_id: str, db=Depends(get_db)):
     """Delete an invoice"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -1049,7 +1049,7 @@ async def delete_invoice(invoice_id: str, db=Depends(get_db)):
 
 
 @router.get("/{invoice_id}/html")
-async def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
+def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
     """Generate HTML for an invoice"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -1398,7 +1398,7 @@ def generate_invoice_pdf(
 
 
 @router.post("/preview-html")
-async def preview_invoice_html(data: InvoicePDFRequest):
+def preview_invoice_html(data: InvoicePDFRequest):
     """Generate a preview HTML from invoice data without saving"""
     import logging
     logger = logging.getLogger(__name__)
@@ -1502,7 +1502,7 @@ def preview_invoice_pdf(data: InvoicePDFRequest):
 
 
 @router.post("/{invoice_id}/duplicate", response_model=InvoiceResponse)
-async def duplicate_invoice(invoice_id: str, db=Depends(get_db)):
+def duplicate_invoice(invoice_id: str, db=Depends(get_db)):
     """Duplicate an existing invoice"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -1581,7 +1581,7 @@ async def duplicate_invoice(invoice_id: str, db=Depends(get_db)):
 
 # Payment management endpoints
 @router.post("/{invoice_id}/payments", response_model=InvoiceResponse)
-async def add_payment(
+def add_payment(
     invoice_id: str,
     payment: PaymentRecord,
     db=Depends(get_db)
@@ -1666,7 +1666,7 @@ async def add_payment(
 
 
 @router.delete("/{invoice_id}/payments/{payment_index}", response_model=InvoiceResponse)
-async def remove_payment(
+def remove_payment(
     invoice_id: str,
     payment_index: int,
     db=Depends(get_db)
@@ -1755,7 +1755,7 @@ async def remove_payment(
 
 # IMPORTANT: Generic parameterized routes must be at the very end to prevent route conflicts
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
-async def get_invoice(invoice_id: str, service: InvoiceService = Depends(get_invoice_service)):
+def get_invoice(invoice_id: str, service: InvoiceService = Depends(get_invoice_service)):
     """Get a specific invoice by ID"""
     try:
         invoice = service.get_by_id(invoice_id)
@@ -1848,7 +1848,7 @@ async def get_invoice(invoice_id: str, service: InvoiceService = Depends(get_inv
 # Receipt Generation Endpoints
 
 @router.get("/{invoice_id}/receipt-html")
-async def generate_receipt_html(invoice_id: str, db=Depends(get_db)):
+def generate_receipt_html(invoice_id: str, db=Depends(get_db)):
     """Generate HTML receipt for a paid invoice"""
     from app.core.database_factory import get_database
     database = get_database()
