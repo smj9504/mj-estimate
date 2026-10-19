@@ -180,6 +180,7 @@ export interface FollowUpTaskUpdate {
   description?: string;
   status?: TaskStatus;
   due_date?: string;
+  next_followup_date?: string;
   priority?: TaskPriority;
   assigned_to_name?: string;
   assigned_to_email?: string;

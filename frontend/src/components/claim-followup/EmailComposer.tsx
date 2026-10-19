@@ -210,11 +210,11 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
         value: c.email,
         label: (
           <Space size={4}>
-            <Tag color={ROLE_COLORS[c.role] || 'default'} style={{ margin: 0, fontSize: 11 }}>
+            <Tag color={ROLE_COLORS[c.role] || 'default'} style={{ margin: 0 }}>
               {c.label || c.role}
             </Tag>
             <span>{c.name}</span>
-            <Text type="secondary" style={{ fontSize: 12 }}>({c.email})</Text>
+            <Text type="secondary" style={{ fontSize: 13 }}>({c.email})</Text>
           </Space>
         ),
         searchText: `${c.name} ${c.email} ${c.role} ${c.label || ''}`.toLowerCase(),
@@ -230,11 +230,11 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
           value: p.email,
           label: (
             <Space size={4}>
-              <Tag color={ROLE_COLORS[p.role] || 'orange'} style={{ margin: 0, fontSize: 11 }}>
+              <Tag color={ROLE_COLORS[p.role] || 'orange'} style={{ margin: 0 }}>
                 {roleLabel}
               </Tag>
               <span>{p.name || p.email}</span>
-              {p.name && <Text type="secondary" style={{ fontSize: 12 }}>({p.email})</Text>}
+              {p.name && <Text type="secondary" style={{ fontSize: 13 }}>({p.email})</Text>}
             </Space>
           ),
           searchText: `${p.name} ${p.email} ${p.role}`.toLowerCase(),
@@ -586,15 +586,15 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
                           ) : (
                             <CloseCircleOutlined style={{ color: '#d44c47', fontSize: 12 }} />
                           )}
-                          <span style={{ fontSize: 13 }}>
+                          <span style={{ fontSize: 14 }}>
                             {WM_DOC_LABELS[docKey] || docKey}
                           </span>
                           {!isReady && (
-                            <Text type="secondary" style={{ fontSize: 11 }}>(not ready)</Text>
+                            <Text type="secondary" style={{ fontSize: 13 }}>(not ready)</Text>
                           )}
                           {isReady && docInfo?.stale && (
                             <Tooltip title="Floor sketch was edited after this PDF was last generated - it may be outdated. Regenerate it in the Documents tab if you want the latest version sent.">
-                              <Tag color="warning" style={{ marginLeft: 0, fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>
+                              <Tag color="warning" style={{ marginLeft: 0 }}>
                                 <WarningOutlined /> Outdated
                               </Tag>
                             </Tooltip>
@@ -610,7 +610,7 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
                   <Button
                     type="link"
                     size="small"
-                    style={{ padding: 0, fontSize: 12 }}
+                    style={{ padding: 0, fontSize: 13 }}
                     onClick={() => {
                       const allReady = WM_DOC_ORDER.filter(
                         key => (wmDocReadiness[key as keyof DocumentReadiness] as any)?.ready
@@ -623,7 +623,7 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
                   <Button
                     type="link"
                     size="small"
-                    style={{ padding: 0, fontSize: 12 }}
+                    style={{ padding: 0, fontSize: 13 }}
                     onClick={() => setSelectedWmDocs([])}
                   >
                     Clear All
@@ -641,9 +641,9 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
           message={
             <Space>
               <Tag color={stageConfig.color} style={{ margin: 0 }}>{stageConfig.label}</Tag>
-              <Text style={{ fontSize: 13 }}>{stageConfig.description}</Text>
+              <Text style={{ fontSize: 14 }}>{stageConfig.description}</Text>
               {contactCount > 0 && (
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <Text type="secondary" style={{ fontSize: 13 }}>
                   ({contactCount} email{contactCount !== 1 ? 's' : ''} sent previously)
                 </Text>
               )}
@@ -891,8 +891,8 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
                 >
                   <Space size={8}>
                     {getFileIcon(file.type)}
-                    <Text style={{ fontSize: 13 }}>{file.name}</Text>
-                    <Text type="secondary" style={{ fontSize: 11 }}>
+                    <Text style={{ fontSize: 14 }}>{file.name}</Text>
+                    <Text type="secondary" style={{ fontSize: 13 }}>
                       ({formatFileSize(file.size)})
                     </Text>
                   </Space>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Timeline, Tag, Typography, Space, Empty, Spin } from 'antd';
+import { Button, Skeleton, Timeline } from 'antd';
 import {
   MailOutlined,
   PhoneOutlined,
@@ -15,9 +15,9 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { claimFollowUpService } from '../../services/claimFollowUpService';
+import { Pill, humanize, type TagTone } from '../common/ui';
+import { tagTones } from '../../styles/tokens';
 import type { CommunicationLog, SentEmail } from '../../types/claimFollowUp';
-
-const { Text } = Typography;
 
 interface CommunicationTimelineProps {
   claimId: string;
@@ -32,33 +32,37 @@ const COMM_ICONS: Record<string, React.ReactNode> = {
   other: <ClockCircleOutlined />,
 };
 
+const EMAIL_STATUS_TONES: Record<string, TagTone> = {
+  sent: 'blue',
+  queued: 'gray',
+  sending: 'gray',
+  draft: 'gray',
+  failed: 'red',
+  bounced: 'red',
+};
+
+/** Timeline dots take the tone's text colour so they match the pills */
+const dotColor = (tone: TagTone) => tagTones[tone].text;
+
 const ToggleContent: React.FC<{ html?: string; text?: string; label?: string }> = ({ html, text, label = 'View content' }) => {
   const [open, setOpen] = useState(false);
   const content = html || text;
   if (!content) return null;
   return (
-    <div style={{ marginTop: 4 }}>
-      <Text
-        type="secondary"
-        style={{ fontSize: 12, cursor: 'pointer', userSelect: 'none' }}
+    <div className="fu-comm-toggle">
+      <Button
+        type="text"
+        size="small"
+        className="ui-icon-btn fu-comm-toggle-btn"
+        icon={open ? <DownOutlined /> : <RightOutlined />}
+        aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        {open ? <DownOutlined style={{ fontSize: 10 }} /> : <RightOutlined style={{ fontSize: 10 }} />}
-        {' '}{label}
-      </Text>
+        {label}
+      </Button>
       {open && (
         <div
-          style={{
-            marginTop: 6,
-            padding: '8px 10px',
-            background: '#f7f7f5',
-            borderRadius: 6,
-            border: '1px solid #e9e9e7',
-            fontSize: 13,
-            maxHeight: 300,
-            overflow: 'auto',
-            wordBreak: 'break-word',
-          }}
+          className="fu-comm-content"
           dangerouslySetInnerHTML={html ? { __html: html } : undefined}
         >
           {!html ? text : undefined}
@@ -86,7 +90,7 @@ const CommunicationTimeline: React.FC<CommunicationTimelineProps> = ({ claimId, 
   });
 
   if (commLoading || emailsLoading) {
-    return <Spin size="small" />;
+    return <Skeleton active title={false} paragraph={{ rows: 4 }} style={{ padding: '8px 0' }} />;
   }
 
   // Merge and sort by date
@@ -110,98 +114,80 @@ const CommunicationTimeline: React.FC<CommunicationTimelineProps> = ({ claimId, 
   ].sort((a, b) => dayjs(b.date).unix() - dayjs(a.date).unix());
 
   if (items.length === 0) {
-    return <Empty description="No communications yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+    return <p className="fu-empty">No communications yet</p>;
   }
 
   return (
     <Timeline
+      className="fu-comm"
       items={items.map((item) => {
         if (item.type === 'communication') {
           const comm = item.data as CommunicationLog;
+          const outbound = comm.direction === 'outbound';
           return {
             dot: COMM_ICONS[comm.communication_type] || <ClockCircleOutlined />,
-            color: comm.response_received ? 'green' : comm.direction === 'outbound' ? 'blue' : 'gray',
+            color: dotColor(comm.response_received ? 'green' : outbound ? 'blue' : 'gray'),
             children: (
-              <div>
-                <Space size={4}>
-                  <Tag color={comm.direction === 'outbound' ? 'blue' : 'green'}>
-                    {comm.direction === 'outbound' ? 'Sent' : 'Received'}
-                  </Tag>
-                  <Tag>{comm.communication_type}</Tag>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {dayjs(comm.created_at).format('MM/DD/YYYY h:mm A')}
-                  </Text>
-                </Space>
-                <div style={{ marginTop: 4 }}>
-                  {comm.contact_name && <Text strong>{comm.contact_name} </Text>}
-                  {comm.subject && <Text>- {comm.subject}</Text>}
+              <div className="fu-comm-item">
+                <div className="fu-comm-head">
+                  <Pill tone={outbound ? 'blue' : 'green'}>{outbound ? 'Sent' : 'Received'}</Pill>
+                  <span className="fu-comm-kind">{humanize(comm.communication_type)}</span>
+                  <time className="fu-comm-time">{dayjs(comm.created_at).format('MM/DD/YYYY h:mm A')}</time>
                 </div>
-                {comm.summary && (
-                  <ToggleContent text={comm.summary} label="View details" />
+                {(comm.contact_name || comm.subject) && (
+                  <div className="fu-comm-line">
+                    {comm.contact_name && <strong>{comm.contact_name}</strong>}
+                    {comm.contact_name && comm.subject && ' — '}
+                    {comm.subject}
+                  </div>
                 )}
+                {comm.summary && <ToggleContent text={comm.summary} label="View details" />}
                 {comm.response_received && (
-                  <div style={{ marginTop: 4 }}>
-                    <Tag icon={<CheckCircleOutlined />} color="success">
+                  <div className="fu-comm-reply">
+                    <Pill tone="green" icon={<CheckCircleOutlined />}>
                       Response received {comm.response_date ? dayjs(comm.response_date).format('MM/DD') : ''}
-                    </Tag>
-                    {comm.response_summary && (
-                      <ToggleContent text={comm.response_summary} label="View reply" />
-                    )}
+                    </Pill>
+                    {comm.response_summary && <ToggleContent text={comm.response_summary} label="View reply" />}
                   </div>
-                )}
-              </div>
-            ),
-          };
-        } else {
-          const email = item.data as SentEmail;
-          return {
-            dot: <SendOutlined />,
-            color: email.status === 'sent' ? 'blue' : email.status === 'failed' ? 'red' : 'gray',
-            children: (
-              <div>
-                <Space size={4}>
-                  <Tag color={email.status === 'sent' ? 'blue' : email.status === 'failed' ? 'red' : 'default'}>
-                    {email.status.toUpperCase()}
-                  </Tag>
-                  {email.is_ai_generated && <Tag color="purple">AI</Tag>}
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {dayjs(email.sent_at || email.created_at).format('MM/DD/YYYY h:mm A')}
-                  </Text>
-                </Space>
-                <div style={{ marginTop: 4 }}>
-                  <Text strong>To: {email.to_addresses.join(', ')}</Text>
-                </div>
-                <div>
-                  <Text>Subject: {email.subject}</Text>
-                </div>
-                <ToggleContent html={email.body_html} label="View email" />
-                {email.attachments?.length > 0 && (
-                  <Space size={4} style={{ marginTop: 2 }}>
-                    <PaperClipOutlined />
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {email.attachments.length} attachment(s)
-                    </Text>
-                  </Space>
-                )}
-                {email.reply_received && (
-                  <div style={{ marginTop: 4 }}>
-                    <Tag icon={<CheckCircleOutlined />} color="success">
-                      Reply received {email.reply_received_at ? dayjs(email.reply_received_at).format('MM/DD') : ''}
-                    </Tag>
-                    {email.reply_summary && (
-                      <ToggleContent text={email.reply_summary} label="View reply" />
-                    )}
-                  </div>
-                )}
-                {email.error_message && (
-                  <Text type="danger" style={{ fontSize: 12, display: 'block' }}>
-                    Error: {email.error_message}
-                  </Text>
                 )}
               </div>
             ),
           };
         }
+        const email = item.data as SentEmail;
+        const tone = EMAIL_STATUS_TONES[email.status] || 'gray';
+        return {
+          dot: <SendOutlined />,
+          color: dotColor(tone),
+          children: (
+            <div className="fu-comm-item">
+              <div className="fu-comm-head">
+                <Pill tone={tone}>{humanize(email.status)}</Pill>
+                {email.is_ai_generated && <Pill tone="purple">AI</Pill>}
+                <time className="fu-comm-time">{dayjs(email.sent_at || email.created_at).format('MM/DD/YYYY h:mm A')}</time>
+              </div>
+              <div className="fu-comm-line fu-comm-subject">{email.subject}</div>
+              <div className="fu-comm-meta">To {email.to_addresses.join(', ')}</div>
+              {email.attachments?.length > 0 && (
+                <div className="fu-comm-meta">
+                  <PaperClipOutlined aria-hidden="true" /> {email.attachments.length} attachment(s)
+                </div>
+              )}
+              <ToggleContent html={email.body_html} label="View email" />
+              {email.reply_received && (
+                <div className="fu-comm-reply">
+                  <Pill tone="green" icon={<CheckCircleOutlined />}>
+                    Reply received {email.reply_received_at ? dayjs(email.reply_received_at).format('MM/DD') : ''}
+                  </Pill>
+                  {email.reply_summary && <ToggleContent text={email.reply_summary} label="View reply" />}
+                </div>
+              )}
+              {email.error_message && (
+                <p className="fu-comm-error">Error: {email.error_message}</p>
+              )}
+            </div>
+          ),
+        };
       })}
     />
   );

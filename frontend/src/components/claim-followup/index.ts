@@ -6,3 +6,5 @@ export { default as CommunicationTimeline } from './CommunicationTimeline';
 export { default as PaymentTracker } from './PaymentTracker';
 export { default as ProfitabilityTracker } from './ProfitabilityTracker';
 export { default as DepreciationPhaseTracker } from './DepreciationPhaseTracker';
+export { default as ClaimEstimatesPanel } from './ClaimEstimatesPanel';
+export { default as ResolveTaskModal } from './ResolveTaskModal';

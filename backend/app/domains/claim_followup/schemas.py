@@ -65,6 +65,7 @@ class FollowUpTaskUpdate(BaseModel):
     description: Optional[str] = None
     status: Optional[str] = None
     due_date: Optional[datetime] = None
+    next_followup_date: Optional[datetime] = None
     priority: Optional[str] = None
     assigned_to_name: Optional[str] = None
     assigned_to_email: Optional[str] = None

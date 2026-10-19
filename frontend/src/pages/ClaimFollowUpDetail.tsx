@@ -1,28 +1,34 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Card, Table, Button, Space, Tag, Modal, Form, Input, Select,
-  DatePicker, Switch, InputNumber, message, Typography, Row, Col,
-  Statistic, Tooltip, Dropdown, Divider, Tabs, Badge, Progress,
+  Button, Col, DatePicker, Dropdown, Form, Grid, Input, InputNumber, Modal, Row, Select,
+  Skeleton, Switch, Tabs, Tooltip, message,
 } from 'antd';
-import type { FormInstance } from 'antd';
+import type { FormInstance, MenuProps } from 'antd';
 import {
-  ArrowLeftOutlined, PlusOutlined, ReloadOutlined, CheckCircleOutlined,
-  ClockCircleOutlined, MailOutlined, SendOutlined, EllipsisOutlined,
-  AlertOutlined, FileTextOutlined, DollarOutlined, AuditOutlined,
-  EditOutlined, DeleteOutlined, RightOutlined, FilePdfOutlined,
-  EnvironmentOutlined,
+  ArrowLeftOutlined, CalendarOutlined, CheckOutlined, ClockCircleOutlined, DeleteOutlined,
+  DownOutlined, EditOutlined, EllipsisOutlined, FilePdfOutlined, MailOutlined, PhoneOutlined,
+  PlusOutlined, ReloadOutlined, RightOutlined, RollbackOutlined, StopOutlined, SyncOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
-import dayjs from 'dayjs';
+import dayjs, { type Dayjs } from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { claimFollowUpService } from '../services/claimFollowUpService';
-import { supplementService } from '../services/supplementService';
 import { companyService } from '../services/companyService';
-import { EmailComposer, CommunicationTimeline, DepreciationPhaseTracker } from '../components/claim-followup';
-import { ClaimEstimatesPanel } from './ClaimFollowUpDashboard';
+import {
+  EmailComposer, CommunicationTimeline, DepreciationPhaseTracker, ClaimEstimatesPanel, ResolveTaskModal,
+} from '../components/claim-followup';
+import type { ClaimContact } from '../components/claim-followup/EmailComposer';
+import {
+  TASK_TYPE_OPTIONS, PAYMENT_TASK_TYPES, PAYMENT_STATUS_LABELS, PAYMENT_ISSUE_STATUSES,
+  TASK_STATUS_LABELS, TASK_STATUS_TONES, getStageLabel, isTaskActive, isTaskOverdue, buildClaimProgress,
+} from '../components/claim-followup/claimProgress';
+import type { ProgressStep } from '../components/claim-followup/claimProgress';
+import { PageHeader, Pill, PropertyList } from '../components/common/ui';
+import { SUPPLEMENT_STATUSES, SupplementStatusPill, formatCurrency } from '../components/supplement/supplementUi';
 import type {
-  FollowUpTask, FollowUpTaskCreate, FollowUpTaskUpdate, TaskType,
+  FollowUpTask, FollowUpTaskCreate, FollowUpTaskUpdate, TaskStatus,
 } from '../types/claimFollowUp';
 import {
   KNOWN_TASK_TYPES,
@@ -34,70 +40,78 @@ import {
 
 dayjs.extend(relativeTime);
 
-const { Title, Text } = Typography;
 const { TextArea } = Input;
 
-const STATUS_COLORS: Record<string, string> = {
-  pending: 'blue', awaiting_response: 'orange', responded: 'cyan',
-  awaiting_confirmation: 'purple',
-  resolved: 'green', overdue: 'red', cancelled: 'default',
+/** Statuses a person sets by hand on open work; resolving goes through the Resolve form */
+const OPEN_STATUS_OPTIONS: TaskStatus[] = ['pending', 'awaiting_response', 'awaiting_confirmation', 'responded'];
+
+const WM_COST_STATUS_LABELS: Record<string, string> = {
+  included_in_rebuild: 'Included in rebuild estimate',
+  separate_estimate: 'Separate WM estimate',
+  not_received: 'Not received — needs follow-up',
+  not_applicable: 'N/A (no WM on this claim)',
 };
 
-const PRIORITY_TAG_COLORS: Record<string, string> = {
-  low: 'default', normal: 'blue', high: 'orange', urgent: 'red',
-};
-
-const TASK_TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: 'wm_docs_sent', label: 'WM Docs (Invoice/COS/EWA/Photo)' },
-  { value: 'supplement_estimate_prep', label: 'Prepare Supplement Estimate' },
-  { value: 'supplement_sent', label: 'Supplement Sent' },
-  { value: 'depreciation_recovery', label: 'Depreciation Recovery Docs' },
-  { value: 'estimate_request', label: 'Estimate Request' },
-  { value: 'payment_check', label: 'Payment Check' },
-  { value: 'wm_payment_check', label: 'WM Payment Check' },
-  { value: 'docs_sent', label: 'Other Documents' },
-  { value: 'general', label: 'General' },
-  { value: 'dispute', label: 'Dispute (Denied)' },
-  { value: 'appraisal', label: 'Appraisal (Denied)' },
-  { value: 'attorney_referral', label: 'Attorney Referral (Denied)' },
-  { value: '__custom__', label: '+ Custom Stage...' },
+const PRIORITY_OPTIONS = [
+  { value: 'low', label: 'Low' }, { value: 'normal', label: 'Normal' },
+  { value: 'high', label: 'High' }, { value: 'urgent', label: 'Urgent' },
 ];
 
-const STAGE_LABELS: Record<string, string> = {
-  wm_docs_sent: 'WM Docs', estimate_request: 'Est. Request',
-  supplement_estimate_prep: 'Prep Supplement',
-  supplement_sent: 'Supplement', payment_check: 'Rebuild Payment',
-  wm_payment_check: 'WM Payment', depreciation_recovery: 'Depreciation',
-  docs_sent: 'Other Docs', general: 'General', dispute: 'Dispute',
-  appraisal: 'Appraisal', attorney_referral: 'Attorney',
+const dateOf = (t: FollowUpTask) => t.next_followup_date || t.due_date;
+
+/** Whole days between today and a date: negative when it has passed */
+const daysFromToday = (d: Dayjs) => d.startOf('day').diff(dayjs().startOf('day'), 'day');
+
+const relativeDue = (date: string, overdue: boolean) => {
+  const days = daysFromToday(dayjs(date));
+  if (overdue) {
+    if (days >= 0) return 'Due today';
+    return `${-days} day${days === -1 ? '' : 's'} overdue`;
+  }
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Tomorrow';
+  if (days > 1) return `In ${days} days`;
+  return dayjs(date).fromNow();
 };
 
-const getStageLabel = (stage: string): string =>
-  STAGE_LABELS[stage] || stage.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+/** Overdue first, then work that is ours by date, then work waiting on others */
+const compareOpenTasks = (a: FollowUpTask, b: FollowUpTask) => {
+  const rank = (t: FollowUpTask) => (isTaskOverdue(t) ? 0 : t.status === 'awaiting_confirmation' ? 2 : 1);
+  const r = rank(a) - rank(b);
+  if (r !== 0) return r;
+  const da = dateOf(a) || '9999';
+  const db = dateOf(b) || '9999';
+  return da.localeCompare(db);
+};
 
-const STAGE_ORDER: string[] = [
-  'wm_docs_sent', 'wm_payment_check', 'payment_check', 'supplement_sent',
-  'estimate_request', 'dispute', 'appraisal', 'attorney_referral',
-  'depreciation_recovery', 'docs_sent', 'general',
+const followUpPresets = () => [
+  { label: 'Tomorrow', value: dayjs().add(1, 'day') },
+  { label: 'In 3 days', value: dayjs().add(3, 'day') },
+  { label: 'In 1 week', value: dayjs().add(1, 'week') },
+  { label: 'In 2 weeks', value: dayjs().add(2, 'week') },
 ];
-
-const isOverdue = (t: FollowUpTask) =>
-  t.status !== 'resolved' && t.status !== 'cancelled' && t.next_followup_date
-  && dayjs(t.next_followup_date).isBefore(dayjs());
 
 const ClaimFollowUpDetail: React.FC = () => {
   const { claimId } = useParams<{ claimId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const screens = Grid.useBreakpoint();
+  const isMobile = screens.md === false;
   const [createForm] = Form.useForm();
   const [editForm] = Form.useForm();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<FollowUpTask | null>(null);
+  const [resolvingTask, setResolvingTask] = useState<FollowUpTask | null>(null);
+  const [activeTab, setActiveTab] = useState('estimates');
   const [emailTaskId, setEmailTaskId] = useState<string | undefined>();
+  const [historyTaskId, setHistoryTaskId] = useState<string | undefined>();
+  const [showDone, setShowDone] = useState(false);
+  const [flashTaskId, setFlashTaskId] = useState<string | null>(null);
+  const workspaceRef = useRef<HTMLElement>(null);
 
   // Fetch tasks for this claim
-  const { data: tasks = [], isLoading, refetch } = useQuery({
+  const { data: tasks = [], isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['claim-followup-detail', claimId],
     queryFn: () => claimFollowUpService.getTasksByClaimId(claimId!),
     enabled: !!claimId,
@@ -110,10 +124,18 @@ const ClaimFollowUpDetail: React.FC = () => {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Derive claim-level info from tasks
+  // Claim-level facts, merged across this claim's tasks the same way the list does
   const claimInfo = useMemo(() => {
     if (!tasks.length) return null;
     const first = tasks[0];
+    const supplementStatuses: Record<string, number> = {};
+    const bidEstimateSummary: Record<string, number> = {};
+    let wmCostStatus = '';
+    tasks.forEach(t => {
+      Object.entries(t.supplement_statuses || {}).forEach(([s, c]) => { supplementStatuses[s] = c as number; });
+      Object.entries(t.bid_estimate_summary || {}).forEach(([s, c]) => { bidEstimateSummary[s] = c as number; });
+      if (t.wm_cost_status && !wmCostStatus) wmCostStatus = t.wm_cost_status;
+    });
     return {
       property_address: first.property_address || '',
       claim_number: first.claim_number || '',
@@ -122,10 +144,62 @@ const ClaimFollowUpDetail: React.FC = () => {
       pa_company: first.pa_company || '',
       pa_email: first.pa_email || '',
       pa_phone: first.pa_phone || '',
-      wmCostStatus: first.wm_cost_status || '',
+      adjuster_name: first.adjuster_name || '',
+      adjuster_email: first.adjuster_email || '',
+      adjuster_phone: first.adjuster_phone || '',
+      expectedAmount: first.claim_expected_amount || 0,
+      receivedAmount: first.claim_received_amount || 0,
+      deductible: first.claim_deductible || 0,
+      wmCostStatus,
       hasInsuranceEstimate: tasks.some(t => t.has_insurance_estimate),
+      supplementStatuses,
+      bidEstimateSummary,
     };
   }, [tasks]);
+
+  const progress = useMemo(() => (claimInfo ? buildClaimProgress({ tasks, ...claimInfo }) : null), [tasks, claimInfo]);
+
+  const openTasks = useMemo(() => tasks.filter(isTaskActive).sort(compareOpenTasks), [tasks]);
+  const doneTasks = useMemo(
+    () => tasks
+      .filter(t => !isTaskActive(t))
+      .sort((a, b) => (b.resolved_at || b.updated_at || '').localeCompare(a.resolved_at || a.updated_at || '')),
+    [tasks],
+  );
+  const overdueCount = useMemo(() => openTasks.filter(isTaskOverdue).length, [openTasks]);
+
+  // The claim's next follow-up is the top of the sorted open list
+  const nextTask = useMemo(() => openTasks.find(t => !!dateOf(t)), [openTasks]);
+  const nextFollowupDate = nextTask ? dateOf(nextTask)! : null;
+  const nextOverdue = !!nextTask && isTaskOverdue(nextTask);
+
+  const insEmail = claimInfo?.insurance_company ? insuranceEmails[claimInfo.insurance_company] : undefined;
+
+  /** People the email composer offers in To/CC */
+  const emailContacts = useMemo((): ClaimContact[] => {
+    if (!claimInfo) return [];
+    const list: ClaimContact[] = [];
+    if (claimInfo.adjuster_email) {
+      list.push({ name: claimInfo.adjuster_name || claimInfo.adjuster_email, email: claimInfo.adjuster_email, role: 'adjuster', label: 'Adjuster' });
+    }
+    if (claimInfo.pa_email) {
+      list.push({ name: claimInfo.pa_name || claimInfo.pa_email, email: claimInfo.pa_email, role: 'pa', label: 'Public Adjuster' });
+    }
+    if (insEmail) {
+      list.push({ name: claimInfo.insurance_company, email: insEmail, role: 'insurance', label: 'Insurance' });
+    }
+    tasks.forEach(t => {
+      if (t.assigned_to_email) {
+        list.push({
+          name: t.assigned_to_name || t.assigned_to_email,
+          email: t.assigned_to_email,
+          role: t.assigned_to_role === 'public_adjuster' ? 'pa' : t.assigned_to_role === 'adjuster' ? 'adjuster' : 'other',
+          label: ASSIGNED_ROLE_LABELS[t.assigned_to_role] || 'Contact',
+        });
+      }
+    });
+    return list;
+  }, [claimInfo, insEmail, tasks]);
 
   /**
    * Fill name/email/phone from the contact the chosen role points at. Every
@@ -152,29 +226,8 @@ const ClaimFollowUpDetail: React.FC = () => {
     }
   }, [tasks]);
 
-  const supplementStatuses = useMemo(() => {
-    const ss: Record<string, number> = {};
-    tasks.forEach(t => {
-      if (t.supplement_statuses) {
-        Object.entries(t.supplement_statuses).forEach(([status, count]) => {
-          ss[status] = count as number;
-        });
-      }
-    });
-    return ss;
-  }, [tasks]);
-
-  const activeTasks = useMemo(() => tasks.filter(t => !['resolved', 'cancelled'].includes(t.status)), [tasks]);
-  const resolvedTasks = useMemo(() => tasks.filter(t => t.status === 'resolved'), [tasks]);
-
-  const nextFollowupDate = useMemo(() => {
-    const dates = activeTasks
-      .map(t => t.next_followup_date || t.due_date)
-      .filter(Boolean) as string[];
-    return dates.sort()[0] || null;
-  }, [activeTasks]);
-
-  const hasOverdue = useMemo(() => activeTasks.some(t => isOverdue(t)), [activeTasks]);
+  const invalidateClaim = () =>
+    queryClient.invalidateQueries({ queryKey: ['claim-followup-detail', claimId] });
 
   // Mutations
   const createMutation = useMutation({
@@ -183,7 +236,7 @@ const ClaimFollowUpDetail: React.FC = () => {
       message.success('Task created');
       setCreateModalOpen(false);
       createForm.resetFields();
-      queryClient.invalidateQueries({ queryKey: ['claim-followup-detail', claimId] });
+      invalidateClaim();
     },
     onError: (err: any) => message.error(err?.response?.data?.detail || 'Failed'),
   });
@@ -195,33 +248,38 @@ const ClaimFollowUpDetail: React.FC = () => {
       message.success('Task updated');
       setEditModalOpen(false);
       editForm.resetFields();
-      queryClient.invalidateQueries({ queryKey: ['claim-followup-detail', claimId] });
+      invalidateClaim();
     },
+    onError: (err: any) => message.error(err?.response?.data?.detail || 'Failed to update task'),
   });
 
-  const resolveMutation = useMutation({
-    mutationFn: ({ taskId, body }: { taskId: string; body: any }) =>
-      claimFollowUpService.resolveTask(taskId, body),
-    onSuccess: () => {
-      message.success('Task resolved');
-      queryClient.invalidateQueries({ queryKey: ['claim-followup-detail', claimId] });
+  // Inline changes (status, next follow-up date) from the task rows
+  const quickUpdateMutation = useMutation({
+    mutationFn: ({ taskId, data }: { taskId: string; data: FollowUpTaskUpdate; done: string }) =>
+      claimFollowUpService.updateTask(taskId, data),
+    onSuccess: (_, variables) => {
+      message.success(variables.done);
+      invalidateClaim();
     },
+    onError: (err: any) => message.error(err?.response?.data?.detail || 'Failed to update task'),
   });
 
   const reopenMutation = useMutation({
     mutationFn: (taskId: string) => claimFollowUpService.reopenTask(taskId),
     onSuccess: () => {
       message.success('Task reopened');
-      queryClient.invalidateQueries({ queryKey: ['claim-followup-detail', claimId] });
+      invalidateClaim();
     },
+    onError: (err: any) => message.error(err?.response?.data?.detail || 'Failed to reopen task'),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (taskId: string) => claimFollowUpService.deleteTask(taskId),
     onSuccess: () => {
       message.success('Task deleted');
-      queryClient.invalidateQueries({ queryKey: ['claim-followup-detail', claimId] });
+      invalidateClaim();
     },
+    onError: (err: any) => message.error(err?.response?.data?.detail || 'Failed to delete task'),
   });
 
   const handleCreateSubmit = () => {
@@ -241,278 +299,689 @@ const ClaimFollowUpDetail: React.FC = () => {
     });
   };
 
-  // Build stage pipeline tags
-  const renderStagePipeline = () => {
-    if (!tasks.length) return null;
-    const resolvedTypes = new Set(resolvedTasks.map(t => t.task_type));
-    const activeTypes = new Set(activeTasks.map(t => t.task_type));
-    const allTaskTypes = new Set(tasks.map(t => t.task_type));
-    const knownSet = new Set<string>(STAGE_ORDER);
+  const openCreate = () => {
+    createForm.resetFields();
+    setCreateModalOpen(true);
+  };
 
-    const stages = [
-      ...STAGE_ORDER.filter(s => resolvedTypes.has(s) || activeTypes.has(s)),
-      ...Array.from(allTaskTypes).filter(s => !knownSet.has(s)),
-    ];
+  const openEdit = (task: FollowUpTask) => {
+    setSelectedTask(task);
+    const isKnown = (KNOWN_TASK_TYPES as readonly string[]).includes(task.task_type);
+    editForm.setFieldsValue({
+      title: task.title,
+      description: task.description,
+      task_type: isKnown ? task.task_type : '__custom__',
+      custom_task_type: isKnown ? undefined : task.task_type,
+      status: task.status,
+      priority: task.priority,
+      next_followup_date: task.next_followup_date ? dayjs(task.next_followup_date) : undefined,
+      assigned_to_name: task.assigned_to_name,
+      assigned_to_email: task.assigned_to_email,
+      assigned_to_role: task.assigned_to_role,
+      auto_followup_enabled: task.auto_followup_enabled,
+      followup_interval_days: task.followup_interval_days,
+      max_followup_count: task.max_followup_count,
+    });
+    setEditModalOpen(true);
+  };
 
-    if (!stages.length) return null;
+  const handleEditSubmit = () => {
+    editForm.validateFields().then(values => {
+      if (!selectedTask) return;
+      if (values.task_type === '__custom__') {
+        const ct = (values.custom_task_type || '').trim().toLowerCase().replace(/\s+/g, '_');
+        if (!ct) { message.warning('Enter a custom stage name'); return; }
+        values.task_type = ct;
+      }
+      delete values.custom_task_type;
+      const data: FollowUpTaskUpdate = {
+        ...values,
+        next_followup_date: values.next_followup_date ? (values.next_followup_date as Dayjs).toISOString() : undefined,
+      };
+      if (!data.next_followup_date) delete data.next_followup_date;
+      editMutation.mutate({ taskId: selectedTask.id, data });
+    });
+  };
 
+  const scrollToWorkspace = () => {
+    requestAnimationFrame(() => {
+      workspaceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const openEmail = (taskId?: string) => {
+    setEmailTaskId(taskId);
+    setActiveTab('email');
+    scrollToWorkspace();
+  };
+
+  const openHistory = (taskId?: string) => {
+    setHistoryTaskId(taskId);
+    setActiveTab('history');
+    scrollToWorkspace();
+  };
+
+  /** Stage track click: bring that stage's task into view */
+  const focusTask = (task: FollowUpTask) => {
+    if (!isTaskActive(task)) setShowDone(true);
+    setFlashTaskId(task.id);
+    requestAnimationFrame(() => {
+      document.getElementById(`fu-task-${task.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  };
+
+  useEffect(() => {
+    if (!flashTaskId) return;
+    const t = window.setTimeout(() => setFlashTaskId(null), 1600);
+    return () => window.clearTimeout(t);
+  }, [flashTaskId]);
+
+  const setFollowUpDate = (task: FollowUpTask, value: Dayjs | null) => {
+    if (!value) return;
+    const prev = task.next_followup_date ? dayjs(task.next_followup_date) : null;
+    // A date picker sets the day; keep the time the reminder already had
+    const next = value.hour(prev ? prev.hour() : 9).minute(prev ? prev.minute() : 0).second(0);
+    quickUpdateMutation.mutate({
+      taskId: task.id,
+      data: { next_followup_date: next.toISOString() },
+      done: `Next follow-up set to ${next.format('MMM D')}`,
+    });
+  };
+
+  const confirmCancel = (task: FollowUpTask) => Modal.confirm({
+    title: 'Cancel this task?',
+    content: `"${task.title}" moves to Done. You can set it back to an open status from Edit.`,
+    okText: 'Cancel task',
+    cancelText: 'Keep',
+    onOk: () => quickUpdateMutation.mutateAsync({ taskId: task.id, data: { status: 'cancelled' }, done: 'Task cancelled' }),
+  });
+
+  const confirmDelete = (task: FollowUpTask) => Modal.confirm({
+    title: 'Delete this task?',
+    content: `"${task.title}" and its follow-up schedule will be removed.`,
+    okText: 'Delete',
+    okButtonProps: { danger: true },
+    onOk: () => deleteMutation.mutateAsync(task.id),
+  });
+
+  // ── Renderers ──
+
+  const renderStatusControl = (task: FollowUpTask) => {
+    const items: MenuProps['items'] = OPEN_STATUS_OPTIONS.map(s => ({
+      key: s,
+      label: (
+        <span className="fu-status-option">
+          <Pill tone={TASK_STATUS_TONES[s]}>{TASK_STATUS_LABELS[s]}</Pill>
+          {s === task.status && <CheckOutlined aria-hidden="true" />}
+        </span>
+      ),
+    }));
     return (
-      <Space size={4} wrap>
-        {stages.map((stage, idx) => {
-          const isResolved = resolvedTypes.has(stage) && !activeTypes.has(stage);
-          const isActive = activeTypes.has(stage);
-          const stageTask = tasks.find(t => t.task_type === stage && !['resolved', 'cancelled'].includes(t.status));
-          const isStageOverdue = stageTask ? isOverdue(stageTask) : false;
-
-          let bgColor: string; let txtColor: string; let border: string;
-          if (isResolved) { bgColor = '#edf3ec'; txtColor = '#448361'; border = '1px solid #d3e5d0'; }
-          else if (isStageOverdue) { bgColor = '#d44c47'; txtColor = '#fff'; border = 'none'; }
-          else if (isActive) { bgColor = '#1f74c9'; txtColor = '#fff'; border = 'none'; }
-          else { bgColor = '#dfdfdc'; txtColor = '#999'; border = 'none'; }
-
-          return (
-            <React.Fragment key={stage}>
-              {idx > 0 && <RightOutlined style={{ fontSize: 10, color: '#dfdfdc' }} />}
-              <Tag style={{ backgroundColor: bgColor, color: txtColor, border, fontSize: 11, margin: 0, lineHeight: '22px' }}>
-                {isResolved && <CheckCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />}
-                {getStageLabel(stage)}
-              </Tag>
-            </React.Fragment>
-          );
-        })}
-      </Space>
+      <Dropdown
+        trigger={['click']}
+        menu={{
+          items,
+          selectedKeys: [task.status],
+          onClick: ({ key }) => {
+            if (key === task.status) return;
+            quickUpdateMutation.mutate({
+              taskId: task.id,
+              data: { status: key as TaskStatus },
+              done: `Status set to ${TASK_STATUS_LABELS[key].toLowerCase()}`,
+            });
+          },
+        }}
+      >
+        <button type="button" className="fu-status-trigger" aria-label={`Status: ${TASK_STATUS_LABELS[task.status]}. Change status`}>
+          <Pill tone={TASK_STATUS_TONES[task.status] || 'gray'}>{TASK_STATUS_LABELS[task.status] || task.status}</Pill>
+          <DownOutlined className="fu-status-caret" aria-hidden="true" />
+        </button>
+      </Dropdown>
     );
   };
 
-  const insEmail = claimInfo?.insurance_company ? insuranceEmails[claimInfo.insurance_company] : undefined;
+  const renderTaskMeta = (task: FollowUpTask) => {
+    const roleLabel = ASSIGNED_ROLE_LABELS[task.assigned_to_role] || task.assigned_to_role;
+    const isPayment = PAYMENT_TASK_TYPES.includes(task.task_type);
+    return (
+      <div className="fu-task-meta">
+        <span className="fu-task-meta-item">
+          <UserOutlined aria-hidden="true" />
+          {task.assigned_to_name ? (
+            <span>
+              {task.assigned_to_name}
+              {roleLabel && <span className="fu-muted"> · {roleLabel}</span>}
+            </span>
+          ) : (
+            <span className="fu-muted">Not assigned</span>
+          )}
+          {task.assigned_to_email && (
+            <>
+              <span className="fu-muted" aria-hidden="true">·</span>
+              <a href={`mailto:${task.assigned_to_email}`} className="fu-task-email">{task.assigned_to_email}</a>
+            </>
+          )}
+        </span>
+        <span className="fu-task-meta-item">
+          <MailOutlined aria-hidden="true" />
+          {task.contact_count > 0 ? (
+            <button type="button" className="fu-link-btn" onClick={() => openHistory(task.id)}>
+              Contacted {task.contact_count}×
+              {task.last_contacted_at && ` · last ${dayjs(task.last_contacted_at).format('MMM D')}`}
+            </button>
+          ) : (
+            <span className="fu-muted">Not contacted yet</span>
+          )}
+        </span>
+        {task.auto_followup_enabled && isTaskActive(task) && (
+          <span className="fu-task-meta-item">
+            <SyncOutlined aria-hidden="true" />
+            <span>
+              Auto every {task.followup_interval_days} day{task.followup_interval_days === 1 ? '' : 's'}
+              <span className="fu-muted"> · {Math.min(task.contact_count, task.max_followup_count)} of {task.max_followup_count}</span>
+            </span>
+          </span>
+        )}
+        {isPayment && task.payment_status && (
+          <span className="fu-task-meta-item">
+            <span className="fu-muted">Payment</span>
+            <Pill tone={PAYMENT_ISSUE_STATUSES.includes(task.payment_status) ? 'orange' : task.payment_status === 'received' ? 'green' : 'gray'}>
+              {PAYMENT_STATUS_LABELS[task.payment_status] || task.payment_status}
+            </Pill>
+            {task.payment_note && <span className="fu-muted">{task.payment_note}</span>}
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  const renderOpenTask = (task: FollowUpTask) => {
+    const overdue = isTaskOverdue(task);
+    const date = dateOf(task);
+    const moreItems: MenuProps['items'] = [
+      { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => openEdit(task) },
+      { key: 'history', icon: <ClockCircleOutlined />, label: 'View history', onClick: () => openHistory(task.id) },
+      { key: 'cancel', icon: <StopOutlined />, label: 'Cancel task', onClick: () => confirmCancel(task) },
+      { type: 'divider' },
+      { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true, onClick: () => confirmDelete(task) },
+    ];
+    const isHighPriority = task.priority === 'high' || task.priority === 'urgent';
+    return (
+      <article
+        key={task.id}
+        id={`fu-task-${task.id}`}
+        className={`fu-task${overdue ? ' is-overdue' : ''}${flashTaskId === task.id ? ' is-flash' : ''}`}
+      >
+        <div className="fu-task-main">
+          <div className="fu-task-top">
+            {renderStatusControl(task)}
+            <span className="fu-task-stage">{getStageLabel(task.task_type)}</span>
+            {isHighPriority && (
+              <Pill tone={task.priority === 'urgent' ? 'red' : 'orange'}>
+                {task.priority === 'urgent' ? 'Urgent' : 'High priority'}
+              </Pill>
+            )}
+          </div>
+          <h3 className="fu-task-title">{task.title}</h3>
+          {task.description && <p className="fu-task-desc">{task.description}</p>}
+          {renderTaskMeta(task)}
+        </div>
+
+        <div className="fu-task-side">
+          <div className="fu-task-due">
+            <span className="fu-task-due-label">Next follow-up</span>
+            <div className="fu-task-due-value">
+              <DatePicker
+                value={date ? dayjs(date) : null}
+                onChange={(v) => setFollowUpDate(task, v)}
+                presets={followUpPresets()}
+                format="MMM D, YYYY"
+                allowClear={false}
+                inputReadOnly
+                variant="borderless"
+                placeholder="Set date"
+                suffixIcon={<CalendarOutlined />}
+                className="fu-date"
+                aria-label={`Next follow-up date for ${task.title}`}
+              />
+              {date && (
+                <span className={`fu-task-due-rel${overdue ? ' is-overdue' : ''}`}>
+                  {overdue && <ClockCircleOutlined aria-hidden="true" />}
+                  {relativeDue(date, overdue)}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="fu-task-actions">
+            <Button icon={<MailOutlined />} onClick={() => openEmail(task.id)}>Email</Button>
+            <Button icon={<CheckOutlined />} onClick={() => setResolvingTask(task)}>Resolve</Button>
+            <Dropdown menu={{ items: moreItems }} trigger={['click']} placement="bottomRight">
+              <Button type="text" className="ui-icon-btn" icon={<EllipsisOutlined />} aria-label={`More actions for ${task.title}`} />
+            </Dropdown>
+          </div>
+        </div>
+      </article>
+    );
+  };
+
+  const renderDoneTask = (task: FollowUpTask) => {
+    const isResolved = task.status === 'resolved';
+    const moreItems: MenuProps['items'] = [
+      { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => openEdit(task) },
+      { key: 'history', icon: <ClockCircleOutlined />, label: 'View history', onClick: () => openHistory(task.id) },
+      { type: 'divider' },
+      { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true, onClick: () => confirmDelete(task) },
+    ];
+    const when = task.resolved_at || task.updated_at;
+    return (
+      <article
+        key={task.id}
+        id={`fu-task-${task.id}`}
+        className={`fu-task fu-task--done${flashTaskId === task.id ? ' is-flash' : ''}`}
+      >
+        <div className="fu-task-main">
+          <div className="fu-task-top">
+            <Pill tone={TASK_STATUS_TONES[task.status] || 'gray'} icon={isResolved ? <CheckOutlined /> : undefined}>
+              {TASK_STATUS_LABELS[task.status] || task.status}
+            </Pill>
+            <span className="fu-task-stage">{getStageLabel(task.task_type)}</span>
+            {when && <span className="fu-muted">{dayjs(when).format('MMM D, YYYY')}</span>}
+          </div>
+          <h3 className="fu-task-title">{task.title}</h3>
+          {task.resolution_notes && <p className="fu-task-desc">{task.resolution_notes}</p>}
+          {PAYMENT_TASK_TYPES.includes(task.task_type) && task.payment_status && (
+            <div className="fu-task-meta">
+              <span className="fu-task-meta-item">
+                <span className="fu-muted">Payment</span>
+                <Pill tone={task.payment_status === 'received' ? 'green' : PAYMENT_ISSUE_STATUSES.includes(task.payment_status) ? 'orange' : 'gray'}>
+                  {PAYMENT_STATUS_LABELS[task.payment_status] || task.payment_status}
+                </Pill>
+                {task.payment_note && <span className="fu-muted">{task.payment_note}</span>}
+              </span>
+            </div>
+          )}
+        </div>
+        <div className="fu-task-side">
+          <div className="fu-task-actions">
+            {isResolved && (
+              <Button icon={<RollbackOutlined />} loading={reopenMutation.isPending && reopenMutation.variables === task.id}
+                onClick={() => reopenMutation.mutate(task.id)}>
+                Reopen
+              </Button>
+            )}
+            <Dropdown menu={{ items: moreItems }} trigger={['click']} placement="bottomRight">
+              <Button type="text" className="ui-icon-btn" icon={<EllipsisOutlined />} aria-label={`More actions for ${task.title}`} />
+            </Dropdown>
+          </div>
+        </div>
+      </article>
+    );
+  };
+
+  const stepTaskFor = (step: ProgressStep) => step.activeTask || step.resolvedTask;
+
+  const renderStep = (step: ProgressStep, variant: 'track' | 'extra') => {
+    const task = stepTaskFor(step);
+    const tip = [step.title, step.note].filter(Boolean).join(' — ');
+    const content = variant === 'track' ? (
+      <>
+        <span className="fu-step-bar" aria-hidden="true" />
+        <span className="fu-step-label">{isMobile ? step.shortLabel : step.label}</span>
+        <span className="fu-step-detail">{step.detail || (step.state === 'none' ? 'Not reached' : '')}</span>
+      </>
+    ) : (
+      <>
+        <span className="fu-step-label">{step.label}</span>
+        {step.detail && <span className="fu-step-detail">{step.detail}</span>}
+      </>
+    );
+    const className = `fu-step fu-step--${variant} fu-step--${step.state}`;
+    return (
+      <Tooltip key={step.key} title={task ? `${tip} — show task` : tip}>
+        {task ? (
+          <button type="button" className={className} onClick={() => focusTask(task)}>{content}</button>
+        ) : (
+          <span className={className}>{content}</span>
+        )}
+      </Tooltip>
+    );
+  };
+
+  const renderTrack = () => {
+    if (!progress) return null;
+    return (
+      <nav className="fu-track-wrap" aria-label="Claim stages">
+        <div className="fu-track">
+          {progress.track.map(step => renderStep(step, 'track'))}
+        </div>
+        {progress.extras.length > 0 && (
+          <div className="fu-track-extras">
+            {progress.extras.map(step => renderStep(step, 'extra'))}
+          </div>
+        )}
+      </nav>
+    );
+  };
+
+  const renderContact = (label: string, name: string, company: string, email: string, phone: string) => (
+    <div className="fu-contact">
+      <span className="fu-contact-role">{label}</span>
+      <span className="fu-contact-name">{name || email}</span>
+      {company && <span className="fu-muted">{company}</span>}
+      {email && (
+        <a href={`mailto:${email}`} className="fu-contact-line">
+          <MailOutlined aria-hidden="true" /> {email}
+        </a>
+      )}
+      {phone && (
+        <a href={`tel:${phone}`} className="fu-contact-line">
+          <PhoneOutlined aria-hidden="true" /> {phone}
+        </a>
+      )}
+    </div>
+  );
+
+  const taskOptions = useMemo(() => {
+    const toOption = (t: FollowUpTask) => ({ value: t.id, label: `${getStageLabel(t.task_type)} — ${t.title}` });
+    return [
+      ...(openTasks.length ? [{ label: 'Open tasks', options: openTasks.map(toOption) }] : []),
+      ...(doneTasks.length ? [{ label: 'Done', options: doneTasks.map(toOption) }] : []),
+    ];
+  }, [openTasks, doneTasks]);
+
+  const emailTask = tasks.find(t => t.id === emailTaskId);
+
+  // ── Page ──
+
+  if (isError) {
+    return (
+      <div className="fu-error">
+        <h1 className="ui-section-title">Couldn't load this claim's follow-ups.</h1>
+        <p>Check your connection and try again.</p>
+        <Button onClick={() => refetch()} icon={<ReloadOutlined />}>Try again</Button>
+      </div>
+    );
+  }
+
+  const supplementEntries = claimInfo
+    ? SUPPLEMENT_STATUSES.filter(s => (claimInfo.supplementStatuses[s] || 0) > 0)
+    : [];
 
   return (
-    <div style={{ padding: '0 4px' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/claim-followup')} />
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <EnvironmentOutlined style={{ color: '#1f74c9', fontSize: 16 }} />
-            <Title level={4} style={{ margin: 0 }}>{claimInfo?.property_address || 'Loading...'}</Title>
-          </div>
-          <Space size={8} style={{ marginTop: 4 }}>
-            {claimInfo?.insurance_company && (
-              <Tag>{claimInfo.insurance_company}{insEmail && <> <MailOutlined style={{ fontSize: 10 }} /></>}</Tag>
-            )}
-            {claimInfo?.claim_number && (
-              <Text type="secondary">#{claimInfo.claim_number}</Text>
-            )}
-            {claimInfo?.pa_name && (
-              <Tag color="geekblue">PA: {claimInfo.pa_name}</Tag>
-            )}
-          </Space>
-        </div>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => refetch()}>Refresh</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => {
-            createForm.resetFields();
-            setCreateModalOpen(true);
-          }}>Add Stage</Button>
-        </Space>
-      </div>
-
-      {/* Stage Pipeline + Stats */}
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <div style={{ marginBottom: 12 }}>
-          <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>Stage Pipeline</Text>
-          {renderStagePipeline()}
-        </div>
-
-        {/* PA Info */}
-        {claimInfo?.pa_name && (
-          <div style={{ marginBottom: 12, padding: '6px 8px', background: '#eef5fa', borderRadius: 6, borderLeft: '3px solid #597ef7' }}>
-            <Text strong style={{ fontSize: 12, color: '#2f54eb', display: 'block', marginBottom: 2 }}>Public Adjuster</Text>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12 }}>
-              <span><Text type="secondary" style={{ fontSize: 11 }}>Name: </Text>{claimInfo.pa_name}</span>
-              {claimInfo.pa_company && <span><Text type="secondary" style={{ fontSize: 11 }}>Company: </Text>{claimInfo.pa_company}</span>}
-            </div>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12, marginTop: 2 }}>
-              {claimInfo.pa_email && (
-                <span><Text type="secondary" style={{ fontSize: 11 }}>Email: </Text><a href={`mailto:${claimInfo.pa_email}`}>{claimInfo.pa_email}</a></span>
-              )}
-              {claimInfo.pa_phone && (
-                <span><Text type="secondary" style={{ fontSize: 11 }}>Phone: </Text><a href={`tel:${claimInfo.pa_phone}`}>{claimInfo.pa_phone}</a></span>
-              )}
-            </div>
-          </div>
+    <div className="fu-page">
+      <PageHeader
+        leading={
+          <Tooltip title="Back to follow-ups">
+            <Button type="text" className="ui-icon-btn" icon={<ArrowLeftOutlined />}
+              aria-label="Back to follow-ups" onClick={() => navigate('/claim-followup')} />
+          </Tooltip>
+        }
+        title={isLoading
+          ? <span className="fu-title-skeleton" role="status" aria-label="Loading claim" />
+          : (claimInfo?.property_address || 'Claim follow-up')}
+        meta={claimInfo && (
+          <>
+            {overdueCount > 0 && <Pill tone="red" icon={<ClockCircleOutlined />}>{overdueCount} overdue</Pill>}
+            {claimInfo.insurance_company && <span>{claimInfo.insurance_company}</span>}
+            {claimInfo.claim_number && <span>Claim #{claimInfo.claim_number}</span>}
+            {claimInfo.pa_name && <span>PA: {claimInfo.pa_name}</span>}
+          </>
         )}
+        actions={
+          <>
+            <Tooltip title="Refresh">
+              <Button icon={<ReloadOutlined spin={isFetching && !isLoading} />} aria-label="Refresh" onClick={() => refetch()} />
+            </Tooltip>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Add Stage</Button>
+          </>
+        }
+      />
 
-        {/* Supplement Status */}
-        {Object.keys(supplementStatuses).length > 0 && (
-          <div style={{ marginBottom: 12, padding: '6px 8px', background: '#f7f7f5', borderRadius: 6 }}>
-            <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Supplement Status</Text>
-            <Space size={4} wrap>
-              {supplementStatuses['identified'] && <Tag color="orange" style={{ margin: 0, cursor: 'pointer' }} onClick={() => navigate('/supplements')}>Review Needed ({supplementStatuses['identified']})</Tag>}
-              {supplementStatuses['in_progress'] && <Tag color="processing" style={{ margin: 0, cursor: 'pointer' }} onClick={() => navigate('/supplements')}>In Progress ({supplementStatuses['in_progress']})</Tag>}
-              {supplementStatuses['submitted'] && <Tag color="blue" style={{ margin: 0 }}>Submitted ({supplementStatuses['submitted']})</Tag>}
-              {supplementStatuses['under_review'] && <Tag color="geekblue" style={{ margin: 0 }}>Under Review ({supplementStatuses['under_review']})</Tag>}
-              {supplementStatuses['approved'] && <Tag color="green" style={{ margin: 0 }}>Approved ({supplementStatuses['approved']})</Tag>}
-              {supplementStatuses['denied'] && <Tag color="red" style={{ margin: 0 }}>Denied ({supplementStatuses['denied']})</Tag>}
-            </Space>
-          </div>
-        )}
+      {renderTrack()}
 
-        <Row gutter={[8, 8]}>
-          <Col span={8}>
-            <Statistic title="Active Tasks" value={activeTasks.length} valueStyle={{ fontSize: 18, color: '#1f74c9' }} />
-          </Col>
-          <Col span={8}>
-            <Statistic title="Resolved" value={resolvedTasks.length} valueStyle={{ fontSize: 18, color: '#448361' }} />
-          </Col>
-          <Col span={8}>
-            <Statistic title="Next Follow-up" value={nextFollowupDate ? dayjs(nextFollowupDate).format('MM/DD') : '-'}
-              valueStyle={{ fontSize: 18, color: hasOverdue ? '#b5403b' : undefined }} />
-          </Col>
-        </Row>
-      </Card>
+      <Row gutter={isMobile ? [0, 32] : [48, 32]}>
+        <Col xs={24} lg={16}>
+          {/* Tasks */}
+          <section className="ui-section" aria-labelledby="fu-tasks-title">
+            <div className="ui-section-head">
+              <h2 className="ui-section-title" id="fu-tasks-title">
+                Open tasks
+                {!isLoading && <span className="fu-count">{openTasks.length}</span>}
+              </h2>
+            </div>
 
-      {/* Depreciation Recovery Phase Tracker */}
-      {tasks.filter(t => t.task_type === 'depreciation_recovery' && t.status !== 'cancelled').map(depTask => (
-        <Card key={depTask.id} size="small" title={`Depreciation Recovery: ${depTask.title}`} style={{ marginBottom: 16 }}>
-          <DepreciationPhaseTracker task={depTask} onUpdated={() => refetch()} />
-        </Card>
-      ))}
+            {isLoading ? (
+              <Skeleton active paragraph={{ rows: 5 }} />
+            ) : openTasks.length === 0 ? (
+              <div className="fu-empty-block">
+                <p>
+                  {tasks.length === 0
+                    ? 'This claim has no follow-up stages yet. Add the first one to start tracking it.'
+                    : 'Nothing open on this claim. Add a stage when the next follow-up starts.'}
+                </p>
+                <Button icon={<PlusOutlined />} onClick={openCreate}>Add Stage</Button>
+              </div>
+            ) : (
+              <div className="fu-task-list">{openTasks.map(renderOpenTask)}</div>
+            )}
 
-      {/* Tasks Table */}
-      <Card size="small" title="Tasks" style={{ marginBottom: 16 }}>
-        <Table<FollowUpTask>
-          size="small"
-          dataSource={tasks}
-          rowKey="id"
-          loading={isLoading}
-          pagination={false}
-          columns={[
-            {
-              title: 'Stage', dataIndex: 'task_type', width: 140,
-              render: (t: string) => getStageLabel(t),
-            },
-            {
-              title: 'Title', dataIndex: 'title', ellipsis: true,
-            },
-            {
-              title: 'Status', dataIndex: 'status', width: 130,
-              render: (s: string, record) => {
-                const overdue = isOverdue(record);
-                return <Tag color={STATUS_COLORS[overdue ? 'overdue' : s] || 'default'}>{(overdue ? 'OVERDUE' : s).replace('_', ' ').toUpperCase()}</Tag>;
-              },
-            },
-            {
-              title: 'Priority', dataIndex: 'priority', width: 90,
-              render: (p: string) => <Tag color={PRIORITY_TAG_COLORS[p] || 'default'}>{p.toUpperCase()}</Tag>,
-            },
-            {
-              title: 'Next Follow-up', dataIndex: 'next_followup_date', width: 120,
-              render: (d?: string, record?: FollowUpTask) => {
-                if (record?.status === 'resolved') return <Text type="success">Resolved</Text>;
-                if (!d) return <Text type="secondary">-</Text>;
-                const dt = dayjs(d);
-                const overdue = dt.isBefore(dayjs());
-                return <Tooltip title={dt.format('YYYY-MM-DD HH:mm')}><Text type={overdue ? 'danger' : undefined}>{dt.fromNow()}</Text></Tooltip>;
-              },
-            },
-            {
-              title: 'Assigned', dataIndex: 'assigned_to_name', width: 120, ellipsis: true,
-              render: (n?: string, r?: any) => (
-                <div>
-                  <div>{n || <Text type="secondary">-</Text>}</div>
-                  {r?.assigned_to_role && <Text type="secondary" style={{ fontSize: 11 }}>{r.assigned_to_role}</Text>}
+            {doneTasks.length > 0 && (
+              <div className="fu-done">
+                <button
+                  type="button"
+                  className="fu-done-toggle"
+                  aria-expanded={showDone}
+                  onClick={() => setShowDone(v => !v)}
+                >
+                  {showDone ? <DownOutlined aria-hidden="true" /> : <RightOutlined aria-hidden="true" />}
+                  Done
+                  <span className="fu-count">{doneTasks.length}</span>
+                </button>
+                {showDone && <div className="fu-task-list">{doneTasks.map(renderDoneTask)}</div>}
+              </div>
+            )}
+          </section>
+
+          {/* Depreciation Recovery Phase Tracker */}
+          {tasks.filter(t => t.task_type === 'depreciation_recovery' && t.status !== 'cancelled').map(depTask => (
+            <section key={depTask.id} className="ui-section">
+              <div className="ui-section-head">
+                <h2 className="ui-section-title">Depreciation recovery</h2>
+                <span className="fu-muted">{depTask.title}</span>
+              </div>
+              <DepreciationPhaseTracker task={depTask} onUpdated={() => refetch()} />
+            </section>
+          ))}
+
+          {/* Estimates / Email / History */}
+          <section className="ui-section fu-workspace" ref={workspaceRef} aria-label="Estimates and email">
+            <Tabs
+              activeKey={activeTab}
+              onChange={setActiveTab}
+              items={[
+                {
+                  key: 'estimates',
+                  label: <span><FilePdfOutlined /> Estimates</span>,
+                  children: claimId ? <ClaimEstimatesPanel claimId={claimId} /> : null,
+                },
+                {
+                  key: 'email',
+                  label: <span><MailOutlined /> {isMobile ? 'Email' : 'Send Email'}</span>,
+                  children: claimId ? (
+                    <div className="fu-tab-body">
+                      <label className="fu-regarding">
+                        <span className="fu-field-label">Regarding</span>
+                        <Select
+                          value={emailTaskId ?? '__claim__'}
+                          onChange={(v) => setEmailTaskId(v === '__claim__' ? undefined : v)}
+                          options={[{ value: '__claim__', label: 'This claim (no specific task)' }, ...taskOptions]}
+                          style={{ width: '100%' }}
+                          aria-label="Task this email is about"
+                        />
+                        <span className="fu-muted">
+                          Sending for a task marks it contacted and moves its next follow-up date.
+                        </span>
+                      </label>
+                      <EmailComposer
+                        key={emailTaskId || 'claim'}
+                        claimId={claimId}
+                        followupTaskId={emailTaskId}
+                        taskType={emailTask?.task_type}
+                        wmJobId={emailTask?.wm_job_id}
+                        contactCount={emailTask?.contact_count || 0}
+                        contacts={emailContacts}
+                        defaultTo={emailTask?.assigned_to_email || tasks[0]?.assigned_to_email || ''}
+                        onSent={() => {
+                          invalidateClaim();
+                          queryClient.invalidateQueries({ queryKey: ['communications'] });
+                          queryClient.invalidateQueries({ queryKey: ['sent-emails'] });
+                          openHistory(emailTaskId);
+                        }}
+                        onCancel={() => { setEmailTaskId(undefined); setActiveTab('estimates'); }}
+                      />
+                    </div>
+                  ) : null,
+                },
+                {
+                  key: 'history',
+                  label: <span><ClockCircleOutlined /> {isMobile ? 'History' : 'Communication History'}</span>,
+                  children: claimId ? (
+                    <div className="fu-tab-body">
+                      <label className="fu-regarding">
+                        <span className="fu-field-label">Show</span>
+                        <Select
+                          value={historyTaskId ?? '__all__'}
+                          onChange={(v) => setHistoryTaskId(v === '__all__' ? undefined : v)}
+                          options={[{ value: '__all__', label: 'Everything on this claim' }, ...taskOptions]}
+                          style={{ width: '100%' }}
+                          aria-label="Filter history by task"
+                        />
+                      </label>
+                      <CommunicationTimeline claimId={claimId} taskId={historyTaskId} />
+                    </div>
+                  ) : null,
+                },
+              ]}
+            />
+          </section>
+        </Col>
+
+        <Col xs={24} lg={8}>
+          {/* Claim facts */}
+          <section className="ui-section">
+            <div className="ui-section-head">
+              <h2 className="ui-section-title">Claim</h2>
+            </div>
+            {isLoading ? (
+              <Skeleton active title={false} paragraph={{ rows: 5 }} />
+            ) : (
+              <PropertyList
+                labelWidth={120}
+                items={[
+                  { key: 'claim', label: 'Claim #', value: claimInfo?.claim_number },
+                  {
+                    key: 'insurance',
+                    label: 'Insurance',
+                    value: claimInfo?.insurance_company ? (
+                      <span className="fu-stack">
+                        <span>{claimInfo.insurance_company}</span>
+                        {insEmail && <a href={`mailto:${insEmail}`} className="fu-contact-line">{insEmail}</a>}
+                      </span>
+                    ) : null,
+                  },
+                  {
+                    key: 'next',
+                    label: 'Next follow-up',
+                    value: nextFollowupDate ? (
+                      <span className={nextOverdue ? 'fu-overdue-text' : undefined}>
+                        {dayjs(nextFollowupDate).format('MMM D, YYYY')}
+                        <span className="fu-muted"> · {relativeDue(nextFollowupDate, nextOverdue)}</span>
+                      </span>
+                    ) : null,
+                  },
+                  {
+                    key: 'received',
+                    label: 'Received',
+                    value: claimInfo && (claimInfo.expectedAmount || claimInfo.receivedAmount) ? (
+                      <span className="fu-money">
+                        <strong>{formatCurrency(claimInfo.receivedAmount)}</strong>
+                        {claimInfo.expectedAmount > 0 && (
+                          <span className="fu-muted"> of {formatCurrency(claimInfo.expectedAmount)} expected</span>
+                        )}
+                      </span>
+                    ) : null,
+                  },
+                  {
+                    key: 'deductible',
+                    label: 'Deductible',
+                    hideEmpty: true,
+                    value: claimInfo?.deductible ? <span className="fu-money">{formatCurrency(claimInfo.deductible)}</span> : null,
+                  },
+                  {
+                    key: 'estimate',
+                    label: 'Ins. estimate',
+                    value: claimInfo ? (claimInfo.hasInsuranceEstimate ? 'Received' : 'Not received yet') : null,
+                  },
+                  {
+                    key: 'wm',
+                    label: 'WM costs',
+                    hideEmpty: true,
+                    value: claimInfo?.wmCostStatus ? (WM_COST_STATUS_LABELS[claimInfo.wmCostStatus] || claimInfo.wmCostStatus) : null,
+                  },
+                ]}
+              />
+            )}
+          </section>
+
+          {/* Contacts */}
+          {claimInfo && (
+            <section className="ui-section">
+              <div className="ui-section-head">
+                <h2 className="ui-section-title">Contacts</h2>
+              </div>
+              {claimInfo.adjuster_name || claimInfo.adjuster_email || claimInfo.pa_name || claimInfo.pa_email ? (
+                <div className="fu-contacts">
+                  {(claimInfo.adjuster_name || claimInfo.adjuster_email) && renderContact(
+                    'Adjuster', claimInfo.adjuster_name, '', claimInfo.adjuster_email, claimInfo.adjuster_phone,
+                  )}
+                  {(claimInfo.pa_name || claimInfo.pa_email) && renderContact(
+                    'Public Adjuster', claimInfo.pa_name, claimInfo.pa_company, claimInfo.pa_email, claimInfo.pa_phone,
+                  )}
                 </div>
-              ),
-            },
-            {
-              title: '', key: 'actions', width: 44, align: 'center',
-              render: (_, task) => (
-                <Dropdown menu={{
-                  items: [
-                    { key: 'email', icon: <MailOutlined />, label: 'Send Email',
-                      onClick: () => setEmailTaskId(task.id) },
-                    { key: 'resolve', icon: <CheckCircleOutlined />, label: 'Resolve',
-                      disabled: task.status === 'resolved',
-                      onClick: () => resolveMutation.mutate({ taskId: task.id, body: { outcome: 'resolved' } }) },
-                    { key: 'reopen', icon: <ClockCircleOutlined />, label: 'Reopen',
-                      disabled: task.status !== 'resolved',
-                      onClick: () => reopenMutation.mutate(task.id) },
-                    { key: 'edit', icon: <EditOutlined />, label: 'Edit',
-                      onClick: () => {
-                        setSelectedTask(task);
-                        const isKnown = (KNOWN_TASK_TYPES as readonly string[]).includes(task.task_type);
-                        editForm.setFieldsValue({
-                          title: task.title,
-                          task_type: isKnown ? task.task_type : '__custom__',
-                          custom_task_type: isKnown ? undefined : task.task_type,
-                          status: task.status,
-                          priority: task.priority,
-                          assigned_to_name: task.assigned_to_name,
-                          assigned_to_email: task.assigned_to_email,
-                          assigned_to_role: task.assigned_to_role,
-                          auto_followup_enabled: task.auto_followup_enabled,
-                          followup_interval_days: task.followup_interval_days,
-                          max_followup_count: task.max_followup_count,
-                        });
-                        setEditModalOpen(true);
-                      }},
-                    { type: 'divider' },
-                    { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true,
-                      onClick: () => Modal.confirm({ title: 'Delete this task?', onOk: () => deleteMutation.mutate(task.id) }) },
-                  ],
-                }}>
-                  <Button type="text" size="small" icon={<EllipsisOutlined />} />
-                </Dropdown>
-              ),
-            },
-          ]}
-        />
-      </Card>
+              ) : (
+                <p className="fu-empty">No adjuster or public adjuster on file for this claim.</p>
+              )}
+            </section>
+          )}
 
-      {/* Tabs: Estimates / Email / History */}
-      <Card size="small">
-        <Tabs
-          activeKey={emailTaskId ? 'email' : 'estimates'}
-          onChange={(key) => { if (key !== 'email') setEmailTaskId(undefined); }}
-          size="small"
-          items={[
-            {
-              key: 'estimates',
-              label: <span><FilePdfOutlined /> Estimates</span>,
-              children: claimId ? <ClaimEstimatesPanel claimId={claimId} /> : null,
-            },
-            {
-              key: 'email',
-              label: <span><MailOutlined /> Send Email</span>,
-              children: claimId ? (
-                <EmailComposer
-                  claimId={claimId}
-                  followupTaskId={emailTaskId}
-                  taskType={tasks.find(t => t.id === emailTaskId)?.task_type}
-                  wmJobId={tasks.find(t => t.id === emailTaskId)?.wm_job_id}
-                  contactCount={tasks.find(t => t.id === emailTaskId)?.contact_count || 0}
-                  defaultTo={tasks.find(t => t.id === emailTaskId)?.assigned_to_email || tasks[0]?.assigned_to_email || ''}
-                  onSent={() => {
-                    message.success('Email sent');
-                    queryClient.invalidateQueries({ queryKey: ['claim-followup-detail', claimId] });
-                  }}
-                />
-              ) : null,
-            },
-            {
-              key: 'history',
-              label: <span><ClockCircleOutlined /> Communication History</span>,
-              children: claimId ? <CommunicationTimeline claimId={claimId} taskId={emailTaskId} /> : null,
-            },
-          ]}
-        />
-      </Card>
+          {/* Supplement status */}
+          {supplementEntries.length > 0 && claimInfo && (
+            <section className="ui-section">
+              <div className="ui-section-head">
+                <h2 className="ui-section-title">Supplements</h2>
+                <Button type="text" size="small" className="ui-icon-btn" onClick={() => navigate('/supplements')}>
+                  Open list
+                </Button>
+              </div>
+              <ul className="fu-sup-summary">
+                {supplementEntries.map(s => (
+                  <li key={s}>
+                    <SupplementStatusPill status={s} />
+                    <span className="fu-count">{claimInfo.supplementStatuses[s]}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </Col>
+      </Row>
+
+      <ResolveTaskModal task={resolvingTask} onClose={() => setResolvingTask(null)} />
 
       {/* Create Task Modal */}
       <Modal title="Add Stage" open={createModalOpen} onOk={handleCreateSubmit}
         onCancel={() => { setCreateModalOpen(false); createForm.resetFields(); }}
-        confirmLoading={createMutation.isPending} width={600}>
+        confirmLoading={createMutation.isPending} width={600} forceRender>
         <Form form={createForm} layout="vertical">
           <Row gutter={16}>
             <Col xs={24} sm={12}>
@@ -530,10 +999,7 @@ const ClaimFollowUpDetail: React.FC = () => {
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item name="priority" label="Priority" initialValue="normal">
-                <Select options={[
-                  { value: 'low', label: 'Low' }, { value: 'normal', label: 'Normal' },
-                  { value: 'high', label: 'High' }, { value: 'urgent', label: 'Urgent' },
-                ]} />
+                <Select options={PRIORITY_OPTIONS} />
               </Form.Item>
             </Col>
           </Row>
@@ -554,7 +1020,7 @@ const ClaimFollowUpDetail: React.FC = () => {
           <Row gutter={16}>
             <Col xs={24} sm={12}>
               <Form.Item name="next_followup_date" label="First Follow-up Date">
-                <DatePicker showTime style={{ width: '100%' }} placeholder="Default: 3 days" />
+                <DatePicker showTime style={{ width: '100%' }} placeholder="Default: 3 days" presets={followUpPresets()} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -583,21 +1049,15 @@ const ClaimFollowUpDetail: React.FC = () => {
 
       {/* Edit Task Modal */}
       <Modal title={`Edit: ${selectedTask?.title || ''}`} open={editModalOpen}
-        onOk={() => editForm.validateFields().then(values => {
-          if (!selectedTask) return;
-          if (values.task_type === '__custom__') {
-            const ct = (values.custom_task_type || '').trim().toLowerCase().replace(/\s+/g, '_');
-            if (!ct) { message.warning('Enter a custom stage name'); return; }
-            values.task_type = ct;
-          }
-          delete values.custom_task_type;
-          editMutation.mutate({ taskId: selectedTask.id, data: values });
-        })}
+        onOk={handleEditSubmit}
         onCancel={() => { setEditModalOpen(false); editForm.resetFields(); }}
-        confirmLoading={editMutation.isPending} width={600}>
-        <Form form={editForm} layout="vertical" size="small">
+        confirmLoading={editMutation.isPending} width={600} forceRender>
+        <Form form={editForm} layout="vertical">
           <Form.Item name="title" label="Title" rules={[{ required: true }]}>
             <Input />
+          </Form.Item>
+          <Form.Item name="description" label="Description">
+            <TextArea rows={2} placeholder="Optional details" />
           </Form.Item>
           <Row gutter={12}>
             <Col xs={24} sm={12}>
@@ -628,13 +1088,17 @@ const ClaimFollowUpDetail: React.FC = () => {
           <Row gutter={12}>
             <Col xs={24} sm={12}>
               <Form.Item name="priority" label="Priority">
-                <Select options={[
-                  { value: 'low', label: 'Low' }, { value: 'normal', label: 'Normal' },
-                  { value: 'high', label: 'High' }, { value: 'urgent', label: 'Urgent' },
-                ]} />
+                <Select options={PRIORITY_OPTIONS} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
+              <Form.Item name="next_followup_date" label="Next Follow-up">
+                <DatePicker showTime style={{ width: '100%' }} presets={followUpPresets()} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={12}>
+            <Col xs={24} sm={8}>
               <Form.Item name="assigned_to_role" label="Assigned Role">
                 <Select
                   options={ASSIGNED_ROLE_OPTIONS}
@@ -642,12 +1106,10 @@ const ClaimFollowUpDetail: React.FC = () => {
                 />
               </Form.Item>
             </Col>
-          </Row>
-          <Row gutter={12}>
-            <Col xs={24} sm={12}>
+            <Col xs={24} sm={8}>
               <Form.Item name="assigned_to_name" label="Name"><Input /></Form.Item>
             </Col>
-            <Col xs={24} sm={12}>
+            <Col xs={24} sm={8}>
               <Form.Item name="assigned_to_email" label="Email"><Input /></Form.Item>
             </Col>
           </Row>

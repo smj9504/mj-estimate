@@ -1431,3 +1431,877 @@ h4.ant-typography {
   border-top: 1px solid var(--color-neutral-200);
   color: var(--color-neutral-700);
 }
+
+/* ============================================================
+   Claim Follow-up (claim page, estimates panel, resolve form,
+   communication history). The list page keeps its own cf-* rules.
+   ============================================================ */
+
+.fu-count {
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.fu-muted {
+  color: var(--color-neutral-600);
+}
+.fu-money {
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+}
+.fu-money--strong {
+  font-weight: 500;
+}
+.fu-empty {
+  margin: 0;
+  padding: 12px 0;
+  font-size: 14px;
+  color: var(--color-neutral-600);
+}
+.fu-empty-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 0 20px;
+  color: var(--color-neutral-700);
+}
+.fu-empty-block p {
+  margin: 0;
+}
+.fu-error {
+  max-width: 420px;
+  margin: 64px auto;
+  text-align: center;
+  color: var(--color-neutral-700);
+}
+.fu-error p {
+  margin: 6px 0 16px;
+}
+.fu-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.fu-field-label {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.fu-title-skeleton {
+  display: inline-block;
+  width: min(320px, 70vw);
+  height: 26px;
+  border-radius: 4px;
+  vertical-align: middle;
+  background: linear-gradient(90deg, var(--color-neutral-100) 25%, var(--color-neutral-200) 37%, var(--color-neutral-100) 63%);
+  background-size: 400% 100%;
+  animation: fu-shimmer 1.4s ease infinite;
+}
+@keyframes fu-shimmer {
+  from { background-position: 100% 50%; }
+  to { background-position: 0 50%; }
+}
+
+/* Stage track: the same six slots as the list, larger, with what each is on */
+.fu-track-wrap {
+  margin: 0 0 28px;
+}
+.fu-track {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+.fu-step {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+}
+button.fu-step {
+  cursor: pointer;
+}
+button.fu-step:focus-visible {
+  border-radius: 4px;
+}
+.fu-step-bar {
+  display: block;
+  height: 6px;
+  margin-bottom: 6px;
+  border-radius: 3px;
+  background: var(--color-neutral-100);
+  transition: box-shadow 0.15s ease-out;
+}
+.fu-step-label,
+.fu-step-detail {
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fu-step-label {
+  font-weight: 500;
+  color: var(--color-neutral-700);
+}
+.fu-step-detail {
+  color: var(--color-neutral-600);
+}
+.fu-step--done .fu-step-bar { background: #b9b7b0; }
+.fu-step--active .fu-step-bar { background: var(--color-neutral-900); }
+.fu-step--active .fu-step-label { color: var(--color-neutral-900); font-weight: 600; }
+.fu-step--overdue .fu-step-bar { background: var(--color-error); }
+.fu-step--overdue .fu-step-label,
+.fu-step--overdue .fu-step-detail { color: var(--tag-red-text); }
+.fu-step--overdue .fu-step-label { font-weight: 600; }
+.fu-step--issue .fu-step-bar { background: var(--color-warning); }
+.fu-step--issue .fu-step-label,
+.fu-step--issue .fu-step-detail { color: var(--tag-orange-text); }
+.fu-step--issue .fu-step-label { font-weight: 600; }
+.fu-step--waiting .fu-step-bar {
+  background: repeating-linear-gradient(-45deg, #b9b7b0 0 3px, var(--color-neutral-100) 3px 6px);
+}
+.fu-step--todo .fu-step-bar {
+  background: var(--color-surface);
+  box-shadow: inset 0 0 0 1px #b9b7b0;
+}
+.fu-step--none .fu-step-label { color: var(--color-neutral-600); font-weight: 400; }
+button.fu-step--track:hover .fu-step-bar { box-shadow: 0 0 0 2px rgba(55, 53, 47, 0.1); }
+button.fu-step--track.fu-step--todo:hover .fu-step-bar { box-shadow: inset 0 0 0 1px #b9b7b0, 0 0 0 2px rgba(55, 53, 47, 0.1); }
+button.fu-step--track:hover .fu-step-label { text-decoration: underline; text-underline-offset: 2px; }
+
+.fu-track-extras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.fu-step--extra {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 6px;
+  background: var(--color-neutral-50);
+}
+.fu-step--extra.fu-step--active {
+  border-color: var(--color-neutral-400);
+  background: var(--color-surface);
+}
+.fu-step--extra.fu-step--overdue {
+  border-color: transparent;
+  background: var(--tag-red-bg);
+}
+button.fu-step--extra:hover {
+  border-color: var(--color-neutral-400);
+}
+
+@media (max-width: 768px) {
+  .fu-track {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px 10px;
+  }
+  .fu-track-wrap {
+    margin-bottom: 24px;
+  }
+}
+
+/* Tasks: one row per task, actions in reach, next date editable in place */
+.fu-task-list {
+  display: flex;
+  flex-direction: column;
+}
+.fu-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px 24px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.fu-task:last-child {
+  border-bottom: none;
+}
+/* Arriving from the stage track: a brief wash that reaches past the text */
+.fu-task.is-flash {
+  animation: fu-flash 1.6s ease-out;
+}
+@keyframes fu-flash {
+  from {
+    background-color: var(--tag-yellow-bg);
+    box-shadow: 0 0 0 8px var(--tag-yellow-bg);
+  }
+  to {
+    background-color: transparent;
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+.fu-task-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.fu-task-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.fu-task-stage {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.fu-task-top > .fu-muted {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.fu-task-title {
+  margin: 6px 0 0;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--color-neutral-900);
+  overflow-wrap: anywhere;
+}
+.fu-task--done .fu-task-title {
+  color: var(--color-neutral-700);
+}
+.fu-task-desc {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--color-neutral-700);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.fu-task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.fu-task-meta-item {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
+}
+.fu-task-meta-item > .anticon {
+  color: #a5a29a;
+}
+.fu-task-email,
+.fu-link-btn {
+  color: var(--color-neutral-700);
+  overflow-wrap: anywhere;
+}
+.fu-task-email:hover {
+  color: var(--color-primary);
+}
+.fu-link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--color-neutral-400);
+  text-underline-offset: 3px;
+}
+.fu-link-btn:hover {
+  color: var(--color-neutral-900);
+  text-decoration-color: currentColor;
+}
+.fu-task-side {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+.fu-task-due {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.fu-task-due-label {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.fu-task-due-value {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0 6px;
+}
+.fu-date.ant-picker {
+  width: 138px;
+  padding: 2px 6px;
+  margin-right: -6px;
+  border-radius: 6px;
+  transition: background-color 0.12s ease;
+}
+.fu-date.ant-picker:hover,
+.fu-date.ant-picker-focused {
+  background: var(--color-ink-hover);
+}
+.fu-date.ant-picker .ant-picker-input > input {
+  font-size: 14px;
+  color: var(--color-neutral-900);
+  text-align: right;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.fu-task-due-rel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+}
+.fu-task-due-rel.is-overdue {
+  font-weight: 500;
+  color: var(--tag-red-text);
+}
+.fu-task-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fu-done {
+  margin-top: 4px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.fu-done-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px -8px 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-neutral-700);
+  cursor: pointer;
+}
+.fu-done-toggle:hover {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-hover);
+}
+.fu-done-toggle > .anticon {
+  font-size: 11px;
+}
+.fu-done-toggle .fu-count {
+  margin-left: 0;
+}
+
+/* Status pill that is also the status control */
+.fu-status-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  margin: -2px 0 -2px -2px;
+  padding: 2px 4px 2px 2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.fu-status-trigger:hover,
+.fu-status-trigger.ant-dropdown-open {
+  background: var(--color-ink-hover);
+}
+.fu-status-caret {
+  font-size: 10px;
+  color: var(--color-neutral-600);
+}
+.fu-status-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 768px) {
+  .fu-task {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .fu-task-side {
+    align-self: stretch;
+    align-items: stretch;
+  }
+  .fu-task-due {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .fu-task-actions .ant-btn {
+    height: 40px;
+  }
+  .fu-task-actions .ant-btn:not(.ui-icon-btn) {
+    flex: 1 1 0;
+  }
+  .fu-task-actions .ant-btn.ui-icon-btn {
+    width: 40px;
+  }
+}
+
+/* Workspace tabs and the side column */
+.fu-workspace {
+  scroll-margin-top: 72px;
+}
+.fu-regarding {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 560px;
+  margin-bottom: 16px;
+}
+.fu-regarding > .fu-muted {
+  font-size: 13px;
+}
+.fu-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.fu-contact-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+  overflow-wrap: anywhere;
+}
+.fu-contact-line:hover {
+  color: var(--color-primary);
+}
+.fu-overdue-text {
+  font-weight: 500;
+  color: var(--tag-red-text);
+}
+.fu-contacts {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 6px 0;
+}
+.fu-contact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.fu-contact-role {
+  color: var(--color-neutral-600);
+}
+.fu-contact-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.fu-sup-summary {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+.fu-sup-summary li {
+  display: flex;
+  align-items: center;
+  padding: 5px 0;
+}
+
+/* Estimates panel */
+.fu-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.fu-block-title {
+  margin: 0 0 2px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.fu-version {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.fu-version:last-child {
+  border-bottom: none;
+}
+.fu-version.is-editing {
+  margin: 6px -12px;
+  padding: 12px;
+  border: 1px solid var(--color-neutral-400);
+  border-radius: 8px;
+  background: var(--color-neutral-50);
+}
+.fu-version-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.fu-version-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 14px;
+  color: var(--color-neutral-700);
+}
+.fu-version-rev {
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.fu-version-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.fu-version-meta {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.fu-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-900);
+  transition: background-color 0.12s ease;
+}
+.fu-file-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fu-file-chip:hover {
+  color: var(--color-neutral-900);
+  background: var(--color-ink-hover);
+}
+.fu-pdf-icon {
+  color: var(--tag-red-text);
+}
+.fu-figures {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 10px 0 0;
+}
+.fu-figure {
+  min-width: 0;
+}
+.fu-figure dt {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.fu-figure dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+}
+.fu-edit-grid {
+  margin-top: 10px;
+}
+.fu-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+.fu-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--color-neutral-200);
+  font-size: 13px;
+}
+.fu-section-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.fu-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.fu-section-nums {
+  color: var(--color-neutral-700);
+  font-variant-numeric: tabular-nums;
+}
+.fu-section-row {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding: 4px 0 4px 14px;
+  font-size: 13px;
+  color: var(--color-neutral-900);
+}
+.fu-section-edit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 120px 32px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.fu-sup-group-head {
+  display: flex;
+  align-items: center;
+  padding: 8px 0 2px;
+}
+.fu-sup {
+  margin: 0 -8px;
+  padding: 10px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.fu-sup:hover {
+  background: rgba(55, 53, 47, 0.04);
+}
+.fu-sup-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.fu-sup-title {
+  font-size: 14px;
+}
+.fu-sup-amount {
+  margin-left: auto;
+}
+.fu-sup-reason {
+  display: -webkit-box;
+  margin: 2px 0 0;
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.fu-bid-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.fu-bid-list li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 4px 0;
+  border-top: 1px solid var(--color-neutral-200);
+  font-size: 13px;
+}
+.fu-bid-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--color-neutral-900);
+}
+
+@media (max-width: 576px) {
+  .fu-figures {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .fu-section-edit {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px;
+  }
+  .fu-section-edit > .ant-input {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Resolve form */
+.fu-form-hint {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.fu-form-group {
+  margin: 0 0 16px;
+  padding: 12px 14px 4px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 8px;
+}
+.fu-form-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.fu-form-group-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.fu-form-group > .fu-form-hint {
+  margin-bottom: 12px;
+}
+.fu-section-card {
+  margin-bottom: 8px;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--color-neutral-50);
+}
+.fu-section-card-top {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.fu-compact-item.ant-form-item {
+  margin-bottom: 12px;
+}
+.fu-upload-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.fu-existing-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.fu-existing-file a,
+.fu-existing-file > span:not(.ui-pill) {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-neutral-900);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fu-option {
+  display: flex;
+  flex-direction: column;
+}
+.fu-option-hint {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.fu-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.fu-note > .anticon {
+  margin-top: 3px;
+  color: var(--tag-blue-text);
+}
+
+/* Communication history */
+.fu-comm.ant-timeline {
+  padding-top: 8px;
+}
+.fu-comm-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.fu-comm-kind {
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.fu-comm-time {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.fu-comm-line {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--color-neutral-900);
+  overflow-wrap: anywhere;
+}
+.fu-comm-subject {
+  font-weight: 500;
+}
+.fu-comm-meta {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  overflow-wrap: anywhere;
+}
+.fu-comm-reply {
+  margin-top: 6px;
+}
+.fu-comm-error {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--tag-red-text);
+}
+.fu-comm-toggle {
+  margin-top: 2px;
+}
+.ant-btn.fu-comm-toggle-btn {
+  height: 26px;
+  margin-left: -7px;
+  padding: 0 6px;
+  font-size: 13px;
+}
+.ant-btn.fu-comm-toggle-btn .anticon {
+  font-size: 10px;
+}
+.fu-comm-content {
+  max-height: 320px;
+  margin-top: 6px;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 6px;
+  background: var(--color-neutral-50);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fu-task.is-flash,
+  .fu-title-skeleton {
+    animation: none;
+  }
+}
