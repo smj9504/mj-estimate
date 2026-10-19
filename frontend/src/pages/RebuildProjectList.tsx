@@ -136,12 +136,12 @@ const RebuildProjectList: React.FC = () => {
 
   return (
     <div style={{ padding: '0 4px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={3} style={{ margin: 0 }}>
           <BuildOutlined style={{ marginRight: 8 }} />
           Rebuild Projects
         </Title>
-        <Space>
+        <Space wrap>
           <Button icon={<TeamOutlined />} onClick={() => setContractorModalOpen(true)}>Add Contractor</Button>
           <Button icon={<ReloadOutlined />} onClick={() => refetch()}>Refresh</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>New Project</Button>

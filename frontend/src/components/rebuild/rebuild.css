@@ -24,9 +24,12 @@
   font-weight: 400;
   color: var(--color-neutral-600);
 }
-.rb-status-select {
-  min-width: 132px;
+.rb-status-select.ant-select {
+  width: auto;
   margin-left: -7px; /* align the pill, not the select border, with the title */
+}
+.rb-status-select .ant-select-selector {
+  padding-right: 26px !important;
 }
 .rb-status-select:not(.ant-select-focused):not(:hover) .ant-select-selector {
   border-color: transparent !important;

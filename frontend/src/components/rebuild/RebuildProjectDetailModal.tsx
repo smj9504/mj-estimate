@@ -45,7 +45,8 @@ interface Props {
 const REQUIRED_TYPES: string[] = REQUIRED_DOCS.map(d => d.type);
 
 const fmtDate = (v?: string | null) => (v ? dayjs(v).format('MMM D, YYYY') : '');
-const money = (v?: number | null) => (v ? formatCurrency(v) : '');
+/** An amount for a property row; 0 means it was never entered, so the row reads "Empty" */
+const amount = (v?: number | null) => (v ? <span className="rb-num">{formatCurrency(v)}</span> : null);
 const receivedAt = (v: EstimateVersion) => dayjs(v.date_received || v.created_at || 0).valueOf();
 
 /** The estimate a rebuild works from: newest reconstruction/combined PDF, else the newest PDF at all */
@@ -224,7 +225,7 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
     ];
   };
 
-  const renderDocLine = (doc: RebuildCompletionDoc) => {
+  const renderDocLine = (doc: RebuildCompletionDoc, showSent = true) => {
     const url = completionDocPdfUrl(doc);
     const active = viewing?.kind === 'doc' && viewing.id === doc.id;
     const meta = [doc.file_name, fmtDate(doc.created_at)].filter(Boolean).join(' · ');
@@ -247,7 +248,7 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
             </span>
           </span>
         )}
-        {doc.status === 'sent' && <Pill tone="green">Sent</Pill>}
+        {showSent && doc.status === 'sent' && <Pill tone="green">Sent</Pill>}
         <Dropdown menu={{ items: docMenu(doc) }} trigger={['click']} placement="bottomRight">
           <Button type="text" size="small" className="ui-icon-btn" icon={<MoreOutlined />} aria-label={`Actions for ${doc.title}`} />
         </Dropdown>
@@ -261,7 +262,7 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
       return (
         <Button size="small" type={hasDocs ? 'text' : 'default'} className={hasDocs ? 'ui-icon-btn' : undefined}
           icon={<FilePdfOutlined />} onClick={() => setDocGeneratorOpen(true)}>
-          {hasDocs ? 'Generate again' : 'Generate'}
+          {hasDocs ? 'Regenerate' : 'Generate'}
         </Button>
       );
     }
@@ -311,10 +312,13 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
                   </span>
                   <span className="rb-check-label">{r.label}</span>
                   {state === 'sent' && <Pill tone="green">Sent</Pill>}
-                  {state === 'ready' && <Pill tone="blue">Ready to send</Pill>}
+                  {state === 'ready' && <Pill tone="blue">Ready</Pill>}
                   <span className="rb-check-action">{requiredAction(r.type, typeDocs.length > 0)}</span>
                 </div>
-                {typeDocs.length > 0 && <div className="rb-check-docs">{typeDocs.map(renderDocLine)}</div>}
+                {/* The row already says Sent; a doc repeats it only when the row holds several */}
+                {typeDocs.length > 0 && (
+                  <div className="rb-check-docs">{typeDocs.map(d => renderDocLine(d, typeDocs.length > 1))}</div>
+                )}
               </div>
             );
           })}
@@ -323,7 +327,7 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
         {otherDocs.length > 0 && (
           <div className="rb-other">
             <div className="rb-other-title">Other documents</div>
-            {otherDocs.map(renderDocLine)}
+            {otherDocs.map(d => renderDocLine(d))}
           </div>
         )}
       </section>
@@ -452,9 +456,9 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
               </span>
             ) : null,
           },
-          { key: 'insurance', label: 'Insurance $', value: <span className="rb-num">{money(p.insurance_estimate_amount)}</span> },
-          { key: 'contract', label: 'Contract $', value: <span className="rb-num">{money(p.contract_amount)}</span> },
-          { key: 'final', label: 'Final invoice $', hideEmpty: true, value: money(p.final_invoice_amount) ? <span className="rb-num">{money(p.final_invoice_amount)}</span> : null },
+          { key: 'insurance', label: 'Insurance $', value: amount(p.insurance_estimate_amount) },
+          { key: 'contract', label: 'Contract $', value: amount(p.contract_amount) },
+          { key: 'final', label: 'Final invoice $', hideEmpty: true, value: amount(p.final_invoice_amount) },
           { key: 'start', label: 'Start', value: fmtDate(p.start_date) },
           { key: 'eta', label: 'Est. completion', value: fmtDate(p.estimated_completion) },
           { key: 'priority', label: 'Priority', hideEmpty: true, value: p.priority && p.priority !== 'normal' ? humanize(p.priority) : null },
