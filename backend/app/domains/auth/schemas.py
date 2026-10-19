@@ -81,6 +81,8 @@ class StaffResponse(BaseModel):
     screen_access: Optional[List[str]] = None
     # Screens they may open after applying role defaults (login and /me only).
     screens: Optional[List[str]] = None
+    # An admin reset the password; the app asks for a new one before going on
+    must_change_password: Optional[bool] = False
 
     class Config:
         from_attributes = True
@@ -111,6 +113,8 @@ class TokenData(BaseModel):
     username: Optional[str] = None
     role: Optional[str] = None
     company_id: Optional[str] = None
+    # Seconds since the epoch; tokens from before iat was added have none
+    issued_at: Optional[int] = None
 
 
 class LoginRequest(BaseModel):
@@ -139,6 +143,24 @@ class ChangePasswordRequest(BaseModel):
     @classmethod
     def _long_enough(cls, value):
         return _check_password_length(value)
+
+
+class TemporaryPasswordChange(BaseModel):
+    # The password the admin gave them, which they just signed in with
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def _long_enough(cls, value):
+        return _check_password_length(value)
+
+
+class PasswordChanged(BaseModel):
+    message: str
+    # The change signs out every session, this one included; the app
+    # carries on with this token
+    access_token: str
 
 
 class PasswordChangeCodeSent(BaseModel):

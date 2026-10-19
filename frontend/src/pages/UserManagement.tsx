@@ -8,6 +8,7 @@ import {
   MailOutlined, IdcardOutlined, KeyOutlined
 } from '@ant-design/icons';
 import authService from '../services/authService';
+import { useAuth } from '../contexts/AuthContext';
 import ScreenChecklist from '../components/admin/ScreenChecklist';
 import ResetPasswordModal from '../components/admin/ResetPasswordModal';
 import { ALL_SCREEN_KEYS } from '../constants/screens';
@@ -49,9 +50,11 @@ interface User {
   email_verified: boolean;
   created_at: string;
   screen_access: string[] | null;
+  must_change_password?: boolean;
 }
 
 const UserManagement: React.FC = () => {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -294,6 +297,11 @@ const UserManagement: React.FC = () => {
               size="small"
             />
           </Tooltip>
+          {record.must_change_password && (
+            <Tooltip title="An admin reset this password; they choose their own at next sign-in">
+              <Tag>Temporary password</Tag>
+            </Tooltip>
+          )}
         </Space>
       ),
     },
@@ -316,12 +324,17 @@ const UserManagement: React.FC = () => {
           >
             Edit
           </Button>
-          <Tooltip title="Reset password">
+          <Tooltip
+            title={record.id === currentUser?.id
+              ? 'Change your own password from your profile'
+              : 'Reset password'}
+          >
             <Button
               type="text"
               className="ui-icon-btn"
               icon={<KeyOutlined />}
               aria-label={`Reset password for ${record.username}`}
+              disabled={record.id === currentUser?.id}
               onClick={() => setResettingUser(record)}
             />
           </Tooltip>
@@ -554,7 +567,13 @@ const UserManagement: React.FC = () => {
         </Form>
       </Modal>
 
-      <ResetPasswordModal user={resettingUser} onClose={() => setResettingUser(null)} />
+      <ResetPasswordModal
+        user={resettingUser}
+        onClose={() => {
+          setResettingUser(null);
+          fetchUsers(); // shows the Temporary password tag
+        }}
+      />
     </div>
   );
 };

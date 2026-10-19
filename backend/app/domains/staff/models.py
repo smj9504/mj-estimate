@@ -65,7 +65,10 @@ class Staff(Base):
     # Authentication
     username = Column(String(100), unique=True, nullable=False, index=True)
     password_hash = Column(String(255))  # Hashed password
-    must_change_password = Column(Boolean, default=True)
+    # An admin reset the password; the person picks their own at next sign-in
+    must_change_password = Column(Boolean, default=False)
+    # Sessions (tokens) issued before this are signed out
+    password_changed_at = Column(DateTime, nullable=True)
     last_login = Column(DateTime)
     login_attempts = Column(String(20), default="0")
     locked_until = Column(DateTime)

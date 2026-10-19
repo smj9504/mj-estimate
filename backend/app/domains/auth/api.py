@@ -3,7 +3,7 @@ Authentication API endpoints
 """
 import asyncio
 import logging
-from typing import Any, List
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
@@ -20,6 +20,7 @@ from .schemas import (
     ChangePasswordRequest,
     LoginRequest,
     PasswordChangeCodeSent,
+    PasswordChanged,
     PasswordResetConfirm,
     PasswordResetRequest,
     RoleScreensUpdate,
@@ -27,6 +28,7 @@ from .schemas import (
     StaffCreate,
     StaffResponse,
     StaffUpdate,
+    TemporaryPasswordChange,
     Token,
 )
 from .service import AuthService
@@ -35,6 +37,26 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 auth_service = AuthService()
+
+
+def _access_token_for(staff: Staff) -> str:
+    return auth_service.create_access_token(
+        data={
+            "sub": str(staff.id),
+            "username": staff.username,
+            "role": staff.role,
+            "company_id": str(staff.company_id) if staff.company_id else None,
+        }
+    )
+
+
+def _replace_password(db: Any, staff_id: Any, new_password: str) -> Optional[str]:
+    """
+    Set the person's own new password. That signs out all their sessions, so
+    return a fresh token for the one that made the change.
+    """
+    staff = auth_service.set_password(db, staff_id, new_password)
+    return _access_token_for(staff) if staff else None
 
 
 @router.post("/register", response_model=StaffResponse)
@@ -117,14 +139,7 @@ def login(
         f"Successful login for username: {login_request.username}, "
         f"staff_id: {staff.id}"
     )
-    access_token = auth_service.create_access_token(
-        data={
-            "sub": str(staff.id),
-            "username": staff.username,
-            "role": staff.role,
-            "company_id": str(staff.company_id) if staff.company_id else None,
-        }
-    )
+    access_token = _access_token_for(staff)
 
     # Create StaffResponse with additional fields for backwards compatibility
     staff_dict = {
@@ -156,6 +171,7 @@ def login(
         "company_id": str(staff.company_id) if staff.company_id else None,
         "screen_access": staff.screen_access,
         "screens": screen_access.effective_screens(db, staff),
+        "must_change_password": bool(staff.must_change_password),
     }
 
     return {
@@ -277,7 +293,7 @@ async def send_password_change_code(
     return result
 
 
-@router.post("/me/change-password", response_model=dict)
+@router.post("/me/change-password", response_model=PasswordChanged)
 @limiter.limit(RATE_LIMITS["auth"])
 async def change_password(
     request: Request,
@@ -287,23 +303,80 @@ async def change_password(
     db: Any = Depends(get_db),
     cache: CacheService = Depends(get_cache)
 ):
-    """Change the current staff member's password with the code they were emailed"""
+    """
+    Change the current staff member's password with the code they were
+    emailed. Their other sessions are signed out.
+    """
     if not await password_change.check_code(cache, current_staff.id, password_change_request.code):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="That code is wrong or has expired. Send a new code and try again."
         )
 
-    staff = await asyncio.to_thread(
-        auth_service.set_password, db, current_staff.id, password_change_request.new_password
+    token = await asyncio.to_thread(
+        _replace_password, db, current_staff.id, password_change_request.new_password
     )
-    if staff is None:
+    if token is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Staff member not found"
         )
 
-    return {"message": "Password changed successfully"}
+    # The cached staff record carries the old password_changed_at
+    await cache.delete(f"staff:{current_staff.id}")
+    return {"message": "Password changed successfully", "access_token": token}
+
+
+@router.post("/me/change-temporary-password", response_model=PasswordChanged)
+@limiter.limit(RATE_LIMITS["auth"])
+async def change_temporary_password(
+    request: Request,
+    response: Response,
+    body: TemporaryPasswordChange,
+    current_staff: Staff = Depends(get_current_staff),
+    db: Any = Depends(get_db),
+    cache: CacheService = Depends(get_cache)
+):
+    """
+    Replace the password an admin reset, right after signing in with it.
+
+    Only while must_change_password is set; any other change goes through
+    the emailed code above.
+    """
+    staff = await asyncio.to_thread(auth_service.get_staff_by_id, db, current_staff.id)
+    if staff is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Staff member not found"
+        )
+    if not staff.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your password isn't a temporary one. Change it from your profile."
+        )
+    password_ok = await asyncio.to_thread(
+        auth_service.verify_password, body.current_password, staff.password_hash
+    )
+    if not password_ok:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The temporary password is incorrect"
+        )
+    if body.new_password == body.current_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Choose a password different from the temporary one"
+        )
+
+    token = await asyncio.to_thread(_replace_password, db, current_staff.id, body.new_password)
+    if token is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Staff member not found"
+        )
+
+    await cache.delete(f"staff:{current_staff.id}")
+    return {"message": "Password changed successfully", "access_token": token}
 
 
 @router.get("/staff", response_model=List[StaffResponse])
@@ -355,15 +428,24 @@ def reset_staff_password(
     staff_id: str,
     body: AdminPasswordReset,
     current_staff: Staff = Depends(require_admin),
-    db: Any = Depends(get_db)
+    db: Any = Depends(get_db),
+    cache: CacheService = Depends(get_cache)
 ):
     """
     Give a staff member a new password (admin only).
 
     With no password in the body the server makes up a temporary one. The
-    admin sees it once in the response and passes it on; the person can then
-    change it from their profile.
+    admin sees it once in the response and passes it on. The person's
+    sessions are signed out, and after signing in with it they are asked to
+    choose their own.
     """
+    if staff_id.lower() == str(current_staff.id).lower():
+        # Their own goes through the emailed code like everyone else's
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Change your own password from your profile"
+        )
+
     password = body.new_password or auth_service.generate_temporary_password()
     staff = auth_service.set_password(db, staff_id, password, must_change=True)
     if not staff:
@@ -371,6 +453,9 @@ def reset_staff_password(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Staff member not found"
         )
+
+    # The cached staff record carries the old password_changed_at
+    invalidate_staff_cache(str(staff.id), cache)
 
     logger.info(
         f"Admin {current_staff.username} reset the password for "
@@ -487,20 +572,24 @@ def confirm_password_reset(
     request: Request,
     response: Response,
     confirm_request: PasswordResetConfirm,
-    db: Any = Depends(get_db)
+    db: Any = Depends(get_db),
+    cache: CacheService = Depends(get_cache)
 ):
-    """Reset password using a valid token"""
-    success = auth_service.reset_password_with_token(
+    """Reset password using a valid token; earlier sessions are signed out"""
+    staff = auth_service.reset_password_with_token(
         db,
         confirm_request.token,
         confirm_request.new_password
     )
 
-    if not success:
+    if not staff:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired reset token"
         )
+
+    # The cached staff record carries the old password_changed_at
+    invalidate_staff_cache(str(staff.id), cache)
 
     return {
         "message": "Password has been reset successfully",

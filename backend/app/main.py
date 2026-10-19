@@ -429,6 +429,8 @@ _NEEDED_COLUMNS = [
     ("wm_photos", "magicplan_metadata", "JSONB"),
     # Staff contractor company link
     ("staff", "company_id", "UUID"),
+    # Sessions issued before a password change are signed out
+    ("staff", "password_changed_at", "TIMESTAMP"),
     # Contractor payment portal fields
     ("claim_payments", "payment_category", "VARCHAR(50)"),
     ("claim_payments", "check_photo_file_id", "VARCHAR(255)"),

@@ -66,9 +66,19 @@ class AuthService {
     return response.data;
   }
 
-  async changePassword(code: string, newPassword: string) {
+  // Signs out every session; the returned token keeps this one going
+  async changePassword(code: string, newPassword: string): Promise<{ access_token: string }> {
     const response = await api.post(`${API_BASE_URL}/me/change-password`, {
       code,
+      new_password: newPassword,
+    });
+    return response.data;
+  }
+
+  // Right after signing in with a password an admin reset
+  async changeTemporaryPassword(currentPassword: string, newPassword: string): Promise<{ access_token: string }> {
+    const response = await api.post(`${API_BASE_URL}/me/change-temporary-password`, {
+      current_password: currentPassword,
       new_password: newPassword,
     });
     return response.data;

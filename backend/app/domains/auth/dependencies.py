@@ -140,7 +140,11 @@ async def get_current_staff(
             if getattr(staff, 'company_id', None) is None and token_company_id:
                 staff.company_id = token_company_id
 
-            return staff
+            # Otherwise the database path below turns the session away
+            if not auth_service.signed_out_by_password_change(
+                token_data, staff_dict.get('password_changed_at')
+            ):
+                return staff
 
     except Exception as e:
         logger.warning("Cache read error for staff %s: %s", user_id, e)
@@ -169,6 +173,15 @@ async def get_current_staff(
             detail="Staff member is inactive or not allowed to login"
         )
 
+    password_changed_ts = auth_service.password_changed_ts(staff)
+    if auth_service.signed_out_by_password_change(token_data, password_changed_ts):
+        logger.info("Token for %s predates their password change", staff.username)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Your password was changed. Sign in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # Attach company information from token (if provided)
     if token_company_id and getattr(staff, 'company_id', None) is None:
         staff.company_id = token_company_id
@@ -194,7 +207,8 @@ async def get_current_staff(
                 str(staff.company_id)
                 if getattr(staff, 'company_id', None)
                 else token_company_id
-            )
+            ),
+            'password_changed_at': password_changed_ts,
         }
         await cache.set(cache_key, json.dumps(staff_data), ttl=STAFF_CACHE_TTL)
         logger.debug(

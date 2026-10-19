@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Form, Input, Modal, Typography, message } from 'antd';
 import authService from '../../services/authService';
+import { useAuth } from '../../contexts/AuthContext';
 
 const { Paragraph, Text } = Typography;
 
@@ -31,6 +32,7 @@ const errorDetail = (err: any, fallback: string) => {
  */
 const ChangePasswordModal: React.FC<Props> = ({ open, email, onClose }) => {
   const [form] = Form.useForm();
+  const { updateSession } = useAuth();
   const [codeSent, setCodeSent] = useState<CodeSent | null>(null);
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -72,8 +74,9 @@ const ChangePasswordModal: React.FC<Props> = ({ open, email, onClose }) => {
     }
     setSaving(true);
     try {
-      await authService.changePassword(values.code.trim(), values.new_password);
-      message.success('Password changed');
+      const { access_token } = await authService.changePassword(values.code.trim(), values.new_password);
+      updateSession(access_token);
+      message.success('Password changed. Other devices are signed out.');
       close();
     } catch (err: any) {
       const detail = errorDetail(err, "Couldn't change the password");
@@ -110,7 +113,8 @@ const ChangePasswordModal: React.FC<Props> = ({ open, email, onClose }) => {
       {!codeSent ? (
         <Paragraph>
           To confirm it's you, we'll email a 6-digit code to <Text strong>{email}</Text>.
-          You'll enter it with your new password.
+          You'll enter it with your new password. You stay signed in here; other
+          devices are signed out.
         </Paragraph>
       ) : (
         <>

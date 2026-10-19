@@ -25,6 +25,8 @@ export interface User {
   screen_access?: string[] | null;
   // Screens they may open (role defaults applied); sent with login and /me
   screens?: string[];
+  // An admin reset the password; they choose their own before going on
+  must_change_password?: boolean;
 }
 
 interface AuthContextType {
@@ -33,6 +35,9 @@ interface AuthContextType {
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: (showMessage?: boolean) => void;
+  // After a password change: the server signs out every session and hands
+  // this one a new token
+  updateSession: (token: string, changes?: Partial<User>) => void;
   register: (data: RegisterData) => Promise<void>;
   isAdmin: () => boolean;
   isManager: () => boolean;
@@ -130,6 +135,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
+  const updateSession = useCallback((newToken: string, changes: Partial<User> = {}) => {
+    setToken(newToken);
+    localStorage.setItem('auth_token', newToken);
+    authService.setAuthToken(newToken);
+    setUser(current => {
+      if (!current) return current;
+      const next = { ...current, ...changes };
+      localStorage.setItem('auth_user', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   const register = useCallback(async (data: RegisterData) => {
     try {
       const response = await authService.register(data);
@@ -187,12 +204,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     loading,
     login,
     logout,
+    updateSession,
     register,
     isAdmin,
     isManager,
     hasPermission,
     canAccessPath,
-  }), [user, token, loading, login, logout, register, isAdmin, isManager, hasPermission, canAccessPath]);
+  }), [user, token, loading, login, logout, updateSession, register, isAdmin, isManager, hasPermission, canAccessPath]);
 
   return (
     <AuthContext.Provider value={value}>

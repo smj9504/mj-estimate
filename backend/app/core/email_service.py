@@ -63,8 +63,9 @@ class EmailService:
             logger.info(f"Attempting to send email to {to_email} via {settings.SMTP_HOST}:{settings.SMTP_PORT}")
             logger.info(f"Using SMTP user: {settings.SMTP_USER}")
 
+            # No set_debuglevel: its output includes the AUTH line, i.e. the
+            # base64-encoded SMTP username and password
             with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=30) as server:
-                server.set_debuglevel(1)  # Enable debug output
                 logger.info("Starting TLS...")
                 server.starttls()
                 logger.info("Logging in to SMTP server...")

@@ -2,6 +2,7 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Spin } from 'antd';
 import { useAuth } from '../../contexts/AuthContext';
+import ChooseNewPassword from './ChooseNewPassword';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -31,6 +32,11 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   if (!user) {
     // Redirect to login page with return url
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  // An admin reset their password: no page until they choose their own
+  if (user.must_change_password) {
+    return <ChooseNewPassword />;
   }
 
   if (!hasPermission(requiredRole) || !canAccessPath(location.pathname)) {

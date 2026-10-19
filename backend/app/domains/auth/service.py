@@ -1,7 +1,9 @@
 """
 Authentication service layer
 """
+import calendar
 import secrets
+import time
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional, Union
@@ -52,9 +54,31 @@ class AuthService:
         else:
             expire = datetime.utcnow() + timedelta(minutes=AuthService.ACCESS_TOKEN_EXPIRE_MINUTES)
         
-        to_encode.update({"exp": expire})
+        # iat lets a password change sign out sessions started before it
+        to_encode.update({"exp": expire, "iat": int(time.time())})
         encoded_jwt = jwt.encode(to_encode, AuthService.SECRET_KEY, algorithm=AuthService.ALGORITHM)
         return encoded_jwt
+
+    @staticmethod
+    def password_changed_ts(staff) -> Optional[int]:
+        """When the password last changed, in whole seconds like a token's iat"""
+        changed_at = getattr(staff, 'password_changed_at', None)
+        if changed_at is None:
+            return None
+        # Stored as naive UTC (datetime.utcnow)
+        return calendar.timegm(changed_at.utctimetuple())
+
+    @staticmethod
+    def signed_out_by_password_change(token_data: schemas.TokenData,
+                                      changed_ts: Optional[int]) -> bool:
+        """
+        True if the token was issued before the last password change. A token
+        from the same second still works, so the one handed out with the new
+        password does.
+        """
+        if changed_ts is None:
+            return False
+        return token_data.issued_at is None or token_data.issued_at < changed_ts
     
     @staticmethod
     def decode_token(token: str) -> Optional[schemas.TokenData]:
@@ -65,15 +89,16 @@ class AuthService:
             username = payload.get("username")
             role = payload.get("role")
             company_id = payload.get("company_id")
-            
+
             if user_id is None:
                 return None
-                
+
             return schemas.TokenData(
                 user_id=user_id,
                 username=username,
                 role=role,
-                company_id=company_id
+                company_id=company_id,
+                issued_at=payload.get("iat")
             )
         except jwt.ExpiredSignatureError:
             return None
@@ -269,6 +294,7 @@ class AuthService:
                      must_change: bool = False) -> Optional[Staff]:
         """
         Replace a staff member's password without asking for the old one.
+        Every session started before now is signed out.
 
         The caller decides who may do this: an admin resetting someone's
         password, or the person themselves after confirming an emailed code.
@@ -285,8 +311,10 @@ class AuthService:
         else:
             raise ValueError("Invalid database session type")
 
+        now = datetime.utcnow()
         staff.password_hash = self.hash_password(new_password)
-        staff.updated_at = datetime.utcnow()
+        staff.updated_at = now
+        staff.password_changed_at = now
         staff.must_change_password = must_change
 
         # Use consistent session handling
@@ -394,29 +422,31 @@ class AuthService:
 
         return reset_token.email
 
-    def reset_password_with_token(self, db, token: str, new_password: str) -> bool:
-        """Reset password using a valid token"""
+    def reset_password_with_token(self, db, token: str, new_password: str) -> Optional[Staff]:
+        """Reset password using a valid token; returns the staff member, or None"""
         # Handle both raw Session and DatabaseSession wrapper
         if hasattr(db, '_session'):
             session = db._session
         elif hasattr(db, 'query'):
             session = db
         else:
-            return False
+            return None
 
         # Verify token
         email = self.verify_password_reset_token(db, token)
         if not email:
-            return False
+            return None
 
         # Get staff
         staff = self.get_staff_by_email(db, email)
         if not staff:
-            return False
+            return None
 
-        # Update password
+        # Update password, signing out every earlier session
+        now = datetime.utcnow()
         staff.password_hash = self.hash_password(new_password)
-        staff.updated_at = datetime.utcnow()
+        staff.updated_at = now
+        staff.password_changed_at = now
         staff.must_change_password = False
 
         # Mark token as used
@@ -432,11 +462,11 @@ class AuthService:
                 db.commit()
             else:
                 session.commit()
-            return True
+            return staff
         except Exception as e:
             print(f"Error resetting password: {e}")
             if hasattr(db, 'rollback'):
                 db.rollback()
             elif hasattr(session, 'rollback'):
                 session.rollback()
-            return False
+            return None

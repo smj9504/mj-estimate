@@ -84,14 +84,15 @@ const ResetPasswordModal: React.FC<Props> = ({ user, onClose }) => {
             </Text>
           </Paragraph>
           <Paragraph type="secondary">
-            Share it with them privately. It won't be shown again. They can change it
-            from their profile.
+            Share it with them privately. It won't be shown again. When they sign in
+            with it, they'll be asked to choose their own.
           </Paragraph>
         </>
       ) : (
         <>
           <Paragraph>
-            Their current password stops working right away.
+            Their current password stops working right away, and they're signed out
+            everywhere.
           </Paragraph>
           <Form
             form={form}

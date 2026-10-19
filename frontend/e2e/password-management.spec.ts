@@ -69,7 +69,9 @@ test.describe('Admin resets a password', () => {
   test.beforeEach(async ({ page }) => {
     resetBodies = [];
     await signedInPage(page, ADMIN, {
-      'GET /api/auth/staff': route => route.fulfill({ json: [ADMIN, JANE] }),
+      'GET /api/auth/staff': route => route.fulfill({
+        json: [ADMIN, { ...JANE, must_change_password: resetBodies.length > 0 }],
+      }),
       'GET /api/auth/screen-access': route =>
         route.fulfill({ json: { screens: ALL_SCREEN_KEYS, role_defaults: {} } }),
       [`POST /api/auth/staff/${JANE.id}/reset-password`]: route => {
@@ -82,9 +84,12 @@ test.describe('Admin resets a password', () => {
   });
 
   test('a made-up temporary password is shown once to pass on', async ({ page }) => {
+    const janeRow = page.getByRole('row').filter({ hasText: 'jane@example.com' });
+    await expect(janeRow.getByText('Temporary password')).toBeHidden();
+
     await page.getByRole('button', { name: 'Reset password for jane' }).click();
     const dialog = page.getByRole('dialog', { name: 'Reset password for Jane Tech' });
-    await expect(dialog.getByText('Their current password stops working right away.')).toBeVisible();
+    await expect(dialog.getByText("they're signed out everywhere", { exact: false })).toBeVisible();
 
     await dialog.getByRole('button', { name: 'Reset password' }).click();
 
@@ -93,6 +98,11 @@ test.describe('Admin resets a password', () => {
 
     await dialog.getByRole('button', { name: 'Done' }).click();
     await expect(dialog).toBeHidden();
+    await expect(janeRow.getByText('Temporary password')).toBeVisible();
+  });
+
+  test('admins cannot reset their own password here', async ({ page }) => {
+    await expect(page.getByRole('button', { name: 'Reset password for boss' })).toBeDisabled();
   });
 
   test('the admin can type the password instead', async ({ page }) => {
@@ -137,7 +147,9 @@ test.describe('Changing your own password', () => {
             json: { detail: 'That code is wrong or has expired. Send a new code and try again.' },
           });
         }
-        return route.fulfill({ json: { message: 'Password changed successfully' } });
+        return route.fulfill({
+          json: { message: 'Password changed successfully', access_token: 'token-after-change' },
+        });
       },
       'PUT /api/auth/me': route => {
         const body = route.request().postDataJSON();
@@ -167,12 +179,14 @@ test.describe('Changing your own password', () => {
     await dialog.getByLabel('Code from the email').fill('482913');
     await dialog.getByRole('button', { name: 'Change password' }).click();
 
-    await expect(page.getByText('Password changed')).toBeVisible();
+    await expect(page.getByText('Password changed. Other devices are signed out.')).toBeVisible();
     await expect(dialog).toBeHidden();
     expect(changeBodies).toEqual([
       { code: '111111', new_password: 'brand-new-pass' },
       { code: '482913', new_password: 'brand-new-pass' },
     ]);
+    // The change signed out every session; this tab carries on with the new token
+    expect(await page.evaluate(() => localStorage.getItem('auth_token'))).toBe('token-after-change');
   });
 
   test('the form checks the code and passwords before sending', async ({ page }) => {
@@ -199,5 +213,58 @@ test.describe('Changing your own password', () => {
     await page.getByRole('button', { name: 'Save Changes' }).click();
     await expect.poll(() => profileUpdates.length).toBe(1);
     expect(profileUpdates[0]).not.toHaveProperty('email');
+  });
+});
+
+test.describe('After an admin reset', () => {
+  let temporaryChanges: unknown[];
+
+  test.beforeEach(async ({ page }) => {
+    temporaryChanges = [];
+    await signedInPage(page, { ...JANE, must_change_password: true } as typeof JANE, {
+      'POST /api/auth/me/change-temporary-password': route => {
+        const body = route.request().postDataJSON();
+        temporaryChanges.push(body);
+        if (body.current_password !== 'Kx7m-Pq4r-Zt9w') {
+          return route.fulfill({ status: 400, json: { detail: 'The temporary password is incorrect' } });
+        }
+        return route.fulfill({
+          json: { message: 'Password changed successfully', access_token: 'token-after-change' },
+        });
+      },
+    });
+  });
+
+  test('the person chooses their own password before anything else', async ({ page }) => {
+    await page.goto('/profile');
+    await expect(page.getByRole('heading', { name: 'Choose your own password' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'My Profile' })).toBeHidden();
+
+    await page.getByLabel('Temporary password').fill('wrong-one');
+    await page.getByLabel('New password', { exact: true }).fill('my-own-pass-1');
+    await page.getByLabel('Confirm new password').fill('my-own-pass-1');
+    await page.getByRole('button', { name: 'Save password' }).click();
+    await expect(page.getByText('The temporary password is incorrect')).toBeVisible();
+
+    await page.getByLabel('Temporary password').fill('Kx7m-Pq4r-Zt9w');
+    await page.getByRole('button', { name: 'Save password' }).click();
+
+    await expect(page.getByRole('heading', { name: 'My Profile' })).toBeVisible();
+    expect(temporaryChanges).toEqual([
+      { current_password: 'wrong-one', new_password: 'my-own-pass-1' },
+      { current_password: 'Kx7m-Pq4r-Zt9w', new_password: 'my-own-pass-1' },
+    ]);
+    const stored = await page.evaluate(() => ({
+      token: localStorage.getItem('auth_token'),
+      user: JSON.parse(localStorage.getItem('auth_user') || '{}'),
+    }));
+    expect(stored.token).toBe('token-after-change');
+    expect(stored.user.must_change_password).toBe(false);
+  });
+
+  test('they can sign out instead', async ({ page }) => {
+    await page.goto('/dashboard');
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await expect(page).toHaveURL(/\/login/);
   });
 });
