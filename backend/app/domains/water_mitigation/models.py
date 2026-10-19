@@ -24,7 +24,7 @@ from sqlalchemy.sql import func
 
 from app.core.base_models import BaseModel
 from app.core.database_factory import Base
-from app.core.database_types import UUIDType
+from app.core.database_types import UUIDType, generate_uuid, get_uuid_column
 
 
 class WaterMitigationJob(Base, BaseModel):
@@ -702,6 +702,11 @@ class PhotoAnalysisCache(Base, BaseModel):
         Index('ix_photo_analysis_corrected', 'user_corrected'),
         {'extend_existing': True}
     )
+
+    # The table is shared with photo_analysis.models.PhotoAnalysisCache, whose
+    # id already brings ix_photo_analysis_cache_id; a second index=True id
+    # would add a second index with that name and break create_all.
+    id = Column(get_uuid_column(), primary_key=True, default=generate_uuid)
 
     photo_id = Column(UUIDType(), ForeignKey("wm_photos.id", ondelete="CASCADE"), nullable=False, unique=True)
 

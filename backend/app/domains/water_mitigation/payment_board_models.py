@@ -30,9 +30,10 @@ class WMPaymentBoardToken(Base, BaseModel):
         {'extend_existing': True}
     )
 
+    # Indexed in __table_args__
     token = Column(
         String(100), unique=True, nullable=False,
-        default=generate_board_token, index=True
+        default=generate_board_token
     )
     label = Column(String(200), comment="e.g. 'Manager - John'")
     is_active = Column(Boolean, default=True, nullable=False)

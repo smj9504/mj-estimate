@@ -38,7 +38,7 @@ class UploadLink(Base, BaseModel):
     )
 
     # URL token (unique, URL-safe)
-    token = Column(String(100), unique=True, nullable=False, default=generate_token, index=True)
+    token = Column(String(100), unique=True, nullable=False, default=generate_token)  # indexed in __table_args__
 
     # Link context (which job this upload is for)
     context = Column(String(50), nullable=False, default='water-mitigation')

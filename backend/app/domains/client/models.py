@@ -99,7 +99,7 @@ class Claim(Base, BaseModel):
     )
 
     # Claim identification
-    claim_number = Column(String(100), nullable=False, index=True)
+    claim_number = Column(String(100), nullable=False)  # indexed in __table_args__
 
     # Insurance info (per-claim, may differ from client defaults)
     insurance_company = Column(String(255))
