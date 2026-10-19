@@ -1,16 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import {
   Table, Button, Card, Typography, Space, Modal, Form, Input, Select,
-  Tag, message, Popconfirm, Switch, Tooltip
+  Tag, message, Popconfirm, Switch, Tooltip, Tabs, Radio, Divider, Alert
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, LockOutlined, UserOutlined,
   MailOutlined, IdcardOutlined
 } from '@ant-design/icons';
 import authService from '../services/authService';
+import ScreenChecklist from '../components/admin/ScreenChecklist';
+import { ALL_SCREEN_KEYS } from '../constants/screens';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 const { Option } = Select;
+
+// Admins always see every screen
+const ADMIN_ROLES = ['admin', 'super_admin'];
+
+const ROLE_LABELS: Record<string, string> = {
+  manager: 'Manager',
+  supervisor: 'Supervisor',
+  technician: 'Technician',
+  staff: 'Staff',
+  sales: 'Sales',
+  customer_service: 'Customer Service',
+  accountant: 'Accountant',
+  viewer: 'Viewer',
+  contractor: 'Contractor',
+};
+
+interface ScreenSettings {
+  screens: string[];
+  role_defaults: Record<string, string[]>;
+}
 
 interface User {
   id: string;
@@ -25,6 +47,7 @@ interface User {
   can_login: boolean;
   email_verified: boolean;
   created_at: string;
+  screen_access: string[] | null;
 }
 
 const UserManagement: React.FC = () => {
@@ -33,10 +56,57 @@ const UserManagement: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [form] = Form.useForm();
+  const formRole: string | undefined = Form.useWatch('role', form);
+
+  const [screenSettings, setScreenSettings] = useState<ScreenSettings | null>(null);
+  const [screenMode, setScreenMode] = useState<'role' | 'custom'>('role');
+  const [customScreens, setCustomScreens] = useState<string[]>([]);
+
+  const [defaultsRole, setDefaultsRole] = useState('technician');
+  const [defaultsDraft, setDefaultsDraft] = useState<string[]>([]);
+  const [savingDefaults, setSavingDefaults] = useState(false);
 
   useEffect(() => {
     fetchUsers();
+    fetchScreenSettings();
   }, []);
+
+  useEffect(() => {
+    if (screenSettings) {
+      setDefaultsDraft(screenSettings.role_defaults[defaultsRole] ?? ALL_SCREEN_KEYS);
+    }
+  }, [screenSettings, defaultsRole]);
+
+  const fetchScreenSettings = async () => {
+    try {
+      setScreenSettings(await authService.getScreenAccessSettings());
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || 'Failed to load screen access');
+    }
+  };
+
+  const roleScreens = (role?: string) =>
+    (role && screenSettings?.role_defaults[role]) || ALL_SCREEN_KEYS;
+
+  const handleScreenModeChange = (mode: 'role' | 'custom') => {
+    if (mode === 'custom') {
+      // Start from what the person sees today
+      setCustomScreens(editingUser?.screen_access ?? roleScreens(formRole));
+    }
+    setScreenMode(mode);
+  };
+
+  const handleSaveRoleDefaults = async () => {
+    setSavingDefaults(true);
+    try {
+      setScreenSettings(await authService.updateRoleScreens(defaultsRole, defaultsDraft));
+      message.success(`${ROLE_LABELS[defaultsRole]} screens saved`);
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || 'Failed to save role screens');
+    } finally {
+      setSavingDefaults(false);
+    }
+  };
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -53,6 +123,8 @@ const UserManagement: React.FC = () => {
   const handleAddUser = () => {
     setEditingUser(null);
     form.resetFields();
+    setScreenMode('role');
+    setCustomScreens([]);
     setModalVisible(true);
   };
 
@@ -68,23 +140,32 @@ const UserManagement: React.FC = () => {
       is_active: user.is_active,
       can_login: user.can_login
     });
+    setScreenMode(user.screen_access ? 'custom' : 'role');
+    setCustomScreens(user.screen_access ?? []);
     setModalVisible(true);
   };
 
   const handleModalOk = async () => {
     try {
       const values = await form.validateFields();
+      // Admins see everything, so leave whatever list they had alone
+      const screen_access = ADMIN_ROLES.includes(values.role)
+        ? undefined
+        : (screenMode === 'custom' ? customScreens : null);
 
       if (editingUser) {
         // Update existing user
-        await authService.updateUser(editingUser.id, values);
+        await authService.updateUser(editingUser.id, { ...values, screen_access });
         message.success('User updated successfully');
       } else {
         // Create new user
-        await authService.register({
+        const created = await authService.register({
           ...values,
           hire_date: new Date().toISOString()
         });
+        if (screen_access) {
+          await authService.updateUser(created.id, { screen_access });
+        }
         message.success('User created successfully');
       }
 
@@ -176,6 +257,19 @@ const UserManagement: React.FC = () => {
       },
     },
     {
+      title: 'Screens',
+      key: 'screens',
+      render: (_: any, record: User) => {
+        if (ADMIN_ROLES.includes(record.role)) {
+          return <Text type="secondary">All (admin)</Text>;
+        }
+        if (record.screen_access) {
+          return <Tag color="purple">Custom · {record.screen_access.length}/{ALL_SCREEN_KEYS.length}</Tag>;
+        }
+        return <Tag>Role default · {roleScreens(record.role).length}/{ALL_SCREEN_KEYS.length}</Tag>;
+      },
+    },
+    {
       title: 'Status',
       key: 'status',
       render: (_: any, record: User) => (
@@ -224,6 +318,9 @@ const UserManagement: React.FC = () => {
     },
   ];
 
+  // People in the selected role who have their own list
+  const ownListCount = users.filter(u => u.role === defaultsRole && u.screen_access).length;
+
   return (
     <div style={{ padding: '24px' }}>
       <Card>
@@ -239,12 +336,60 @@ const UserManagement: React.FC = () => {
             </Button>
           </div>
 
-          <Table
-            columns={columns}
-            dataSource={users}
-            rowKey="id"
-            loading={loading}
-            pagination={{ pageSize: 10 }}
+          <Tabs
+            items={[
+              {
+                key: 'users',
+                label: 'Users',
+                children: (
+                  <Table
+                    columns={columns}
+                    dataSource={users}
+                    rowKey="id"
+                    loading={loading}
+                    pagination={{ pageSize: 10 }}
+                  />
+                ),
+              },
+              {
+                key: 'role-screens',
+                label: 'Screens by role',
+                children: (
+                  <Space direction="vertical" size="middle" style={{ width: '100%', maxWidth: 720 }}>
+                    <Text type="secondary">
+                      Everyone with this role sees these screens in the sidebar, unless they have their
+                      own list. Admins always see every screen.
+                    </Text>
+                    <Select
+                      value={defaultsRole}
+                      onChange={setDefaultsRole}
+                      style={{ width: 240 }}
+                      options={Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label }))}
+                    />
+                    {ownListCount > 0 && (
+                      <Alert
+                        type="info"
+                        showIcon
+                        message={`${ownListCount} ${ownListCount === 1 ? 'person' : 'people'} with this role ${ownListCount === 1 ? 'has' : 'have'} their own screen list and won't follow these changes.`}
+                      />
+                    )}
+                    <ScreenChecklist
+                      value={defaultsDraft}
+                      onChange={setDefaultsDraft}
+                      disabled={!screenSettings}
+                    />
+                    <Button
+                      type="primary"
+                      onClick={handleSaveRoleDefaults}
+                      loading={savingDefaults}
+                      disabled={!screenSettings}
+                    >
+                      Save {ROLE_LABELS[defaultsRole]} screens
+                    </Button>
+                  </Space>
+                ),
+              },
+            ]}
           />
         </Space>
       </Card>
@@ -257,7 +402,7 @@ const UserManagement: React.FC = () => {
           setModalVisible(false);
           form.resetFields();
         }}
-        width={600}
+        width={720}
       >
         <Form
           form={form}
@@ -351,6 +496,26 @@ const UserManagement: React.FC = () => {
               <Option value="contractor">Contractor</Option>
             </Select>
           </Form.Item>
+
+          <Divider orientation="left" plain>Screens</Divider>
+          {formRole && ADMIN_ROLES.includes(formRole) ? (
+            <Text type="secondary">Admins see every screen.</Text>
+          ) : (
+            <Space direction="vertical" size="middle" style={{ width: '100%', marginBottom: 16 }}>
+              <Radio.Group
+                value={screenMode}
+                onChange={e => handleScreenModeChange(e.target.value)}
+              >
+                <Radio value="role">Same as role{formRole ? ` (${ROLE_LABELS[formRole] ?? formRole})` : ''}</Radio>
+                <Radio value="custom">Choose screens for this person</Radio>
+              </Radio.Group>
+              <ScreenChecklist
+                value={screenMode === 'custom' ? customScreens : roleScreens(formRole)}
+                onChange={setCustomScreens}
+                disabled={screenMode === 'role'}
+              />
+            </Space>
+          )}
 
           {editingUser && (
             <>

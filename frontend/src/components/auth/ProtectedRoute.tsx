@@ -12,7 +12,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   children, 
   requiredRole = 'user' 
 }) => {
-  const { user, loading, hasPermission } = useAuth();
+  const { user, loading, hasPermission, canAccessPath } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -33,7 +33,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (!hasPermission(requiredRole)) {
+  if (!hasPermission(requiredRole) || !canAccessPath(location.pathname)) {
     // User doesn't have required permissions
     return <Navigate to="/unauthorized" replace />;
   }

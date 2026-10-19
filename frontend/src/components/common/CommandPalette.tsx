@@ -8,6 +8,7 @@ import {
   ClockCircleOutlined,
 } from '@ant-design/icons';
 import { colors } from '../../styles/tokens';
+import { useAuth } from '../../contexts/AuthContext';
 import './CommandPalette.css';
 
 const RECENT_PAGES_KEY = 'commandPalette_recentPages';
@@ -56,6 +57,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ menuItems }) => {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const navigate = useNavigate();
+  const { canAccessPath } = useAuth();
   const inputRef = useRef<any>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -85,13 +87,15 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ menuItems }) => {
 
   // Filter results based on query
   const results = useMemo(() => {
-    const recentPages = getRecentPages();
+    // Recent pages may predate a screen being taken away
+    const recentPages = getRecentPages().filter(p => canAccessPath(p.key));
+    const allowedActions = quickActions.filter(a => canAccessPath(a.key));
     const lowerQuery = query.toLowerCase().trim();
 
     if (!lowerQuery) {
       return {
         recent: recentPages.slice(0, 5),
-        actions: quickActions,
+        actions: allowedActions,
         pages: [],
       };
     }
@@ -101,7 +105,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ menuItems }) => {
       return searchText.includes(lowerQuery);
     });
 
-    const matchedActions = quickActions.filter(a =>
+    const matchedActions = allowedActions.filter(a =>
       a.label.toLowerCase().includes(lowerQuery)
     );
 
@@ -114,7 +118,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ menuItems }) => {
       actions: matchedActions,
       pages: matchedPages,
     };
-  }, [query, searchableItems]);
+  }, [query, searchableItems, canAccessPath]);
 
   // Total results count for keyboard nav
   const allResults = useMemo(() => {

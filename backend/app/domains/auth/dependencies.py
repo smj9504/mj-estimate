@@ -291,7 +291,9 @@ def invalidate_staff_cache(user_id: str, cache: CacheService) -> None:
     """
     cache_key = f"staff:{user_id}"
     try:
-        cache.delete(cache_key)
+        # CacheService.delete is async, and every caller is a sync endpoint
+        # running in a worker thread, so talk to the sync client directly.
+        cache.redis_client.delete(cache_key)
         logger.info(f"Invalidated staff cache for user: {user_id}")
     except Exception as e:
         logger.warning(f"Failed to invalidate staff cache for {user_id}: {e}")

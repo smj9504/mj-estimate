@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { message } from 'antd';
 import authService from '../services/authService';
 import { getErrorMessage } from '../api/errorHandler';
+import { screenForPath } from '../constants/screens';
 
 export interface User {
   id: string;
@@ -20,6 +21,10 @@ export interface User {
   can_login?: boolean;
   email_verified?: boolean;
   created_at: string;
+  // The person's own screen list; null means they follow their role
+  screen_access?: string[] | null;
+  // Screens they may open (role defaults applied); sent with login and /me
+  screens?: string[];
 }
 
 interface AuthContextType {
@@ -32,6 +37,7 @@ interface AuthContextType {
   isAdmin: () => boolean;
   isManager: () => boolean;
   hasPermission: (requiredRole: string) => boolean;
+  canAccessPath: (pathname: string) => boolean;
 }
 
 interface RegisterData {
@@ -166,6 +172,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return userLevel >= requiredLevel;
   }, [user]);
 
+  const canAccessPath = useCallback((pathname: string) => {
+    const screen = screenForPath(pathname);
+    if (!screen) return true;
+    // A session stored before screen access existed has no list yet
+    if (!user?.screens) return true;
+    return user.screens.includes(screen);
+  }, [user?.screens]);
+
   // Memoize context value to prevent unnecessary re-renders of consumers
   const value = useMemo(() => ({
     user,
@@ -177,7 +191,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isAdmin,
     isManager,
     hasPermission,
-  }), [user, token, loading, login, logout, register, isAdmin, isManager, hasPermission]);
+    canAccessPath,
+  }), [user, token, loading, login, logout, register, isAdmin, isManager, hasPermission, canAccessPath]);
 
   return (
     <AuthContext.Provider value={value}>

@@ -2,12 +2,14 @@
 Authentication schemas
 """
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 
 from app.domains.staff.models import StaffRole
+
+from .screen_access import validate_screen_keys
 
 
 class StaffBase(BaseModel):
@@ -35,6 +37,15 @@ class StaffUpdate(BaseModel):
     can_login: Optional[bool] = None  # Only admin can update
     phone: Optional[str] = None
     mobile_phone: Optional[str] = None
+    # Only admin can update. None resets the person to their role's screens.
+    screen_access: Optional[List[str]] = None
+
+    @field_validator("screen_access")
+    @classmethod
+    def _known_screens(cls, value):
+        if value is None:
+            return value
+        return validate_screen_keys(value)
 
 
 class StaffInDB(StaffBase):
@@ -66,9 +77,27 @@ class StaffResponse(BaseModel):
     phone: Optional[str] = None
     mobile_phone: Optional[str] = None
     created_at: datetime
+    # The person's own screen list; None means they follow their role.
+    screen_access: Optional[List[str]] = None
+    # Screens they may open after applying role defaults (login and /me only).
+    screens: Optional[List[str]] = None
 
     class Config:
         from_attributes = True
+
+
+class RoleScreensUpdate(BaseModel):
+    screens: List[str]
+
+    @field_validator("screens")
+    @classmethod
+    def _known_screens(cls, value):
+        return validate_screen_keys(value)
+
+
+class ScreenAccessSettings(BaseModel):
+    screens: List[str]
+    role_defaults: Dict[str, List[str]]
 
 
 class Token(BaseModel):

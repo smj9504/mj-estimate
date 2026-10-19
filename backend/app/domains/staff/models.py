@@ -2,7 +2,7 @@
 Staff user database models
 """
 
-from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, Enum
+from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, Enum, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -97,6 +97,10 @@ class Staff(Base):
     is_admin = Column(Boolean, default=False)
     can_login = Column(Boolean, default=True)
     email_verified = Column(Boolean, default=False)
+
+    # Screens this person may open, as screen keys (see auth/screen_access.py).
+    # NULL = follow the role's defaults in role_screen_access.
+    screen_access = Column(JSON, nullable=True)
     
     # Preferences
     timezone = Column(String(100), default="UTC")
@@ -200,6 +204,20 @@ class StaffPermission(Base):
     
     def __repr__(self):
         return f"<StaffPermission(id={self.id}, staff_id={self.staff_id})>"
+
+
+class RoleScreenAccess(Base):
+    """Default screens for every staff member with this role.
+
+    A role with no row sees every screen, so roles keep working as before
+    until an admin narrows them down.
+    """
+    __tablename__ = "role_screen_access"
+    __table_args__ = {'extend_existing': True}
+
+    role = Column(String(50), primary_key=True)
+    screens = Column(JSON, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class StaffSession(Base):

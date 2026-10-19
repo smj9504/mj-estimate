@@ -56,7 +56,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { selectedCompany } = useStore();
-  const { user, logout, isAdmin, isManager } = useAuth();
+  const { user, logout, isAdmin, isManager, canAccessPath } = useAuth();
 
   // State for sidebar collapse with localStorage persistence
   const [collapsed, setCollapsed] = useState(() => {
@@ -138,7 +138,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
 
   const menuItems = useMemo(() => {
-    const items = [
+    const sections = [
       // ── Dashboard ──────────────────────────────────────
       {
         key: '/dashboard',
@@ -346,6 +346,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       },
     ];
 
+    // Only the screens this person was given; a group left empty disappears
+    const items = sections
+      .map(item => (item.children
+        ? { ...item, children: item.children.filter(child => canAccessPath(child.key)) }
+        : item))
+      .filter(item => !item.children || item.children.length > 0);
+
     // ── Admin (admin-only) ─────────────────────────────
     if (isAdmin()) {
       items.push({
@@ -404,7 +411,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     }
 
     return items;
-  }, [isAdmin, isManager]);
+  }, [isAdmin, isManager, canAccessPath]);
 
   // Get the selected menu key based on current location (memoized)
   const selectedKeys = useMemo(() => {
@@ -675,6 +682,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <DashboardOutlined />
             <span>Home</span>
           </button>
+          {canAccessPath('/claims-lifecycle') && (
           <button
             className={`bottom-nav-item${location.pathname.startsWith('/claims') || location.pathname.startsWith('/water-mitigation') ? ' active' : ''}`}
             onClick={() => navigate('/claims-lifecycle')}
@@ -684,6 +692,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <SafetyCertificateOutlined />
             <span>Claims</span>
           </button>
+          )}
+          {canAccessPath('/work-orders/new') && (
           <button
             className="bottom-nav-item bottom-nav-create"
             onClick={() => navigate('/work-orders/new')}
@@ -692,6 +702,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <PlusOutlined />
             <span>Create</span>
           </button>
+          )}
+          {canAccessPath('/documents/estimate') && (
           <button
             className={`bottom-nav-item${location.pathname.startsWith('/documents') ? ' active' : ''}`}
             onClick={() => navigate('/documents/estimate')}
@@ -701,6 +713,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <FileTextOutlined />
             <span>Estimates</span>
           </button>
+          )}
           <button
             className="bottom-nav-item"
             onClick={toggleCollapsed}

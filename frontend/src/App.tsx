@@ -1,6 +1,6 @@
 import React, { Suspense } from 'react';
 import { lazyWithRetry } from './utils/lazyWithRetry';
-import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { ConfigProvider, Spin } from 'antd';
 import enUS from 'antd/locale/en_US';
 import { antTheme } from './styles/antTheme';
@@ -9,6 +9,7 @@ import { QueryProvider } from './contexts/QueryProvider';
 import { AuthProvider } from './contexts/AuthContext';
 import { TemplateBuilderProvider } from './contexts/TemplateBuilderContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
+import HomeRedirect from './components/auth/HomeRedirect';
 import Layout from './components/common/Layout';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import { useNetworkStatus } from './hooks/useNetworkStatus';
@@ -290,7 +291,7 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <Layout>
-          <Navigate to="/claims-lifecycle" replace />
+          <HomeRedirect />
         </Layout>
       </ProtectedRoute>
     )

@@ -99,8 +99,21 @@ class AuthService {
     role?: string;
     is_active?: boolean;
     can_login?: boolean;
+    // null puts the person back on their role's screens
+    screen_access?: string[] | null;
   }) {
     const response = await api.put(`${API_BASE_URL}/staff/${userId}`, data);
+    return response.data;
+  }
+
+  // Admin only: screen keys and each role's default screens
+  async getScreenAccessSettings(): Promise<{ screens: string[]; role_defaults: Record<string, string[]> }> {
+    const response = await api.get(`${API_BASE_URL}/screen-access`);
+    return response.data;
+  }
+
+  async updateRoleScreens(role: string, screens: string[]): Promise<{ screens: string[]; role_defaults: Record<string, string[]> }> {
+    const response = await api.put(`${API_BASE_URL}/screen-access/roles/${role}`, { screens });
     return response.data;
   }
 

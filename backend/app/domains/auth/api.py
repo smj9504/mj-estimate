@@ -6,16 +6,20 @@ from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
+from app.core.cache import CacheService, get_cache
 from app.core.database_factory import get_db_session as get_db
 from app.core.rate_limiter import limiter, RATE_LIMITS
-from app.domains.staff.models import Staff
+from app.domains.staff.models import Staff, StaffRole
 
-from .dependencies import get_current_staff, require_admin
+from . import screen_access
+from .dependencies import get_current_staff, invalidate_staff_cache, require_admin
 from .schemas import (
     ChangePasswordRequest,
     LoginRequest,
     PasswordResetConfirm,
     PasswordResetRequest,
+    RoleScreensUpdate,
+    ScreenAccessSettings,
     StaffCreate,
     StaffResponse,
     StaffUpdate,
@@ -146,6 +150,8 @@ def login(
         ),
         "created_at": staff.created_at,
         "company_id": str(staff.company_id) if staff.company_id else None,
+        "screen_access": staff.screen_access,
+        "screens": screen_access.effective_screens(db, staff),
     }
 
     return {
@@ -157,10 +163,22 @@ def login(
 
 @router.get("/me", response_model=StaffResponse)
 def get_current_staff_info(
-    current_staff: Staff = Depends(get_current_staff)
+    current_staff: Staff = Depends(get_current_staff),
+    db: Any = Depends(get_db)
 ):
-    """Get current staff member information"""
-    return current_staff
+    """
+    Get current staff member information.
+
+    Read from the database rather than the auth cache so a screen access
+    change shows up the next time the app loads.
+    """
+    staff = auth_service.get_staff_by_id(db, current_staff.id)
+    if staff is None:
+        # Development mock staff has no row
+        return current_staff
+    response = StaffResponse.model_validate(staff)
+    response.screens = screen_access.effective_screens(db, staff)
+    return response
 
 
 @router.put("/me", response_model=StaffResponse)
@@ -171,12 +189,12 @@ def update_current_staff(
 ):
     """
     Update current staff member information
-    (restricted fields: username, staff_number, role)
+    (restricted fields: username, staff_number, role, screen_access)
     """
     # Staff cannot change their own role, username, or staff_number
     # - exclude them from the update
     update_data = staff_update.dict(exclude_unset=True)
-    restricted_fields = ['role', 'username', 'staff_number']
+    restricted_fields = ['role', 'username', 'staff_number', 'screen_access']
     for field in restricted_fields:
         if field in update_data:
             del update_data[field]
@@ -243,7 +261,8 @@ def update_staff_member(
     staff_id: str,
     staff_update: StaffUpdate,
     current_staff: Staff = Depends(require_admin),
-    db: Any = Depends(get_db)
+    db: Any = Depends(get_db),
+    cache: CacheService = Depends(get_cache)
 ):
     """Update a staff member (admin only)"""
     updated_staff = auth_service.update_staff(
@@ -255,7 +274,38 @@ def update_staff_member(
             detail="Staff member not found"
         )
 
+    # Role and active/login changes must not wait for the cache to expire
+    invalidate_staff_cache(str(updated_staff.id), cache)
     return updated_staff
+
+
+@router.get("/screen-access", response_model=ScreenAccessSettings)
+def get_screen_access_settings(
+    current_staff: Staff = Depends(require_admin),
+    db: Any = Depends(get_db)
+):
+    """Screen keys and each role's default screens (admin only)"""
+    return {
+        "screens": list(screen_access.SCREEN_KEYS),
+        "role_defaults": screen_access.role_defaults(db),
+    }
+
+
+@router.put("/screen-access/roles/{role}", response_model=ScreenAccessSettings)
+def update_role_screen_access(
+    role: StaffRole,
+    body: RoleScreensUpdate,
+    current_staff: Staff = Depends(require_admin),
+    db: Any = Depends(get_db)
+):
+    """Set the default screens for a role (admin only)"""
+    if role in screen_access.ALL_SCREENS_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Admins always see every screen"
+        )
+    screen_access.set_role_defaults(db, role, body.screens)
+    return get_screen_access_settings(current_staff, db)
 
 
 @router.post("/init-admin", response_model=dict)
