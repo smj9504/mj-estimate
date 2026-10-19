@@ -138,7 +138,7 @@ class XactRoomResponse(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     """Photo upload triggers AI analysis pipeline."""
-    photos: Optional[List[str]] = None  # Base64 encoded images or file paths
+    photos: Optional[List[str]] = None  # Base64 encoded images (bare or data URLs)
     manual_keywords: Optional[List[str]] = None  # Manual keyword entry alternative
 
 

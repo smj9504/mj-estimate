@@ -151,11 +151,14 @@ class PackoutService:
         # Analyze photos if provided
         if request.photo_analysis_id:
             # Get photo analysis results
-            from app.domains.photo_analysis.repository import PhotoAnalysisRepository
-            photo_repo = PhotoAnalysisRepository(self.db)
-            photo_analysis = photo_repo.get_analysis(request.photo_analysis_id)
+            from app.domains.photo_analysis.models import PhotoAnalysis
+            photo_analysis = self.db.get(PhotoAnalysis, request.photo_analysis_id)
+            if not photo_analysis:
+                raise ValueError(
+                    f"Photo analysis not found: {request.photo_analysis_id}"
+                )
 
-            if photo_analysis and photo_analysis.analysis_results:
+            if photo_analysis.analysis_results:
                 # Extract items from photo analysis
                 detected_items = self._extract_items_from_photo_analysis(
                     photo_analysis.analysis_results
@@ -163,25 +166,44 @@ class PackoutService:
                 items.extend(detected_items)
 
         elif request.photo_urls:
-            # Analyze new photos
+            # Analyze new photos (the photo service takes up to 10 per call)
+            from app.domains.photo_analysis.schemas import PhotoAnalysisRequest
             from app.domains.photo_analysis.service import PhotoAnalysisService
-            photo_service = PhotoAnalysisService(self.db)
+            photo_service = PhotoAnalysisService()
+            room_type = self._resolve_room_type(
+                request.room_type or request.room_name
+            )
 
-            for url in request.photo_urls:
-                try:
-                    analysis_result = await photo_service.analyze_image(
-                        image_url=url,
-                        analysis_type="packout",
-                        room_name=request.room_name
+            for start in range(0, len(request.photo_urls), 10):
+                analysis = await photo_service.analyze_photos(
+                    PhotoAnalysisRequest(
+                        room_type=room_type,
+                        photo_urls=request.photo_urls[start:start + 10],
                     )
-                    detected_items = self._extract_items_from_photo_analysis(
-                        analysis_result
-                    )
-                    items.extend(detected_items)
-                except Exception as e:
-                    logger.error(f"Error analyzing photo {url}: {e}")
+                )
+                detected_items = self._extract_items_from_photo_analysis(
+                    analysis.model_dump(mode="json")
+                )
+                for item in detected_items:
+                    item.room_location = item.room_location or request.room_name
+                items.extend(detected_items)
 
         return items
+
+    @staticmethod
+    def _resolve_room_type(room: Optional[str]):
+        """Map a free-text room ("Living Room", "kitchen") to the photo
+        service's RoomType."""
+        from app.domains.pack_calculation.templates.base_template import RoomType
+
+        key = (room or "").strip().lower().replace(" ", "_").replace("-", "_")
+        try:
+            return RoomType(key)
+        except ValueError:
+            raise ValueError(
+                f"room_type is required to analyze photos and must be one of: "
+                f"{', '.join(r.value for r in RoomType)}"
+            )
 
     def _extract_items_from_photo_analysis(
         self,
@@ -190,20 +212,35 @@ class PackoutService:
         """Extract detected items from photo analysis results"""
         items = []
 
-        # Assuming photo analysis returns items in a structured format
+        # Photo analysis items carry category/subcategory and a list of
+        # special-handling flags (FRAGILE, HEAVY, ...) rather than a name and
+        # a fragility level, so derive those when they're absent.
         if "items" in analysis_results:
             for item_data in analysis_results["items"]:
+                special = item_data.get("special_handling", False)
+                if isinstance(special, list):
+                    flags = {str(f).upper() for f in special}
+                    requires_special = bool(flags)
+                    default_fragility = "fragile" if "FRAGILE" in flags else "normal"
+                else:
+                    requires_special = bool(special)
+                    default_fragility = "normal"
                 item = DetectedItem(
-                    name=item_data.get("name", "Unknown Item"),
+                    name=(
+                        item_data.get("name")
+                        or item_data.get("subcategory")
+                        or item_data.get("category")
+                        or "Unknown Item"
+                    ),
                     category=item_data.get("category", "General"),
                     subcategory=item_data.get("subcategory"),
                     quantity=item_data.get("quantity", 1),
                     size=item_data.get("size", "medium"),
-                    fragility=item_data.get("fragility", "normal"),
+                    fragility=item_data.get("fragility", default_fragility),
                     room_location=item_data.get("room"),
                     confidence_score=item_data.get("confidence", 0.8),
-                    requires_special_handling=item_data.get("special_handling", False),
-                    notes=item_data.get("notes"),
+                    requires_special_handling=requires_special,
+                    notes=item_data.get("notes") or item_data.get("packing_method"),
                     photo_references=item_data.get("photo_refs", [])
                 )
                 items.append(item)

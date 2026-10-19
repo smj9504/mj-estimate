@@ -12,7 +12,6 @@ import asyncio
 import base64
 import json
 import logging
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app.core.config import settings
@@ -60,12 +59,43 @@ Each string should describe:
 Do not include pricing. Do not explain. Output JSON only."""
 
 
+_IMAGE_SIGNATURES = (
+    (b"\x89PNG", "image/png"),
+    (b"\xff\xd8", "image/jpeg"),
+    (b"GIF8", "image/gif"),
+)
+
+
+def _parse_photo(photo_data: str) -> tuple[str, str]:
+    """Split a base64 photo (bare, or a `data:<type>;base64,` URL) into
+    (base64 payload, media type).
+
+    Photos come straight from the request body, so file paths are not
+    accepted - reading one would let a caller pull any file off the server.
+    """
+    if photo_data.startswith("data:"):
+        header, _, image_b64 = photo_data.partition(",")
+        media_type = header[5:].split(";")[0] or "image/jpeg"
+        return image_b64, media_type
+
+    try:
+        head = base64.b64decode(photo_data[:64], validate=True)
+    except ValueError:
+        raise ValueError("photo must be a base64-encoded image")
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return photo_data, "image/webp"
+    for signature, media_type in _IMAGE_SIGNATURES:
+        if head.startswith(signature):
+            return photo_data, media_type
+    return photo_data, "image/jpeg"
+
+
 async def extract_keywords_from_photo(photo_data: str) -> List[str]:
     """
     Step 1: Use Vision AI to extract damage keywords from a photo.
 
     Args:
-        photo_data: Base64 encoded image or file path
+        photo_data: Base64 encoded image, bare or as a data URL
 
     Returns:
         List of keyword strings describing damage and required work
@@ -73,14 +103,7 @@ async def extract_keywords_from_photo(photo_data: str) -> List[str]:
     vision_model = getattr(settings, "XACT_VISION_MODEL", "claude-haiku-4-5-20251001")
 
     try:
-        # Determine if photo_data is a file path or base64
-        if Path(photo_data).exists():
-            image_bytes = await asyncio.to_thread(Path(photo_data).read_bytes)
-            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-            media_type = "image/jpeg"  # Default; could detect from extension
-        else:
-            image_b64 = photo_data
-            media_type = "image/jpeg"
+        image_b64, media_type = _parse_photo(photo_data)
 
         if "claude" in vision_model.lower():
             client = _get_anthropic()

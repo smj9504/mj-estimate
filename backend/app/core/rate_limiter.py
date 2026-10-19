@@ -53,11 +53,31 @@ def get_client_ip(request: Request) -> str:
     return get_remote_address(request)
 
 
+def get_rate_limit_key(request: Request) -> str:
+    """
+    Rate limit signed-in staff per account, everyone else per IP.
+
+    Staff in one office share a public IP, so counting by IP made the whole
+    office share one budget - a few people with several tabs open each hit it.
+    The token is verified, so a forged one falls back to the IP bucket.
+    """
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        from app.domains.auth.service import AuthService
+
+        token_data = AuthService.decode_token(auth[7:])
+        if token_data:
+            return f"staff:{token_data.user_id}"
+    return get_client_ip(request)
+
+
 # Create limiter instance with custom key function
-# Default limit: 100 requests per minute for general endpoints
+# Default limit: 600 requests per minute per signed-in staff member (per IP
+# when signed out). One page load fires 20-30 requests, and staff work with
+# several tabs open at once.
 limiter = Limiter(
-    key_func=get_client_ip,
-    default_limits=["100/minute"],
+    key_func=get_rate_limit_key,
+    default_limits=["600/minute"],
     enabled=True,
     headers_enabled=True,  # Add rate limit headers to responses
     strategy="fixed-window"  # Use fixed window strategy

@@ -1,6 +1,7 @@
 """
 PDF Editor Service for editing PDF files
 """
+import asyncio
 import io
 import logging
 from pathlib import Path
@@ -52,7 +53,9 @@ class PDFEditorService:
             if request.file_url:
                 filename = f"edited_{Path(request.file_url).stem}.pdf"
             
-            file_record = self.file_service.upload_file(
+            # upload_file is async; edit_pdf always runs in a worker thread
+            # (sync route / asyncio.to_thread), where no event loop is running.
+            file_record = asyncio.run(self.file_service.upload_file(
                 file_data=io.BytesIO(edited_pdf_bytes),
                 original_filename=filename,
                 content_type="application/pdf",
@@ -61,7 +64,7 @@ class PDFEditorService:
                 category="pdf_edited",
                 description="PDF edited with text operations",
                 uploaded_by=uploaded_by
-            )
+            ))
 
             # Commit transaction
             self.file_service.repository.session.commit()
@@ -101,7 +104,8 @@ class PDFEditorService:
                     file_url.startswith('http://')
                 )
                 if is_cloud:
-                    pdf_bytes = storage.download_file(file_url)
+                    # `filename` holds the storage provider's file ID
+                    pdf_bytes = storage.download(file_record['filename'])
                 else:
                     # Local file
                     file_path = Path(file_url)
