@@ -54,7 +54,6 @@ import SendToAdjusterModal from '../components/water-mitigation/SendToAdjusterMo
 import FollowUpAdjusterModal from '../components/water-mitigation/FollowUpAdjusterModal';
 import WMFinancialComparisonCard from '../components/water-mitigation/WMFinancialComparison';
 import WMContractTab from '../components/water-mitigation/WMContractTab';
-import AccuLynxSyncButton from '../components/common/AccuLynxSyncButton'; // AccuLynx: remove this line to fully remove the feature
 import { PageHeader, Pill, type TagTone } from '../components/common/ui';
 import { CompanyTag } from '../components/water-mitigation/paymentBoardShared';
 import { WMStatusPill, WM_STATUS_TONES } from '../components/water-mitigation/wmStatus';
@@ -627,24 +626,6 @@ const WaterMitigationDetail: React.FC = () => {
                             ) : (
                               job.claim_number || EMPTY
                             )}
-                          </Descriptions.Item>
-                          {/* AccuLynx: remove this Descriptions.Item to fully remove the feature */}
-                          <Descriptions.Item label="AccuLynx">
-                            {job.claim_id ? (
-                              <AccuLynxSyncButton
-                                claimId={job.claim_id}
-                                clientId={job.client_id}
-                                size="small"
-                                prefill={{
-                                  firstName: job.homeowner_name?.split(' ')[0],
-                                  lastName: job.homeowner_name?.split(' ').slice(1).join(' '),
-                                  email: job.homeowner_email,
-                                  phone: job.homeowner_phone,
-                                  address: { street1: job.property_address },
-                                  notes: job.claim_number ? `Claim #${job.claim_number}` : undefined,
-                                }}
-                              />
-                            ) : EMPTY}
                           </Descriptions.Item>
                           <Descriptions.Item label="Date of Loss">
                             {isEditing ? (

@@ -160,7 +160,6 @@ class ArchiveImporter:
         self.stats = Counter()
         folders_file = data_dir / "drive_folders.json"
         self.drive_folders = read_json(folders_file) if folders_file.exists() else {}
-        self._has_contact_links = self._table_exists("acculynx_contact_links")
         self._dry_new_contacts: set = set()  # dry run: contacts that would get a new client
         # a dry run may happen before the archive tables are created
         self._archive_tables = self._table_exists("acculynx_archived_jobs")
@@ -201,22 +200,12 @@ class ArchiveImporter:
     def resolve_client(self, record: dict, contact: dict) -> tuple[Optional[Client], str]:
         """
         Match order, most to least certain:
-          1. contact already linked to a client by the old AccuLynx integration
-          2. same contact already imported for another job
-          3. same street address (and zip, when the client has one)
-          4. same email, then same phone - only when exactly one client matches
+          1. same contact already imported for another job
+          2. same street address (and zip, when the client has one)
+          3. same email, then same phone - only when exactly one client matches
         Returns (client or None, how it matched); None means "create one".
         """
         cid = contact.get("id")
-        if cid and self._has_contact_links:
-            row = self.session.execute(
-                text("SELECT client_id FROM acculynx_contact_links WHERE acculynx_contact_id = :cid"),
-                {"cid": cid},
-            ).first()
-            client = row and self.session.get(Client, row[0])
-            if client:
-                return client, "contact_link"
-
         if cid:
             prior = self._find(AccuLynxArchivedJob, acculynx_contact_id=cid)
             if prior:
