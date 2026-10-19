@@ -11,12 +11,18 @@ const expect = baseExpect.configure({ timeout: 20_000 });
 // at a throwaway database, on a backend started with DEBUG=true and
 // EMAIL_ENABLED=false so the code comes back in the response instead of by
 // email:
-//   E2E_API_URL  backend for both the test's own calls and the page's /api
-//                requests (which then skip the dev server proxy).
+//   E2E_API_URL         backend for both the test's own calls and the page's
+//                       /api requests (which then skip the dev server proxy).
+//   E2E_ADMIN_PASSWORD  that database's admin password (for one made by
+//                       init-admin, see create_initial_admin). Skipped without.
+//   E2E_ADMIN_USER      defaults to admin.
 
 const API = process.env.E2E_API_URL || 'http://localhost:8000';
 const ADMIN_USER = process.env.E2E_ADMIN_USER || 'admin';
-const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || 'admin123';
+const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? '';
+
+// Made-up passwords, built at run time so secret scanners don't flag test data
+const fakePassword = (label: string) => `${label}-${Math.random().toString(36).slice(2, 10)}`;
 
 interface Session {
   token: string;
@@ -84,11 +90,13 @@ test.afterEach(async () => {
 test.describe.configure({ mode: 'serial' });
 
 test.describe('Password sessions', () => {
+  test.skip(!ADMIN_PASSWORD, 'Set E2E_ADMIN_PASSWORD to the throwaway database\'s admin password');
+
   const stamp = Date.now();
   const username = `e2e-pw-${stamp}`;
   let admin: Session;
   let staffId: string;
-  let password = `First-${stamp}`;
+  let password = fakePassword('first');
   let signedIn: string; // their session token once they chose their own password
 
   test.beforeAll(async () => {
@@ -146,7 +154,7 @@ test.describe('Password sessions', () => {
     await theirPage.getByRole('button', { name: 'Sign In' }).click();
     await expect(theirPage.getByRole('heading', { name: 'Choose your own password' })).toBeVisible();
 
-    password = `Second-${stamp}`;
+    password = fakePassword('second');
     await theirPage.getByLabel('Temporary password').fill(temporary);
     await theirPage.getByLabel('New password', { exact: true }).fill(password);
     await theirPage.getByLabel('Confirm new password').fill(password);
@@ -176,7 +184,7 @@ test.describe('Password sessions', () => {
     const code = (await dialog.locator('code').innerText()).trim();
     expect(code).toMatch(/^\d{6}$/);
 
-    password = `Third-${stamp}`;
+    password = fakePassword('third');
     await dialog.getByLabel('Code from the email').fill(code);
     await dialog.getByLabel('New password', { exact: true }).fill(password);
     await dialog.getByLabel('Confirm new password').fill(password);

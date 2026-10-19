@@ -3,6 +3,7 @@ Authentication service layer
 """
 import calendar
 import secrets
+import string
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -21,8 +22,11 @@ from app.domains.staff.models import Staff, StaffRole
 from . import schemas
 from .password_reset_models import PasswordResetToken
 
-# Characters for temporary passwords, without 0/O, 1/l/I
-TEMP_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+# Characters for temporary passwords: letters and digits without the
+# look-alikes 0/O/o and 1/l/I
+TEMP_PASSWORD_CHARS = "".join(
+    c for c in string.ascii_letters + string.digits if c not in "0Oo1lI"
+)
 
 
 class AuthService:
@@ -281,11 +285,11 @@ class AuthService:
     @staticmethod
     def generate_temporary_password() -> str:
         """
-        A password for an admin to read out or paste to someone, like
-        "Kx7m-Pq4r-Zt9w". Look-alike characters (0/O, 1/l/I) are left out.
+        A password for an admin to read out or paste to someone: three groups
+        of four letters and digits joined by dashes, without look-alikes.
         """
         groups = [
-            "".join(secrets.choice(TEMP_PASSWORD_ALPHABET) for _ in range(4))
+            "".join(secrets.choice(TEMP_PASSWORD_CHARS) for _ in range(4))
             for _ in range(3)
         ]
         return "-".join(groups)

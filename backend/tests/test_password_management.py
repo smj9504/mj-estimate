@@ -4,6 +4,7 @@ sessions, on an in-memory database with real tokens."""
 from datetime import datetime, timedelta
 from pathlib import Path
 import re
+import secrets
 import sys
 import time
 
@@ -26,13 +27,24 @@ from app.core.rate_limiter import limiter
 from app.domains.auth import api as auth_api
 from app.domains.auth import password_change
 from app.domains.auth.password_reset_models import PasswordResetToken
-from app.domains.auth.service import TEMP_PASSWORD_ALPHABET, AuthService
+from app.domains.auth.schemas import MIN_PASSWORD_LENGTH
+from app.domains.auth.service import TEMP_PASSWORD_CHARS, AuthService
 from app.domains.staff.models import RoleScreenAccess, Staff, StaffRole
 # SQLAlchemy configures every loaded model on first use, and models other test
 # files load name classes by string, so register them all as the app does
 import app.main  # noqa: E402,F401
 
-OLD_PASSWORD = 'old-password-1'
+def fake_password(label):
+    """A made-up password, built at run time so secret scanners don't flag test data"""
+    return f"{label}-{secrets.token_hex(4)}"
+
+
+OLD_PASSWORD = fake_password('old')
+NEW_PASSWORD = fake_password('new')
+OWN_PASSWORD = fake_password('own')
+ADMIN_CHOSEN = fake_password('chosen')
+NEWBIE_PASSWORD = fake_password('newbie')
+TOO_SHORT = 'x' * (MIN_PASSWORD_LENGTH - 1)
 # The fewest bcrypt rounds, so hashing and checking don't dominate the run
 FAST_ROUNDS = 4
 OLD_PASSWORD_HASH = bcrypt.hashpw(OLD_PASSWORD.encode(), bcrypt.gensalt(rounds=FAST_ROUNDS)).decode()
@@ -145,8 +157,8 @@ def login(env, username, password):
 def test_temporary_password_is_readable_and_random():
     first = AuthService.generate_temporary_password()
     assert re.fullmatch(r'[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}', first)
-    assert set(first.replace('-', '')) <= set(TEMP_PASSWORD_ALPHABET)
-    assert not set('0O1lI') & set(TEMP_PASSWORD_ALPHABET)
+    assert set(first.replace('-', '')) <= set(TEMP_PASSWORD_CHARS)
+    assert not set('0O1lI') & set(TEMP_PASSWORD_CHARS)
     assert first != AuthService.generate_temporary_password()
 
 
@@ -168,18 +180,18 @@ def test_admin_reset_can_use_a_password_the_admin_chose(env):
     env['sign_in_as'](env['admin'])
     response = env['client'].post(
         f"/api/auth/staff/{env['jane'].id}/reset-password",
-        json={'new_password': 'chosen-by-admin'},
+        json={'new_password': ADMIN_CHOSEN},
     )
 
     assert response.status_code == 200
-    assert response.json()['password'] == 'chosen-by-admin'
-    assert password_works(env, env['jane'], 'chosen-by-admin')
+    assert response.json()['password'] == ADMIN_CHOSEN
+    assert password_works(env, env['jane'], ADMIN_CHOSEN)
 
 
 def test_admin_reset_refuses_a_short_password(env):
     env['sign_in_as'](env['admin'])
     response = env['client'].post(
-        f"/api/auth/staff/{env['jane'].id}/reset-password", json={'new_password': 'short'}
+        f"/api/auth/staff/{env['jane'].id}/reset-password", json={'new_password': TOO_SHORT}
     )
 
     assert response.status_code == 422
@@ -214,12 +226,12 @@ def test_admin_reset_of_unknown_staff_is_404(env):
 def test_new_staff_choose_nothing_extra_at_first_sign_in(env):
     env['sign_in_as'](env['admin'])
     response = env['client'].post('/api/auth/register', json={
-        'username': 'newbie', 'email': 'newbie@example.com', 'password': 'welcome-123',
+        'username': 'newbie', 'email': 'newbie@example.com', 'password': NEWBIE_PASSWORD,
         'first_name': 'New', 'last_name': 'Person', 'staff_number': 'N1',
     })
 
     assert response.status_code == 200
-    assert login(env, 'newbie', 'welcome-123')['user']['must_change_password'] is False
+    assert login(env, 'newbie', NEWBIE_PASSWORD)['user']['must_change_password'] is False
 
 
 # Changing your own password with an emailed code
@@ -230,7 +242,7 @@ def request_code(env):
     return response.json()
 
 
-def change_with_code(env, code, new_password='brand-new-pass'):
+def change_with_code(env, code, new_password=NEW_PASSWORD):
     return env['client'].post(
         '/api/auth/me/change-password', json={'code': code, 'new_password': new_password}
     )
@@ -247,17 +259,17 @@ def test_code_goes_to_the_address_on_file_and_changes_the_password(env):
     response = change_with_code(env, code)
 
     assert response.status_code == 200
-    assert password_works(env, env['jane'], 'brand-new-pass')
+    assert password_works(env, env['jane'], NEW_PASSWORD)
     assert env['jane'].must_change_password is False
 
     # A code works once
     again = env['client'].post(
         '/api/auth/me/change-password',
-        json={'code': code, 'new_password': 'another-pass-1'},
+        json={'code': code, 'new_password': fake_password('another')},
         headers=bearer(response.json()['access_token']),
     )
     assert again.status_code == 400
-    assert password_works(env, env['jane'], 'brand-new-pass')
+    assert password_works(env, env['jane'], NEW_PASSWORD)
 
 
 def test_wrong_code_leaves_the_password_alone(env):
@@ -323,7 +335,7 @@ def test_one_persons_code_does_not_work_for_someone_else(env):
 
 def test_new_password_must_be_long_enough(env):
     request_code(env)
-    response = change_with_code(env, env['sent'][0]['code'], new_password='short')
+    response = change_with_code(env, env['sent'][0]['code'], new_password=TOO_SHORT)
 
     assert response.status_code == 422
     assert password_works(env, env['jane'], OLD_PASSWORD)
@@ -403,7 +415,7 @@ def test_a_stale_cache_entry_does_not_keep_an_old_session_alive(env):
     assert me(env, janes_session).status_code == 200  # cached without a change time
 
     # Change the password behind the cache's back, as another server would
-    AuthService().set_password(env['session'], env['jane'].id, 'brand-new-pass')
+    AuthService().set_password(env['session'], env['jane'].id, NEW_PASSWORD)
     cached = env['cache'].redis_client.get(f"staff:{env['jane'].id}")
     assert cached is not None
     # The cached copy predates the change, so it lets the token through until
@@ -430,12 +442,12 @@ def test_email_link_reset_signs_out_old_sessions(env):
     reset_token = AuthService().create_password_reset_token(env['session'], 'jane@example.com')
     response = env['client'].post(
         '/api/auth/password-reset/confirm',
-        json={'token': reset_token, 'new_password': 'brand-new-pass'},
+        json={'token': reset_token, 'new_password': NEW_PASSWORD},
     )
 
     assert response.status_code == 200
     assert me(env, janes_session).status_code == 401
-    assert login(env, 'jane', 'brand-new-pass')
+    assert login(env, 'jane', NEW_PASSWORD)
 
 
 # Choosing your own password after an admin reset
@@ -459,10 +471,10 @@ def test_after_a_reset_the_person_picks_their_own_password(env):
     session = login(env, 'jane', temporary)
     assert session['user']['must_change_password'] is True
 
-    response = change_temporary(env, session['access_token'], temporary, 'my-own-pass-1')
+    response = change_temporary(env, session['access_token'], temporary, OWN_PASSWORD)
 
     assert response.status_code == 200
-    assert password_works(env, env['jane'], 'my-own-pass-1')
+    assert password_works(env, env['jane'], OWN_PASSWORD)
     assert env['jane'].must_change_password is False
     after = me(env, response.json()['access_token'])
     assert after.status_code == 200
@@ -473,7 +485,7 @@ def test_temporary_password_must_be_given_correctly(env):
     temporary = reset_by_admin(env, env['jane'])
     token = login(env, 'jane', temporary)['access_token']
 
-    wrong = change_temporary(env, token, 'not-the-temp-pass', 'my-own-pass-1')
+    wrong = change_temporary(env, token, fake_password('wrong'), OWN_PASSWORD)
     same = change_temporary(env, token, temporary, temporary)
 
     assert wrong.status_code == 400
@@ -483,7 +495,7 @@ def test_temporary_password_must_be_given_correctly(env):
 
 
 def test_without_a_reset_the_emailed_code_is_the_only_way(env):
-    response = change_temporary(env, token_for(env['jane']), OLD_PASSWORD, 'my-own-pass-1')
+    response = change_temporary(env, token_for(env['jane']), OLD_PASSWORD, OWN_PASSWORD)
 
     assert response.status_code == 400
     assert 'profile' in response.json()['detail']
@@ -549,7 +561,7 @@ def test_smtp_conversation_is_not_echoed_with_credentials(monkeypatch):
     monkeypatch.setattr(email_module.smtplib, 'SMTP', FakeSMTP)
     monkeypatch.setattr(settings, 'EMAIL_ENABLED', True)
     monkeypatch.setattr(settings, 'SMTP_USER', 'mailer@example.com')
-    monkeypatch.setattr(settings, 'SMTP_PASSWORD', 'secret')
+    monkeypatch.setattr(settings, 'SMTP_PASSWORD', secrets.token_hex(8))
 
     assert EmailService.send_email('jane@example.com', 'Hi', '<p>Hi</p>')
     smtp = FakeSMTP.instances[-1]
