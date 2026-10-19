@@ -277,10 +277,12 @@ class PlumberReportService {
     incident_type: string;
     location: string;
     wall_access_type: string;
-    pipe_material: string;
+    pipe_material?: string;
     state: string;
     detached_fixture?: string;
     fixture_reinstalled?: boolean;
+    affected_areas?: string;
+    photos?: Array<{ url: string; category: string; caption?: string }>;
   }): Promise<{
     site_findings: string;
     work_performed: string;

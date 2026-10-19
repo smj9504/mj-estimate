@@ -20,6 +20,7 @@ import {
   Tooltip,
   Popconfirm,
   Spin,
+  Upload,
 } from 'antd';
 import {
   PlusOutlined,
@@ -35,6 +36,7 @@ import {
   CalendarOutlined,
   SendOutlined,
   MailOutlined,
+  CameraOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
@@ -90,6 +92,15 @@ const normalizeUsState = (raw?: string | null): 'MD' | 'VA' | 'DC' | null => {
   return null;
 };
 
+// Before/after repair photos for the AI generator only — sent with the
+// generate request and never saved to the report.
+interface AiPhoto {
+  id: string;
+  url: string;
+  category: 'before' | 'after';
+  caption?: string;
+}
+
 const PlumberReportCreation: React.FC = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
@@ -117,6 +128,7 @@ const PlumberReportCreation: React.FC = () => {
   const [aiGenerateModalVisible, setAiGenerateModalVisible] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiStep, setAiStep] = useState<string>('');
+  const [aiPhotos, setAiPhotos] = useState<AiPhoto[]>([]);
   const [aiForm] = Form.useForm();
 
   // AI generation runs 15-25s+ in the background — closing/reloading the tab
@@ -792,12 +804,108 @@ const PlumberReportCreation: React.FC = () => {
 
   const handleClearAiForm = useCallback(() => {
     aiForm.resetFields();
+    setAiPhotos([]);
     try {
       localStorage.removeItem(aiFormStorageKey);
     } catch (error) {
       console.error('Failed to clear AI form draft:', error);
     }
   }, [aiForm, aiFormStorageKey]);
+
+  // Downscale to a 1568px long edge — the largest size Claude uses without
+  // resizing it again — so fittings and staining stay readable while the
+  // request stays small. Also converts formats the AI can't read to JPEG.
+  const compressImage = (file: File, maxEdge = 1568, quality = 0.8): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error(`Could not read ${file.name}`));
+      };
+      img.src = url;
+    });
+  };
+
+  const handleAddPhoto = async (file: File, category: 'before' | 'after') => {
+    try {
+      const url = await compressImage(file);
+      setAiPhotos((prev) => [
+        ...prev,
+        { id: `photo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, url, category },
+      ]);
+    } catch {
+      message.error(`Could not read ${file.name} — please upload a JPG or PNG.`);
+    }
+  };
+
+  const renderPhotoGroup = (category: 'before' | 'after') => {
+    const groupPhotos = aiPhotos.filter((p) => p.category === category);
+    return (
+      <div>
+        <Space style={{ marginBottom: 8 }}>
+          <Typography.Text strong>
+            {category === 'before' ? 'Before Repair' : 'After Repair'} ({groupPhotos.length})
+          </Typography.Text>
+          <Upload
+            accept="image/*"
+            multiple
+            showUploadList={false}
+            beforeUpload={(file) => {
+              handleAddPhoto(file, category);
+              return false;
+            }}
+          >
+            <Button size="small" icon={<CameraOutlined />}>Add Photos</Button>
+          </Upload>
+        </Space>
+        {groupPhotos.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {groupPhotos.map((photo) => (
+              <div
+                key={photo.id}
+                style={{ width: 140, border: '1px solid #e8e8e8', borderRadius: 6, overflow: 'hidden', background: '#fafafa' }}
+              >
+                <div style={{ position: 'relative' }}>
+                  <img
+                    src={photo.url}
+                    alt={photo.caption || category}
+                    style={{ width: '100%', height: 100, objectFit: 'cover', display: 'block' }}
+                  />
+                  <Button
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined />}
+                    style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(255,255,255,0.85)', border: 'none' }}
+                    onClick={() => setAiPhotos((prev) => prev.filter((p) => p.id !== photo.id))}
+                  />
+                </div>
+                <Input
+                  size="small"
+                  variant="borderless"
+                  placeholder="Caption (e.g. 1st fl. ceiling)"
+                  value={photo.caption}
+                  onChange={(e) => {
+                    const caption = e.target.value;
+                    setAiPhotos((prev) => prev.map((p) => (p.id === photo.id ? { ...p, caption } : p)));
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const handleAiGenerate = useCallback(async () => {
     try {
@@ -815,10 +923,12 @@ const PlumberReportCreation: React.FC = () => {
         incident_type: values.incident_type,
         location: values.location,
         wall_access_type: values.wall_access_type,
-        pipe_material: values.pipe_material,
+        pipe_material: values.pipe_material || '',
         state: resolvedAiState,
         detached_fixture: values.detached_fixture || '',
         fixture_reinstalled: values.fixture_reinstalled !== false,
+        affected_areas: values.affected_areas || '',
+        photos: aiPhotos.map(({ url, category, caption }) => ({ url, category, caption })),
       });
 
       // The backend runs both steps — update UI to reflect completion
@@ -855,7 +965,7 @@ const PlumberReportCreation: React.FC = () => {
       setAiGenerating(false);
       setAiStep('');
     }
-  }, [aiForm, form, resolvedAiState]);
+  }, [aiForm, form, resolvedAiState, aiPhotos]);
 
   const totals = calculateTotals();
 
@@ -1760,7 +1870,7 @@ const PlumberReportCreation: React.FC = () => {
         closable={!aiGenerating}
         maskClosable={!aiGenerating}
         keyboard={!aiGenerating}
-        width={500}
+        width={640}
         footer={[
           <Button key="clear" onClick={handleClearAiForm} disabled={aiGenerating}>
             Clear Fields
@@ -1806,10 +1916,9 @@ const PlumberReportCreation: React.FC = () => {
           </Form.Item>
           <Form.Item
             name="pipe_material"
-            label="Pipe Material"
-            rules={[{ required: true, message: 'Please select the pipe material' }]}
+            label="Pipe Material (optional)"
           >
-            <Select placeholder="Select pipe material">
+            <Select placeholder="Leave blank if unknown — AI will not guess" allowClear>
               <Select.Option value="Type L copper">Type L Copper</Select.Option>
               <Select.Option value="CPVC">CPVC</Select.Option>
               <Select.Option value="PEX">PEX</Select.Option>
@@ -1831,6 +1940,13 @@ const PlumberReportCreation: React.FC = () => {
             rules={[{ required: true, message: 'Please enter the location' }]}
           >
             <Input placeholder="e.g. 2nd floor master bathroom shower, kitchen sink, basement" />
+          </Form.Item>
+          <Form.Item
+            name="affected_areas"
+            label="Did Water Reach Other Areas? (optional)"
+            extra="List every floor/room the water reached below or next to the source. Leave blank if none."
+          >
+            <Input placeholder="e.g. 1st floor kitchen ceiling, basement family room" />
           </Form.Item>
           <Form.Item
             name="detached_fixture"
@@ -1858,6 +1974,14 @@ const PlumberReportCreation: React.FC = () => {
             }
           </Form.Item>
         </Form>
+        <Divider style={{ margin: '8px 0 16px' }} />
+        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+          Before / after photos (optional) — AI reads them to describe the damage and the repair. They are not saved to the report. Up to 10 are analyzed. Captions like "1st floor ceiling" help.
+        </Typography.Text>
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {renderPhotoGroup('before')}
+          {renderPhotoGroup('after')}
+        </Space>
       </Modal>
 
       {/* AI Prompt Template Modal */}

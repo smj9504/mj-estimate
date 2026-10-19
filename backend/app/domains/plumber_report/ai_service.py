@@ -11,6 +11,7 @@ in code after generation — see generate_plumber_report().
 
 import json
 import logging
+import re
 from typing import Optional
 
 from app.core.config import settings
@@ -30,6 +31,7 @@ VALID_STATES = {"MD", "VA", "DC"}
 # ──────────────────────────────────────────────
 
 AI_TEMPERATURE = 0.3
+MAX_AI_PHOTOS = 10
 OPENAI_MODEL_STRONG = "gpt-4o"
 OPENAI_MODEL_FAST = "gpt-4o-mini"
 ANTHROPIC_MODEL_STRONG = "claude-sonnet-5"
@@ -59,13 +61,14 @@ SCOPE_PROMPT_TEMPLATE = """Write the field report sections for this plumbing ser
 - **What was opened/torn out to access the issue:** {wall_access_type}
 - **Fixture detached for access (if any):** {detached_fixture}
 - **Was the detached fixture reinstalled by this technician?** {fixture_reinstalled}
+- **Other areas the water reached (floors below, adjacent rooms/units):** {affected_areas}
 
 ## GROUND RULES — WHAT YOU CAN AND CANNOT KNOW
 
 This report goes to an insurance adjuster and to the property owner, so every sentence
 must stay true no matter which plausible real-world scenario actually occurred. The JOB
-DETAILS above are the only facts you have. Never state or imply anything they do not
-establish.
+DETAILS above — plus what any attached photos clearly show (see PHOTOS below) — are the
+only facts you have. Never state or imply anything they do not establish.
 
 You do NOT know:
 - **How long the leak ran, when it started, or how much water escaped.** A leak inside a
@@ -73,6 +76,11 @@ You do NOT know:
 - **Whether the homeowner did anything at all before the technician arrived.** Many
   homeowners do not know where the main shutoff or an isolation valve is.
 - **Whether water was still discharging when the technician arrived, or had stopped.**
+- **Whether the water reached any other floor, room, or unit, beyond what JOB DETAILS
+  lists.** A leak on an upper floor may or may not have reached the floors below — never
+  infer it from the location alone.
+- **The pipe material, if JOB DETAILS says it was not specified** — unless the incident
+  description itself names it, or an attached photo clearly shows it.
 - **The position of any valve, or the system pressure, on arrival.**
 - **The condition of anything not visible without opening a wall, ceiling, or fixture** —
   insulation, framing, studs, subfloor. Not every wall even contains insulation; interior
@@ -82,6 +90,8 @@ You do NOT know:
 
 You DO know, and should write about: the physical conditions visible at the surface, and
 the actions the technician performed.
+
+{photos_section}
 
 ## INSTRUCTIONS
 
@@ -96,7 +106,11 @@ the actions the technician performed.
   "toilet", "vanity", "dishwasher"). Use the value given in JOB DETAILS if one was
   provided; otherwise infer it from the incident, location, and access context. Use ""
   if nothing was detached.
-All four must stay consistent with the narrative sections below. Note: whether the
+- **pipe_material** — the pipe material the report names. Use the value given in JOB
+  DETAILS if one was provided; if it says "not specified," use a material only when the
+  incident description itself names one (e.g. "burst copper line") or an attached photo
+  clearly shows it, otherwise "".
+All five must stay consistent with the narrative sections below. Note: whether the
 detached fixture was reinstalled is NOT inferred — it is given directly in JOB DETAILS
 above as "Was the detached fixture reinstalled by this technician?" and must be followed
 exactly wherever fixture_detached is non-empty.
@@ -142,13 +156,21 @@ REQUIRED:
   or studs requires opening the wall, which is a technician action and belongs in Work
   Performed.
 - One plain mention, exactly once, that the homeowner reported no prior signs of leakage.
-- **If water reached a lower level or an adjacent room/unit, say so, and qualify it as
-  active, fresh, or wet and tied to this incident** — e.g. "active water staining was
-  visible on the ceiling below," or "fresh staining consistent with the leak was noted on
-  the ceiling below." Bare "staining" with no qualifier reads as an old, unrelated mark and
-  gives an adjuster room to argue the damage is pre-existing rather than new. ("Active" and
-  "fresh" here describe the mark as new and wet — they are not a claim that water is still
-  flowing, which stays off-limits.)
+- **Other areas the water reached — follow "Other areas the water reached" in JOB
+  DETAILS exactly.**
+  - If it lists areas, name every one of them, and qualify each as active, fresh, or wet
+    and tied to this incident — e.g. "active water staining was visible on the 1st-floor
+    kitchen ceiling below," or "fresh staining consistent with the leak was noted on the
+    basement ceiling." When water traveled through more than one level (e.g. a 2nd-floor
+    leak that reached both the 1st floor and the basement), describe each level, top to
+    bottom, so the full path of this incident is on record. Bare "staining" with no
+    qualifier reads as an old, unrelated mark and gives an adjuster room to argue the
+    damage is pre-existing rather than new. ("Active" and "fresh" here describe the mark
+    as new and wet — they are not a claim that water is still flowing, which stays
+    off-limits.) Surface indicators only, as above — nothing inside those ceilings or
+    walls.
+  - If it says "none reported," do not mention water reaching any other floor, room, or
+    unit at all — not even when the location is on an upper floor.
 
 OPENING SENTENCE — vary it; do not always start with "Upon arrival":
 - "Technician found..."
@@ -218,6 +240,9 @@ Site Findings ban on valve position and pressure.
 - PEX / flexible -> replace the affected connector or line with code-compliant fittings.
 - PVC (DWV) -> cut out the failure point, fit replacement PVC with couplings, replace the P-trap.
 - CPVC -> cut out the failure point and replace with CPVC transition fittings.
+- not specified (pipe_material is "") -> do not name a pipe material anywhere in the
+  report; describe the repair as cutting out the failure point and replacing it with
+  code-compliant pipe and fittings matching the existing line.
 
 **Access method — match the wall/access type:**
 - tile -> protect surrounding tile and fixtures, cut and remove tile and backing for access.
@@ -251,6 +276,8 @@ was detached before the work area was accessed.
 - Cover: drying advisory, monitoring recommendation, and that no additional issues were found.
 - If tile or drywall was removed, add that restoration is pending and the cavity has been
   temporarily sealed.
+- If water reached other areas (per JOB DETAILS), add that those areas should also be
+  evaluated for drying and restoration.
 
 ## TONE
 A professional field report written by a licensed technician — clear, factual, plain. Not
@@ -271,8 +298,9 @@ age-related, neglect, deferred maintenance.
    water volume, age or wear, or homeowner fault.
 4. The Work Performed opening does not say who isolated the supply or when, and does not
    imply the water was either still running or already off.
-5. If water reached another level or room, it is described as active/fresh/wet and tied to
-   this incident.
+5. Every area listed under "Other areas the water reached" is named in Site Findings and
+   described as active/fresh/wet and tied to this incident. If none were reported, no
+   other floor, room, or unit is mentioned anywhere.
 6. If a fixture was detached AND fixture_reinstalled is "yes", Work Performed describes
    BOTH detaching and resetting it. If fixture_reinstalled is "no", Work Performed
    describes the detach only and states the fixture remains removed pending
@@ -283,14 +311,16 @@ age-related, neglect, deferred maintenance.
 9. Work Performed does not contradict Site Findings.
 10. Site Findings contains no sudden-vs-gradual conclusion (e.g. "rather than a gradual
     leak") and no moisture-meter reading of any kind.
+11. If pipe_material is "", no pipe material is named anywhere in the report.
 
 ## OUTPUT FORMAT
 Return ONLY a valid JSON object — no markdown, no code fences, no commentary before or
-after it. All eight keys are required, and every value is a string:
+after it. All nine keys are required, and every value is a string:
 - `failed_component` — the specific component that failed
 - `hours_estimate` — a decimal number written as a string, e.g. "3.5"
 - `protection_needed` — exactly "yes" or "no"
 - `fixture_detached` — the fixture name, or "" if nothing was detached
+- `pipe_material` — the pipe material the report names, or "" if none
 - `site_findings`, `work_performed`, `warranty_info`, `notes` — the sections written above
 
 {{
@@ -298,11 +328,40 @@ after it. All eight keys are required, and every value is a string:
   "hours_estimate": "...",
   "protection_needed": "...",
   "fixture_detached": "...",
+  "pipe_material": "...",
   "site_findings": "...",
   "work_performed": "...",
   "warranty_info": "...",
   "notes": "..."
 }}"""
+
+NO_PHOTOS_SECTION = "## PHOTOS\nNo photos were attached — rely on JOB DETAILS only."
+
+PHOTOS_SECTION_TEMPLATE = """## PHOTOS
+{photo_count} photo(s) taken by the technician are attached, labeled in this order:
+{photo_list}
+
+How to use them:
+- **BEFORE photos** show conditions at time of service, before the work. Use what they
+  clearly show for Site Findings: water on the floor or baseboard, staining, soft or
+  bulging drywall, the failed component and its failure mode when it is exposed in the
+  photo. A BEFORE photo that already shows an opened wall or ceiling was taken during the
+  access step — its failure mode belongs in Work Performed, not Site Findings.
+- **AFTER photos** show the completed repair. Use what they clearly show for Work
+  Performed: the replacement pipe and fittings, the repair method, the size of any opening
+  (to estimate its dimensions), protection, and the temporary seal over the cavity.
+- What a photo clearly shows counts as an established fact, the same as JOB DETAILS. What
+  is unclear, partly hidden, or open to more than one reading does not — leave it out.
+- JOB DETAILS take precedence wherever a photo seems to conflict with them; photos only
+  fill in what JOB DETAILS leave open (e.g. a pipe material that was not specified).
+- Another floor, room, or unit counts as reached by the water only when JOB DETAILS list
+  it, or a photo caption names that area. Never infer it from an uncaptioned photo.
+- Every ground rule above still applies. A photo cannot establish how long the leak ran,
+  how much water escaped, or what anyone did before arrival. Even if a photo shows
+  discoloration, corrosion, or mineral buildup on the pipe, do not describe it — the
+  no-age/no-wear rule overrides what a photo shows.
+- Write the report as the technician's own observations. Do not refer to the photos
+  ("as shown in Photo 2") or describe them as photos."""
 
 # ──────────────────────────────────────────────
 # Step 2: Invoice from Work Performed
@@ -359,7 +418,9 @@ Include the temporary protection materials if protection was installed, and the 
 reset materials (wax ring, caulk, supply line) ONLY if a fixture was detached AND will be
 reinstalled by this technician. If the detached fixture will NOT be reinstalled by this
 technician, do not include any reset/reinstall materials for it. The description must list
-the actual items with approximate quantities.
+the actual items with approximate quantities. If the pipe material is not specified, list
+the pipe items generically (e.g. "replacement pipe section and fittings to match existing")
+rather than naming a material, and price them at a mid-range of the anchors above.
 **The Materials total must not equal $185.00 or any other line's total** — a match reads
 as an unpriced placeholder rather than a real estimate. If your first pass lands on a
 round number or a coincidental match, recompute it from the components.
@@ -417,15 +478,23 @@ def generate_plumber_report(
     state: str,
     detached_fixture: str = "",
     fixture_reinstalled: bool = True,
+    affected_areas: str = "",
+    photos: Optional[list] = None,
 ) -> Optional[dict]:
     """
     2-step AI pipeline for plumber report generation.
 
     Step 1 (strong model): Scope & Assessment -> site_findings, work_performed,
             warranty, notes, plus AI-inferred failed_component, hours_estimate,
-            protection_needed, and fixture_detached. pipe_material is a given
-            input, not inferred — the technician knows what's actually there.
-            fixture_reinstalled is also a given input (not inferred): whether
+            protection_needed, fixture_detached, and pipe_material. pipe_material
+            is optional: when the technician leaves it blank, the model uses one
+            only if the incident text or a photo clearly shows it, otherwise
+            the report stays material-neutral. affected_areas lists the other
+            floors/rooms/units the water reached; blank means none reported,
+            and the model must not infer any. photos ({url, category, caption}
+            with category "before"/"after") are sent to the model as images —
+            Step 1 only, since the invoice prices Step 1's work_performed.
+            fixture_reinstalled is a given input (not inferred): whether
             the detached fixture was put back by this technician, or is being
             left detached (e.g. for replacement, or reinstall by another
             trade) — defaults to True to preserve prior behavior for callers
@@ -448,18 +517,29 @@ def generate_plumber_report(
             f"state must be one of {sorted(VALID_STATES)}, got {state!r}"
         )
 
+    images = _prepare_photos(photos)
+    if images:
+        photos_section = PHOTOS_SECTION_TEMPLATE.format(
+            photo_count=len(images),
+            photo_list="\n".join(f"- {img['label']}" for img in images),
+        )
+    else:
+        photos_section = NO_PHOTOS_SECTION
+
     # ── Step 1: Scope & Assessment ──
-    logger.info("AI Step 1/2: Generating scope & assessment...")
+    logger.info(f"AI Step 1/2: Generating scope & assessment ({len(images)} photo(s))...")
     scope_prompt = SCOPE_PROMPT_TEMPLATE.format(
         incident_type=incident_type,
         location=location,
-        pipe_material=pipe_material,
+        pipe_material=(pipe_material or "").strip() or "not specified",
         wall_access_type=wall_access_type,
         detached_fixture=detached_fixture or "none specified — infer from context if applicable",
         fixture_reinstalled="yes" if fixture_reinstalled else "no",
+        affected_areas=(affected_areas or "").strip() or "none reported",
+        photos_section=photos_section,
     )
 
-    scope_data = _call_ai_json(scope_prompt, "work_performed", strong=True)
+    scope_data = _call_ai_json(scope_prompt, "work_performed", strong=True, images=images)
     if scope_data is None:
         logger.error("Step 1 failed: all providers returned unusable output")
         return None
@@ -471,7 +551,11 @@ def generate_plumber_report(
     invoice_prompt = INVOICE_PROMPT_TEMPLATE.format(
         work_performed=scope_data["work_performed"],
         incident_type=incident_type,
-        pipe_material=pipe_material,
+        pipe_material=(
+            (pipe_material or "").strip()
+            or scope_data.get("pipe_material")
+            or "not specified"
+        ),
         wall_access_type=wall_access_type,
         protection_installed=scope_data.get("protection_needed") or "yes",
         fixture_detached=detached_fixture or scope_data.get("fixture_detached") or "none",
@@ -522,6 +606,59 @@ def generate_plumber_report(
 
 
 # ──────────────────────────────────────────────
+# Photos
+# ──────────────────────────────────────────────
+
+_DATA_URL_RE = re.compile(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", re.DOTALL)
+_SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+
+
+def _prepare_photos(photos: Optional[list]) -> list:
+    """
+    Turn {url, category, caption} photo records into image inputs the
+    providers accept: a base64 data URL is split into media_type + data,
+    an http(s) URL is passed through. BEFORE photos are ordered ahead of
+    AFTER ones, and anything past MAX_AI_PHOTOS or in an unsupported format
+    is skipped (logged) rather than failing the whole generation.
+    """
+    order = {"before": 0, "after": 1}
+    sorted_photos = sorted(
+        photos or [],
+        key=lambda p: order.get((p.get("category") or "").lower(), 2),
+    )
+
+    images = []
+    for photo in sorted_photos:
+        if len(images) >= MAX_AI_PHOTOS:
+            logger.warning(f"More than {MAX_AI_PHOTOS} photos attached — extra photos not sent to AI")
+            break
+        url = (photo.get("url") or "").strip()
+        image = {}
+        match = _DATA_URL_RE.match(url)
+        if match:
+            media_type = match.group(1).lower()
+            if media_type not in _SUPPORTED_IMAGE_TYPES:
+                logger.warning(f"Skipping photo with unsupported type {media_type}")
+                continue
+            image.update(media_type=media_type, data=match.group(2))
+        elif url.startswith(("http://", "https://")):
+            image["url"] = url
+        else:
+            logger.warning("Skipping photo with no usable image URL")
+            continue
+
+        category = (photo.get("category") or "").lower()
+        stage = {"before": "BEFORE repair", "after": "AFTER repair"}.get(category, "photo")
+        label = f"Photo {len(images) + 1} — {stage}"
+        caption = (photo.get("caption") or "").strip()
+        if caption:
+            label += f": {caption}"
+        image["label"] = label
+        images.append(image)
+    return images
+
+
+# ──────────────────────────────────────────────
 # AI Provider calls
 # ──────────────────────────────────────────────
 
@@ -539,11 +676,13 @@ def _call_ai_json(
     required_key: str,
     strong: bool = False,
     max_rounds: int = 2,
+    images: Optional[list] = None,
 ) -> Optional[dict]:
     """
     Call OpenAI (if enabled), then Anthropic, retrying across all enabled
     providers for up to `max_rounds` rounds, until one returns a parseable
-    JSON object containing `required_key`.
+    JSON object containing `required_key`. `images` (from _prepare_photos)
+    are sent ahead of the prompt, each preceded by its label.
 
     A provider returning malformed/incomplete JSON is treated the same as a
     provider returning nothing — it does NOT end the pipeline; the next
@@ -563,7 +702,7 @@ def _call_ai_json(
             break
         for call, model in list(providers):
             try:
-                raw = call(prompt, model)
+                raw = call(prompt, model, images or [])
             except _PermanentProviderError as e:
                 logger.warning(
                     f"{call.__name__} ({model}) failed permanently, dropping "
@@ -585,12 +724,22 @@ def _call_ai_json(
     return None
 
 
-def _call_openai(prompt: str, model: str) -> Optional[str]:
+def _call_openai(prompt: str, model: str, images: list) -> Optional[str]:
     """Call OpenAI API in JSON mode."""
     api_key = settings.OPENAI_API_KEY
     if not api_key:
         logger.warning("No OPENAI_API_KEY configured")
         return None
+
+    if images:
+        user_content = []
+        for img in images:
+            url = img.get("url") or f"data:{img['media_type']};base64,{img['data']}"
+            user_content.append({"type": "text", "text": img["label"]})
+            user_content.append({"type": "image_url", "image_url": {"url": url}})
+        user_content.append({"type": "text", "text": prompt})
+    else:
+        user_content = prompt
 
     try:
         import openai
@@ -599,7 +748,7 @@ def _call_openai(prompt: str, model: str) -> Optional[str]:
             model=model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": user_content},
             ],
             temperature=AI_TEMPERATURE,
             max_tokens=2000,
@@ -630,7 +779,7 @@ here (worst case under rare concurrent first-calls: one wasted extra request).
 """
 
 
-def _call_anthropic(prompt: str, model: str) -> Optional[str]:
+def _call_anthropic(prompt: str, model: str, images: list) -> Optional[str]:
     """
     Call Anthropic API as fallback.
 
@@ -651,6 +800,19 @@ def _call_anthropic(prompt: str, model: str) -> Optional[str]:
         logger.warning("No ANTHROPIC_API_KEY configured")
         return None
 
+    if images:
+        user_content = []
+        for img in images:
+            if "url" in img:
+                source = {"type": "url", "url": img["url"]}
+            else:
+                source = {"type": "base64", "media_type": img["media_type"], "data": img["data"]}
+            user_content.append({"type": "text", "text": img["label"]})
+            user_content.append({"type": "image", "source": source})
+        user_content.append({"type": "text", "text": prompt})
+    else:
+        user_content = prompt
+
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
@@ -659,7 +821,7 @@ def _call_anthropic(prompt: str, model: str) -> Optional[str]:
         use_temperature = cached.get("temperature", True)
         use_prefill = cached.get("prefill", True)
         while True:
-            messages = [{"role": "user", "content": prompt}]
+            messages = [{"role": "user", "content": user_content}]
             if use_prefill:
                 messages.append({"role": "assistant", "content": "{"})
             kwargs = dict(model=model, max_tokens=2000, system=SYSTEM_PROMPT, messages=messages)

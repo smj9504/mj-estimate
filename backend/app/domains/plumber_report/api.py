@@ -36,15 +36,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class AIPhotoInput(BaseModel):
+    """A before/after repair photo sent to the AI as an image"""
+    url: str  # base64 data URL or http(s) URL
+    category: str = "before"  # "before" or "after"
+    caption: Optional[str] = None
+
+
 class AIGenerateRequest(BaseModel):
     """Request schema for AI report generation"""
     incident_type: str
     location: str
     wall_access_type: str
-    pipe_material: str
+    pipe_material: str = ""  # optional — blank means not specified
     state: str
     detached_fixture: str = ""
     fixture_reinstalled: bool = True
+    affected_areas: str = ""  # other floors/rooms/units the water reached
+    photos: List[AIPhotoInput] = []
 
     @field_validator("state")
     @classmethod
@@ -72,6 +81,8 @@ def generate_ai_report(request: AIGenerateRequest):
             state=request.state,
             detached_fixture=request.detached_fixture,
             fixture_reinstalled=request.fixture_reinstalled,
+            affected_areas=request.affected_areas,
+            photos=[photo.model_dump() for photo in request.photos],
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
