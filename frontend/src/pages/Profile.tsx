@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import authService from '../services/authService';
+import ChangePasswordModal from '../components/auth/ChangePasswordModal';
 
 const { Title, Text } = Typography;
 
@@ -37,7 +38,6 @@ interface FolderPath {
 const Profile: React.FC = () => {
   const { user } = useAuth();
   const [form] = Form.useForm();
-  const [passwordForm] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [passwordModalVisible, setPasswordModalVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -269,7 +269,6 @@ const Profile: React.FC = () => {
 
     try {
       const updatedUser = await authService.updateCurrentUser({
-        email: values.email,
         first_name: values.first_name,
         last_name: values.last_name,
         phone: values.phone,
@@ -288,28 +287,6 @@ const Profile: React.FC = () => {
       window.location.reload();
     } catch (err: any) {
       const errorMsg = err.response?.data?.detail || 'Failed to update profile';
-      setError(errorMsg);
-      message.error(errorMsg);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleChangePassword = async (values: any) => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      await authService.changePassword(
-        values.current_password,
-        values.new_password
-      );
-
-      message.success('Password changed successfully');
-      setPasswordModalVisible(false);
-      passwordForm.resetFields();
-    } catch (err: any) {
-      const errorMsg = err.response?.data?.detail || 'Failed to change password';
       setError(errorMsg);
       message.error(errorMsg);
     } finally {
@@ -418,12 +395,9 @@ const Profile: React.FC = () => {
             <Form.Item
               name="email"
               label="Email"
-              rules={[
-                { required: true, message: 'Please enter your email' },
-                { type: 'email', message: 'Please enter a valid email' }
-              ]}
+              extra="Password change codes go here. Ask an admin to change it."
             >
-              <Input prefix={<MailOutlined />} placeholder="Email" />
+              <Input prefix={<MailOutlined />} disabled />
             </Form.Item>
 
             <Row gutter={16}>
@@ -459,13 +433,13 @@ const Profile: React.FC = () => {
         <Card title="Security">
           <Space direction="vertical" style={{ width: '100%' }}>
             <Text>
-              Keep your account secure by using a strong password and changing it regularly.
+              To change your password, we'll email a code to {user.email} to confirm it's you.
             </Text>
             <Button
               icon={<LockOutlined />}
               onClick={() => setPasswordModalVisible(true)}
             >
-              Change Password
+              Change password
             </Button>
           </Space>
         </Card>
@@ -587,76 +561,11 @@ const Profile: React.FC = () => {
         </Card>
       </Space>
 
-      {/* Change Password Modal */}
-      <Modal
-        title="Change Password"
+      <ChangePasswordModal
         open={passwordModalVisible}
-        onCancel={() => {
-          setPasswordModalVisible(false);
-          passwordForm.resetFields();
-          setError(null);
-        }}
-        footer={null}
-      >
-        <Form
-          form={passwordForm}
-          layout="vertical"
-          onFinish={handleChangePassword}
-          requiredMark={false}
-        >
-          <Form.Item
-            name="current_password"
-            label="Current Password"
-            rules={[{ required: true, message: 'Please enter your current password' }]}
-          >
-            <Input.Password prefix={<LockOutlined />} placeholder="Current Password" />
-          </Form.Item>
-
-          <Form.Item
-            name="new_password"
-            label="New Password"
-            rules={[
-              { required: true, message: 'Please enter a new password' },
-              { min: 6, message: 'Password must be at least 6 characters' }
-            ]}
-          >
-            <Input.Password prefix={<LockOutlined />} placeholder="New Password" />
-          </Form.Item>
-
-          <Form.Item
-            name="confirm_password"
-            label="Confirm New Password"
-            dependencies={['new_password']}
-            rules={[
-              { required: true, message: 'Please confirm your new password' },
-              ({ getFieldValue }) => ({
-                validator(_, value) {
-                  if (!value || getFieldValue('new_password') === value) {
-                    return Promise.resolve();
-                  }
-                  return Promise.reject(new Error('Passwords do not match'));
-                },
-              }),
-            ]}
-          >
-            <Input.Password prefix={<LockOutlined />} placeholder="Confirm New Password" />
-          </Form.Item>
-
-          <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit" loading={loading}>
-                Change Password
-              </Button>
-              <Button onClick={() => {
-                setPasswordModalVisible(false);
-                passwordForm.resetFields();
-              }}>
-                Cancel
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Modal>
+        email={user.email}
+        onClose={() => setPasswordModalVisible(false)}
+      />
 
       {/* Folder Browser Modal */}
       <Modal

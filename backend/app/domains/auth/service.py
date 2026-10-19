@@ -19,6 +19,9 @@ from app.domains.staff.models import Staff, StaffRole
 from . import schemas
 from .password_reset_models import PasswordResetToken
 
+# Characters for temporary passwords, without 0/O, 1/l/I
+TEMP_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+
 
 class AuthService:
     SECRET_KEY = settings.SECRET_KEY
@@ -250,15 +253,30 @@ class AuthService:
         
         return staff
     
-    def change_password(self, db, staff_id: Union[str, UUID], current_password: str, new_password: str) -> bool:
-        """Change a staff member's password"""
+    @staticmethod
+    def generate_temporary_password() -> str:
+        """
+        A password for an admin to read out or paste to someone, like
+        "Kx7m-Pq4r-Zt9w". Look-alike characters (0/O, 1/l/I) are left out.
+        """
+        groups = [
+            "".join(secrets.choice(TEMP_PASSWORD_ALPHABET) for _ in range(4))
+            for _ in range(3)
+        ]
+        return "-".join(groups)
+
+    def set_password(self, db, staff_id: Union[str, UUID], new_password: str,
+                     must_change: bool = False) -> Optional[Staff]:
+        """
+        Replace a staff member's password without asking for the old one.
+
+        The caller decides who may do this: an admin resetting someone's
+        password, or the person themselves after confirming an emailed code.
+        """
         staff = self.get_staff_by_id(db, staff_id)
         if not staff:
-            return False
-        
-        if not self.verify_password(current_password, staff.password_hash):
-            return False
-        
+            return None
+
         # Handle both raw Session and DatabaseSession wrapper
         if hasattr(db, '_session'):
             session = db._session
@@ -266,11 +284,11 @@ class AuthService:
             session = db
         else:
             raise ValueError("Invalid database session type")
-        
+
         staff.password_hash = self.hash_password(new_password)
         staff.updated_at = datetime.utcnow()
-        staff.must_change_password = False
-        
+        staff.must_change_password = must_change
+
         # Use consistent session handling
         if hasattr(db, '_session'):
             # Ensure the staff object is merged into the session
@@ -281,8 +299,8 @@ class AuthService:
             # For raw sessions, use direct commit
             session.flush()  # Flush to ensure the update is pending
             session.commit()
-        
-        return True
+
+        return staff
     
     def create_initial_admin(self, db) -> Optional[Staff]:
         """Create the initial admin staff member if none exists"""

@@ -44,8 +44,8 @@ class AuthService {
     return response.data;
   }
 
+  // Email is left out: only an admin can change it
   async updateCurrentUser(data: {
-    email?: string;
     first_name?: string;
     last_name?: string;
     phone?: string;
@@ -55,9 +55,20 @@ class AuthService {
     return response.data;
   }
 
-  async changePassword(currentPassword: string, newPassword: string) {
+  // Emails a code to the signed-in person's own address. `code` comes back
+  // only in development when the server has email turned off.
+  async requestPasswordChangeCode(): Promise<{
+    sent_to: string;
+    expires_in_minutes: number;
+    code?: string | null;
+  }> {
+    const response = await api.post(`${API_BASE_URL}/me/change-password/code`);
+    return response.data;
+  }
+
+  async changePassword(code: string, newPassword: string) {
     const response = await api.post(`${API_BASE_URL}/me/change-password`, {
-      current_password: currentPassword,
+      code,
       new_password: newPassword,
     });
     return response.data;
@@ -103,6 +114,15 @@ class AuthService {
     screen_access?: string[] | null;
   }) {
     const response = await api.put(`${API_BASE_URL}/staff/${userId}`, data);
+    return response.data;
+  }
+
+  // Admin only: leave newPassword out to have the server make one up
+  async resetUserPassword(userId: string, newPassword?: string): Promise<{ password: string }> {
+    const response = await api.post(
+      `${API_BASE_URL}/staff/${userId}/reset-password`,
+      newPassword ? { new_password: newPassword } : {}
+    );
     return response.data;
   }
 

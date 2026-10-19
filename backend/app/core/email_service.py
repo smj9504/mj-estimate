@@ -203,6 +203,51 @@ class EmailService:
         )
 
     @staticmethod
+    def send_password_change_code(to_email: str, code: str, minutes: int) -> bool:
+        """
+        Send the code someone enters on their profile to change their password
+
+        Returns:
+            bool: True if email sent successfully
+        """
+        sender = settings.SMTP_FROM_NAME
+        subject = f"Your password change code - {sender}"
+
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="utf-8"></head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #37352f;">
+            <div style="max-width: 480px; margin: 0 auto; padding: 24px;">
+                <p>Use this code to change your {sender} password:</p>
+                <p style="font-size: 28px; font-weight: 600; letter-spacing: 6px; margin: 16px 0;">{code}</p>
+                <p>It expires in {minutes} minutes.</p>
+                <p style="color: #73726e; font-size: 13px;">
+                    If you didn't ask to change your password, ignore this email
+                    and tell your administrator. Your password stays the same.
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+
+        text_content = f"""
+        Use this code to change your {sender} password: {code}
+
+        It expires in {minutes} minutes.
+
+        If you didn't ask to change your password, ignore this email and tell
+        your administrator. Your password stays the same.
+        """
+
+        return EmailService.send_email(
+            to_email=to_email,
+            subject=subject,
+            html_content=html_content,
+            text_content=text_content
+        )
+
+    @staticmethod
     def send_welcome_email(to_email: str, username: str) -> bool:
         """
         Send welcome email to new users

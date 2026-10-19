@@ -5,10 +5,11 @@ import {
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, LockOutlined, UserOutlined,
-  MailOutlined, IdcardOutlined
+  MailOutlined, IdcardOutlined, KeyOutlined
 } from '@ant-design/icons';
 import authService from '../services/authService';
 import ScreenChecklist from '../components/admin/ScreenChecklist';
+import ResetPasswordModal from '../components/admin/ResetPasswordModal';
 import { ALL_SCREEN_KEYS } from '../constants/screens';
 
 const { Title, Text } = Typography;
@@ -55,6 +56,7 @@ const UserManagement: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [resettingUser, setResettingUser] = useState<User | null>(null);
   const [form] = Form.useForm();
   const formRole: string | undefined = Form.useWatch('role', form);
 
@@ -304,6 +306,7 @@ const UserManagement: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
+      fixed: 'right' as const,
       render: (_: any, record: User) => (
         <Space>
           <Button
@@ -313,6 +316,15 @@ const UserManagement: React.FC = () => {
           >
             Edit
           </Button>
+          <Tooltip title="Reset password">
+            <Button
+              type="text"
+              className="ui-icon-btn"
+              icon={<KeyOutlined />}
+              aria-label={`Reset password for ${record.username}`}
+              onClick={() => setResettingUser(record)}
+            />
+          </Tooltip>
         </Space>
       ),
     },
@@ -348,6 +360,7 @@ const UserManagement: React.FC = () => {
                     rowKey="id"
                     loading={loading}
                     pagination={{ pageSize: 10 }}
+                    scroll={{ x: 'max-content' }}
                   />
                 ),
               },
@@ -540,6 +553,8 @@ const UserManagement: React.FC = () => {
           )}
         </Form>
       </Modal>
+
+      <ResetPasswordModal user={resettingUser} onClose={() => setResettingUser(null)} />
     </div>
   );
 };

@@ -1,6 +1,7 @@
 """
 Authentication API endpoints
 """
+import asyncio
 import logging
 from typing import Any, List
 
@@ -11,11 +12,14 @@ from app.core.database_factory import get_db_session as get_db
 from app.core.rate_limiter import limiter, RATE_LIMITS
 from app.domains.staff.models import Staff, StaffRole
 
-from . import screen_access
+from . import password_change, screen_access
 from .dependencies import get_current_staff, invalidate_staff_cache, require_admin
 from .schemas import (
+    AdminPasswordReset,
+    AdminPasswordResetResult,
     ChangePasswordRequest,
     LoginRequest,
+    PasswordChangeCodeSent,
     PasswordResetConfirm,
     PasswordResetRequest,
     RoleScreensUpdate,
@@ -189,12 +193,14 @@ def update_current_staff(
 ):
     """
     Update current staff member information
-    (restricted fields: username, staff_number, role, screen_access)
+    (restricted fields: username, staff_number, role, screen_access, email)
     """
     # Staff cannot change their own role, username, or staff_number
-    # - exclude them from the update
+    # - exclude them from the update. Email is admin-only too: password
+    # change codes go to it, so changing it here would let a signed-in
+    # session send the code to any mailbox.
     update_data = staff_update.dict(exclude_unset=True)
-    restricted_fields = ['role', 'username', 'staff_number', 'screen_access']
+    restricted_fields = ['role', 'username', 'staff_number', 'screen_access', 'email']
     for field in restricted_fields:
         if field in update_data:
             del update_data[field]
@@ -212,24 +218,89 @@ def update_current_staff(
     return updated_staff
 
 
-@router.post("/me/change-password", response_model=dict)
-def change_password(
-    password_change: ChangePasswordRequest,
+@router.post("/me/change-password/code", response_model=PasswordChangeCodeSent)
+@limiter.limit(RATE_LIMITS["password_reset"])
+async def send_password_change_code(
+    request: Request,
+    response: Response,
     current_staff: Staff = Depends(get_current_staff),
-    db: Any = Depends(get_db)
+    db: Any = Depends(get_db),
+    cache: CacheService = Depends(get_cache)
 ):
-    """Change current staff member's password"""
-    success = auth_service.change_password(
-        db,
-        current_staff.id,
-        password_change.current_password,
-        password_change.new_password
-    )
+    """
+    Email a code to the current staff member's own address. They enter it
+    with their new password at POST /me/change-password.
+    """
+    from app.core.config import settings
+    from app.core.email_service import email_service
 
-    if not success:
+    # The auth cache can lag behind an admin's email change, so read the row
+    staff = await asyncio.to_thread(auth_service.get_staff_by_id, db, current_staff.id)
+    if staff is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Staff member not found"
+        )
+
+    dev_mode = settings.DEBUG and not settings.EMAIL_ENABLED
+    if not settings.EMAIL_ENABLED and not dev_mode:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Email isn't set up on the server, so the code can't be sent. Ask an admin to reset your password."
+        )
+
+    code = await password_change.issue_code(cache, staff.id)
+    if code is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Couldn't create a code. Try again in a moment."
+        )
+
+    minutes = password_change.CODE_TTL_SECONDS // 60
+    result = {
+        "sent_to": password_change.mask_email(staff.email),
+        "expires_in_minutes": minutes,
+    }
+
+    if dev_mode:
+        result["code"] = code
+        return result
+
+    sent = await asyncio.to_thread(
+        email_service.send_password_change_code, staff.email, code, minutes
+    )
+    if not sent:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Couldn't send the email. Try again in a moment."
+        )
+    return result
+
+
+@router.post("/me/change-password", response_model=dict)
+@limiter.limit(RATE_LIMITS["auth"])
+async def change_password(
+    request: Request,
+    response: Response,
+    password_change_request: ChangePasswordRequest,
+    current_staff: Staff = Depends(get_current_staff),
+    db: Any = Depends(get_db),
+    cache: CacheService = Depends(get_cache)
+):
+    """Change the current staff member's password with the code they were emailed"""
+    if not await password_change.check_code(cache, current_staff.id, password_change_request.code):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Current password is incorrect"
+            detail="That code is wrong or has expired. Send a new code and try again."
+        )
+
+    staff = await asyncio.to_thread(
+        auth_service.set_password, db, current_staff.id, password_change_request.new_password
+    )
+    if staff is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Staff member not found"
         )
 
     return {"message": "Password changed successfully"}
@@ -277,6 +348,35 @@ def update_staff_member(
     # Role and active/login changes must not wait for the cache to expire
     invalidate_staff_cache(str(updated_staff.id), cache)
     return updated_staff
+
+
+@router.post("/staff/{staff_id}/reset-password", response_model=AdminPasswordResetResult)
+def reset_staff_password(
+    staff_id: str,
+    body: AdminPasswordReset,
+    current_staff: Staff = Depends(require_admin),
+    db: Any = Depends(get_db)
+):
+    """
+    Give a staff member a new password (admin only).
+
+    With no password in the body the server makes up a temporary one. The
+    admin sees it once in the response and passes it on; the person can then
+    change it from their profile.
+    """
+    password = body.new_password or auth_service.generate_temporary_password()
+    staff = auth_service.set_password(db, staff_id, password, must_change=True)
+    if not staff:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Staff member not found"
+        )
+
+    logger.info(
+        f"Admin {current_staff.username} reset the password for "
+        f"{staff.username} ({staff.id})"
+    )
+    return {"password": password}
 
 
 @router.get("/screen-access", response_model=ScreenAccessSettings)

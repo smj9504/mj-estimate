@@ -118,9 +118,52 @@ class LoginRequest(BaseModel):
     password: str
 
 
+# Shortest password accepted when an admin resets one or a person changes theirs
+MIN_PASSWORD_LENGTH = 8
+
+
+def _check_password_length(value: str) -> str:
+    if len(value) < MIN_PASSWORD_LENGTH:
+        raise ValueError(
+            f"Password must be at least {MIN_PASSWORD_LENGTH} characters"
+        )
+    return value
+
+
 class ChangePasswordRequest(BaseModel):
-    current_password: str
+    # The code emailed by POST /me/change-password/code
+    code: str
     new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def _long_enough(cls, value):
+        return _check_password_length(value)
+
+
+class PasswordChangeCodeSent(BaseModel):
+    # Masked, e.g. "j***@example.com"
+    sent_to: str
+    expires_in_minutes: int
+    # Development only, when email is turned off
+    code: Optional[str] = None
+
+
+class AdminPasswordReset(BaseModel):
+    # Leave empty to have the server make up a temporary password
+    new_password: Optional[str] = None
+
+    @field_validator("new_password")
+    @classmethod
+    def _long_enough(cls, value):
+        if value is None:
+            return value
+        return _check_password_length(value)
+
+
+class AdminPasswordResetResult(BaseModel):
+    # Shown to the admin once so they can pass it on
+    password: str
 
 
 class PasswordResetRequest(BaseModel):
