@@ -189,8 +189,8 @@ def generate_document(project_id: str, data: Dict[str, Any]):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Document generation error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate document")
+        logger.exception(f"Document generation error for rebuild project {project_id}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate document: {e}")
 
 
 @router.post("/rebuild/projects/{project_id}/photos-to-pdf", response_model=RebuildCompletionDocResponse)

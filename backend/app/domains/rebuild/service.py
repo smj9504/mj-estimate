@@ -289,48 +289,82 @@ class RebuildService:
     # Document Generation
     # ============================================================
 
+    # The WM document picker keeps the rebuild certificate out, so the rebuild
+    # picker keeps the WM-only templates (EWA, WM COS) out.
+    WM_TEMPLATE_TYPES = ('authorization', 'certificate_of_satisfaction')
+
+    # Contract template document_type -> completion doc_type
+    TEMPLATE_DOC_TYPES = {
+        'certificate_of_completion': 'coc',
+        'lien_waiver': 'lien_waiver',
+    }
+
+    def _template_company_id(self, session, project) -> Optional[str]:
+        """The company whose templates and details the completion docs use.
+
+        The assigned contractor's company wins. Most projects never get a
+        contractor, so fall back to the claim's reconstruction company.
+        """
+        from app.domains.rebuild.models import RebuildContractor
+        from app.domains.contract.models import ClaimCompany
+
+        if project.contractor_id:
+            contractor = session.query(RebuildContractor).filter(
+                RebuildContractor.id == project.contractor_id
+            ).first()
+            if contractor and contractor.company_id:
+                return str(contractor.company_id)
+
+        claim_company = session.query(ClaimCompany).filter(
+            ClaimCompany.claim_id == project.claim_id,
+            ClaimCompany.role == 'reconstruction',
+        ).first()
+        return str(claim_company.company_id) if claim_company else None
+
+    @staticmethod
+    def _parse_mappings(raw) -> list:
+        if not raw:
+            return []
+        if isinstance(raw, list):
+            return raw
+        try:
+            return json.loads(raw)
+        except (TypeError, ValueError):
+            logger.warning("Template field_mappings is not valid JSON; ignoring it")
+            return []
+
     def get_available_templates(self, project_id: str) -> List[Dict[str, Any]]:
-        """Get contract templates available for the project's contractor's company."""
+        """Contract templates of the company doing the rebuild, certificates first."""
         session = self._rs()
         try:
-            from app.domains.rebuild.models import RebuildProject, RebuildContractor
+            from app.domains.rebuild.models import RebuildProject
             from app.domains.contract.models import ContractTemplate
 
             project = session.query(RebuildProject).filter(RebuildProject.id == project_id).first()
             if not project:
                 return []
 
-            # Get contractor's company_id
-            company_id = None
-            if project.contractor_id:
-                contractor = session.query(RebuildContractor).filter(
-                    RebuildContractor.id == project.contractor_id
-                ).first()
-                if contractor and contractor.company_id:
-                    company_id = str(contractor.company_id)
-
+            company_id = self._template_company_id(session, project)
             if not company_id:
                 return []
 
-            templates = (
-                session.query(ContractTemplate)
-                .filter(
+            templates = [
+                t for t in session.query(ContractTemplate).filter(
                     ContractTemplate.company_id == company_id,
                     ContractTemplate.is_active == True,
-                )
-                .all()
-            )
-            results = []
-            for t in templates:
-                results.append({
-                    'id': str(t.id),
-                    'name': t.name,
-                    'document_type': t.document_type,
-                    'requires_signature': t.requires_signature,
-                    'file_url': t.file_url,
-                    'field_mappings': json.loads(t.field_mappings) if t.field_mappings else [],
-                })
-            return results
+                ).all()
+                if t.document_type not in self.WM_TEMPLATE_TYPES
+            ]
+            templates.sort(key=lambda t: (t.document_type != 'certificate_of_completion', t.name or ''))
+            return [{
+                'id': str(t.id),
+                'name': t.name,
+                'document_type': t.document_type,
+                'doc_type': self.TEMPLATE_DOC_TYPES.get(t.document_type, 'other'),
+                'requires_signature': t.requires_signature,
+                'file_url': t.file_url,
+                'field_mappings': self._parse_mappings(t.field_mappings),
+            } for t in templates]
         finally:
             session.close()
 
@@ -338,70 +372,12 @@ class RebuildService:
         """Build prefill data from the project's claim/client/company info."""
         session = self._rs()
         try:
-            from app.domains.rebuild.models import RebuildProject, RebuildContractor
-            from app.domains.client.models import Claim, Client
-            from app.domains.company.models import Company
+            from app.domains.rebuild.models import RebuildProject
 
             project = session.query(RebuildProject).filter(RebuildProject.id == project_id).first()
             if not project:
                 return {}
-
-            prefill: Dict[str, Any] = {'meta': {'current_date': datetime.utcnow().strftime('%m/%d/%Y')}}
-
-            # Claim & Client
-            claim = session.query(Claim).filter(Claim.id == project.claim_id).first()
-            if claim:
-                prefill['claim'] = {
-                    'claim_number': claim.claim_number,
-                    'insurance_company': claim.insurance_company,
-                    'insurance_policy_number': claim.insurance_policy_number,
-                    'date_of_loss': str(claim.date_of_loss) if claim.date_of_loss else None,
-                    'loss_description': claim.loss_description,
-                    'adjuster_name': claim.adjuster_name,
-                    'adjuster_phone': getattr(claim, 'adjuster_phone', None),
-                    'adjuster_email': getattr(claim, 'adjuster_email', None),
-                    'deductible': str(claim.deductible) if claim.deductible else None,
-                }
-                client = session.query(Client).filter(Client.id == claim.client_id).first()
-                if client:
-                    full_addr_parts = [p for p in [client.address, client.city, client.state, client.zipcode] if p]
-                    prefill['client'] = {
-                        'display_name': client.display_name,
-                        'address': client.address,
-                        'city': client.city,
-                        'state': client.state,
-                        'zipcode': client.zipcode,
-                        'full_address': ', '.join(full_addr_parts),
-                        'phone': client.phone,
-                        'email': client.email,
-                    }
-
-            # Company (from contractor)
-            if project.contractor_id:
-                contractor = session.query(RebuildContractor).filter(
-                    RebuildContractor.id == project.contractor_id
-                ).first()
-                if contractor and contractor.company_id:
-                    company = session.query(Company).filter(Company.id == contractor.company_id).first()
-                    if company:
-                        prefill['company'] = {
-                            'name': company.name,
-                            'address': company.address,
-                            'phone': company.phone,
-                            'email': company.email,
-                            'license_number': company.license_number,
-                        }
-
-            # Project info
-            prefill['project'] = {
-                'title': project.title,
-                'property_address': project.property_address,
-                'scope_of_work': project.scope_of_work,
-                'contract_amount': str(project.contract_amount) if project.contract_amount else None,
-                'insurance_estimate_amount': str(project.insurance_estimate_amount) if project.insurance_estimate_amount else None,
-            }
-
-            return prefill
+            return self._build_prefill_with_session(session, project)
         finally:
             session.close()
 
@@ -416,11 +392,12 @@ class RebuildService:
             additional_text: str,  # extra text to add
             signature_image: str,  # base64 PNG
             signature_name: str,
+            signature_field_key: str,  # e.g. signature.homeowner; defaults to the template's first
         }
         """
         session = self._s()
         try:
-            from app.domains.rebuild.models import RebuildProject, RebuildContractor
+            from app.domains.rebuild.models import RebuildProject
             from app.domains.rebuild.repository import get_completion_doc_repository
             from app.domains.contract.models import ContractTemplate
 
@@ -428,6 +405,8 @@ class RebuildService:
             if not project:
                 raise ValueError("Project not found")
 
+            if not data.get('template_id'):
+                raise ValueError("Select a template")
             template = session.query(ContractTemplate).filter(
                 ContractTemplate.id == data['template_id']
             ).first()
@@ -438,7 +417,7 @@ class RebuildService:
             prefill = self._build_prefill_with_session(session, project)
 
             # Apply overrides
-            overrides = data.get('overrides', {})
+            overrides = data.get('overrides') or {}
             for key, value in overrides.items():
                 parts = key.split('.', 1)
                 if len(parts) == 2:
@@ -447,22 +426,17 @@ class RebuildService:
                         prefill[cat] = {}
                     prefill[cat][field] = value
 
-            # Parse field mappings
-            mappings = json.loads(template.field_mappings) if template.field_mappings else []
-
-            # Generate filled PDF
             filled_pdf_url = self._generate_filled_pdf(
-                template.file_url, mappings, prefill,
+                project_id, template, self._parse_mappings(template.field_mappings), prefill,
                 signature_image=data.get('signature_image'),
                 signature_name=data.get('signature_name'),
+                signature_field_key=data.get('signature_field_key'),
                 additional_text=data.get('additional_text'),
             )
-            if not filled_pdf_url:
-                raise ValueError("Failed to generate PDF")
 
             # Build file name
             address_short = (project.property_address or 'project').split(',')[0].strip().replace(' ', '_')[:30]
-            doc_type = data.get('doc_type', 'other')
+            doc_type = data.get('doc_type') or self.TEMPLATE_DOC_TYPES.get(template.document_type, 'other')
             file_name = f"{doc_type.upper()}_{address_short}_{datetime.utcnow().strftime('%Y%m%d')}.pdf"
 
             # Create completion doc
@@ -594,246 +568,213 @@ class RebuildService:
     # Document Generation Helpers
     # ============================================================
 
-    def _build_prefill_with_session(self, session, project) -> Dict[str, Any]:
-        """Build prefill data using an existing session."""
-        from app.domains.client.models import Claim, Client
-        from app.domains.company.models import Company
-        from app.domains.rebuild.models import RebuildContractor
+    # Mapped fields drawn from a signature, never printed as prefill text
+    SIGNATURE_KEY_PREFIXES = ('signature.', 'initial.', 'date_signed.')
 
-        prefill: Dict[str, Any] = {'meta': {'current_date': datetime.utcnow().strftime('%m/%d/%Y')}}
+    def _build_prefill_with_session(self, session, project) -> Dict[str, Any]:
+        """Prefill values for a template, the same ones a contract would print.
+
+        Built by the contract service so a template prints identically from
+        Contracts and from Rebuild, plus the project's own facts.
+        """
+        from app.domains.client.models import Claim
+        from app.domains.contract.service import ContractInstanceService
+        from app.domains.water_mitigation.models import WaterMitigationJob
 
         claim = session.query(Claim).filter(Claim.id == project.claim_id).first()
+        wm_job = None
         if claim:
-            prefill['claim'] = {
-                'claim_number': claim.claim_number,
-                'insurance_company': claim.insurance_company,
-                'insurance_policy_number': claim.insurance_policy_number,
-                'date_of_loss': str(claim.date_of_loss) if claim.date_of_loss else None,
-                'loss_description': claim.loss_description,
-                'adjuster_name': claim.adjuster_name,
-                'adjuster_phone': getattr(claim, 'adjuster_phone', None),
-                'adjuster_email': getattr(claim, 'adjuster_email', None),
-                'deductible': str(claim.deductible) if claim.deductible else None,
-            }
-            client = session.query(Client).filter(Client.id == claim.client_id).first()
-            if client:
-                full_addr_parts = [p for p in [client.address, client.city, client.state, client.zipcode] if p]
-                prefill['client'] = {
-                    'display_name': client.display_name,
-                    'address': client.address,
-                    'city': client.city,
-                    'state': client.state,
-                    'zipcode': client.zipcode,
-                    'full_address': ', '.join(full_addr_parts),
-                    'phone': client.phone,
-                    'email': client.email,
-                }
-
-        if project.contractor_id:
-            contractor = session.query(RebuildContractor).filter(
-                RebuildContractor.id == project.contractor_id
+            wm_job = session.query(WaterMitigationJob.id).filter(
+                WaterMitigationJob.claim_id == claim.id
             ).first()
-            if contractor and contractor.company_id:
-                company = session.query(Company).filter(Company.id == contractor.company_id).first()
-                if company:
-                    prefill['company'] = {
-                        'name': company.name,
-                        'address': company.address,
-                        'phone': company.phone,
-                        'email': company.email,
-                        'license_number': company.license_number,
-                    }
+
+        today = datetime.utcnow().strftime('%m/%d/%Y')
+        prefill = ContractInstanceService(self.database)._build_prefill(session, {
+            'client_id': str(claim.client_id) if claim and claim.client_id else None,
+            'claim_id': str(project.claim_id),
+            'company_id': self._template_company_id(session, project),
+            'wm_job_id': str(wm_job.id) if wm_job else None,
+        })
+        prefill['meta'] = {'current_date': today}
+
+        # Certificates are often mapped with WM job fields (wm_job.claim_number);
+        # without a WM job on the claim, answer them from the claim and client.
+        if 'wm_job' not in prefill:
+            client = prefill.get('client') or {}
+            claim_info = prefill.get('claim') or {}
+            prefill['wm_job'] = {
+                'property_address': project.property_address or client.get('full_address'),
+                'property_street': client.get('address'),
+                'property_city': client.get('city'),
+                'property_state': client.get('state'),
+                'property_zipcode': client.get('zipcode'),
+                'homeowner_name': client.get('display_name'),
+                'homeowner_phone': client.get('phone'),
+                'homeowner_email': client.get('email'),
+                'claim_number': claim_info.get('claim_number'),
+                'insurance_company': claim_info.get('insurance_company'),
+                'insurance_policy_number': claim_info.get('insurance_policy_number'),
+                'date_of_loss': claim_info.get('date_of_loss'),
+                'adjuster_name': claim_info.get('adjuster_name'),
+                'adjuster_phone': claim_info.get('adjuster_phone'),
+                'adjuster_email': claim_info.get('adjuster_email'),
+                'today': today,
+            }
+
+        def _money(v):
+            return f"${float(v):,.2f}" if v else None
 
         prefill['project'] = {
             'title': project.title,
             'property_address': project.property_address,
             'scope_of_work': project.scope_of_work,
-            'contract_amount': str(project.contract_amount) if project.contract_amount else None,
-            'insurance_estimate_amount': str(project.insurance_estimate_amount) if project.insurance_estimate_amount else None,
+            'contract_amount': _money(project.contract_amount),
+            'insurance_estimate_amount': _money(project.insurance_estimate_amount),
         }
-
         return prefill
 
     def _resolve_field_value(self, prefill: Dict[str, Any], field_key: str) -> str:
         """Resolve a field key like 'client.display_name' from prefill data."""
-        try:
-            parts = field_key.split('.', 1)
-            if len(parts) != 2:
-                return ''
-            category, key = parts
-            value = prefill.get(category, {}).get(key)
-            return str(value) if value is not None else ''
-        except Exception:
+        parts = field_key.split('.', 1)
+        if len(parts) != 2:
             return ''
+        category, key = parts
+        value = (prefill.get(category) or {}).get(key)
+        return str(value) if value is not None else ''
 
-    def _generate_filled_pdf(self, template_file_url: str, mappings: list, prefill: dict,
-                             signature_image: str = None, signature_name: str = None,
-                             additional_text: str = None) -> Optional[str]:
-        """Generate a filled PDF by overlaying text + signature on the template PDF."""
-        try:
-            from PyPDF2 import PdfReader, PdfWriter
-            from reportlab.pdfgen import canvas as rl_canvas
-            from reportlab.pdfbase.pdfmetrics import stringWidth
+    def _load_template_pdf(self, file_url: str, storage_provider: Optional[str]) -> bytes:
+        """Template PDF bytes, resolved the same way the template View PDF proxy does."""
+        from app.domains.contract.api import _resolve_contract_pdf
 
-            # Resolve template — try cloud storage first, then local
-            import tempfile as _tempfile
-            temp_template_path = None
-            template_path = None
+        if not file_url:
+            raise ValueError("This template has no PDF. Upload one in Contract Templates.")
+        pdf_bytes = _resolve_contract_pdf(file_url, storage_provider)
+        if not pdf_bytes:
+            raise ValueError("The template's PDF file could not be found. Re-upload it in Contract Templates.")
+        return pdf_bytes
 
-            if not template_file_url.startswith('/uploads/'):
-                try:
-                    from app.domains.storage.factory import StorageFactory
-                    storage = StorageFactory.get_instance()
-                    file_bytes = storage.download(template_file_url)
-                    with _tempfile.NamedTemporaryFile(
-                        suffix='.pdf', delete=False
-                    ) as tmp:
-                        tmp.write(file_bytes)
-                        temp_template_path = tmp.name
-                    template_path = temp_template_path
-                except Exception:
-                    pass
+    def _generate_filled_pdf(self, project_id: str, template, mappings: list,
+                             prefill: dict, signature_image: str = None, signature_name: str = None,
+                             signature_field_key: str = None, additional_text: str = None) -> str:
+        """Overlay field values and an optional signature on the template PDF.
 
-            if not template_path:
-                backend_dir = Path(__file__).resolve().parents[3]
-                if template_file_url.startswith('/uploads/'):
-                    local_path = backend_dir / template_file_url.lstrip('/')
-                else:
-                    local_path = Path(template_file_url)
-                if local_path.exists():
-                    template_path = str(local_path)
+        The signature goes into the template's mapped signature box (the one
+        named by signature_field_key, else the first) and that signer's
+        date_signed box gets today's date. Templates without a signature box
+        get it at the bottom right of the last page.
 
-            if not template_path:
-                logger.warning(f"Template PDF not found: {template_file_url}")
-                return None
+        Returns the stored file_url.
+        """
+        from pypdf import PdfReader, PdfWriter
+        from reportlab.pdfgen import canvas as rl_canvas
 
-            reader = PdfReader(str(template_path))
-            writer = PdfWriter()
+        from app.common.utils.storage_helpers import upload_bytes_to_storage
+        from app.domains.contract.service import _draw_text_wrapped
 
-            # Group mappings by page
-            page_mappings: Dict[int, list] = {}
-            for mapping in mappings:
-                page_idx = mapping.get('pageIndex', 0)
-                if page_idx not in page_mappings:
-                    page_mappings[page_idx] = []
-                page_mappings[page_idx].append(mapping)
+        reader = PdfReader(BytesIO(self._load_template_pdf(template.file_url, template.storage_provider)))
+        writer = PdfWriter()
+        today = datetime.utcnow().strftime('%m/%d/%Y')
 
-            total_pages = len(reader.pages)
+        text_fields = [
+            m for m in mappings
+            if not m.get('fieldKey', '').startswith(self.SIGNATURE_KEY_PREFIXES)
+        ]
+        sig_boxes: list = []
+        date_boxes: list = []
+        if signature_image:
+            sig_keys = [m.get('fieldKey') for m in mappings if m.get('fieldKey', '').startswith('signature.')]
+            target_key = signature_field_key if signature_field_key in sig_keys else (sig_keys[0] if sig_keys else None)
+            if target_key:
+                role = target_key.split('.', 1)[1]
+                sig_boxes = [m for m in mappings if m.get('fieldKey') == target_key]
+                date_boxes = [m for m in mappings if m.get('fieldKey') == f'date_signed.{role}']
+        sig_bytes = base64.b64decode(signature_image.split(',', 1)[-1]) if signature_image else None
 
-            for page_num in range(total_pages):
-                page = reader.pages[page_num]
-                page_box = page.mediabox
-                page_width = float(page_box.width)
-                page_height = float(page_box.height)
+        def _box(m, pw, ph, default_w=0.25, default_h=0.03):
+            fw = m.get('width', default_w) * pw
+            fh = m.get('height', default_h) * ph
+            fx = m.get('x', 0) * pw
+            fy = ph - (m.get('y', 0) * ph) - fh  # PDF origin is bottom-left
+            return fx, fy, fw, fh
 
-                fields_on_page = page_mappings.get(page_num, [])
-                is_last_page = (page_num == total_pages - 1)
-                needs_overlay = fields_on_page or (is_last_page and (signature_image or additional_text))
+        def _fill_color(c, hex_color):
+            try:
+                c.setFillColorRGB(int(hex_color[1:3], 16) / 255, int(hex_color[3:5], 16) / 255,
+                                  int(hex_color[5:7], 16) / 255)
+            except (TypeError, ValueError, IndexError):
+                c.setFillColorRGB(0, 0, 0)
 
-                if needs_overlay:
-                    overlay_buffer = BytesIO()
-                    c = rl_canvas.Canvas(overlay_buffer, pagesize=(page_width, page_height))
+        total_pages = len(reader.pages)
+        for page_num in range(total_pages):
+            page = reader.pages[page_num]
+            pw = float(page.mediabox.width)
+            ph = float(page.mediabox.height)
+            is_last_page = page_num == total_pages - 1
 
-                    # Draw field values
-                    for field in fields_on_page:
-                        value = self._resolve_field_value(prefill, field.get('fieldKey', ''))
-                        if not value:
-                            continue
-
-                        fx = field.get('x', 0) * page_width
-                        fw = field.get('width', 0.25) * page_width
-                        fh = field.get('height', 0.03) * page_height
-                        fy = page_height - (field.get('y', 0) * page_height) - fh
-                        font_size = field.get('fontSize', 12)
-
-                        font_color = field.get('fontColor', '#000000')
-                        try:
-                            r = int(font_color[1:3], 16) / 255
-                            g = int(font_color[3:5], 16) / 255
-                            b = int(font_color[5:7], 16) / 255
-                            c.setFillColorRGB(r, g, b)
-                        except (ValueError, IndexError):
-                            c.setFillColorRGB(0, 0, 0)
-
-                        usable_w = fw - 4
-                        actual_size = font_size
-                        while actual_size > 5:
-                            tw = stringWidth(value, "Helvetica", actual_size)
-                            if tw <= usable_w:
-                                break
-                            actual_size -= 0.5
-
-                        c.setFont("Helvetica", actual_size)
-                        text_y = fy + (fh - actual_size) / 2
-                        c.drawString(fx + 2, text_y, value)
-
-                    # Add signature on last page
-                    if is_last_page and signature_image:
-                        try:
-                            import base64
-                            sig_bytes = base64.b64decode(signature_image.split(',')[-1])
-                            sig_reader = ImageReader(BytesIO(sig_bytes))
-                            # Draw signature at bottom-right area
-                            sig_w, sig_h = 150, 50
-                            sig_x = page_width - sig_w - 72  # 1 inch from right
-                            sig_y = 100  # near bottom
-                            c.drawImage(sig_reader, sig_x, sig_y, width=sig_w, height=sig_h,
-                                        preserveAspectRatio=True, mask='auto')
-                            if signature_name:
-                                c.setFont("Helvetica", 9)
-                                c.setFillColorRGB(0, 0, 0)
-                                c.drawString(sig_x, sig_y - 12, signature_name)
-                                c.drawString(sig_x, sig_y - 22,
-                                             datetime.utcnow().strftime('%m/%d/%Y'))
-                        except Exception as e:
-                            logger.warning(f"Error adding signature: {e}")
-
-                    # Add additional text on last page
-                    if is_last_page and additional_text:
-                        c.setFont("Helvetica", 10)
-                        c.setFillColorRGB(0, 0, 0)
-                        text_y = 160
-                        for line in additional_text.split('\n')[:5]:
-                            c.drawString(72, text_y, line[:100])
-                            text_y -= 14
-
-                    c.save()
-                    overlay_buffer.seek(0)
-                    overlay_reader = PdfReader(overlay_buffer)
-                    if overlay_reader.pages:
-                        page.merge_page(overlay_reader.pages[0])
-
+            page_texts = [m for m in text_fields if m.get('pageIndex', 0) == page_num]
+            page_sigs = [m for m in sig_boxes if m.get('pageIndex', 0) == page_num]
+            page_dates = [m for m in date_boxes if m.get('pageIndex', 0) == page_num]
+            loose_signature = is_last_page and sig_bytes and not sig_boxes
+            loose_text = is_last_page and additional_text
+            if not (page_texts or page_sigs or page_dates or loose_signature or loose_text):
                 writer.add_page(page)
+                continue
 
-            # Write to buffer and upload to cloud storage
-            pdf_buffer = BytesIO()
-            writer.write(pdf_buffer)
-            pdf_bytes = pdf_buffer.getvalue()
+            overlay_buffer = BytesIO()
+            c = rl_canvas.Canvas(overlay_buffer, pagesize=(pw, ph))
 
-            from app.common.utils.storage_helpers import upload_bytes_to_storage
-            filled_name = f"filled_{uuid.uuid4()}.pdf"
-            storage_info = upload_bytes_to_storage(
-                file_bytes=pdf_bytes,
-                filename=filled_name,
-                context="rebuild",
-                context_id=str(uuid.uuid4()),
-                category="docs",
-            )
+            for m in page_texts:
+                value = self._resolve_field_value(prefill, m.get('fieldKey', ''))
+                if not value:
+                    continue
+                fx, fy, fw, fh = _box(m, pw, ph)
+                _fill_color(c, m.get('fontColor', '#000000'))
+                _draw_text_wrapped(c, value, fx, fy, fw, fh, m.get('fontSize', 12))
 
-            # Clean up temp template file
-            if temp_template_path:
-                try:
-                    Path(temp_template_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
+            for m in page_sigs:
+                fx, fy, fw, fh = _box(m, pw, ph, 0.2, 0.06)
+                c.drawImage(ImageReader(BytesIO(sig_bytes)), fx, fy, fw, fh,
+                            mask='auto', preserveAspectRatio=True, anchor='c')
 
-            return storage_info["file_url"]
+            for m in page_dates:
+                fx, fy, fw, fh = _box(m, pw, ph)
+                c.setFillColorRGB(0, 0, 0)
+                _draw_text_wrapped(c, today, fx, fy, fw, fh, m.get('fontSize', 12))
 
-        except Exception as e:
-            logger.error(f"Error generating filled PDF: {e}")
-            if temp_template_path:
-                try:
-                    Path(temp_template_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
-            return None
+            if loose_signature:
+                sig_w, sig_h = 150, 50
+                sig_x = pw - sig_w - 72  # 1 inch from right
+                sig_y = 100
+                c.drawImage(ImageReader(BytesIO(sig_bytes)), sig_x, sig_y, width=sig_w, height=sig_h,
+                            preserveAspectRatio=True, mask='auto')
+                c.setFont("Helvetica", 9)
+                c.setFillColorRGB(0, 0, 0)
+                if signature_name:
+                    c.drawString(sig_x, sig_y - 12, signature_name)
+                c.drawString(sig_x, sig_y - 22, today)
+
+            if loose_text:
+                c.setFont("Helvetica", 10)
+                c.setFillColorRGB(0, 0, 0)
+                text_y = 160
+                for line in additional_text.split('\n')[:5]:
+                    c.drawString(72, text_y, line[:100])
+                    text_y -= 14
+
+            c.save()
+            overlay_buffer.seek(0)
+            overlay_reader = PdfReader(overlay_buffer)
+            if overlay_reader.pages:
+                page.merge_page(overlay_reader.pages[0])
+            writer.add_page(page)
+
+        pdf_buffer = BytesIO()
+        writer.write(pdf_buffer)
+        storage_info = upload_bytes_to_storage(
+            file_bytes=pdf_buffer.getvalue(),
+            filename=f"filled_{uuid.uuid4()}.pdf",
+            context="rebuild",
+            context_id=str(project_id),
+            category="docs",
+        )
+        return storage_info["file_url"]

@@ -7,6 +7,7 @@ import {
   FileTextOutlined, EditOutlined, FormOutlined, CheckCircleOutlined,
 } from '@ant-design/icons';
 import { rebuildService } from '../../services/rebuildService';
+import { humanize } from '../common/ui';
 import WMSignaturePad from '../water-mitigation/pdf-annotator/WMSignaturePad';
 import type { RebuildProject, RebuildCompletionDoc } from '../../types/rebuild';
 
@@ -24,9 +25,15 @@ interface TemplateInfo {
   id: string;
   name: string;
   document_type: string;
+  /** Completion doc type this template produces (certificate_of_completion -> coc) */
+  doc_type: string;
   requires_signature: boolean;
   field_mappings: any[];
 }
+
+// Boxes filled from the signature step, not typed values
+const SIGNATURE_PREFIXES = ['signature.', 'initial.', 'date_signed.'];
+const isSignatureKey = (key: string) => SIGNATURE_PREFIXES.some(p => key.startsWith(p));
 
 const DOC_TYPE_OPTIONS = [
   { value: 'coc', label: 'Certificate of Completion' },
@@ -48,6 +55,7 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
   const [additionalText, setAdditionalText] = useState('');
   const [signatureImage, setSignatureImage] = useState('');
   const [signatureName, setSignatureName] = useState('');
+  const [signatureFieldKey, setSignatureFieldKey] = useState<string | undefined>();
   const [signaturePadOpen, setSignaturePadOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -76,15 +84,26 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
     setAdditionalText('');
     setSignatureImage('');
     setSignatureName('');
+    setSignatureFieldKey(undefined);
     onClose();
   };
+
+  /** One option per signature box the template maps (a box repeated on several pages counts once) */
+  const signatureBoxes = (tmpl: TemplateInfo | null) =>
+    (tmpl?.field_mappings || []).reduce((acc: { key: string; label: string }[], m: any) => {
+      if (m.fieldKey?.startsWith('signature.') && !acc.some(a => a.key === m.fieldKey)) {
+        acc.push({ key: m.fieldKey, label: m.label || m.fieldKey });
+      }
+      return acc;
+    }, []);
 
   const handleTemplateSelect = (templateId: string) => {
     const tmpl = templates.find(t => t.id === templateId);
     if (tmpl) {
       setSelectedTemplate(tmpl);
       setTitle(tmpl.name);
-      setDocType(tmpl.document_type || 'coc');
+      setDocType(tmpl.doc_type || 'coc');
+      setSignatureFieldKey(signatureBoxes(tmpl)[0]?.key);
     }
   };
 
@@ -110,6 +129,7 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
         additional_text: additionalText,
         signature_image: signatureImage || undefined,
         signature_name: signatureName || undefined,
+        signature_field_key: signatureImage ? signatureFieldKey : undefined,
       });
       message.success('Document generated');
       onSuccess(result);
@@ -121,13 +141,23 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
     }
   };
 
+  // Templates come from the contractor's company, else the claim's reconstruction company
+  const templateCompany = project.contractor_id ? project.contractor_name : project.rebuild_company_name;
+
   const renderStep0 = () => (
     <div>
-      {!project.contractor_id && (
-        <Alert type="warning" message="No contractor assigned. Please assign a contractor first." showIcon style={{ marginBottom: 16 }} />
-      )}
       {templates.length === 0 && !loading && (
-        <Alert type="info" message="No templates found for this contractor's company. Upload templates in Contract Management first." showIcon style={{ marginBottom: 16 }} />
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={templateCompany
+            ? `${templateCompany} has no completion template yet`
+            : 'No company to take templates from'}
+          description={templateCompany
+            ? 'Add a "Certificate of Completion (Recon)" template for this company in Contract Templates, then map its fields.'
+            : "Assign a contractor, or set the claim's reconstruction company, to use that company's templates."}
+        />
       )}
       <Form layout="vertical" size="small">
         <Form.Item label="Contract Template" required>
@@ -137,7 +167,7 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
             onChange={handleTemplateSelect}
             options={templates.map(t => ({
               value: t.id,
-              label: `${t.name} (${t.document_type})`,
+              label: `${t.name} (${humanize(t.document_type || 'other')})`,
             }))}
             disabled={templates.length === 0}
           />
@@ -155,7 +185,7 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
   const renderStep1 = () => {
     const mappings = selectedTemplate?.field_mappings || [];
     const uniqueFields = mappings.reduce((acc: any[], m: any) => {
-      if (!acc.find((a: any) => a.fieldKey === m.fieldKey)) acc.push(m);
+      if (!isSignatureKey(m.fieldKey || '') && !acc.find((a: any) => a.fieldKey === m.fieldKey)) acc.push(m);
       return acc;
     }, []);
 
@@ -198,11 +228,23 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
     );
   };
 
-  const renderStep2 = () => (
+  const renderStep2 = () => {
+    const boxes = signatureBoxes(selectedTemplate);
+    return (
     <div>
       <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-        Add your signature to the document.
+        {boxes.length
+          ? 'The signature is placed in the template\'s signature box, with today\'s date in its date box.'
+          : 'This template has no signature box, so the signature goes at the bottom right of the last page.'}
       </Text>
+      {boxes.length > 1 && (
+        <Form layout="vertical" size="small">
+          <Form.Item label="Sign as">
+            <Select value={signatureFieldKey} onChange={setSignatureFieldKey}
+              options={boxes.map(b => ({ value: b.key, label: b.label }))} />
+          </Form.Item>
+        </Form>
+      )}
       {signatureImage ? (
         <div style={{ textAlign: 'center', padding: 16, border: '1px solid #d9d9d9', borderRadius: 8, marginBottom: 12 }}>
           <img src={signatureImage} alt="Signature" style={{ maxHeight: 80 }} />
@@ -231,7 +273,8 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
         }}
       />
     </div>
-  );
+    );
+  };
 
   const steps = [
     { title: 'Template', icon: <FileTextOutlined /> },

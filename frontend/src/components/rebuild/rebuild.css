@@ -1,0 +1,310 @@
+/*
+ * Rebuild project detail (rb-*): facts and the completion checklist beside
+ * the PDF they are checked against. Built from the White Sheet tokens.
+ */
+
+/* Header: address as the title, status pill + claim facts as the meta line */
+.rb-head {
+  padding-right: 32px; /* clear the modal close button */
+}
+.rb-head-title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-neutral-900);
+  overflow-wrap: anywhere;
+}
+.rb-head-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+.rb-status-select {
+  min-width: 132px;
+  margin-left: -7px; /* align the pill, not the select border, with the title */
+}
+.rb-status-select:not(.ant-select-focused):not(:hover) .ant-select-selector {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Desktop: facts + checklist on the left, the PDF on the right */
+.rb-split {
+  display: grid;
+  grid-template-columns: minmax(320px, 400px) minmax(0, 1fr);
+  gap: 24px;
+  height: min(74vh, 820px);
+  margin-top: 4px;
+}
+.rb-split-main {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-width: thin;
+}
+
+/* Viewer: a flat sheet with a hairline; only the modal around it floats */
+.rb-viewer {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.rb-viewer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid var(--color-neutral-200);
+  background: var(--color-surface);
+}
+.rb-viewer-titles {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.rb-viewer-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.rb-viewer-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.rb-viewer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.rb-rev-select {
+  max-width: 260px;
+}
+.rb-viewer-frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--color-neutral-50);
+}
+.rb-viewer-frame iframe {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+/* Sits behind the frame and shows until the PDF paints over it */
+.rb-viewer-wait {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.rb-viewer-loading {
+  height: 100%;
+  padding: 24px;
+  background: var(--color-surface);
+}
+.rb-viewer-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 32px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.rb-viewer-empty .anticon {
+  margin-bottom: 12px;
+  font-size: 28px;
+  color: #a5a29a;
+}
+.rb-viewer-empty p {
+  max-width: 340px;
+  margin: 0 0 4px;
+}
+.rb-viewer-empty .rb-viewer-empty-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+
+/* Checklist: one row per required document, hairlines between */
+.rb-check {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.rb-check:last-child {
+  border-bottom: none;
+}
+.rb-check-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+.rb-check-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  font-size: 15px;
+  color: var(--color-success);
+}
+.rb-check-ring {
+  width: 14px;
+  height: 14px;
+  border: 1.5px dashed var(--color-neutral-400);
+  border-radius: 50%;
+}
+.rb-check--ready .rb-check-ring {
+  border: 1.5px solid var(--tag-blue-text);
+}
+.rb-check-label {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.rb-check--missing .rb-check-label {
+  font-weight: 400;
+  color: var(--color-neutral-700);
+}
+.rb-check-action {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.rb-check-docs {
+  margin-top: 4px;
+  padding-left: 18px;
+}
+
+/* A document line: opens in the viewer; actions live in its menu */
+.rb-doc {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 1px 0;
+  border-radius: var(--radius-md);
+  transition: background-color 0.12s ease;
+}
+.rb-doc:hover {
+  background: var(--color-ink-hover);
+}
+.rb-doc.is-active {
+  background: var(--color-ink-selected);
+}
+.rb-doc-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--color-neutral-900);
+  cursor: pointer;
+}
+.rb-doc-open:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+}
+.rb-doc-open--static {
+  cursor: default;
+}
+.rb-doc-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.rb-doc-name,
+.rb-doc-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rb-doc-name {
+  font-size: 14px;
+  line-height: 1.4;
+}
+.rb-doc-meta {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-neutral-600);
+}
+.rb-doc-nofile {
+  color: #a5a29a;
+}
+
+.rb-other {
+  margin-top: 14px;
+}
+.rb-other-title {
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-neutral-600);
+}
+
+/* Phones: the estimate is one tappable row that opens the PDF */
+.rb-estimate-row {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+}
+.rb-estimate-row:active {
+  background: var(--color-ink-hover);
+}
+.rb-estimate-row-go {
+  margin-left: auto;
+  color: var(--color-neutral-600);
+}
+
+.rb-company {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rb-num {
+  font-variant-numeric: tabular-nums;
+}
+.rb-prewrap {
+  white-space: pre-wrap;
+}
+
+/* List: the address is the record title */
+.rb-list-address {
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}

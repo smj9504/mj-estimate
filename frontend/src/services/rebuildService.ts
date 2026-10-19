@@ -101,6 +101,8 @@ export const rebuildService = {
     additional_text?: string;
     signature_image?: string;
     signature_name?: string;
+    /** Template signature box to sign in, e.g. signature.homeowner */
+    signature_field_key?: string;
   }): Promise<RebuildCompletionDoc> {
     const { data } = await api.post(`${BASE}/projects/${projectId}/generate-doc`, payload);
     return data;

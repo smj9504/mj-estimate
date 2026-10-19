@@ -2,60 +2,39 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Card, Table, Button, Space, Tag, Modal, Form, Input, InputNumber,
-  Select, message, Typography, Row, Col, Statistic, Tooltip, Badge,
-  Dropdown, Descriptions, DatePicker, Divider, Empty, Popconfirm,
+  Card, Table, Button, Space, Modal, Form, Input, InputNumber,
+  Select, message, Typography, Row, Col, Statistic, Badge, DatePicker,
 } from 'antd';
 import {
-  PlusOutlined, ReloadOutlined, EllipsisOutlined, DeleteOutlined, EditOutlined,
-  BuildOutlined, TeamOutlined, FileTextOutlined, CheckCircleOutlined,
-  ToolOutlined, HomeOutlined, DollarOutlined, SendOutlined,
-  FilePdfOutlined, CameraOutlined,
+  PlusOutlined, ReloadOutlined, BuildOutlined, TeamOutlined, CheckCircleOutlined,
+  ToolOutlined, DollarOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { rebuildService } from '../services/rebuildService';
-import RebuildDocGenerator from '../components/rebuild/RebuildDocGenerator';
-import RebuildPhotoToPdf from '../components/rebuild/RebuildPhotoToPdf';
+import RebuildProjectDetailModal from '../components/rebuild/RebuildProjectDetailModal';
+import {
+  REBUILD_STATUSES, RebuildStatusPill, rebuildStatusLabel, formatCurrency,
+} from '../components/rebuild/rebuildUi';
 import ClaimSearchSelect from '../components/common/ClaimSearchSelect';
 import type {
   RebuildProject, RebuildProjectCreate, RebuildContractor,
-  RebuildCompletionDoc, ProjectStatus, PROJECT_STATUS_COLORS, DOC_TYPE_LABELS,
 } from '../types/rebuild';
 import type { ColumnsType } from 'antd/es/table';
+import '../components/rebuild/rebuild.css';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: 'default', assigned: 'blue', in_progress: 'processing',
-  completed: 'green', invoiced: 'cyan', docs_sent: 'geekblue', closed: 'default',
-};
-
-const DOC_LABELS: Record<string, string> = {
-  coc: 'COC', invoice: 'Invoice', completion_photo: 'Photos',
-  warranty: 'Warranty', permit: 'Permit', lien_waiver: 'Lien Waiver', other: 'Other',
-};
-
-const formatCurrency = (val?: number) => {
-  if (val == null) return '$0.00';
-  return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-};
 
 const RebuildProjectList: React.FC = () => {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [contractorModalOpen, setContractorModalOpen] = useState(false);
-  const [detailModalOpen, setDetailModalOpen] = useState(false);
-  const [docModalOpen, setDocModalOpen] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<RebuildProject | null>(null);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [docGeneratorOpen, setDocGeneratorOpen] = useState(false);
-  const [photoToPdfOpen, setPhotoToPdfOpen] = useState(false);
+  const [detailProjectId, setDetailProjectId] = useState<string | null>(null);
+  const [editProject, setEditProject] = useState<RebuildProject | null>(null);
   const [createForm] = Form.useForm();
   const [editForm] = Form.useForm();
   const [contractorForm] = Form.useForm();
-  const [docForm] = Form.useForm();
 
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['rebuild-stats'],
@@ -77,13 +56,9 @@ const RebuildProjectList: React.FC = () => {
   useEffect(() => {
     if (!projectParam || openedProjectParam.current === projectParam) return;
     openedProjectParam.current = projectParam;
-    rebuildService.getProject(projectParam)
-      .then(p => { setSelectedProject(p); setDetailModalOpen(true); })
-      .catch(() => message.error('Project not found'))
-      .finally(() => {
-        searchParams.delete('project');
-        setSearchParams(searchParams, { replace: true });
-      });
+    setDetailProjectId(projectParam);
+    searchParams.delete('project');
+    setSearchParams(searchParams, { replace: true });
   }, [projectParam, searchParams, setSearchParams]);
 
   const createProjectMutation = useMutation({
@@ -101,12 +76,13 @@ const RebuildProjectList: React.FC = () => {
   const updateProjectMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<RebuildProject> }) =>
       rebuildService.updateProject(id, data),
-    onSuccess: () => {
+    onSuccess: (_, { id }) => {
       message.success('Updated');
       queryClient.invalidateQueries({ queryKey: ['rebuild-projects'] });
       queryClient.invalidateQueries({ queryKey: ['rebuild-stats'] });
-      if (selectedProject) rebuildService.getProject(selectedProject.id).then(setSelectedProject);
+      queryClient.invalidateQueries({ queryKey: ['rebuild-project', id] });
     },
+    onError: (err: any) => message.error(err?.response?.data?.detail || 'Could not update the project'),
   });
 
   const deleteProjectMutation = useMutation({
@@ -128,26 +104,10 @@ const RebuildProjectList: React.FC = () => {
     },
   });
 
-  const createDocMutation = useMutation({
-    mutationFn: ({ projectId, data }: { projectId: string; data: Partial<RebuildCompletionDoc> }) =>
-      rebuildService.createDoc(projectId, data),
-    onSuccess: () => {
-      message.success('Document added');
-      setDocModalOpen(false);
-      docForm.resetFields();
-      if (selectedProject) rebuildService.getProject(selectedProject.id).then(setSelectedProject);
-    },
-  });
-
   const columns: ColumnsType<RebuildProject> = [
     {
       title: 'Property', key: 'property', ellipsis: true,
-      render: (_, r) => (
-        <Space direction="vertical" size={0}>
-          <Text strong>{r.title}</Text>
-          <Text type="secondary" style={{ fontSize: 11 }}>{r.property_address}</Text>
-        </Space>
-      ),
+      render: (_, r) => <span className="rb-list-address">{r.property_address || r.title}</span>,
     },
     {
       title: 'Claim', key: 'claim', width: 120,
@@ -159,7 +119,7 @@ const RebuildProjectList: React.FC = () => {
     },
     {
       title: 'Status', dataIndex: 'status', width: 120,
-      render: (s: string) => <Tag color={STATUS_COLORS[s] || 'default'}>{s.replace('_', ' ').toUpperCase()}</Tag>,
+      render: (s: string) => <RebuildStatusPill status={s} />,
     },
     {
       title: 'Contract $', dataIndex: 'contract_amount', width: 110, align: 'right',
@@ -209,8 +169,7 @@ const RebuildProjectList: React.FC = () => {
       <Card size="small" style={{ marginBottom: 16 }}>
         <Select placeholder="Filter by status" allowClear style={{ width: 180 }}
           value={statusFilter} onChange={setStatusFilter}
-          options={['pending','assigned','in_progress','completed','invoiced','docs_sent','closed']
-            .map(s => ({ value: s, label: s.replace('_',' ').toUpperCase() }))} />
+          options={REBUILD_STATUSES.map(s => ({ value: s, label: rebuildStatusLabel(s) }))} />
       </Card>
 
       <Card>
@@ -218,9 +177,7 @@ const RebuildProjectList: React.FC = () => {
           size="small" scroll={{ x: 800 }}
           pagination={{ pageSize: 20, showTotal: t => `${t} projects` }}
           onRow={(record) => ({
-            onClick: () => {
-              rebuildService.getProject(record.id).then(p => { setSelectedProject(p); setDetailModalOpen(true); });
-            },
+            onClick: () => setDetailProjectId(record.id),
             style: { cursor: 'pointer' },
           })} />
       </Card>
@@ -303,116 +260,48 @@ const RebuildProjectList: React.FC = () => {
       </Modal>
 
       {/* Project Detail Modal */}
-      <Modal title={selectedProject?.title} open={detailModalOpen} width={700}
-        footer={
-          <Space>
-            <Button onClick={() => { setDetailModalOpen(false); setSelectedProject(null); }}>Close</Button>
-            <Button type="primary" onClick={() => {
-              if (selectedProject) {
-                editForm.setFieldsValue({
-                  title: selectedProject.title,
-                  description: selectedProject.description,
-                  scope_of_work: selectedProject.scope_of_work,
-                  property_address: selectedProject.property_address,
-                  status: selectedProject.status,
-                  priority: selectedProject.priority,
-                  contractor_id: selectedProject.contractor_id,
-                  insurance_estimate_amount: selectedProject.insurance_estimate_amount,
-                  contract_amount: selectedProject.contract_amount,
-                  final_invoice_amount: selectedProject.final_invoice_amount,
-                  start_date: selectedProject.start_date ? dayjs(selectedProject.start_date) : undefined,
-                  estimated_completion: selectedProject.estimated_completion ? dayjs(selectedProject.estimated_completion) : undefined,
-                  notes: selectedProject.notes,
-                });
-                setEditModalOpen(true);
-              }
-            }}>Edit</Button>
-          </Space>
-        }
-        onCancel={() => { setDetailModalOpen(false); setSelectedProject(null); }}>
-        {selectedProject && (
-          <div>
-            <Descriptions size="small" column={2} style={{ marginBottom: 16 }}>
-              <Descriptions.Item label="Claim #">{selectedProject.claim_number}</Descriptions.Item>
-              <Descriptions.Item label="Contractor">{selectedProject.contractor_name || 'Unassigned'}</Descriptions.Item>
-              <Descriptions.Item label="Status">
-                <Select size="small" value={selectedProject.status} style={{ width: 140 }}
-                  onChange={v => updateProjectMutation.mutate({ id: selectedProject.id, data: { status: v } })}
-                  options={['pending','assigned','in_progress','completed','invoiced','docs_sent','closed']
-                    .map(s => ({ value: s, label: s.replace('_',' ').toUpperCase() }))} />
-              </Descriptions.Item>
-              <Descriptions.Item label="Property">{selectedProject.property_address}</Descriptions.Item>
-              <Descriptions.Item label="Insurance $">{formatCurrency(selectedProject.insurance_estimate_amount)}</Descriptions.Item>
-              <Descriptions.Item label="Contract $">{formatCurrency(selectedProject.contract_amount)}</Descriptions.Item>
-              <Descriptions.Item label="Start">{selectedProject.start_date ? dayjs(selectedProject.start_date).format('MM/DD/YYYY') : '-'}</Descriptions.Item>
-              <Descriptions.Item label="Est. Completion">{selectedProject.estimated_completion ? dayjs(selectedProject.estimated_completion).format('MM/DD/YYYY') : '-'}</Descriptions.Item>
-            </Descriptions>
-
-            {selectedProject.scope_of_work && (
-              <div style={{ marginBottom: 16 }}>
-                <Text type="secondary">Scope of Work:</Text>
-                <div style={{ whiteSpace: 'pre-wrap' }}>{selectedProject.scope_of_work}</div>
-              </div>
-            )}
-
-            <Divider style={{ margin: '12px 0' }} />
-
-            {/* Completion Documents */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <Text strong>Completion Documents</Text>
-              <Space size={4}>
-                <Button size="small" icon={<FilePdfOutlined />} onClick={() => setDocGeneratorOpen(true)}>
-                  Generate Doc
-                </Button>
-                <Button size="small" icon={<CameraOutlined />} onClick={() => setPhotoToPdfOpen(true)}>
-                  Photos to PDF
-                </Button>
-                <Button size="small" icon={<PlusOutlined />} onClick={() => setDocModalOpen(true)}>
-                  Add Manual
-                </Button>
-              </Space>
-            </div>
-
-            {(selectedProject.completion_docs || []).length === 0 ? (
-              <Empty description="No documents yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            ) : (
-              <Table size="small" dataSource={selectedProject.completion_docs} rowKey="id" pagination={false}
-                columns={[
-                  { title: 'Type', dataIndex: 'doc_type', width: 120,
-                    render: (t: string) => <Tag>{DOC_LABELS[t] || t}</Tag> },
-                  { title: 'Title', dataIndex: 'title', ellipsis: true },
-                  { title: 'Status', dataIndex: 'status', width: 100,
-                    render: (s: string) => <Tag color={s === 'sent' ? 'green' : 'default'}>{s.toUpperCase()}</Tag> },
-                  { title: 'File', dataIndex: 'file_name', width: 120, ellipsis: true,
-                    render: (f?: string) => f || '-' },
-                ]} />
-            )}
-
-            {/* Doc Status Summary */}
-            <Divider style={{ margin: '12px 0' }} />
-            <Space>
-              <Tag color={selectedProject.coc_sent ? 'green' : 'default'}>COC {selectedProject.coc_sent ? 'Sent' : 'Pending'}</Tag>
-              <Tag color={selectedProject.invoice_sent ? 'green' : 'default'}>Invoice {selectedProject.invoice_sent ? 'Sent' : 'Pending'}</Tag>
-              <Tag color={selectedProject.photos_sent ? 'green' : 'default'}>Photos {selectedProject.photos_sent ? 'Sent' : 'Pending'}</Tag>
-            </Space>
-          </div>
-        )}
-      </Modal>
+      <RebuildProjectDetailModal
+        projectId={detailProjectId}
+        open={!!detailProjectId}
+        onClose={() => setDetailProjectId(null)}
+        onChanged={() => {
+          queryClient.invalidateQueries({ queryKey: ['rebuild-projects'] });
+          queryClient.invalidateQueries({ queryKey: ['rebuild-stats'] });
+        }}
+        onEdit={(p) => {
+          editForm.setFieldsValue({
+            title: p.title,
+            description: p.description,
+            scope_of_work: p.scope_of_work,
+            property_address: p.property_address,
+            status: p.status,
+            priority: p.priority,
+            contractor_id: p.contractor_id,
+            insurance_estimate_amount: p.insurance_estimate_amount,
+            contract_amount: p.contract_amount,
+            final_invoice_amount: p.final_invoice_amount,
+            start_date: p.start_date ? dayjs(p.start_date) : undefined,
+            estimated_completion: p.estimated_completion ? dayjs(p.estimated_completion) : undefined,
+            notes: p.notes,
+          });
+          setEditProject(p);
+        }}
+      />
 
       {/* Edit Project Modal */}
-      <Modal title="Edit Project" open={editModalOpen} width={600}
+      <Modal title="Edit Project" open={!!editProject} width={600}
         onOk={() => editForm.validateFields().then(values => {
-          if (selectedProject) {
+          if (editProject) {
             const payload = {
               ...values,
               start_date: values.start_date?.toISOString() || null,
               estimated_completion: values.estimated_completion?.toISOString() || null,
             };
-            updateProjectMutation.mutate({ id: selectedProject.id, data: payload });
-            setEditModalOpen(false);
+            updateProjectMutation.mutate({ id: editProject.id, data: payload });
+            setEditProject(null);
           }
         })}
-        onCancel={() => { setEditModalOpen(false); editForm.resetFields(); }}
+        onCancel={() => { setEditProject(null); editForm.resetFields(); }}
         confirmLoading={updateProjectMutation.isPending}>
         <Form form={editForm} layout="vertical" size="small">
           <Form.Item name="title" label="Title" rules={[{ required: true }]}>
@@ -421,8 +310,7 @@ const RebuildProjectList: React.FC = () => {
           <Row gutter={12}>
             <Col span={12}>
               <Form.Item name="status" label="Status">
-                <Select options={['pending','assigned','in_progress','completed','invoiced','docs_sent','closed']
-                  .map(s => ({ value: s, label: s.replace('_',' ').toUpperCase() }))} />
+                <Select options={REBUILD_STATUSES.map(s => ({ value: s, label: rebuildStatusLabel(s) }))} />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -482,56 +370,6 @@ const RebuildProjectList: React.FC = () => {
         </Form>
       </Modal>
 
-      {/* Add Document Modal */}
-      <Modal title="Add Completion Document" open={docModalOpen} width={450}
-        onOk={() => docForm.validateFields().then(v => {
-          if (selectedProject) {
-            createDocMutation.mutate({
-              projectId: selectedProject.id,
-              data: { ...v, project_id: selectedProject.id },
-            });
-          }
-        })}
-        onCancel={() => { setDocModalOpen(false); docForm.resetFields(); }}
-        confirmLoading={createDocMutation.isPending}>
-        <Form form={docForm} layout="vertical" size="small">
-          <Form.Item name="doc_type" label="Document Type" rules={[{ required: true }]}>
-            <Select options={Object.entries(DOC_LABELS).map(([k, v]) => ({ value: k, label: v }))} />
-          </Form.Item>
-          <Form.Item name="title" label="Title" rules={[{ required: true }]}>
-            <Input placeholder="Document title" />
-          </Form.Item>
-          <Form.Item name="description" label="Description">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* Document Generator Modal */}
-      {selectedProject && (
-        <RebuildDocGenerator
-          open={docGeneratorOpen}
-          project={selectedProject}
-          onClose={() => setDocGeneratorOpen(false)}
-          onSuccess={() => {
-            rebuildService.getProject(selectedProject.id).then(setSelectedProject);
-            queryClient.invalidateQueries({ queryKey: ['rebuild-projects'] });
-          }}
-        />
-      )}
-
-      {/* Photos to PDF Modal */}
-      {selectedProject && (
-        <RebuildPhotoToPdf
-          open={photoToPdfOpen}
-          project={selectedProject}
-          onClose={() => setPhotoToPdfOpen(false)}
-          onSuccess={() => {
-            rebuildService.getProject(selectedProject.id).then(setSelectedProject);
-            queryClient.invalidateQueries({ queryKey: ['rebuild-projects'] });
-          }}
-        />
-      )}
     </div>
   );
 };
