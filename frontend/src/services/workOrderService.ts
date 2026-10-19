@@ -115,6 +115,17 @@ export const workOrderService = {
     };
   },
 
+  // Counts per status (all work orders, or one company's)
+  async getStats(companyId?: string): Promise<{ total: number; by_status: Record<string, number> }> {
+    const response = await api.get('/api/work-orders/dashboard/stats', {
+      params: companyId ? { company_id: companyId } : undefined,
+    });
+    return {
+      total: response.data?.total ?? 0,
+      by_status: response.data?.by_status ?? {},
+    };
+  },
+
   // Status updates
   async updateWorkOrderStatus(id: string, status: WorkOrder['status'], comment?: string): Promise<WorkOrder> {
     // Build URL with optional notes query parameter

@@ -703,7 +703,8 @@ h4.ant-typography {
   font-weight: 500;
 }
 
-.sup-cell-meta {
+.sup-cell-meta,
+.ui-cell-meta {
   display: block;
   margin-top: 2px;
   font-size: 13px;
@@ -739,22 +740,27 @@ h4.ant-typography {
   background: var(--tag-red-bg);
 }
 
-/* List: status view tabs with a tone dot and a quiet count */
-.sup-status-tabs {
+/* List: status view tabs with a tone dot and a quiet count
+   (ui-status-tabs is the shared name; Work Orders uses it too) */
+.sup-status-tabs,
+.ui-status-tabs {
   display: flex;
   gap: 2px;
   margin: -4px 0 16px;
   overflow-x: auto;
   scrollbar-width: none;
 }
-.sup-status-tabs::-webkit-scrollbar {
+.sup-status-tabs::-webkit-scrollbar,
+.ui-status-tabs::-webkit-scrollbar {
   display: none;
 }
-.sup-status-tabs .ant-btn.ui-view-tab {
+.sup-status-tabs .ant-btn.ui-view-tab,
+.ui-status-tabs .ant-btn.ui-view-tab {
   flex-shrink: 0;
   gap: 6px;
 }
-.sup-tab-count {
+.sup-tab-count,
+.ui-tab-count {
   color: var(--color-neutral-600);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
@@ -1295,4 +1301,133 @@ h4.ant-typography {
 }
 .sup-error p {
   margin: 6px 0 16px;
+}
+
+/* ============================================================
+   Work Orders (list)
+   ============================================================ */
+
+.wo-money {
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+}
+.wo-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wo-nowrap {
+  white-space: nowrap;
+}
+
+.wo-company {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+/* A company without a short code shows its name in the tile; let it truncate */
+.wo-company .ui-monogram {
+  display: inline-block;
+  flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 20px;
+}
+.wo-company-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Status cell: the pill is the control; a caret shows on hover */
+.wo-status-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 4px 2px 2px;
+  margin: -2px -4px -2px -2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.wo-status-trigger:hover,
+.wo-status-trigger.ant-dropdown-open {
+  background: var(--color-ink-hover);
+}
+.wo-status-caret {
+  font-size: 9px;
+  color: var(--color-neutral-600);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.wo-status-trigger:hover .wo-status-caret,
+.wo-status-trigger:focus-visible .wo-status-caret,
+.wo-status-trigger.ant-dropdown-open .wo-status-caret {
+  opacity: 1;
+}
+@media (hover: none) {
+  .wo-status-caret {
+    opacity: 1;
+  }
+}
+.wo-status-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Bulk actions: a floating bar, so it is the one thing here with a shadow */
+.wo-bulk-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: var(--z-action-bar);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 6px 6px 16px;
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-elevated);
+  transform: translateX(-50%);
+  animation: wo-bulk-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.wo-bulk-count {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.wo-bulk-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 6px 0 10px;
+  background: var(--color-neutral-200);
+}
+@keyframes wo-bulk-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wo-bulk-bar {
+    animation: none;
+  }
+}
+
+.wo-error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 16px 0;
+  border-top: 1px solid var(--color-neutral-200);
+  color: var(--color-neutral-700);
 }
