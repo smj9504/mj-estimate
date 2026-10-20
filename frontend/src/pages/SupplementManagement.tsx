@@ -14,7 +14,7 @@ import {
 import { supplementService } from '../services/supplementService';
 import { fileService } from '../services/fileService';
 import ClaimSearchSelect from '../components/common/ClaimSearchSelect';
-import { PageHeader, Pill } from '../components/common/ui';
+import { PageHeader, Pill, useSheetModal } from '../components/common/ui';
 import { tagTones } from '../styles/tokens';
 import {
   SupplementStatusPill, SUPPLEMENT_STATUS_TONES, REQUIRED_ESTIMATE_OPTIONS,
@@ -38,6 +38,7 @@ const SupplementManagement: React.FC = () => {
   const queryClient = useQueryClient();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
+  const { sheetProps } = useSheetModal();
   const [activeTab, setActiveTab] = useState<string>('supplement');
   const [statusFilter, setStatusFilter] = useState<string | undefined>('identified');
   const [search, setSearch] = useState('');
@@ -309,7 +310,7 @@ const SupplementManagement: React.FC = () => {
       : `No ${noun}s yet`;
 
   return (
-    <div>
+    <div className="sup-page">
       <PageHeader
         title="Estimates"
         meta={isLoading ? undefined : (
@@ -456,6 +457,7 @@ const SupplementManagement: React.FC = () => {
 
       {/* Create Modal */}
       <Modal title={isEstimateRequest ? 'Create Estimate Request' : 'Create Supplement Request'} open={createModalOpen} width={560}
+        className="sup-modal" {...sheetProps}
         okText="Create"
         onOk={() => createForm.validateFields().then(v => {
           const { required_estimate_keys, ...rest } = v;

@@ -26,7 +26,7 @@ import { cabinetEstimateService } from '../services/cabinetEstimateService';
 import { listEstimates as listPackingEstimates } from '../services/packingEstimateService';
 import { companyService } from '../services/companyService';
 import { useBreadcrumbTitle } from '../contexts/BreadcrumbContext';
-import { PageHeader, Pill, PropertyList, humanize, type TagTone } from '../components/common/ui';
+import { PageHeader, Pill, PropertyList, humanize, useSheetModal, type TagTone } from '../components/common/ui';
 import { CompanyTag } from '../components/water-mitigation/paymentBoardShared';
 import {
   SupplementStatusPill, SUPPLEMENT_STATUSES, supplementStatusLabel,
@@ -144,6 +144,9 @@ const SupplementDetail: React.FC = () => {
   const queryClient = useQueryClient();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
+  // Compact controls on desktop; full-size ones on phones so they can be tapped
+  const controlSize = isMobile ? 'middle' : 'small';
+  const { sheetProps } = useSheetModal();
 
   const [bidItemModalOpen, setBidItemModalOpen] = useState(false);
   const [followupModalOpen, setFollowupModalOpen] = useState(false);
@@ -908,7 +911,7 @@ const SupplementDetail: React.FC = () => {
   );
 
   return (
-    <div>
+    <div className="sup-page">
       <PageHeader
         title={supplement.title}
         meta={
@@ -975,13 +978,13 @@ const SupplementDetail: React.FC = () => {
                       label: 'Deductible',
                       value: editingDeductible ? (
                         <div className="sup-inline-edit">
-                          <InputNumber size="small" min={0} step={100} prefix="$" style={{ width: 130 }} autoFocus
+                          <InputNumber size={controlSize} min={0} step={100} prefix="$" style={{ width: 130 }} autoFocus
                             aria-label="Deductible"
                             value={deductibleDraft.deductible}
                             onChange={v => setDeductibleDraft(d => ({ ...d, deductible: v || 0 }))}
                             onPressEnter={saveDeductible} />
                           <span className="sup-field-label">Discount</span>
-                          <InputNumber size="small" min={0} max={deductibleDraft.deductible} step={100} prefix="$" style={{ width: 130 }}
+                          <InputNumber size={controlSize} min={0} max={deductibleDraft.deductible} step={100} prefix="$" style={{ width: 130 }}
                             aria-label="Deductible discount"
                             value={deductibleDraft.discount}
                             onChange={v => setDeductibleDraft(d => ({ ...d, discount: v || 0 }))}
@@ -1156,28 +1159,28 @@ const SupplementDetail: React.FC = () => {
                         <div className="sup-figures">
                           <label className="sup-figure">
                             <span className="sup-figure-label">RCV</span>
-                            <InputNumber size="small" prefix="$" style={{ width: '100%' }}
+                            <InputNumber size={controlSize} prefix="$" style={{ width: '100%' }}
                               value={editingTotals.rcv}
                               onChange={v => setEditingTotals(t => ({ ...t, rcv: v || 0, acv: (v || 0) - t.dep }))}
                             />
                           </label>
                           <label className="sup-figure">
                             <span className="sup-figure-label">ACV</span>
-                            <InputNumber size="small" prefix="$" style={{ width: '100%' }}
+                            <InputNumber size={controlSize} prefix="$" style={{ width: '100%' }}
                               value={editingTotals.acv}
                               onChange={v => setEditingTotals(t => ({ ...t, acv: v || 0 }))}
                             />
                           </label>
                           <label className="sup-figure">
                             <span className="sup-figure-label">Depreciation</span>
-                            <InputNumber size="small" prefix="$" style={{ width: '100%' }}
+                            <InputNumber size={controlSize} prefix="$" style={{ width: '100%' }}
                               value={editingTotals.dep}
                               onChange={v => setEditingTotals(t => ({ ...t, dep: v || 0, acv: t.rcv - (v || 0) }))}
                             />
                           </label>
                           <label className="sup-figure">
                             <span className="sup-figure-label">Deductible</span>
-                            <InputNumber size="small" prefix="$" style={{ width: '100%' }}
+                            <InputNumber size={controlSize} prefix="$" style={{ width: '100%' }}
                               value={editingTotals.ded}
                               onChange={v => setEditingTotals(t => ({ ...t, ded: v || 0 }))}
                             />
@@ -1237,7 +1240,7 @@ const SupplementDetail: React.FC = () => {
                                 {editingSections.map((sec: any, sIdx: number) => (
                                   <div key={sIdx} className="sup-edit-block">
                                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                      <Input size="small" placeholder="Section name" value={sec.section_name}
+                                      <Input size={controlSize} placeholder="Section name" value={sec.section_name}
                                         aria-label="Section name"
                                         onChange={e => {
                                           const u = [...editingSections]; u[sIdx] = { ...u[sIdx], section_name: e.target.value }; setEditingSections(u);
@@ -1255,7 +1258,7 @@ const SupplementDetail: React.FC = () => {
                                     <div className="sup-figures sup-figures--3">
                                       <label className="sup-figure">
                                         <span className="sup-figure-label">RCV</span>
-                                        <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                                        <InputNumber size={controlSize} min={0} step={0.01} prefix="$" style={{ width: '100%' }}
                                           value={sec.rcv} onChange={v => {
                                             const u = [...editingSections]; const rcv = v || 0; const dep = u[sIdx].depreciation || 0;
                                             u[sIdx] = { ...u[sIdx], rcv, net_acv: rcv - dep }; setEditingSections(u);
@@ -1266,7 +1269,7 @@ const SupplementDetail: React.FC = () => {
                                       </label>
                                       <label className="sup-figure">
                                         <span className="sup-figure-label">Depreciation</span>
-                                        <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                                        <InputNumber size={controlSize} min={0} step={0.01} prefix="$" style={{ width: '100%' }}
                                           value={sec.depreciation} onChange={v => {
                                             const u = [...editingSections]; const dep = v || 0; const rcv = u[sIdx].rcv || 0;
                                             u[sIdx] = { ...u[sIdx], depreciation: dep, net_acv: rcv - dep }; setEditingSections(u);
@@ -1277,7 +1280,7 @@ const SupplementDetail: React.FC = () => {
                                       </label>
                                       <label className="sup-figure">
                                         <span className="sup-figure-label">Net ACV</span>
-                                        <InputNumber size="small" prefix="$" style={{ width: '100%' }} value={sec.net_acv} disabled />
+                                        <InputNumber size={controlSize} prefix="$" style={{ width: '100%' }} value={sec.net_acv} disabled />
                                       </label>
                                     </div>
                                   </div>
@@ -1485,7 +1488,7 @@ const SupplementDetail: React.FC = () => {
                   label: 'Rebuild',
                   value: (
                     <Select
-                      size="small"
+                      size={controlSize}
                       style={{ width: '100%' }}
                       placeholder="Select rebuild company..."
                       aria-label="Rebuild company"
@@ -1833,12 +1836,13 @@ const SupplementDetail: React.FC = () => {
               title="Request Information"
               open={infoRequestModalOpen}
               width={500}
+              className="sup-modal" {...sheetProps}
               onOk={handleSendInfoRequest}
               onCancel={() => { setInfoRequestModalOpen(false); infoRequestForm.resetFields(); setInfoItems(['']); }}
               confirmLoading={infoRequestLoading}
               okText="Send Request"
             >
-              <Form form={infoRequestForm} layout="vertical" size="small">
+              <Form form={infoRequestForm} layout="vertical" size={controlSize}>
                 <Form.Item name="request_to_type" label="Request To" rules={[{ required: true }]} initialValue="public_adjuster">
                   <Select options={[
                     { value: 'public_adjuster', label: 'Public Adjuster' },
@@ -1855,12 +1859,12 @@ const SupplementDetail: React.FC = () => {
                   }} />
                 </Form.Item>
                 <Row gutter={12}>
-                  <Col span={12}>
+                  <Col xs={24} sm={12}>
                     <Form.Item name="to_name" label="Name">
                       <Input placeholder="Contact name" />
                     </Form.Item>
                   </Col>
-                  <Col span={12}>
+                  <Col xs={24} sm={12}>
                     <Form.Item name="to_email" label="Email" rules={[{ required: true, type: 'email' }]}>
                       <Input placeholder="email@example.com" />
                     </Form.Item>
@@ -1880,7 +1884,7 @@ const SupplementDetail: React.FC = () => {
                   {infoItems.map((item, idx) => (
                     <div key={idx} style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
                       <Input
-                        size="small"
+                        size={controlSize}
                         placeholder={`e.g., Photos of ${idx === 0 ? 'affected area' : 'damage'}, measurements, etc.`}
                         value={item}
                         onChange={e => {
@@ -1890,7 +1894,7 @@ const SupplementDetail: React.FC = () => {
                         }}
                       />
                       {infoItems.length > 1 && (
-                        <Button size="small" type="text" danger icon={<DeleteOutlined />}
+                        <Button size="small" type="text" danger icon={<DeleteOutlined />} aria-label="Remove item"
                           onClick={() => setInfoItems(infoItems.filter((_, i) => i !== idx))} />
                       )}
                     </div>
@@ -1909,6 +1913,7 @@ const SupplementDetail: React.FC = () => {
               title="Record Response"
               open={responseModalOpen}
               width={560}
+              className="sup-modal" {...sheetProps}
               onOk={handleSubmitResponse}
               onCancel={() => setResponseModalOpen(false)}
               confirmLoading={responseSubmitting}
@@ -2015,6 +2020,7 @@ const SupplementDetail: React.FC = () => {
         title={<Space><SendOutlined /><span>Send Supplement to PA</span></Space>}
         open={sendPaModalOpen}
         width={700}
+        className="sup-modal" {...sheetProps}
         onCancel={() => setSendPaModalOpen(false)}
         footer={[
           <Button key="cancel" onClick={() => setSendPaModalOpen(false)}>Cancel</Button>,
@@ -2287,6 +2293,7 @@ const SupplementDetail: React.FC = () => {
 
       {/* ─── Add Bid Item Modal ─── */}
       <Modal title="Add Bid Item Estimate" open={bidItemModalOpen} width={500}
+        className="sup-modal" {...sheetProps}
         onOk={() => bidItemForm.validateFields().then(v => {
           if (supplement) {
             const idField = ESTIMATE_ID_FIELD_MAP[bidItemType];
@@ -2305,7 +2312,7 @@ const SupplementDetail: React.FC = () => {
         })}
         onCancel={closeBidItemModal}
         confirmLoading={createBidItemMutation.isPending}>
-        <Form form={bidItemForm} layout="vertical" size="small">
+        <Form form={bidItemForm} layout="vertical" size={controlSize}>
           <Form.Item name="estimate_type" label="Type" rules={[{ required: true }]}>
             <Select
               options={Object.entries(BID_TYPE_LABELS).map(([k, v]) => ({ value: k, label: v }))}
@@ -2482,6 +2489,7 @@ const SupplementDetail: React.FC = () => {
 
       {/* ─── Log Follow-up Modal ─── */}
       <Modal title="Log Follow-up" open={followupModalOpen} width={450}
+        className="sup-modal" {...sheetProps}
         onOk={() => followupForm.validateFields().then(v => {
           if (supplement) {
             createFollowupMutation.mutate({
@@ -2492,7 +2500,7 @@ const SupplementDetail: React.FC = () => {
         })}
         onCancel={() => { setFollowupModalOpen(false); followupForm.resetFields(); }}
         confirmLoading={createFollowupMutation.isPending}>
-        <Form form={followupForm} layout="vertical" size="small">
+        <Form form={followupForm} layout="vertical" size={controlSize}>
           <Form.Item name="contact_method" label="Contact Method" rules={[{ required: true }]}>
             <Select options={[
               { value: 'email', label: 'Email' }, { value: 'phone', label: 'Phone' },
@@ -2513,6 +2521,7 @@ const SupplementDetail: React.FC = () => {
         title="Upload Insurance Estimate"
         open={uploadEstimateModalOpen}
         width={560}
+        className="sup-modal" {...sheetProps}
         confirmLoading={uploadEstimateLoading}
         onOk={() => {
           uploadEstimateForm.validateFields().then(async (values) => {
@@ -2560,7 +2569,7 @@ const SupplementDetail: React.FC = () => {
           setUploadEstimateSections([]);
         }}
       >
-        <Form form={uploadEstimateForm} layout="vertical" size="small">
+        <Form form={uploadEstimateForm} layout="vertical" size={controlSize}>
           <Form.Item name="revision_type" label="Estimate Type" rules={[{ required: true }]} initialValue="supplement">
             <Select options={[
               { value: 'initial', label: 'Initial Estimate' },
@@ -2573,11 +2582,11 @@ const SupplementDetail: React.FC = () => {
 
           {/* PDF Upload */}
           <Form.Item label="Insurance Estimate PDF">
-            <Space>
+            <Space wrap>
               {uploadEstimateFileId && (
                 <>
                   <FilePdfOutlined className="sup-pdf-icon" />
-                  <Text style={{ fontSize: 12 }}>{uploadEstimateFileName}</Text>
+                  <Text style={{ fontSize: 12, wordBreak: 'break-all' }}>{uploadEstimateFileName}</Text>
                   <Button type="text" size="small" danger
                     onClick={() => { setUploadEstimateFileId(null); setUploadEstimateFileName(null); setUploadEstimateSections([]); }}>
                     Remove
@@ -2646,7 +2655,7 @@ const SupplementDetail: React.FC = () => {
                   <div key={idx} className="sup-edit-block">
                     <Row gutter={8} align="middle">
                       <Col flex="auto">
-                        <Input size="small" placeholder="Section name" value={section.section_name}
+                        <Input size={controlSize} placeholder="Section name" value={section.section_name}
                           onChange={e => {
                             const updated = [...uploadEstimateSections];
                             updated[idx] = { ...updated[idx], section_name: e.target.value };
@@ -2654,7 +2663,7 @@ const SupplementDetail: React.FC = () => {
                           }} />
                       </Col>
                       <Col flex="none">
-                        <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => {
+                        <Button size="small" type="text" danger icon={<DeleteOutlined />} aria-label="Remove section" onClick={() => {
                           const updated = uploadEstimateSections.filter((_: any, i: number) => i !== idx);
                           setUploadEstimateSections(updated);
                           // Recalc totals
@@ -2664,10 +2673,10 @@ const SupplementDetail: React.FC = () => {
                         }} />
                       </Col>
                     </Row>
-                    <Row gutter={8} style={{ marginTop: 4 }}>
-                      <Col span={8}>
+                    <Row gutter={[8, 6]} style={{ marginTop: 4 }}>
+                      <Col xs={12} sm={8}>
                         <Text type="secondary" style={{ fontSize: 11 }}>RCV</Text>
-                        <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                        <InputNumber size={controlSize} min={0} step={0.01} prefix="$" style={{ width: '100%' }}
                           value={section.rcv} onChange={v => {
                             const updated = [...uploadEstimateSections];
                             const rcv = v || 0;
@@ -2679,9 +2688,9 @@ const SupplementDetail: React.FC = () => {
                             uploadEstimateForm.setFieldsValue({ rcv_amount: totRcv, acv_amount: totRcv - totDep, depreciation_amount: totDep });
                           }} />
                       </Col>
-                      <Col span={8}>
+                      <Col xs={12} sm={8}>
                         <Text type="secondary" style={{ fontSize: 11 }}>Depreciation</Text>
-                        <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                        <InputNumber size={controlSize} min={0} step={0.01} prefix="$" style={{ width: '100%' }}
                           value={section.depreciation} onChange={v => {
                             const updated = [...uploadEstimateSections];
                             const dep = v || 0;
@@ -2693,9 +2702,9 @@ const SupplementDetail: React.FC = () => {
                             uploadEstimateForm.setFieldsValue({ rcv_amount: totRcv, acv_amount: totRcv - totDep, depreciation_amount: totDep });
                           }} />
                       </Col>
-                      <Col span={8}>
+                      <Col xs={12} sm={8}>
                         <Text type="secondary" style={{ fontSize: 11 }}>Net ACV</Text>
-                        <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                        <InputNumber size={controlSize} min={0} step={0.01} prefix="$" style={{ width: '100%' }}
                           value={section.net_acv} disabled />
                       </Col>
                     </Row>
@@ -2712,37 +2721,37 @@ const SupplementDetail: React.FC = () => {
               <Col xs={12} sm={6}>
                 <Text type="secondary" style={{ fontSize: 11 }}>Total RCV</Text>
                 <Form.Item name="rcv_amount" style={{ marginBottom: 0 }}>
-                  <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+                  <InputNumber size={controlSize} min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
               <Col xs={12} sm={6}>
                 <Text type="secondary" style={{ fontSize: 11 }}>Total ACV</Text>
                 <Form.Item name="acv_amount" style={{ marginBottom: 0 }}>
-                  <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+                  <InputNumber size={controlSize} min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
               <Col xs={12} sm={6}>
                 <Text type="secondary" style={{ fontSize: 11 }}>Depreciation</Text>
                 <Form.Item name="depreciation_amount" style={{ marginBottom: 0 }}>
-                  <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+                  <InputNumber size={controlSize} min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
               <Col xs={12} sm={6}>
                 <Text type="secondary" style={{ fontSize: 11 }}>Deductible</Text>
                 <Form.Item name="deductible" style={{ marginBottom: 0 }}>
-                  <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+                  <InputNumber size={controlSize} min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
             </Row>
           </div>
 
           <Row gutter={12}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="date_received" label="Date Received">
                 <DatePicker style={{ width: '100%' }} />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="received_from" label="Received From">
                 <Input placeholder="Adjuster name or source" />
               </Form.Item>

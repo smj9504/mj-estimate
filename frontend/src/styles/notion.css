@@ -355,8 +355,9 @@ h4.ant-typography {
 }
 
 @media (max-width: 576px) {
+  /* Cap the label column on phones; a list that asked for less keeps it */
   .ui-props-row {
-    grid-template-columns: 136px minmax(0, 1fr);
+    grid-template-columns: min(var(--ui-props-label, 160px), 136px) minmax(0, 1fr);
   }
   .ui-props-label {
     font-size: 13px;
@@ -479,6 +480,123 @@ h4.ant-typography {
 @media (max-width: 768px) {
   .ui-toolbar-end {
     margin-left: 0;
+  }
+}
+
+/* Phone modal sheet (useSheetModal): below md a modal rises from the bottom
+   edge at full width. Header and footer stay put, the body scrolls between
+   them, and footer buttons share the row at a thumb-sized 40px. */
+@media (max-width: 767.98px) {
+  .ui-sheet.ant-modal-wrap {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    overflow: hidden;
+  }
+  .ui-sheet .ant-modal {
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  .ui-sheet .ant-modal .ant-modal-content {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 12px);
+    max-height: calc(100dvh - 12px);
+    padding: 0;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    box-shadow: var(--shadow-high);
+  }
+  .ui-sheet--tall .ant-modal .ant-modal-content {
+    height: calc(100vh - 12px);
+    height: calc(100dvh - 12px);
+  }
+  .ui-sheet .ant-modal .ant-modal-close {
+    top: 8px;
+    inset-inline-end: 6px;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
+  }
+  .ui-sheet .ant-modal .ant-modal-header {
+    flex-shrink: 0;
+    margin: 0;
+    padding: 18px 52px 12px 16px;
+    border-bottom: 1px solid var(--color-neutral-200);
+  }
+  .ui-sheet .ant-modal .ant-modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 16px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ui-sheet .ant-modal .ant-modal-footer {
+    flex-shrink: 0;
+    display: flex;
+    gap: 8px;
+    margin: 0;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--color-neutral-200);
+  }
+  .ui-sheet .ant-modal .ant-modal-footer > .ant-btn {
+    flex: 1 1 auto;
+    height: 40px;
+    margin: 0 !important;
+  }
+}
+
+.ui-sheet-up-enter,
+.ui-sheet-up-appear,
+.ui-sheet-up-leave {
+  animation-duration: 0.32s;
+  animation-fill-mode: both;
+  animation-play-state: paused;
+}
+.ui-sheet-up-enter,
+.ui-sheet-up-appear {
+  transform: translateY(100%);
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ui-sheet-up-leave {
+  animation-duration: 0.2s;
+  animation-timing-function: cubic-bezier(0.4, 0, 1, 1);
+}
+.ui-sheet-up-enter.ui-sheet-up-enter-active,
+.ui-sheet-up-appear.ui-sheet-up-appear-active {
+  animation-name: ui-sheet-in;
+  animation-play-state: running;
+}
+.ui-sheet-up-leave.ui-sheet-up-leave-active {
+  animation-name: ui-sheet-out;
+  animation-play-state: running;
+  pointer-events: none;
+}
+@keyframes ui-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes ui-sheet-out {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-sheet-up-enter,
+  .ui-sheet-up-appear,
+  .ui-sheet-up-leave {
+    transform: none;
+    animation-duration: 0.01s;
   }
 }
 
@@ -701,6 +819,13 @@ h4.ant-typography {
 .sup-diff-down {
   color: var(--tag-red-text);
   font-weight: 500;
+}
+/* A figure never breaks across lines */
+.sup-money,
+.sup-money-muted,
+.sup-diff-up,
+.sup-diff-down {
+  white-space: nowrap;
 }
 
 .sup-cell-meta,
@@ -1301,6 +1426,58 @@ h4.ant-typography {
 }
 .sup-error p {
   margin: 6px 0 16px;
+}
+
+/* Phones: inputs at 16px so iOS does not zoom the page on focus, and the
+   section figure editor drops to two columns so amounts fit */
+@media (max-width: 767px) {
+  .sup-page .ant-input,
+  .sup-page .ant-input-affix-wrapper,
+  .sup-page .ant-input-number-input,
+  .sup-page .ant-select .ant-select-selector .ant-select-selection-search-input,
+  .sup-page .ant-select-single .ant-select-selector,
+  .sup-page .ant-picker-input > input,
+  .sup-modal .ant-input,
+  .sup-modal .ant-input-affix-wrapper,
+  .sup-modal .ant-input-number-input,
+  .sup-modal .ant-select .ant-select-selector .ant-select-selection-search-input,
+  .sup-modal .ant-select-single .ant-select-selector,
+  .sup-modal .ant-picker-input > input {
+    font-size: 16px;
+  }
+}
+@media (max-width: 576px) {
+  .sup-figures--3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Phones and touch: small buttons and inline links grow to a thumb-sized target */
+@media (max-width: 767px), (pointer: coarse) {
+  .sup-page .ant-btn-sm,
+  .sup-modal .ant-btn-sm,
+  .sup-page .ant-btn.sup-edit-btn,
+  .sup-status-tabs .ant-btn.ui-view-tab,
+  .sup-file-chip {
+    height: 32px;
+  }
+  .sup-page .ant-btn-sm.ant-btn-icon-only,
+  .sup-modal .ant-btn-sm.ant-btn-icon-only {
+    width: 32px;
+  }
+  .sup-pdf-link,
+  .sup-page .ant-typography-edit {
+    position: relative;
+  }
+  .sup-pdf-link::after,
+  .sup-page .ant-typography-edit::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+  }
+  .sup-review-list li {
+    padding: 6px 0;
+  }
 }
 
 /* ============================================================
