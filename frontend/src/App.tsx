@@ -52,6 +52,7 @@ const FieldContractSigning = lazyWithRetry(() => import('./pages/FieldContractSi
 const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
 const RoleBasedDashboard = lazyWithRetry(() => import('./pages/RoleBasedDashboard'));
 const Profile = lazyWithRetry(() => import('./pages/Profile'));
+const Messages = lazyWithRetry(() => import('./pages/Messages'));
 
 // Document Pages
 const DocumentList = lazyWithRetry(() => import('./pages/DocumentList'));
@@ -316,6 +317,30 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <Profile />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/messages",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <Messages />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/messages/:conversationId",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <Messages />
           </Suspense>
         </Layout>
       </ProtectedRoute>

@@ -177,12 +177,13 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
             logger.error(f"Error getting insurance estimates: {e}")
             raise
     
-    def duplicate(self, estimate_id: str) -> Optional[Dict[str, Any]]:
+    def duplicate(self, estimate_id: str, owner_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Duplicate an existing estimate, including its items.
 
         Args:
             estimate_id: ID of the estimate to duplicate
+            owner_id: Who owns the copy (defaults to the original's owner)
 
         Returns:
             Newly created estimate dictionary with items, or None if the
@@ -212,6 +213,8 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
             # (create_with_items() recalculates totals)
             estimate_data['estimate_number'] = self._generate_estimate_number()
             estimate_data['status'] = 'draft'
+            if owner_id:
+                estimate_data['owner_id'] = owner_id
 
             # Strip item identity fields; create_with_items() maps items via
             # an explicit field whitelist, so extra keys are harmless, but
@@ -346,13 +349,14 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
         
         return self.update(estimate_id, update_data)
     
-    def convert_to_invoice(self, estimate_id: str) -> Dict[str, Any]:
+    def convert_to_invoice(self, estimate_id: str, owner_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Convert estimate to invoice.
-        
+
         Args:
             estimate_id: Estimate ID
-            
+            owner_id: Who owns the invoice (defaults to the estimate's owner)
+
         Returns:
             Created invoice dictionary
         """
@@ -418,6 +422,7 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
 
             invoice_data = {
                 'company_id': estimate.get('company_id'),
+                'owner_id': owner_id or estimate.get('owner_id'),
                 'client_name': estimate.get('client_name'),
                 'client_address': estimate.get('client_address'),
                 'client_city': estimate.get('client_city'),

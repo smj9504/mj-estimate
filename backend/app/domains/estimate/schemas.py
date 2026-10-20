@@ -263,6 +263,8 @@ class EstimateListResponse(BaseModel):
     valid_until: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    owner_id: Optional[UUID] = None
+    owner_name: Optional[str] = None
 
     class Config:
         from_attributes = True

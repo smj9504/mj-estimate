@@ -74,6 +74,10 @@ import app.domains.xactimate.models
 # Analytics
 import app.domains.analytics.models
 
+# Messages and document transfers
+import app.domains.messaging.models
+import app.domains.document_transfer.models
+
 # Material detection (conditional)
 try:
     import app.domains.material_detection.models

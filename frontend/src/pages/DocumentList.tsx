@@ -14,6 +14,7 @@ import {
   Modal,
   message,
   Typography,
+  Segmented,
 } from 'antd';
 import {
   EditOutlined,
@@ -26,9 +27,13 @@ import {
   SearchOutlined,
   FilterOutlined,
   FileTextOutlined,
+  UserSwitchOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '../contexts/AuthContext';
+import SendDocumentModal from '../components/messaging/SendDocumentModal';
+import IncomingTransfers from '../components/messaging/IncomingTransfers';
 import { documentService } from '../services/documentService';
 import { invoiceService, InvoiceResponse } from '../services/invoiceService';
 import { estimateService } from '../services/estimateService';
@@ -55,22 +60,32 @@ interface TableDocument {
   updated_at: string;
   estimate_type?: EstimateType; // For estimates
   estimate_number?: string; // For estimates
+  owner_name?: string | null; // Estimates and invoices: who manages it
 }
 
 const DocumentList: React.FC = () => {
   const navigate = useNavigate();
   const { type } = useParams<{ type: string }>();
   const queryClient = useQueryClient();
-  
+  const { user } = useAuth();
+
   const [filter, setFilter] = useState<DocumentFilter>({
     type: type as DocumentType,
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
 
+  // Estimates and invoices belong to whoever made them; they can be offered
+  // to a colleague, and a super admin can look at everyone's
+  const transferType = type === 'invoice' ? 'invoice' : type === 'estimate' || type === 'insurance_estimate' ? 'estimate' : null;
+  const canSeeAll = user?.role === 'super_admin' && transferType !== null;
+  const [scope, setScope] = useState<'mine' | 'all'>('mine');
+  const listScope = canSeeAll ? scope : 'mine';
+  const [sending, setSending] = useState<TableDocument | null>(null);
+
   // Fetch documents - use specific service based on type
   const { data, isLoading } = useQuery<{ items: TableDocument[]; total: number }>({
-    queryKey: ['documents', type, filter, currentPage, pageSize],
+    queryKey: ['documents', type, filter, currentPage, pageSize, listScope],
     queryFn: async (): Promise<{ items: TableDocument[]; total: number }> => {
       if (type === 'invoice') {
         // Use invoice service
@@ -79,6 +94,7 @@ const DocumentList: React.FC = () => {
           limit: pageSize,
           client_name: filter.search,
           status: filter.status,
+          scope: listScope,
         });
         
         // Transform to match expected format
@@ -95,6 +111,7 @@ const DocumentList: React.FC = () => {
             status: invoice.status as DocumentStatus,
             created_at: invoice.created_at,
             updated_at: invoice.updated_at,
+            owner_name: invoice.owner_name,
           })),
           total: invoices.length, // API doesn't return total count yet
         };
@@ -117,6 +134,7 @@ const DocumentList: React.FC = () => {
           client_name: filter.search,
           status: filter.status,
           estimate_type: requestEstimateType, // undefined = show all types
+          scope: listScope,
         });
         
         // Backend handles all filtering now
@@ -148,6 +166,7 @@ const DocumentList: React.FC = () => {
               created_at: estimate.created_at,
               updated_at: estimate.updated_at,
               estimate_number: estimate.estimate_number,
+              owner_name: estimate.owner_name,
             };
           }),
           total: filteredEstimates.length,
@@ -498,6 +517,14 @@ const DocumentList: React.FC = () => {
       },
     },
     {
+      title: 'Owner',
+      dataIndex: 'owner_name',
+      key: 'owner_name',
+      width: 140,
+      hidden: listScope !== 'all',
+      render: (name: string | null) => name || '-',
+    },
+    {
       title: 'Amount',
       dataIndex: 'total_amount',
       key: 'total_amount',
@@ -585,6 +612,13 @@ const DocumentList: React.FC = () => {
             label: 'Duplicate',
             onClick: () => duplicateMutation.mutate(record.id),
           },
+          // Offer a copy to a colleague - estimates and invoices
+          ...(transferType ? [{
+            key: 'send-to-colleague',
+            icon: <UserSwitchOutlined />,
+            label: 'Send to a colleague',
+            onClick: () => setSending(record as unknown as TableDocument),
+          }] : []),
           // Convert to Invoice - only for estimates
           ...(record.type === 'estimate' || record.type === 'insurance_estimate' ? [{
             key: 'convert-to-invoice',
@@ -626,22 +660,40 @@ const DocumentList: React.FC = () => {
           {type === 'electrician_report' && 'Electrician Report List'}
           {!type && 'All Documents'}
         </Title>
-        <Button type="primary" onClick={() => {
-            let createPath: string;
-            if (type === 'plumber_report') {
-              createPath = '/create/plumber-report';
-            } else if (type === 'electrician_report') {
-              createPath = '/create/electrician-report';
-            } else if (type === 'insurance_estimate') {
-              createPath = '/create/insurance-estimate';
-            } else {
-              createPath = `/create/${type || 'estimate'}`;
-            }
-            navigate(createPath);
-          }}>
-            Create New Document
-          </Button>
+        <Space wrap>
+          {canSeeAll && (
+            <Segmented
+              value={scope}
+              onChange={(value) => {
+                setScope(value as 'mine' | 'all');
+                setCurrentPage(1);
+              }}
+              options={[
+                { label: 'Mine', value: 'mine' },
+                { label: 'Everyone', value: 'all' },
+              ]}
+              aria-label="Whose documents to show"
+            />
+          )}
+          <Button type="primary" onClick={() => {
+              let createPath: string;
+              if (type === 'plumber_report') {
+                createPath = '/create/plumber-report';
+              } else if (type === 'electrician_report') {
+                createPath = '/create/electrician-report';
+              } else if (type === 'insurance_estimate') {
+                createPath = '/create/insurance-estimate';
+              } else {
+                createPath = `/create/${type || 'estimate'}`;
+              }
+              navigate(createPath);
+            }}>
+              Create New Document
+            </Button>
+        </Space>
       </div>
+
+      {transferType && <IncomingTransfers documentType={transferType} />}
 
       {/* Filters */}
       <Card style={{ marginBottom: 16 }}>
@@ -748,6 +800,16 @@ const DocumentList: React.FC = () => {
           scroll={{ x: 1000 }}
         />
       </Card>
+
+      {transferType && sending && (
+        <SendDocumentModal
+          open
+          onClose={() => setSending(null)}
+          documentType={transferType}
+          documentId={sending.id}
+          documentNumber={sending.document_number}
+        />
+      )}
     </div>
   );
 };

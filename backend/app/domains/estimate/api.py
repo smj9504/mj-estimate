@@ -17,6 +17,14 @@ from app.common.services.pdf_service import get_pdf_service
 from app.common.utils.security import validate_file_path, PathTraversalError
 from app.common.utils.temp_file import temp_file_handler, get_temp_dir
 from app.core.database_factory import get_db_session as get_db
+from app.domains.auth.dependencies import get_current_staff
+from app.domains.auth.document_access import (
+    can_access_document,
+    owner_names,
+    owner_to_list,
+    require_document_access,
+)
+from app.domains.estimate.models import Estimate
 from app.domains.estimate.schemas import (
     EstimateCreate,
     EstimateItemResponse,
@@ -30,6 +38,16 @@ from app.domains.estimate.service import EstimateService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def require_estimate_access(
+    estimate_id: str,
+    current_staff=Depends(get_current_staff),
+    db=Depends(get_db),
+):
+    """The signed-in person, if they may open this estimate (404 otherwise)"""
+    require_document_access(db, Estimate, estimate_id, current_staff, "Estimate")
+    return current_staff
 
 
 @router.get("/generate-number", response_model=EstimateNumberResponse)
@@ -89,15 +107,23 @@ def list_estimates(
     client_name: Optional[str] = None,
     status: Optional[str] = None,
     estimate_type: Optional[str] = None,
+    scope: str = 'mine',
+    current_staff=Depends(get_current_staff),
     db=Depends(get_db)
 ):
-    """List all estimates with optional filtering"""
+    """List the signed-in person's estimates (a super admin may ask for scope=all)"""
     from app.core.database_factory import get_database
     database = get_database()
     service = EstimateService(database)
-    
+
     # Get estimates
-    estimates = service.get_all(limit=limit, offset=skip)
+    owner_id = owner_to_list(current_staff, scope)
+    estimates = service.get_all(
+        filters={'owner_id': owner_id} if owner_id else None,
+        limit=limit,
+        offset=skip,
+    )
+    names = owner_names(db, (est.get('owner_id') for est in estimates))
     
     # Filter by status if provided
     if status:
@@ -127,7 +153,9 @@ def list_estimates(
             estimate_date=est.get('estimate_date'),
             valid_until=est.get('valid_until'),
             created_at=est.get('created_at'),
-            updated_at=est.get('updated_at')
+            updated_at=est.get('updated_at'),
+            owner_id=est.get('owner_id'),
+            owner_name=names.get(str(est.get('owner_id'))),
         )
         for est in estimates
     ]
@@ -137,14 +165,18 @@ def list_estimates(
 def list_insurance_estimates(
     skip: int = 0,
     limit: int = 100,
+    current_staff=Depends(get_current_staff),
     db=Depends(get_db)
 ):
-    """List insurance estimates"""
+    """List the signed-in person's insurance estimates"""
     from app.core.database_factory import get_database
     database = get_database()
     service = EstimateService(database)
-    
-    insurance_estimates = service.get_insurance_estimates()
+
+    insurance_estimates = [
+        est for est in service.get_insurance_estimates()
+        if can_access_document(est.get('owner_id'), current_staff)
+    ]
     
     # Apply pagination
     paginated = insurance_estimates[skip:skip + limit]
@@ -168,7 +200,7 @@ def list_insurance_estimates(
 
 
 @router.get("/{estimate_id}", response_model=EstimateResponse)
-def get_estimate(estimate_id: str, db=Depends(get_db)):
+def get_estimate(estimate_id: str, db=Depends(get_db), _staff=Depends(require_estimate_access)):
     """Get a specific estimate by ID"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -297,7 +329,11 @@ def get_estimate(estimate_id: str, db=Depends(get_db)):
 
 
 @router.post("/", response_model=EstimateResponse)
-def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
+def create_estimate(
+    estimate_data: EstimateCreate,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Create a new estimate"""
     import logging
     logger = logging.getLogger(__name__)
@@ -354,6 +390,7 @@ def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
         'estimate_number': estimate_data.estimate_number,
         'estimate_type': estimate_data.estimate_type or 'standard',
         'company_id': str(estimate_data.company_id) if estimate_data.company_id else None,
+        'owner_id': str(current_staff.id),
         'client_name': estimate_data.client_name,
         'client_address': estimate_data.client_address,
         'client_city': estimate_data.client_city,
@@ -497,7 +534,8 @@ def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
 def update_estimate(
     estimate_id: str,
     estimate_data: EstimateUpdate,
-    db=Depends(get_db)
+    db=Depends(get_db),
+    _staff=Depends(require_estimate_access),
 ):
     """Update an existing estimate"""
     from app.core.database_factory import get_database
@@ -636,7 +674,7 @@ def update_estimate(
 
 
 @router.delete("/{estimate_id}")
-def delete_estimate(estimate_id: str, db=Depends(get_db)):
+def delete_estimate(estimate_id: str, db=Depends(get_db), _staff=Depends(require_estimate_access)):
     """Delete an estimate"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -655,7 +693,7 @@ def delete_estimate(estimate_id: str, db=Depends(get_db)):
 
 
 @router.post("/{estimate_id}/accept")
-def accept_estimate(estimate_id: str, db=Depends(get_db)):
+def accept_estimate(estimate_id: str, db=Depends(get_db), _staff=Depends(require_estimate_access)):
     """Accept an estimate"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -670,9 +708,10 @@ def accept_estimate(estimate_id: str, db=Depends(get_db)):
 
 @router.post("/{estimate_id}/reject")
 def reject_estimate(
-    estimate_id: str, 
+    estimate_id: str,
     reason: Optional[str] = None,
-    db=Depends(get_db)
+    db=Depends(get_db),
+    _staff=Depends(require_estimate_access),
 ):
     """Reject an estimate"""
     from app.core.database_factory import get_database
@@ -687,14 +726,18 @@ def reject_estimate(
 
 
 @router.post("/{estimate_id}/convert-to-invoice")
-def convert_estimate_to_invoice(estimate_id: str, db=Depends(get_db)):
-    """Convert estimate to invoice"""
+def convert_estimate_to_invoice(
+    estimate_id: str,
+    db=Depends(get_db),
+    current_staff=Depends(require_estimate_access),
+):
+    """Convert estimate to invoice, owned by whoever converts it"""
     from app.core.database_factory import get_database
     database = get_database()
     service = EstimateService(database)
-    
+
     try:
-        invoice = service.convert_to_invoice(estimate_id)
+        invoice = service.convert_to_invoice(estimate_id, owner_id=str(current_staff.id))
         return {
             "message": "Estimate converted to invoice successfully",
             "invoice_id": invoice.get('id'),
@@ -707,14 +750,18 @@ def convert_estimate_to_invoice(estimate_id: str, db=Depends(get_db)):
 
 
 @router.post("/{estimate_id}/duplicate", response_model=EstimateResponse)
-def duplicate_estimate(estimate_id: str, db=Depends(get_db)):
-    """Duplicate an existing estimate"""
+def duplicate_estimate(
+    estimate_id: str,
+    db=Depends(get_db),
+    current_staff=Depends(require_estimate_access),
+):
+    """Duplicate an existing estimate; the copy belongs to whoever made it"""
     from app.core.database_factory import get_database
     database = get_database()
     service = EstimateService(database)
-    
+
     # Duplicate estimate
-    duplicated = service.duplicate(estimate_id)
+    duplicated = service.duplicate(estimate_id, owner_id=str(current_staff.id))
     if not duplicated:
         raise HTTPException(status_code=404, detail="Estimate not found or failed to duplicate")
     
@@ -884,7 +931,7 @@ def _group_items_into_sections(items: List[Dict[str, Any]], sections_data: Optio
 
 
 @router.post("/{estimate_id}/pdf")
-def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
+def generate_estimate_pdf(estimate_id: str, db=Depends(get_db), _staff=Depends(require_estimate_access)):
     """Generate PDF for an estimate"""
     from app.core.database_factory import get_database
     database = get_database()

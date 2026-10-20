@@ -35,6 +35,9 @@ class Estimate(Base, BaseModel):
     is_latest = Column(Boolean, default=True, nullable=False)
     company_id = Column(UUIDType(), ForeignKey("companies.id"))  # String → UUIDType으로 수정
 
+    # The person who manages this estimate; only they (and super admins) see it
+    owner_id = Column(UUIDType(), ForeignKey("staff.id", ondelete="SET NULL"), nullable=True, index=True)
+
     # Client/Claim linkage
     client_id = Column(UUIDType(), ForeignKey("clients.id", ondelete="SET NULL"), nullable=True)
     claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="SET NULL"), nullable=True)

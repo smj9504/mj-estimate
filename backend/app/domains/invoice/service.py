@@ -236,12 +236,13 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
         
         return self.execute_in_transaction(_update_operation, invoice_id, validated_data)
     
-    def duplicate(self, invoice_id: str) -> Optional[Dict[str, Any]]:
+    def duplicate(self, invoice_id: str, owner_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Duplicate an existing invoice, including its items.
 
         Args:
             invoice_id: ID of the invoice to duplicate
+            owner_id: Who owns the copy (defaults to the original's owner)
 
         Returns:
             Newly created invoice dictionary with items, or None if the
@@ -275,6 +276,8 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
             invoice_data['has_receipt'] = False
             invoice_data['receipt_number'] = None
             invoice_data['receipt_generated_at'] = None
+            if owner_id:
+                invoice_data['owner_id'] = owner_id
 
             # Strip item identity fields; create_with_items() maps items via
             # an explicit field whitelist, so extra keys are harmless, but

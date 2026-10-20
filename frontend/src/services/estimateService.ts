@@ -65,6 +65,7 @@ interface BackendEstimateResponse {
   terms?: string;
   created_at?: string;
   updated_at?: string;
+  owner_name?: string | null;
   items?: BackendEstimateItem[];
   sections_data?: Array<{
     id: string;
@@ -266,6 +267,9 @@ export interface EstimateResponse {
   status?: string;
   created_at?: string;
   updated_at?: string;
+
+  // Who manages it (lists only)
+  owner_name?: string | null;
 
   // Payment schedule
   payment_schedule?: PaymentScheduleItem[];
@@ -500,6 +504,7 @@ class EstimateService {
       terms: backendData.terms,
       created_at: backendData.created_at,
       updated_at: backendData.updated_at,
+      owner_name: backendData.owner_name,
       items: (backendData.items || []).map((item) => this.transformItemFromBackend(item)),
       // Rebuild sections from sections_data metadata + items
       sections: this.rebuildSectionsFromData(
@@ -561,6 +566,8 @@ class EstimateService {
     client_name?: string;
     status?: string;
     estimate_type?: string;
+    /** 'all' lists everyone's; only a super admin gets more than their own */
+    scope?: 'mine' | 'all';
   }): Promise<EstimateResponse[]> {
     const response = await apiClient.get('/api/estimates/', { params });
     return response.data.map((item: BackendEstimateResponse) => this.transformEstimateFromBackend(item));

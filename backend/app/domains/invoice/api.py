@@ -27,6 +27,9 @@ from app.common.services.pdf_service import get_pdf_service
 from app.common.utils.security import validate_file_path, PathTraversalError
 from app.common.utils.temp_file import temp_file_handler, get_temp_dir
 from app.core.database_factory import get_db_session as get_db
+from app.domains.auth.dependencies import get_current_staff
+from app.domains.auth.document_access import owner_names, owner_to_list, require_document_access
+from app.domains.invoice.models import Invoice
 from app.domains.invoice.schemas import (
     ClientInfo,
     CompanyInfo,
@@ -61,6 +64,16 @@ def get_invoice_service():
         raise
 
 router = APIRouter()
+
+
+def require_invoice_access(
+    invoice_id: str,
+    current_staff=Depends(get_current_staff),
+    db=Depends(get_db),
+):
+    """The signed-in person, if they may open this invoice (404 otherwise)"""
+    require_document_access(db, Invoice, invoice_id, current_staff, "Invoice")
+    return current_staff
 
 
 @router.get("/generate-number", response_model=InvoiceNumberResponse)
@@ -117,24 +130,30 @@ def list_invoices(
     limit: int = 100,
     client_name: Optional[str] = None,
     status: Optional[str] = None,
-    service: InvoiceService = Depends(get_invoice_service)
+    scope: str = 'mine',
+    service: InvoiceService = Depends(get_invoice_service),
+    current_staff=Depends(get_current_staff),
+    db=Depends(get_db),
 ):
-    """List all invoices with optional filtering"""
-    
+    """List the signed-in person's invoices (a super admin may ask for scope=all)"""
+
     try:
         logger.info("Starting list_invoices endpoint with proper dependency injection")
         logger.info(f"Parameters - skip: {skip}, limit: {limit}, client_name: {client_name}, status: {status}")
-        
+
         # Get invoices with filtering
+        filters = {'client_name': client_name} if client_name else {}
+        owner_id = owner_to_list(current_staff, scope)
+        if owner_id:
+            filters['owner_id'] = owner_id
         invoices = service.get_all(
             status=status,
             limit=limit,
             offset=skip,
-            filters={'client_name': client_name} if client_name else None
+            filters=filters or None
         )
-        
-        
-        
+        names = owner_names(db, (invoice.get('owner_id') for invoice in invoices))
+
         # Convert to response format
         invoice_responses = []
         for invoice in invoices:
@@ -164,7 +183,9 @@ def list_invoices(
                 'date': invoice.get('invoice_date', invoice.get('date', '')),
                 'due_date': invoice.get('due_date', ''),
                 'created_at': str(invoice.get('created_at', '')),
-                'updated_at': str(invoice.get('updated_at', ''))
+                'updated_at': str(invoice.get('updated_at', '')),
+                'owner_id': invoice.get('owner_id'),
+                'owner_name': names.get(str(invoice.get('owner_id'))),
             })
         
         return {
@@ -189,7 +210,11 @@ def list_invoices(
 
 
 @router.post("/", response_model=InvoiceResponse)
-def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
+def create_invoice(
+    invoice_data: InvoiceCreate,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Create a new invoice"""
     import logging
     logger = logging.getLogger(__name__)
@@ -364,6 +389,7 @@ def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         'due_date': due_date,
         'status': invoice_data.status or 'pending',
         'company_id': str(invoice_data.company_id) if invoice_data.company_id else None,
+        'owner_id': str(current_staff.id),
 
         # Client information - directly on Invoice model
         'client_id': str(invoice_data.client_id) if invoice_data.client_id else None,
@@ -544,7 +570,8 @@ def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
 def update_invoice(
     invoice_id: str,
     invoice_data: InvoiceUpdate,
-    db=Depends(get_db)
+    db=Depends(get_db),
+    _staff=Depends(require_invoice_access),
 ):
     """Update an existing invoice"""
     import logging
@@ -1030,7 +1057,7 @@ def update_invoice(
 
 
 @router.delete("/{invoice_id}")
-def delete_invoice(invoice_id: str, db=Depends(get_db)):
+def delete_invoice(invoice_id: str, db=Depends(get_db), _staff=Depends(require_invoice_access)):
     """Delete an invoice"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -1049,7 +1076,7 @@ def delete_invoice(invoice_id: str, db=Depends(get_db)):
 
 
 @router.get("/{invoice_id}/html")
-def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
+def generate_invoice_html(invoice_id: str, db=Depends(get_db), _staff=Depends(require_invoice_access)):
     """Generate HTML for an invoice"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -1212,6 +1239,7 @@ def generate_invoice_pdf(
     invoice_id: str,
     template_variant: str = Query("a", description="Template variant: a (default), b (formal), c (modern)"),
     db=Depends(get_db),
+    _staff=Depends(require_invoice_access),
 ):
     """Generate PDF for an invoice"""
     from app.core.database_factory import get_database
@@ -1502,14 +1530,18 @@ def preview_invoice_pdf(data: InvoicePDFRequest):
 
 
 @router.post("/{invoice_id}/duplicate", response_model=InvoiceResponse)
-def duplicate_invoice(invoice_id: str, db=Depends(get_db)):
-    """Duplicate an existing invoice"""
+def duplicate_invoice(
+    invoice_id: str,
+    db=Depends(get_db),
+    current_staff=Depends(require_invoice_access),
+):
+    """Duplicate an existing invoice; the copy belongs to whoever made it"""
     from app.core.database_factory import get_database
     database = get_database()
     service = InvoiceService(database)
-    
+
     # Duplicate invoice
-    duplicated = service.duplicate(invoice_id)
+    duplicated = service.duplicate(invoice_id, owner_id=str(current_staff.id))
     if not duplicated:
         raise HTTPException(status_code=404, detail="Invoice not found or failed to duplicate")
     
@@ -1584,7 +1616,8 @@ def duplicate_invoice(invoice_id: str, db=Depends(get_db)):
 def add_payment(
     invoice_id: str,
     payment: PaymentRecord,
-    db=Depends(get_db)
+    db=Depends(get_db),
+    _staff=Depends(require_invoice_access),
 ):
     """Add a payment record to an invoice"""
     from app.core.database_factory import get_database
@@ -1669,7 +1702,8 @@ def add_payment(
 def remove_payment(
     invoice_id: str,
     payment_index: int,
-    db=Depends(get_db)
+    db=Depends(get_db),
+    _staff=Depends(require_invoice_access),
 ):
     """Remove a payment record from an invoice"""
     from app.core.database_factory import get_database
@@ -1755,7 +1789,11 @@ def remove_payment(
 
 # IMPORTANT: Generic parameterized routes must be at the very end to prevent route conflicts
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
-def get_invoice(invoice_id: str, service: InvoiceService = Depends(get_invoice_service)):
+def get_invoice(
+    invoice_id: str,
+    service: InvoiceService = Depends(get_invoice_service),
+    _staff=Depends(require_invoice_access),
+):
     """Get a specific invoice by ID"""
     try:
         invoice = service.get_by_id(invoice_id)
@@ -1848,7 +1886,7 @@ def get_invoice(invoice_id: str, service: InvoiceService = Depends(get_invoice_s
 # Receipt Generation Endpoints
 
 @router.get("/{invoice_id}/receipt-html")
-def generate_receipt_html(invoice_id: str, db=Depends(get_db)):
+def generate_receipt_html(invoice_id: str, db=Depends(get_db), _staff=Depends(require_invoice_access)):
     """Generate HTML receipt for a paid invoice"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -1943,7 +1981,7 @@ def generate_receipt_html(invoice_id: str, db=Depends(get_db)):
 
 
 @router.get("/{invoice_id}/receipt-pdf")
-def generate_receipt_pdf(invoice_id: str, db=Depends(get_db)):
+def generate_receipt_pdf(invoice_id: str, db=Depends(get_db), _staff=Depends(require_invoice_access)):
     """Generate PDF receipt for a paid invoice"""
     from app.core.database_factory import get_database
     database = get_database()

@@ -11,6 +11,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.core.database_factory import get_db_session as get_db
+from app.domains.auth.dependencies import get_current_staff
+from app.domains.auth.document_access import can_access_document
 from app.domains.client.schemas import (
     ClientCreate,
     ClientUpdate,
@@ -882,13 +884,15 @@ def get_all_documents(
     client_id: str,
     doc_type: Optional[str] = None,
     claim_id: Optional[str] = None,
+    current_staff=Depends(get_current_staff),
 ):
     """
     Aggregate all documents for a client across all claims.
 
     Returns a unified list of: emails, invoices, estimates, contracts,
     insurance_estimates, work_orders, wm_jobs, cabinet_estimates,
-    plumber_reports, packing_estimates.
+    plumber_reports, packing_estimates. Invoices and estimates are only the
+    ones the signed-in person may open.
     """
     from app.core.database_factory import get_database
     from app.domains.client.models import Client, Claim, ClaimNegotiation
@@ -949,6 +953,7 @@ def get_all_documents(
             ).order_by(Invoice.created_at.desc()).all()
             if claim_id:
                 invoices = [i for i in invoices if str(i.claim_id) == claim_id]
+            invoices = [i for i in invoices if can_access_document(i.owner_id, current_staff)]
             for inv in invoices:
                 docs.append({
                     "id": str(inv.id),
@@ -971,6 +976,7 @@ def get_all_documents(
             ).order_by(Estimate.created_at.desc()).all()
             if claim_id:
                 estimates = [e for e in estimates if str(e.claim_id) == claim_id]
+            estimates = [e for e in estimates if can_access_document(e.owner_id, current_staff)]
             for est in estimates:
                 total = float(est.rcv_amount or est.total_amount or 0)
                 docs.append({

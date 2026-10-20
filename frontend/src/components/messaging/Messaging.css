@@ -1,0 +1,368 @@
+/* Offered estimates and invoices */
+
+.transfer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.transfer-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  max-width: 480px;
+  padding: 12px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.transfer-list .transfer-card {
+  max-width: none;
+}
+
+.transfer-card-icon {
+  margin-top: 3px;
+  font-size: 16px;
+  color: var(--color-neutral-600);
+}
+
+.transfer-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.transfer-card-title {
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+
+.transfer-card-meta {
+  display: block;
+  font-size: 13px;
+}
+
+.transfer-card-note {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  color: var(--color-neutral-800);
+}
+
+.transfer-card-actions {
+  margin-top: 10px;
+}
+
+.transfer-card-actions:empty {
+  display: none;
+}
+
+/* Messages page */
+
+.messages-page {
+  display: flex;
+  height: calc(100vh - 150px);
+  min-height: 460px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.messages-inbox {
+  display: flex;
+  flex-direction: column;
+  width: 300px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-neutral-200);
+  background: var(--color-neutral-50);
+}
+
+.messages-inbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 8px 16px;
+}
+
+.messages-inbox-head h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+
+.messages-inbox-list {
+  flex: 1;
+  margin: 0;
+  padding: 0 6px 8px;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.messages-inbox-empty {
+  padding: 24px 16px;
+  color: var(--color-neutral-600);
+  font-size: 13px;
+}
+
+.conversation-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversation-row:hover {
+  background: var(--color-ink-hover);
+}
+
+.conversation-row.is-active {
+  background: var(--color-ink-selected);
+}
+
+.conversation-row-avatar.ant-avatar {
+  flex-shrink: 0;
+  background: var(--tag-brown-bg);
+  color: var(--tag-brown-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.conversation-row-avatar.is-group.ant-avatar {
+  background: var(--tag-blue-bg);
+  color: var(--tag-blue-text);
+}
+
+.conversation-row-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.conversation-row-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.conversation-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-neutral-900);
+}
+
+.conversation-row.is-unread .conversation-row-name {
+  font-weight: 600;
+}
+
+.conversation-row-time {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+
+.conversation-row-bottom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.conversation-row-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+
+.conversation-row.is-unread .conversation-row-preview {
+  color: var(--color-neutral-800);
+}
+
+.messages-thread {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.messages-thread-empty {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--color-neutral-600);
+  text-align: center;
+}
+
+.thread-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 8px 12px 8px 16px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+
+.thread-head-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Only the phone layout shows one pane at a time and needs a way back */
+.thread-back.ant-btn {
+  display: none;
+}
+
+.thread-head-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+
+.thread-head-members {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+
+.thread-messages {
+  flex: 1;
+  padding: 12px 16px;
+  overflow-y: auto;
+}
+
+.thread-older {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.message-row {
+  display: flex;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.message-row.starts-group {
+  margin-top: 12px;
+}
+
+.message-row-gutter {
+  width: 28px;
+  flex-shrink: 0;
+}
+
+.message-row-avatar.ant-avatar {
+  background: var(--tag-brown-bg);
+  color: var(--tag-brown-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.message-row-avatar.is-me.ant-avatar {
+  background: var(--tag-blue-bg);
+  color: var(--tag-blue-text);
+}
+
+.message-row-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.message-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.message-row-name {
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+
+.message-row-time {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+
+.message-row-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--color-neutral-900);
+}
+
+.message-row-body.is-reply {
+  color: var(--color-neutral-700);
+  font-style: italic;
+}
+
+.message-row .transfer-card {
+  margin-top: 6px;
+}
+
+.message-notice {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  text-align: center;
+}
+
+.thread-composer {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+
+.thread-composer .ant-input {
+  flex: 1;
+}
+
+@media (max-width: 768px) {
+  .messages-page {
+    height: calc(100vh - 170px);
+    border-radius: var(--radius-md);
+  }
+
+  .messages-inbox {
+    width: 100%;
+    border-right: none;
+  }
+
+  .messages-page.has-thread .messages-inbox,
+  .messages-page:not(.has-thread) .messages-thread {
+    display: none;
+  }
+
+  .thread-back.ant-btn {
+    display: inline-flex;
+  }
+
+  .thread-messages {
+    padding: 12px;
+  }
+
+  .thread-composer {
+    padding: 8px 12px;
+  }
+}

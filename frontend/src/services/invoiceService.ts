@@ -157,6 +157,10 @@ export interface InvoiceResponse {
 
   created_at: string;
   updated_at: string;
+
+  // Who manages it (lists only)
+  owner_id?: string | null;
+  owner_name?: string | null;
 }
 
 export interface InvoiceDetailResponse extends InvoiceResponse {
@@ -205,6 +209,8 @@ class InvoiceService {
     limit?: number;
     client_name?: string;
     status?: string;
+    /** 'all' lists everyone's; only a super admin gets more than their own */
+    scope?: 'mine' | 'all';
   }): Promise<InvoiceResponse[]> {
     const response = await apiClient.get('/api/invoices/', { params });
     return response.data.invoices || response.data;

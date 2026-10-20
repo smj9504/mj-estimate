@@ -130,8 +130,10 @@ from app.domains.company.api import router as company_router
 from app.domains.credit.api import router as credit_router
 from app.domains.dashboard.api import router as dashboard_router
 from app.domains.document.api import router as document_router
+from app.domains.document_transfer.api import router as document_transfer_router
 from app.domains.document_types.api import router as document_types_router
 from app.domains.estimate.api import router as estimate_router
+from app.domains.messaging.api import router as messaging_router
 from app.domains.file.api import router as file_router
 from app.domains.file.service import initialize_storage
 from app.domains.insurance_extraction.api import router as insurance_extraction_router
@@ -431,6 +433,9 @@ _NEEDED_COLUMNS = [
     ("staff", "company_id", "UUID"),
     # Sessions issued before a password change are signed out
     ("staff", "password_changed_at", "TIMESTAMP"),
+    # Who manages each estimate and invoice (the migration fills these in)
+    ("estimates", "owner_id", "UUID"),
+    ("invoices", "owner_id", "UUID"),
     # Contractor payment portal fields
     ("claim_payments", "payment_category", "VARCHAR(50)"),
     ("claim_payments", "check_photo_file_id", "VARCHAR(255)"),
@@ -988,6 +993,8 @@ app.include_router(signing_router, prefix="/api/sign", tags=["Contract Signing (
 app.include_router(field_signing_router, prefix="/api/field-sign", tags=["Field Signing (Public)"])
 app.include_router(invoice_router, prefix="/api/invoices", tags=["Invoices"])
 app.include_router(estimate_router, prefix="/api/estimates", tags=["Estimates"])
+app.include_router(document_transfer_router, prefix="/api/document-transfers", tags=["Document Transfers"])
+app.include_router(messaging_router, prefix="/api/messages", tags=["Messages"])
 app.include_router(plumber_report_router, prefix="/api/plumber-reports", tags=["Plumber Reports"])
 app.include_router(plumber_report_template_router, prefix="/api", tags=["Plumber Report Templates"])
 app.include_router(electrician_report_router, prefix="/api/electrician-reports", tags=["Electrician Reports"])

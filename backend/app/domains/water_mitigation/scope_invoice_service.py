@@ -165,6 +165,7 @@ class ScopeInvoiceService:
             version=1,
             is_latest=True,
             company_id=billing_company_id,
+            owner_id=user_id,
             client_name=job.homeowner_name,
             client_address=parsed_address["street"],
             client_city=parsed_address["city"],

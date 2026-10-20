@@ -38,6 +38,7 @@ import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
 import { colors, shadows, spacing, zIndex as zIndexScale, sidebar, breakpoints } from '../../styles/tokens';
 import CommandPalette from './CommandPalette';
+import MessagesButton from '../messaging/MessagesButton';
 import AppBreadcrumbs from './AppBreadcrumbs';
 import { BreadcrumbProvider } from '../../contexts/BreadcrumbContext';
 import './Layout.css';
@@ -650,6 +651,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             )}
           </div>
           <CommandPalette menuItems={menuItems} />
+          <MessagesButton />
           <Dropdown menu={{ items: userMenuItems, onClick: handleMenuClick }} placement="bottomRight">
             <button type="button" className="header-user" aria-label="Account menu">
               <Avatar size={24} className="header-user-avatar">
