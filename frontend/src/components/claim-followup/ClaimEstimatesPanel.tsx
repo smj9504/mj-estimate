@@ -17,6 +17,7 @@ import dayjs from 'dayjs';
 import { claimFollowUpService } from '../../services/claimFollowUpService';
 import { supplementService } from '../../services/supplementService';
 import { fileService } from '../../services/fileService';
+import { withPdfUploadLock } from '../../utils/pdfUploadLock';
 import { Pill, type TagTone } from '../common/ui';
 import {
   BID_TYPE_LABELS, SUPPLEMENT_STATUSES, SupplementStatusPill, formatCurrency,
@@ -127,14 +128,17 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
   const saveEdit = async (ver: any) => {
     setSaving(true);
     try {
-      // If PDF replaced, upload file first then replace on negotiation
+      // If PDF replaced, upload file first then replace on negotiation.
+      // Locked as one step so the screen stays blocked between the two calls.
       if (editReplacePdf) {
-        const uploaded = await fileService.uploadFiles(
-          [editReplacePdf], 'negotiation', ver.id, 'estimate', 'Insurance estimate PDF'
-        );
-        if (uploaded?.[0]?.id) {
-          await supplementService.replaceInsuranceEstimatePdf(claimId, ver.id, uploaded[0].id);
-        }
+        await withPdfUploadLock(async () => {
+          const uploaded = await fileService.uploadFiles(
+            [editReplacePdf], 'negotiation', ver.id, 'estimate', 'Insurance estimate PDF'
+          );
+          if (uploaded?.[0]?.id) {
+            await supplementService.replaceInsuranceEstimatePdf(claimId, ver.id, uploaded[0].id);
+          }
+        });
       }
       await supplementService.updateInsuranceEstimate(claimId, ver.id, editValues);
       message.success('Estimate updated');

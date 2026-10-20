@@ -12,6 +12,7 @@ import ProtectedRoute from './components/auth/ProtectedRoute';
 import HomeRedirect from './components/auth/HomeRedirect';
 import Layout from './components/common/Layout';
 import ErrorBoundary from './components/common/ErrorBoundary';
+import PdfUploadBlocker from './components/common/PdfUploadBlocker';
 import { useNetworkStatus } from './hooks/useNetworkStatus';
 import 'antd/dist/reset.css';
 // After the antd reset so its body rules don't win
@@ -1263,6 +1264,7 @@ function App() {
               <RouterProvider router={router} />
             </TemplateBuilderProvider>
           </AuthProvider>
+          <PdfUploadBlocker />
         </ConfigProvider>
       </QueryProvider>
     </ErrorBoundary>

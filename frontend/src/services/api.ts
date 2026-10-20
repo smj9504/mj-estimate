@@ -1,6 +1,9 @@
 import axios from 'axios';
+import type { AxiosInstance } from 'axios';
 import { Modal } from 'antd';
 import { showRetryableErrorNotification } from './apiErrorNotification';
+import { acquirePdfUploadLock, bodyHasPdf } from '../utils/pdfUploadLock';
+import type { PdfUploadHold } from '../utils/pdfUploadLock';
 
 // Lets specific call sites (e.g. status-polling loops that already retry
 // silently on their own timer) opt out of the global "다시 시도" notification -
@@ -8,7 +11,38 @@ import { showRetryableErrorNotification } from './apiErrorNotification';
 declare module 'axios' {
   export interface AxiosRequestConfig {
     suppressErrorNotification?: boolean;
+    /** Set on requests that send a PDF; released once the request settles */
+    pdfUploadHold?: PdfUploadHold;
   }
+}
+
+// Blocks the whole app (see utils/pdfUploadLock) while a request that sends a
+// PDF is in flight. Attach before any other interceptor: request interceptors
+// run last-attached first, so this one runs right before the request goes out
+// and a throwing interceptor can't leave the lock held; response interceptors
+// run first-attached first, so the overlay is gone before an error modal opens.
+function attachPdfUploadLock(instance: AxiosInstance) {
+  instance.interceptors.request.use((config) => {
+    if (!bodyHasPdf(config.data)) return config;
+    const hold = acquirePdfUploadLock();
+    const onUploadProgress = config.onUploadProgress;
+    config.pdfUploadHold = hold;
+    config.onUploadProgress = (event) => {
+      hold.progress(event.loaded, event.total);
+      onUploadProgress?.(event);
+    };
+    return config;
+  });
+  instance.interceptors.response.use(
+    (response) => {
+      response.config.pdfUploadHold?.release();
+      return response;
+    },
+    (error) => {
+      error.config?.pdfUploadHold?.release();
+      return Promise.reject(error);
+    }
+  );
 }
 
 // Create axios instance with base configuration
@@ -32,6 +66,8 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+attachPdfUploadLock(api);
 
 // Request interceptor for auth token
 api.interceptors.request.use(
@@ -97,6 +133,8 @@ export const publicApi = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+attachPdfUploadLock(publicApi);
 
 publicApi.interceptors.response.use(
   (response) => response,

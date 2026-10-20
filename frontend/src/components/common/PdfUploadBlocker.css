@@ -1,0 +1,58 @@
+/*
+ * Full-screen lock shown while a PDF uploads.
+ *
+ * z-index sits above antd modals, drawers and popovers (1000-1080) so nothing
+ * behind can be clicked, and below antd message (2010) and notification (2050)
+ * so an upload error is still readable once it lands.
+ *
+ * The lock catches clicks from the first frame, but only becomes visible after
+ * a short delay so a quick upload doesn't flash a dark screen.
+ */
+.pdf-upload-blocker {
+  position: fixed;
+  inset: 0;
+  z-index: 1900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg);
+  background: rgba(15, 15, 15, 0.32);
+  cursor: progress;
+  outline: none;
+  animation: pdf-upload-blocker-in 160ms ease-out 300ms both;
+}
+
+.pdf-upload-blocker__card {
+  width: min(320px, 100%);
+  padding: var(--space-xl);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-high);
+  text-align: center;
+}
+
+.pdf-upload-blocker__title {
+  margin-top: var(--space-lg);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+
+.pdf-upload-blocker__hint {
+  margin-top: var(--space-xs);
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+
+.pdf-upload-blocker__progress.ant-progress {
+  margin: var(--space-md) 0 0;
+}
+
+@keyframes pdf-upload-blocker-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

@@ -1,7 +1,8 @@
 import { defineConfig } from 'vitest/config';
 
 /**
- * Vitest setup for the sketch geometry layer and the claim follow-up helpers.
+ * Vitest setup for the sketch geometry layer, the claim follow-up helpers and
+ * the shared utils.
  *
  * Deliberately narrow for now. Two constraints shape this config:
  *
@@ -26,6 +27,7 @@ export default defineConfig({
     include: [
       'src/components/**/sketch/**/*.test.ts',
       'src/components/claim-followup/**/*.test.ts',
+      'src/utils/**/*.test.ts',
     ],
   },
 });
