@@ -9,6 +9,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.common.utils.timing import StageTimer
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -1862,6 +1863,7 @@ class ClaimFollowUpService:
         return self._send_email(data)
 
     def _send_email(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        timer = StageTimer()
         session = self._get_session()
         try:
             from app.domains.claim_followup.repository import (
@@ -1919,6 +1921,7 @@ class ClaimFollowUpService:
                 )
                 # Compress if total size exceeds email limit
                 raw_attachments = wm_service._compress_attachments_if_needed(raw_attachments)
+                timer.lap("wm documents")
 
             # Separate binary attachment data from metadata for DB storage.
             # Store only JSON-safe metadata in the DB (strip binary 'data'),
@@ -1960,7 +1963,9 @@ class ClaimFollowUpService:
                     signature_email_override=data.get('signature_email'),
                     signature_phone_override=data.get('signature_phone'),
                 )
+                timer.lap("smtp")
                 session.commit()
+                logger.info(f"Unlinked email send finished in {timer.summary()}")
                 return {'id': None, 'status': 'sent', 'smtp_message_id': smtp_result.get('message_id')}
 
             # Create sent email record
@@ -2017,6 +2022,7 @@ class ClaimFollowUpService:
             email_repo.update(
                 email_id, {'tracking_pixel_sent': pixel_applied}
             )
+            timer.lap("record")
 
             try:
                 smtp = SmtpService()
@@ -2035,9 +2041,10 @@ class ClaimFollowUpService:
                     signature_email_override=data.get('signature_email'),
                     signature_phone_override=data.get('signature_phone'),
                 )
+                timer.lap("smtp")
                 email_repo.mark_sent(email_id, smtp_result.get('message_id'))
             except Exception as smtp_error:
-                logger.error(f"SMTP send failed: {smtp_error}")
+                logger.error(f"SMTP send failed after {timer.summary()}: {smtp_error}")
                 email_repo.mark_failed(email_id, str(smtp_error))
                 # Still commit the record with failed status
                 session.commit()
@@ -2060,6 +2067,8 @@ class ClaimFollowUpService:
                 task_repo.mark_contacted(str(data['followup_task_id']), next_date)
 
             session.commit()
+            timer.lap("bookkeeping")
+            logger.info(f"Email {email_id} send finished in {timer.summary()}")
             return email_repo.get_by_id(email_id)
         except Exception as e:
             session.rollback()

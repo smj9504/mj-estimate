@@ -8,6 +8,7 @@ from app.common.services.document_resources import (
 )
 
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -15,6 +16,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from app.common.utils.storage_helpers import download_from_storage, is_cloud_ref
+from app.common.utils.timing import StageTimer
 from app.core.database_factory import get_database
 
 logger = logging.getLogger(__name__)
@@ -777,6 +779,7 @@ class AdjusterEmailService:
     @document_job
     def send_to_adjuster(self, job_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Send water mitigation documents to insurance adjuster via email."""
+        timer = StageTimer()
         session = self._get_session()
         try:
             from .models import (
@@ -807,9 +810,11 @@ class AdjusterEmailService:
 
             # Collect attachments based on selected documents
             attachments, failed_docs = self._collect_attachments(session, job, selected_docs)
+            timer.lap("collect")
 
             # Compress PDF attachments if total size exceeds email limit (25MB)
             attachments = self._compress_attachments_if_needed(attachments)
+            timer.lap("compress")
 
             # Block send if any selected document failed to attach
             if failed_docs:
@@ -854,6 +859,7 @@ class AdjusterEmailService:
             )
             require_memory(6 * sum(len(a["data"]) for a in attachments))
             email_result = email_service.send_email(send_payload)
+            timer.lap("send")
 
             # Update job: documents_sent_date
             now = datetime.now(timezone.utc)
@@ -893,6 +899,11 @@ class AdjusterEmailService:
             self._create_followup_task(session, job)
 
             session.commit()
+            timer.lap("records")
+            logger.info(
+                f"Sent {len(attachments)} WM document(s) for job {job_id} to adjuster "
+                f"in {timer.summary()}"
+            )
 
             return {
                 "success": True,
@@ -903,7 +914,7 @@ class AdjusterEmailService:
             }
         except Exception as e:
             session.rollback()
-            logger.error(f"Error sending to adjuster: {e}")
+            logger.error(f"Error sending to adjuster after {timer.summary()}: {e}")
             raise
         finally:
             session.close()
@@ -915,6 +926,7 @@ class AdjusterEmailService:
     @document_job
     def send_followup(self, job_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Send follow-up email to adjuster (does NOT update documents_sent_date)."""
+        timer = StageTimer()
         session = self._get_session()
         try:
             from .models import WaterMitigationJob
@@ -941,7 +953,9 @@ class AdjusterEmailService:
             attachments = []
             if selected_docs:
                 attachments, _failed = self._collect_attachments(session, job, selected_docs)
+                timer.lap("collect")
                 attachments = self._compress_attachments_if_needed(attachments)
+                timer.lap("compress")
                 self._assert_within_email_limit(attachments)
 
             # Send via claim_followup email service
@@ -972,6 +986,7 @@ class AdjusterEmailService:
             )
             require_memory(6 * sum(len(a["data"]) for a in attachments))
             email_result = email_service.send_email(send_payload)
+            timer.lap("send")
 
             # Log claim activity (but do NOT update documents_sent_date or status)
             if job.claim_id:
@@ -990,6 +1005,11 @@ class AdjusterEmailService:
                 session.add(activity)
 
             session.commit()
+            timer.lap("records")
+            logger.info(
+                f"Sent WM follow-up for job {job_id} with {len(attachments)} document(s) "
+                f"in {timer.summary()}"
+            )
 
             return {
                 "success": True,
@@ -999,7 +1019,7 @@ class AdjusterEmailService:
             }
         except Exception as e:
             session.rollback()
-            logger.error(f"Error sending follow-up: {e}")
+            logger.error(f"Error sending follow-up after {timer.summary()}: {e}")
             raise
         finally:
             session.close()
@@ -1019,6 +1039,9 @@ class AdjusterEmailService:
         from .models import WMDocument, WMScopeInvoice
 
         logger.info(f"Collecting attachments for selected_docs={selected_docs}")
+        # Each document's stage covers its download or render plus its own
+        # compression; _compress_attachments_if_needed logs the latter.
+        timer = StageTimer()
         attachments = []
         failed_docs = []
 
@@ -1066,6 +1089,7 @@ class AdjusterEmailService:
                     add_attachment(att)
                 else:
                     failed_docs.append("photo_report")
+            timer.lap("photo_report")
 
         # 2. Invoice
         if "invoice" in selected_docs:
@@ -1077,6 +1101,7 @@ class AdjusterEmailService:
                 add_attachment(att)
             else:
                 failed_docs.append("invoice")
+            timer.lap("invoice")
 
         # 3. W9
         if "w9" in selected_docs:
@@ -1087,6 +1112,7 @@ class AdjusterEmailService:
                 add_attachment(att)
             else:
                 failed_docs.append("w9")
+            timer.lap("w9")
 
         # 4. COS
         if "cos" in selected_docs:
@@ -1108,6 +1134,7 @@ class AdjusterEmailService:
                     failed_docs.append("cos")
             else:
                 failed_docs.append("cos")
+            timer.lap("cos")
 
         # 5. EWA
         if "ewa" in selected_docs:
@@ -1129,6 +1156,7 @@ class AdjusterEmailService:
                     failed_docs.append("ewa")
             else:
                 failed_docs.append("ewa")
+            timer.lap("ewa")
 
         # 6. Sketch
         if "sketch" in selected_docs:
@@ -1140,12 +1168,18 @@ class AdjusterEmailService:
                 add_attachment(att)
             else:
                 failed_docs.append("sketch")
+            timer.lap("sketch")
 
         if failed_docs:
             logger.warning(
                 f"Failed to collect attachments for: {failed_docs} "
                 f"(selected={selected_docs}, succeeded={len(attachments)})"
             )
+        logger.info(
+            f"Collected {len(attachments)} attachment(s), "
+            f"{sum(len(a['data']) for a in attachments) / MIB:.1f}MB, "
+            f"in {timer.summary()}"
+        )
 
         return attachments, failed_docs
 
@@ -1818,6 +1852,7 @@ class AdjusterEmailService:
             f"exceeds {self._EMAIL_SIZE_LIMIT / 1024 / 1024:.0f}MB limit, "
             f"compressing PDF attachments..."
         )
+        started = time.monotonic()
 
         # Swap each attachment's bytes in place rather than building a second
         # list: an over-limit payload is hundreds of MB, and dropping the
@@ -1855,22 +1890,31 @@ class AdjusterEmailService:
                     continue
 
                 original_size = len(att["data"])
+                pass_started = time.monotonic()
                 compressed = self._compress_pdf(att["data"], level)
+                pass_seconds = time.monotonic() - pass_started
                 if compressed and len(compressed) < original_size:
                     saved = original_size - len(compressed)
                     logger.info(
                         f"[{level['name']}] '{fname}': "
                         f"{original_size / 1024 / 1024:.1f}MB -> "
                         f"{len(compressed) / 1024 / 1024:.1f}MB "
-                        f"(saved {saved / 1024 / 1024:.1f}MB)"
+                        f"(saved {saved / 1024 / 1024:.1f}MB) in {pass_seconds:.1f}s"
                     )
                     att["data"] = compressed
+                else:
+                    # A pass that shrinks nothing still costs its full run.
+                    logger.info(
+                        f"[{level['name']}] '{fname}': no reduction from "
+                        f"{original_size / 1024 / 1024:.1f}MB, {pass_seconds:.1f}s spent"
+                    )
 
         final_size = sum(len(a["data"]) for a in result)
         logger.info(
             f"Compression complete: "
             f"{total_size / 1024 / 1024:.1f}MB -> "
-            f"{final_size / 1024 / 1024:.1f}MB"
+            f"{final_size / 1024 / 1024:.1f}MB "
+            f"in {time.monotonic() - started:.1f}s"
         )
         return result
 

@@ -19,6 +19,7 @@ from typing import Any, Dict, Iterator, List, Optional
 from app.common.services.document_resources import (
     MIB, DocumentResourceError, document_guard, read_bounded,
 )
+from app.common.utils.timing import StageTimer
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -121,6 +122,7 @@ class SmtpService:
         cc_addresses = cc_addresses or []
         bcc_addresses = bcc_addresses or []
         attachments = attachments or []
+        timer = StageTimer()
 
         # Get SMTP connection details
         smtp_config = self._get_smtp_config(account_id)
@@ -173,6 +175,8 @@ class SmtpService:
             signature_email_override = signature_email_override or personal_email
             signature_phone_override = signature_phone_override or smtp_config.get("sender_phone")
             smtp_config = fallback_config
+        # Account lookup, including an OAuth token refresh when it expired.
+        timer.lap("account")
 
         # From is always the address this SMTP login is verified to send as.
         # Any other address - one typed into the composer, a company's
@@ -258,6 +262,8 @@ class SmtpService:
             )
             if msg_size > MAX_EMAIL_SIZE_MB * MIB:
                 raise _oversize_error(msg_size, attachments, [len(d) for d in attachment_data])
+            # Downloading attachments from storage and building the message.
+            timer.lap("attachments")
 
             # Send
             message_id = msg["Message-ID"]
@@ -272,6 +278,7 @@ class SmtpService:
                     server.ehlo()
                 else:
                     server = smtplib.SMTP_SSL(smtp_config["server"], smtp_config["port"], timeout=120)
+                timer.lap("connect")
 
                 # Authenticate: OAuth XOAUTH2 or password
                 oauth_token = smtp_config.get("oauth_access_token")
@@ -290,29 +297,38 @@ class SmtpService:
                     )
                 elif smtp_config.get("username") and smtp_config.get("password"):
                     server.login(smtp_config["username"], smtp_config["password"])
+                timer.lap("login")
 
                 self._send_streaming(
                     server, from_address, all_recipients,
                     self._iter_message(segments, attachment_data), msg_size,
+                    timer=timer,
                 )
                 server.quit()
                 server = None
 
-                logger.info(f"Email sent successfully to {to_addresses}, message_id={message_id}")
+                logger.info(
+                    f"Email sent successfully to {to_addresses}, message_id={message_id}, "
+                    f"{len(attachment_data)} attachment(s), {msg_size / MIB:.1f}MB "
+                    f"via {smtp_config['server']}, took {timer.summary()}"
+                )
                 return {"message_id": message_id, "status": "sent"}
 
             except smtplib.SMTPAuthenticationError as e:
-                logger.error(f"SMTP authentication failed: {e}")
+                logger.error(f"SMTP authentication failed after {timer.summary()}: {e}")
                 raise ValueError(f"Email authentication failed. Please check your credentials. Error: {e}")
             except smtplib.SMTPRecipientsRefused as e:
-                logger.error(f"SMTP recipients refused: {e}")
+                logger.error(f"SMTP recipients refused after {timer.summary()}: {e}")
                 raise ValueError(f"Recipients refused: {e}")
             except smtplib.SMTPResponseException as e:
                 reason = e.smtp_error.decode(errors="replace") if isinstance(e.smtp_error, bytes) else e.smtp_error
-                logger.error(f"SMTP server rejected the email: {e.smtp_code} {reason}")
+                logger.error(
+                    f"SMTP server rejected the email after {timer.summary()}: "
+                    f"{e.smtp_code} {reason}"
+                )
                 raise ValueError(f"Mail server rejected the email ({e.smtp_code}): {reason}")
             except Exception as e:
-                logger.error(f"SMTP send error: {e}")
+                logger.error(f"SMTP send error after {timer.summary()}: {e}")
                 raise
             finally:
                 if server is not None:
@@ -349,6 +365,7 @@ class SmtpService:
         recipients: List[str],
         chunks: Iterator[bytes],
         size: int,
+        timer: Optional[StageTimer] = None,
     ) -> Dict[str, Any]:
         """smtplib's sendmail(), but writing the DATA section as it's produced.
 
@@ -356,6 +373,10 @@ class SmtpService:
         several more full copies of it; this sends chunks that are already
         CRLF-normalized and dot-stuffed (see _smtp_text - base64 lines never
         start with '.'). Returns the refused recipients, like sendmail().
+
+        timer, when given, gets an "upload" lap once the message is written
+        and an "accept" lap for the server's reply - Gmail scans attachments
+        before it answers, so a large message can wait there for a while.
         """
         server.ehlo_or_helo_if_needed()
         options = []
@@ -387,8 +408,12 @@ class SmtpService:
                 server.send(chunk)
                 last = chunk
         server.send(b".\r\n" if last.endswith(b"\r\n") else b"\r\n.\r\n")
+        if timer:
+            timer.lap("upload")
 
         code, resp = server.getreply()
+        if timer:
+            timer.lap("accept")
         if code != 250:
             SmtpService._reset(server)
             raise smtplib.SMTPDataError(code, resp)
