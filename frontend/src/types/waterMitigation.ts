@@ -11,6 +11,7 @@ export enum JobStatus {
   FOLLOW_UP = "Follow up",
   PAPERWORK_RECEIVED = "Paperwork received",
   ESTIMATE_REQUESTED = "Estimate requested",
+  PAYMENT_ON_THE_WAY = "Payment on the way",
   CHECK_RECEIVED = "Check received",
   COMPLETE = "Complete"
 }
@@ -22,6 +23,7 @@ export const JOB_STATUS_OPTIONS = [
   { value: JobStatus.FOLLOW_UP, label: "Follow up" },
   { value: JobStatus.PAPERWORK_RECEIVED, label: "Paperwork received" },
   { value: JobStatus.ESTIMATE_REQUESTED, label: "Estimate requested" },
+  { value: JobStatus.PAYMENT_ON_THE_WAY, label: "Payment on the way" },
   { value: JobStatus.CHECK_RECEIVED, label: "Check received" },
   { value: JobStatus.COMPLETE, label: "Complete" }
 ];

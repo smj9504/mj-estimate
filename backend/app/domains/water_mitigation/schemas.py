@@ -17,6 +17,7 @@ class JobStatus:
     FOLLOW_UP = "Follow up"
     PAPERWORK_RECEIVED = "Paperwork received"
     ESTIMATE_REQUESTED = "Estimate requested"
+    PAYMENT_ON_THE_WAY = "Payment on the way"  # insurer has sent the check
     CHECK_RECEIVED = "Check received"
     COMPLETE = "Complete"
 
@@ -29,6 +30,7 @@ class JobStatus:
             cls.FOLLOW_UP,
             cls.PAPERWORK_RECEIVED,
             cls.ESTIMATE_REQUESTED,
+            cls.PAYMENT_ON_THE_WAY,
             cls.CHECK_RECEIVED,
             cls.COMPLETE
         ]

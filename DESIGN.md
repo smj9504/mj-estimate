@@ -215,7 +215,7 @@ Warm, low-chroma neutrals carry nearly the whole interface; one darkened blue an
 ### Pastel tag tones
 Nine background/text pairs: gray, brown, orange, yellow, green, blue, purple, pink, red (tag-*-bg / tag-*-text). Each text colour is darkened enough to read on its own pastel. Every antd preset tag colour (blue, geekblue, cyan, lime, volcano, gold, magenta, processing, success, warning, error) folds onto one of these nine globally.
 
-Water Mitigation job status uses a fixed map: Lead gray, Doc prepping brown, Sent to adjuster blue, Follow up orange, Paperwork received purple, Estimate requested pink, Check received yellow, Complete green. Payment facts use the same tones: check to contractor blue, to customer orange, received green, pending gray.
+Water Mitigation job status uses a fixed map: Lead gray, Doc prepping brown, Sent to adjuster blue, Follow up orange, Paperwork received purple, Estimate requested pink, Payment on the way blue, Check received yellow, Complete green. Payment facts use the same tones: check to contractor blue, to customer orange, received green, pending gray.
 
 ### Named Rules
 **The One Accent Rule.** Blue means "you can act here" or "this is selected". Totals, amounts and record titles stay ink, however important they are.
