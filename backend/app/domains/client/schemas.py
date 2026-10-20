@@ -108,6 +108,13 @@ class ClaimNegotiationUpdate(BaseModel):
     file_id: Optional[str] = None
     sections_data: Optional[List[NegotiationSectionData]] = None
 
+    @validator('revision_type')
+    def validate_revision_type(cls, v):
+        allowed = ['initial', 'supplement', 're_inspection', 'appraisal', 'final']
+        if v and v not in allowed:
+            raise ValueError(f"revision_type must be one of {allowed}")
+        return v
+
     @validator('estimate_category')
     def validate_estimate_category(cls, v):
         allowed = ['reconstruction', 'water_mitigation', 'combined']
@@ -146,13 +153,14 @@ class ClaimBase(BaseModel):
     date_of_loss: Optional[datetime] = None
     loss_description: Optional[str] = None
     status: Optional[str] = "open"
+    appraisal_date: Optional[datetime] = None
     estimate_origin: Optional[str] = None
     contractor_estimate_stage: Optional[str] = None
     notes: Optional[str] = None
 
     @validator('status')
     def validate_status(cls, v):
-        allowed = ['open', 'negotiating', 'settled', 'closed', 'denied']
+        allowed = ['open', 'negotiating', 'appraisal', 'settled', 'closed', 'denied']
         if v and v not in allowed:
             raise ValueError(f"status must be one of {allowed}")
         return v
@@ -220,6 +228,7 @@ class ClaimUpdate(BaseModel):
     supplement_status: Optional[str] = None
     supplement_notes: Optional[str] = None
     status: Optional[str] = None
+    appraisal_date: Optional[datetime] = None
     estimate_origin: Optional[str] = None
     contractor_estimate_stage: Optional[str] = None
     notes: Optional[str] = None

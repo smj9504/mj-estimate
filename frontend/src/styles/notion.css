@@ -3423,6 +3423,32 @@ mark.fu-tpl-missing {
   color: var(--color-neutral-600);
 }
 
+/* Claim in (or past) appraisal: same pink as its Appraisal status tag */
+.cl-appraisal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--tag-pink-bg);
+  font-size: 13px;
+  color: var(--color-neutral-900);
+}
+.cl-appraisal-title {
+  font-weight: 600;
+  color: var(--tag-pink-text);
+}
+.cl-appraisal-note {
+  margin-top: 2px;
+  color: var(--color-neutral-700);
+}
+.cl-appraisal-actions .ant-btn-link {
+  padding-inline: 4px;
+}
+
 @media (max-width: 767.98px) {
   .cl-sheet.ant-card {
     border: none;

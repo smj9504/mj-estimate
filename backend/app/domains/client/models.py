@@ -183,7 +183,12 @@ class Claim(Base, BaseModel):
     supplement_notes = Column(Text)
 
     # Status
-    status = Column(String(50), default="open")  # open, negotiating, settled, closed, denied
+    status = Column(String(50), default="open")  # open, negotiating, appraisal, settled, closed, denied
+
+    # When the claim left negotiation for appraisal. Appraisal is settled
+    # outside the supplement process, so no supplement estimate goes out after
+    # this. Kept after the claim settles so the history still shows it.
+    appraisal_date = Column(DateTime(timezone=True))
 
     notes = Column(Text)
 

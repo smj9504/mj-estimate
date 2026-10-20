@@ -506,6 +506,25 @@ class ClaimNegotiationSQLAlchemyRepository(SQLAlchemyRepository):
             logger.error(f"Error creating negotiation and updating claim: {e}")
             raise
 
+    def sync_claim_amounts(self, claim_id: str, include_deductible: bool = False) -> None:
+        """Point the claim's current amounts at its most recently added
+        revision, the one create_and_update_claim set them from. Called after
+        a revision is edited or deleted so the claim doesn't keep stale
+        figures. Leaves the claim alone when no revision is left."""
+        latest = self.db_session.query(ClaimNegotiation).filter(
+            ClaimNegotiation.claim_id == claim_id
+        ).order_by(ClaimNegotiation.created_at.desc()).first()
+        claim = self.db_session.query(Claim).filter(Claim.id == claim_id).first()
+        if not latest or not claim:
+            return
+        claim.current_acv = latest.acv_amount or 0
+        claim.current_rcv = latest.rcv_amount or 0
+        claim.current_depreciation = latest.depreciation_amount or 0
+        # Same rule as on upload: a 0 deductible doesn't wipe one entered by hand
+        if include_deductible and latest.deductible:
+            claim.insurance_deductible = latest.deductible
+        self.db_session.flush()
+
 
 # ============================================================
 # Factory functions

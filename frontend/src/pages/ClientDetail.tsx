@@ -123,6 +123,7 @@ const CLAIM_STATUS_CONFIG: Record<
 > = {
   open:        { color: 'blue',    label: 'Open' },
   negotiating: { color: 'orange',  label: 'Negotiating' },
+  appraisal:   { color: 'magenta', label: 'Appraisal' },
   settled:     { color: 'green',   label: 'Settled' },
   closed:      { color: 'default', label: 'Closed' },
   denied:      { color: 'red',     label: 'Denied' },
@@ -135,7 +136,8 @@ const REVISION_TYPE_CONFIG: Record<
   initial:       { color: 'blue',   label: 'Initial' },
   supplement:    { color: 'orange', label: 'Supplement' },
   re_inspection: { color: 'purple', label: 'Re-Inspection' },
-  appraisal:     { color: 'cyan',   label: 'Appraisal' },
+  // Same colour as the claim's Appraisal status ('cyan' renders as blue here)
+  appraisal:     { color: 'magenta', label: 'Appraisal' },
   final:         { color: 'green',  label: 'Final' },
 };
 
@@ -497,6 +499,7 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           date_of_loss: editingClaim.date_of_loss ? dayjs(editingClaim.date_of_loss) as any : undefined,
           loss_description: editingClaim.loss_description,
           status: editingClaim.status,
+          appraisal_date: editingClaim.appraisal_date ? dayjs(editingClaim.appraisal_date) as any : undefined,
           estimate_origin: editingClaim.estimate_origin,
           contractor_estimate_stage: editingClaim.contractor_estimate_stage,
           notes: editingClaim.notes,
@@ -510,6 +513,13 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
   }, [open, editingClaim, form]);
 
   const handleFinish = async (values: any) => {
+    const payload: ClaimCreate = {
+      ...values,
+      client_id: clientId,
+      date_of_loss: values.date_of_loss ? dayjs(values.date_of_loss).format('YYYY-MM-DD') : undefined,
+      // null clears it; the field only renders for appraisal claims
+      appraisal_date: values.appraisal_date ? dayjs(values.appraisal_date).format('YYYY-MM-DD') : null,
+    };
     if (!values.claim_number) {
       Modal.confirm({
         title: 'Claim Number is empty',
@@ -517,21 +527,11 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
         okText: 'Continue',
         cancelText: 'Go Back',
         onOk: async () => {
-          const payload: ClaimCreate = {
-            ...values,
-            client_id: clientId,
-            date_of_loss: values.date_of_loss ? dayjs(values.date_of_loss).format('YYYY-MM-DD') : undefined,
-          };
           await onSubmit(payload);
         },
       });
       return;
     }
-    const payload: ClaimCreate = {
-      ...values,
-      client_id: clientId,
-      date_of_loss: values.date_of_loss ? dayjs(values.date_of_loss).format('YYYY-MM-DD') : undefined,
-    };
     await onSubmit(payload);
   };
 
@@ -562,7 +562,13 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           </Col>
           <Col xs={24} sm={12}>
             <Form.Item name="status" label="Status" initialValue="open">
-              <Select>
+              <Select
+                onChange={(v) => {
+                  if (v === 'appraisal' && !form.getFieldValue('appraisal_date' as any)) {
+                    form.setFieldsValue({ appraisal_date: dayjs() as any });
+                  }
+                }}
+              >
                 {Object.entries(CLAIM_STATUS_CONFIG).map(([val, cfg]) => (
                   <Option key={val} value={val}>{cfg.label}</Option>
                 ))}
@@ -570,6 +576,29 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
             </Form.Item>
           </Col>
         </Row>
+
+        {/* Shown while in appraisal, and afterwards so a settled claim keeps the date */}
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, cur) =>
+            prev.status !== cur.status || (prev as any).appraisal_date !== (cur as any).appraisal_date}
+        >
+          {({ getFieldValue }) =>
+            getFieldValue('status') === 'appraisal' || getFieldValue('appraisal_date' as any) ? (
+              <Row gutter={12}>
+                <Col xs={24} sm={12}>
+                  <Form.Item
+                    name="appraisal_date"
+                    label="Moved to Appraisal"
+                    tooltip="Appraisal is handled outside the supplement process, so no supplement estimate goes out after this date"
+                  >
+                    <DatePicker style={{ width: '100%' }} format="MM/DD/YYYY" />
+                  </Form.Item>
+                </Col>
+              </Row>
+            ) : null
+          }
+        </Form.Item>
 
         <Row gutter={12}>
           <Col xs={24} sm={12}>
@@ -799,93 +828,30 @@ const SECTION_AMOUNT_FIELDS = [
   { key: 'net_acv', label: 'Net ACV', width: 130, total: 'acv_amount' },
 ] as const;
 
-interface NegotiationModalProps {
-  open: boolean;
-  clientId: string;
-  claimId: string;
-  onCancel: () => void;
-  onSubmit: (values: Omit<ClaimNegotiationCreate, 'claim_id'>) => Promise<void>;
-  loading: boolean;
+type SectionTotals = Record<(typeof SECTION_AMOUNT_FIELDS)[number]['total'], number>;
+
+const sumSectionTotals = (sections: NegotiationSection[]): SectionTotals => ({
+  rcv_amount: sections.reduce((s, sec) => s + (sec.rcv || 0), 0),
+  acv_amount: sections.reduce((s, sec) => s + (sec.net_acv || 0), 0),
+  depreciation_amount: sections.reduce((s, sec) => s + (sec.depreciation || 0), 0),
+  deductible: sections.reduce((s, sec) => s + (sec.deductible || 0), 0),
+});
+
+interface SectionAmountsEditorProps {
+  sections: NegotiationSection[];
+  onChange: (sections: NegotiationSection[]) => void;
+  isPhone: boolean;
 }
 
-const NegotiationModal: React.FC<NegotiationModalProps> = ({
-  open,
-  clientId,
-  claimId,
-  onCancel,
-  onSubmit,
-  loading,
-}) => {
-  const [form] = Form.useForm();
-  const { isPhone, sheetProps } = useSheetModal('tall');
-  const [activeTab, setActiveTab] = useState<'pdf' | 'manual'>('pdf');
-  const [extracting, setExtracting] = useState(false);
-  const [extraction, setExtraction] = useState<PdfExtractionResult | null>(null);
-  const [editedSections, setEditedSections] = useState<NegotiationSection[]>([]);
-
-  React.useEffect(() => {
-    if (open) {
-      form.resetFields();
-      setActiveTab('pdf');
-      setExtraction(null);
-      setEditedSections([]);
-      setExtracting(false);
-    }
-  }, [open, form]);
-
-  const handlePdfUpload = async (file: File) => {
-    setExtracting(true);
-    try {
-      const result = await negotiationService.extractPdf(clientId, claimId, file);
-      setExtraction(result);
-      setEditedSections(result.sections || []);
-      message.success(`Extracted ${result.sections.length} section(s) from PDF`);
-    } catch (err: any) {
-      message.error(err?.response?.data?.detail || 'Failed to extract PDF');
-    } finally {
-      setExtracting(false);
-    }
-    return false; // prevent antd auto upload
-  };
+/** Each section's amounts as inputs, with the revision total they sum to.
+    Used when adding a revision from a PDF and when editing a saved one. */
+const SectionAmountsEditor: React.FC<SectionAmountsEditorProps> = ({ sections, onChange, isPhone }) => {
+  const totals = sumSectionTotals(sections);
 
   const handleSectionEdit = (idx: number, field: keyof NegotiationSection, value: number | null) => {
-    setEditedSections((prev) => {
-      const updated = [...prev];
-      updated[idx] = { ...updated[idx], [field]: value ?? 0 };
-      return updated;
-    });
-  };
-
-  const computedTotals = React.useMemo(() => {
-    if (!editedSections.length) return null;
-    return {
-      rcv_amount: editedSections.reduce((s, sec) => s + (sec.rcv || 0), 0),
-      acv_amount: editedSections.reduce((s, sec) => s + (sec.net_acv || 0), 0),
-      depreciation_amount: editedSections.reduce((s, sec) => s + (sec.depreciation || 0), 0),
-      deductible: editedSections.reduce((s, sec) => s + (sec.deductible || 0), 0),
-    };
-  }, [editedSections]);
-
-  const handleFinish = async (values: any) => {
-    const payload: any = {
-      ...values,
-      date_received: values.date_received
-        ? dayjs(values.date_received).format('YYYY-MM-DD')
-        : undefined,
-    };
-
-    if (activeTab === 'pdf' && extraction && editedSections.length > 0) {
-      payload.sections_data = editedSections;
-      payload.file_id = extraction.file_id;
-      if (computedTotals) {
-        payload.acv_amount = computedTotals.acv_amount;
-        payload.rcv_amount = computedTotals.rcv_amount;
-        payload.depreciation_amount = computedTotals.depreciation_amount;
-        payload.deductible = computedTotals.deductible;
-      }
-    }
-
-    await onSubmit(payload);
+    const updated = [...sections];
+    updated[idx] = { ...updated[idx], [field]: value ?? 0 };
+    onChange(updated);
   };
 
   const sectionColumns: ColumnsType<NegotiationSection & { _idx: number }> = [
@@ -916,9 +882,9 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
   ];
 
   // Phones: each section's amounts as a labelled two-by-two grid, total below
-  const sectionEditor = isPhone ? (
+  return isPhone ? (
     <div className="cl-sec-edit">
-      {editedSections.map((sec, idx) => (
+      {sections.map((sec, idx) => (
         <div key={`${sec.section_name}-${idx}`} className="cl-sec-edit-item">
           <div className="cl-sec-edit-name">{sec.section_name}</div>
           <div className="cl-sec-edit-grid">
@@ -939,47 +905,124 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
           </div>
         </div>
       ))}
-      {computedTotals && (
-        <div className="cl-sec-edit-totals">
-          <div className="cl-sec-edit-name">Total</div>
-          <div className="cl-rev-section-grid">
-            {SECTION_AMOUNT_FIELDS.map((f) => (
-              <React.Fragment key={f.key}>
-                <span>{f.label}</span>
-                <span><strong>{formatCurrency(computedTotals[f.total])}</strong></span>
-              </React.Fragment>
-            ))}
-          </div>
+      <div className="cl-sec-edit-totals">
+        <div className="cl-sec-edit-name">Total</div>
+        <div className="cl-rev-section-grid">
+          {SECTION_AMOUNT_FIELDS.map((f) => (
+            <React.Fragment key={f.key}>
+              <span>{f.label}</span>
+              <span><strong>{formatCurrency(totals[f.total])}</strong></span>
+            </React.Fragment>
+          ))}
         </div>
-      )}
+      </div>
     </div>
   ) : (
     <Table
       size="small"
-      rowKey="section_name"
+      rowKey={(r) => `${r.section_name}-${r._idx}`}
       columns={sectionColumns}
-      dataSource={editedSections.map((s, i) => ({ ...s, _idx: i }))}
+      dataSource={sections.map((s, i) => ({ ...s, _idx: i }))}
       pagination={false}
       scroll={{ x: 600 }}
       style={{ marginBottom: 12 }}
-      summary={() =>
-        computedTotals ? (
-          <Table.Summary fixed>
-            <Table.Summary.Row>
-              <Table.Summary.Cell index={0}>
-                <Text strong>Total</Text>
+      summary={() => (
+        <Table.Summary fixed>
+          <Table.Summary.Row>
+            <Table.Summary.Cell index={0}>
+              <Text strong>Total</Text>
+            </Table.Summary.Cell>
+            {SECTION_AMOUNT_FIELDS.map((f, i) => (
+              <Table.Summary.Cell key={f.key} index={i + 1}>
+                <Text strong>{formatCurrency(totals[f.total])}</Text>
               </Table.Summary.Cell>
-              {SECTION_AMOUNT_FIELDS.map((f, i) => (
-                <Table.Summary.Cell key={f.key} index={i + 1}>
-                  <Text strong>{formatCurrency(computedTotals[f.total])}</Text>
-                </Table.Summary.Cell>
-              ))}
-            </Table.Summary.Row>
-          </Table.Summary>
-        ) : null
-      }
+            ))}
+          </Table.Summary.Row>
+        </Table.Summary>
+      )}
     />
   );
+};
+
+interface NegotiationModalProps {
+  open: boolean;
+  clientId: string;
+  claimId: string;
+  onCancel: () => void;
+  onSubmit: (values: Omit<ClaimNegotiationCreate, 'claim_id'>) => Promise<void>;
+  loading: boolean;
+  /** Preselected revision type (an appraisal claim's next estimate is usually the award) */
+  defaultRevisionType?: ClaimNegotiation['revision_type'];
+}
+
+const NegotiationModal: React.FC<NegotiationModalProps> = ({
+  open,
+  clientId,
+  claimId,
+  onCancel,
+  onSubmit,
+  loading,
+  defaultRevisionType,
+}) => {
+  const [form] = Form.useForm();
+  const { isPhone, sheetProps } = useSheetModal('tall');
+  const [activeTab, setActiveTab] = useState<'pdf' | 'manual'>('pdf');
+  const [extracting, setExtracting] = useState(false);
+  const [extraction, setExtraction] = useState<PdfExtractionResult | null>(null);
+  const [editedSections, setEditedSections] = useState<NegotiationSection[]>([]);
+
+  React.useEffect(() => {
+    if (open) {
+      form.resetFields();
+      if (defaultRevisionType) form.setFieldsValue({ revision_type: defaultRevisionType });
+      setActiveTab('pdf');
+      setExtraction(null);
+      setEditedSections([]);
+      setExtracting(false);
+    }
+  }, [open, form, defaultRevisionType]);
+
+  const handlePdfUpload = async (file: File) => {
+    setExtracting(true);
+    try {
+      const result = await negotiationService.extractPdf(clientId, claimId, file);
+      setExtraction(result);
+      setEditedSections(result.sections || []);
+      message.success(`Extracted ${result.sections.length} section(s) from PDF`);
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Failed to extract PDF');
+    } finally {
+      setExtracting(false);
+    }
+    return false; // prevent antd auto upload
+  };
+
+  const computedTotals = React.useMemo(
+    () => (editedSections.length ? sumSectionTotals(editedSections) : null),
+    [editedSections],
+  );
+
+  const handleFinish = async (values: any) => {
+    const payload: any = {
+      ...values,
+      date_received: values.date_received
+        ? dayjs(values.date_received).format('YYYY-MM-DD')
+        : undefined,
+    };
+
+    if (activeTab === 'pdf' && extraction && editedSections.length > 0) {
+      payload.sections_data = editedSections;
+      payload.file_id = extraction.file_id;
+      if (computedTotals) {
+        payload.acv_amount = computedTotals.acv_amount;
+        payload.rcv_amount = computedTotals.rcv_amount;
+        payload.depreciation_amount = computedTotals.depreciation_amount;
+        payload.deductible = computedTotals.deductible;
+      }
+    }
+
+    await onSubmit(payload);
+  };
 
   return (
     <Modal
@@ -1084,7 +1127,7 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
                       />
                     )}
 
-                    {sectionEditor}
+                    <SectionAmountsEditor sections={editedSections} onChange={setEditedSections} isPhone={isPhone} />
                   </div>
                 )}
               </div>
@@ -1196,6 +1239,214 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
 };
 
 // ─────────────────────────────────────────────
+// Edit Negotiation Modal
+// ─────────────────────────────────────────────
+
+interface EditNegotiationModalProps {
+  open: boolean;
+  negotiation: ClaimNegotiation | null;
+  onCancel: () => void;
+  onSubmit: (values: Partial<ClaimNegotiationCreate>) => Promise<void>;
+  loading: boolean;
+}
+
+/** Correct a saved revision by hand: an amount the PDF read wrong, or a typo
+    in a manual entry. Revisions read from a PDF are corrected section by
+    section and their totals follow; the rest edit the totals directly. */
+const EditNegotiationModal: React.FC<EditNegotiationModalProps> = ({
+  open,
+  negotiation,
+  onCancel,
+  onSubmit,
+  loading,
+}) => {
+  const { isPhone, sheetProps } = useSheetModal('tall');
+  return (
+    <Modal
+      title={
+        <Space>
+          <EditOutlined />
+          Edit Revision{negotiation ? ` #${negotiation.revision_number}` : ''}
+        </Space>
+      }
+      open={open}
+      onCancel={onCancel}
+      footer={null}
+      width={800}
+      {...sheetProps}
+      destroyOnHidden
+      maskClosable={false}
+    >
+      {negotiation && (
+        <EditNegotiationForm
+          key={negotiation.id}
+          negotiation={negotiation}
+          isPhone={isPhone}
+          onCancel={onCancel}
+          onSubmit={onSubmit}
+          loading={loading}
+        />
+      )}
+    </Modal>
+  );
+};
+
+// Mounted fresh for each revision, so the form and sections start from it
+const EditNegotiationForm: React.FC<{
+  negotiation: ClaimNegotiation;
+  isPhone: boolean;
+  onCancel: () => void;
+  onSubmit: (values: Partial<ClaimNegotiationCreate>) => Promise<void>;
+  loading: boolean;
+}> = ({ negotiation, isPhone, onCancel, onSubmit, loading }) => {
+  const [form] = Form.useForm();
+  const [sections, setSections] = useState<NegotiationSection[]>(negotiation.sections_data ?? []);
+  const hasSections = sections.length > 0;
+  const fileId = negotiation.file_download_id;
+
+  const handleFinish = async (values: any) => {
+    // null clears a field the user emptied
+    const payload: any = {
+      revision_type: values.revision_type,
+      estimate_category: values.estimate_category ?? null,
+      date_received: values.date_received ? dayjs(values.date_received).format('YYYY-MM-DD') : null,
+      received_from: values.received_from || null,
+      notes: values.notes || null,
+    };
+    if (hasSections) {
+      // The server sums the sections into the revision's totals
+      payload.sections_data = sections;
+    } else {
+      payload.acv_amount = values.acv_amount ?? 0;
+      payload.rcv_amount = values.rcv_amount ?? 0;
+      payload.depreciation_amount = values.depreciation_amount ?? 0;
+      payload.deductible = values.deductible ?? 0;
+    }
+    await onSubmit(payload);
+  };
+
+  return (
+    <>
+      <Divider style={{ margin: '16px 0 16px' }} />
+      <Form
+        form={form}
+        layout="vertical"
+        className="cl-form"
+        onFinish={handleFinish}
+        scrollToFirstError
+        initialValues={{
+          revision_type: negotiation.revision_type,
+          estimate_category: negotiation.estimate_category ?? undefined,
+          date_received: negotiation.date_received ? dayjs(negotiation.date_received) : undefined,
+          received_from: negotiation.received_from,
+          notes: negotiation.notes,
+          acv_amount: negotiation.acv_amount,
+          rcv_amount: negotiation.rcv_amount,
+          depreciation_amount: negotiation.depreciation_amount,
+          deductible: negotiation.deductible,
+        }}
+      >
+        {fileId && (
+          <div style={{ marginBottom: 12 }}>
+            <a
+              href={`${fileService.getDownloadUrl(fileId)}?inline=true`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ overflowWrap: 'anywhere' }}
+            >
+              <FilePdfOutlined style={{ color: '#ff4d4f', marginRight: 6 }} />
+              {negotiation.document_name || 'View PDF'}
+            </a>
+          </div>
+        )}
+
+        <Row gutter={12}>
+          <Col xs={24} sm={8}>
+            <Form.Item name="revision_type" label="Revision Type"
+              rules={[{ required: true, message: 'Revision type is required' }]}>
+              <Select placeholder="Select type">
+                {Object.entries(REVISION_TYPE_CONFIG).map(([val, cfg]) => (
+                  <Option key={val} value={val}>{cfg.label}</Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={8}>
+            <Form.Item name="estimate_category" label="Category">
+              <Select allowClear placeholder="Select category">
+                {Object.entries(ESTIMATE_CATEGORY_CONFIG).map(([val, cfg]) => (
+                  <Option key={val} value={val}>{cfg.label}</Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={8}>
+            <Form.Item name="date_received" label="Date Received">
+              <DatePicker style={{ width: '100%' }} format="MM/DD/YYYY" />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        {hasSections ? (
+          <>
+            <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 13 }}>
+              Amounts by section, as read from the PDF. The revision's totals are the sum of these.
+            </Text>
+            <SectionAmountsEditor sections={sections} onChange={setSections} isPhone={isPhone} />
+          </>
+        ) : (
+          <Row gutter={12}>
+            <Col xs={24} sm={8}>
+              <Form.Item name="acv_amount" label="ACV Amount">
+                <InputNumber prefix="$" style={{ width: '100%' }} min={0} step={100} inputMode="decimal" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item name="rcv_amount" label="RCV Amount">
+                <InputNumber prefix="$" style={{ width: '100%' }} min={0} step={100} inputMode="decimal" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item name="depreciation_amount" label="Depreciation">
+                <InputNumber prefix="$" style={{ width: '100%' }} min={0} step={100} inputMode="decimal" />
+              </Form.Item>
+            </Col>
+          </Row>
+        )}
+
+        <Row gutter={12}>
+          {!hasSections && (
+            <Col xs={24} sm={12}>
+              <Form.Item name="deductible" label="Deductible">
+                <InputNumber prefix="$" style={{ width: '100%' }} min={0} step={100} inputMode="decimal" />
+              </Form.Item>
+            </Col>
+          )}
+          <Col xs={24} sm={12}>
+            <Form.Item name="received_from" label="Received From">
+              <Input placeholder="e.g. Adjuster name" />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <Form.Item name="notes" label="Notes">
+          <Input.TextArea rows={2} />
+        </Form.Item>
+
+        <Form.Item className="ui-form-actions" style={{ marginBottom: 0, textAlign: 'right' }}>
+          <Space>
+            <Button onClick={onCancel}>Cancel</Button>
+            <Button type="primary" htmlType="submit" loading={loading}>
+              Save Changes
+            </Button>
+          </Space>
+        </Form.Item>
+      </Form>
+    </>
+  );
+};
+
+// ─────────────────────────────────────────────
 // Negotiation History Table (inside Collapse)
 // ─────────────────────────────────────────────
 
@@ -1206,11 +1457,17 @@ interface NegotiationHistoryProps {
 
 const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim }) => {
   const [negModalOpen, setNegModalOpen] = useState(false);
+  // Kept after the dialog closes so it doesn't empty while animating out
+  const [editingNeg, setEditingNeg] = useState<ClaimNegotiation | null>(null);
+  const [editNegOpen, setEditNegOpen] = useState(false);
+  const [appraisalModalOpen, setAppraisalModalOpen] = useState(false);
+  const [appraisalDate, setAppraisalDate] = useState<dayjs.Dayjs | null>(null);
   const [uploadingNegId, setUploadingNegId] = useState<string | null>(null);
   const [openSectionsId, setOpenSectionsId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const screens = Grid.useBreakpoint();
   const isPhone = !screens.md;
+  const { sheetProps: appraisalSheetProps } = useSheetModal();
 
   const { data, isLoading } = useQuery({
     queryKey: ['negotiations', clientId, claim.id],
@@ -1226,6 +1483,7 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
     onSuccess: () => {
       message.success('Negotiation revision added.');
       queryClient.invalidateQueries({ queryKey: ['negotiations', clientId, claim.id] });
+      queryClient.invalidateQueries({ queryKey: ['claims', clientId] });
       queryClient.invalidateQueries({ queryKey: ['client', clientId] });
       setNegModalOpen(false);
     },
@@ -1240,10 +1498,58 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
     onSuccess: () => {
       message.success('Insurance estimate deleted.');
       queryClient.invalidateQueries({ queryKey: ['negotiations', clientId, claim.id] });
+      queryClient.invalidateQueries({ queryKey: ['claims', clientId] });
       queryClient.invalidateQueries({ queryKey: ['client', clientId] });
     },
     onError: () => message.error('Failed to delete.'),
   });
+
+  // Hand edit of a saved revision; the claim's current amounts follow on the server
+  const updateNegMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<ClaimNegotiationCreate> }) =>
+      negotiationService.update(clientId, claim.id, id, payload),
+    onSuccess: () => {
+      message.success('Revision updated.');
+      queryClient.invalidateQueries({ queryKey: ['negotiations', clientId, claim.id] });
+      queryClient.invalidateQueries({ queryKey: ['claims', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['client', clientId] });
+      setEditNegOpen(false);
+    },
+    onError: (err: any) => {
+      message.error(err?.response?.data?.detail || 'Failed to update revision.');
+    },
+  });
+
+  const openEditNeg = (record: ClaimNegotiation) => {
+    setEditingNeg(record);
+    setEditNegOpen(true);
+  };
+
+  // Appraisal: the claim leaves negotiation and is settled outside the
+  // supplement process. The date stays once the claim settles.
+  const inAppraisal = claim.status === 'appraisal';
+  const wentToAppraisal = inAppraisal || !!claim.appraisal_date;
+
+  const appraisalMutation = useMutation({
+    mutationFn: (payload: Partial<ClaimCreate>) => claimService.update(clientId, claim.id, payload),
+    onSuccess: (_data, payload) => {
+      message.success(
+        payload.status !== 'appraisal' ? 'Claim moved back to negotiation.'
+          : inAppraisal ? 'Appraisal date updated.' : 'Claim moved to appraisal.',
+      );
+      queryClient.invalidateQueries({ queryKey: ['claims', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['client', clientId] });
+      setAppraisalModalOpen(false);
+    },
+    onError: (err: any) => {
+      message.error(err?.response?.data?.detail || 'Failed to update claim.');
+    },
+  });
+
+  const openAppraisalModal = () => {
+    setAppraisalDate(claim.appraisal_date ? dayjs(claim.appraisal_date) : dayjs());
+    setAppraisalModalOpen(true);
+  };
 
   // Sort by category then revision number. Delta compares against the previous
   // revision *within the same category* — comparing a WM revision against a
@@ -1262,6 +1568,28 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
     const idx = sameCat.findIndex((n) => n.id === record.id);
     return idx > 0 ? sameCat[idx - 1] : null;
   };
+
+  // The last estimate on file when the claim moved to appraisal: received
+  // (or, without a received date, added) on or before the appraisal date.
+  const revisionDate = (n: ClaimNegotiation) => dayjs(n.date_received || n.created_at);
+  const isLater = (a: ClaimNegotiation, b: ClaimNegotiation) => {
+    const da = revisionDate(a);
+    const db = revisionDate(b);
+    if (!da.isSame(db)) return da.isAfter(db);
+    return dayjs(a.created_at).isAfter(dayjs(b.created_at));
+  };
+  const lastBeforeAppraisal = wentToAppraisal
+    ? negotiations
+        .filter((n) => !claim.appraisal_date
+          || !revisionDate(n).isAfter(dayjs(claim.appraisal_date), 'day'))
+        .reduce<ClaimNegotiation | null>((latest, n) => (!latest || isLater(n, latest) ? n : latest), null)
+    : null;
+  const appraisalAfter = !lastBeforeAppraisal
+    ? 'before any carrier estimate'
+    : `${lastBeforeAppraisal.revision_type === 'initial'
+        ? 'after the initial estimate'
+        : `after ${REVISION_TYPE_CONFIG[lastBeforeAppraisal.revision_type]?.label ?? 'revision'} #${lastBeforeAppraisal.revision_number}`
+      } (RCV ${formatCurrency(lastBeforeAppraisal.rcv_amount)})`;
 
   // View / replace / delete the revision's PDF (table cell and phone row)
   const renderFileActions = (record: ClaimNegotiation) => {
@@ -1316,6 +1644,14 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
               style={{ padding: 0, width: 22, height: 22, color: fileId ? undefined : '#1890ff' }} />
           </Tooltip>
         </Upload>
+        <Tooltip title="Edit amounts and details">
+          <Button type="text" size="small"
+            className="cl-touch-icon"
+            aria-label="Edit revision"
+            icon={<EditOutlined />}
+            onClick={() => openEditNeg(record)}
+            style={{ padding: 0, width: 22, height: 22 }} />
+        </Tooltip>
         <Popconfirm
           title="Delete this insurance estimate?"
           description={`v${record.revision_number} (RCV ${formatCurrency(record.rcv_amount)}) will be permanently deleted.`}
@@ -1491,7 +1827,7 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
     {
       title: '',
       key: 'pdf',
-      width: 70,
+      width: 100,
       render: (_: any, record) => renderFileActions(record),
     },
   ];
@@ -1523,7 +1859,7 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
         <Space size={6} wrap>
           <Text strong>Negotiation History</Text>
           {claim.estimate_origin && (
@@ -1546,10 +1882,59 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
             </Tag>
           )}
         </Space>
-        <Button size="small" icon={<PlusOutlined />} onClick={() => setNegModalOpen(true)}>
-          Add Revision
-        </Button>
+        <Space size={8} wrap>
+          {!wentToAppraisal && (claim.status === 'open' || claim.status === 'negotiating') && (
+            <Tooltip title="The claim went to appraisal instead of more supplements">
+              <Button size="small" onClick={openAppraisalModal}>
+                Move to Appraisal
+              </Button>
+            </Tooltip>
+          )}
+          <Button size="small" icon={<PlusOutlined />} onClick={() => setNegModalOpen(true)}>
+            Add Revision
+          </Button>
+        </Space>
       </div>
+
+      {wentToAppraisal && (
+        <div className="cl-appraisal" role="note">
+          <div style={{ minWidth: 0 }}>
+            <div className="cl-appraisal-title">
+              {inAppraisal ? 'In appraisal' : 'Went to appraisal'}
+            </div>
+            <div>
+              {claim.appraisal_date
+                ? `${inAppraisal ? 'Since' : 'On'} ${formatDate(claim.appraisal_date)}, ${appraisalAfter}`
+                : appraisalAfter.charAt(0).toUpperCase() + appraisalAfter.slice(1)}
+            </div>
+            {inAppraisal && (
+              <div className="cl-appraisal-note">
+                Handled outside the supplement process: no supplement estimate goes out, and
+                estimates added now don't open a supplement review. Add the award as an Appraisal revision.
+              </div>
+            )}
+          </div>
+          {inAppraisal && (
+            <Space size={4} className="cl-appraisal-actions">
+              <Button size="small" type="link" onClick={openAppraisalModal}>
+                Change date
+              </Button>
+              <Popconfirm
+                title="Move this claim back to negotiation?"
+                description="For a claim marked by mistake. The appraisal date is cleared."
+                okText="Move back"
+                cancelText="Cancel"
+                onConfirm={() => appraisalMutation.mutate({
+                  status: negotiations.length > 0 ? 'negotiating' : 'open',
+                  appraisal_date: null,
+                })}
+              >
+                <Button size="small" type="link">Undo</Button>
+              </Popconfirm>
+            </Space>
+          )}
+        </div>
+      )}
 
       {claim.estimate_origin === 'contractor_prepared'
         && claim.contractor_estimate_stage !== 'approved_initial_received' && (
@@ -1649,7 +2034,51 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
         onCancel={() => setNegModalOpen(false)}
         onSubmit={async (vals) => { await createNegMutation.mutateAsync(vals); }}
         loading={createNegMutation.isPending}
+        defaultRevisionType={inAppraisal ? 'appraisal' : undefined}
       />
+
+      <EditNegotiationModal
+        open={editNegOpen}
+        negotiation={editingNeg}
+        onCancel={() => setEditNegOpen(false)}
+        onSubmit={async (payload) => {
+          if (editingNeg) await updateNegMutation.mutateAsync({ id: editingNeg.id, payload });
+        }}
+        loading={updateNegMutation.isPending}
+      />
+
+      <Modal
+        title={inAppraisal ? 'Change appraisal date' : 'Move claim to appraisal'}
+        open={appraisalModalOpen}
+        onCancel={() => setAppraisalModalOpen(false)}
+        onOk={() => appraisalMutation.mutate({
+          status: 'appraisal',
+          appraisal_date: appraisalDate ? appraisalDate.format('YYYY-MM-DD') : null,
+        })}
+        okText={inAppraisal ? 'Save' : 'Move to Appraisal'}
+        okButtonProps={{ disabled: !appraisalDate }}
+        confirmLoading={appraisalMutation.isPending}
+        {...appraisalSheetProps}
+        destroyOnHidden
+      >
+        {!inAppraisal && (
+          <p style={{ marginTop: 0 }}>
+            Appraisal is handled outside the supplement process. No supplement estimate goes out for
+            this claim after this, and estimates added from now on won't open a supplement review.
+          </p>
+        )}
+        <label style={{ display: 'block' }}>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
+            Date it moved to appraisal
+          </Text>
+          <DatePicker
+            value={appraisalDate}
+            onChange={setAppraisalDate}
+            format="MM/DD/YYYY"
+            style={{ width: '100%' }}
+          />
+        </label>
+      </Modal>
     </div>
   );
 };
@@ -1915,14 +2344,6 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                         />
                       </Tooltip>
                     </div>
-                    {(claim.current_acv > 0 || claim.current_rcv > 0) && (
-                      <div style={{ fontSize: 12, marginTop: 2 }}>
-                        <Text type="secondary">ACV </Text>
-                        <Text strong style={{ fontSize: 12 }}>{formatCurrency(claim.current_acv)}</Text>
-                        <Text type="secondary" style={{ marginLeft: 8 }}>RCV </Text>
-                        <Text strong style={{ fontSize: 12 }}>{formatCurrency(claim.current_rcv)}</Text>
-                      </div>
-                    )}
                   </div>
                 }
               >

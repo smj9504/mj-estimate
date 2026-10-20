@@ -3,6 +3,7 @@ Client, Claim, and ClaimNegotiation service layer.
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.common.base_service import BaseService
@@ -112,6 +113,15 @@ class ClaimService(BaseService[Dict[str, Any], str]):
     def _get_repository_instance(self, session):
         from app.domains.client.repository import get_claim_repository
         return get_claim_repository(session)
+
+    def update(self, entity_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Stamp appraisal_date when a claim moves to appraisal without one,
+        so its history always says when it left negotiation."""
+        if update_data.get('status') == 'appraisal' and not update_data.get('appraisal_date'):
+            existing = self.get_by_id(entity_id)
+            if existing and not existing.get('appraisal_date'):
+                update_data['appraisal_date'] = datetime.now(timezone.utc)
+        return super().update(entity_id, update_data)
 
     def get_with_details(self, claim_id: str) -> Optional[Dict[str, Any]]:
         """Get claim with negotiations and document counts"""
@@ -266,6 +276,49 @@ class ClaimNegotiationService(BaseService[Dict[str, Any], str]):
                 session.close()
         except Exception as e:
             logger.error(f"Error adding negotiation: {e}")
+            raise
+
+    def update(self, entity_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Save a hand edit to a revision. Edited sections re-derive the
+        revision's totals the same way an upload does, and the claim's current
+        amounts follow its latest revision."""
+        sections_data = update_data.get('sections_data')
+        if sections_data:
+            from app.domains.client.negotiation_pdf_service import compute_totals
+            update_data.update(compute_totals(sections_data))
+        try:
+            session = self.database.get_session()
+            try:
+                repo = self._get_repository_instance(session)
+                result = repo.update(entity_id, update_data)
+                if result:
+                    repo.sync_claim_amounts(str(result['claim_id']), include_deductible=True)
+                    session.commit()
+                return result
+            finally:
+                session.close()
+        except Exception as e:
+            logger.error(f"Error updating negotiation {entity_id}: {e}")
+            raise
+
+    def delete(self, entity_id: str) -> bool:
+        """Delete a revision and point the claim's amounts at the one before it."""
+        try:
+            session = self.database.get_session()
+            try:
+                repo = self._get_repository_instance(session)
+                existing = repo.get_by_id(entity_id)
+                if not existing:
+                    return False
+                success = repo.delete(entity_id)
+                if success:
+                    repo.sync_claim_amounts(str(existing['claim_id']))
+                    session.commit()
+                return success
+            finally:
+                session.close()
+        except Exception as e:
+            logger.error(f"Error deleting negotiation {entity_id}: {e}")
             raise
 
     def get_by_claim(self, claim_id: str) -> List[Dict[str, Any]]:

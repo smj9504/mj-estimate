@@ -58,7 +58,7 @@ def get_payment_gaps(min_difference: float = Query(0, ge=0)):
     try:
         # Find claims that have received insurance estimate but payment is not complete
         claims = session.query(Claim).filter(
-            Claim.status.in_(['open', 'negotiating', 'settled']),
+            Claim.status.in_(['open', 'negotiating', 'appraisal', 'settled']),
             Claim.payment_status.in_(['unpaid', 'partial']),
             # Must have some estimated amount (insurance gave us numbers)
             or_(

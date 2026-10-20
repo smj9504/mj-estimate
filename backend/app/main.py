@@ -456,6 +456,8 @@ _NEEDED_COLUMNS = [
     # path has progressed when the carrier declines to write one
     ("claims", "estimate_origin", "VARCHAR(30)"),
     ("claims", "contractor_estimate_stage", "VARCHAR(40)"),
+    # When the claim moved from negotiation to appraisal
+    ("claims", "appraisal_date", "TIMESTAMPTZ"),
 ]
 
 

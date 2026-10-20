@@ -111,7 +111,12 @@ export interface ClaimNegotiationCreate {
 // Claim
 // ============================================================
 
-export type ClaimStatus = 'open' | 'negotiating' | 'settled' | 'closed' | 'denied';
+/**
+ * 'appraisal': the claim left negotiation for appraisal (possibly after
+ * supplements). It is settled outside the supplement process, so no
+ * supplement estimate goes out.
+ */
+export type ClaimStatus = 'open' | 'negotiating' | 'appraisal' | 'settled' | 'closed' | 'denied';
 
 /**
  * Who produced the initial estimate. Most carriers write their own, but some
@@ -198,6 +203,8 @@ export interface Claim {
   supplement_status?: string;
   supplement_notes?: string;
   status: ClaimStatus;
+  /** When the claim moved to appraisal; kept after it settles */
+  appraisal_date?: string | null;
   estimate_origin?: EstimateOrigin | null;
   contractor_estimate_stage?: ContractorEstimateStage | null;
   notes?: string;
@@ -391,6 +398,7 @@ export interface ClaimCreate {
   date_of_loss?: string;
   loss_description?: string;
   status?: ClaimStatus;
+  appraisal_date?: string | null;
   estimate_origin?: EstimateOrigin | null;
   contractor_estimate_stage?: ContractorEstimateStage | null;
   notes?: string;

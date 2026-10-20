@@ -931,6 +931,12 @@ class ClaimFollowUpService:
 
             claim_id = str(claim.id)
 
+            # Appraisal is settled outside the supplement process: an estimate
+            # recorded on such a claim (often the award) needs no supplement.
+            if claim.status == 'appraisal':
+                logger.info(f"Claim {claim_id} is in appraisal; no supplement review created")
+                return
+
             # Lock the row to prevent concurrent duplicate creation
             existing = (
                 session.query(SupplementRequest)
