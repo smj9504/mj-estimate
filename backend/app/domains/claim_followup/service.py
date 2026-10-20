@@ -271,10 +271,7 @@ class ClaimFollowUpService:
             if task_before and task_before.get('task_type') == 'supplement_estimate_prep':
                 claim_id_for_supp = result.get('claim_id')
                 if claim_id_for_supp:
-                    self._auto_create_supplement_task(
-                        session, str(claim_id_for_supp),
-                        result.get('property_address', '') or '',
-                    )
+                    self._auto_create_supplement_task(session, str(claim_id_for_supp))
 
             # Save payment info on the task and sync to WM job
             if payment_status or payment_note:
@@ -310,7 +307,7 @@ class ClaimFollowUpService:
             session.close()
 
     def reopen_task(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """Reopen a resolved task back to pending"""
+        """Reopen a resolved or cancelled task back to pending"""
         session = self._get_session()
         try:
             from app.domains.claim_followup.repository import get_followup_task_repository
@@ -928,7 +925,7 @@ class ClaimFollowUpService:
         """
         try:
             from app.domains.supplement.models import SupplementRequest
-            from app.domains.client.models import ClaimActivity, Client
+            from app.domains.client.models import ClaimActivity
             from sqlalchemy.exc import IntegrityError
 
             claim_id = str(claim.id)
@@ -946,10 +943,6 @@ class ClaimFollowUpService:
             if existing:
                 logger.info(f"Active supplement already exists for claim {claim_id} (status={existing.status})")
                 return
-
-            # Get address
-            client = session.query(Client).filter(Client.id == claim.client_id).first()
-            address = client.address if client else ''
 
             insurance_rcv = float(estimate_data.get('rcv_amount', 0)) if estimate_data else 0
 
@@ -987,7 +980,7 @@ class ClaimFollowUpService:
 
             # Auto-create supplement_estimate_prep follow-up task
             # (drafting the supplement estimate comes before sending it)
-            self._auto_create_supplement_estimate_prep_task(session, claim_id, address)
+            self._auto_create_supplement_estimate_prep_task(session, claim_id)
 
             logger.info(f"Auto-created supplement for claim {claim_id}")
         except IntegrityError:
@@ -1029,7 +1022,7 @@ class ClaimFollowUpService:
             'assigned_to_role': source.assigned_to_role if source else 'adjuster',
         }
 
-    def _auto_create_supplement_estimate_prep_task(self, session, claim_id: str, address: str = ''):
+    def _auto_create_supplement_estimate_prep_task(self, session, claim_id: str):
         """Auto-create a supplement_estimate_prep follow-up task if one doesn't exist.
 
         This precedes supplement_sent: it tracks drafting the supplement
@@ -1051,7 +1044,7 @@ class ClaimFollowUpService:
             task = FollowUpTaskModel(
                 claim_id=claim_id,
                 task_type='supplement_estimate_prep',
-                title=f'Prepare Supplement Estimate - {address}' if address else 'Prepare Supplement Estimate',
+                title='Prepare Supplement Estimate',
                 description='Insurance estimate received. Prepare supplement estimate for review before sending to PA.',
                 status='pending',
                 priority='high',
@@ -1066,7 +1059,7 @@ class ClaimFollowUpService:
         except Exception as e:
             logger.error(f"Error auto-creating supplement estimate prep task: {e}")
 
-    def _auto_create_supplement_task(self, session, claim_id: str, address: str = ''):
+    def _auto_create_supplement_task(self, session, claim_id: str):
         """Auto-create a supplement_sent follow-up task if one doesn't exist.
 
         Called once the supplement estimate is ready to be sent — see
@@ -1089,7 +1082,7 @@ class ClaimFollowUpService:
             task = FollowUpTaskModel(
                 claim_id=claim_id,
                 task_type='supplement_sent',
-                title=f'Supplement - {address}' if address else 'Supplement Follow-up',
+                title='Supplement Follow-up',
                 description='Supplement estimate prepared. Send to PA and follow up.',
                 status='pending',
                 priority='high',

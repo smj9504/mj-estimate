@@ -26,6 +26,7 @@ import {
 } from '../components/claim-followup/claimProgress';
 import type { ProgressStep } from '../components/claim-followup/claimProgress';
 import { templateValuesFromTask } from '../components/claim-followup/emailTemplates';
+import { useUndoableTaskDelete } from '../components/claim-followup/useUndoableTaskDelete';
 import { PageHeader, Pill, PropertyList } from '../components/common/ui';
 import { comfortTheme } from '../styles/antTheme';
 import { SUPPLEMENT_STATUSES, SupplementStatusPill, formatCurrency } from '../components/supplement/supplementUi';
@@ -113,11 +114,20 @@ const ClaimFollowUpDetail: React.FC = () => {
   const workspaceRef = useRef<HTMLElement>(null);
 
   // Fetch tasks for this claim
-  const { data: tasks = [], isLoading, isError, refetch, isFetching } = useQuery({
+  const { data: fetchedTasks = [], isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['claim-followup-detail', claimId],
     queryFn: () => claimFollowUpService.getTasksByClaimId(claimId!),
     enabled: !!claimId,
   });
+
+  // A deleted task stays hidden while its Undo toast is up
+  const { pendingIds: deletingIds, requestDelete } = useUndoableTaskDelete(
+    () => queryClient.invalidateQueries({ queryKey: ['claim-followup-detail', claimId] }),
+  );
+  const tasks = useMemo(
+    () => (deletingIds.size ? fetchedTasks.filter(t => !deletingIds.has(t.id)) : fetchedTasks),
+    [fetchedTasks, deletingIds],
+  );
 
   // Insurance emails lookup
   const { data: insuranceEmails = {} } = useQuery({
@@ -278,15 +288,6 @@ const ClaimFollowUpDetail: React.FC = () => {
     onError: (err: any) => message.error(err?.response?.data?.detail || 'Failed to reopen task'),
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (taskId: string) => claimFollowUpService.deleteTask(taskId),
-    onSuccess: () => {
-      message.success('Task deleted');
-      invalidateClaim();
-    },
-    onError: (err: any) => message.error(err?.response?.data?.detail || 'Failed to delete task'),
-  });
-
   const handleCreateSubmit = () => {
     createForm.validateFields().then(values => {
       if (values.task_type === '__custom__') {
@@ -395,7 +396,7 @@ const ClaimFollowUpDetail: React.FC = () => {
 
   const confirmCancel = (task: FollowUpTask) => Modal.confirm({
     title: 'Cancel this task?',
-    content: `"${task.title}" moves to Done. You can set it back to an open status from Edit.`,
+    content: `"${task.title}" moves to Done. You can reopen it from there.`,
     okText: 'Cancel task',
     cancelText: 'Keep',
     onOk: () => quickUpdateMutation.mutateAsync({ taskId: task.id, data: { status: 'cancelled' }, done: 'Task cancelled' }),
@@ -406,7 +407,7 @@ const ClaimFollowUpDetail: React.FC = () => {
     content: `"${task.title}" and its follow-up schedule will be removed.`,
     okText: 'Delete',
     okButtonProps: { danger: true },
-    onOk: () => deleteMutation.mutateAsync(task.id),
+    onOk: () => requestDelete(task.id),
   });
 
   // ── Renderers ──
@@ -503,7 +504,6 @@ const ClaimFollowUpDetail: React.FC = () => {
     const date = dateOf(task);
     const moreItems: MenuProps['items'] = [
       { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => openEdit(task) },
-      { key: 'history', icon: <ClockCircleOutlined />, label: 'View history', onClick: () => openHistory(task.id) },
       { key: 'cancel', icon: <StopOutlined />, label: 'Cancel task', onClick: () => confirmCancel(task) },
       { type: 'divider' },
       { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true, onClick: () => confirmDelete(task) },
@@ -569,9 +569,9 @@ const ClaimFollowUpDetail: React.FC = () => {
 
   const renderDoneTask = (task: FollowUpTask) => {
     const isResolved = task.status === 'resolved';
+    const canReopen = isResolved || task.status === 'cancelled';
     const moreItems: MenuProps['items'] = [
       { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => openEdit(task) },
-      { key: 'history', icon: <ClockCircleOutlined />, label: 'View history', onClick: () => openHistory(task.id) },
       { type: 'divider' },
       { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true, onClick: () => confirmDelete(task) },
     ];
@@ -606,7 +606,7 @@ const ClaimFollowUpDetail: React.FC = () => {
         </div>
         <div className="fu-task-side">
           <div className="fu-task-actions">
-            {isResolved && (
+            {canReopen && (
               <Button icon={<RollbackOutlined />} loading={reopenMutation.isPending && reopenMutation.variables === task.id}
                 onClick={() => reopenMutation.mutate(task.id)}>
                 Reopen

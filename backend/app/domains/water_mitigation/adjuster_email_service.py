@@ -1709,17 +1709,16 @@ class AdjusterEmailService:
                         claim, 'adjuster_email', ''
                     ) or ""
 
-            sheet_name = job.google_sheet_name or ""
-            pa_info = f" | PA: {sheet_name}" if sheet_name else ""
-
+            # The claim page already shows the address and the PA, so the
+            # title and description leave them out.
             followup = FollowUpTask(
                 claim_id=job.claim_id,
                 wm_job_id=str(job.id),
                 task_type='wm_docs_sent',
-                title=f"WM Follow up - Docs sent to adjuster ({job.property_address}){pa_info}",
+                title="WM Follow up - Docs sent to adjuster",
                 description=(
-                    f"Water mitigation documents (Invoice, COS, EWA, Photo Report, W9, Sketch) "
-                    f"sent to adjuster.{pa_info}"
+                    "Water mitigation documents (Invoice, COS, EWA, Photo Report, W9, Sketch) "
+                    "sent to adjuster."
                 ),
                 status='pending',
                 next_followup_date=datetime.now(timezone.utc) + timedelta(days=3),

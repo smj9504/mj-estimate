@@ -72,6 +72,7 @@ import {
 } from '../components/claim-followup/claimProgress';
 import type { ClaimProgress, ProgressStep } from '../components/claim-followup/claimProgress';
 import { templateValuesFromTask } from '../components/claim-followup/emailTemplates';
+import { useUndoableTaskDelete } from '../components/claim-followup/useUndoableTaskDelete';
 import type {
   FollowUpTask,
   FollowUpTaskCreate,
@@ -324,13 +325,23 @@ const ClaimFollowUpDashboard: React.FC = () => {
   // Always load every task: claims are built from all of their tasks, and the
   // Status/Type filters pick claims client-side. Filtering on the server cut
   // each claim's pipeline down to the matching tasks only.
-  const { data: tasks = [], isLoading: tasksLoading, refetch: refetchTasks } = useQuery({
+  const { data: fetchedTasks = [], isLoading: tasksLoading, refetch: refetchTasks } = useQuery({
     queryKey: ['followup-tasks', 'all'],
     queryFn: () => claimFollowUpService.getAllTasks({
       sort_by: 'next_followup_date',
       sort_order: 'asc',
     }),
   });
+
+  // A deleted task stays hidden while its Undo toast is up
+  const { pendingIds: deletingIds, requestDelete } = useUndoableTaskDelete(() => Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['followup-tasks'] }),
+    queryClient.invalidateQueries({ queryKey: ['followup-stats'] }),
+  ]));
+  const tasks = useMemo(
+    () => (deletingIds.size ? fetchedTasks.filter(t => !deletingIds.has(t.id)) : fetchedTasks),
+    [fetchedTasks, deletingIds],
+  );
 
   // Insurance company email lookup
   const { data: insuranceEmails = {} } = useQuery({
@@ -614,15 +625,6 @@ const ClaimFollowUpDashboard: React.FC = () => {
     },
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (taskId: string) => claimFollowUpService.deleteTask(taskId),
-    onSuccess: () => {
-      message.success('Task deleted');
-      queryClient.invalidateQueries({ queryKey: ['followup-tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['followup-stats'] });
-    },
-  });
-
   const isOverdue = isTaskOverdue;
 
   // Helper: open resolve modal for a given task
@@ -748,7 +750,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   key: 'reopen',
                   icon: <ClockCircleOutlined />,
                   label: 'Reopen',
-                  disabled: record.status !== 'resolved',
+                  disabled: record.status !== 'resolved' && record.status !== 'cancelled',
                   onClick: () => reopenMutation.mutate(task.id),
                 },
                 {
@@ -810,7 +812,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   onClick: () => {
                     Modal.confirm({
                       title: 'Delete this task?',
-                      onOk: () => deleteMutation.mutate(task.id),
+                      onOk: () => requestDelete(task.id),
                     });
                   },
                 },

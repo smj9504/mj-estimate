@@ -368,21 +368,20 @@ class WaterMitigationService:
                 logger.info(f"Follow-up task already exists for WM Job {job_id}, skipping")
                 return
 
-            property_address = job.get('property_address', '') if isinstance(job, dict) else getattr(job, 'property_address', '')
             adjuster_name = job.get('adjuster_name', '') if isinstance(job, dict) else getattr(job, 'adjuster_name', '')
             adjuster_email = job.get('adjuster_email', '') if isinstance(job, dict) else getattr(job, 'adjuster_email', '')
             adjuster_phone = job.get('adjuster_phone', '') if isinstance(job, dict) else getattr(job, 'adjuster_phone', '')
-            sheet_name = job.get('google_sheet_name', '') if isinstance(job, dict) else getattr(job, 'google_sheet_name', '')
 
-            pa_info = f" | PA: {sheet_name}" if sheet_name else ""
             next_followup = datetime.now(timezone.utc) + timedelta(days=3)
 
+            # The claim page already shows the address and the PA, so the
+            # title and description leave them out.
             followup = FollowUpTask(
                 claim_id=claim_id,
                 wm_job_id=str(job_id),
                 task_type='wm_docs_sent',
-                title=f"WM Follow up - Docs sent to adjuster ({property_address}){pa_info}",
-                description=f"Water mitigation documents (Invoice, COS, EWA, Photo Report) sent to adjuster.{pa_info}",
+                title="WM Follow up - Docs sent to adjuster",
+                description="Water mitigation documents (Invoice, COS, EWA, Photo Report) sent to adjuster.",
                 status='pending',
                 next_followup_date=next_followup,
                 auto_followup_enabled=True,
