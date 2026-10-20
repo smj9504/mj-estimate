@@ -4,6 +4,7 @@ import { Modal } from 'antd';
 import { showRetryableErrorNotification } from './apiErrorNotification';
 import { acquirePdfUploadLock, bodyHasPdf } from '../utils/pdfUploadLock';
 import type { PdfUploadHold } from '../utils/pdfUploadLock';
+import { isEmptyFormData } from '../utils/emptyFormData';
 
 // Lets specific call sites (e.g. status-polling loops that already retry
 // silently on their own timer) opt out of the global "다시 시도" notification -
@@ -45,6 +46,16 @@ function attachPdfUploadLock(instance: AxiosInstance) {
   );
 }
 
+// The backend can't parse a multipart form with no fields (see
+// utils/emptyFormData), so send those requests with no body. axios then drops
+// the Content-Type header too, including a per-call 'multipart/form-data'.
+function sendEmptyFormDataAsNoBody(instance: AxiosInstance) {
+  instance.interceptors.request.use((config) => {
+    if (isEmptyFormData(config.data)) config.data = undefined;
+    return config;
+  });
+}
+
 // Create axios instance with base configuration
 // For production: use backend URL directly (Vercel env vars not working)
 // For development: use proxy (empty string)
@@ -68,6 +79,7 @@ const api = axios.create({
 });
 
 attachPdfUploadLock(api);
+sendEmptyFormDataAsNoBody(api);
 
 // Request interceptor for auth token
 api.interceptors.request.use(
@@ -135,6 +147,7 @@ export const publicApi = axios.create({
 });
 
 attachPdfUploadLock(publicApi);
+sendEmptyFormDataAsNoBody(publicApi);
 
 publicApi.interceptors.response.use(
   (response) => response,
