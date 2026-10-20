@@ -244,3 +244,34 @@ export const antTheme: ThemeConfig = {
     },
   },
 };
+
+/**
+ * One step up from the base scale (15px text, 36px controls) for pages that
+ * are read on a phone in the field, such as the claim follow-up page. Wrap the
+ * page in a nested ConfigProvider; everything else inherits from antTheme.
+ */
+export const comfortTheme: ThemeConfig = {
+  token: {
+    fontSize: 15,
+    fontSizeSM: 13,
+    controlHeight: 36,
+    controlHeightSM: 28,
+  },
+  components: {
+    Button: {
+      controlHeight: 36,
+      paddingInline: 14,
+    },
+    Tabs: {
+      titleFontSize: 15,
+      horizontalItemPadding: '12px 0',
+      horizontalItemGutter: 24,
+    },
+    Modal: {
+      titleFontSize: 17,
+    },
+    Dropdown: {
+      paddingBlock: 7,
+    },
+  },
+};

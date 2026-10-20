@@ -2089,6 +2089,14 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
           <EmailComposer
             claimId={emailDrawerClaim.id}
             contacts={buildClaimContacts(emailDrawerClaim, client)}
+            templateValues={{
+              claim_number: emailDrawerClaim.claim_number,
+              property_address: client.address,
+              homeowner_name: client.display_name,
+              adjuster_name: emailDrawerClaim.adjuster_name,
+              pa_name: emailDrawerClaim.pa_name,
+              insurance_company: emailDrawerClaim.insurance_company,
+            }}
             defaultTo={emailDrawerClaim.adjuster_email ? [emailDrawerClaim.adjuster_email] : []}
             defaultSubject={`Claim #${emailDrawerClaim.claim_number} - ${emailDrawerClaim.insurance_company || ''}`}
             onSent={() => {

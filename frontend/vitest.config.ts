@@ -1,11 +1,11 @@
 import { defineConfig } from 'vitest/config';
 
 /**
- * Vitest setup for the sketch geometry layer.
+ * Vitest setup for the sketch geometry layer and the claim follow-up helpers.
  *
  * Deliberately narrow for now. Two constraints shape this config:
  *
- *  1. `include` is scoped to the sketch utils rather than all of `src`. The
+ *  1. `include` is scoped to those folders rather than all of `src`. The
  *     project still runs CRA's Jest via `craco test`, and
  *     `src/pages/InsuranceExtraction.test.tsx` is written against that runner.
  *     Widening this glob would make vitest try to own that file too.
@@ -23,6 +23,9 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: false,
-    include: ['src/components/**/sketch/**/*.test.ts'],
+    include: [
+      'src/components/**/sketch/**/*.test.ts',
+      'src/components/claim-followup/**/*.test.ts',
+    ],
   },
 });

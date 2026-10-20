@@ -1681,23 +1681,27 @@ button.fu-step--extra:hover {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Two short lines under the title: who it is with, then what has happened */
 .fu-task-meta {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  margin-top: 8px;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
   font-size: 13px;
   color: var(--color-neutral-700);
 }
-.fu-task-meta-item {
-  display: inline-flex;
+.fu-task-meta-line {
+  display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px 6px;
+  gap: 2px 10px;
   min-width: 0;
 }
-.fu-task-meta-item > .anticon {
+.fu-task-meta-icon {
   color: #a5a29a;
+}
+.fu-task-person {
+  color: var(--color-neutral-900);
 }
 .fu-task-email,
 .fu-link-btn {
@@ -1867,15 +1871,22 @@ button.fu-step--extra:hover {
 .fu-workspace {
   scroll-margin-top: 72px;
 }
-.fu-regarding {
+.fu-history-filter {
   display: flex;
   flex-direction: column;
   gap: 4px;
   max-width: 560px;
   margin-bottom: 16px;
 }
-.fu-regarding > .fu-muted {
-  font-size: 13px;
+.fu-regarding {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.fu-regarding-hint {
+  padding: 0 0 8px 11px;
+  font-size: var(--fu-meta, 13px);
+  color: var(--color-neutral-600);
 }
 .fu-stack {
   display: flex;
@@ -2297,6 +2308,759 @@ button.fu-step--extra:hover {
   background: var(--color-neutral-50);
   font-size: 14px;
   overflow-wrap: anywhere;
+}
+
+/* Claim page: one step up the type scale (comfortTheme in antTheme.ts does
+   the same for antd controls). The shared panels keep their base sizes on
+   the follow-up list. */
+.fu-page {
+  --fu-text: 15px;
+  --fu-meta: 14px;
+  --fu-title: 17px;
+  font-size: 15px;
+}
+.fu-page .ui-page-title {
+  font-size: 26px;
+}
+.fu-page .ui-page-meta {
+  gap: 6px 14px;
+  margin-top: 8px;
+  font-size: 14px;
+}
+.fu-page .ui-section {
+  margin-top: 36px;
+}
+.fu-page .ui-section:first-child {
+  margin-top: 0;
+}
+.fu-page .ui-section-head {
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+}
+.fu-page .ui-section-title {
+  font-size: 17px;
+}
+.fu-page .ui-pill {
+  height: 22px;
+  padding: 0 7px;
+  font-size: 13px;
+  line-height: 22px;
+}
+.fu-page .ui-props-row {
+  min-height: 38px;
+  padding: 7px 6px;
+}
+.fu-page .ui-props-label,
+.fu-page .ui-props-value {
+  font-size: 15px;
+}
+.fu-page .fu-count,
+.fu-page .fu-field-label {
+  font-size: 14px;
+}
+.fu-page .fu-empty,
+.fu-page .fu-empty-block {
+  font-size: 15px;
+}
+
+.fu-page .fu-track-wrap {
+  margin-bottom: 36px;
+}
+.fu-page .fu-track {
+  gap: 12px;
+}
+.fu-page .fu-step-bar {
+  margin-bottom: 8px;
+}
+.fu-page .fu-step-label,
+.fu-page .fu-step-detail {
+  font-size: 14px;
+  line-height: 20px;
+}
+.fu-page .fu-step-detail {
+  display: -webkit-box;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.fu-page .fu-step--extra {
+  height: 32px;
+  padding: 0 12px;
+}
+
+.fu-page .fu-task {
+  gap: 12px 32px;
+  padding: 20px 0;
+}
+.fu-page .fu-task-top {
+  gap: 6px 10px;
+}
+.fu-page .fu-task-stage,
+.fu-page .fu-task-top > .fu-muted,
+.fu-page .fu-task-meta,
+.fu-page .fu-task-due-label,
+.fu-page .fu-task-due-rel {
+  font-size: 14px;
+}
+.fu-page .fu-task-title {
+  margin-top: 8px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.fu-page .fu-task-desc {
+  font-size: 15px;
+  line-height: 1.55;
+}
+.fu-page .fu-task-side {
+  width: 264px;
+  gap: 12px;
+}
+.fu-page .fu-task-due-label {
+  white-space: nowrap;
+}
+.fu-page .fu-date.ant-picker {
+  width: 152px;
+}
+.fu-page .fu-date.ant-picker .ant-picker-input > input {
+  font-size: 15px;
+}
+.fu-page .fu-done-toggle {
+  font-size: 15px;
+}
+
+.fu-page .fu-contacts {
+  gap: 20px;
+}
+.fu-page .fu-contact {
+  gap: 3px;
+  font-size: 14px;
+}
+.fu-page .fu-contact-name {
+  font-size: 16px;
+  font-weight: 600;
+}
+.fu-page .fu-contact-line {
+  min-height: 28px;
+  font-size: 15px;
+}
+.fu-page .fu-contact-line > .anticon {
+  color: #a5a29a;
+}
+
+.fu-page .fu-workspace {
+  margin-top: 40px;
+}
+.fu-page .fu-block-title,
+.fu-page .fu-version-title,
+.fu-page .fu-sup-title,
+.fu-page .fu-figure dd,
+.fu-page .fu-comm-line {
+  font-size: 15px;
+}
+.fu-page .fu-version-meta,
+.fu-page .fu-figure dt,
+.fu-page .fu-section-head,
+.fu-page .fu-section-row,
+.fu-page .fu-sup-reason,
+.fu-page .fu-bid-list li,
+.fu-page .fu-comm-kind,
+.fu-page .fu-comm-time,
+.fu-page .fu-comm-meta,
+.fu-page .fu-file-chip {
+  font-size: 14px;
+}
+
+@media (max-width: 768px) {
+  .fu-page .ui-page-title {
+    font-size: 23px;
+  }
+  .fu-page .fu-track {
+    gap: 16px 12px;
+  }
+  .fu-page .fu-task-side {
+    width: auto;
+  }
+}
+
+/* Email composer: rows like any mail client, then the body, then send */
+.fu-compose {
+  --fu-compose-label: 84px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-size: var(--fu-text, 14px);
+  color: var(--color-neutral-900);
+}
+.fu-compose-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.fu-compose-title {
+  margin: 0;
+  font-size: var(--fu-title, 16px);
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.fu-compose-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fu-caret {
+  margin-left: 2px;
+  font-size: 10px;
+  color: var(--color-neutral-600);
+}
+.fu-compose-stage {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--color-neutral-50);
+}
+.ant-btn.fu-compose-stage-action {
+  height: auto;
+  margin-left: auto;
+  padding: 0;
+}
+.fu-compose-fields {
+  border-top: 1px solid var(--color-neutral-200);
+}
+.fu-compose-row {
+  display: grid;
+  grid-template-columns: var(--fu-compose-label) minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0 8px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.fu-compose-label {
+  padding-top: 14px;
+  line-height: 20px;
+  color: var(--color-neutral-600);
+}
+.fu-compose-control {
+  min-width: 0;
+  padding: 6px 0;
+}
+.fu-compose-item.ant-form-item {
+  margin-bottom: 0;
+}
+.fu-compose-item .ant-form-item-explain {
+  padding: 2px 11px 4px;
+}
+.fu-compose-control .ant-select-borderless .ant-select-selector,
+.fu-compose-control .ant-input-borderless {
+  padding-inline: 11px;
+}
+.fu-compose-cc-toggle {
+  align-self: center;
+  margin: 6px 0;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  color: var(--color-neutral-700);
+  cursor: pointer;
+}
+.fu-compose-cc-toggle:hover {
+  background: var(--color-ink-hover);
+  color: var(--color-neutral-900);
+}
+.fu-compose-warning {
+  display: inline-block;
+  padding: 7px 11px;
+  color: var(--tag-orange-text);
+}
+.fu-account-option {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fu-recipient-option {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0;
+  line-height: 1.35;
+}
+.fu-recipient-option-meta {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+/* A long "Name (address)" shortens instead of widening the page */
+.fu-compose-control .ant-select-selection-overflow-item {
+  max-width: 100%;
+  min-width: 0;
+}
+.fu-compose-control .ant-select-selection-overflow-item > span {
+  display: inline-flex;
+  max-width: 100%;
+}
+.ant-tag.fu-recipient-tag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+  height: 26px;
+  margin: 2px 6px 2px 0;
+  padding: 0 6px 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-900);
+  font-size: var(--fu-meta, 13px);
+  line-height: 26px;
+  vertical-align: middle;
+}
+.fu-recipient-tag-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fu-compose-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fu-compose-body-tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.fu-compose .rich-text-editor,
+.fu-tpl-body .rich-text-editor {
+  border-color: var(--color-neutral-400);
+  border-radius: 8px;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.fu-compose .rich-text-editor:focus-within,
+.fu-tpl-body .rich-text-editor:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(31, 116, 201, 0.18);
+}
+.fu-compose .editor-toolbar,
+.fu-tpl-body .editor-toolbar {
+  padding: 6px 8px;
+  border-bottom-color: var(--color-neutral-200);
+  background: var(--color-neutral-50);
+}
+.fu-compose .editor-content,
+.fu-tpl-body .editor-content,
+.fu-compose-preview {
+  padding: 14px 16px;
+  font-size: var(--fu-text, 14px);
+  line-height: 1.6;
+  color: var(--color-neutral-900);
+}
+.fu-compose .editor-content:empty:before,
+.fu-tpl-body .editor-content:empty:before {
+  color: var(--color-neutral-600);
+}
+.fu-compose .editor-content p:first-child,
+.fu-tpl-body .editor-content p:first-child {
+  margin-top: 0;
+}
+.fu-compose-preview {
+  min-height: 220px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.fu-compose-blank {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--tag-orange-bg);
+  color: var(--tag-orange-text);
+  font-size: var(--fu-meta, 13px);
+}
+.fu-compose-blank > .anticon {
+  margin-top: 3px;
+}
+.fu-compose-blank code {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.6);
+  font-family: SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 0.92em;
+}
+
+.fu-compose-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fu-compose-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.fu-compose-block-title {
+  font-weight: 500;
+}
+.fu-compose-block-actions {
+  display: flex;
+  gap: 14px;
+  font-size: var(--fu-meta, 13px);
+}
+.fu-wm-docs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 8px;
+}
+.fu-wm-doc.ant-checkbox-wrapper {
+  font-size: inherit;
+}
+.fu-attach-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 8px;
+}
+.fu-attach {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.fu-attach:first-child {
+  border-top: 0;
+}
+.fu-attach > .anticon {
+  color: var(--color-neutral-600);
+}
+.fu-attach > .fu-pdf-icon {
+  color: var(--tag-red-text);
+}
+.fu-attach-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fu-compose-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.fu-compose-foot-spacer {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 576px) {
+  .fu-compose {
+    --fu-compose-label: 64px;
+  }
+  .fu-compose-tools,
+  .fu-compose-tools .ant-dropdown-trigger {
+    flex: 1 1 auto;
+  }
+  .fu-wm-docs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fu-compose-foot .ant-btn {
+    height: 44px;
+  }
+  .fu-compose-foot .ant-btn-primary {
+    flex: 1 1 auto;
+  }
+  .fu-compose-foot-spacer {
+    display: none;
+  }
+  .fu-compose-foot > .ant-btn-text {
+    flex: 1 1 100%;
+  }
+}
+
+/* Template menu in the composer */
+.fu-template-menu.ant-dropdown-menu {
+  min-width: 300px;
+  max-width: min(440px, calc(100vw - 32px));
+  max-height: 440px;
+  overflow-y: auto;
+}
+.fu-menu-option {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 2px 0;
+  line-height: 1.35;
+}
+.fu-menu-option-title {
+  font-weight: 500;
+  white-space: normal;
+}
+.fu-menu-option-hint {
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Template manager drawer: list on the left, the template on the right */
+.fu-tpl-drawer {
+  --fu-text: 15px;
+  --fu-meta: 14px;
+  --fu-title: 17px;
+}
+.fu-tpl-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  height: 100%;
+  font-size: var(--fu-text);
+  color: var(--color-neutral-900);
+}
+.fu-tpl-layout.is-mobile {
+  grid-template-columns: minmax(0, 1fr);
+}
+.fu-tpl-list-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
+  border-right: 1px solid var(--color-neutral-200);
+  background: var(--color-neutral-50);
+}
+.is-mobile .fu-tpl-list-pane {
+  border-right: 0;
+  background: var(--color-surface);
+}
+.fu-tpl-list-tools {
+  display: flex;
+  gap: 8px;
+}
+.fu-tpl-list {
+  margin: 0 -8px;
+  padding: 0;
+  list-style: none;
+}
+.fu-tpl-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 9px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.fu-tpl-item:hover {
+  background: var(--color-ink-hover);
+}
+.fu-tpl-item.is-selected {
+  background: var(--color-ink-selected);
+}
+.fu-tpl-item-name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.fu-tpl-item-meta {
+  font-size: var(--fu-meta);
+  color: var(--color-neutral-600);
+}
+.fu-tpl-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 0;
+  color: var(--color-neutral-700);
+}
+.fu-tpl-empty p {
+  margin: 0;
+}
+.fu-tpl-empty-title {
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.fu-tpl-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+  padding: 20px 28px 32px;
+  overflow-y: auto;
+}
+.fu-tpl-editor--idle {
+  align-items: center;
+  justify-content: center;
+}
+.fu-tpl-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.fu-tpl-editor-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--fu-title);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.fu-tpl-editor-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.fu-tpl-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 0 16px;
+}
+.fu-tpl-form .ant-form-item {
+  margin-bottom: 16px;
+}
+.fu-tpl-form .ant-form-item-label > label {
+  font-size: 14px;
+  color: var(--color-neutral-700);
+}
+.fu-tpl-form .ant-form-item-extra {
+  font-size: 13px;
+}
+.fu-tpl-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: -4px 0 14px;
+}
+.fu-tpl-fields-label {
+  margin-right: 4px;
+  font-size: var(--fu-meta);
+  color: var(--color-neutral-600);
+}
+.fu-tpl-field {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 6px;
+  background: var(--color-surface);
+  font: inherit;
+  font-size: var(--fu-meta);
+  color: var(--color-neutral-700);
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.fu-tpl-field:hover {
+  border-color: var(--color-neutral-400);
+  background: var(--color-ink-hover);
+  color: var(--color-neutral-900);
+}
+.fu-tpl-field:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+}
+.fu-tpl-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.fu-tpl-preview-note {
+  margin: 0;
+  font-size: var(--fu-meta);
+  color: var(--color-neutral-600);
+}
+.fu-tpl-preview-subject {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--color-neutral-200);
+  border-bottom: 1px solid var(--color-neutral-200);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.fu-tpl-preview-label {
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+.fu-tpl-preview-body {
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.fu-tpl-preview-body p {
+  margin: 0 0 10px;
+}
+mark.fu-tpl-missing {
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--tag-yellow-bg);
+  color: var(--tag-yellow-text);
+  font-family: SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 0.9em;
+}
+.fu-tpl-hint {
+  margin: 0;
+  font-size: var(--fu-meta);
+  color: var(--tag-orange-text);
+}
+.fu-tpl-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.fu-tpl-usage {
+  margin-left: auto;
+  font-size: var(--fu-meta);
+  color: var(--color-neutral-600);
+}
+
+@media (max-width: 576px) {
+  .fu-tpl-editor {
+    padding: 12px 16px 24px;
+  }
+  .fu-tpl-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fu-tpl-actions .ant-btn {
+    flex: 1 1 auto;
+    height: 44px;
+  }
+  .fu-tpl-usage {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -7,6 +7,7 @@ import dayjs from 'dayjs';
 import { claimFollowUpService } from '../services/claimFollowUpService';
 import { adjusterEmailService } from '../services/waterMitigationService';
 import { EmailComposer, CommunicationTimeline } from '../components/claim-followup';
+import { templateValuesFromTask } from '../components/claim-followup/emailTemplates';
 
 const { Title, Text } = Typography;
 
@@ -125,6 +126,7 @@ const ClaimFollowUpEmail: React.FC = () => {
             taskType={task.task_type}
             wmJobId={task.wm_job_id}
             contactCount={task.contact_count || 0}
+            templateValues={templateValuesFromTask(task)}
             defaultTo={task.assigned_to_email || ''}
             onSent={() => navigate('/claim-followup')}
             onCancel={() => navigate('/claim-followup')}

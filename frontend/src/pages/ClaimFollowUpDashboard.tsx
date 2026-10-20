@@ -71,6 +71,7 @@ import {
   STAGE_LEGEND, buildClaimProgress,
 } from '../components/claim-followup/claimProgress';
 import type { ClaimProgress, ProgressStep } from '../components/claim-followup/claimProgress';
+import { templateValuesFromTask } from '../components/claim-followup/emailTemplates';
 import type {
   FollowUpTask,
   FollowUpTaskCreate,
@@ -1992,6 +1993,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                         taskType={group.tasks.find(t => t.id === drawerEmailTaskId)?.task_type}
                         wmJobId={group.tasks.find(t => t.id === drawerEmailTaskId)?.wm_job_id}
                         contactCount={group.tasks.find(t => t.id === drawerEmailTaskId)?.contact_count || 0}
+                        templateValues={templateValuesFromTask(group.tasks[0])}
                         defaultTo={
                           (() => {
                             const task = group.tasks.find(t => t.id === drawerEmailTaskId);

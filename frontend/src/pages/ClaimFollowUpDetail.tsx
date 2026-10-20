@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Button, Col, DatePicker, Dropdown, Form, Grid, Input, InputNumber, Modal, Row, Select,
+  Button, Col, ConfigProvider, DatePicker, Dropdown, Form, Grid, Input, InputNumber, Modal, Row, Select,
   Skeleton, Switch, Tabs, Tooltip, message,
 } from 'antd';
 import type { FormInstance, MenuProps } from 'antd';
@@ -25,7 +25,9 @@ import {
   TASK_STATUS_LABELS, TASK_STATUS_TONES, getStageLabel, isTaskActive, isTaskOverdue, buildClaimProgress,
 } from '../components/claim-followup/claimProgress';
 import type { ProgressStep } from '../components/claim-followup/claimProgress';
+import { templateValuesFromTask } from '../components/claim-followup/emailTemplates';
 import { PageHeader, Pill, PropertyList } from '../components/common/ui';
+import { comfortTheme } from '../styles/antTheme';
 import { SUPPLEMENT_STATUSES, SupplementStatusPill, formatCurrency } from '../components/supplement/supplementUi';
 import type {
   FollowUpTask, FollowUpTaskCreate, FollowUpTaskUpdate, TaskStatus,
@@ -200,6 +202,9 @@ const ClaimFollowUpDetail: React.FC = () => {
     });
     return list;
   }, [claimInfo, insEmail, tasks]);
+
+  // Every task here carries the claim's details, so the first one will do
+  const templateValues = useMemo(() => templateValuesFromTask(tasks[0]), [tasks]);
 
   /**
    * Fill name/email/phone from the contact the chosen role points at. Every
@@ -445,25 +450,26 @@ const ClaimFollowUpDetail: React.FC = () => {
     const isPayment = PAYMENT_TASK_TYPES.includes(task.task_type);
     return (
       <div className="fu-task-meta">
-        <span className="fu-task-meta-item">
-          <UserOutlined aria-hidden="true" />
+        {/* Who it is with */}
+        <div className="fu-task-meta-line">
+          <UserOutlined className="fu-task-meta-icon" aria-hidden="true" />
           {task.assigned_to_name ? (
             <span>
-              {task.assigned_to_name}
+              <span className="fu-task-person">{task.assigned_to_name}</span>
               {roleLabel && <span className="fu-muted"> · {roleLabel}</span>}
             </span>
           ) : (
             <span className="fu-muted">Not assigned</span>
           )}
           {task.assigned_to_email && (
-            <>
-              <span className="fu-muted" aria-hidden="true">·</span>
-              <a href={`mailto:${task.assigned_to_email}`} className="fu-task-email">{task.assigned_to_email}</a>
-            </>
+            <a href={`mailto:${task.assigned_to_email}`} className="fu-task-email">{task.assigned_to_email}</a>
           )}
-        </span>
-        <span className="fu-task-meta-item">
-          <MailOutlined aria-hidden="true" />
+        </div>
+        {/* What has happened so far */}
+        <div className="fu-task-meta-line">
+          {task.auto_followup_enabled && isTaskActive(task)
+            ? <SyncOutlined className="fu-task-meta-icon" aria-hidden="true" />
+            : <MailOutlined className="fu-task-meta-icon" aria-hidden="true" />}
           {task.contact_count > 0 ? (
             <button type="button" className="fu-link-btn" onClick={() => openHistory(task.id)}>
               Contacted {task.contact_count}×
@@ -472,24 +478,21 @@ const ClaimFollowUpDetail: React.FC = () => {
           ) : (
             <span className="fu-muted">Not contacted yet</span>
           )}
-        </span>
-        {task.auto_followup_enabled && isTaskActive(task) && (
-          <span className="fu-task-meta-item">
-            <SyncOutlined aria-hidden="true" />
-            <span>
+          {task.auto_followup_enabled && isTaskActive(task) && (
+            <span className="fu-muted">
               Auto every {task.followup_interval_days} day{task.followup_interval_days === 1 ? '' : 's'}
-              <span className="fu-muted"> · {Math.min(task.contact_count, task.max_followup_count)} of {task.max_followup_count}</span>
+              {' '}· {Math.min(task.contact_count, task.max_followup_count)} of {task.max_followup_count}
             </span>
-          </span>
-        )}
+          )}
+        </div>
         {isPayment && task.payment_status && (
-          <span className="fu-task-meta-item">
+          <div className="fu-task-meta-line">
             <span className="fu-muted">Payment</span>
             <Pill tone={PAYMENT_ISSUE_STATUSES.includes(task.payment_status) ? 'orange' : task.payment_status === 'received' ? 'green' : 'gray'}>
               {PAYMENT_STATUS_LABELS[task.payment_status] || task.payment_status}
             </Pill>
             {task.payment_note && <span className="fu-muted">{task.payment_note}</span>}
-          </span>
+          </div>
         )}
       </div>
     );
@@ -591,13 +594,13 @@ const ClaimFollowUpDetail: React.FC = () => {
           {task.resolution_notes && <p className="fu-task-desc">{task.resolution_notes}</p>}
           {PAYMENT_TASK_TYPES.includes(task.task_type) && task.payment_status && (
             <div className="fu-task-meta">
-              <span className="fu-task-meta-item">
+              <div className="fu-task-meta-line">
                 <span className="fu-muted">Payment</span>
                 <Pill tone={task.payment_status === 'received' ? 'green' : PAYMENT_ISSUE_STATUSES.includes(task.payment_status) ? 'orange' : 'gray'}>
                   {PAYMENT_STATUS_LABELS[task.payment_status] || task.payment_status}
                 </Pill>
                 {task.payment_note && <span className="fu-muted">{task.payment_note}</span>}
-              </span>
+              </div>
             </div>
           )}
         </div>
@@ -809,19 +812,6 @@ const ClaimFollowUpDetail: React.FC = () => {
                   label: <span><MailOutlined /> {isMobile ? 'Email' : 'Send Email'}</span>,
                   children: claimId ? (
                     <div className="fu-tab-body">
-                      <label className="fu-regarding">
-                        <span className="fu-field-label">Regarding</span>
-                        <Select
-                          value={emailTaskId ?? '__claim__'}
-                          onChange={(v) => setEmailTaskId(v === '__claim__' ? undefined : v)}
-                          options={[{ value: '__claim__', label: 'This claim (no specific task)' }, ...taskOptions]}
-                          style={{ width: '100%' }}
-                          aria-label="Task this email is about"
-                        />
-                        <span className="fu-muted">
-                          Sending for a task marks it contacted and moves its next follow-up date.
-                        </span>
-                      </label>
                       <EmailComposer
                         key={emailTaskId || 'claim'}
                         claimId={claimId}
@@ -830,6 +820,24 @@ const ClaimFollowUpDetail: React.FC = () => {
                         wmJobId={emailTask?.wm_job_id}
                         contactCount={emailTask?.contact_count || 0}
                         contacts={emailContacts}
+                        templateValues={templateValues}
+                        regarding={
+                          <div className="fu-regarding">
+                            <Select
+                              variant="borderless"
+                              value={emailTaskId ?? '__claim__'}
+                              onChange={(v) => setEmailTaskId(v === '__claim__' ? undefined : v)}
+                              options={[{ value: '__claim__', label: 'This claim (no specific task)' }, ...taskOptions]}
+                              style={{ width: '100%' }}
+                              aria-label="Task this email is about"
+                            />
+                            {emailTaskId && (
+                              <span className="fu-regarding-hint">
+                                Sending marks this task contacted and moves its next follow-up date.
+                              </span>
+                            )}
+                          </div>
+                        }
                         defaultTo={emailTask?.assigned_to_email || tasks[0]?.assigned_to_email || ''}
                         onSent={() => {
                           invalidateClaim();
@@ -847,7 +855,7 @@ const ClaimFollowUpDetail: React.FC = () => {
                   label: <span><ClockCircleOutlined /> {isMobile ? 'History' : 'Communication History'}</span>,
                   children: claimId ? (
                     <div className="fu-tab-body">
-                      <label className="fu-regarding">
+                      <label className="fu-history-filter">
                         <span className="fu-field-label">Show</span>
                         <Select
                           value={historyTaskId ?? '__all__'}
@@ -1138,4 +1146,11 @@ const ClaimFollowUpDetail: React.FC = () => {
   );
 };
 
-export default ClaimFollowUpDetail;
+/** The page is read on phones in the field, so it runs one step up the type scale */
+const ClaimFollowUpDetailPage: React.FC = () => (
+  <ConfigProvider theme={comfortTheme}>
+    <ClaimFollowUpDetail />
+  </ConfigProvider>
+);
+
+export default ClaimFollowUpDetailPage;
