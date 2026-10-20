@@ -19,6 +19,7 @@ import {
   type AdjusterEmailInfo,
   type DocumentReadiness,
   type SendToAdjusterPayload,
+  type WMFollowUpTask,
 } from '../../services/waterMitigationService';
 
 const { Text } = Typography;
@@ -53,7 +54,8 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
     followup_count: number;
     days_since_sent: number | null;
     documents_sent_date: string;
-  }>({ followup_count: 0, days_since_sent: null, documents_sent_date: '' });
+    followup_task: WMFollowUpTask | null;
+  }>({ followup_count: 0, days_since_sent: null, documents_sent_date: '', followup_task: null });
 
   // Email addresses
   const [toEmails, setToEmails] = useState<string[]>([]);
@@ -78,6 +80,7 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
         followup_count: followup.followup_count,
         days_since_sent: followup.days_since_sent,
         documents_sent_date: followup.documents_sent_date,
+        followup_task: followup.followup_task,
       });
       setEmailContent({ subject: followup.subject, body_html: followup.body_html });
 
@@ -222,6 +225,9 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
                 ? `Documents were sent ${followupMeta.days_since_sent} day(s) ago (${followupMeta.documents_sent_date}). No response received.`
                 : 'Sending a follow-up email to the adjuster.'
             }
+            description={followupMeta.followup_task
+              ? 'Counts as a contact on the WM Docs follow-up and moves its next follow-up date.'
+              : undefined}
           />
 
           {/* Adjuster/Recipients Info Banner */}

@@ -763,6 +763,9 @@ class AdjusterEmailService:
                 "followup_count": followup_count,
                 "days_since_sent": days_since_sent,
                 "documents_sent_date": sent_date_str,
+                "followup_task": self._task_summary(
+                    self._find_open_followup_task(session, job)
+                ),
             }
         finally:
             session.close()
@@ -943,12 +946,17 @@ class AdjusterEmailService:
 
             # Send via claim_followup email service
             from app.domains.claim_followup.service import ClaimFollowUpService
-            email_service = ClaimFollowUpService()
+            email_service = ClaimFollowUpService(self.database)
 
             claim_id = str(job.claim_id) if job.claim_id else None
 
+            # While the WM docs stage is still open, this counts as a contact
+            # on it - exactly as if it had been sent from the follow-up screen.
+            open_task = self._find_open_followup_task(session, job)
+
             send_payload = {
                 "claim_id": claim_id,
+                "followup_task_id": str(open_task.id) if open_task else None,
                 "email_account_id": email_account_id,
                 "to_addresses": to_addresses,
                 "cc_addresses": cc_addresses,
@@ -987,6 +995,7 @@ class AdjusterEmailService:
                 "success": True,
                 "email_id": str(email_result.get("id", "")),
                 "attachments_count": len(attachments),
+                "followup_task_id": str(open_task.id) if open_task else None,
             }
         except Exception as e:
             session.rollback()
@@ -1609,6 +1618,61 @@ class AdjusterEmailService:
     # ================================================================
     # Follow-up Task
     # ================================================================
+
+    def get_open_followup_task(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """The WM docs follow-up stage still open for a job, or None."""
+        session = self._get_readonly_session()
+        try:
+            from .models import WaterMitigationJob
+
+            job = session.query(WaterMitigationJob).filter(
+                WaterMitigationJob.id == job_id
+            ).first()
+            if not job:
+                return None
+            return self._task_summary(self._find_open_followup_task(session, job))
+        finally:
+            session.close()
+
+    def _find_open_followup_task(self, session, job):
+        """The claim's unresolved WM docs follow-up for this job.
+
+        Prefers the task linked to this job; falls back to one added by hand
+        on the follow-up screen, which carries no job link.
+        """
+        if not job.claim_id:
+            return None
+
+        from sqlalchemy import or_
+        from app.domains.claim_followup.models import FollowUpTask
+
+        tasks = session.query(FollowUpTask).filter(
+            FollowUpTask.claim_id == job.claim_id,
+            FollowUpTask.task_type == 'wm_docs_sent',
+            FollowUpTask.status.notin_(['resolved', 'cancelled']),
+            or_(
+                FollowUpTask.wm_job_id == str(job.id),
+                FollowUpTask.wm_job_id.is_(None),
+            ),
+        ).order_by(FollowUpTask.created_at.desc()).all()
+        linked = [t for t in tasks if t.wm_job_id is not None]
+        return (linked or tasks or [None])[0]
+
+    @staticmethod
+    def _task_summary(task) -> Optional[Dict[str, Any]]:
+        if not task:
+            return None
+        return {
+            "id": str(task.id),
+            "status": task.status,
+            "contact_count": task.contact_count or 0,
+            "last_contacted_at": (
+                task.last_contacted_at.isoformat() if task.last_contacted_at else None
+            ),
+            "next_followup_date": (
+                task.next_followup_date.isoformat() if task.next_followup_date else None
+            ),
+        }
 
     def _create_followup_task(self, session, job):
         """Create a follow-up task after sending documents (skip if one already exists)."""

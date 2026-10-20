@@ -36,8 +36,8 @@ import {
   ReloadOutlined,
   MoreOutlined,
 } from '@ant-design/icons';
-import { useQueryClient } from '@tanstack/react-query';
-import waterMitigationService from '../services/waterMitigationService';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import waterMitigationService, { adjusterEmailService } from '../services/waterMitigationService';
 import { companyService } from '../services/companyService';
 import api from '../services/api';
 import type { WaterMitigationJob, JobStatusHistory, JobStatus } from '../types/waterMitigation';
@@ -72,6 +72,16 @@ const WaterMitigationDetail: React.FC = () => {
   const [activeTab, setActiveTab] = useState('details');
   const [sendToAdjusterOpen, setSendToAdjusterOpen] = useState(false);
   const [followUpOpen, setFollowUpOpen] = useState(false);
+
+  // While the claim's WM docs follow-up is unresolved, a follow-up sent from
+  // here counts on it, so the action moves out of the menu into the header.
+  const { data: openFollowUpTask } = useQuery({
+    queryKey: ['wm-followup-task', id],
+    queryFn: () => adjusterEmailService.getOpenFollowUpTask(id!),
+    enabled: !!id,
+  });
+  const refreshFollowUpTask = () =>
+    queryClient.invalidateQueries({ queryKey: ['wm-followup-task', id] });
 
   // Background refresh job data when switching back to details tab
   const handleTabChange = useCallback((key: string) => {
@@ -289,6 +299,8 @@ const WaterMitigationDetail: React.FC = () => {
       setStatusChangeNote('');
       setSelectedStatus(null);
       await loadJob();
+      // Moving to "Sent to adjuster" opens the WM docs follow-up
+      refreshFollowUpTask();
     } catch (error) {
       message.error('Failed to update status');
       console.error('Update status error:', error);
@@ -418,6 +430,9 @@ const WaterMitigationDetail: React.FC = () => {
   const propRows = { bordered: false, column: 1, colon: false, size: 'small' as const, className: 'ui-props-desc' };
   const EMPTY = <span className="ui-props-empty">Empty</span>;
 
+  // Phones keep it in the menu; the header has no room for another button
+  const showFollowUpButton = !!openFollowUpTask && !isMobile;
+
   const moreMenuItems = [
     {
       key: 'send',
@@ -425,7 +440,7 @@ const WaterMitigationDetail: React.FC = () => {
       label: 'Send to Adjuster',
       onClick: () => setSendToAdjusterOpen(true),
     },
-    ...(job.documents_sent_date ? [{
+    ...((job.documents_sent_date || openFollowUpTask) && !showFollowUpButton ? [{
       key: 'followup',
       icon: <ReloadOutlined />,
       label: 'Follow Up',
@@ -467,6 +482,11 @@ const WaterMitigationDetail: React.FC = () => {
               suffixIcon={<SwapOutlined />}
               aria-label="Job status"
             />
+            {showFollowUpButton && (
+              <Button icon={<ReloadOutlined />} onClick={() => setFollowUpOpen(true)}>
+                Follow Up
+              </Button>
+            )}
             {!isMobile && (
               <Button
                 icon={<EditOutlined />}
@@ -1098,6 +1118,7 @@ const WaterMitigationDetail: React.FC = () => {
               status: result.status as any,
               documents_sent_date: result.documents_sent_date,
             } : prev);
+            refreshFollowUpTask();
           }}
         />
       )}
@@ -1109,7 +1130,12 @@ const WaterMitigationDetail: React.FC = () => {
           onClose={() => setFollowUpOpen(false)}
           jobId={id}
           onSent={() => {
-            message.info('Follow-up email sent successfully');
+            // The follow-up screen shows this send in its history and task
+            refreshFollowUpTask();
+            queryClient.invalidateQueries({ queryKey: ['sent-emails'] });
+            queryClient.invalidateQueries({ queryKey: ['communications'] });
+            queryClient.invalidateQueries({ queryKey: ['claim-followup-detail'] });
+            queryClient.invalidateQueries({ queryKey: ['followup-tasks'] });
           }}
         />
       )}

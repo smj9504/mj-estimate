@@ -1667,6 +1667,14 @@ export interface SendToAdjusterPayload {
   selected_documents?: string[];
 }
 
+export interface WMFollowUpTask {
+  id: string;
+  status: string;
+  contact_count: number;
+  last_contacted_at: string | null;
+  next_followup_date: string | null;
+}
+
 export const adjusterEmailService = {
   getInfo: async (jobId: string): Promise<AdjusterEmailInfo> => {
     const response = await api.get(`${BASE_URL}/jobs/${jobId}/adjuster-email-info`);
@@ -1724,6 +1732,7 @@ export const adjusterEmailService = {
     followup_count: number;
     days_since_sent: number | null;
     documents_sent_date: string;
+    followup_task: WMFollowUpTask | null;
   }> => {
     const response = await api.post(
       `${BASE_URL}/jobs/${jobId}/generate-followup-email?custom_notes=${encodeURIComponent(customNotes)}`
@@ -1731,11 +1740,19 @@ export const adjusterEmailService = {
     return response.data;
   },
 
+  // The claim's unresolved WM docs follow-up for this job; a follow-up sent
+  // from the WM screen counts as a contact on it.
+  getOpenFollowUpTask: async (jobId: string): Promise<WMFollowUpTask | null> => {
+    const response = await api.get(`${BASE_URL}/jobs/${jobId}/followup-task`);
+    return response.data.task;
+  },
+
   // Same as send() above — re-attaching documents makes this a long call.
   sendFollowUp: async (jobId: string, payload: SendToAdjusterPayload): Promise<{
     success: boolean;
     email_id: string;
     attachments_count: number;
+    followup_task_id: string | null;
   }> => {
     const response = await api.post(
       `${BASE_URL}/jobs/${jobId}/send-followup`,

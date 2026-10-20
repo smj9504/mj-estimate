@@ -5785,6 +5785,13 @@ def generate_followup_email(
     return result
 
 
+@router.get("/jobs/{job_id}/followup-task")
+def get_open_followup_task(job_id: UUID):
+    """The claim's unresolved WM docs follow-up for this job, if any."""
+    service = get_adjuster_email_service()
+    return {"task": service.get_open_followup_task(str(job_id))}
+
+
 class FollowUpEmailRequest(BaseModel):
     to_addresses: List[str]
     cc_addresses: Optional[List[str]] = []
