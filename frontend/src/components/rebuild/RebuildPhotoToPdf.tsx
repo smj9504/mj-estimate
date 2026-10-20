@@ -1,12 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import {
-  Modal, Upload, Button, Select, Input, Space, List, message, Typography, Image, Tooltip,
+  Modal, Upload, Button, Select, Input, Space, message, Typography, Tooltip,
 } from 'antd';
 import {
   UploadOutlined, RotateRightOutlined, DeleteOutlined, ArrowUpOutlined,
   ArrowDownOutlined, FilePdfOutlined,
 } from '@ant-design/icons';
 import { rebuildService } from '../../services/rebuildService';
+import { useSheetModal } from '../common/ui';
 import type { RebuildProject, RebuildCompletionDoc } from '../../types/rebuild';
 
 const { Text } = Typography;
@@ -38,6 +39,9 @@ const DOC_TYPE_OPTIONS = [
 let idCounter = 0;
 
 const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess }) => {
+  const { isPhone, sheetProps } = useSheetModal();
+  // Touch gets 40px fields and photo actions
+  const ctlSize = isPhone ? 'large' : 'middle';
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [docType, setDocType] = useState('completion_photo');
   const [title, setTitle] = useState('Completion Photos');
@@ -125,8 +129,9 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
       open={open}
       width={600}
       onCancel={handleClose}
+      {...sheetProps}
       footer={
-        <Space>
+        <>
           <Button onClick={handleClose}>Cancel</Button>
           <Button
             type="primary"
@@ -137,11 +142,11 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
           >
             Generate PDF ({photos.length} page{photos.length !== 1 ? 's' : ''})
           </Button>
-        </Space>
+        </>
       }
     >
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
-        <Space style={{ width: '100%' }} size={12}>
+        <div className="rb-photo-fields">
           <Select
             value={docType}
             onChange={v => {
@@ -150,15 +155,17 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
               setTitle(label);
             }}
             options={DOC_TYPE_OPTIONS}
-            style={{ width: 200 }}
+            size={ctlSize}
+            aria-label="Document type"
           />
           <Input
             value={title}
             onChange={e => setTitle(e.target.value)}
             placeholder="Document title"
-            style={{ flex: 1 }}
+            size={ctlSize}
+            aria-label="Document title"
           />
-        </Space>
+        </div>
 
         <Upload.Dragger
           accept="image/*"
@@ -174,65 +181,49 @@ const RebuildPhotoToPdf: React.FC<Props> = ({ open, project, onClose, onSuccess 
           style={{ padding: '8px 0' }}
         >
           <p style={{ margin: 0 }}>
-            <UploadOutlined style={{ fontSize: 24, color: '#1890ff' }} />
+            <UploadOutlined style={{ fontSize: 24, color: 'var(--color-primary)' }} />
           </p>
-          <p style={{ margin: '4px 0 0' }}>Click or drag photos here</p>
+          <p style={{ margin: '4px 0 0' }}>{isPhone ? 'Tap to add photos' : 'Click or drag photos here'}</p>
         </Upload.Dragger>
 
         {photos.length > 0 && (
-          <List
-            size="small"
-            dataSource={photos}
-            style={{ maxHeight: 400, overflow: 'auto' }}
-            renderItem={(item, idx) => (
-              <List.Item
-                style={{ padding: '8px 0' }}
-                actions={[
-                  <Tooltip key="up" title="Move up">
-                    <Button size="small" icon={<ArrowUpOutlined />} disabled={idx === 0}
-                      onClick={() => movePhoto(item.id, -1)} />
-                  </Tooltip>,
-                  <Tooltip key="down" title="Move down">
-                    <Button size="small" icon={<ArrowDownOutlined />} disabled={idx === photos.length - 1}
-                      onClick={() => movePhoto(item.id, 1)} />
-                  </Tooltip>,
-                  <Tooltip key="rotate" title={`Rotate (${item.rotation}°)`}>
-                    <Button size="small" icon={<RotateRightOutlined />}
-                      onClick={() => rotatePhoto(item.id)} />
-                  </Tooltip>,
-                  <Tooltip key="delete" title="Remove">
-                    <Button size="small" danger icon={<DeleteOutlined />}
-                      onClick={() => removePhoto(item.id)} />
-                  </Tooltip>,
-                ]}
-              >
-                <Space>
-                  <Text type="secondary" style={{ width: 24, textAlign: 'center' }}>
-                    {idx + 1}
-                  </Text>
-                  <div style={{
-                    width: 60, height: 60, overflow: 'hidden', borderRadius: 4,
-                    border: '1px solid #d9d9d9', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <img
-                      src={item.preview}
-                      alt={item.file.name}
-                      style={{
-                        maxWidth: '100%', maxHeight: '100%', objectFit: 'cover',
-                        transform: `rotate(${item.rotation}deg)`,
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <Text ellipsis style={{ maxWidth: 200, display: 'block' }}>{item.file.name}</Text>
-                    {item.rotation > 0 && (
-                      <Text type="secondary" style={{ fontSize: 11 }}>Rotated {item.rotation}°</Text>
-                    )}
-                  </div>
-                </Space>
-              </List.Item>
-            )}
-          />
+          // Desktop scrolls the list inside the dialog; a phone sheet already scrolls its body
+          <ol className="rb-photos" style={isPhone ? undefined : { maxHeight: 400, overflow: 'auto' }}>
+            {photos.map((item, idx) => (
+              <li key={item.id} className="rb-photo">
+                <span className="rb-photo-index">{idx + 1}</span>
+                <div className="rb-photo-thumb">
+                  <img
+                    src={item.preview}
+                    alt={item.file.name}
+                    style={{ transform: `rotate(${item.rotation}deg)` }}
+                  />
+                </div>
+                <div className="rb-photo-text">
+                  <Text ellipsis className="rb-photo-name">{item.file.name}</Text>
+                  {item.rotation > 0 && <span className="rb-photo-meta">Rotated {item.rotation}°</span>}
+                </div>
+                <div className="rb-photo-actions">
+                  <Tooltip title={isPhone ? undefined : 'Move up'}>
+                    <Button type="text" size={ctlSize} className="ui-icon-btn" icon={<ArrowUpOutlined />}
+                      disabled={idx === 0} aria-label="Move up" onClick={() => movePhoto(item.id, -1)} />
+                  </Tooltip>
+                  <Tooltip title={isPhone ? undefined : 'Move down'}>
+                    <Button type="text" size={ctlSize} className="ui-icon-btn" icon={<ArrowDownOutlined />}
+                      disabled={idx === photos.length - 1} aria-label="Move down" onClick={() => movePhoto(item.id, 1)} />
+                  </Tooltip>
+                  <Tooltip title={isPhone ? undefined : `Rotate (${item.rotation}°)`}>
+                    <Button type="text" size={ctlSize} className="ui-icon-btn" icon={<RotateRightOutlined />}
+                      aria-label="Rotate 90°" onClick={() => rotatePhoto(item.id)} />
+                  </Tooltip>
+                  <Tooltip title={isPhone ? undefined : 'Remove'}>
+                    <Button type="text" size={ctlSize} className="ui-icon-btn ui-icon-btn--danger" icon={<DeleteOutlined />}
+                      aria-label="Remove photo" onClick={() => removePhoto(item.id)} />
+                  </Tooltip>
+                </div>
+              </li>
+            ))}
+          </ol>
         )}
       </Space>
     </Modal>

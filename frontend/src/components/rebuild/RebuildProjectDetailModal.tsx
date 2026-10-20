@@ -8,7 +8,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Modal, Button, Select, Dropdown, Grid, Skeleton, Form, Input, Upload, message, Tooltip,
+  Modal, Button, Select, Dropdown, Skeleton, Form, Input, Upload, message, Tooltip,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -16,7 +16,7 @@ import {
   CheckCircleFilled, ExportOutlined, ArrowLeftOutlined, SwapOutlined, InboxOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { Pill, PropertyList, humanize, toneFromKey } from '../common/ui';
+import { Pill, PropertyList, humanize, toneFromKey, useSheetModal } from '../common/ui';
 import { tagTones } from '../../styles/tokens';
 import { rebuildService } from '../../services/rebuildService';
 import { supplementService } from '../../services/supplementService';
@@ -72,8 +72,10 @@ const CompanyMonogram: React.FC<{ id: string; name: string }> = ({ id, name }) =
 
 const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, onEdit, onChanged }) => {
   const queryClient = useQueryClient();
-  const screens = Grid.useBreakpoint();
-  const isPhone = !screens.md;
+  const { isPhone, sheetProps } = useSheetModal('tall');
+  const { sheetProps: uploadSheetProps } = useSheetModal();
+  // Touch gets 32px controls; desktop keeps the compact 24px ones
+  const ctlSize = isPhone ? 'middle' : 'small';
 
   const [viewing, setViewing] = useState<Viewing | null>(null);
   const [docGeneratorOpen, setDocGeneratorOpen] = useState(false);
@@ -250,7 +252,7 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
         )}
         {showSent && doc.status === 'sent' && <Pill tone="green">Sent</Pill>}
         <Dropdown menu={{ items: docMenu(doc) }} trigger={['click']} placement="bottomRight">
-          <Button type="text" size="small" className="ui-icon-btn" icon={<MoreOutlined />} aria-label={`Actions for ${doc.title}`} />
+          <Button type="text" size={ctlSize} className="ui-icon-btn" icon={<MoreOutlined />} aria-label={`Actions for ${doc.title}`} />
         </Dropdown>
       </div>
     );
@@ -260,7 +262,7 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
     const again = hasDocs ? ' again' : '';
     if (type === 'coc') {
       return (
-        <Button size="small" type={hasDocs ? 'text' : 'default'} className={hasDocs ? 'ui-icon-btn' : undefined}
+        <Button size={ctlSize} type={hasDocs ? 'text' : 'default'} className={hasDocs ? 'ui-icon-btn' : undefined}
           icon={<FilePdfOutlined />} onClick={() => setDocGeneratorOpen(true)}>
           {hasDocs ? 'Regenerate' : 'Generate'}
         </Button>
@@ -268,14 +270,14 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
     }
     if (type === 'completion_photo') {
       return (
-        <Button size="small" type={hasDocs ? 'text' : 'default'} className={hasDocs ? 'ui-icon-btn' : undefined}
+        <Button size={ctlSize} type={hasDocs ? 'text' : 'default'} className={hasDocs ? 'ui-icon-btn' : undefined}
           icon={<CameraOutlined />} onClick={() => setPhotoToPdfOpen(true)}>
           {hasDocs ? 'Add photos' : 'Photos to PDF'}
         </Button>
       );
     }
     return (
-      <Button size="small" type={hasDocs ? 'text' : 'default'} className={hasDocs ? 'ui-icon-btn' : undefined}
+      <Button size={ctlSize} type={hasDocs ? 'text' : 'default'} className={hasDocs ? 'ui-icon-btn' : undefined}
         icon={<UploadOutlined />} onClick={() => openUpload(type)}>
         {`Upload${again}`}
       </Button>
@@ -294,7 +296,7 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
             Completion documents
             <span className="sup-section-count">{sentCount} of {REQUIRED_DOCS.length} sent</span>
           </h2>
-          <Button size="small" type="text" className="ui-icon-btn" icon={<PlusOutlined />} onClick={() => openUpload('other')}>
+          <Button size={ctlSize} type="text" className="ui-icon-btn" icon={<PlusOutlined />} onClick={() => openUpload('other')}>
             Other document
           </Button>
         </div>
@@ -474,7 +476,7 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
       <div className="rb-head-title">{project.property_address || project.title}</div>
       <div className="rb-head-meta">
         <Select
-          size="small"
+          size={ctlSize}
           className="sup-status-select rb-status-select"
           value={project.status}
           onChange={v => updateProject({ status: v })}
@@ -497,10 +499,11 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
         open={open}
         title={header}
         onCancel={onClose}
-        width={isPhone ? '100%' : 1180}
-        style={{ top: isPhone ? 8 : 24, maxWidth: isPhone ? 'calc(100vw - 16px)' : '96vw' }}
+        width={1180}
+        style={isPhone ? undefined : { top: 24, maxWidth: '96vw' }}
         className="rb-modal"
         destroyOnClose
+        {...sheetProps}
         footer={[
           <Button key="close" onClick={onClose}>Close</Button>,
           <Button key="edit" type="primary" disabled={!project} onClick={() => project && onEdit(project)}>Edit</Button>,
@@ -556,8 +559,9 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
         confirmLoading={uploading}
         onCancel={() => setUploadOpen(false)}
         destroyOnClose
+        {...uploadSheetProps}
       >
-        <Form form={uploadForm} layout="vertical" preserve={false}>
+        <Form form={uploadForm} layout="vertical" preserve={false} size={isPhone ? 'large' : undefined}>
           <Form.Item name="doc_type" label="Document type" rules={[{ required: true }]}>
             <Select options={Object.entries(DOC_TYPE_LABELS).map(([value, label]) => ({ value, label }))} />
           </Form.Item>
@@ -579,7 +583,7 @@ const RebuildProjectDetailModal: React.FC<Props> = ({ projectId, open, onClose, 
               onRemove={() => setUploadFile(null)}
             >
               <p className="ant-upload-drag-icon"><UploadOutlined /></p>
-              <p className="ant-upload-text">Click or drop a PDF here</p>
+              <p className="ant-upload-text">{isPhone ? 'Tap to choose a PDF' : 'Click or drop a PDF here'}</p>
             </Upload.Dragger>
           </Form.Item>
           <Form.Item name="description" label="Note">

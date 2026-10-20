@@ -884,6 +884,14 @@ h4.ant-typography {
   flex-shrink: 0;
   gap: 6px;
 }
+/* Touch and phones: the tabs are the list's main filter, so they get a thumb-sized row */
+@media (pointer: coarse), (max-width: 767.98px) {
+  .sup-status-tabs .ant-btn.ui-view-tab,
+  .ui-status-tabs .ant-btn.ui-view-tab {
+    height: 32px;
+    padding: 0 10px;
+  }
+}
 .sup-tab-count,
 .ui-tab-count {
   color: var(--color-neutral-600);

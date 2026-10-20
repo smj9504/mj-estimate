@@ -6,7 +6,7 @@
  */
 
 import React, { useRef, useState, useCallback, useEffect } from 'react';
-import { Modal, Button, Typography, Tabs, Input } from 'antd';
+import { Modal, Button, Typography, Tabs, Input, Grid } from 'antd';
 import {
   ClearOutlined, CheckOutlined, UndoOutlined,
   EditOutlined, FontSizeOutlined,
@@ -48,6 +48,10 @@ const loadSignatureFonts = () => {
 const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
   open, onClose, onSave, defaultName, initialImage,
 }) => {
+  // Touch screens get 32px tool buttons instead of the compact 24px ones
+  const screens = Grid.useBreakpoint();
+  const toolSize = screens.md ? 'small' : 'middle';
+
   // Draw mode state
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -352,7 +356,7 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
               gap: 6,
             }}>
               <Button
-                size="small"
+                size={toolSize}
                 icon={<UndoOutlined />}
                 onClick={undo}
                 disabled={history.length === 0}
@@ -360,7 +364,7 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
                 Undo
               </Button>
               <Button
-                size="small"
+                size={toolSize}
                 icon={<ClearOutlined />}
                 onClick={clearCanvas}
                 disabled={!hasDrawn}
@@ -386,7 +390,7 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
                 <Button
                   key={font.label}
                   type={selectedFont === font.value ? 'primary' : 'default'}
-                  size="small"
+                  size={toolSize}
                   onClick={() => setSelectedFont(font.value)}
                   style={{ fontFamily: font.value, fontSize: 15 }}
                 >

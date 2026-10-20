@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Modal, Steps, Select, Form, Input, Button, Descriptions, Space, Spin,
-  message, Typography, Tag, Alert, Divider,
+  Modal, Steps, Select, Form, Input, Button, Descriptions, Spin,
+  message, Typography, Alert, Divider,
 } from 'antd';
 import {
   FileTextOutlined, EditOutlined, FormOutlined, CheckCircleOutlined,
 } from '@ant-design/icons';
 import { rebuildService } from '../../services/rebuildService';
-import { humanize } from '../common/ui';
+import { humanize, useSheetModal } from '../common/ui';
 import WMSignaturePad from '../water-mitigation/pdf-annotator/WMSignaturePad';
 import type { RebuildProject, RebuildCompletionDoc } from '../../types/rebuild';
 
@@ -45,6 +45,8 @@ const DOC_TYPE_OPTIONS = [
 ];
 
 const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSuccess }) => {
+  const { isPhone, sheetProps } = useSheetModal();
+  const formSize = isPhone ? 'large' : 'small';
   const [step, setStep] = useState(0);
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateInfo | null>(null);
@@ -159,7 +161,7 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
             : "Assign a contractor, or set the claim's reconstruction company, to use that company's templates."}
         />
       )}
-      <Form layout="vertical" size="small">
+      <Form layout="vertical" size={formSize}>
         <Form.Item label="Contract Template" required>
           <Select
             placeholder="Select a template..."
@@ -192,10 +194,23 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
     return (
       <div>
         <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-          Review auto-filled values. Click any value to override it.
+          Review auto-filled values. {isPhone ? 'Tap' : 'Click'} any value to override it.
         </Text>
         {uniqueFields.length === 0 ? (
           <Alert type="info" message="This template has no field mappings. The original PDF will be used as-is." showIcon />
+        ) : isPhone ? (
+          // Phones: one labelled field per row, so long values get the full width
+          <Form layout="vertical" size={formSize}>
+            {uniqueFields.map((field: any) => (
+              <Form.Item key={field.fieldKey} label={field.label || field.fieldKey} style={{ marginBottom: 12 }}>
+                <Input
+                  value={resolveFieldValue(field.fieldKey)}
+                  onChange={e => handleOverride(field.fieldKey, e.target.value)}
+                  placeholder="(empty)"
+                />
+              </Form.Item>
+            ))}
+          </Form>
         ) : (
           <Descriptions size="small" column={1} bordered>
             {uniqueFields.map((field: any) => (
@@ -214,7 +229,7 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
         )}
 
         <Divider style={{ margin: '16px 0 12px' }} />
-        <Form layout="vertical" size="small">
+        <Form layout="vertical" size={formSize}>
           <Form.Item label="Additional Notes (printed on document)">
             <TextArea
               rows={3}
@@ -238,7 +253,7 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
           : 'This template has no signature box, so the signature goes at the bottom right of the last page.'}
       </Text>
       {boxes.length > 1 && (
-        <Form layout="vertical" size="small">
+        <Form layout="vertical" size={formSize}>
           <Form.Item label="Sign as">
             <Select value={signatureFieldKey} onChange={setSignatureFieldKey}
               options={boxes.map(b => ({ value: b.key, label: b.label }))} />
@@ -246,7 +261,7 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
         </Form>
       )}
       {signatureImage ? (
-        <div style={{ textAlign: 'center', padding: 16, border: '1px solid #d9d9d9', borderRadius: 8, marginBottom: 12 }}>
+        <div style={{ textAlign: 'center', padding: 16, border: '1px solid var(--color-neutral-200)', borderRadius: 8, marginBottom: 12 }}>
           <img src={signatureImage} alt="Signature" style={{ maxHeight: 80 }} />
           <div style={{ marginTop: 8 }}>
             <Text>{signatureName}</Text>
@@ -256,7 +271,7 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
           </Button>
         </div>
       ) : (
-        <div style={{ textAlign: 'center', padding: 24, border: '1px dashed #d9d9d9', borderRadius: 8, marginBottom: 12 }}>
+        <div style={{ textAlign: 'center', padding: 24, border: '1px dashed var(--color-neutral-400)', borderRadius: 8, marginBottom: 12 }}>
           <Button type="primary" onClick={() => setSignaturePadOpen(true)}>
             Add Signature
           </Button>
@@ -293,8 +308,9 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
       open={open}
       width={650}
       onCancel={handleClose}
+      {...sheetProps}
       footer={
-        <Space>
+        <>
           <Button onClick={handleClose}>Cancel</Button>
           {step > 0 && <Button onClick={() => setStep(s => s - 1)}>Back</Button>}
           {step < 2 ? (
@@ -311,11 +327,12 @@ const RebuildDocGenerator: React.FC<Props> = ({ open, project, onClose, onSucces
               Generate PDF
             </Button>
           )}
-        </Space>
+        </>
       }
     >
       <Spin spinning={loading}>
-        <Steps current={step} size="small" items={steps} style={{ marginBottom: 20 }} />
+        {/* Stays a single row on phones instead of stacking into a tall vertical list */}
+        <Steps current={step} size="small" items={steps} responsive={false} style={{ marginBottom: 20 }} />
         {step === 0 && renderStep0()}
         {step === 1 && renderStep1()}
         {step === 2 && renderStep2()}
