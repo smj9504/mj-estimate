@@ -437,6 +437,8 @@ export interface Client {
   company_id?: string;
   notes?: string;
   is_active: boolean;
+  /** null/undefined = entered in this app, 'acculynx' = AccuLynx archive import */
+  source?: 'acculynx' | null;
   claims: Claim[];
   claim_count: number;
   standalone_invoice_count: number;

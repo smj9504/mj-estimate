@@ -2667,7 +2667,23 @@ const ClientDetail: React.FC = () => {
     .filter(Boolean)
     .join(', ');
 
+  // A client created by the AccuLynx import leads with its AccuLynx history;
+  // a client the import matched to an existing one keeps it at the end
+  const isAccuLynxImport = client.source === 'acculynx';
+  const accuLynxHistoryTab = {
+    key: 'acculynx-history',
+    label: (
+      <Space>
+        <HistoryOutlined />
+        AccuLynx History
+        <Badge count={archivedJobs.length} style={{ backgroundColor: '#8c8c8c' }} />
+      </Space>
+    ),
+    children: <AccuLynxArchiveTab jobs={archivedJobs} isLoading={archivedJobsLoading} />,
+  };
+
   const tabItems = [
+    ...(isAccuLynxImport ? [accuLynxHistoryTab] : []),
     {
       key: 'claims',
       label: (
@@ -2711,21 +2727,7 @@ const ClientDetail: React.FC = () => {
       ),
       children: <AllDocumentsTab client={client} />,
     },
-    ...(archivedJobs.length > 0
-      ? [
-          {
-            key: 'acculynx-history',
-            label: (
-              <Space>
-                <HistoryOutlined />
-                AccuLynx History
-                <Badge count={archivedJobs.length} style={{ backgroundColor: '#8c8c8c' }} />
-              </Space>
-            ),
-            children: <AccuLynxArchiveTab jobs={archivedJobs} isLoading={archivedJobsLoading} />,
-          },
-        ]
-      : []),
+    ...(!isAccuLynxImport && archivedJobs.length > 0 ? [accuLynxHistoryTab] : []),
   ];
 
   const createDocumentItems = [
@@ -2877,7 +2879,7 @@ const ClientDetail: React.FC = () => {
 
       {/* Tabs */}
       <Card className="cl-sheet">
-        <Tabs defaultActiveKey="claims" items={tabItems} />
+        <Tabs defaultActiveKey={isAccuLynxImport ? 'acculynx-history' : 'claims'} items={tabItems} />
       </Card>
 
       {/* Edit Modal */}
