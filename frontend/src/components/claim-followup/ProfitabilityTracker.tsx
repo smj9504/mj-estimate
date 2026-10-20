@@ -13,6 +13,7 @@ import dayjs from 'dayjs';
 import { expenseService } from '../../services/clientService';
 import type { ClaimExpense, ClaimExpenseCreate, ProfitabilitySummary, EXPENSE_CATEGORY_LABELS } from '../../types/client';
 import type { ColumnsType } from 'antd/es/table';
+import { useSheetModal } from '../common/ui';
 
 const { Text } = Typography;
 
@@ -43,6 +44,7 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
   const queryClient = useQueryClient();
   const [expenseModalOpen, setExpenseModalOpen] = useState(false);
   const [form] = Form.useForm();
+  const { isPhone, sheetProps } = useSheetModal();
 
   const { data: profitability, isLoading } = useQuery({
     queryKey: ['profitability', clientId, claimId],
@@ -77,10 +79,25 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
       title: 'Category', dataIndex: 'category', width: 110,
       render: (c: string) => <Tag color={CAT_COLORS[c] || 'default'}>{CAT_LABELS[c] || c}</Tag>,
     },
-    { title: 'Description', dataIndex: 'description', ellipsis: true },
+    {
+      title: 'Description', dataIndex: 'description', ellipsis: !isPhone,
+      // Phones fold vendor and date under the description
+      render: (d: string, r) => {
+        if (!isPhone) return d;
+        const meta = [r.vendor_name, r.expense_date && dayjs(r.expense_date).format('MM/DD/YY')]
+          .filter(Boolean).join(' · ');
+        return (
+          <>
+            <div>{d}</div>
+            {meta && <Text type="secondary" style={{ fontSize: 12 }}>{meta}</Text>}
+          </>
+        );
+      },
+    },
     {
       title: 'Vendor', dataIndex: 'vendor_name', width: 120, ellipsis: true,
       render: (v?: string) => v || '-',
+      responsive: ['md'],
     },
     {
       title: 'Amount', dataIndex: 'amount', width: 100, align: 'right',
@@ -89,6 +106,7 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
     {
       title: 'Date', dataIndex: 'expense_date', width: 90,
       render: (d?: string) => d ? dayjs(d).format('MM/DD/YY') : '-',
+      responsive: ['md'],
     },
     {
       title: '', key: 'actions', width: 40,
@@ -209,13 +227,13 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
           const total = data.reduce((sum, e) => sum + (e.amount || 0), 0);
           return total > 0 ? (
             <Table.Summary.Row>
-              <Table.Summary.Cell index={0} colSpan={3}>
+              <Table.Summary.Cell index={0} colSpan={isPhone ? 2 : 3}>
                 <Text strong>Total</Text>
               </Table.Summary.Cell>
               <Table.Summary.Cell index={1} align="right">
                 <Text strong>{formatCurrency(total)}</Text>
               </Table.Summary.Cell>
-              <Table.Summary.Cell index={2} colSpan={2} />
+              <Table.Summary.Cell index={2} colSpan={isPhone ? 1 : 2} />
             </Table.Summary.Row>
           ) : null;
         }}
@@ -231,15 +249,16 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
           });
         })}
         onCancel={() => { setExpenseModalOpen(false); form.resetFields(); }}
-        confirmLoading={createMutation.isPending}>
-        <Form form={form} layout="vertical" size="small">
+        confirmLoading={createMutation.isPending}
+        {...sheetProps}>
+        <Form form={form} layout="vertical" size={isPhone ? undefined : 'small'} className="cl-form">
           <Row gutter={12}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="category" label="Category" rules={[{ required: true }]}>
                 <Select options={Object.entries(CAT_LABELS).map(([k, v]) => ({ value: k, label: v }))} />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="amount" label="Amount" rules={[{ required: true }]}>
                 <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
               </Form.Item>
@@ -249,12 +268,12 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
             <Input placeholder="e.g., Drywall sheets, 4x8" />
           </Form.Item>
           <Row gutter={12}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="vendor_name" label="Vendor">
                 <Input placeholder="Home Depot, etc." />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="expense_date" label="Date">
                 <DatePicker style={{ width: '100%' }} />
               </Form.Item>

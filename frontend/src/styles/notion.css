@@ -3254,3 +3254,220 @@ mark.fu-tpl-missing {
     animation: none;
   }
 }
+
+/* ============================================================
+   Phone sheet with the buttons inside the form (footer={null}):
+   the Cancel / Save Form.Item (className="ui-form-actions") pins to
+   the bottom of the scrolling sheet body, like the sheet footer.
+   ============================================================ */
+
+@media (max-width: 767.98px) {
+  .ui-sheet .ui-form-actions.ant-form-item {
+    position: sticky;
+    /* sticks inside the body's 16px bottom padding, so cover it */
+    bottom: -16px;
+    z-index: 2;
+    margin: 0 -16px -16px !important;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-neutral-200);
+  }
+  .ui-sheet .ui-form-actions .ant-space {
+    display: flex;
+    width: 100%;
+  }
+  .ui-sheet .ui-form-actions .ant-space-item {
+    flex: 1 1 0;
+  }
+  .ui-sheet .ui-form-actions .ant-btn {
+    width: 100%;
+    height: 40px;
+  }
+  /* The sheet header already ends in a hairline */
+  .ui-sheet .ant-modal-body:has(> .cl-form) > .ant-divider:first-child {
+    display: none;
+  }
+}
+
+/* ============================================================
+   Clients (list and detail). Desktop keeps its cards; on a phone
+   the page is the sheet and the boxes give their width back.
+   ============================================================ */
+
+.cl-money {
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Claim facts: label over value, as many across as fit */
+.cl-claim-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px 16px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.cl-claim-facts > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Insurance estimate revisions on a phone: one block per revision */
+.cl-rev-list {
+  border-top: 1px solid var(--color-neutral-200);
+}
+.cl-rev {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.cl-rev-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cl-rev-num {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.cl-rev-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.cl-rev-figures strong {
+  font-weight: 500;
+  font-size: 14px;
+}
+.cl-rev-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+.cl-rev-foot .cl-file-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+}
+.cl-rev-sections {
+  margin-top: 8px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: var(--color-neutral-50);
+}
+.cl-rev-section {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.cl-rev-section:last-child {
+  border-bottom: none;
+}
+.cl-rev-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 500;
+}
+.cl-rev-section-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 12px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+.cl-rev-section-grid span:nth-child(even) {
+  text-align: right;
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Revision PDF extraction on a phone: each section's amounts in a grid */
+.cl-sec-edit {
+  margin-bottom: 12px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.cl-sec-edit-item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.cl-sec-edit-totals {
+  padding: 12px 0 0;
+  font-size: 13px;
+}
+.cl-sec-edit-name {
+  margin-bottom: 8px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.cl-sec-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+.cl-sec-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+
+@media (max-width: 767.98px) {
+  .cl-sheet.ant-card {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+  }
+  /* index.css pads every phone card body with !important */
+  .cl-sheet.ant-card > .ant-card-body {
+    padding: 0 !important;
+  }
+
+  /* Claims stay boxed (they are the records), with phone-sized padding */
+  .cl-claims.ant-collapse > .ant-collapse-item > .ant-collapse-header {
+    padding: 12px;
+    align-items: flex-start;
+  }
+  .cl-claims.ant-collapse > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
+    padding: 12px;
+  }
+
+  .cl-claim-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+  }
+  .cl-claim-fact--wide {
+    grid-column: 1 / -1;
+  }
+
+  /* Row icon buttons grow to a thumb-sized target */
+  .ant-btn.cl-touch-icon {
+    width: 36px !important;
+    height: 36px !important;
+  }
+}
+
+/* iOS Safari zooms the page into any focused field under 16px */
+@media (max-width: 767.98px) and (pointer: coarse) {
+  .cl-page .ant-input,
+  .cl-page .ant-input-affix-wrapper,
+  .cl-form .ant-input,
+  .cl-form .ant-input-affix-wrapper,
+  .cl-form .ant-input-number-input,
+  .cl-form .ant-select-selector,
+  .cl-form .ant-picker-input > input,
+  .cl-sec-edit .ant-input-number-input {
+    font-size: 16px;
+  }
+}

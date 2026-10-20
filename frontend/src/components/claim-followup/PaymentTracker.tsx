@@ -38,6 +38,7 @@ import {
 import dayjs from 'dayjs';
 import { paymentService, claimService } from '../../services/clientService';
 import type { ClaimPayment, ClaimPaymentCreate, PaymentSummary } from '../../types/client';
+import { useSheetModal } from '../common/ui';
 import type { ColumnsType } from 'antd/es/table';
 
 const { Text, Title } = Typography;
@@ -76,6 +77,7 @@ const PaymentTracker: React.FC<PaymentTrackerProps> = ({
   const queryClient = useQueryClient();
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [form] = Form.useForm();
+  const { isPhone, sheetProps } = useSheetModal();
 
   // Query payment summary
   const { data: summary, isLoading } = useQuery({
@@ -122,8 +124,23 @@ const PaymentTracker: React.FC<PaymentTrackerProps> = ({
       title: 'Type',
       dataIndex: 'payment_type',
       key: 'payment_type',
-      width: 160,
-      render: (type: string) => PAYMENT_TYPE_LABELS[type] || type,
+      width: isPhone ? undefined : 160,
+      // Phones fold check #, date and description under the type
+      render: (type: string, record) => {
+        const label = PAYMENT_TYPE_LABELS[type] || type;
+        if (!isPhone) return label;
+        const meta = [
+          record.check_number && `#${record.check_number}`,
+          record.received_date && dayjs(record.received_date).format('MM/DD/YYYY'),
+          record.description,
+        ].filter(Boolean).join(' · ');
+        return (
+          <>
+            <div>{label}</div>
+            {meta && <Text type="secondary" style={{ fontSize: 12 }}>{meta}</Text>}
+          </>
+        );
+      },
     },
     {
       title: 'Amount',
@@ -138,6 +155,7 @@ const PaymentTracker: React.FC<PaymentTrackerProps> = ({
       dataIndex: 'check_number',
       key: 'check_number',
       width: 120,
+      responsive: ['md'],
       render: (val?: string) => val || '-',
     },
     {
@@ -145,6 +163,7 @@ const PaymentTracker: React.FC<PaymentTrackerProps> = ({
       dataIndex: 'received_date',
       key: 'received_date',
       width: 120,
+      responsive: ['md'],
       render: (date?: string) => date ? dayjs(date).format('MM/DD/YYYY') : '-',
     },
     {
@@ -152,6 +171,7 @@ const PaymentTracker: React.FC<PaymentTrackerProps> = ({
       dataIndex: 'description',
       key: 'description',
       ellipsis: true,
+      responsive: ['md'],
     },
     {
       title: '',
@@ -312,27 +332,28 @@ const PaymentTracker: React.FC<PaymentTrackerProps> = ({
         onCancel={() => { setPaymentModalOpen(false); form.resetFields(); }}
         confirmLoading={createMutation.isPending}
         width={500}
+        {...sheetProps}
       >
-        <Form form={form} layout="vertical" size="small">
+        <Form form={form} layout="vertical" size={isPhone ? undefined : 'small'} className="cl-form">
           <Row gutter={12}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="payment_type" label="Payment Type" rules={[{ required: true }]} initialValue="insurance">
                 <Select options={Object.entries(PAYMENT_TYPE_LABELS).map(([k, v]) => ({ value: k, label: v }))} />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="amount" label="Amount" rules={[{ required: true }]}>
                 <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
               </Form.Item>
             </Col>
           </Row>
           <Row gutter={12}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="check_number" label="Check #">
                 <Input placeholder="Check number" />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="received_date" label="Date Received">
                 <DatePicker style={{ width: '100%' }} />
               </Form.Item>

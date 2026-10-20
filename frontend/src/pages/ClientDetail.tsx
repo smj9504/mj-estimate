@@ -31,13 +31,13 @@ import {
   Upload,
   Drawer,
   Dropdown,
+  Grid,
 } from 'antd';
 import {
   ArrowLeftOutlined,
   EditOutlined,
   PlusOutlined,
   DeleteOutlined,
-  UserOutlined,
   FileTextOutlined,
   MinusCircleOutlined,
   DollarOutlined,
@@ -62,6 +62,8 @@ import {
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
+import { PageHeader, Pill, useSheetModal } from '../components/common/ui';
+import { useBreadcrumbTitle } from '../contexts/BreadcrumbContext';
 import { clientService, claimService, negotiationService, claimActivityService } from '../services/clientService';
 import { fileService } from '../services/fileService';
 import { companyService } from '../services/companyService';
@@ -100,7 +102,7 @@ import type { ColumnsType } from 'antd/es/table';
 
 dayjs.extend(relativeTime);
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 const { Option } = Select;
 const { Panel } = Collapse;
 
@@ -218,6 +220,7 @@ const EditClientModal: React.FC<EditClientModalProps> = ({
   loading,
 }) => {
   const [form] = Form.useForm<ClientCreate>();
+  const { sheetProps } = useSheetModal('tall');
 
   React.useEffect(() => {
     if (open) {
@@ -256,11 +259,12 @@ const EditClientModal: React.FC<EditClientModalProps> = ({
       onCancel={onCancel}
       footer={null}
       width={760}
+      {...sheetProps}
       destroyOnHidden
       maskClosable={false}
     >
       <Divider style={{ margin: '16px 0 24px' }} />
-      <Form form={form} layout="vertical" onFinish={handleFinish} scrollToFirstError>
+      <Form form={form} layout="vertical" className="cl-form" onFinish={handleFinish} scrollToFirstError>
         <Form.Item
           name="display_name"
           label="Display Name"
@@ -372,7 +376,7 @@ const EditClientModal: React.FC<EditClientModalProps> = ({
           <Input.TextArea rows={3} />
         </Form.Item>
 
-        <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+        <Form.Item className="ui-form-actions" style={{ marginBottom: 0, textAlign: 'right' }}>
           <Space>
             <Button onClick={onCancel}>Cancel</Button>
             <Button type="primary" htmlType="submit" loading={loading}>Save Changes</Button>
@@ -405,6 +409,8 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
   loading,
 }) => {
   const [form] = Form.useForm<ClaimCreate>();
+  const { sheetProps } = useSheetModal('tall');
+  const { sheetProps: paSheetProps } = useSheetModal();
 
   // PA contacts for the claim's Public Adjuster link. Loaded once the modal
   // opens rather than on page load, since most visits never edit a claim.
@@ -541,11 +547,12 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
       onCancel={onCancel}
       footer={null}
       width={700}
+      {...sheetProps}
       destroyOnHidden
       maskClosable={false}
     >
       <Divider style={{ margin: '16px 0 24px' }} />
-      <Form form={form} layout="vertical" onFinish={handleFinish} scrollToFirstError>
+      <Form form={form} layout="vertical" className="cl-form" onFinish={handleFinish} scrollToFirstError>
         <Row gutter={12}>
           <Col xs={24} sm={12}>
             <Form.Item name="claim_number" label="Claim Number"
@@ -700,7 +707,7 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           <Input.TextArea rows={2} />
         </Form.Item>
 
-        <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+        <Form.Item className="ui-form-actions" style={{ marginBottom: 0, textAlign: 'right' }}>
           <Space>
             <Button onClick={onCancel}>Cancel</Button>
             <Button type="primary" htmlType="submit" loading={loading}>
@@ -718,8 +725,9 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
         confirmLoading={paSaving}
         okText="Add"
         destroyOnClose
+        {...paSheetProps}
       >
-        <Form form={paForm} layout="vertical" preserve={false}>
+        <Form form={paForm} layout="vertical" className="cl-form" preserve={false}>
           <Form.Item
             name="company_id"
             label="PA Company"
@@ -783,6 +791,14 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
 // Add Negotiation Modal
 // ─────────────────────────────────────────────
 
+// Editable amounts per extracted section, and the revision total each sums into
+const SECTION_AMOUNT_FIELDS = [
+  { key: 'rcv', label: 'RCV', width: 130, total: 'rcv_amount' },
+  { key: 'depreciation', label: 'Depreciation', width: 130, total: 'depreciation_amount' },
+  { key: 'deductible', label: 'Deductible', width: 120, total: 'deductible' },
+  { key: 'net_acv', label: 'Net ACV', width: 130, total: 'acv_amount' },
+] as const;
+
 interface NegotiationModalProps {
   open: boolean;
   clientId: string;
@@ -801,6 +817,7 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
   loading,
 }) => {
   const [form] = Form.useForm();
+  const { isPhone, sheetProps } = useSheetModal('tall');
   const [activeTab, setActiveTab] = useState<'pdf' | 'manual'>('pdf');
   const [extracting, setExtracting] = useState(false);
   const [extraction, setExtraction] = useState<PdfExtractionResult | null>(null);
@@ -879,75 +896,90 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
       width: 200,
       ellipsis: true,
     },
-    {
-      title: 'RCV',
-      dataIndex: 'rcv',
-      key: 'rcv',
-      width: 130,
-      render: (val: number, record) => (
+    ...SECTION_AMOUNT_FIELDS.map((f) => ({
+      title: f.label,
+      dataIndex: f.key,
+      key: f.key,
+      width: f.width,
+      render: (val: number, record: NegotiationSection & { _idx: number }) => (
         <InputNumber
           size="small"
           prefix="$"
           value={val}
-          onChange={(v) => handleSectionEdit(record._idx, 'rcv', v)}
+          onChange={(v) => handleSectionEdit(record._idx, f.key, v)}
           style={{ width: '100%' }}
           min={0}
           step={100}
         />
       ),
-    },
-    {
-      title: 'Depreciation',
-      dataIndex: 'depreciation',
-      key: 'depreciation',
-      width: 130,
-      render: (val: number, record) => (
-        <InputNumber
-          size="small"
-          prefix="$"
-          value={val}
-          onChange={(v) => handleSectionEdit(record._idx, 'depreciation', v)}
-          style={{ width: '100%' }}
-          min={0}
-          step={100}
-        />
-      ),
-    },
-    {
-      title: 'Deductible',
-      dataIndex: 'deductible',
-      key: 'deductible',
-      width: 120,
-      render: (val: number, record) => (
-        <InputNumber
-          size="small"
-          prefix="$"
-          value={val}
-          onChange={(v) => handleSectionEdit(record._idx, 'deductible', v)}
-          style={{ width: '100%' }}
-          min={0}
-          step={100}
-        />
-      ),
-    },
-    {
-      title: 'Net ACV',
-      dataIndex: 'net_acv',
-      key: 'net_acv',
-      width: 130,
-      render: (val: number, record) => (
-        <InputNumber
-          size="small"
-          prefix="$"
-          value={val}
-          onChange={(v) => handleSectionEdit(record._idx, 'net_acv', v)}
-          style={{ width: '100%' }}
-          min={0}
-          step={100}
-        />
-      ),
-    },
+    })),
   ];
+
+  // Phones: each section's amounts as a labelled two-by-two grid, total below
+  const sectionEditor = isPhone ? (
+    <div className="cl-sec-edit">
+      {editedSections.map((sec, idx) => (
+        <div key={`${sec.section_name}-${idx}`} className="cl-sec-edit-item">
+          <div className="cl-sec-edit-name">{sec.section_name}</div>
+          <div className="cl-sec-edit-grid">
+            {SECTION_AMOUNT_FIELDS.map((f) => (
+              <label key={f.key} className="cl-sec-edit-field">
+                <span>{f.label}</span>
+                <InputNumber
+                  prefix="$"
+                  value={sec[f.key]}
+                  onChange={(v) => handleSectionEdit(idx, f.key, v)}
+                  style={{ width: '100%' }}
+                  min={0}
+                  step={100}
+                  inputMode="decimal"
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
+      {computedTotals && (
+        <div className="cl-sec-edit-totals">
+          <div className="cl-sec-edit-name">Total</div>
+          <div className="cl-rev-section-grid">
+            {SECTION_AMOUNT_FIELDS.map((f) => (
+              <React.Fragment key={f.key}>
+                <span>{f.label}</span>
+                <span><strong>{formatCurrency(computedTotals[f.total])}</strong></span>
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  ) : (
+    <Table
+      size="small"
+      rowKey="section_name"
+      columns={sectionColumns}
+      dataSource={editedSections.map((s, i) => ({ ...s, _idx: i }))}
+      pagination={false}
+      scroll={{ x: 600 }}
+      style={{ marginBottom: 12 }}
+      summary={() =>
+        computedTotals ? (
+          <Table.Summary fixed>
+            <Table.Summary.Row>
+              <Table.Summary.Cell index={0}>
+                <Text strong>Total</Text>
+              </Table.Summary.Cell>
+              {SECTION_AMOUNT_FIELDS.map((f, i) => (
+                <Table.Summary.Cell key={f.key} index={i + 1}>
+                  <Text strong>{formatCurrency(computedTotals[f.total])}</Text>
+                </Table.Summary.Cell>
+              ))}
+            </Table.Summary.Row>
+          </Table.Summary>
+        ) : null
+      }
+    />
+  );
 
   return (
     <Modal
@@ -961,6 +993,7 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
       onCancel={onCancel}
       footer={null}
       width={800}
+      {...sheetProps}
       destroyOnHidden
       maskClosable={false}
     >
@@ -1010,14 +1043,16 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
 
                 {extraction && (
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <Space>
-                        <FilePdfOutlined style={{ color: '#ff4d4f' }} />
-                        <Text strong>{extraction.file_name}</Text>
-                        <Tag color="blue">{editedSections.length} section(s)</Tag>
-                      </Space>
+                    {/* A long file name wraps on its own line; tag and Re-upload follow */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <Text strong style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                        <FilePdfOutlined style={{ color: '#ff4d4f', marginRight: 8 }} />
+                        {extraction.file_name}
+                      </Text>
+                      <Tag color="blue" style={{ margin: 0 }}>{editedSections.length} section(s)</Tag>
                       <Button
                         size="small"
+                        style={{ marginLeft: 'auto' }}
                         onClick={() => { setExtraction(null); setEditedSections([]); }}
                       >
                         Re-upload
@@ -1049,38 +1084,7 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
                       />
                     )}
 
-                    <Table
-                      size="small"
-                      rowKey="section_name"
-                      columns={sectionColumns}
-                      dataSource={editedSections.map((s, i) => ({ ...s, _idx: i }))}
-                      pagination={false}
-                      scroll={{ x: 600 }}
-                      style={{ marginBottom: 12 }}
-                      summary={() =>
-                        computedTotals ? (
-                          <Table.Summary fixed>
-                            <Table.Summary.Row>
-                              <Table.Summary.Cell index={0}>
-                                <Text strong>Total</Text>
-                              </Table.Summary.Cell>
-                              <Table.Summary.Cell index={1}>
-                                <Text strong>{formatCurrency(computedTotals.rcv_amount)}</Text>
-                              </Table.Summary.Cell>
-                              <Table.Summary.Cell index={2}>
-                                <Text strong>{formatCurrency(computedTotals.depreciation_amount)}</Text>
-                              </Table.Summary.Cell>
-                              <Table.Summary.Cell index={3}>
-                                <Text strong>{formatCurrency(computedTotals.deductible)}</Text>
-                              </Table.Summary.Cell>
-                              <Table.Summary.Cell index={4}>
-                                <Text strong>{formatCurrency(computedTotals.acv_amount)}</Text>
-                              </Table.Summary.Cell>
-                            </Table.Summary.Row>
-                          </Table.Summary>
-                        ) : null
-                      }
-                    />
+                    {sectionEditor}
                   </div>
                 )}
               </div>
@@ -1096,7 +1100,7 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
         ]}
       />
 
-      <Form form={form} layout="vertical" onFinish={handleFinish} scrollToFirstError>
+      <Form form={form} layout="vertical" className="cl-form" onFinish={handleFinish} scrollToFirstError>
         <Row gutter={12}>
           <Col xs={24} sm={8}>
             <Form.Item name="revision_type" label="Revision Type"
@@ -1173,7 +1177,7 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
           <Input.TextArea rows={2} />
         </Form.Item>
 
-        <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+        <Form.Item className="ui-form-actions" style={{ marginBottom: 0, textAlign: 'right' }}>
           <Space>
             <Button onClick={onCancel}>Cancel</Button>
             <Button
@@ -1203,7 +1207,10 @@ interface NegotiationHistoryProps {
 const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim }) => {
   const [negModalOpen, setNegModalOpen] = useState(false);
   const [uploadingNegId, setUploadingNegId] = useState<string | null>(null);
+  const [openSectionsId, setOpenSectionsId] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const screens = Grid.useBreakpoint();
+  const isPhone = !screens.md;
 
   const { data, isLoading } = useQuery({
     queryKey: ['negotiations', clientId, claim.id],
@@ -1254,6 +1261,147 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
     );
     const idx = sameCat.findIndex((n) => n.id === record.id);
     return idx > 0 ? sameCat[idx - 1] : null;
+  };
+
+  // View / replace / delete the revision's PDF (table cell and phone row)
+  const renderFileActions = (record: ClaimNegotiation) => {
+    const fileId = record.file_download_id;
+    return (
+      <Space size={4}>
+        {fileId ? (
+          <Tooltip title={record.document_name || 'View PDF'}>
+            <a
+              className="cl-file-link"
+              href={`${fileService.getDownloadUrl(fileId)}?inline=true`}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`View PDF${record.document_name ? `: ${record.document_name}` : ''}`}
+            >
+              <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+            </a>
+          </Tooltip>
+        ) : record.document_url ? (
+          <Tooltip title="PDF file not found">
+            <FilePdfOutlined style={{ color: '#d9d9d9' }} />
+          </Tooltip>
+        ) : null}
+        <Upload
+          accept=".pdf"
+          maxCount={1}
+          showUploadList={false}
+          disabled={uploadingNegId === record.id}
+          beforeUpload={async (file) => {
+            if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
+            setUploadingNegId(record.id);
+            try {
+              const uploaded = await fileService.uploadFiles([file], 'negotiation', claim.id, 'insurance_estimate');
+              if (uploaded.length > 0) {
+                await negotiationService.update(clientId, claim.id, record.id, {
+                  file_id: uploaded[0].id,
+                } as any);
+                message.success('PDF replaced');
+                queryClient.invalidateQueries({ queryKey: ['negotiations', clientId, claim.id] });
+              }
+            } catch { message.error('Failed to replace PDF'); }
+            finally { setUploadingNegId(null); }
+            return false;
+          }}
+        >
+          <Tooltip title={fileId ? 'Replace PDF' : 'Upload PDF'}>
+            <Button type="text" size="small"
+              className="cl-touch-icon"
+              aria-label={fileId ? 'Replace PDF' : 'Upload PDF'}
+              icon={uploadingNegId === record.id ? <LoadingOutlined /> : <UploadOutlined />}
+              disabled={uploadingNegId === record.id}
+              style={{ padding: 0, width: 22, height: 22, color: fileId ? undefined : '#1890ff' }} />
+          </Tooltip>
+        </Upload>
+        <Popconfirm
+          title="Delete this insurance estimate?"
+          description={`v${record.revision_number} (RCV ${formatCurrency(record.rcv_amount)}) will be permanently deleted.`}
+          onConfirm={() => deleteNegMutation.mutate(record.id)}
+          okText="Delete"
+          okButtonProps={{ danger: true }}
+          cancelText="Cancel"
+        >
+          <Tooltip title="Delete estimate">
+            <Button type="text" size="small" danger
+              className="cl-touch-icon"
+              aria-label="Delete estimate"
+              icon={<DeleteOutlined />}
+              style={{ padding: 0, width: 22, height: 22 }} />
+          </Tooltip>
+        </Popconfirm>
+      </Space>
+    );
+  };
+
+  // Phone: one block per revision with the same facts as the table row
+  const renderPhoneRevision = (record: ClaimNegotiation) => {
+    const typeCfg = REVISION_TYPE_CONFIG[record.revision_type];
+    const catCfg = record.estimate_category ? ESTIMATE_CATEGORY_CONFIG[record.estimate_category] : null;
+    const prev = prevInCategory(record);
+    const delta = prev ? record.rcv_amount - prev.rcv_amount : null;
+    const sections = record.sections_data ?? [];
+    const sectionsOpen = openSectionsId === record.id;
+    return (
+      <div key={record.id} className="cl-rev">
+        <div className="cl-rev-head">
+          <Tag color={typeCfg.color} style={{ margin: 0, fontSize: 11 }}>{typeCfg.label}</Tag>
+          {catCfg && (
+            <Tag color={catCfg.color} style={{ margin: 0, fontSize: 11 }}>{catCfg.label}</Tag>
+          )}
+          <span className="cl-rev-num">#{record.revision_number}</span>
+        </div>
+        <div className="cl-rev-figures">
+          <span>RCV <strong className="cl-money">{formatCurrency(record.rcv_amount)}</strong></span>
+          <span>ACV <strong className="cl-money">{formatCurrency(record.acv_amount)}</strong></span>
+          <span>Dep. <span className="cl-money">{formatCurrency(record.depreciation_amount)}</span></span>
+        </div>
+        {(delta !== null || record.date_received) && (
+          <div className="cl-rev-figures">
+            {delta !== null && (
+              <Text type={delta > 0 ? 'success' : delta < 0 ? 'danger' : 'secondary'} style={{ fontSize: 13 }}>
+                {delta > 0 ? '+' : ''}{formatCurrency(delta)} vs #{prev!.revision_number}
+              </Text>
+            )}
+            {record.date_received && <span>Received {formatDate(record.date_received)}</span>}
+          </div>
+        )}
+        <div className="cl-rev-foot">
+          {sections.length > 0 ? (
+            <Button
+              type="link"
+              size="small"
+              style={{ padding: 0 }}
+              aria-expanded={sectionsOpen}
+              onClick={() => setOpenSectionsId(sectionsOpen ? null : record.id)}
+            >
+              {sectionsOpen ? 'Hide sections' : `Show ${sections.length} section${sections.length > 1 ? 's' : ''}`}
+            </Button>
+          ) : <span />}
+          {renderFileActions(record)}
+        </div>
+        {sectionsOpen && (
+          <div className="cl-rev-sections">
+            {sections.map((sec) => (
+              <div key={sec.section_name} className="cl-rev-section">
+                <div className="cl-rev-section-head">{sec.section_name}</div>
+                <div className="cl-rev-section-grid">
+                  <span>Line items</span><span>{formatCurrency(sec.line_item_total)}</span>
+                  <span>Tax</span><span>{formatCurrency(sec.material_sales_tax)}</span>
+                  <span>O&amp;P</span><span>{formatCurrency((sec.overhead_amount || 0) + (sec.profit_amount || 0))}</span>
+                  <span>RCV</span><span>{formatCurrency(sec.rcv)}</span>
+                  <span>Depreciation</span><span>{formatCurrency(sec.depreciation)}</span>
+                  <span>Deductible</span><span>{formatCurrency(sec.deductible)}</span>
+                  <span>Net ACV</span><span><strong>{formatCurrency(sec.net_acv)}</strong></span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   };
 
   const columns: ColumnsType<ClaimNegotiation> = [
@@ -1344,67 +1492,7 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
       title: '',
       key: 'pdf',
       width: 70,
-      render: (_: any, record) => {
-        const fileId = record.file_download_id;
-        return (
-          <Space size={4}>
-            {fileId ? (
-              <Tooltip title={record.document_name || 'View PDF'}>
-                <a href={`${fileService.getDownloadUrl(fileId)}?inline=true`} target="_blank" rel="noopener noreferrer">
-                  <FilePdfOutlined style={{ color: '#ff4d4f' }} />
-                </a>
-              </Tooltip>
-            ) : record.document_url ? (
-              <Tooltip title="PDF file not found">
-                <FilePdfOutlined style={{ color: '#d9d9d9' }} />
-              </Tooltip>
-            ) : null}
-            <Upload
-              accept=".pdf"
-              maxCount={1}
-              showUploadList={false}
-              disabled={uploadingNegId === record.id}
-              beforeUpload={async (file) => {
-                if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
-                setUploadingNegId(record.id);
-                try {
-                  const uploaded = await fileService.uploadFiles([file], 'negotiation', claim.id, 'insurance_estimate');
-                  if (uploaded.length > 0) {
-                    await negotiationService.update(clientId, claim.id, record.id, {
-                      file_id: uploaded[0].id,
-                    } as any);
-                    message.success('PDF replaced');
-                    queryClient.invalidateQueries({ queryKey: ['negotiations', clientId, claim.id] });
-                  }
-                } catch { message.error('Failed to replace PDF'); }
-                finally { setUploadingNegId(null); }
-                return false;
-              }}
-            >
-              <Tooltip title={fileId ? 'Replace PDF' : 'Upload PDF'}>
-                <Button type="text" size="small"
-                  icon={uploadingNegId === record.id ? <LoadingOutlined /> : <UploadOutlined />}
-                  disabled={uploadingNegId === record.id}
-                  style={{ padding: 0, width: 22, height: 22, color: fileId ? undefined : '#1890ff' }} />
-              </Tooltip>
-            </Upload>
-            <Popconfirm
-              title="Delete this insurance estimate?"
-              description={`v${record.revision_number} (RCV ${formatCurrency(record.rcv_amount)}) will be permanently deleted.`}
-              onConfirm={() => deleteNegMutation.mutate(record.id)}
-              okText="Delete"
-              okButtonProps={{ danger: true }}
-              cancelText="Cancel"
-            >
-              <Tooltip title="Delete estimate">
-                <Button type="text" size="small" danger
-                  icon={<DeleteOutlined />}
-                  style={{ padding: 0, width: 22, height: 22 }} />
-              </Tooltip>
-            </Popconfirm>
-          </Space>
-        );
-      },
+      render: (_: any, record) => renderFileActions(record),
     },
   ];
 
@@ -1479,6 +1567,15 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
         />
       )}
 
+      {isPhone ? (
+        isLoading ? (
+          <div style={{ textAlign: 'center', padding: 16 }}><Spin /></div>
+        ) : sorted.length === 0 ? (
+          <Text type="secondary" style={{ display: 'block', padding: '8px 0' }}>No insurance estimates yet.</Text>
+        ) : (
+          <div className="cl-rev-list">{sorted.map(renderPhoneRevision)}</div>
+        )
+      ) : (
       <Table<ClaimNegotiation>
         rowKey="id"
         columns={columns}
@@ -1492,6 +1589,7 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
           rowExpandable: (record) => !!record.sections_data && record.sections_data.length > 0,
         }}
       />
+      )}
 
       {/* Linked Documents */}
       <Divider style={{ margin: '16px 0 8px' }} />
@@ -1788,7 +1886,7 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
           </div>
         </Card>
       ) : (
-        <Collapse accordion defaultActiveKey={claims.length === 1 ? [claims[0].id] : undefined}>
+        <Collapse className="cl-claims" accordion defaultActiveKey={claims.length === 1 ? [claims[0].id] : undefined}>
           {claims.map((claim) => {
             const statusCfg = CLAIM_STATUS_CONFIG[claim.status];
             return (
@@ -1806,6 +1904,8 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                         <Button
                           type="text"
                           size="small"
+                          className="cl-touch-icon"
+                          aria-label="Send email"
                           icon={<MailOutlined />}
                           style={{ padding: 0, width: 22, height: 22 }}
                           onClick={(e) => {
@@ -1827,7 +1927,7 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                 }
               >
                 {/* Claim detail header */}
-                <div style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '8px 16px', fontSize: 13 }}>
+                <div className="cl-claim-facts">
                   <div>
                     <Text type="secondary" style={{ fontSize: 11 }}>Claim #</Text>
                     <div><Text strong>{claim.claim_number}</Text></div>
@@ -1865,7 +1965,7 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                     </div>
                   )}
                   {claim.adjuster_email && (
-                    <div style={{ gridColumn: 'span 1', overflow: 'hidden' }}>
+                    <div className="cl-claim-fact--wide" style={{ overflow: 'hidden' }}>
                       <Text type="secondary" style={{ fontSize: 11 }}>Email</Text>
                       <div style={{ wordBreak: 'break-all', fontSize: 12 }}>{claim.adjuster_email}</div>
                     </div>
@@ -2150,6 +2250,7 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
       key: 'tier',
       width: 120,
       render: (val?: string) => val ? <Tag>{val}</Tag> : '—',
+      responsive: ['sm'] as any,
     },
     {
       title: 'Total',
@@ -2226,6 +2327,7 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
       key: 'service_date',
       width: 120,
       render: formatDate,
+      responsive: ['sm'] as any,
     },
   ];
 
@@ -2432,6 +2534,7 @@ const FinancialsTab: React.FC<FinancialsTabProps> = ({ client }) => {
   return (
     <div>
       <Collapse
+        className="cl-claims"
         accordion={false}
         defaultActiveKey={claims.length === 1 ? [claims[0].id] : claims.map(c => c.id)}
       >
@@ -2510,6 +2613,7 @@ const ClientDetail: React.FC = () => {
     queryFn: () => clientService.getById(id!),
     enabled: !!id,
   });
+  useBreadcrumbTitle(client?.display_name || null);
 
   // Jobs archived from AccuLynx - the tab only shows when there are some
   const { data: archivedJobs = [], isLoading: archivedJobsLoading } = useQuery({
@@ -2643,7 +2747,7 @@ const ClientDetail: React.FC = () => {
   ];
 
   return (
-    <div>
+    <div className="cl-page">
       {/* Back navigation */}
       <Button
         icon={<ArrowLeftOutlined />}
@@ -2654,20 +2758,16 @@ const ClientDetail: React.FC = () => {
         Back to Clients
       </Button>
 
-      {/* Client Info Card */}
-      <Card
-        style={{ marginBottom: 24 }}
-        title={
-          <Space>
-            <UserOutlined style={{ color: '#1890ff' }} />
-            <Title level={4} style={{ margin: 0 }}>{client.display_name}</Title>
-            <Tag color={client.is_active ? 'success' : 'default'}>
-              {client.is_active ? 'Active' : 'Inactive'}
-            </Tag>
-          </Space>
+      {/* Name and actions; on phones the actions drop under the name */}
+      <PageHeader
+        title={client.display_name}
+        meta={
+          <Pill tone={client.is_active ? 'green' : 'gray'}>
+            {client.is_active ? 'Active' : 'Inactive'}
+          </Pill>
         }
-        extra={
-          <Space>
+        actions={
+          <>
             <Dropdown menu={{ items: createDocumentItems }} trigger={['click']}>
               <Button type="primary" icon={<FileAddOutlined />}>
                 Create Document <DownOutlined />
@@ -2676,9 +2776,12 @@ const ClientDetail: React.FC = () => {
             <Button icon={<EditOutlined />} onClick={() => setEditModalOpen(true)}>
               Edit
             </Button>
-          </Space>
+          </>
         }
-      >
+      />
+
+      {/* Client Info Card */}
+      <Card className="cl-sheet" style={{ marginBottom: 24 }}>
         <Row gutter={[32, 16]}>
           {/* Owners */}
           <Col xs={24} md={12}>
@@ -2773,7 +2876,7 @@ const ClientDetail: React.FC = () => {
       </Card>
 
       {/* Tabs */}
-      <Card>
+      <Card className="cl-sheet">
         <Tabs defaultActiveKey="claims" items={tabItems} />
       </Card>
 

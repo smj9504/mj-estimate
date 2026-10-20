@@ -18,7 +18,11 @@ import {
   Divider,
   Checkbox,
   Segmented,
+  Grid,
+  List,
+  Dropdown,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   PlusOutlined,
   EditOutlined,
@@ -26,9 +30,11 @@ import {
   SearchOutlined,
   UserOutlined,
   MinusCircleOutlined,
+  MoreOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
+import { PageHeader, Pill, useSheetModal } from '../components/common/ui';
 import { clientService } from '../services/clientService';
 import type { Client, ClientCreate, ClientListItem, ClientSourceFilter, OwnerInfo } from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
@@ -46,7 +52,7 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced;
 }
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 const { Option } = Select;
 
 // ─────────────────────────────────────────────
@@ -86,6 +92,7 @@ const ClientFormModal: React.FC<ClientFormModalProps> = ({
   loading,
 }) => {
   const [form] = Form.useForm<ClientCreate>();
+  const { sheetProps } = useSheetModal('tall');
 
   // Populate form when editing
   React.useEffect(() => {
@@ -133,6 +140,7 @@ const ClientFormModal: React.FC<ClientFormModalProps> = ({
       onCancel={onCancel}
       footer={null}
       width={760}
+      {...sheetProps}
       destroyOnHidden
       maskClosable={false}
     >
@@ -140,6 +148,7 @@ const ClientFormModal: React.FC<ClientFormModalProps> = ({
       <Form
         form={form}
         layout="vertical"
+        className="cl-form"
         onFinish={handleFinish}
         scrollToFirstError
       >
@@ -325,7 +334,7 @@ const ClientFormModal: React.FC<ClientFormModalProps> = ({
         </Form.Item>
 
         {/* Actions */}
-        <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+        <Form.Item className="ui-form-actions" style={{ marginBottom: 0, textAlign: 'right' }}>
           <Space>
             <Button onClick={onCancel}>Cancel</Button>
             <Button type="primary" htmlType="submit" loading={loading}>
@@ -351,6 +360,8 @@ const ClientList: React.FC = () => {
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const screens = Grid.useBreakpoint();
+  const isPhone = !screens.md;
 
   // ── Data fetching ──────────────────────────
   const {
@@ -411,13 +422,17 @@ const ClientList: React.FC = () => {
     setModalOpen(true);
   };
 
-  const handleEdit = (client: ClientListItem, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const openEdit = (client: ClientListItem) => {
     // Fetch full client data for the edit form
     clientService.getById(client.id).then((full) => {
       setEditingClient(full);
       setModalOpen(true);
     });
+  };
+
+  const handleEdit = (client: ClientListItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    openEdit(client);
   };
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
@@ -531,6 +546,61 @@ const ClientList: React.FC = () => {
     },
   ];
 
+  // ── Phone rows ─────────────────────────────
+  // Same facts as the table, one tappable block per client
+  const rowMenu = (record: ClientListItem): MenuProps => ({
+    items: [
+      { key: 'edit', icon: <EditOutlined />, label: 'Edit' },
+      { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true },
+    ],
+    onClick: ({ key, domEvent }) => {
+      domEvent.stopPropagation();
+      if (key === 'edit') openEdit(record);
+      if (key === 'delete') {
+        Modal.confirm({
+          title: 'Delete this client?',
+          content: 'This action cannot be undone.',
+          okText: 'Delete',
+          okButtonProps: { danger: true },
+          cancelText: 'Cancel',
+          onOk: () => deleteMutation.mutateAsync(record.id),
+        });
+      }
+    },
+  });
+
+  const renderPhoneRow = (record: ClientListItem) => {
+    const owner = primaryOwner(record.owners);
+    const address = [record.address, record.city, record.state, record.zipcode].filter(Boolean).join(', ');
+    return (
+      <div className="ui-row" onClick={() => navigate(`/clients/${record.id}`)}>
+        <div className="ui-row-body">
+          {!record.is_active && (
+            <div className="ui-row-tags">
+              <Pill tone="gray">Inactive</Pill>
+            </div>
+          )}
+          <span className="ui-row-title">{record.display_name}</span>
+          {(owner && owner.name !== record.display_name) || address ? (
+            <div className="ui-row-meta">
+              {owner && owner.name !== record.display_name && <span>{owner.name}</span>}
+              {address && <span>{address}</span>}
+            </div>
+          ) : null}
+          <div className="ui-row-meta">
+            {record.insurance_company && <span>{record.insurance_company}</span>}
+            <span>{record.claim_count} {record.claim_count === 1 ? 'claim' : 'claims'}</span>
+          </div>
+        </div>
+        <div onClick={(e) => e.stopPropagation()}>
+          <Dropdown menu={rowMenu(record)} trigger={['click']}>
+            <Button type="text" icon={<MoreOutlined />} aria-label={`Actions for ${record.display_name}`} style={{ marginRight: -8 }} />
+          </Dropdown>
+        </div>
+      </div>
+    );
+  };
+
   // ── Render ─────────────────────────────────
   if (error) {
     return (
@@ -540,59 +610,57 @@ const ClientList: React.FC = () => {
     );
   }
 
-  return (
-    <div>
-      {/* Header */}
-      <Card style={{ marginBottom: 24 }}>
-        <Row align="middle" justify="space-between" wrap gutter={[16, 12]}>
-          <Col>
-            <Space align="center">
-              <UserOutlined style={{ fontSize: 24, color: '#1890ff' }} />
-              <div>
-                <Title level={2} style={{ margin: 0 }}>
-                  Clients
-                </Title>
-                <Text type="secondary">Manage client profiles and insurance claims</Text>
-              </div>
-            </Space>
-          </Col>
-          <Col>
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-              Add Client
-            </Button>
-          </Col>
-        </Row>
-      </Card>
+  // Shared by the desktop table and the phone rows
+  const toolbar = (
+    <div className="ui-toolbar">
+      <Segmented<ClientSourceFilter>
+        value={source}
+        onChange={setSource}
+        options={[
+          { value: 'manual', label: `Entered here${counts ? ` (${counts.manual})` : ''}` },
+          { value: 'acculynx', label: `From AccuLynx${counts ? ` (${counts.acculynx})` : ''}` },
+        ]}
+      />
+      <div className="ui-toolbar-end" style={isPhone ? { width: '100%' } : undefined}>
+        <Input
+          prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
+          placeholder="Search name, phone, email..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          allowClear
+          aria-label="Search clients"
+          style={{ width: isPhone ? '100%' : 240 }}
+        />
+      </div>
+    </div>
+  );
 
-      {/* Table */}
+  return (
+    <div className="cl-page">
+      <PageHeader
+        title="Clients"
+        meta="Manage client profiles and insurance claims"
+        actions={
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+            Add Client
+          </Button>
+        }
+      />
+
+      {isPhone ? (
+        <>
+          {toolbar}
+          <List<ClientListItem>
+            className="ui-row-list"
+            dataSource={clients}
+            loading={isLoading}
+            renderItem={renderPhoneRow}
+            pagination={clients.length > 25 ? { pageSize: 25, size: 'small', align: 'center' } : false}
+          />
+        </>
+      ) : (
       <Card>
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 8,
-            marginBottom: 12,
-          }}
-        >
-          <Segmented<ClientSourceFilter>
-            value={source}
-            onChange={setSource}
-            options={[
-              { value: 'manual', label: `Entered here${counts ? ` (${counts.manual})` : ''}` },
-              { value: 'acculynx', label: `From AccuLynx${counts ? ` (${counts.acculynx})` : ''}` },
-            ]}
-          />
-          <Input
-            prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
-            placeholder="Search name, phone, email..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            allowClear
-            style={{ width: 240, maxWidth: '100%' }}
-          />
-        </div>
+        {toolbar}
 
         <Table<ClientListItem>
           rowKey="id"
@@ -611,6 +679,7 @@ const ClientList: React.FC = () => {
           scroll={{ x: 700 }}
         />
       </Card>
+      )}
 
       {/* Add / Edit Modal */}
       <ClientFormModal

@@ -57,6 +57,7 @@ import type {
   ContractStatus,
 } from '../../types/contract';
 import ContractGenerateModal from './ContractGenerateModal';
+import { useSheetModal } from '../common/ui';
 
 const { Text, Title } = Typography;
 
@@ -223,6 +224,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
 }) => {
   const queryClient = useQueryClient();
   const [generateOpen, setGenerateOpen] = useState(false);
+  const { sheetProps } = useSheetModal();
   const [emailModalContract, setEmailModalContract] = useState<ContractInstance | null>(null);
   const [emailAddresses, setEmailAddresses] = useState('');
   const [emailCc, setEmailCc] = useState('');
@@ -599,6 +601,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
         cancelButtonProps={{ disabled: emailSending }}
         destroyOnHidden
         width={520}
+        {...sheetProps}
       >
         {/* Document info */}
         <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f6f8fa', borderRadius: 6 }}>
@@ -709,6 +712,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
         cancelButtonProps={{ disabled: reminderSending }}
         destroyOnHidden
         width={480}
+        {...sheetProps}
       >
         <div style={{ marginBottom: 16, padding: '8px 12px', background: '#fff7e6', borderRadius: 6, borderLeft: '3px solid #fa8c16' }}>
           <Text strong style={{ fontSize: 13 }}>

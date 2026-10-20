@@ -35,6 +35,7 @@ import {
 } from '../../services/contractService';
 import { companyService } from '../../services/companyService';
 import type { ContractTemplate, PrefillPreviewData } from '../../types/contract';
+import { useSheetModal } from '../common/ui';
 
 const { Text, Paragraph, Title } = Typography;
 const { Option } = Select;
@@ -123,6 +124,7 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
 }) => {
   const [form] = Form.useForm<FormValues>();
   const [currentStep, setCurrentStep] = useState(0);
+  const { isPhone, sheetProps } = useSheetModal('tall');
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | undefined>(undefined);
   const [selectedTemplate, setSelectedTemplate] = useState<ContractTemplate | null>(null);
   const [created, setCreated] = useState<CreatedResult | null>(null);
@@ -539,25 +541,32 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
 
   // ── Footer buttons ────────────────────────────────────────────────────────────
 
+  const stepButtons = (
+    <>
+      <Button onClick={currentStep === 0 ? onClose : handleBack} disabled={createMutation.isPending}>
+        {currentStep === 0 ? 'Cancel' : 'Back'}
+      </Button>
+      <Button
+        type="primary"
+        onClick={handleNext}
+        loading={createMutation.isPending || prefillLoading}
+        icon={currentStep === 3 ? <SendOutlined /> : undefined}
+      >
+        {currentStep === 3 ? 'Generate Contract' : 'Next'}
+      </Button>
+    </>
+  );
+
+  // The phone sheet lays footer buttons out as one equal-width row itself
   const footer =
     currentStep === 4 ? (
       <Button type="primary" onClick={onClose} block>
         Done
       </Button>
+    ) : isPhone ? (
+      stepButtons
     ) : (
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <Button onClick={currentStep === 0 ? onClose : handleBack} disabled={createMutation.isPending}>
-          {currentStep === 0 ? 'Cancel' : 'Back'}
-        </Button>
-        <Button
-          type="primary"
-          onClick={handleNext}
-          loading={createMutation.isPending || prefillLoading}
-          icon={currentStep === 3 ? <SendOutlined /> : undefined}
-        >
-          {currentStep === 3 ? 'Generate Contract' : 'Next'}
-        </Button>
-      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}>{stepButtons}</div>
     );
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -576,6 +585,7 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
       footer={footer}
       destroyOnHidden
       width={600}
+      {...sheetProps}
     >
       {/* Steps indicator */}
       <Steps

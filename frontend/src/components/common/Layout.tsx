@@ -50,6 +50,15 @@ interface LayoutProps {
 
 // Static styles extracted to avoid re-creation on every render
 const rootLayoutStyle: React.CSSProperties = { minHeight: '100vh' };
+
+// Same edge as the max-width: 768px rules in Layout.css
+const MOBILE_QUERY = `(max-width: ${breakpoints.sm}px)`;
+const isMobileViewport = () => window.matchMedia(MOBILE_QUERY).matches;
+
+const savedDesktopCollapsed = (): boolean => {
+  const saved = localStorage.getItem('siderCollapsed');
+  return saved !== null ? JSON.parse(saved) : false;
+};
 const menuStyle: React.CSSProperties = { border: 'none', height: 'calc(100vh - 52px)', overflowY: 'auto', padding: '4px 0 24px' };
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
@@ -58,14 +67,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { selectedCompany } = useStore();
   const { user, logout, isAdmin, isManager, canAccessPath } = useAuth();
 
-  // State for sidebar collapse with localStorage persistence
-  const [collapsed, setCollapsed] = useState(() => {
-    const saved = localStorage.getItem('siderCollapsed');
-    const isMobile = window.innerWidth <= breakpoints.sm;
-    return saved !== null ? JSON.parse(saved) : isMobile;
-  });
+  // Sidebar collapse; the desktop choice is kept in localStorage, phones always start closed
+  const [collapsed, setCollapsed] = useState(() => isMobileViewport() || savedDesktopCollapsed());
 
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= breakpoints.sm);
+  const [isMobile, setIsMobile] = useState(isMobileViewport);
   const [openKeys, setOpenKeys] = useState<string[]>([]);
   const siderRef = useRef<HTMLDivElement>(null);
 
@@ -104,27 +109,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     return () => document.removeEventListener('keydown', trapFocus);
   }, [isMobile, collapsed]);
 
-  // Handle window resize for responsive behavior (debounced)
+  // Follow the viewport across the phone edge (resize, rotation, devtools).
+  // A media query fires once per crossing, so a single rotation can't be lost
+  // the way a debounced resize timer could when the sidebar collapsed mid-wait.
   useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout>;
-    const handleResize = () => {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        const mobile = window.innerWidth <= breakpoints.sm;
-        setIsMobile(mobile);
-        // Auto-collapse on mobile, but preserve user preference on desktop
-        if (mobile && !collapsed) {
-          setCollapsed(true);
-        }
-      }, 150);
+    const mql = window.matchMedia(MOBILE_QUERY);
+    const handleChange = (e: MediaQueryListEvent) => {
+      setIsMobile(e.matches);
+      // Phones start closed; back on desktop the saved choice returns
+      setCollapsed(e.matches || savedDesktopCollapsed());
     };
-
-    window.addEventListener('resize', handleResize);
-    return () => {
-      clearTimeout(timeoutId);
-      window.removeEventListener('resize', handleResize);
-    };
-  }, [collapsed]);
+    mql.addEventListener('change', handleChange);
+    return () => mql.removeEventListener('change', handleChange);
+  }, []);
 
   // Save collapse state to localStorage (only for non-mobile)
   useEffect(() => {
@@ -586,8 +583,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       <Sider
         collapsible
         collapsed={collapsed}
-        onCollapse={setCollapsed}
-        breakpoint="md"
         collapsedWidth={isMobile ? 0 : sidebar.collapsedWidth}
         width={sidebar.expandedWidth}
         style={siderStyle}
