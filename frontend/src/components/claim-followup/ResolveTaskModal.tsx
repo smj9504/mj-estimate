@@ -10,7 +10,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Button, Col, Form, Grid, Input, InputNumber, message, Modal, Row, Select, Tooltip, Upload,
+  Button, Col, Form, Input, InputNumber, message, Modal, Row, Select, Tooltip, Upload,
 } from 'antd';
 import {
   DeleteOutlined, FilePdfOutlined, InfoCircleOutlined, PlusOutlined, UploadOutlined,
@@ -18,7 +18,7 @@ import {
 import { claimFollowUpService } from '../../services/claimFollowUpService';
 import { supplementService } from '../../services/supplementService';
 import { fileService } from '../../services/fileService';
-import { Pill } from '../common/ui';
+import { Pill, useSheetModal } from '../common/ui';
 import type { FollowUpTask } from '../../types/claimFollowUp';
 import { ESTIMATE_OUTCOME_TASK_TYPES, PAYMENT_TASK_TYPES } from './claimProgress';
 
@@ -62,8 +62,7 @@ const ExistingFile: React.FC<{ file: ExistingPdf }> = ({ file }) => (
 
 const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onResolved }) => {
   const queryClient = useQueryClient();
-  const screens = Grid.useBreakpoint();
-  const isMobile = screens.sm === false;
+  const { sheetProps } = useSheetModal();
   const [form] = Form.useForm();
   const [outcome, setOutcome] = useState<string | undefined>();
   const [deniedAction, setDeniedAction] = useState<string | undefined>();
@@ -300,8 +299,8 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
       title={isDeniedWithNextStep ? `Denied - Next Action: ${shown?.title || ''}` : `Resolve: ${shown?.title || ''}`}
       open={!!task}
       okText={isDeniedWithNextStep ? 'Update Task' : 'Resolve'}
-      width={isMobile ? '95vw' : 650}
-      style={isMobile ? { top: 10 } : undefined}
+      width={650}
+      {...sheetProps}
       onOk={submit}
       onCancel={close}
       confirmLoading={resolveMutation.isPending}
@@ -415,22 +414,22 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
                         />
                       </Tooltip>
                     </div>
-                    <Row gutter={8}>
-                      <Col span={8}>
+                    <Row gutter={[8, 8]}>
+                      <Col xs={12} sm={8}>
                         <label className="fu-field">
                           <span className="fu-field-label">RCV</span>
                           <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }}
                             value={section.rcv} onChange={v => updateSection(idx, { rcv: v || 0 })} />
                         </label>
                       </Col>
-                      <Col span={8}>
+                      <Col xs={12} sm={8}>
                         <label className="fu-field">
                           <span className="fu-field-label">Depreciation</span>
                           <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }}
                             value={section.depreciation} onChange={v => updateSection(idx, { depreciation: v || 0 })} />
                         </label>
                       </Col>
-                      <Col span={8}>
+                      <Col xs={12} sm={8}>
                         <label className="fu-field">
                           <span className="fu-field-label">Net ACV</span>
                           <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }}

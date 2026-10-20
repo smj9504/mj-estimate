@@ -30,7 +30,7 @@ import {
   Alert,
   Skeleton,
 } from 'antd';
-import type { FormInstance } from 'antd';
+import type { FormInstance, MenuProps } from 'antd';
 import {
   PlusOutlined,
   ReloadOutlined,
@@ -53,6 +53,7 @@ import {
   PhoneOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
+  FilterOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -62,8 +63,10 @@ import { supplementService } from '../services/supplementService';
 import { companyService } from '../services/companyService';
 import { fileService } from '../services/fileService';
 import ClaimSearchSelect from '../components/common/ClaimSearchSelect';
+import { useSheetModal } from '../components/common/ui';
 import {
   EmailComposer, CommunicationTimeline, DepreciationPhaseTracker, ClaimEstimatesPanel, ResolveTaskModal,
+  FollowUpDateTimePicker,
 } from '../components/claim-followup';
 import {
   TASK_TYPE_OPTIONS, PAYMENT_TASK_TYPES, STAGE_ORDER, getStageLabel,
@@ -100,10 +103,11 @@ dayjs.extend(relativeTime);
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
+/** Phones and small tablets: below the 768px line where the app shell switches to its phone layout */
 const useIsMobile = () => {
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 576);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 575px)');
+    const mq = window.matchMedia('(max-width: 767px)');
     const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
@@ -293,6 +297,9 @@ const ClaimFollowUpDashboard: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
+  const { sheetProps } = useSheetModal();
+  // Phones keep the filter selects folded behind a Filters button
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
   const [hideResolved, setHideResolved] = useState(true);
@@ -518,6 +525,9 @@ const ClaimFollowUpDashboard: React.FC = () => {
   );
 
   const hasAnyFilter = !!(statusFilter || typeFilter || supplementFilter || quickFilter);
+  // Filters set in the folded panel, so the Filters button can say so
+  const panelFilterCount = [statusFilter, typeFilter, supplementFilter].filter(Boolean).length
+    + (hideResolved ? 0 : 1);
   const clearFilters = () => {
     setStatusFilter(undefined);
     setTypeFilter(undefined);
@@ -630,6 +640,152 @@ const ClaimFollowUpDashboard: React.FC = () => {
   // Helper: open resolve modal for a given task
   const openResolveForTask = (task: FollowUpTask) => setResolvingTask(task);
 
+  const openTaskDetail = (task: FollowUpTask) => {
+    setDetailTask(task);
+    setTaskDetailOpen(true);
+  };
+
+  const openEditTask = async (task: FollowUpTask) => {
+    setSelectedTask(task);
+    editForm.setFieldsValue({
+      title: task.title,
+      task_type: task.task_type,
+      status: task.status,
+      priority: task.priority,
+      assigned_to_name: task.assigned_to_name,
+      assigned_to_email: task.assigned_to_email,
+      assigned_to_phone: task.assigned_to_phone,
+      assigned_to_role: task.assigned_to_role,
+      auto_followup_enabled: task.auto_followup_enabled,
+      followup_interval_days: task.followup_interval_days,
+      max_followup_count: task.max_followup_count,
+      payment_status: task.payment_status,
+      payment_note: task.payment_note,
+    });
+    setEditEstimateFile(undefined);
+    setEditWmFile(undefined);
+    setEditParsedSections(null);
+    setEditExistingEstimates([]);
+    editEstimateForm.resetFields();
+    try {
+      const estimates = await supplementService.listInsuranceEstimates(task.claim_id);
+      setEditExistingEstimates(estimates || []);
+      if (estimates.length > 0) {
+        const latest = estimates[0];
+        const formVals: any = {
+          acv_amount: latest.acv_amount || 0,
+          rcv_amount: latest.rcv_amount || 0,
+          depreciation_amount: latest.depreciation_amount || 0,
+          deductible: latest.deductible || 0,
+        };
+        if ((latest as any).claim_wm_cost_status) {
+          formVals.wm_cost_status = (latest as any).claim_wm_cost_status;
+        }
+        if ((latest as any).claim_wm_estimate_amount) {
+          formVals.wm_estimate_amount = (latest as any).claim_wm_estimate_amount;
+        }
+        editEstimateForm.setFieldsValue(formVals);
+        if (latest.sections_data) setEditParsedSections(latest.sections_data);
+      }
+    } catch { /* ignore */ }
+    setEditModalOpen(true);
+  };
+
+  // One stage's actions: the table's ⋯ column on desktop, each row's ⋯ button on phones
+  const stageMenuItems = (record: StageAggregated): MenuProps['items'] => {
+    const task = record.primaryTask;
+    return [
+      {
+        key: 'email',
+        icon: <MailOutlined />,
+        label: 'Send Email',
+        onClick: () => navigate(`/claim-followup/${task.id}/email`),
+      },
+      // 수령 내역은 payment 단계에서만 — 여러 번 나눠 받는 걸 누적 기록
+      ...(PAYMENT_TASK_TYPES.includes(task.task_type) ? [{
+        key: 'payments',
+        icon: <DollarOutlined />,
+        label: 'Record Payment',
+        onClick: () => { setPaymentModalTask(task); paymentForm.resetFields(); },
+      }] : []),
+      {
+        key: 'resolve',
+        icon: <CheckCircleOutlined />,
+        label: 'Resolve',
+        disabled: record.status === 'resolved',
+        onClick: () => openResolveForTask(task),
+      },
+      {
+        key: 'reopen',
+        icon: <ClockCircleOutlined />,
+        label: 'Reopen',
+        disabled: record.status !== 'resolved' && record.status !== 'cancelled',
+        onClick: () => reopenMutation.mutate(task.id),
+      },
+      {
+        key: 'edit',
+        icon: <EditOutlined />,
+        label: 'Edit',
+        onClick: () => { openEditTask(task); },
+      },
+      { type: 'divider' },
+      {
+        key: 'delete',
+        icon: <DeleteOutlined />,
+        label: 'Delete',
+        danger: true,
+        onClick: () => {
+          Modal.confirm({
+            title: 'Delete this task?',
+            onOk: () => requestDelete(task.id),
+          });
+        },
+      },
+    ];
+  };
+
+  // Phones: each stage is a row (stage name, then status · priority · due, then
+  // who) instead of a seven-column table that only has room for two columns.
+  const renderStageList = (group: ClaimGroup) => (
+    <ul className="cf-stages">
+      {aggregateByStage(group.tasks, isOverdue).map(record => {
+        const label = getStageLabel(record.task_type);
+        const closed = record.status === 'resolved' || record.status === 'cancelled';
+        const statusLabel = TASK_STATUS_LABELS[record.status] || record.status.replace(/_/g, ' ');
+        const date = closed ? undefined : record.next_followup_date;
+        const dateOverdue = !!date && dayjs(date).isBefore(dayjs());
+        const role = record.assigned_to_role
+          ? (ROLE_SHORT_LABELS[record.assigned_to_role] || record.assigned_to_role)
+          : '';
+        return (
+          <li key={record.task_type} className={`cf-stage${record.status === 'overdue' ? ' is-overdue' : ''}`}>
+            <button type="button" className="cf-stage-main" onClick={() => openTaskDetail(record.primaryTask)}>
+              <span className="cf-stage-name">{label}</span>
+              <span className="cf-stage-meta-clip">
+                <span className="cf-stage-meta">
+                  {record.status === 'overdue'
+                    ? <Text type="danger" strong>{statusLabel}</Text>
+                    : <Text type={closed || record.status === 'awaiting_confirmation' ? 'secondary' : undefined}>{statusLabel}</Text>}
+                  {!closed && record.priority === 'urgent' && <Text type="danger" strong>Urgent</Text>}
+                  {!closed && record.priority === 'high' && <Text type="warning" strong>High</Text>}
+                  {date && <Text type={dateOverdue ? 'danger' : 'secondary'}>Follow up {dayjs(date).fromNow()}</Text>}
+                </span>
+              </span>
+              {record.assigned_to_name && (
+                <Text type="secondary" className="cf-stage-who">
+                  {record.assigned_to_name}{role ? ` (${role})` : ''}
+                </Text>
+              )}
+            </button>
+            <Dropdown menu={{ items: stageMenuItems(record) }} trigger={['click']} placement="bottomRight">
+              <Button type="text" className="cf-stage-more" icon={<EllipsisOutlined />} aria-label={`Actions for ${label}`} />
+            </Dropdown>
+          </li>
+        );
+      })}
+    </ul>
+  );
+
   // Columns for expanded task table (aggregated by stage)
   const taskColumns: ColumnsType<StageAggregated> = [
     {
@@ -720,109 +876,11 @@ const ClaimFollowUpDashboard: React.FC = () => {
       key: 'actions',
       width: 100,
       fixed: 'right',
-      render: (_, record: StageAggregated) => {
-        const task = record.primaryTask;
-        return (
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'email',
-                  icon: <MailOutlined />,
-                  label: 'Send Email',
-                  onClick: () => navigate(`/claim-followup/${task.id}/email`),
-                },
-                // 수령 내역은 payment 단계에서만 — 여러 번 나눠 받는 걸 누적 기록
-                ...(PAYMENT_TASK_TYPES.includes(task.task_type) ? [{
-                  key: 'payments',
-                  icon: <DollarOutlined />,
-                  label: 'Record Payment',
-                  onClick: () => { setPaymentModalTask(task); paymentForm.resetFields(); },
-                }] : []),
-                {
-                  key: 'resolve',
-                  icon: <CheckCircleOutlined />,
-                  label: 'Resolve',
-                  disabled: record.status === 'resolved',
-                  onClick: () => openResolveForTask(task),
-                },
-                {
-                  key: 'reopen',
-                  icon: <ClockCircleOutlined />,
-                  label: 'Reopen',
-                  disabled: record.status !== 'resolved' && record.status !== 'cancelled',
-                  onClick: () => reopenMutation.mutate(task.id),
-                },
-                {
-                  key: 'edit',
-                  icon: <EditOutlined />,
-                  label: 'Edit',
-                  onClick: async () => {
-                    setSelectedTask(task);
-                    editForm.setFieldsValue({
-                      title: task.title,
-                      task_type: task.task_type,
-                      status: task.status,
-                      priority: task.priority,
-                      assigned_to_name: task.assigned_to_name,
-                      assigned_to_email: task.assigned_to_email,
-                      assigned_to_phone: task.assigned_to_phone,
-                      assigned_to_role: task.assigned_to_role,
-                      auto_followup_enabled: task.auto_followup_enabled,
-                      followup_interval_days: task.followup_interval_days,
-                      max_followup_count: task.max_followup_count,
-                      payment_status: task.payment_status,
-                      payment_note: task.payment_note,
-                    });
-                    setEditEstimateFile(undefined);
-                    setEditWmFile(undefined);
-                    setEditParsedSections(null);
-                    setEditExistingEstimates([]);
-                    editEstimateForm.resetFields();
-                    try {
-                      const estimates = await supplementService.listInsuranceEstimates(task.claim_id);
-                      setEditExistingEstimates(estimates || []);
-                      if (estimates.length > 0) {
-                        const latest = estimates[0];
-                        const formVals: any = {
-                          acv_amount: latest.acv_amount || 0,
-                          rcv_amount: latest.rcv_amount || 0,
-                          depreciation_amount: latest.depreciation_amount || 0,
-                          deductible: latest.deductible || 0,
-                        };
-                        if ((latest as any).claim_wm_cost_status) {
-                          formVals.wm_cost_status = (latest as any).claim_wm_cost_status;
-                        }
-                        if ((latest as any).claim_wm_estimate_amount) {
-                          formVals.wm_estimate_amount = (latest as any).claim_wm_estimate_amount;
-                        }
-                        editEstimateForm.setFieldsValue(formVals);
-                        if (latest.sections_data) setEditParsedSections(latest.sections_data);
-                      }
-                    } catch { /* ignore */ }
-                    setEditModalOpen(true);
-                  },
-                },
-                { type: 'divider' },
-                {
-                  key: 'delete',
-                  icon: <DeleteOutlined />,
-                  label: 'Delete',
-                  danger: true,
-                  onClick: () => {
-                    Modal.confirm({
-                      title: 'Delete this task?',
-                      onOk: () => requestDelete(task.id),
-                    });
-                  },
-                },
-              ],
-            }}
-          >
-            <Button type="text" icon={<EllipsisOutlined />} />
-          </Dropdown>
-        );
-      },
+      render: (_, record: StageAggregated) => (
+        <Dropdown menu={{ items: stageMenuItems(record) }}>
+          <Button type="text" icon={<EllipsisOutlined />} aria-label={`Actions for ${getStageLabel(record.task_type)}`} />
+        </Dropdown>
+      ),
     },
   ];
 
@@ -1004,10 +1062,10 @@ const ClaimFollowUpDashboard: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
         <Title level={isMobile ? 4 : 3} style={{ margin: 0 }}>Claim Follow-up</Title>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => refetchTasks()} size={isMobile ? 'small' : 'middle'}>
-            {isMobile ? '' : 'Refresh'}
+          <Button icon={<ReloadOutlined />} onClick={() => refetchTasks()} aria-label="Refresh">
+            {isMobile ? null : 'Refresh'}
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)} size={isMobile ? 'small' : 'middle'}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
             New Task
           </Button>
         </Space>
@@ -1044,10 +1102,28 @@ const ClaimFollowUpDashboard: React.FC = () => {
         })}
       </div>
 
+      {/* Phones: count + a Filters button; the selects fold away below it */}
+      {isMobile && (
+        <div className="cf-toolbar">
+          <Text type="secondary" className="cf-toolbar-count">
+            {filteredClaimGroups.length} claims, {visibleTaskCount} tasks
+          </Text>
+          <Button
+            icon={<FilterOutlined />}
+            aria-expanded={filtersOpen}
+            aria-controls="cf-filters"
+            onClick={() => setFiltersOpen(open => !open)}
+          >
+            Filters{panelFilterCount > 0 ? ` (${panelFilterCount})` : ''}
+          </Button>
+        </div>
+      )}
+
       {/* Filters */}
-      <Card size="small" style={{ marginBottom: 16 }}>
+      {(!isMobile || filtersOpen) && (
+      <Card size="small" style={{ marginBottom: 16 }} id="cf-filters">
         <Row gutter={[8, 8]} align="middle">
-          <Col xs={12} sm={8} md={6}>
+          <Col xs={24} sm={12} md={6}>
             <Select
               placeholder="Status"
               allowClear
@@ -1064,7 +1140,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
               ]}
             />
           </Col>
-          <Col xs={12} sm={8} md={6}>
+          <Col xs={24} sm={12} md={6}>
             <Select
               placeholder="Type"
               allowClear
@@ -1074,7 +1150,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
               options={TASK_TYPE_OPTIONS}
             />
           </Col>
-          <Col xs={12} sm={8} md={5}>
+          <Col xs={24} sm={12} md={5}>
             <Select
               placeholder="Supplement"
               allowClear
@@ -1087,10 +1163,10 @@ const ClaimFollowUpDashboard: React.FC = () => {
               ]}
             />
           </Col>
-          <Col xs={12} sm={4} md={3}>
+          <Col xs={24} sm={12} md={3}>
             <Tooltip title={hideResolved ? 'Showing active only' : 'Showing all including resolved'}>
               <Button
-                size="small"
+                size={isMobile ? 'middle' : 'small'}
                 type={hideResolved ? 'primary' : 'default'}
                 icon={hideResolved ? <EyeInvisibleOutlined /> : <EyeOutlined />}
                 onClick={() => setHideResolved(!hideResolved)}
@@ -1100,25 +1176,37 @@ const ClaimFollowUpDashboard: React.FC = () => {
               </Button>
             </Tooltip>
           </Col>
-          <Col xs={12} sm={4}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {filteredClaimGroups.length} claims, {visibleTaskCount} tasks
-            </Text>
-          </Col>
+          {!isMobile && (
+            <Col xs={12} sm={4}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {filteredClaimGroups.length} claims, {visibleTaskCount} tasks
+              </Text>
+            </Col>
+          )}
         </Row>
       </Card>
-
-      {/* What the stage colours mean — reuses the track's own bar styles */}
-      {filteredClaimGroups.length > 0 && (
-        <ul className="cf-legend" aria-label="Stage colors">
-          {STAGE_LEGEND.map(item => (
-            <li key={item.state} className={`cf-legend-item cf-step--${item.state}`}>
-              <span className="cf-step-bar" aria-hidden="true" />
-              {item.label}
-            </li>
-          ))}
-        </ul>
       )}
+
+      {/* What the stage colours mean — reuses the track's own bar styles.
+          Phones fold it away: it is reference, not something read every visit. */}
+      {filteredClaimGroups.length > 0 && (() => {
+        const legend = (
+          <ul className="cf-legend" aria-label="Stage colors">
+            {STAGE_LEGEND.map(item => (
+              <li key={item.state} className={`cf-legend-item cf-step--${item.state}`}>
+                <span className="cf-step-bar" aria-hidden="true" />
+                {item.label}
+              </li>
+            ))}
+          </ul>
+        );
+        return isMobile ? (
+          <details className="cf-legend-fold">
+            <summary><RightOutlined className="cf-legend-caret" aria-hidden="true" />Stage colors</summary>
+            {legend}
+          </details>
+        ) : legend;
+      })()}
 
       {/* Claim Groups */}
       <Collapse
@@ -1172,6 +1260,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
             ),
             children: (
               <>
+              {isMobile ? renderStageList(group) : (
               <Table<StageAggregated>
                 dataSource={aggregateByStage(group.tasks, isOverdue)}
                 columns={taskColumns}
@@ -1184,15 +1273,16 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   onClick: (e) => {
                     const target = e.target as HTMLElement;
                     if (target.closest('.ant-dropdown-trigger') || target.closest('.ant-btn') || target.closest('.ant-dropdown')) return;
-                    setDetailTask(record.primaryTask);
-                    setTaskDetailOpen(true);
+                    openTaskDetail(record.primaryTask);
                   },
                   style: { cursor: 'pointer' },
                 })}
               />
+              )}
               <Button
                 type="dashed"
-                size="small"
+                size={isMobile ? 'middle' : 'small'}
+                block={isMobile}
                 icon={<PlusOutlined />}
                 style={{ marginTop: 8 }}
                 onClick={() => {
@@ -1233,8 +1323,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
         onOk={handleCreateSubmit}
         onCancel={() => { setCreateModalOpen(false); createForm.resetFields(); }}
         confirmLoading={createMutation.isPending}
-        width={isMobile ? '95vw' : 600}
-        style={isMobile ? { top: 10 } : undefined}
+        width={600}
+        {...sheetProps}
       >
         <Form form={createForm} layout="vertical">
           <Form.Item name="claim_id" label="Claim" rules={[{ required: true, message: 'Please select a claim' }]}>
@@ -1296,7 +1386,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
           <Row gutter={16}>
             <Col xs={24} sm={12}>
               <Form.Item name="next_followup_date" label="First Follow-up Date">
-                <DatePicker showTime style={{ width: '100%' }} placeholder="Default: 3 days from now" />
+                <FollowUpDateTimePicker placeholder="Default: 3 days from now" />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -1352,8 +1442,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
       <Modal
         title={`Payments: ${paymentModalTask?.property_address || paymentModalTask?.claim_number || ''}`}
         open={!!paymentModalTask}
-        width={isMobile ? '95vw' : 720}
-        style={isMobile ? { top: 10 } : undefined}
+        width={720}
+        {...sheetProps}
         onCancel={() => { setPaymentModalTask(null); paymentForm.resetFields(); }}
         footer={<Button onClick={() => { setPaymentModalTask(null); paymentForm.resetFields(); }}>Close</Button>}
       >
@@ -1383,6 +1473,41 @@ const ClaimFollowUpDashboard: React.FC = () => {
           description="Payments can arrive in installments, and an approved supplement can bring more money in later."
         />
 
+        {/* Phones: one row per payment instead of a six-column table */}
+        {isMobile ? (
+          paymentsLoading ? (
+            <Skeleton active title={false} paragraph={{ rows: 2 }} />
+          ) : (paymentSummary?.payments || []).length === 0 ? (
+            <p className="cf-pays-empty">No payments recorded yet</p>
+          ) : (
+            <ul className="cf-pays">
+              {(paymentSummary?.payments || []).map((r: PaymentReceipt) => (
+                <li key={r.id} className="cf-pay">
+                  <div className="cf-pay-main">
+                    <span className="cf-pay-top">
+                      <Text strong>${(r.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
+                      <Tag style={{ margin: 0 }}>
+                        {PAYMENT_RECEIPT_TYPE_LABELS[r.payment_type as keyof typeof PAYMENT_RECEIPT_TYPE_LABELS] || r.payment_type || '-'}
+                      </Tag>
+                    </span>
+                    <Text type="secondary" className="cf-pay-meta">
+                      {r.received_date ? dayjs(r.received_date).format('MM/DD/YYYY')
+                        : (r.created_at ? dayjs(r.created_at).format('MM/DD/YYYY') : '-')}
+                      {r.check_number && ` · Check #${r.check_number}`}
+                      {r.notes && ` · ${r.notes}`}
+                    </Text>
+                  </div>
+                  <Popconfirm title="Remove this payment?"
+                    onConfirm={() => deletePaymentMutation.mutate({
+                      claimId: paymentModalTask!.claim_id, paymentId: r.id,
+                    })}>
+                    <Button type="text" danger icon={<DeleteOutlined />} aria-label="Remove payment" className="cf-pay-remove" />
+                  </Popconfirm>
+                </li>
+              ))}
+            </ul>
+          )
+        ) : (
         <Table<PaymentReceipt>
           dataSource={paymentSummary?.payments || []}
           rowKey="id"
@@ -1421,6 +1546,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
             },
           ]}
         />
+        )}
 
         <Divider style={{ margin: '8px 0' }}>Record a payment</Divider>
         <Form
@@ -1477,7 +1603,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
-          <Button type="primary" htmlType="submit" loading={recordPaymentMutation.isPending}>
+          <Button type="primary" htmlType="submit" loading={recordPaymentMutation.isPending} block={isMobile}>
             Add Payment
           </Button>
         </Form>
@@ -1487,8 +1613,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
       <Modal
         title={`Edit: ${selectedTask?.title}`}
         open={editModalOpen}
-        width={isMobile ? '95vw' : 650}
-        style={isMobile ? { top: 10 } : undefined}
+        width={650}
+        {...sheetProps}
         onOk={() => {
           editForm.validateFields().then(values => {
             if (selectedTask) {
@@ -1506,7 +1632,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
         }}
         confirmLoading={editMutation.isPending}
       >
-        <Form form={editForm} layout="vertical" size="small">
+        <Form form={editForm} layout="vertical" size={isMobile ? 'middle' : 'small'}>
           <Form.Item name="title" label="Title" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
@@ -1565,17 +1691,17 @@ const ClaimFollowUpDashboard: React.FC = () => {
             <Input />
           </Form.Item>
           <Row gutter={12}>
-            <Col xs={8} sm={8}>
+            <Col xs={24} sm={8}>
               <Form.Item name="auto_followup_enabled" label="Auto Follow-up" valuePropName="checked">
                 <Switch />
               </Form.Item>
             </Col>
-            <Col xs={8} sm={8}>
+            <Col xs={12} sm={8}>
               <Form.Item name="followup_interval_days" label="Interval (days)">
                 <InputNumber min={1} max={30} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
-            <Col xs={8} sm={8}>
+            <Col xs={12} sm={8}>
               <Form.Item name="max_followup_count" label="Max Count">
                 <InputNumber min={1} max={20} style={{ width: '100%' }} />
               </Form.Item>
@@ -1649,7 +1775,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
             </div>
           )}
 
-          <Form form={editEstimateForm} layout="vertical" size="small">
+          <Form form={editEstimateForm} layout="vertical" size={isMobile ? 'middle' : 'small'}>
             {/* Upload new / replace PDF */}
             <Form.Item label="Upload Estimate PDF" style={{ marginBottom: 8 }}>
               <Upload
@@ -1683,29 +1809,29 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 onRemove={() => { setEditEstimateFile(undefined); setEditParsedSections(null); }}
                 fileList={editEstimateFile ? [{ uid: '-1', name: editEstimateFile.name, status: 'done' as const }] : []}
               >
-                <Button icon={<UploadOutlined />} loading={editIsParsing} size="small">
+                <Button icon={<UploadOutlined />} loading={editIsParsing} size={isMobile ? 'middle' : 'small'}>
                   {editIsParsing ? 'Parsing...' : 'Upload & Parse PDF'}
                 </Button>
               </Upload>
             </Form.Item>
 
             <Row gutter={6}>
-              <Col span={6}>
+              <Col xs={12} sm={6}>
                 <Form.Item name="rcv_amount" label="RCV" style={{ marginBottom: 6 }}>
                   <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
-              <Col span={6}>
+              <Col xs={12} sm={6}>
                 <Form.Item name="depreciation_amount" label="Dep" style={{ marginBottom: 6 }}>
                   <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
-              <Col span={6}>
+              <Col xs={12} sm={6}>
                 <Form.Item name="deductible" label="Ded" style={{ marginBottom: 6 }}>
                   <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
-              <Col span={6}>
+              <Col xs={12} sm={6}>
                 <Form.Item name="acv_amount" label="ACV" style={{ marginBottom: 6 }}>
                   <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
                 </Form.Item>
@@ -1713,7 +1839,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
             </Row>
 
             <Row gutter={6}>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Form.Item name="wm_cost_status" label="WM Cost Status" style={{ marginBottom: 6 }}>
                   <Select allowClear placeholder="Select...">
                     <Select.Option value="included_in_rebuild">Included in Rebuild</Select.Option>
@@ -1722,7 +1848,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   </Select>
                 </Form.Item>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Form.Item name="wm_estimate_amount" label="WM Amount" style={{ marginBottom: 6 }}>
                   <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
                 </Form.Item>
@@ -1737,13 +1863,13 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 onRemove={() => setEditWmFile(undefined)}
                 fileList={editWmFile ? [{ uid: '-2', name: editWmFile.name, status: 'done' as const }] : []}
               >
-                <Button icon={<UploadOutlined />} size="small">Upload WM PDF</Button>
+                <Button icon={<UploadOutlined />} size={isMobile ? 'middle' : 'small'}>Upload WM PDF</Button>
               </Upload>
             </Form.Item>
 
             <Button
               type="primary"
-              size="small"
+              size={isMobile ? 'middle' : 'small'}
               loading={editEstimateSaving}
               onClick={async () => {
                 if (!selectedTask) return;
@@ -2310,23 +2436,84 @@ const ClaimFollowUpDashboard: React.FC = () => {
           padding: 8px 12px 12px !important;
           border-top: 1px solid #e9e9e7;
         }
-        @media (max-width: 576px) {
-          .ant-collapse > .ant-collapse-item > .ant-collapse-header {
-            padding: 8px 12px !important;
+        /* Phones: count + Filters button above the folded filter panel */
+        .cf-toolbar {
+          display: flex; align-items: center; justify-content: space-between; gap: 8px;
+          margin-bottom: 12px;
+        }
+        .cf-toolbar-count { font-size: 13px; font-variant-numeric: tabular-nums; }
+        .cf-legend-fold { margin: 0 0 8px; }
+        .cf-legend-fold > summary {
+          display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 4px;
+          font-size: 13px; color: var(--color-neutral-700, #5f5e5b); cursor: pointer;
+          list-style: none;
+        }
+        .cf-legend-fold > summary::-webkit-details-marker { display: none; }
+        .cf-legend-caret { font-size: 10px; transition: transform .15s ease-out; }
+        .cf-legend-fold[open] .cf-legend-caret { transform: rotate(90deg); }
+        .cf-legend-fold[open] > summary { margin-bottom: 4px; }
+
+        /* Phones: one row per stage inside an expanded claim */
+        .cf-stages { margin: 0; padding: 0; list-style: none; }
+        .cf-stage {
+          display: flex; align-items: center; gap: 4px;
+          border-bottom: 1px solid var(--color-neutral-200, #e9e9e7);
+        }
+        .cf-stage:last-child { border-bottom: 0; }
+        .cf-stage.is-overdue {
+          margin: 0 -12px; padding: 0 0 0 12px; background: var(--tag-red-bg, #fdebec);
+        }
+        .cf-stage-main {
+          display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0;
+          min-height: 56px; margin: 0; padding: 10px 0; border: 0; background: none;
+          font: inherit; text-align: left; color: inherit; cursor: pointer;
+        }
+        .cf-stage-name { font-size: 15px; font-weight: 500; line-height: 1.35; color: var(--color-neutral-900, #37352f); }
+        /* "·" between facts, clipped at the start of each wrapped line */
+        .cf-stage-meta-clip { display: block; overflow: hidden; }
+        .cf-stage-meta {
+          display: flex; flex-wrap: wrap; margin-left: -15px;
+          font-size: 13px; line-height: 20px;
+        }
+        .cf-stage-meta > *::before {
+          content: '·'; display: inline-block; width: 15px; text-align: center;
+          font-weight: 400; color: #b9b7b0;
+        }
+        .cf-stage-who { font-size: 13px; line-height: 20px; }
+        .cf-stage-more.ant-btn { flex: none; width: 44px; height: 44px; }
+
+        /* Phones: payments as rows in the Payments dialog */
+        .cf-pays { margin: 0 0 16px; padding: 0; list-style: none; border-top: 1px solid var(--color-neutral-200, #e9e9e7); }
+        .cf-pay {
+          display: flex; align-items: center; gap: 8px; padding: 10px 0;
+          border-bottom: 1px solid var(--color-neutral-200, #e9e9e7);
+        }
+        .cf-pay-main { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+        .cf-pay-top { display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+        .cf-pay-meta { font-size: 13px; overflow-wrap: anywhere; }
+        .cf-pay-remove.ant-btn { flex: none; width: 40px; height: 40px; }
+        .cf-pays-empty { margin: 0 0 16px; padding: 12px 0; color: var(--color-neutral-600, #73726e); }
+
+        @media (max-width: 767px) {
+          .ant-collapse > .cf-claim-item > .ant-collapse-header {
+            padding: 12px !important;
           }
-          .cf-step-label { font-size: 10px; }
-          .ant-modal {
-            margin: 8px !important;
+          .cf-claim-item .ant-collapse-content-box { padding: 0 12px 12px !important; }
+          .cf-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+          .cf-quick-item {
+            flex: 0 0 auto; align-items: center; gap: 6px;
+            min-height: 40px; padding: 6px 10px;
           }
-          .ant-drawer-content-wrapper {
-            width: 100% !important;
+          .cf-quick-count { font-size: 16px; }
+          .cf-quick-label { font-size: 13px; white-space: nowrap; }
+          .cf-address {
+            display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+            font-size: 15px; white-space: normal;
           }
-          .ant-statistic-title {
-            font-size: 11px !important;
-          }
-          .ant-statistic-content {
-            font-size: 16px !important;
-          }
+          .cf-headline-who { flex-basis: 100%; }
+          .cf-headline-who::before { content: none; }
+          .cf-step { padding: 4px 0 6px; }
+          .cf-step-label { font-size: 11px; }
         }
       `}</style>
     </div>

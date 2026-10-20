@@ -9,3 +9,4 @@ export { default as ProfitabilityTracker } from './ProfitabilityTracker';
 export { default as DepreciationPhaseTracker } from './DepreciationPhaseTracker';
 export { default as ClaimEstimatesPanel } from './ClaimEstimatesPanel';
 export { default as ResolveTaskModal } from './ResolveTaskModal';
+export { default as FollowUpDateTimePicker } from './FollowUpDateTimePicker';

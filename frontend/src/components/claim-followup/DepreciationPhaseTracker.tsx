@@ -23,6 +23,7 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { claimFollowUpService } from '../../services/claimFollowUpService';
+import { useSheetModal } from '../common/ui';
 import type { FollowUpTask } from '../../types/claimFollowUp';
 import {
   DEPRECIATION_PHASE_ORDER,
@@ -114,6 +115,7 @@ const DepreciationPhaseTracker: React.FC<DepreciationPhaseTrackerProps> = ({
   onUpdated,
 }) => {
   const queryClient = useQueryClient();
+  const { sheetProps } = useSheetModal();
   const [sendModal, setSendModal] = useState(false);
   const [paymentModal, setPaymentModal] = useState(false);
   const [advanceNotes, setAdvanceNotes] = useState('');
@@ -304,7 +306,7 @@ const DepreciationPhaseTracker: React.FC<DepreciationPhaseTrackerProps> = ({
 
       {/* Action area */}
       {buttonLabel && (
-        <div style={{ textAlign: 'center' }}>
+        <div className="fu-dep-action" style={{ textAlign: 'center' }}>
           <Space direction="vertical" size={8} style={{ width: '100%' }}>
             <Tooltip
               title={
@@ -331,35 +333,36 @@ const DepreciationPhaseTracker: React.FC<DepreciationPhaseTrackerProps> = ({
         title="Send Documents To"
         open={sendModal}
         onCancel={() => { setSendModal(false); setAdvanceNotes(''); }}
-        footer={null}
         width={420}
+        {...sheetProps}
+        footer={[
+          <Button
+            key="pa"
+            type="primary"
+            icon={<SendOutlined />}
+            onClick={() => handleSendTo('pa')}
+            loading={advanceMutation.isPending}
+          >
+            Send to PA
+          </Button>,
+          <Button
+            key="insurance"
+            type="primary"
+            icon={<SendOutlined />}
+            onClick={() => handleSendTo('insurance')}
+            loading={advanceMutation.isPending}
+          >
+            Send to Insurance
+          </Button>,
+        ]}
       >
-        <Space direction="vertical" size={12} style={{ width: '100%' }}>
-          <TextArea
-            placeholder="Notes (optional)"
-            value={advanceNotes}
-            onChange={e => setAdvanceNotes(e.target.value)}
-            rows={2}
-          />
-          <Space style={{ width: '100%', justifyContent: 'center' }}>
-            <Button
-              type="primary"
-              icon={<SendOutlined />}
-              onClick={() => handleSendTo('pa')}
-              loading={advanceMutation.isPending}
-            >
-              Send to PA
-            </Button>
-            <Button
-              type="primary"
-              icon={<SendOutlined />}
-              onClick={() => handleSendTo('insurance')}
-              loading={advanceMutation.isPending}
-            >
-              Send to Insurance
-            </Button>
-          </Space>
-        </Space>
+        <TextArea
+          placeholder="Notes (optional)"
+          aria-label="Notes"
+          value={advanceNotes}
+          onChange={e => setAdvanceNotes(e.target.value)}
+          rows={2}
+        />
       </Modal>
 
       {/* Payment received modal */}
@@ -370,6 +373,7 @@ const DepreciationPhaseTracker: React.FC<DepreciationPhaseTrackerProps> = ({
         onOk={handlePaymentReceived}
         confirmLoading={advanceMutation.isPending}
         okText="Confirm Payment"
+        {...sheetProps}
       >
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
           <div>

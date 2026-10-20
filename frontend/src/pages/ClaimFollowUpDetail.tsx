@@ -27,7 +27,8 @@ import {
 import type { ProgressStep } from '../components/claim-followup/claimProgress';
 import { templateValuesFromTask } from '../components/claim-followup/emailTemplates';
 import { useUndoableTaskDelete } from '../components/claim-followup/useUndoableTaskDelete';
-import { PageHeader, Pill, PropertyList } from '../components/common/ui';
+import { PageHeader, Pill, PropertyList, useSheetModal } from '../components/common/ui';
+import FollowUpDateTimePicker from '../components/claim-followup/FollowUpDateTimePicker';
 import { comfortTheme } from '../styles/antTheme';
 import { SUPPLEMENT_STATUSES, SupplementStatusPill, formatCurrency } from '../components/supplement/supplementUi';
 import type {
@@ -100,6 +101,7 @@ const ClaimFollowUpDetail: React.FC = () => {
   const queryClient = useQueryClient();
   const screens = Grid.useBreakpoint();
   const isMobile = screens.md === false;
+  const { sheetProps } = useSheetModal();
   const [createForm] = Form.useForm();
   const [editForm] = Form.useForm();
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -989,7 +991,7 @@ const ClaimFollowUpDetail: React.FC = () => {
       {/* Create Task Modal */}
       <Modal title="Add Stage" open={createModalOpen} onOk={handleCreateSubmit}
         onCancel={() => { setCreateModalOpen(false); createForm.resetFields(); }}
-        confirmLoading={createMutation.isPending} width={600} forceRender>
+        confirmLoading={createMutation.isPending} width={600} forceRender {...sheetProps}>
         <Form form={createForm} layout="vertical">
           <Row gutter={16}>
             <Col xs={24} sm={12}>
@@ -1028,7 +1030,7 @@ const ClaimFollowUpDetail: React.FC = () => {
           <Row gutter={16}>
             <Col xs={24} sm={12}>
               <Form.Item name="next_followup_date" label="First Follow-up Date">
-                <DatePicker showTime style={{ width: '100%' }} placeholder="Default: 3 days" presets={followUpPresets()} />
+                <FollowUpDateTimePicker placeholder="Default: 3 days" presets={followUpPresets()} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -1059,7 +1061,7 @@ const ClaimFollowUpDetail: React.FC = () => {
       <Modal title={`Edit: ${selectedTask?.title || ''}`} open={editModalOpen}
         onOk={handleEditSubmit}
         onCancel={() => { setEditModalOpen(false); editForm.resetFields(); }}
-        confirmLoading={editMutation.isPending} width={600} forceRender>
+        confirmLoading={editMutation.isPending} width={600} forceRender {...sheetProps}>
         <Form form={editForm} layout="vertical">
           <Form.Item name="title" label="Title" rules={[{ required: true }]}>
             <Input />
@@ -1101,7 +1103,7 @@ const ClaimFollowUpDetail: React.FC = () => {
             </Col>
             <Col xs={24} sm={12}>
               <Form.Item name="next_followup_date" label="Next Follow-up">
-                <DatePicker showTime style={{ width: '100%' }} presets={followUpPresets()} />
+                <FollowUpDateTimePicker presets={followUpPresets()} />
               </Form.Item>
             </Col>
           </Row>

@@ -55,7 +55,6 @@ const ClaimFollowUpEmail: React.FC = () => {
         <Button
           icon={<ArrowLeftOutlined />}
           onClick={() => navigate('/claim-followup')}
-          size={isMobile ? 'small' : 'middle'}
         >
           {isMobile ? 'Back' : 'Back to Dashboard'}
         </Button>
