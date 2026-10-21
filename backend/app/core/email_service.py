@@ -2,6 +2,7 @@
 Email service for sending emails via SMTP
 """
 import smtplib
+from html import escape
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List, Optional
@@ -249,87 +250,102 @@ class EmailService:
         )
 
     @staticmethod
-    def send_welcome_email(to_email: str, username: str) -> bool:
+    def send_welcome_email(to_email: str, username: str, first_name: Optional[str] = None) -> bool:
         """
         Send welcome email to new users
 
         Args:
             to_email: User's email address
-            username: User's username
+            username: User's username, which they sign in with
+            first_name: Used in the greeting when known
 
         Returns:
             bool: True if email sent successfully
         """
-        subject = "Welcome to SimpleWorks"
+        brand = settings.SMTP_FROM_NAME
+        login_url = f"{settings.FRONTEND_URL}/login"
+        name = first_name or username
+        subject = f"Welcome to {brand}"
 
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <style>
-                body {{
-                    font-family: Arial, sans-serif;
-                    line-height: 1.6;
-                    color: #333;
-                }}
-                .container {{
-                    max-width: 600px;
-                    margin: 0 auto;
-                    padding: 20px;
-                }}
-                .header {{
-                    background-color: #52c41a;
-                    color: white;
-                    padding: 20px;
-                    text-align: center;
-                    border-radius: 5px 5px 0 0;
-                }}
-                .content {{
-                    background-color: #f5f5f5;
-                    padding: 30px;
-                    border-radius: 0 0 5px 5px;
-                }}
-                .button {{
-                    display: inline-block;
-                    padding: 12px 30px;
-                    background-color: #1890ff;
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 5px;
-                    margin: 20px 0;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>Welcome to SimpleWorks!</h1>
-                </div>
-                <div class="content">
-                    <p>Hi {username},</p>
-                    <p>Your account has been successfully created. You can now log in and start using SimpleWorks.</p>
-                    <p style="text-align: center;">
-                        <a href="{settings.FRONTEND_URL}/login" class="button">Go to Login</a>
-                    </p>
-                    <p>If you have any questions, feel free to contact our support team.</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
+        # Email clients drop <style> blocks and flexbox unevenly, so the layout
+        # is tables with inline styles. Colours and type follow DESIGN.md.
+        font = ("-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, "
+                "Arial, sans-serif")
+        b, n, u, url = (escape(brand), escape(name), escape(username), escape(login_url))
 
-        text_content = f"""
-        Welcome to SimpleWorks!
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Welcome to {b}</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f7f7f5;">
+<div style="display:none; max-height:0; overflow:hidden;">Your {b} account is ready. Sign in with {u}.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f7f7f5;">
+  <tr>
+    <td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;">
+        <tr>
+          <td style="padding:0 4px 20px; font-family:{font}; font-size:15px; font-weight:600; letter-spacing:-0.01em; color:#37352f;">
+            {b}
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#ffffff; border:1px solid #e9e9e7; border-radius:12px; padding:36px 32px;">
+            <h1 style="margin:0 0 12px; font-family:{font}; font-size:24px; line-height:1.3; font-weight:600; letter-spacing:-0.015em; color:#37352f;">
+              Welcome, {n}
+            </h1>
+            <p style="margin:0 0 24px; font-family:{font}; font-size:15px; line-height:1.6; color:#5f5e5b;">
+              Your {b} account is ready. Sign in to get started.
+            </p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f7f7f5; border-radius:8px; margin:0 0 28px;">
+              <tr>
+                <td style="padding:14px 16px; font-family:{font}; font-size:13px; line-height:1.4; color:#73726e;">
+                  Username
+                  <div style="margin-top:2px; font-size:15px; font-weight:500; color:#37352f;">{u}</div>
+                </td>
+              </tr>
+            </table>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="border-radius:8px; background-color:#1f74c9;">
+                  <a href="{url}" style="display:inline-block; padding:12px 24px; font-family:{font}; font-size:15px; font-weight:500; color:#ffffff; text-decoration:none; border-radius:8px;">
+                    Sign in to {b}
+                  </a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:28px 0 0; font-family:{font}; font-size:13px; line-height:1.5; color:#73726e;">
+              Button not working? Open <a href="{url}" style="color:#1f74c9; text-decoration:none; word-break:break-all;">{url}</a>
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:20px 4px 0; font-family:{font}; font-size:12px; line-height:1.5; color:#a5a29a;">
+            You're getting this because an account was created for {escape(to_email)}.
+            Questions? Ask your administrator.
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>
+"""
 
-        Hi {username},
+        text_content = f"""Welcome, {name}
 
-        Your account has been successfully created. You can now log in and start using SimpleWorks.
+Your {brand} account is ready. Sign in to get started.
 
-        Login at: {settings.FRONTEND_URL}/login
+Username: {username}
+Sign in: {login_url}
 
-        If you have any questions, feel free to contact our support team.
-        """
+You're getting this because an account was created for {to_email}.
+Questions? Ask your administrator.
+"""
 
         return EmailService.send_email(
             to_email=to_email,

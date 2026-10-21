@@ -87,7 +87,9 @@ def register(
 
         # Send welcome email if enabled
         if settings.EMAIL_ENABLED:
-            email_service.send_welcome_email(staff.email, staff.username)
+            email_service.send_welcome_email(
+                staff.email, staff.username, first_name=staff.first_name
+            )
 
         return staff
     except ValueError as e:
