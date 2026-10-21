@@ -11,6 +11,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.common.utils.timing import StageTimer
 from app.core.config import settings
+from app.domains.client.claim_paths import (
+    WM_SEPARATE_PAYMENT_STATUSES,
+    SameCompanyAsWMError,
+    check_rebuild_estimate_company,
+    company_names,
+    mark_rebuild_estimate_requested,
+    record_wm_paid_per_invoice,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -207,8 +215,9 @@ class ClaimFollowUpService:
             if wm_est_amount:
                 claim.wm_estimate_amount = wm_est_amount
 
-            # Auto-create wm_payment_check task when WM costs are separate or not yet received
-            if wm_cost_status in ('separate_estimate', 'not_received'):
+            # Auto-create wm_payment_check task when WM is paid on its own
+            # (paid per our invoice, separate estimate, or not yet received)
+            if wm_cost_status in WM_SEPARATE_PAYMENT_STATUSES:
                 self._auto_create_payment_task(
                     session, str(claim_id), task, 'wm_payment_check',
                     title='WM Payment',
@@ -238,17 +247,31 @@ class ClaimFollowUpService:
         denied_action: Optional[str] = None,
         payment_status: Optional[str] = None,
         payment_note: Optional[str] = None,
+        rebuild_estimate_company_id: Optional[str] = None,
+        wm_approved_amount: Optional[float] = None,
     ) -> Optional[Dict[str, Any]]:
         """Mark a task as resolved and process outcome.
 
         When outcome='denied' and denied_action is dispute/appraisal/attorney,
         the task is NOT resolved — instead it is converted to the new type
         and the claim stays open.
+
+        Raises SameCompanyAsWMError when outcome='estimate_requested' names the
+        company that did the water mitigation as the rebuild estimate writer.
         """
         session = self._get_session()
         try:
             from app.domains.claim_followup.repository import get_followup_task_repository
             repo = get_followup_task_repository(session)
+
+            # Reject a WM company as the rebuild estimate writer before
+            # anything is resolved.
+            if outcome == 'estimate_requested' and rebuild_estimate_company_id:
+                task_row = repo.get_by_id(task_id)
+                if task_row and task_row.get('claim_id'):
+                    check_rebuild_estimate_company(
+                        session, str(task_row['claim_id']), rebuild_estimate_company_id
+                    )
 
             # Denied + continuing action → keep task open, change type
             if (outcome == 'denied'
@@ -296,10 +319,15 @@ class ClaimFollowUpService:
                 self._process_resolve_outcome(
                     session, claim_id, result, outcome, resolution_notes,
                     estimate_data=estimate_data,
+                    rebuild_estimate_company_id=rebuild_estimate_company_id,
+                    wm_approved_amount=wm_approved_amount,
                 )
 
             session.commit()
             return result
+        except SameCompanyAsWMError:
+            session.rollback()
+            raise
         except Exception as e:
             session.rollback()
             logger.error(f"Error resolving task: {e}")
@@ -551,6 +579,8 @@ class ClaimFollowUpService:
         outcome: str,
         notes: Optional[str] = None,
         estimate_data: Optional[Dict[str, Any]] = None,
+        rebuild_estimate_company_id: Optional[str] = None,
+        wm_approved_amount: Optional[float] = None,
     ):
         """Process follow-up resolution outcome - update claim, create rebuild, log activity"""
         from app.domains.client.models import Claim, ClaimActivity
@@ -568,6 +598,12 @@ class ClaimFollowUpService:
             claim.insurance_estimate_received_date = datetime.now(timezone.utc)
             if claim.status == 'open':
                 claim.status = 'negotiating'
+            # The carrier's estimate is in: either it wrote it, or it approved
+            # the one a (non-WM) company wrote at its request.
+            if not claim.estimate_origin:
+                claim.estimate_origin = 'carrier_provided'
+            elif claim.estimate_origin == 'contractor_prepared':
+                claim.contractor_estimate_stage = 'approved_initial_received'
 
             # Store file info on claim if provided
             if estimate_data:
@@ -610,7 +646,9 @@ class ClaimFollowUpService:
                 amount_info = f" ACV: ${estimate_data.get('acv_amount', 0):,.2f}, RCV: ${estimate_data.get('rcv_amount', 0):,.2f}"
 
             wm_info = ''
-            if wm_cost_status == 'included_in_rebuild':
+            if wm_cost_status == 'paid_per_invoice':
+                wm_info = ' | WM paid per our invoice (no insurance WM estimate).'
+            elif wm_cost_status == 'included_in_rebuild':
                 wm_info = ' | WM costs included in rebuild estimate.'
             elif wm_cost_status == 'separate_estimate':
                 wm_info = f' | WM estimate received separately.'
@@ -653,7 +691,7 @@ class ClaimFollowUpService:
                 needs_confirmation=True,
             )
 
-            if wm_cost_status in ('separate_estimate', 'not_received'):
+            if wm_cost_status in WM_SEPARATE_PAYMENT_STATUSES:
                 # WM costs not included in rebuild → need independent WM payment tracking
                 self._auto_create_payment_task(
                     session, claim_id, task, 'wm_payment_check',
@@ -663,6 +701,17 @@ class ClaimFollowUpService:
             elif wm_cost_status == 'not_received':
                 # WM costs not included → follow up to request coverage
                 self._auto_create_wm_followup(session, claim_id, task, claim)
+
+        elif outcome == 'wm_invoice_accepted':
+            # Carrier pays our WM invoice as billed: no WM estimate is coming.
+            # The rebuild estimate is still to come, from the carrier or, if
+            # asked, from a company other than the WM one.
+            record_wm_paid_per_invoice(
+                session, claim,
+                approved_amount=wm_approved_amount,
+                notes=notes,
+                source_task=task,
+            )
 
         elif outcome == 'wm_estimate_only':
             # WM estimate received but rebuild estimate not yet available
@@ -698,19 +747,27 @@ class ClaimFollowUpService:
             ))
 
         elif outcome == 'estimate_requested':
-            # Insurance asked us to provide the estimate
+            # Insurance asked us to provide the rebuild estimate. A company
+            # other than the one that did the WM writes and sends it.
+            mark_rebuild_estimate_requested(
+                session, claim, company_id=rebuild_estimate_company_id,
+            )
             self._auto_create_estimate_request(
                 session, claim, task, notes
             )
 
+            writer = company_names(
+                session, [claim.rebuild_estimate_company_id]
+            ).get(str(claim.rebuild_estimate_company_id or ''))
             session.add(ClaimActivity(
                 claim_id=claim_id,
                 activity_type='estimate_requested',
                 title='Insurance requested contractor estimate',
                 description=(
-                    notes
-                    or 'Insurance company requested '
-                       'our estimate for this claim.'
+                    (notes
+                     or 'Insurance company requested '
+                        'our estimate for this claim.')
+                    + (f' Rebuild estimate written by {writer}.' if writer else '')
                 ),
                 related_entity_type='followup_task',
                 related_entity_id=task.get('id'),
@@ -1269,7 +1326,19 @@ class ClaimFollowUpService:
                 and (wm_file_id or wm_est_amount)
             )
 
-            if has_separate_wm:
+            if wm_cost_status == 'paid_per_invoice':
+                # WM was paid per our invoice, so this estimate is rebuild only
+                self._upsert_negotiation(session, claim_id, 'reconstruction', {
+                    'acv_amount': estimate_data.get('acv_amount', 0),
+                    'rcv_amount': estimate_data.get('rcv_amount', 0),
+                    'depreciation_amount': estimate_data.get('depreciation_amount', 0),
+                    'deductible': estimate_data.get('deductible', 0),
+                    'document_url': estimate_data.get('file_id', ''),
+                    'document_name': estimate_data.get('file_name', ''),
+                    'sections_data': all_sections if all_sections else None,
+                    'notes': 'Reconstruction estimate',
+                })
+            elif has_separate_wm:
                 # Separate: main = reconstruction, WM = water mitigation
                 self._upsert_negotiation(session, claim_id, 'reconstruction', {
                     'acv_amount': estimate_data.get('acv_amount', 0),

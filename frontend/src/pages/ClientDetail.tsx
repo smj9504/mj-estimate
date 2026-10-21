@@ -97,7 +97,9 @@ import {
   CONTRACTOR_ESTIMATE_STAGE_ORDER,
   CONTRACTOR_ESTIMATE_STAGE_LABELS,
   CONTRACTOR_ESTIMATE_STAGE_COLORS,
+  WM_COST_STATUS_LABELS,
 } from '../types/client';
+import RebuildEstimateCompanySelect from '../components/claim-followup/RebuildEstimateCompanySelect';
 import type { ColumnsType } from 'antd/es/table';
 
 dayjs.extend(relativeTime);
@@ -502,6 +504,7 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           appraisal_date: editingClaim.appraisal_date ? dayjs(editingClaim.appraisal_date) as any : undefined,
           estimate_origin: editingClaim.estimate_origin,
           contractor_estimate_stage: editingClaim.contractor_estimate_stage,
+          rebuild_estimate_company_id: editingClaim.rebuild_estimate_company_id || undefined,
           notes: editingClaim.notes,
           initial_acv: editingClaim.current_acv,
           initial_rcv: editingClaim.current_rcv,
@@ -519,6 +522,10 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
       date_of_loss: values.date_of_loss ? dayjs(values.date_of_loss).format('YYYY-MM-DD') : undefined,
       // null clears it; the field only renders for appraisal claims
       appraisal_date: values.appraisal_date ? dayjs(values.appraisal_date).format('YYYY-MM-DD') : null,
+      // '' clears it on an existing claim; a new claim just leaves it out
+      rebuild_estimate_company_id: values.estimate_origin === 'contractor_prepared'
+        ? (values.rebuild_estimate_company_id || (editingClaim ? '' : undefined))
+        : undefined,
     };
     if (!values.claim_number) {
       Modal.confirm({
@@ -602,8 +609,8 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
 
         <Row gutter={12}>
           <Col xs={24} sm={12}>
-            <Form.Item name="estimate_origin" label="Initial Estimate From"
-              tooltip="Some carriers decline to write an estimate and ask us to submit one for approval">
+            <Form.Item name="estimate_origin" label="Rebuild Estimate From"
+              tooltip="Usually the insurance company writes it. Some ask us to submit one for approval instead; then a company other than the WM one writes it">
               <Select allowClear placeholder="Not determined yet">
                 {Object.entries(ESTIMATE_ORIGIN_CONFIG).map(([val, cfg]) => (
                   <Option key={val} value={val}>{cfg.label}</Option>
@@ -629,6 +636,26 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
             </Form.Item>
           </Col>
         </Row>
+
+        {/* The carrier asked us for the rebuild estimate: a company other than
+            the WM one writes and sends it */}
+        <Form.Item noStyle shouldUpdate={(prev, cur) => prev.estimate_origin !== cur.estimate_origin}>
+          {({ getFieldValue }) =>
+            getFieldValue('estimate_origin') === 'contractor_prepared' ? (
+              <Row gutter={12}>
+                <Col xs={24} sm={12}>
+                  <Form.Item
+                    name="rebuild_estimate_company_id"
+                    label="Rebuild Estimate Written By"
+                    tooltip="Must be a company other than the one that did the water mitigation"
+                  >
+                    <RebuildEstimateCompanySelect wmCompanyIds={editingClaim?.wm_company_ids} />
+                  </Form.Item>
+                </Col>
+              </Row>
+            ) : null
+          }
+        </Form.Item>
 
         <Divider orientation="left" plain style={{ marginBottom: 8 }}>Insurance Details</Divider>
         <Row gutter={12}>
@@ -1881,6 +1908,16 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
                 || claim.contractor_estimate_stage}
             </Tag>
           )}
+          {claim.estimate_origin === 'contractor_prepared' && claim.rebuild_estimate_company_name && (
+            <Tag style={{ margin: 0, fontSize: 11 }}>By {claim.rebuild_estimate_company_name}</Tag>
+          )}
+          {claim.wm_cost_status === 'paid_per_invoice' && (
+            <Tooltip title="The insurance company pays our WM invoice as billed, so no WM estimate is expected">
+              <Tag color="green" style={{ margin: 0, fontSize: 11 }}>
+                {WM_COST_STATUS_LABELS.paid_per_invoice}
+              </Tag>
+            </Tooltip>
+          )}
         </Space>
         <Space size={8} wrap>
           {!wentToAppraisal && (claim.status === 'open' || claim.status === 'negotiating') && (
@@ -1942,12 +1979,15 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message="Carrier asked us to prepare the estimate"
+          message="Carrier asked us to prepare the rebuild estimate"
           description={
-            claim.contractor_estimate_stage
+            (claim.rebuild_estimate_company_name
+              ? `Written and sent by ${claim.rebuild_estimate_company_name}. `
+              : 'Pick the company that writes it on the claim: it can\'t be the company that did the water mitigation. ')
+            + (claim.contractor_estimate_stage
               ? `Current stage: ${CONTRACTOR_ESTIMATE_STAGE_LABELS[claim.contractor_estimate_stage]}. `
                 + 'The approved initial estimate from the carrier is not on file yet.'
-              : 'No stage recorded yet. Set the stage on the claim to track progress.'
+              : 'No stage recorded yet. Set the stage on the claim to track progress.')
           }
         />
       )}

@@ -137,8 +137,36 @@ export const ESTIMATE_ORIGIN_CONFIG: Record<
   contractor_prepared: {
     color: 'purple',
     label: 'Contractor-Prepared',
-    description: 'Carrier asked us to write the estimate for approval',
+    description: 'Carrier asked us for the estimate; a company other than the WM one writes it for approval',
   },
+};
+
+/**
+ * How the claim's water mitigation gets paid. We send our WM invoice first;
+ * the carrier either pays it as billed (no WM estimate of its own) or answers
+ * with a WM estimate, separate or inside the rebuild estimate.
+ */
+export type WMCostStatus =
+  | 'paid_per_invoice'
+  | 'included_in_rebuild'
+  | 'separate_estimate'
+  | 'not_received'
+  | 'not_applicable';
+
+export const WM_COST_STATUS_OPTIONS: { value: WMCostStatus; label: string }[] = [
+  { value: 'paid_per_invoice', label: 'Paid per Our Invoice (No WM Estimate)' },
+  { value: 'included_in_rebuild', label: 'Included in Rebuild Estimate' },
+  { value: 'separate_estimate', label: 'Received as Separate WM Estimate' },
+  { value: 'not_received', label: 'Not Received - Need Follow-up' },
+  { value: 'not_applicable', label: 'N/A (No WM on this claim)' },
+];
+
+export const WM_COST_STATUS_LABELS: Record<string, string> = {
+  paid_per_invoice: 'Paid per our invoice (no WM estimate)',
+  included_in_rebuild: 'Included in rebuild estimate',
+  separate_estimate: 'Separate WM estimate',
+  not_received: 'Not received — needs follow-up',
+  not_applicable: 'N/A (no WM on this claim)',
 };
 
 /** Progress of the contractor-prepared path. Unused on the carrier path. */
@@ -207,6 +235,12 @@ export interface Claim {
   appraisal_date?: string | null;
   estimate_origin?: EstimateOrigin | null;
   contractor_estimate_stage?: ContractorEstimateStage | null;
+  /** Who writes the rebuild estimate on the contractor-prepared path */
+  rebuild_estimate_company_id?: string | null;
+  rebuild_estimate_company_name?: string | null;
+  /** Companies that did this claim's WM; they may not write the rebuild estimate */
+  wm_company_ids?: string[];
+  wm_cost_status?: WMCostStatus | null;
   notes?: string;
   negotiations: ClaimNegotiation[];
   payments: ClaimPayment[];
@@ -401,6 +435,8 @@ export interface ClaimCreate {
   appraisal_date?: string | null;
   estimate_origin?: EstimateOrigin | null;
   contractor_estimate_stage?: ContractorEstimateStage | null;
+  /** '' clears it */
+  rebuild_estimate_company_id?: string | null;
   notes?: string;
   initial_acv?: number;
   initial_rcv?: number;

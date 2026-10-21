@@ -1,12 +1,14 @@
 /**
  * WM Financial Comparison Component
  * Displays side-by-side comparison of our invoice vs insurance company's WM estimate.
+ * When the carrier pays our invoice as billed there is no WM estimate at all;
+ * the card records that instead ("paid per our invoice").
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   Card, Divider, Typography, Spin, Tooltip,
-  Upload, Button, Modal, Table, InputNumber, Alert, message, Space,
+  Upload, Button, Modal, Table, InputNumber, Alert, message, Space, Popconfirm,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -51,6 +53,9 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
   const [editing, setEditing] = useState(false);
   const [manualAmount, setManualAmount] = useState<number | null>(null);
   const [savingManual, setSavingManual] = useState(false);
+
+  // Carrier pays our invoice as billed (no WM estimate)
+  const [markingPaid, setMarkingPaid] = useState(false);
 
   const load = useCallback(async () => {
     if (!jobId) return;
@@ -167,6 +172,23 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
     }
   };
 
+  const handlePaidPerInvoice = async (paidPerInvoice: boolean) => {
+    setMarkingPaid(true);
+    try {
+      await financialComparisonService.setPaidPerInvoice(jobId, { paidPerInvoice });
+      message.success(
+        paidPerInvoice
+          ? 'Marked as paid per our invoice. A WM Payment follow-up was created.'
+          : 'No longer marked as paid per our invoice.',
+      );
+      await load();
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Failed to update.');
+    } finally {
+      setMarkingPaid(false);
+    }
+  };
+
   const uploadButton = (
     <Upload
       accept=".pdf"
@@ -205,6 +227,9 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
 
   const { our_invoice, insurance_estimate, comparison } = data;
   const wmSec = insurance_estimate?.wm_section;
+
+  const hasWmEstimate = !!wmSec || !!insurance_estimate?.wm_estimate_amount;
+  const paidPerInvoice = insurance_estimate?.wm_cost_status === 'paid_per_invoice' && !hasWmEstimate;
 
   const diffPositive = comparison.difference != null && comparison.difference > 0;
   const diffNegative = comparison.difference != null && comparison.difference < 0;
@@ -257,14 +282,55 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
     </div>
   ) : insurance_estimate?.wm_estimate_amount ? (
     <Text strong>{fmt(insurance_estimate.wm_estimate_amount)}</Text>
+  ) : paidPerInvoice ? (
+    <div>
+      <Space size={6} wrap>
+        <Pill tone="green">Paid per our invoice</Pill>
+        {insurance_estimate?.approved_amount != null && (
+          <span><Text strong>{fmt(insurance_estimate.approved_amount)}</Text> <Text type="secondary">approved</Text></span>
+        )}
+      </Space>
+      <div style={{ fontSize: 13, color: '#73726e', marginTop: 2 }}>
+        No insurance WM estimate needed.{' '}
+        <Popconfirm
+          title="Take back 'paid per our invoice'?"
+          description="For a job marked by mistake. The WM payment follow-up stays."
+          okText="Take back"
+          cancelText="Cancel"
+          onConfirm={() => handlePaidPerInvoice(false)}
+        >
+          <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} loading={markingPaid}>
+            Undo
+          </Button>
+        </Popconfirm>
+      </div>
+    </div>
   ) : (
-    <Text type="secondary">
-      {insurance_estimate?.wm_cost_status === 'not_received'
-        ? 'Not yet received from insurance'
-        : insurance_estimate?.wm_cost_status === 'included_in_rebuild'
-        ? 'Included in rebuild estimate'
-        : 'No WM estimate available'}
-    </Text>
+    <div>
+      <Text type="secondary">
+        {insurance_estimate?.wm_cost_status === 'not_received'
+          ? 'Not yet received from insurance'
+          : insurance_estimate?.wm_cost_status === 'included_in_rebuild'
+          ? 'Included in rebuild estimate'
+          : 'No WM estimate available'}
+      </Text>
+      {/* Linked to a claim: the carrier may simply pay our invoice */}
+      {insurance_estimate && insurance_estimate.wm_cost_status !== 'included_in_rebuild' && (
+        <div style={{ marginTop: 2 }}>
+          <Popconfirm
+            title="Insurance pays our invoice as billed?"
+            description="No WM estimate is needed. The WM docs follow-up closes and a WM Payment follow-up opens."
+            okText="Mark paid per invoice"
+            cancelText="Cancel"
+            onConfirm={() => handlePaidPerInvoice(true)}
+          >
+            <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} loading={markingPaid}>
+              Insurance is paying our invoice
+            </Button>
+          </Popconfirm>
+        </div>
+      )}
+    </div>
   );
 
   const items: PropertyItem[] = [
@@ -284,7 +350,7 @@ const WMFinancialComparisonCard: React.FC<Props> = ({ jobId, isActive }) => {
     },
     {
       key: 'insurance',
-      label: 'Insurance Estimate (WM)',
+      label: paidPerInvoice ? 'Insurance (WM)' : 'Insurance Estimate (WM)',
       value: (
         <div>
           {(insurance_estimate?.negotiation_type ||

@@ -121,6 +121,17 @@ class ClaimService(BaseService[Dict[str, Any], str]):
             existing = self.get_by_id(entity_id)
             if existing and not existing.get('appraisal_date'):
                 update_data['appraisal_date'] = datetime.now(timezone.utc)
+        if 'rebuild_estimate_company_id' in update_data:
+            company_id = (str(update_data['rebuild_estimate_company_id'] or '')).strip() or None
+            update_data['rebuild_estimate_company_id'] = company_id
+            if company_id:
+                # Raises SameCompanyAsWMError for the company that did the WM
+                from app.domains.client.claim_paths import check_rebuild_estimate_company
+                session = self.database.get_readonly_session()
+                try:
+                    check_rebuild_estimate_company(session, entity_id, company_id)
+                finally:
+                    session.close()
         return super().update(entity_id, update_data)
 
     def get_with_details(self, claim_id: str) -> Optional[Dict[str, Any]]:

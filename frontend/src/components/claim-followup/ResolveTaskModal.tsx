@@ -1,10 +1,11 @@
 /**
  * ResolveTaskModal — closes a follow-up stage the way that stage needs:
- * estimate-intake stages record the insurance outcome (estimate received,
- * WM only, our estimate requested, denied), payment stages record the
- * payment status, every other stage just takes notes. The outcome drives what
- * the backend creates next (rebuild project, WM payment task, dispute path),
- * so the list and the claim page both resolve through this one form.
+ * estimate-intake stages record the insurance outcome (WM invoice paid as
+ * billed, estimate received, WM only, our estimate requested, denied), payment
+ * stages record the payment status, every other stage just takes notes. The
+ * outcome drives what the backend creates next (rebuild project, WM payment
+ * task, dispute path), so the list and the claim page both resolve through
+ * this one form.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -20,7 +21,9 @@ import { supplementService } from '../../services/supplementService';
 import { fileService } from '../../services/fileService';
 import { Pill, useSheetModal } from '../common/ui';
 import type { FollowUpTask } from '../../types/claimFollowUp';
+import { WM_COST_STATUS_OPTIONS } from '../../types/client';
 import { ESTIMATE_OUTCOME_TASK_TYPES, PAYMENT_TASK_TYPES } from './claimProgress';
+import RebuildEstimateCompanySelect from './RebuildEstimateCompanySelect';
 
 const { TextArea } = Input;
 
@@ -105,6 +108,14 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
     if (task.resolution_notes) {
       form.setFieldsValue({ resolution_notes: task.resolution_notes });
     }
+    // Carry what the claim already knows: WM paid per our invoice, and who
+    // writes the rebuild estimate when the carrier asked us for it.
+    if (task.wm_cost_status === 'paid_per_invoice') {
+      form.setFieldsValue({ wm_cost_status: 'paid_per_invoice' });
+    }
+    if (task.rebuild_estimate_company_id) {
+      form.setFieldsValue({ rebuild_estimate_company_id: task.rebuild_estimate_company_id });
+    }
     // Only estimate-intake stages need the insurance-estimate autofill.
     // Payment / supplement / other stages resolve independently and must
     // not be forced into the "Insurance Estimate Received" flow.
@@ -124,7 +135,9 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
           depreciation_amount: main.depreciation_amount || 0,
           deductible: main.deductible || 0,
         };
-        if (combined) {
+        if (task.wm_cost_status === 'paid_per_invoice') {
+          formValues.wm_cost_status = 'paid_per_invoice';
+        } else if (combined) {
           formValues.wm_cost_status = 'included_in_rebuild';
         } else if (wm && wm.document_url && wm.document_url !== main.document_url) {
           formValues.wm_cost_status = 'separate_estimate';
@@ -165,6 +178,8 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
       const nextAction = variables.body?.denied_action;
       if (result === 'estimate_received') {
         message.success('Task resolved - Insurance estimate received. Rebuild project created.');
+      } else if (result === 'wm_invoice_accepted') {
+        message.success('Task resolved - WM paid per our invoice. WM Payment task created.');
       } else if (result === 'wm_estimate_only') {
         message.success('Task resolved - WM estimate recorded. WM Payment task created.');
       } else if (result === 'estimate_requested') {
@@ -277,6 +292,10 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
           sections_data: parsedSections,
           payment_status: values.payment_status,
           payment_note: values.payment_note,
+          rebuild_estimate_company_id: values.outcome === 'estimate_requested'
+            ? values.rebuild_estimate_company_id : undefined,
+          wm_approved_amount: values.outcome === 'wm_invoice_accepted'
+            ? values.wm_approved_amount ?? undefined : undefined,
           file,
           wm_estimate_file: wmFile,
         },
@@ -326,9 +345,13 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
               placeholder="What was the result?"
               onChange={(v) => { setOutcome(v); setDeniedAction(undefined); form.setFieldsValue({ denied_action: undefined }); }}
               options={[
+                // Only the WM docs we sent can be paid as billed
+                ...(shown?.task_type === 'wm_docs_sent'
+                  ? [{ value: 'wm_invoice_accepted', label: 'Insurance Paying Our WM Invoice (No Estimate)' }]
+                  : []),
                 { value: 'estimate_received', label: 'Insurance Estimate Received' },
                 { value: 'wm_estimate_only', label: 'WM Estimate Only (Rebuild Unknown)' },
-                { value: 'estimate_requested', label: 'Insurance Requested Our Estimate' },
+                { value: 'estimate_requested', label: 'Insurance Requested Our Rebuild Estimate' },
                 { value: 'denied', label: 'Claim Denied' },
                 { value: 'other', label: 'Other' },
               ]}
@@ -468,12 +491,7 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
                 <Select
                   placeholder="Does estimate include WM costs?"
                   aria-label="Water mitigation costs"
-                  options={[
-                    { value: 'included_in_rebuild', label: 'Included in Rebuild Estimate' },
-                    { value: 'separate_estimate', label: 'Received as Separate WM Estimate' },
-                    { value: 'not_received', label: 'Not Received - Need Follow-up' },
-                    { value: 'not_applicable', label: 'N/A (No WM on this claim)' },
-                  ]}
+                  options={WM_COST_STATUS_OPTIONS}
                 />
               </Form.Item>
               <Form.Item noStyle shouldUpdate={(prev, cur) => prev.wm_cost_status !== cur.wm_cost_status}>
@@ -519,6 +537,55 @@ const ResolveTaskModal: React.FC<ResolveTaskModalProps> = ({ task, onClose, onRe
               </Form.Item>
             </section>
           </>
+        )}
+
+        {/* Carrier pays our WM invoice as billed - no WM estimate at all */}
+        {outcome === 'wm_invoice_accepted' && (
+          <section className="fu-form-group">
+            <div className="fu-form-group-head">
+              <h4 className="fu-form-group-title">Water Mitigation Invoice</h4>
+            </div>
+            <Form.Item
+              name="wm_approved_amount"
+              label="Approved Amount"
+              tooltip="Leave empty when they approved our invoice as billed"
+              className="fu-compact-item"
+            >
+              <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} placeholder="Same as our invoice" />
+            </Form.Item>
+            <p className="fu-note">
+              <InfoCircleOutlined aria-hidden="true" />
+              <span>
+                No insurance WM estimate is needed. A <strong>WM Payment</strong> task opens to track the check.
+                The rebuild estimate still comes from the insurance company, or from a company other than the
+                WM one if they ask us for it.
+              </span>
+            </p>
+          </section>
+        )}
+
+        {/* Carrier asked us for the rebuild estimate - a non-WM company writes it */}
+        {outcome === 'estimate_requested' && (
+          <section className="fu-form-group">
+            <div className="fu-form-group-head">
+              <h4 className="fu-form-group-title">Rebuild Estimate</h4>
+            </div>
+            <Form.Item
+              name="rebuild_estimate_company_id"
+              label="Written and sent by"
+              rules={[{ required: true, message: 'Pick the company that writes the rebuild estimate' }]}
+              className="fu-compact-item"
+            >
+              <RebuildEstimateCompanySelect wmCompanyIds={shown?.wm_company_ids} />
+            </Form.Item>
+            <p className="fu-note">
+              <InfoCircleOutlined aria-hidden="true" />
+              <span>
+                The rebuild estimate has to come from a company other than the one that did the water
+                mitigation. An estimate request opens on the Estimates page.
+              </span>
+            </p>
+          </section>
         )}
 
         {/* WM Estimate Only - just WM amount, no rebuild info needed */}

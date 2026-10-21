@@ -16,6 +16,11 @@ export interface ClaimProgressInput {
   bidEstimateSummary: Record<string, number>;
   hasInsuranceEstimate: boolean;
   wmCostStatus: string;
+  /** carrier_provided | contractor_prepared: who writes the rebuild estimate */
+  estimateOrigin?: string;
+  contractorEstimateStage?: string;
+  /** The non-WM company writing it on the contractor-prepared path */
+  rebuildEstimateCompanyName?: string | null;
 }
 
 /** Stage picker options for the add/edit task forms */
@@ -135,6 +140,14 @@ export const ROLE_SHORT_LABELS: Record<string, string> = {
   public_adjuster: 'PA',
   adjuster: 'Adjuster',
   contractor: 'Contractor',
+};
+
+/** Where the contractor-prepared rebuild estimate stands */
+export const CONTRACTOR_STAGE_PHRASES: Record<string, string> = {
+  requested: 'We write it',
+  estimate_sent: 'Sent for approval',
+  awaiting_approval: 'Awaiting approval',
+  approved_initial_received: 'Approved',
 };
 
 // overdue/issue: needs attention · active: ours to move · waiting: on someone
@@ -263,18 +276,33 @@ export const buildClaimProgress = (group: ClaimProgressInput): ClaimProgress => 
         if (group.hasInsuranceEstimate && (step.state === 'none' || step.state === 'done')) {
           step.state = 'done';
           step.detail = 'Received';
+        } else if (step.state === 'none' && group.estimateOrigin === 'contractor_prepared') {
+          // The carrier asked us for it: a non-WM company writes it, then
+          // the carrier approves it.
+          const stage = group.contractorEstimateStage || 'requested';
+          step.state = stage === 'requested' ? 'active' : 'waiting';
+          step.detail = CONTRACTOR_STAGE_PHRASES[stage] || stage;
+          step.note = group.rebuildEstimateCompanyName
+            ? `Rebuild estimate by ${group.rebuildEstimateCompanyName}`
+            : 'Pick the company that writes it (not the WM company)';
         } else if (step.state === 'none') {
           const docs = byTypes(['wm_docs_sent']);
           if (docs.resolved.length > 0 && docs.active.length === 0) {
             step.state = 'waiting';
-            step.detail = 'Awaiting initial estimate';
+            // WM paid per our invoice: only the rebuild estimate is still to come
+            step.detail = group.wmCostStatus === 'paid_per_invoice'
+              ? 'Awaiting rebuild estimate'
+              : 'Awaiting initial estimate';
           }
         }
         break;
 
       case 'wm_payment':
         if (step.state === 'none') {
-          if (group.wmCostStatus === 'included_in_rebuild') {
+          if (group.wmCostStatus === 'paid_per_invoice') {
+            step.state = 'todo';
+            step.detail = 'Invoice approved';
+          } else if (group.wmCostStatus === 'included_in_rebuild') {
             step.state = 'done';
             step.detail = 'In rebuild payment';
           } else if (group.wmCostStatus === 'separate_estimate') {
@@ -283,6 +311,9 @@ export const buildClaimProgress = (group: ClaimProgressInput): ClaimProgress => 
           }
         }
         applyPaymentStatus(step);
+        if (group.wmCostStatus === 'paid_per_invoice' && !step.note) {
+          step.note = 'Paid per our invoice, no WM estimate';
+        }
         break;
 
       case 'rebuild_payment':

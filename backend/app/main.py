@@ -458,6 +458,9 @@ _NEEDED_COLUMNS = [
     ("claims", "contractor_estimate_stage", "VARCHAR(40)"),
     # When the claim moved from negotiation to appraisal
     ("claims", "appraisal_date", "TIMESTAMPTZ"),
+    # Company that writes the rebuild estimate when the carrier asks the
+    # contractor for one (never the company that did the water mitigation)
+    ("claims", "rebuild_estimate_company_id", "UUID"),
 ]
 
 

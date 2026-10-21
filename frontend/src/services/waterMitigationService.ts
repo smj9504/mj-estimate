@@ -1475,6 +1475,8 @@ export interface WMFinancialComparison {
   insurance_estimate: {
     wm_cost_status: string | null;
     wm_estimate_amount: number | null;
+    /** What the carrier approved on our invoice (set when paid_per_invoice) */
+    approved_amount: number | null;
     wm_section: {
       section_name: string;
       rcv: number;
@@ -1607,6 +1609,25 @@ export const financialComparisonService = {
     const response = await api.post(
       `${BASE_URL}/jobs/${jobId}/insurance-estimate/manual`,
       { wm_amount: params.wmAmount, notes: params.notes },
+    );
+    return response.data;
+  },
+
+  /**
+   * The carrier pays our WM invoice as billed, so no WM estimate is coming
+   * (paidPerInvoice false takes the marking back).
+   */
+  setPaidPerInvoice: async (
+    jobId: string,
+    params: { paidPerInvoice: boolean; approvedAmount?: number | null; notes?: string },
+  ): Promise<{ success: boolean; wm_cost_status: string | null; approved_amount: number | null }> => {
+    const response = await api.post(
+      `${BASE_URL}/jobs/${jobId}/insurance-estimate/paid-per-invoice`,
+      {
+        paid_per_invoice: params.paidPerInvoice,
+        approved_amount: params.approvedAmount ?? null,
+        notes: params.notes,
+      },
     );
     return response.data;
   },

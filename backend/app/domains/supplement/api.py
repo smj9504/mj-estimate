@@ -356,7 +356,8 @@ def upload_insurance_estimate(claim_id: str, data: dict):
                         description='Insurance estimate received. Awaiting confirmation that rebuild payment was received.',
                         needs_confirmation=True,
                     )
-                    if claim.wm_cost_status in ('separate_estimate', 'not_received'):
+                    from app.domains.client.claim_paths import WM_SEPARATE_PAYMENT_STATUSES
+                    if claim.wm_cost_status in WM_SEPARATE_PAYMENT_STATUSES:
                         followup_service._auto_create_payment_task(
                             session, claim_id, source_info, 'wm_payment_check',
                             title='WM Payment',

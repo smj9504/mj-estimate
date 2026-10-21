@@ -31,6 +31,7 @@ import { PageHeader, Pill, PropertyList, useSheetModal } from '../components/com
 import FollowUpDateTimePicker from '../components/claim-followup/FollowUpDateTimePicker';
 import { comfortTheme } from '../styles/antTheme';
 import { SUPPLEMENT_STATUSES, SupplementStatusPill, formatCurrency } from '../components/supplement/supplementUi';
+import { WM_COST_STATUS_LABELS } from '../types/client';
 import type {
   FollowUpTask, FollowUpTaskCreate, FollowUpTaskUpdate, TaskStatus,
 } from '../types/claimFollowUp';
@@ -48,13 +49,6 @@ const { TextArea } = Input;
 
 /** Statuses a person sets by hand on open work; resolving goes through the Resolve form */
 const OPEN_STATUS_OPTIONS: TaskStatus[] = ['pending', 'awaiting_response', 'awaiting_confirmation', 'responded'];
-
-const WM_COST_STATUS_LABELS: Record<string, string> = {
-  included_in_rebuild: 'Included in rebuild estimate',
-  separate_estimate: 'Separate WM estimate',
-  not_received: 'Not received — needs follow-up',
-  not_applicable: 'N/A (no WM on this claim)',
-};
 
 const PRIORITY_OPTIONS = [
   { value: 'low', label: 'Low' }, { value: 'normal', label: 'Normal' },
@@ -166,6 +160,9 @@ const ClaimFollowUpDetail: React.FC = () => {
       deductible: first.claim_deductible || 0,
       wmCostStatus,
       hasInsuranceEstimate: tasks.some(t => t.has_insurance_estimate),
+      estimateOrigin: first.estimate_origin || '',
+      contractorEstimateStage: first.contractor_estimate_stage || '',
+      rebuildEstimateCompanyName: first.rebuild_estimate_company_name || null,
       supplementStatuses,
       bidEstimateSummary,
     };
@@ -931,6 +928,14 @@ const ClaimFollowUpDetail: React.FC = () => {
                     key: 'estimate',
                     label: 'Ins. estimate',
                     value: claimInfo ? (claimInfo.hasInsuranceEstimate ? 'Received' : 'Not received yet') : null,
+                  },
+                  {
+                    key: 'rebuild_writer',
+                    label: 'Rebuild est. by',
+                    hideEmpty: true,
+                    value: claimInfo?.estimateOrigin === 'contractor_prepared'
+                      ? (claimInfo.rebuildEstimateCompanyName || 'Not chosen yet (not the WM company)')
+                      : claimInfo?.estimateOrigin === 'carrier_provided' ? 'Insurance company' : null,
                   },
                   {
                     key: 'wm',

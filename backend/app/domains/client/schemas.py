@@ -156,6 +156,8 @@ class ClaimBase(BaseModel):
     appraisal_date: Optional[datetime] = None
     estimate_origin: Optional[str] = None
     contractor_estimate_stage: Optional[str] = None
+    # Who writes the rebuild estimate on the contractor-prepared path
+    rebuild_estimate_company_id: Optional[UUID] = None
     notes: Optional[str] = None
 
     @validator('status')
@@ -231,7 +233,16 @@ class ClaimUpdate(BaseModel):
     appraisal_date: Optional[datetime] = None
     estimate_origin: Optional[str] = None
     contractor_estimate_stage: Optional[str] = None
+    # Must not be a company that did this claim's water mitigation. '' clears it.
+    rebuild_estimate_company_id: Optional[str] = None
     notes: Optional[str] = None
+
+    @validator('wm_cost_status')
+    def validate_wm_cost_status(cls, v):
+        from app.domains.client.claim_paths import WM_COST_STATUSES
+        if v and v not in WM_COST_STATUSES:
+            raise ValueError(f"wm_cost_status must be one of {list(WM_COST_STATUSES)}")
+        return v
 
 
 class ClaimSummaryResponse(BaseModel):

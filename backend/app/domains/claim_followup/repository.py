@@ -22,6 +22,22 @@ from app.domains.claim_followup.models import (
 logger = logging.getLogger(__name__)
 
 
+def _estimate_path_fields(claim, wm_companies_by_claim: Dict[str, set],
+                          writer_names: Dict[str, str]) -> Dict[str, Any]:
+    """Claim fields saying how its estimates come to be: whether WM is paid
+    per our invoice, who writes the rebuild estimate, and which companies did
+    the WM (they may not write it)."""
+    writer_id = claim.rebuild_estimate_company_id
+    return {
+        'wm_cost_status': claim.wm_cost_status or '',
+        'estimate_origin': claim.estimate_origin or '',
+        'contractor_estimate_stage': claim.contractor_estimate_stage or '',
+        'rebuild_estimate_company_id': str(writer_id) if writer_id else None,
+        'rebuild_estimate_company_name': writer_names.get(str(writer_id or '')),
+        'wm_company_ids': sorted(wm_companies_by_claim.get(str(claim.id), set())),
+    }
+
+
 class FollowUpTaskRepository(SQLAlchemyRepository):
     """Repository for FollowUpTask CRUD and queries"""
 
@@ -236,6 +252,26 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
             except Exception:
                 pass
 
+        # How each claim's estimates come to be: whether WM is paid per our
+        # invoice, who writes the rebuild estimate, and which companies did
+        # the WM (they may not write it).
+        wm_companies_by_claim: Dict[str, set] = {}
+        writer_names: Dict[str, str] = {}
+        if seen_claims:
+            try:
+                from app.domains.client.claim_paths import (
+                    company_names, wm_company_ids_by_claim,
+                )
+                wm_companies_by_claim = wm_company_ids_by_claim(
+                    self.db_session, list(seen_claims.keys())
+                )
+                writer_names = company_names(
+                    self.db_session,
+                    [c.rebuild_estimate_company_id for c in seen_claims.values()],
+                )
+            except Exception:
+                pass
+
         results = []
         for t in tasks:
             d = self._convert_to_dict(t)
@@ -263,7 +299,9 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                     d['adjuster_name'] = adj.get('name', '')
                     d['adjuster_email'] = adj.get('email', '')
                     d['adjuster_phone'] = adj.get('phone', '')
-                    d['wm_cost_status'] = t.claim.wm_cost_status or ''
+                    d.update(_estimate_path_fields(
+                        t.claim, wm_companies_by_claim, writer_names,
+                    ))
                     d['has_insurance_estimate'] = bool(
                         t.claim.insurance_estimate_received
                         or t.claim.current_acv
@@ -366,6 +404,8 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
         # All tasks here share one claim, so resolve its contacts once.
         pa: Dict[str, str] = {}
         adj: Dict[str, str] = {}
+        wm_companies_by_claim: Dict[str, set] = {}
+        writer_names: Dict[str, str] = {}
         claim_obj = next((t.claim for t in tasks if t.claim is not None), None)
         if claim_obj is not None:
             try:
@@ -374,6 +414,16 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                 )
                 pa = resolve_pa_contact(self.db_session, claim_obj)
                 adj = resolve_adjuster_contact(self.db_session, claim_obj)
+            except Exception:
+                pass
+            try:
+                from app.domains.client.claim_paths import (
+                    company_names, wm_company_ids_by_claim,
+                )
+                wm_companies_by_claim = wm_company_ids_by_claim(self.db_session, [claim_id])
+                writer_names = company_names(
+                    self.db_session, [claim_obj.rebuild_estimate_company_id]
+                )
             except Exception:
                 pass
 
@@ -397,6 +447,9 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                     d['adjuster_name'] = adj.get('name', '')
                     d['adjuster_email'] = adj.get('email', '')
                     d['adjuster_phone'] = adj.get('phone', '')
+                    d.update(_estimate_path_fields(
+                        t.claim, wm_companies_by_claim, writer_names,
+                    ))
             except Exception:
                 pass
             results.append(d)

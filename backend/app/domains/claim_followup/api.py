@@ -31,6 +31,7 @@ from app.domains.claim_followup.schemas import (
     SentEmailResponse,
     MarkReplyRequest,
 )
+from app.domains.client.claim_paths import SameCompanyAsWMError
 
 logger = logging.getLogger(__name__)
 
@@ -337,6 +338,8 @@ async def resolve_task(
     sections_data: Optional[str] = Form(None),
     payment_status: Optional[str] = Form(None),
     payment_note: Optional[str] = Form(None),
+    rebuild_estimate_company_id: Optional[str] = Form(None),
+    wm_approved_amount: Optional[float] = Form(None),
     file: Optional[UploadFile] = File(None),
     wm_estimate_file: Optional[UploadFile] = File(None),
 ):
@@ -344,6 +347,10 @@ async def resolve_task(
 
     - file: Insurance estimate PDF (rebuild)
     - wm_estimate_file: Separate WM estimate PDF (when wm_cost_status='separate_estimate')
+    - rebuild_estimate_company_id: who writes the rebuild estimate (outcome
+      'estimate_requested'); must not be the company that did the WM
+    - wm_approved_amount: what the carrier approved on our WM invoice (outcome
+      'wm_invoice_accepted'); defaults to the invoice amount
     """
     service = _get_service()
 
@@ -391,9 +398,10 @@ async def resolve_task(
     except Exception as e:
         logger.error(f"Failed to fetch address info for file naming: {e}")
 
-    # Determine main estimate category based on WM cost status
-    is_separate = wm_cost_status == 'separate_estimate'
-    main_category = 'reconstruction' if is_separate else 'combined'
+    # Determine main estimate category based on WM cost status: the main
+    # estimate is rebuild-only when WM came separately or was paid per invoice
+    is_rebuild_only = wm_cost_status in ('separate_estimate', 'paid_per_invoice')
+    main_category = 'reconstruction' if is_rebuild_only else 'combined'
     main_label = CATEGORY_FILE_LABELS.get(main_category, 'Insurance-Estimate')
     main_version = category_versions.get(main_category, 1)
 
@@ -478,15 +486,20 @@ async def resolve_task(
             'wm_file_name': wm_file_name,
         }
 
-    result = service.resolve_task(
-        task_id,
-        resolution_notes=resolution_notes,
-        outcome=outcome,
-        estimate_data=estimate_data,
-        denied_action=denied_action,
-        payment_status=payment_status,
-        payment_note=payment_note,
-    )
+    try:
+        result = service.resolve_task(
+            task_id,
+            resolution_notes=resolution_notes,
+            outcome=outcome,
+            estimate_data=estimate_data,
+            denied_action=denied_action,
+            payment_status=payment_status,
+            payment_note=payment_note,
+            rebuild_estimate_company_id=rebuild_estimate_company_id,
+            wm_approved_amount=wm_approved_amount,
+        )
+    except SameCompanyAsWMError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not result:
         raise HTTPException(status_code=404, detail="Task not found")
     return result
@@ -549,8 +562,8 @@ async def save_task_estimate(
     except Exception as e:
         logger.error(f"Failed to fetch address info: {e}")
 
-    is_separate = wm_cost_status == 'separate_estimate'
-    main_category = 'reconstruction' if is_separate else 'combined'
+    is_rebuild_only = wm_cost_status in ('separate_estimate', 'paid_per_invoice')
+    main_category = 'reconstruction' if is_rebuild_only else 'combined'
     main_label = CATEGORY_FILE_LABELS.get(main_category, 'Insurance-Estimate')
     main_version = category_versions.get(main_category, 1)
 

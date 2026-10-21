@@ -145,6 +145,13 @@ export interface FollowUpTask {
   adjuster_email?: string;
   adjuster_phone?: string;
   wm_cost_status?: string;
+  // How the claim's estimates come to be
+  estimate_origin?: string;
+  contractor_estimate_stage?: string;
+  rebuild_estimate_company_id?: string | null;
+  rebuild_estimate_company_name?: string | null;
+  /** Companies that did the WM; they may not write the rebuild estimate */
+  wm_company_ids?: string[];
   has_insurance_estimate?: boolean;
   bid_estimate_summary?: Record<string, number>;
   // Claim money picture (same basis as ClaimPaymentSummary)

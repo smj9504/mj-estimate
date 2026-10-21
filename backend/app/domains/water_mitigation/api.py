@@ -5241,6 +5241,8 @@ def get_financial_comparison(
 
                 insurance_estimate = {
                     "wm_cost_status": claim.wm_cost_status,
+                    # Set when the carrier pays our invoice (paid_per_invoice)
+                    "approved_amount": float(job.approved_amount) if job.approved_amount is not None else None,
                     "wm_estimate_amount": float(claim.wm_estimate_amount) if claim.wm_estimate_amount else None,
                     "wm_section": wm_section,
                     "estimate_category": latest_neg.estimate_category if latest_neg else None,
@@ -5647,6 +5649,66 @@ def save_wm_insurance_estimate_manual(
         "revision_number": negotiation.revision_number,
         "wm_amount": wm_amount,
         "is_manual": True,
+    }
+
+
+class WMPaidPerInvoiceRequest(BaseModel):
+    """Insurance pays our WM invoice as billed, so no WM estimate is coming."""
+
+    paid_per_invoice: bool = True
+    # What the carrier approved, when it differs from our invoice
+    approved_amount: Optional[float] = Field(None, ge=0)
+    notes: Optional[str] = None
+
+
+@router.post("/jobs/{job_id}/insurance-estimate/paid-per-invoice")
+def set_wm_paid_per_invoice(
+    job_id: UUID,
+    payload: WMPaidPerInvoiceRequest,
+    db: DatabaseSession = Depends(get_db_session),
+):
+    """Mark (or unmark) the claim's WM as paid per our invoice.
+
+    No insurance WM estimate is recorded. The job's approved amount becomes
+    the invoice amount (or the one given), the open "WM docs sent" follow-up
+    closes and the WM payment stage opens. The rebuild estimate still comes
+    from the carrier, or from a non-WM company when the carrier asks for one.
+    """
+    from app.domains.client.claim_paths import (
+        record_wm_paid_per_invoice, undo_wm_paid_per_invoice,
+    )
+    from app.domains.client.models import Claim
+    from .models import WaterMitigationJob
+
+    job = db.query(WaterMitigationJob).filter(
+        WaterMitigationJob.id == job_id
+    ).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.claim_id:
+        raise HTTPException(
+            status_code=400,
+            detail="This job is not linked to a claim. Link the job to a claim first.",
+        )
+    claim = db.query(Claim).filter(Claim.id == job.claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Linked claim not found")
+
+    if payload.paid_per_invoice:
+        record_wm_paid_per_invoice(
+            db, claim,
+            approved_amount=payload.approved_amount,
+            notes=payload.notes,
+            job_id=str(job.id),
+        )
+    else:
+        undo_wm_paid_per_invoice(db, claim)
+    db.commit()
+
+    return {
+        "success": True,
+        "wm_cost_status": claim.wm_cost_status,
+        "approved_amount": float(job.approved_amount) if job.approved_amount is not None else None,
     }
 
 

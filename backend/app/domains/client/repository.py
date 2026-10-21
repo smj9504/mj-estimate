@@ -369,6 +369,12 @@ class ClaimSQLAlchemyRepository(SQLAlchemyRepository):
 
             claim_dict['plumber_report_id'] = str(claim.plumber_report_id) if claim.plumber_report_id else None
 
+            from app.domains.client.claim_paths import company_names, wm_company_ids
+            claim_dict['wm_company_ids'] = sorted(wm_company_ids(self.db_session, claim_id))
+            claim_dict['rebuild_estimate_company_name'] = company_names(
+                self.db_session, [claim.rebuild_estimate_company_id]
+            ).get(str(claim.rebuild_estimate_company_id or ''))
+
             return claim_dict
         except Exception as e:
             logger.error(f"Error getting claim with details: {e}")
@@ -416,11 +422,21 @@ class ClaimSQLAlchemyRepository(SQLAlchemyRepository):
                 'company_name': company_name,
             })
 
+        from app.domains.client.claim_paths import company_names, wm_company_ids_by_claim
+        wm_companies = wm_company_ids_by_claim(self.db_session, claim_ids)
+        names = company_names(
+            self.db_session, [c.get('rebuild_estimate_company_id') for c in claims]
+        )
+
         for claim in claims:
             claim['wm_jobs'] = wm_jobs_by_claim.get(claim['id'], [])
             claim['wm_job_count'] = len(claim['wm_jobs'])
             claim['rebuild_jobs'] = rebuild_jobs_by_claim.get(claim['id'], [])
             claim['work_order_count'] = len(claim['rebuild_jobs'])
+            claim['wm_company_ids'] = sorted(wm_companies.get(str(claim['id']), set()))
+            claim['rebuild_estimate_company_name'] = names.get(
+                str(claim.get('rebuild_estimate_company_id') or '')
+            )
 
         return claims
 

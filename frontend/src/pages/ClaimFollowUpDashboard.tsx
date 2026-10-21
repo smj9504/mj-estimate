@@ -240,6 +240,9 @@ interface ClaimGroup {
   hasUrgent: boolean;
   wmCostStatus: string;
   hasInsuranceEstimate: boolean;
+  estimateOrigin: string;
+  contractorEstimateStage: string;
+  rebuildEstimateCompanyName: string | null;
   nextFollowupDate: string | null;
   supplementStatuses: Record<string, number>;
   bidEstimateSummary: Record<string, number>;
@@ -375,6 +378,9 @@ const ClaimFollowUpDashboard: React.FC = () => {
           hasUrgent: false,
           wmCostStatus: '',
           hasInsuranceEstimate: false,
+          estimateOrigin: task.estimate_origin || '',
+          contractorEstimateStage: task.contractor_estimate_stage || '',
+          rebuildEstimateCompanyName: task.rebuild_estimate_company_name || null,
           nextFollowupDate: null,
           supplementStatuses: {},
           bidEstimateSummary: {},
@@ -1842,6 +1848,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
               <Col xs={24} sm={12}>
                 <Form.Item name="wm_cost_status" label="WM Cost Status" style={{ marginBottom: 6 }}>
                   <Select allowClear placeholder="Select...">
+                    <Select.Option value="paid_per_invoice">Paid per Our Invoice</Select.Option>
                     <Select.Option value="included_in_rebuild">Included in Rebuild</Select.Option>
                     <Select.Option value="separate_estimate">Separate Estimate</Select.Option>
                     <Select.Option value="not_received">Not Received</Select.Option>

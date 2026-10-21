@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from app.core.database_factory import get_db_session as get_db
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.auth.document_access import can_access_document
+from app.domains.client.claim_paths import SameCompanyAsWMError
 from app.domains.client.schemas import (
     ClientCreate,
     ClientUpdate,
@@ -452,6 +453,8 @@ def update_claim(
         return result
     except HTTPException:
         raise
+    except SameCompanyAsWMError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error updating claim: {e}")
         raise HTTPException(status_code=500, detail=str(e))

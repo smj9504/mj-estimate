@@ -152,10 +152,12 @@ class Claim(Base, BaseModel):
     # Link to a CompanyContact record (public adjuster contact)
     pa_contact_id = Column(String(36), nullable=True, comment="FK to company_contacts.id")
 
-    # Water Mitigation cost tracking
+    # Water Mitigation cost tracking. We send our WM invoice first; the
+    # carrier either pays it as billed (paid_per_invoice: no carrier WM
+    # estimate at all) or answers with its own WM estimate.
     wm_cost_status = Column(
         String(50),
-        comment="included_in_rebuild | separate_estimate | not_received | not_applicable"
+        comment="paid_per_invoice | included_in_rebuild | separate_estimate | not_received | not_applicable"
     )
     wm_estimate_amount = Column(DECIMAL(15, 2), comment="WM amount if received separately")
     wm_estimate_file_id = Column(String(255), comment="Stored WM estimate PDF file ID")
@@ -172,6 +174,12 @@ class Claim(Base, BaseModel):
     contractor_estimate_stage = Column(
         String(40),
         comment="requested | estimate_sent | awaiting_approval | approved_initial_received"
+    )
+    # On the contractor-prepared path, the company that writes and sends the
+    # rebuild estimate. Never the company that did the water mitigation.
+    rebuild_estimate_company_id = Column(
+        UUIDType(), ForeignKey("companies.id", ondelete="SET NULL"), nullable=True,
+        comment="Company that writes the rebuild estimate when the carrier asks the contractor",
     )
 
     # Supplement tracking
