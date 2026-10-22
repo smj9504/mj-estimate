@@ -2151,7 +2151,8 @@ const ClaimFacts: React.FC<{ claim: Claim; onEdit: () => void; onEmail: () => vo
         {
           key: 'est',
           label: 'Estimate',
-          value: claim.insurance_estimate_received
+          // Any revision in the negotiation history is a carrier estimate
+          value: (claim.insurance_estimate_received || (claim.negotiations?.length ?? 0) > 0)
             ? <Pill tone="green" icon={<CheckCircleOutlined />}>Received</Pill>
             : <Pill tone="orange">Not received</Pill>,
         },

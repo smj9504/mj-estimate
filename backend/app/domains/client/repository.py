@@ -3,6 +3,7 @@ Client, Claim, and ClaimNegotiation repository implementations.
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import case, func, or_
@@ -504,6 +505,11 @@ class ClaimNegotiationSQLAlchemyRepository(SQLAlchemyRepository):
                 # Estimates uploaded without a deductible send 0 — don't wipe one entered by hand
                 if negotiation_data.get('deductible'):
                     claim.insurance_deductible = negotiation_data['deductible']
+
+                # A revision is a carrier estimate, so the claim has one now
+                if not claim.insurance_estimate_received:
+                    claim.insurance_estimate_received = True
+                    claim.insurance_estimate_received_date = datetime.now(timezone.utc)
 
                 # Auto-update status to negotiating if still open
                 if claim.status == 'open':
