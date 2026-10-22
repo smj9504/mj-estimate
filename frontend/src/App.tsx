@@ -138,6 +138,7 @@ const XactimateHelper = lazyWithRetry(() => import('./pages/XactimateHelper'));
 
 // Tools Pages
 const PhotoMetadataEditor = lazyWithRetry(() => import('./pages/PhotoMetadataEditor'));
+const RoomDimensions = lazyWithRetry(() => import('./pages/RoomDimensions'));
 
 // Email Ingestion
 const EmailIngestionDashboard = lazyWithRetry(() => import('./pages/EmailIngestionDashboard'));
@@ -1251,6 +1252,18 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <PhotoMetadataEditor />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/tools/room-dimensions",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RoomDimensions />
           </Suspense>
         </Layout>
       </ProtectedRoute>

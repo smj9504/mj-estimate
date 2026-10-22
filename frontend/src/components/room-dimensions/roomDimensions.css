@@ -1,0 +1,200 @@
+/*
+ * Room Dimensions tool (rd-*): a room capture with its inside wall lengths,
+ * beside the scale form and the list of faces. Built from the White Sheet tokens.
+ */
+
+.rd-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 24px;
+  align-items: start;
+}
+
+.rd-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+.ant-btn.rd-zoom-value {
+  min-width: 52px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-neutral-700);
+}
+
+/* Scrolls both ways once the drawing is zoomed past the stage */
+.rd-stage {
+  position: relative;
+  max-height: 78vh;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.rd-drawing {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 72vh;
+  margin: 0 auto;
+  user-select: none;
+}
+
+.rd-face-label {
+  cursor: pointer;
+  outline: none;
+}
+.rd-face-label:focus-visible rect {
+  stroke: var(--color-primary-deep);
+  stroke-dasharray: 2 1;
+}
+
+.rd-dropzone.ant-upload-wrapper .ant-upload-drag {
+  border-radius: 8px;
+  background: var(--color-neutral-50);
+}
+.rd-dropzone .ant-upload-drag .ant-upload-btn {
+  padding: 40px 16px;
+}
+.rd-dropzone-icon {
+  font-size: 32px;
+  color: var(--color-neutral-600);
+}
+.rd-dropzone-title {
+  margin: 12px 0 4px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.rd-dropzone-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+
+.rd-hint {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-neutral-600);
+}
+
+.rd-scale-form {
+  display: grid;
+  grid-template-columns: 76px 1fr 1fr;
+  gap: 8px;
+}
+.rd-scale-form .ant-input-number {
+  width: 100%;
+}
+.rd-scale-apply {
+  grid-column: 1 / -1;
+}
+.rd-scale-current {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+
+.rd-faces {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rd-face-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font: inherit;
+  color: var(--color-neutral-900);
+  text-align: left;
+  cursor: pointer;
+}
+.rd-face-row:hover,
+.rd-face-row.is-hovered {
+  background: var(--color-ink-hover);
+}
+.rd-face-row.is-selected {
+  background: var(--color-ink-selected);
+}
+.rd-face-row:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+}
+.rd-face-row--static {
+  cursor: default;
+}
+.rd-face-row--static:hover {
+  background: none;
+}
+.rd-face-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--color-neutral-100);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-neutral-700);
+}
+.rd-face-row.is-selected .rd-face-letter {
+  background: var(--color-primary-deep);
+  color: #fff;
+}
+.rd-face-name {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.rd-face-length {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.rd-processing {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+@media (max-width: 992px) {
+  .rd-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .rd-stage {
+    margin: 0 -16px;
+    padding: 8px;
+    border-width: 1px 0;
+    border-radius: 0;
+  }
+  .rd-scale-form .ant-select-selector,
+  .rd-scale-form .ant-input-number,
+  .rd-scale-form .ant-btn {
+    min-height: 40px;
+  }
+}
+
+@media (pointer: coarse) {
+  .rd-face-row {
+    min-height: 40px;
+  }
+}

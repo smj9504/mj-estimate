@@ -33,6 +33,7 @@ import {
   DollarOutlined,
   PlusOutlined,
   AppstoreOutlined,
+  BorderOuterOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -329,6 +330,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             key: '/tools/photo-metadata',
             icon: <FileImageOutlined />,
             label: 'Photo Metadata',
+          },
+          {
+            key: '/tools/room-dimensions',
+            icon: <BorderOuterOutlined />,
+            label: 'Room Dimensions',
           },
           {
             key: '/pdf-editor',

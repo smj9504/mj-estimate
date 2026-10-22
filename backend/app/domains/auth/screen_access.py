@@ -48,6 +48,7 @@ SCREEN_KEYS: tuple = (
     "wm_templates",
     "wm_scope_items",
     "photo_metadata",
+    "room_dimensions",
     "pdf_editor",
     "email_ingestion",
 )

@@ -81,6 +81,7 @@ export const SCREEN_GROUPS: ScreenGroup[] = [
         paths: ['/water-mitigation/standard-scope-items', '/water-mitigation/scope-item-categories'],
       },
       { key: 'photo_metadata', label: 'Photo Metadata', paths: ['/tools/photo-metadata'] },
+      { key: 'room_dimensions', label: 'Room Dimensions', paths: ['/tools/room-dimensions'] },
       { key: 'pdf_editor', label: 'PDF Editor', paths: ['/pdf-editor'] },
       { key: 'email_ingestion', label: 'Email Ingestion', paths: ['/email-ingestion'] },
     ],
