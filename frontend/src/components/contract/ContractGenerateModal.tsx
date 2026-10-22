@@ -100,15 +100,6 @@ const SigningLinkDisplay: React.FC<{ url: string }> = ({ url }) => {
   );
 };
 
-// ── Category labels ───────────────────────────────────────────────────────────
-
-const CATEGORY_LABELS: Record<string, string> = {
-  client: 'Client Information',
-  claim: 'Claim Information',
-  company: 'Company Information',
-  meta: 'Contract Details',
-};
-
 // ── Step labels ───────────────────────────────────────────────────────────────
 
 const STEPS = ['Select Company', 'Choose Template', 'Preview Data', 'Finalize'];
@@ -503,14 +494,13 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
         name="token_expires_days"
         label={<Text strong>Link Expires In (days)</Text>}
         rules={[{ required: true, message: 'Please specify expiry days.' }]}
-        initialValue={30}
       >
         <InputNumber
           min={1}
           max={365}
           size="large"
           style={{ width: '100%' }}
-          addonAfter="days"
+          suffix="days"
         />
       </Form.Item>
     </>

@@ -49,7 +49,6 @@ const ContractSigning = lazyWithRetry(() => import('./pages/ContractSigning'));
 const FieldContractSigning = lazyWithRetry(() => import('./pages/FieldContractSigning'));
 
 // Dashboard Pages
-const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
 const RoleBasedDashboard = lazyWithRetry(() => import('./pages/RoleBasedDashboard'));
 const TodoBoard = lazyWithRetry(() => import('./pages/TodoBoard'));
 const Profile = lazyWithRetry(() => import('./pages/Profile'));
@@ -61,7 +60,6 @@ const DocumentList = lazyWithRetry(() => import('./pages/DocumentList'));
 // Estimate Pages
 const EstimateCreation = lazyWithRetry(() => import('./pages/EstimateCreation'));
 const InsuranceEstimateCreation = lazyWithRetry(() => import('./pages/InsuranceEstimateCreation'));
-const InsuranceExtraction = lazyWithRetry(() => import('./pages/InsuranceExtraction'));
 const InsuranceExtractionList = lazyWithRetry(() => import('./pages/InsuranceExtractionList'));
 const InsuranceExtractionDetail = lazyWithRetry(() => import('./pages/InsuranceExtractionDetail'));
 const RepairTemplateList = lazyWithRetry(() => import('./pages/RepairTemplateList'));
