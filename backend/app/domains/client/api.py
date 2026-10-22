@@ -50,7 +50,8 @@ from app.domains.client.service import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+# Client and claim data is staff-only: every endpoint here needs a signed-in staff member
+router = APIRouter(dependencies=[Depends(get_current_staff)])
 
 
 def _get_client_service():
@@ -1234,7 +1235,7 @@ def delete_todo(
 # Dashboard: Active Todos (global)
 # ============================================================
 
-todo_dashboard_router = APIRouter()
+todo_dashboard_router = APIRouter(dependencies=[Depends(get_current_staff)])
 
 
 @todo_dashboard_router.get("/active", response_model=None)
