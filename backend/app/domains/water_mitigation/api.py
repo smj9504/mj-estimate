@@ -5841,10 +5841,13 @@ async def send_to_adjuster(job_id: UUID, data: SendToAdjusterRequest):
 def generate_followup_email(
     job_id: UUID,
     custom_notes: str = Query("", description="Additional notes to include"),
+    template: Optional[str] = Query(
+        None, description="receipt | review_status | review_update; defaults from job status",
+    ),
 ):
     """Generate follow-up email template for adjuster who hasn't responded."""
     service = get_adjuster_email_service()
-    result = service.generate_followup_email(str(job_id), custom_notes)
+    result = service.generate_followup_email(str(job_id), custom_notes, template)
     if not result.get("subject"):
         raise HTTPException(status_code=404, detail="Job not found")
     return result

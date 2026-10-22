@@ -7,7 +7,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Modal, Button, Select, Input, Space, Typography, Divider, Alert,
-  Checkbox, Tag, Spin, message, Badge,
+  Checkbox, Tag, Spin, message, Badge, Segmented,
 } from 'antd';
 import {
   SendOutlined, FilePdfOutlined, CheckCircleFilled,
@@ -19,7 +19,7 @@ import {
   type AdjusterEmailInfo,
   type DocumentReadiness,
   type SendToAdjusterPayload,
-  type WMFollowUpTask,
+  type FollowUpTemplate,
 } from '../../services/waterMitigationService';
 
 const { Text } = Typography;
@@ -42,6 +42,12 @@ const DOC_LABELS: Record<string, string> = {
 
 const DOC_ORDER = ['photo_report', 'invoice', 'w9', 'cos', 'ewa', 'sketch'];
 
+const TEMPLATE_OPTIONS: { value: FollowUpTemplate; label: string }[] = [
+  { value: 'receipt', label: 'Receipt not confirmed' },
+  { value: 'review_status', label: 'Received, no review status' },
+  { value: 'review_update', label: 'Under review, no update' },
+];
+
 const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
   open, onClose, jobId, onSent,
 }) => {
@@ -50,12 +56,8 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
   const [info, setInfo] = useState<AdjusterEmailInfo | null>(null);
   const [emailContent, setEmailContent] = useState({ subject: '', body_html: '' });
   const [customNotes, setCustomNotes] = useState('');
-  const [followupMeta, setFollowupMeta] = useState<{
-    followup_count: number;
-    days_since_sent: number | null;
-    documents_sent_date: string;
-    followup_task: WMFollowUpTask | null;
-  }>({ followup_count: 0, days_since_sent: null, documents_sent_date: '', followup_task: null });
+  const [template, setTemplate] = useState<FollowUpTemplate | undefined>();
+  const [followupCount, setFollowupCount] = useState(0);
 
   // Email addresses
   const [toEmails, setToEmails] = useState<string[]>([]);
@@ -76,12 +78,8 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
         adjusterEmailService.generateFollowUp(jobId),
       ]);
       setInfo(data);
-      setFollowupMeta({
-        followup_count: followup.followup_count,
-        days_since_sent: followup.days_since_sent,
-        documents_sent_date: followup.documents_sent_date,
-        followup_task: followup.followup_task,
-      });
+      setFollowupCount(followup.followup_count);
+      setTemplate(followup.template);
       setEmailContent({ subject: followup.subject, body_html: followup.body_html });
 
       // Pre-fill To with all preset emails
@@ -106,6 +104,7 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
       loadInfo();
     } else {
       setCustomNotes('');
+      setTemplate(undefined);
       setToEmails([]);
       setBccEmails([]);
       setManualFromEmail('');
@@ -117,11 +116,22 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
 
   const handleRegenerateEmail = async () => {
     try {
-      const followup = await adjusterEmailService.generateFollowUp(jobId, customNotes);
+      const followup = await adjusterEmailService.generateFollowUp(jobId, customNotes, template);
       setEmailContent({ subject: followup.subject, body_html: followup.body_html });
       message.success('Email updated with notes');
     } catch {
       message.error('Failed to regenerate email');
+    }
+  };
+
+  // Rewrites the body for the chosen situation, keeping any applied notes.
+  const handleTemplateChange = async (next: FollowUpTemplate) => {
+    setTemplate(next);
+    try {
+      const followup = await adjusterEmailService.generateFollowUp(jobId, customNotes, next);
+      setEmailContent({ subject: followup.subject, body_html: followup.body_html });
+    } catch {
+      message.error('Failed to load template');
     }
   };
 
@@ -186,8 +196,8 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
         <Space>
           <ReloadOutlined />
           <span>Follow Up Email</span>
-          {followupMeta.followup_count > 0 && (
-            <Tag color="blue">#{followupMeta.followup_count + 1}</Tag>
+          {followupCount > 0 && (
+            <Tag color="blue">#{followupCount + 1}</Tag>
           )}
         </Space>
       }
@@ -215,21 +225,6 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
         </div>
       ) : info ? (
         <div>
-          {/* Follow-up context banner */}
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 12 }}
-            message={
-              followupMeta.days_since_sent != null
-                ? `Documents were sent ${followupMeta.days_since_sent} day(s) ago (${followupMeta.documents_sent_date}). No response received.`
-                : 'Sending a follow-up email to the adjuster.'
-            }
-            description={followupMeta.followup_task
-              ? 'Counts as a contact on the WM Docs follow-up and moves its next follow-up date.'
-              : undefined}
-          />
-
           {/* Adjuster/Recipients Info Banner */}
           {(info.preset_emails?.length || info.adjuster.name) && (
             <div style={{
@@ -364,6 +359,17 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
           </div>
 
           <Divider style={{ margin: '12px 0' }} />
+
+          {/* Template — where the adjuster went quiet */}
+          <div style={{ marginBottom: 12 }}>
+            <Text strong style={{ display: 'block', marginBottom: 4 }}>Situation</Text>
+            <Segmented
+              block
+              value={template}
+              onChange={val => handleTemplateChange(val as FollowUpTemplate)}
+              options={TEMPLATE_OPTIONS}
+            />
+          </div>
 
           {/* Custom Notes */}
           <div style={{ marginBottom: 12 }}>

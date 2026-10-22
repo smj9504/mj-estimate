@@ -1696,6 +1696,10 @@ export interface WMFollowUpTask {
   next_followup_date: string | null;
 }
 
+// Where the adjuster went quiet: no receipt confirmation, received but no
+// review status, or said it's under review and nothing since.
+export type FollowUpTemplate = 'receipt' | 'review_status' | 'review_update';
+
 export const adjusterEmailService = {
   getInfo: async (jobId: string): Promise<AdjusterEmailInfo> => {
     const response = await api.get(`${BASE_URL}/jobs/${jobId}/adjuster-email-info`);
@@ -1747,16 +1751,22 @@ export const adjusterEmailService = {
     return response.data;
   },
 
-  generateFollowUp: async (jobId: string, customNotes: string = ''): Promise<{
+  // Without a template the backend picks one from the job status and echoes it back.
+  generateFollowUp: async (
+    jobId: string, customNotes: string = '', template?: FollowUpTemplate,
+  ): Promise<{
     subject: string;
     body_html: string;
+    template: FollowUpTemplate;
     followup_count: number;
     days_since_sent: number | null;
     documents_sent_date: string;
     followup_task: WMFollowUpTask | null;
   }> => {
     const response = await api.post(
-      `${BASE_URL}/jobs/${jobId}/generate-followup-email?custom_notes=${encodeURIComponent(customNotes)}`
+      `${BASE_URL}/jobs/${jobId}/generate-followup-email`,
+      null,
+      { params: { custom_notes: customNotes, template } }
     );
     return response.data;
   },

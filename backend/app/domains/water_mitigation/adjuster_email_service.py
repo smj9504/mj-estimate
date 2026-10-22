@@ -674,10 +674,32 @@ class AdjusterEmailService:
     # Follow-Up Email Generation
     # ================================================================
 
+    # One template per point the adjuster went quiet at; keys mirror the
+    # modal's picker.
+    FOLLOWUP_TEMPLATES = {
+        "receipt": (
+            "I'm following up on the water mitigation documents we sent"
+            "{sent_on}{for_address}. Could you please confirm you received them?"
+        ),
+        "review_status": (
+            "Thank you for confirming receipt of the water mitigation documents"
+            "{for_address}. Could you let me know the status of your review?"
+        ),
+        "review_update": (
+            "I'm following up on the water mitigation documents{for_address} "
+            "that you mentioned were under review. Is there any update, or "
+            "anything else you need from us?"
+        ),
+    }
+
     def generate_followup_email(
-        self, job_id: str, custom_notes: str = ""
+        self, job_id: str, custom_notes: str = "", template: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Generate follow-up email template when adjuster hasn't responded."""
+        """Generate follow-up email template when adjuster hasn't responded.
+
+        Without a template, picks one from the job status: once the adjuster
+        has confirmed the paperwork, the follow-up asks about the review.
+        """
         session = self._get_readonly_session()
         try:
             from .models import WaterMitigationJob
@@ -726,19 +748,14 @@ class AdjusterEmailService:
             else:
                 greeting = f"{greeting_time},"
 
-            # Build context-aware follow-up body
-            if days_since_sent is not None and sent_date_str:
-                sent_context = (
-                    f"I am following up on the water mitigation documentation "
-                    f"that was submitted on {sent_date_str}"
-                    f"{f' for the property at {address}' if address else ''}."
+            if template not in self.FOLLOWUP_TEMPLATES:
+                template = (
+                    "review_status" if job.status == "Paperwork received" else "receipt"
                 )
-            else:
-                sent_context = (
-                    f"I am following up on the water mitigation documentation "
-                    f"previously submitted"
-                    f"{f' for the property at {address}' if address else ''}."
-                )
+            message = self.FOLLOWUP_TEMPLATES[template].format(
+                sent_on=f" on {sent_date_str}" if sent_date_str else "",
+                for_address=f" for {address}" if address else "",
+            )
 
             custom_section = ""
             if custom_notes:
@@ -747,21 +764,18 @@ class AdjusterEmailService:
                 )
 
             body_html = f"""
-<p>{greeting} I hope this message finds you well.</p>
+<p>{greeting}</p>
 
-<p>{sent_context}</p>
-
-<p>I wanted to check in to see if you had a chance to review the documents and if there is anything else you may need from our end.</p>
+<p>{message}</p>
 
 {custom_section}
-
-<p>Please let me know if you have any questions or need any additional information. I look forward to hearing from you.</p>
 
 <p>Thank you.</p>
 """
             return {
                 "subject": subject,
                 "body_html": body_html.strip(),
+                "template": template,
                 "followup_count": followup_count,
                 "days_since_sent": days_since_sent,
                 "documents_sent_date": sent_date_str,
