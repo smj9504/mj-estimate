@@ -3,7 +3,7 @@
  * 4-step wizard: Select Company → Choose Template → Preview Data → Finalize
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   Alert,
@@ -187,19 +187,17 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
 
   // ── Reset on close ────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (!open) {
-      setTimeout(() => {
-        setCurrentStep(0);
-        setSelectedCompanyId(undefined);
-        setSelectedTemplate(null);
-        setCreated(null);
-        setPrefillData(null);
-        setPrefillOverrides({});
-        form.resetFields();
-      }, 300);
-    }
-  }, [open, form]);
+  // Runs once the close animation ends, and only after the modal was open, so the
+  // form is never reset before it has been rendered
+  const resetAfterClose = () => {
+    setCurrentStep(0);
+    setSelectedCompanyId(undefined);
+    setSelectedTemplate(null);
+    setCreated(null);
+    setPrefillData(null);
+    setPrefillOverrides({});
+    form.resetFields();
+  };
 
   // ── Load prefill preview ──────────────────────────────────────────────────────
 
@@ -581,6 +579,7 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
       }
       open={open}
       onCancel={onClose}
+      afterClose={resetAfterClose}
       closable={!createMutation.isPending}
       footer={footer}
       destroyOnHidden
