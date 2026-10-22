@@ -278,7 +278,7 @@ Flat by default. Surfaces separate with hairlines and tonal steps (white page, w
 
 ## Shapes
 
-Small, quiet corners. Tags, pills, monograms, property-row hover fills and the scrollbar thumb use 4px or less; buttons, inputs, selects and menu items 6px; cards 8px; modals and drawers 12px. Section cards on migrated pages drop their box entirely (no border, no radius, transparent) and become a heading over a 1px hairline. Borders are always 1px; table headers have no column separators. The brand mark is a 22px ink square with 5px corners; the phone Create button is a 32x24px ink tile with 8px corners.
+Small, quiet corners. Tags, pills, monograms, property-row hover fills and the scrollbar thumb use 4px or less; buttons, inputs, selects and menu items 6px; cards 8px; modals and drawers 12px. Section cards on migrated pages drop their box entirely (no border, no radius, transparent) and become a heading over a 1px hairline. Borders are always 1px; table headers have no column separators. The brand mark is a 22px ink square with 5px corners holding a white S; the favicon and app icons (`public/favicon.svg`, `favicon.ico`, `logo192/512.png`, and the full-bleed `apple-touch-icon.png`) draw the same S as a stroked path so it renders alike on every device; the phone Create button is a 32x24px ink tile with 8px corners.
 
 ## Components
 
