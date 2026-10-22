@@ -2,7 +2,11 @@
  * CabinetShapeRenderer
  *
  * Renders a placed cabinet as a rectangle on the Konva canvas.
- * Supports drag, rotate (Shift = 15° snap), and resize via Transformer.
+ * Supports drag and rotate (Shift = 15° snap) via Transformer. No resize:
+ * the footprint follows the Edit tab box the shape stands for.
+ *
+ * Uppers are drawn dashed and see-through over the bases, as on a printed
+ * kitchen plan; the heavier line marks the front (door side).
  *
  * Ported from water-mitigation/sketch/canvas/WMShapeRenderer.tsx, keeping
  * only the rectangle path — no ellipse/door/stairs branches, since cabinet
@@ -10,12 +14,19 @@
  */
 
 import React, { useCallback, useRef, useEffect } from 'react';
-import { Group, Rect, Text, Transformer } from 'react-konva';
+import { Group, Line, Rect, Text, Transformer } from 'react-konva';
 import Konva from 'konva';
 import type { CabinetSketchCabinet } from '../../../types/cabinetSketch';
 
 /** 15° snap angles for Shift+Rotate (0, 15, 30, …, 345) */
 const ROTATION_SNAP_ANGLES = Array.from({ length: 24 }, (_, i) => i * 15);
+
+const FILL_BY_TYPE: Record<string, { fill: string; opacity: number }> = {
+  base: { fill: '#D2B48C', opacity: 0.85 },
+  specialty: { fill: '#D2B48C', opacity: 0.85 },
+  tall: { fill: '#B8926A', opacity: 0.9 },
+  wall: { fill: '#EADBC4', opacity: 0.55 },
+};
 
 /** Konva hit-target sizing — fixed desktop sizes (no touch-device variant needed here) */
 const ANCHOR_SIZE = 8;
@@ -26,7 +37,10 @@ export interface CabinetShapeRendererProps {
   isSelected: boolean;
   onSelect: (id: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
-  onTransformEnd?: (id: string, width: number, height: number, rotation: number) => void;
+  /** Rotation finished: the new back-left corner and rotation (size never changes here). */
+  onTransformEnd?: (id: string, x: number, y: number, rotation: number) => void;
+  /** Stage zoom, so labels and outlines keep a constant on-screen size. */
+  zoom?: number;
 }
 
 const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
@@ -35,6 +49,7 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
   onSelect,
   onDragEnd,
   onTransformEnd,
+  zoom = 1,
 }) => {
   const groupRef = useRef<Konva.Group>(null);
   const rectRef = useRef<Konva.Rect>(null);
@@ -141,12 +156,15 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
     group.y(centerParentY - (newCX * Math.sin(newRad) + newCY * Math.cos(newRad)));
     group.rotation(newRotation);
 
-    onDragEnd(cabinet.id, group.x(), group.y());
-    onTransformEnd?.(cabinet.id, newWidth, newHeight, newRotation);
-  }, [cabinet.id, onDragEnd, onTransformEnd]);
+    onTransformEnd?.(cabinet.id, group.x(), group.y(), newRotation);
+  }, [cabinet.id, onTransformEnd]);
 
   const labelText = cabinet.label || cabinet.preset_code;
-  const showLabel = labelText.length > 0 && width > 20 && height > 16;
+  const isUpper = cabinet.cab_type === 'wall';
+  const look = FILL_BY_TYPE[cabinet.cab_type] ?? FILL_BY_TYPE.base;
+  // Label metrics are in screen pixels, converted to canvas units.
+  const px = 1 / zoom;
+  const showLabel = labelText.length > 0 && width * zoom > 20 && height * zoom > 12;
 
   return (
     <>
@@ -164,12 +182,17 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
           ref={rectRef}
           width={width}
           height={height}
-          fill="#D2B48C"
-          opacity={0.85}
+          fill={look.fill}
+          opacity={look.opacity}
           stroke="#8B5E3C"
           strokeWidth={1.5}
+          strokeScaleEnabled={false}
+          dash={isUpper ? [5 * px, 3 * px] : undefined}
           cornerRadius={2}
         />
+        {!isUpper && (
+          <Line points={[0, height, width, height]} stroke="#5A3E28" strokeWidth={2.5} strokeScaleEnabled={false} listening={false} />
+        )}
         {isSelected && (
           <Rect
             width={width}
@@ -177,17 +200,18 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
             fill="transparent"
             stroke="#1890ff"
             strokeWidth={2}
-            dash={[6, 3]}
+            strokeScaleEnabled={false}
+            dash={[6 * px, 3 * px]}
             listening={false}
           />
         )}
         {showLabel && (
           <Text
-            x={2}
-            y={height / 2 - 7}
-            width={width - 4}
+            x={2 * px}
+            y={isUpper ? 2 * px : Math.max(height / 2 - 7 * px, height - 16 * px)}
+            width={width - 4 * px}
             text={labelText}
-            fontSize={11}
+            fontSize={11 * px}
             fontStyle="bold"
             fontFamily="'Inter', 'Segoe UI', sans-serif"
             fill="#5A3E28"
@@ -202,6 +226,7 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
       <Transformer
         ref={transformerRef}
         rotateEnabled
+        resizeEnabled={false}
         rotateAnchorOffset={ROTATE_ANCHOR_OFFSET}
         borderStroke="#1890ff"
         borderDash={[3, 3]}

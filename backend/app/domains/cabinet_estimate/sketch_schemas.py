@@ -29,6 +29,12 @@ class CabinetSketchCabinet(BaseModel):
     height: float              # canvas pixels
     rotation: float = 0
     label: str = ""
+    # Real-world size of the Edit-tab box this shape stands for. Optional
+    # because sketches saved before the Edit-tab sync don't carry them.
+    location: Optional[str] = None   # perimeter / island
+    width_in: Optional[float] = None
+    depth_in: Optional[float] = None
+    height_in: Optional[float] = None
 
 
 class CabinetSketchOverlayData(BaseModel):

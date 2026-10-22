@@ -40,6 +40,7 @@ import CabinetEstimateResult from '../components/cabinet-estimate/CabinetEstimat
 import CabinetPurchaseOrder from '../components/cabinet-estimate/CabinetPurchaseOrder';
 import CabinetEstimateHistory from '../components/cabinet-estimate/CabinetEstimateHistory';
 import CabinetSketchEditor from '../components/cabinet-estimate/sketch/CabinetSketchEditor';
+import { boxKey } from '../components/cabinet-estimate/sketch/cabinetSketchLayout';
 import type { CabinetBoxCreate, CabinetEstimate, CabinetEstimateUpdate } from '../types/cabinetEstimate';
 import type { CabType } from '../types/cabinetEstimate';
 import type { Claim } from '../types/client';
@@ -405,6 +406,25 @@ const CabinetEstimateDetail: React.FC = () => {
       navigate(`/cabinet-estimates/${result.id}`);
     },
   });
+
+  // What the Sketch tab draws: every box, perimeter then island.
+  const sketchBoxes = useMemo(() => [...perimeterBoxes, ...islandBoxes], [perimeterBoxes, islandBoxes]);
+
+  // A cabinet deleted on the sketch comes off the list too: one less of the
+  // last matching row, or the row itself when it was the only one.
+  const handleSketchCabinetsRemoved = useCallback((keys: string[]) => {
+    const takeOne = (list: CabinetBoxCreate[], key: string): CabinetBoxCreate[] => {
+      for (let i = list.length - 1; i >= 0; i--) {
+        if (boxKey(list[i]) !== key) continue;
+        return list[i].qty > 1
+          ? list.map((b, j) => (j === i ? { ...b, qty: b.qty - 1 } : b))
+          : list.filter((_, j) => j !== i);
+      }
+      return list;
+    };
+    setPerimeterBoxes((prev) => keys.reduce(takeOne, prev));
+    setIslandBoxes((prev) => keys.reduce(takeOne, prev));
+  }, []);
 
   // Merge perimeter + island boxes for API
   const allBoxes = [...perimeterBoxes, ...islandBoxes].map((b, i) => ({
@@ -1627,6 +1647,9 @@ const CabinetEstimateDetail: React.FC = () => {
         <Tabs.TabPane tab="Sketch" key="sketch">
           <CabinetSketchEditor
             estimateId={id!}
+            boxes={sketchBoxes}
+            active={activeTab === 'sketch'}
+            onCabinetsRemoved={handleSketchCabinetsRemoved}
             onCabinetPlaced={(code, cabType) => {
               const preset = CABINET_PRESETS[code];
               if (!preset) return;
@@ -1639,6 +1662,7 @@ const CabinetEstimateDetail: React.FC = () => {
                 is_specialty: !!preset.specialty,
                 specialty_type: preset.specialty || null,
                 has_glass_door: false,
+                range_panel_count: preset.specialty === 'range_base_slide_in' ? 2 : null,
                 qty: 1,
                 display_order: perimeterBoxes.length,
               };

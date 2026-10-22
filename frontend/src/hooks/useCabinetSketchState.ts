@@ -48,6 +48,7 @@ type CabinetSketchAction =
   | { type: 'SEND_TO_BACK'; payload: string }
   | { type: 'BRING_FORWARD'; payload: string }
   | { type: 'SEND_BACKWARD'; payload: string }
+  | { type: 'SYNC_CABINETS'; payload: CabinetSketchCabinet[] }
   | { type: 'LOAD_OVERLAY_DATA'; payload: CabinetSketchOverlayData }
   | { type: 'MARK_SAVED' }
   | { type: 'UNDO' }
@@ -272,6 +273,23 @@ function cabinetSketchReducer(
       };
     }
 
+    // Follows the Edit tab's box list rather than a user edit on the canvas,
+    // so it's not an undo step: undoing past it would only be re-synced.
+    case 'SYNC_CABINETS': {
+      const ids = new Set(action.payload.map((c) => c.id));
+      const order = state.overlayData.element_order.filter(
+        (id) => ids.has(id) || state.overlayData.walls.some((w) => w.id === id)
+      );
+      return {
+        ...state,
+        isDirty: true,
+        selections: state.selections.filter(
+          (s) => s.element_type !== 'cabinet' || ids.has(s.element_id)
+        ),
+        overlayData: { ...state.overlayData, cabinets: action.payload, element_order: order },
+      };
+    }
+
     case 'LOAD_OVERLAY_DATA':
       return {
         ...state,
@@ -353,6 +371,7 @@ export interface CabinetSketchStateReturn {
   bringForward: (id: string) => void;
   sendBackward: (id: string) => void;
 
+  syncCabinets: (cabinets: CabinetSketchCabinet[]) => void;
   loadOverlayData: (data: CabinetSketchOverlayData) => void;
   markSaved: () => void;
 
@@ -410,6 +429,10 @@ export function useCabinetSketchState(
   const bringForward = useCallback((id: string) => dispatch({ type: 'BRING_FORWARD', payload: id }), []);
   const sendBackward = useCallback((id: string) => dispatch({ type: 'SEND_BACKWARD', payload: id }), []);
 
+  const syncCabinets = useCallback(
+    (cabinets: CabinetSketchCabinet[]) => dispatch({ type: 'SYNC_CABINETS', payload: cabinets }),
+    []
+  );
   const loadOverlayData = useCallback(
     (data: CabinetSketchOverlayData) => dispatch({ type: 'LOAD_OVERLAY_DATA', payload: data }),
     []
@@ -440,6 +463,7 @@ export function useCabinetSketchState(
     sendToBack,
     bringForward,
     sendBackward,
+    syncCabinets,
     loadOverlayData,
     markSaved,
     undo,

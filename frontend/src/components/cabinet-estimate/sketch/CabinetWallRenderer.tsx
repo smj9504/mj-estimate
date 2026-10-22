@@ -21,6 +21,8 @@ interface CabinetWallRendererProps {
   onDragEndpoint: (wallId: string, endpoint: 'start' | 'end', x: number, y: number) => void;
   /** Drag the entire wall (both endpoints move together) */
   onWallDragEnd?: (wallId: string, dx: number, dy: number) => void;
+  /** Stage zoom, so the length label and handles keep a constant on-screen size. */
+  zoom?: number;
 }
 
 const CabinetWallRendererInner: React.FC<CabinetWallRendererProps> = ({
@@ -29,7 +31,9 @@ const CabinetWallRendererInner: React.FC<CabinetWallRendererProps> = ({
   onSelect,
   onDragEndpoint,
   onWallDragEnd,
+  zoom = 1,
 }) => {
+  const px = 1 / zoom;
   const { id, start_x, start_y, end_x, end_y, thickness, color } = wall;
 
   const handleClick = useCallback(
@@ -69,7 +73,7 @@ const CabinetWallRendererInner: React.FC<CabinetWallRendererProps> = ({
   const wallLen = Math.sqrt(dx * dx + dy * dy);
   const nx = wallLen > 0 ? -dy / wallLen : 0;
   const ny = wallLen > 0 ? dx / wallLen : -1;
-  const labelOffset = 14;
+  const labelOffset = 14 * px;
   const labelX = midX + nx * labelOffset;
   const labelY = midY + ny * labelOffset;
   const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
@@ -89,16 +93,16 @@ const CabinetWallRendererInner: React.FC<CabinetWallRendererProps> = ({
         onTap={handleClick}
       />
 
-      {lengthLabel && wallLen > 30 && (
+      {lengthLabel && wallLen * zoom > 30 && (
         <Group x={labelX} y={labelY} rotation={labelRotation}>
           <Text
             text={lengthLabel}
-            fontSize={11}
+            fontSize={11 * px}
             fill={isSelected ? '#1890ff' : '#595959'}
             fontFamily="'Inter', 'Segoe UI', sans-serif"
             fontStyle={isSelected ? 'bold' : 'normal'}
-            offsetX={lengthLabel.length * 3.2}
-            offsetY={6}
+            offsetX={lengthLabel.length * 3.2 * px}
+            offsetY={6 * px}
             listening={false}
           />
         </Group>
@@ -112,20 +116,22 @@ const CabinetWallRendererInner: React.FC<CabinetWallRendererProps> = ({
           <Circle
             x={start_x}
             y={start_y}
-            radius={7}
+            radius={7 * px}
             fill="#fff"
             stroke="#1890ff"
             strokeWidth={2}
+            strokeScaleEnabled={false}
             draggable
             onDragEnd={handleStartDragEnd}
           />
           <Circle
             x={end_x}
             y={end_y}
-            radius={7}
+            radius={7 * px}
             fill="#fff"
             stroke="#1890ff"
             strokeWidth={2}
+            strokeScaleEnabled={false}
             draggable
             onDragEnd={handleEndDragEnd}
           />

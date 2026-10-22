@@ -1,42 +1,87 @@
 /**
  * CabinetSketchEditor
  *
- * Optional layout canvas for a cabinet estimate: draw walls to sketch a
- * room outline, then place cabinets from the same catalog used by
- * CabinetBoxEditor. Scoped-down analog of
- * water-mitigation/sketch/WMFloorSketchEditor.tsx — only a `select` tool
- * and a `wall` tool (click-click drawing, snap-to-endpoint, Shift = axis
- * lock), plus click-to-place cabinet shapes. No demolition/equipment/
- * containment/room-detection concepts.
+ * Layout drawing for a cabinet estimate, in two views of the same data:
+ *
+ * - Plan (top): draw walls (click-click, snap-to-endpoint, Shift = axis
+ *   lock) and arrange cabinets. Dropped near a wall, a cabinet turns to
+ *   back onto it.
+ * - Front (elevation): each run of cabinets drawn from the front, to
+ *   scale, derived from the plan (see buildElevations).
+ *
+ * The Edit tab's box list decides which cabinets exist: every box × qty
+ * has one shape here, kept in step by reconcileCabinets. Placing a cabinet
+ * from the dropdown adds a box to the Edit tab; deleting one here takes it
+ * off the Edit tab. The sketch itself only stores positions, and never
+ * affects pricing on its own.
+ *
+ * Scoped-down analog of water-mitigation/sketch/WMFloorSketchEditor.tsx.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Stage, Layer, Line } from 'react-konva';
 import Konva from 'konva';
-import { Button, Select, Space, Tag, Tooltip, message } from 'antd';
+import { Button, Segmented, Select, Space, Tag, Tooltip, message } from 'antd';
 import {
   BorderOutlined,
+  CompressOutlined,
   DeleteOutlined,
   RedoOutlined,
   SaveOutlined,
   SelectOutlined,
   TableOutlined,
   UndoOutlined,
+  ZoomInOutlined,
+  ZoomOutOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { cabinetSketchService } from '../../../services/cabinetSketchService';
 import { useCabinetSketchState } from '../../../hooks/useCabinetSketchState';
-import type { CabinetSketchCabinet, CabinetSketchWall } from '../../../types/cabinetSketch';
+import type {
+  CabinetSketchCabinet,
+  CabinetSketchOverlayData,
+  CabinetSketchView,
+  CabinetSketchWall,
+} from '../../../types/cabinetSketch';
 import { WALL_SNAP_THRESHOLD, DEFAULT_WALL_THICKNESS, DEFAULT_WALL_COLOR } from '../../../types/cabinetSketch';
 import { CABINET_PRESETS, getOptionsForType } from '../CabinetBoxEditor';
 import type { SectionType } from '../CabinetBoxEditor';
 import type { CabType } from '../../../types/cabinetEstimate';
 import CabinetWallRenderer, { CabinetWallPreview } from './CabinetWallRenderer';
 import CabinetShapeRenderer from './CabinetShapeRenderer';
+import CabinetElevationView from './CabinetElevationView';
 import { pixelsToFeet, generateOverlayId, snapToWallEndpoint, constrainToAxis } from './cabinetSketchUtils';
+import {
+  buildElevations,
+  cabinetDepthIn,
+  cabinetKey,
+  inToPx,
+  reconcileCabinets,
+  snapCabinetToWall,
+  type SketchBoxSource,
+} from './cabinetSketchLayout';
 
 const CANVAS_HEIGHT = 560;
+/** Quiet period after the last change before the sketch saves itself. */
+const AUTOSAVE_DELAY_MS = 1500;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 4;
+/** An empty sketch opens at 2× so a 30" cabinet is ~100 px wide. */
+const DEFAULT_VIEWPORT = { zoom: 2, x: 0, y: 0 };
+
+/**
+ * View transform of the plan stage. Canvas coordinates are saved at the
+ * sketch's px-per-foot; the view zooms and pans over them without
+ * touching the saved data.
+ */
+interface Viewport {
+  zoom: number;
+  x: number;
+  y: number;
+}
+
+const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
 /**
  * 1-foot reference grid, drawn in its own non-listening Layer behind the
@@ -51,23 +96,30 @@ const CabinetGridLayer: React.FC<{
   width: number;
   height: number;
   scalePixelsPerFoot: number;
-}> = React.memo(({ width, height, scalePixelsPerFoot }) => {
+  viewport: Viewport;
+}> = React.memo(({ width, height, scalePixelsPerFoot, viewport }) => {
   const lines = useMemo(() => {
     const step = scalePixelsPerFoot;
-    if (step < 8) return []; // grid too dense to be useful
+    if (step * viewport.zoom < 8) return []; // grid too dense to be useful
+    // The visible part of the canvas, in canvas coordinates.
+    const x0 = Math.floor(-viewport.x / viewport.zoom / step) * step;
+    const y0 = Math.floor(-viewport.y / viewport.zoom / step) * step;
+    const x1 = (width - viewport.x) / viewport.zoom;
+    const y1 = (height - viewport.y) / viewport.zoom;
+    const hairline = 0.5 / viewport.zoom;
     const out: React.ReactNode[] = [];
-    for (let x = 0; x <= width; x += step) {
+    for (let x = x0; x <= x1; x += step) {
       out.push(
-        <Line key={`v${x}`} points={[x, 0, x, height]} stroke="#e8e8e8" strokeWidth={0.5} listening={false} />
+        <Line key={`v${x}`} points={[x, y0, x, y1]} stroke="#e8e8e8" strokeWidth={hairline} listening={false} />
       );
     }
-    for (let y = 0; y <= height; y += step) {
+    for (let y = y0; y <= y1; y += step) {
       out.push(
-        <Line key={`h${y}`} points={[0, y, width, y]} stroke="#e8e8e8" strokeWidth={0.5} listening={false} />
+        <Line key={`h${y}`} points={[x0, y, x1, y]} stroke="#e8e8e8" strokeWidth={hairline} listening={false} />
       );
     }
     return out;
-  }, [width, height, scalePixelsPerFoot]);
+  }, [width, height, scalePixelsPerFoot, viewport]);
 
   if (lines.length === 0) return null;
   return <Layer listening={false}>{lines}</Layer>;
@@ -75,17 +127,40 @@ const CabinetGridLayer: React.FC<{
 
 export interface CabinetSketchEditorProps {
   estimateId: string;
-  /** Fired once per placed cabinet — lets the parent page bump the matching List View qty. */
+  /** The Edit tab's boxes (perimeter + island) — the cabinets the sketch shows. */
+  boxes: SketchBoxSource[];
+  /** False while another tab is showing, so canvas shortcuts (Delete!) stay off. */
+  active?: boolean;
+  /** A cabinet was placed from the sketch's dropdown — add it to the Edit tab. */
   onCabinetPlaced?: (code: string, cabType: CabType) => void;
+  /** Cabinets were deleted on the canvas — take one of each key (see boxKey) off the Edit tab. */
+  onCabinetsRemoved?: (keys: string[]) => void;
 }
 
-const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, onCabinetPlaced }) => {
+const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
+  estimateId,
+  boxes,
+  active = true,
+  onCabinetPlaced,
+  onCabinetsRemoved,
+}) => {
   const queryClient = useQueryClient();
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [stageWidth, setStageWidth] = useState(900);
   const [showGrid, setShowGrid] = useState(true);
+  const [view, setView] = useState<CabinetSketchView>('plan');
+  const [viewport, setViewport] = useState<Viewport>(DEFAULT_VIEWPORT);
+  const [runKey, setRunKey] = useState<string | undefined>(undefined);
 
+  const { data: sketch, isLoading } = useQuery({
+    queryKey: ['cabinet-sketch', estimateId],
+    queryFn: () => cabinetSketchService.getSketch(estimateId),
+    enabled: !!estimateId,
+  });
+
+  // The plan container only exists once loading is done and while the plan
+  // view is up, so re-attach the observer whenever either changes.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -95,13 +170,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
-
-  const { data: sketch, isLoading } = useQuery({
-    queryKey: ['cabinet-sketch', estimateId],
-    queryFn: () => cabinetSketchService.getSketch(estimateId),
-    enabled: !!estimateId,
-  });
+  }, [isLoading, view]);
 
   const {
     state,
@@ -118,6 +187,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
     addCabinet,
     updateCabinet,
     removeCabinet,
+    syncCabinets,
     loadOverlayData,
     markSaved,
     undo,
@@ -126,34 +196,65 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
     canRedo,
   } = useCabinetSketchState();
 
-  const loadedRef = useRef(false);
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
-    if (sketch && !loadedRef.current) {
+    if (sketch && !loaded) {
       loadOverlayData(sketch.overlay_data);
-      loadedRef.current = true;
+      setLoaded(true);
     }
-  }, [sketch, loadOverlayData]);
+  }, [sketch, loaded, loadOverlayData]);
 
   const scalePixelsPerFoot = sketch?.scale_pixels_per_foot ?? 20;
+  const { cabinets, walls } = state.overlayData;
+
+  // Keep the shapes in step with the Edit tab. Also re-runs after undo/redo,
+  // which can bring back a shape whose box is gone (or drop one that has a box).
+  useEffect(() => {
+    if (!loaded) return;
+    const next = reconcileCabinets(cabinets, boxes, walls, CABINET_PRESETS, scalePixelsPerFoot);
+    if (next) syncCabinets(next);
+  }, [loaded, boxes, cabinets, walls, scalePixelsPerFoot, syncCabinets]);
+
+  // ------------------------------------------------------------------
+  // Saving: on demand, after a quiet period, and when leaving the page
+  // ------------------------------------------------------------------
+  const latestRef = useRef({ overlayData: state.overlayData, isDirty: state.isDirty });
+  latestRef.current = { overlayData: state.overlayData, isDirty: state.isDirty };
 
   const saveMutation = useMutation({
-    mutationFn: () => cabinetSketchService.saveOverlay(estimateId, state.overlayData),
-    onSuccess: () => {
-      markSaved();
-      queryClient.invalidateQueries({ queryKey: ['cabinet-sketch', estimateId] });
-      message.success('Sketch saved');
+    mutationFn: (data: CabinetSketchOverlayData) => cabinetSketchService.saveOverlay(estimateId, data),
+    onSuccess: (_result, data) => {
+      // Only clear the dirty flag if nothing changed while the request was out.
+      if (latestRef.current.overlayData === data) markSaved();
     },
-    onError: () => message.error('Failed to save sketch'),
   });
+  const { mutate: saveOverlay, isPending: isSaving } = saveMutation;
 
-  // Save when navigating away from this view while dirty.
+  const handleManualSave = useCallback(() => {
+    saveOverlay(state.overlayData, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['cabinet-sketch', estimateId] });
+        message.success('Sketch saved');
+      },
+      onError: () => message.error('Failed to save sketch'),
+    });
+  }, [saveOverlay, state.overlayData, queryClient, estimateId]);
+
+  useEffect(() => {
+    if (!loaded || !state.isDirty) return;
+    const timer = window.setTimeout(() => {
+      saveOverlay(latestRef.current.overlayData, {
+        onError: () => message.error('Failed to save sketch'),
+      });
+    }, AUTOSAVE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [loaded, state.isDirty, state.overlayData, saveOverlay]);
+
   useEffect(() => {
     return () => {
-      if (state.isDirty) {
-        cabinetSketchService.saveOverlay(estimateId, state.overlayData).catch(() => {});
-      }
+      const { isDirty, overlayData } = latestRef.current;
+      if (isDirty) cabinetSketchService.saveOverlay(estimateId, overlayData).catch(() => {});
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estimateId]);
 
   // ------------------------------------------------------------------
@@ -165,10 +266,17 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
   const [wallDrawCursor, setWallDrawCursor] = useState<{ x: number; y: number } | null>(null);
   const [wallSnapEnd, setWallSnapEnd] = useState<{ x: number; y: number } | null>(null);
 
+  const stopWallChain = useCallback(() => {
+    setWallDrawStart(null);
+    setWallDrawCursor(null);
+    setWallSnapEnd(null);
+  }, []);
+
   const getCanvasPos = useCallback((): { x: number; y: number } => {
     const stage = stageRef.current;
     if (!stage) return { x: 0, y: 0 };
-    const ptr = stage.getPointerPosition();
+    // Undo the view zoom/pan, so positions are in saved canvas coordinates.
+    const ptr = stage.getRelativePointerPosition();
     if (!ptr) return { x: 0, y: 0 };
     return { x: ptr.x, y: ptr.y };
   }, []);
@@ -180,11 +288,11 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
       const pos = getCanvasPos();
       let endPos = pos;
       if (e.evt.shiftKey) endPos = constrainToAxis(wds, pos);
-      const snap = snapToWallEndpoint(endPos, state.overlayData.walls, WALL_SNAP_THRESHOLD);
+      const snap = snapToWallEndpoint(endPos, walls, WALL_SNAP_THRESHOLD);
       setWallDrawCursor(snap.snapped ? snap.point : endPos);
       setWallSnapEnd(snap.snapped ? snap.point : null);
     },
-    [state.activeTool, state.overlayData.walls, getCanvasPos]
+    [state.activeTool, walls, getCanvasPos]
   );
 
   const handleStageClick = useCallback(
@@ -194,7 +302,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
       const pos = getCanvasPos();
 
       if (state.activeTool === 'wall') {
-        const snapped = snapToWallEndpoint(pos, state.overlayData.walls, WALL_SNAP_THRESHOLD);
+        const snapped = snapToWallEndpoint(pos, walls, WALL_SNAP_THRESHOLD);
         const wds = wallDrawStartRef.current;
         if (!wds) {
           setWallDrawStart(snapped.point);
@@ -227,23 +335,33 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
       }
 
       if (state.activeTool === 'place_cabinet' && state.activePresetCode) {
-        const preset = CABINET_PRESETS[state.activePresetCode];
+        const code = state.activePresetCode;
+        const preset = CABINET_PRESETS[code];
         if (preset) {
-          const widthPx = (preset.width / 12) * scalePixelsPerFoot;
-          const heightPx = (preset.height / 12) * scalePixelsPerFoot;
+          const depthIn = cabinetDepthIn(preset.cab_type, preset.specialty);
+          const width = inToPx(preset.width, scalePixelsPerFoot);
+          const height = inToPx(depthIn, scalePixelsPerFoot);
+          const dropped = { x: pos.x - width / 2, y: pos.y - height / 2, width, height, rotation: 0 };
+          const placed = snapCabinetToWall(dropped, walls, scalePixelsPerFoot) ?? dropped;
           const cabinet: CabinetSketchCabinet = {
             id: generateOverlayId(),
-            preset_code: state.activePresetCode,
+            preset_code: code,
             cab_type: preset.cab_type,
-            x: pos.x - widthPx / 2,
-            y: pos.y - heightPx / 2,
-            width: widthPx,
-            height: heightPx,
-            rotation: 0,
-            label: state.activePresetCode,
+            x: placed.x,
+            y: placed.y,
+            width,
+            height,
+            rotation: placed.rotation,
+            label: code,
+            location: 'perimeter',
+            width_in: preset.width,
+            depth_in: depthIn,
+            height_in: preset.height,
           };
+          // Same event, so React batches this with the parent's new box and
+          // the sync never sees the shape without its box.
           addCabinet(cabinet);
-          onCabinetPlaced?.(state.activePresetCode, preset.cab_type);
+          onCabinetPlaced?.(code, preset.cab_type);
         }
         setTool('select');
         setActivePreset(null);
@@ -255,7 +373,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
     [
       state.activeTool,
       state.activePresetCode,
-      state.overlayData.walls,
+      walls,
       scalePixelsPerFoot,
       getCanvasPos,
       addWall,
@@ -267,18 +385,27 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
     ]
   );
 
-  // Cancel an in-progress wall chain, and undo/redo/delete shortcuts.
+  const deleteSelected = useCallback(() => {
+    const removedKeys = cabinets
+      .filter((c) => selectedIds.has(c.id))
+      .map((c) => cabinetKey(c, CABINET_PRESETS, scalePixelsPerFoot));
+    selectedIds.forEach((id) => {
+      removeWall(id);
+      removeCabinet(id);
+    });
+    if (removedKeys.length > 0) onCabinetsRemoved?.(removedKeys);
+  }, [cabinets, selectedIds, scalePixelsPerFoot, removeWall, removeCabinet, onCabinetsRemoved]);
+
+  // Cancel an in-progress wall chain, and undo/redo/delete shortcuts —
+  // only while this tab is the one on screen.
   useEffect(() => {
+    if (!active || view !== 'plan') return;
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 
       if (e.key === 'Escape') {
-        if (wallDrawStartRef.current) {
-          setWallDrawStart(null);
-          setWallDrawCursor(null);
-          setWallSnapEnd(null);
-        }
+        if (wallDrawStartRef.current) stopWallChain();
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
@@ -289,16 +416,12 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.size > 0) {
         e.preventDefault();
-        selectedIds.forEach((id) => {
-          removeWall(id);
-          removeCabinet(id);
-        });
-        return;
+        deleteSelected();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, selectedIds, removeWall, removeCabinet]);
+  }, [active, view, undo, redo, selectedIds, deleteSelected, stopWallChain]);
 
   const handleSelect = useCallback(
     (elementType: 'wall' | 'cabinet') => (id: string, ctrlKey?: boolean) => {
@@ -312,25 +435,27 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
     (id: string, x: number, y: number) => {
       if (selectedIds.size > 1 && selectedIds.has(id)) {
         batchMoveSelected(id, x, y);
-      } else {
-        updateCabinet({ id, x, y });
+        return;
       }
+      const cabinet = cabinets.find((c) => c.id === id);
+      const snapped = cabinet ? snapCabinetToWall({ ...cabinet, x, y }, walls, scalePixelsPerFoot) : null;
+      updateCabinet(snapped ? { id, ...snapped } : { id, x, y });
     },
-    [selectedIds, batchMoveSelected, updateCabinet]
+    [selectedIds, cabinets, walls, scalePixelsPerFoot, batchMoveSelected, updateCabinet]
   );
 
   const handleCabinetTransformEnd = useCallback(
-    (id: string, width: number, height: number, rotation: number) => {
-      updateCabinet({ id, width, height, rotation });
+    (id: string, x: number, y: number, rotation: number) => {
+      updateCabinet({ id, x, y, rotation });
     },
     [updateCabinet]
   );
 
   const handleWallEndpointDrag = useCallback(
     (wallId: string, endpoint: 'start' | 'end', x: number, y: number) => {
-      const snap = snapToWallEndpoint({ x, y }, state.overlayData.walls, WALL_SNAP_THRESHOLD);
+      const snap = snapToWallEndpoint({ x, y }, walls, WALL_SNAP_THRESHOLD);
       const pt = snap.point;
-      const wall = state.overlayData.walls.find((w) => w.id === wallId);
+      const wall = walls.find((w) => w.id === wallId);
       if (!wall) return;
       const otherX = endpoint === 'start' ? wall.end_x : wall.start_x;
       const otherY = endpoint === 'start' ? wall.end_y : wall.start_y;
@@ -341,12 +466,12 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
         length_ft: newLength,
       });
     },
-    [state.overlayData.walls, scalePixelsPerFoot, updateWall]
+    [walls, scalePixelsPerFoot, updateWall]
   );
 
   const handleWallDragEnd = useCallback(
     (wallId: string, dx: number, dy: number) => {
-      const wall = state.overlayData.walls.find((w) => w.id === wallId);
+      const wall = walls.find((w) => w.id === wallId);
       if (!wall) return;
       updateWall({
         id: wallId,
@@ -356,20 +481,104 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
         end_y: wall.end_y + dy,
       });
     },
-    [state.overlayData.walls, updateWall]
+    [walls, updateWall]
   );
 
-  // Cabinet catalog select — grouped options, same source as CabinetBoxEditor.
-  const presetSections: SectionType[] = ['base', 'wall', 'tall'];
+  // Cabinet catalog select — same groups as CabinetBoxEditor, flattened to
+  // one level ("Base · Specialty") since antd Select can't nest groups.
+  // The "+ Custom Size..." entries are dropped: a custom box needs its size
+  // typed in the Edit tab.
   const presetOptions = useMemo(
     () =>
-      presetSections.map((type) => ({
-        label: type === 'base' ? 'Base Cabinets' : type === 'wall' ? 'Wall Cabinets' : 'Tall Cabinets',
-        options: getOptionsForType(type),
-      })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      (['base', 'wall', 'tall'] as SectionType[]).flatMap((type) => {
+        const section = type === 'base' ? 'Base' : type === 'wall' ? 'Wall' : 'Tall';
+        return getOptionsForType(type)
+          .map((group) => ({
+            label: group.label === section ? section : `${section} · ${group.label}`,
+            options: group.options.filter((o) => CABINET_PRESETS[o.value]),
+          }))
+          .filter((group) => group.options.length > 0);
+      }),
     []
   );
+
+  // ------------------------------------------------------------------
+  // Plan zoom / pan (view only)
+  // ------------------------------------------------------------------
+  const fitView = useCallback(() => {
+    const pts: { x: number; y: number }[] = walls.flatMap((w) => [
+      { x: w.start_x, y: w.start_y },
+      { x: w.end_x, y: w.end_y },
+    ]);
+    for (const c of cabinets) {
+      const r = (c.rotation * Math.PI) / 180;
+      const across = { x: Math.cos(r) * c.width, y: Math.sin(r) * c.width };
+      const deep = { x: -Math.sin(r) * c.height, y: Math.cos(r) * c.height };
+      pts.push(
+        { x: c.x, y: c.y },
+        { x: c.x + across.x, y: c.y + across.y },
+        { x: c.x + deep.x, y: c.y + deep.y },
+        { x: c.x + across.x + deep.x, y: c.y + across.y + deep.y }
+      );
+    }
+    if (pts.length === 0) {
+      setViewport(DEFAULT_VIEWPORT);
+      return;
+    }
+    const margin = 2 * scalePixelsPerFoot;
+    const minX = Math.min(...pts.map((p) => p.x)) - margin;
+    const maxX = Math.max(...pts.map((p) => p.x)) + margin;
+    const minY = Math.min(...pts.map((p) => p.y)) - margin;
+    const maxY = Math.max(...pts.map((p) => p.y)) + margin;
+    const zoom = clampZoom(Math.min(stageWidth / (maxX - minX), CANVAS_HEIGHT / (maxY - minY)));
+    setViewport({
+      zoom,
+      x: stageWidth / 2 - ((minX + maxX) / 2) * zoom,
+      y: CANVAS_HEIGHT / 2 - ((minY + maxY) / 2) * zoom,
+    });
+  }, [walls, cabinets, scalePixelsPerFoot, stageWidth]);
+
+  // Frame the drawing once, the first time it has something in it.
+  const framedRef = useRef(false);
+  useEffect(() => {
+    if (!loaded || framedRef.current || (cabinets.length === 0 && walls.length === 0)) return;
+    framedRef.current = true;
+    fitView();
+  }, [loaded, cabinets.length, walls.length, fitView]);
+
+  const zoomAt = useCallback((factor: number, at: { x: number; y: number }) => {
+    setViewport((v) => {
+      const zoom = clampZoom(v.zoom * factor);
+      const k = zoom / v.zoom;
+      return { zoom, x: at.x - (at.x - v.x) * k, y: at.y - (at.y - v.y) * k };
+    });
+  }, []);
+  const zoomAtCenter = (factor: number) => zoomAt(factor, { x: stageWidth / 2, y: CANVAS_HEIGHT / 2 });
+
+  // Ctrl/Cmd + wheel (a trackpad pinch arrives as ctrl + wheel too) zooms
+  // at the pointer; a plain wheel keeps scrolling the page.
+  const handleWheel = useCallback(
+    (e: Konva.KonvaEventObject<WheelEvent>) => {
+      if (!e.evt.ctrlKey && !e.evt.metaKey) return;
+      e.evt.preventDefault();
+      const ptr = stageRef.current?.getPointerPosition();
+      if (ptr) zoomAt(e.evt.deltaY < 0 ? 1.1 : 1 / 1.1, ptr);
+    },
+    [zoomAt]
+  );
+
+  // Dragging empty canvas pans. Shape drags bubble up here too, so ignore those.
+  const handleStageDragEnd = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
+    const stage = stageRef.current;
+    if (!stage || e.target !== stage) return;
+    setViewport((v) => ({ ...v, x: stage.x(), y: stage.y() }));
+  }, []);
+
+  const elevations = useMemo(
+    () => buildElevations(cabinets, walls, CABINET_PRESETS, scalePixelsPerFoot),
+    [cabinets, walls, scalePixelsPerFoot]
+  );
+  const currentRun = elevations.find((r) => r.key === runKey) ?? elevations[0];
 
   if (isLoading) {
     return <div style={{ padding: 24, textAlign: 'center', color: '#999' }}>Loading sketch…</div>;
@@ -378,143 +587,199 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({ estimateId, o
   return (
     <div>
       <Space style={{ marginBottom: 12 }} wrap>
-        <Tooltip title="Select / move / resize">
-          <Button
-            type={state.activeTool === 'select' ? 'primary' : 'default'}
-            icon={<SelectOutlined />}
-            onClick={() => {
-              setTool('select');
-              setWallDrawStart(null);
-              setWallDrawCursor(null);
-            }}
-          >
-            Select
-          </Button>
-        </Tooltip>
-        <Tooltip title="Draw walls — click to start, click again to place, Esc to stop, Shift to lock to horizontal/vertical">
-          <Button
-            type={state.activeTool === 'wall' ? 'primary' : 'default'}
-            icon={<BorderOutlined />}
-            onClick={() => setTool('wall')}
-          >
-            Draw Wall
-          </Button>
-        </Tooltip>
-        <Tooltip title={`${showGrid ? 'Hide' : 'Show'} 1 ft reference grid`}>
-          <Button
-            type={showGrid ? 'primary' : 'default'}
-            ghost={showGrid}
-            icon={<TableOutlined />}
-            onClick={() => setShowGrid((v) => !v)}
-          />
-        </Tooltip>
-
-        <Select
-          placeholder="+ Place cabinet…"
-          style={{ width: 240 }}
-          showSearch
-          value={undefined}
-          onChange={(code: string) => {
-            setActivePreset(code);
-            setTool('place_cabinet');
+        <Segmented<CabinetSketchView>
+          value={view}
+          onChange={(v) => {
+            setView(v);
+            stopWallChain();
+            setTool('select');
+            setActivePreset(null);
           }}
-          options={presetOptions}
-          filterOption={(input, option: any) =>
-            (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
-          }
+          options={[
+            { label: <Tooltip title="Floor plan, seen from above">Top</Tooltip>, value: 'plan' },
+            { label: <Tooltip title="Elevation of each run, seen from the front">Front</Tooltip>, value: 'elevation' },
+          ]}
         />
-        {state.activeTool === 'place_cabinet' && state.activePresetCode && (
-          <Tag color="blue">Click canvas to place {state.activePresetCode}</Tag>
+
+        {view === 'plan' ? (
+          <>
+            <Tooltip title="Select / move / rotate">
+              <Button
+                type={state.activeTool === 'select' ? 'primary' : 'default'}
+                icon={<SelectOutlined />}
+                onClick={() => {
+                  setTool('select');
+                  stopWallChain();
+                }}
+              >
+                Select
+              </Button>
+            </Tooltip>
+            <Tooltip title="Draw walls — click to start, click again to place, Esc to stop, Shift to lock to horizontal/vertical">
+              <Button
+                type={state.activeTool === 'wall' ? 'primary' : 'default'}
+                icon={<BorderOutlined />}
+                onClick={() => setTool('wall')}
+              >
+                Draw Wall
+              </Button>
+            </Tooltip>
+            <Tooltip title={`${showGrid ? 'Hide' : 'Show'} 1 ft reference grid`}>
+              <Button
+                type={showGrid ? 'primary' : 'default'}
+                ghost={showGrid}
+                icon={<TableOutlined />}
+                onClick={() => setShowGrid((v) => !v)}
+              />
+            </Tooltip>
+            <Space.Compact>
+              <Tooltip title="Zoom out">
+                <Button icon={<ZoomOutOutlined />} onClick={() => zoomAtCenter(1 / 1.25)} />
+              </Tooltip>
+              <Tooltip title="Fit the drawing to the view. Ctrl + scroll zooms; drag empty canvas to pan.">
+                <Button icon={<CompressOutlined />} onClick={fitView}>
+                  {Math.round(viewport.zoom * 100)}%
+                </Button>
+              </Tooltip>
+              <Tooltip title="Zoom in">
+                <Button icon={<ZoomInOutlined />} onClick={() => zoomAtCenter(1.25)} />
+              </Tooltip>
+            </Space.Compact>
+
+            <Select
+              // Remount when the pending placement clears, so it falls back to
+              // the placeholder instead of keeping the last pick.
+              key={state.activePresetCode ?? 'idle'}
+              placeholder="+ Place cabinet…"
+              style={{ width: 200 }}
+              popupMatchSelectWidth={260}
+              showSearch
+              value={state.activePresetCode ?? undefined}
+              onChange={(code: string) => {
+                setActivePreset(code);
+                setTool('place_cabinet');
+              }}
+              options={presetOptions}
+              filterOption={(input, option: any) =>
+                (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+            />
+            {state.activeTool === 'place_cabinet' && state.activePresetCode && (
+              <Tag color="blue">Click canvas to place {state.activePresetCode}</Tag>
+            )}
+
+            <Button icon={<UndoOutlined />} disabled={!canUndo} onClick={undo} />
+            <Button icon={<RedoOutlined />} disabled={!canRedo} onClick={redo} />
+            <Tooltip title="Also removes the cabinet from the Edit tab list">
+              <Button icon={<DeleteOutlined />} danger disabled={selectedIds.size === 0} onClick={deleteSelected}>
+                Delete
+              </Button>
+            </Tooltip>
+          </>
+        ) : (
+          elevations.length > 1 && (
+            <Select
+              style={{ width: 200 }}
+              value={currentRun?.key}
+              onChange={setRunKey}
+              options={elevations.map((r) => ({ label: `${r.label} (${r.items.length})`, value: r.key }))}
+            />
+          )
         )}
 
-        <Button icon={<UndoOutlined />} disabled={!canUndo} onClick={undo} />
-        <Button icon={<RedoOutlined />} disabled={!canRedo} onClick={redo} />
-        <Button
-          icon={<DeleteOutlined />}
-          danger
-          disabled={selectedIds.size === 0}
-          onClick={() => {
-            selectedIds.forEach((id) => {
-              removeWall(id);
-              removeCabinet(id);
-            });
-          }}
-        >
-          Delete
-        </Button>
-        <Button
-          type="primary"
-          icon={<SaveOutlined />}
-          loading={saveMutation.isPending}
-          onClick={() => saveMutation.mutate()}
-        >
+        <Button type="primary" icon={<SaveOutlined />} loading={isSaving} onClick={handleManualSave}>
           Save Sketch{state.isDirty ? ' *' : ''}
         </Button>
       </Space>
 
-      <div
-        ref={containerRef}
-        style={{ border: '1px solid #d9d9d9', borderRadius: 4, overflow: 'hidden', background: '#fafafa' }}
-      >
-        <Stage
-          ref={stageRef}
-          width={stageWidth}
-          height={CANVAS_HEIGHT}
-          onClick={handleStageClick}
-          onTap={handleStageClick}
-          onMouseMove={handleStageMouseMove}
-          style={{ cursor: state.activeTool === 'wall' || state.activeTool === 'place_cabinet' ? 'crosshair' : 'default' }}
+      {view === 'plan' ? (
+        <div
+          ref={containerRef}
+          style={{ border: '1px solid #d9d9d9', borderRadius: 4, overflow: 'hidden', background: '#fafafa' }}
         >
-          {showGrid && (
-            <CabinetGridLayer
-              width={stageWidth}
-              height={CANVAS_HEIGHT}
-              scalePixelsPerFoot={scalePixelsPerFoot}
-            />
-          )}
-
-          <Layer>
-            {state.overlayData.walls.map((wall) => (
-              <CabinetWallRenderer
-                key={wall.id}
-                wall={wall}
-                isSelected={selectedIds.has(wall.id)}
-                onSelect={handleSelect('wall')}
-                onDragEndpoint={handleWallEndpointDrag}
-                onWallDragEnd={handleWallDragEnd}
-              />
-            ))}
-
-            {wallDrawStart && wallDrawCursor && (
-              <CabinetWallPreview
-                startX={wallDrawStart.x}
-                startY={wallDrawStart.y}
-                endX={wallDrawCursor.x}
-                endY={wallDrawCursor.y}
-                snappedEnd={wallSnapEnd}
+          <Stage
+            ref={stageRef}
+            width={stageWidth}
+            height={CANVAS_HEIGHT}
+            onClick={handleStageClick}
+            onTap={handleStageClick}
+            onMouseMove={handleStageMouseMove}
+            onWheel={handleWheel}
+            scaleX={viewport.zoom}
+            scaleY={viewport.zoom}
+            x={viewport.x}
+            y={viewport.y}
+            draggable={state.activeTool === 'select'}
+            onDragEnd={handleStageDragEnd}
+            style={{ cursor: state.activeTool === 'wall' || state.activeTool === 'place_cabinet' ? 'crosshair' : 'default' }}
+          >
+            {showGrid && (
+              <CabinetGridLayer
+                width={stageWidth}
+                height={CANVAS_HEIGHT}
+                scalePixelsPerFoot={scalePixelsPerFoot}
+                viewport={viewport}
               />
             )}
 
-            {state.overlayData.cabinets.map((cabinet) => (
-              <CabinetShapeRenderer
-                key={cabinet.id}
-                cabinet={cabinet}
-                isSelected={selectedIds.has(cabinet.id)}
-                onSelect={handleSelect('cabinet')}
-                onDragEnd={handleCabinetDragEnd}
-                onTransformEnd={handleCabinetTransformEnd}
-              />
-            ))}
-          </Layer>
-        </Stage>
-      </div>
+            <Layer>
+              {walls.map((wall) => (
+                <CabinetWallRenderer
+                  key={wall.id}
+                  wall={wall}
+                  isSelected={selectedIds.has(wall.id)}
+                  onSelect={handleSelect('wall')}
+                  onDragEndpoint={handleWallEndpointDrag}
+                  onWallDragEnd={handleWallDragEnd}
+                  zoom={viewport.zoom}
+                />
+              ))}
 
-      {state.overlayData.walls.length === 0 && state.overlayData.cabinets.length === 0 && (
-        <div style={{ marginTop: 8, color: '#999', fontSize: 13 }}>
-          Draw walls to sketch a room outline, then pick a cabinet from the dropdown above and click the canvas
-          to place it. This view is optional — it doesn't affect pricing.
+              {wallDrawStart && wallDrawCursor && (
+                <CabinetWallPreview
+                  startX={wallDrawStart.x}
+                  startY={wallDrawStart.y}
+                  endX={wallDrawCursor.x}
+                  endY={wallDrawCursor.y}
+                  snappedEnd={wallSnapEnd}
+                />
+              )}
+
+              {/* Floor-standing cabinets first, so uppers draw (and pick) on top of the bases they hang over. */}
+              {[...cabinets.filter((c) => c.cab_type !== 'wall'), ...cabinets.filter((c) => c.cab_type === 'wall')].map(
+                (cabinet) => (
+                  <CabinetShapeRenderer
+                    key={cabinet.id}
+                    cabinet={cabinet}
+                    isSelected={selectedIds.has(cabinet.id)}
+                    onSelect={handleSelect('cabinet')}
+                    onDragEnd={handleCabinetDragEnd}
+                    onTransformEnd={handleCabinetTransformEnd}
+                    zoom={viewport.zoom}
+                  />
+                )
+              )}
+            </Layer>
+          </Stage>
+        </div>
+      ) : (
+        <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, overflow: 'hidden', background: '#ffffff' }}>
+          <CabinetElevationView
+            run={currentRun}
+            presets={CABINET_PRESETS}
+            height={CANVAS_HEIGHT}
+            selectedIds={selectedIds}
+          />
         </div>
       )}
+
+      <div style={{ marginTop: 8, color: '#999', fontSize: 13 }}>
+        {cabinets.length === 0
+          ? 'Cabinets you add in the Edit tab appear here. You can also draw the walls first, then pick a cabinet from the dropdown and click the canvas to place it.'
+          : view === 'plan'
+            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it. Dashed shapes are uppers. Sizes come from the Edit tab.'
+            : 'Each run is drawn from the front, as laid out in the plan. Uppers hang at 54" above the floor; shorter ones line up with their tops.'}
+      </div>
     </div>
   );
 };

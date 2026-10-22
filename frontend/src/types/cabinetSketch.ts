@@ -6,7 +6,7 @@
  * a cabinet "room" is just whatever the drawn walls visually enclose.
  */
 
-import type { CabType } from './cabinetEstimate';
+import type { CabinetLocation, CabType } from './cabinetEstimate';
 
 export interface CabinetSketchWall {
   id: string;
@@ -24,12 +24,28 @@ export interface CabinetSketchCabinet {
   /** Catalog code, e.g. "B30" — matches CABINET_PRESETS keys in CabinetBoxEditor.tsx */
   preset_code: string;
   cab_type: CabType;
+  /**
+   * Plan position, in canvas pixels. (x, y) is the back-left corner — the
+   * back edge is local y = 0 and the doors face local +y — so rotation 0
+   * means "backed against a wall at the top of the screen".
+   */
   x: number;
   y: number;
+  /** Plan footprint in canvas pixels: width along the run, height = depth. */
   width: number;
   height: number;
   rotation: number;
   label: string;
+  /**
+   * Real-world size, in inches, copied from the Edit tab box this cabinet
+   * stands for. The elevation view (and a later 3D view) read these instead
+   * of the pixel footprint. Optional only because sketches saved before
+   * the Edit-tab sync lack them; sync fills them in on load.
+   */
+  location?: CabinetLocation;
+  width_in?: number;
+  depth_in?: number;
+  height_in?: number;
 }
 
 export interface CabinetSketchOverlayData {
@@ -65,6 +81,9 @@ export const DEFAULT_WALL_THICKNESS = 4;
 export const DEFAULT_WALL_COLOR = '#333333';
 
 export type CabinetSketchTool = 'select' | 'wall' | 'place_cabinet' | 'pan';
+
+/** Which drawing the Sketch tab shows: the floor plan or a front elevation. */
+export type CabinetSketchView = 'plan' | 'elevation';
 
 export interface CabinetSketchSelection {
   element_id: string;
