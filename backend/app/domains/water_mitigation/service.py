@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -1667,6 +1667,14 @@ class WaterMitigationService:
             if company:
                 company_dict = company_repo._convert_to_dict(company)
                 company_data = {'name': company_dict.get('name', ''), 'logo': company_dict.get('logo', '')}
+
+        # Default report date: mitigation end date + 1 day (same as the Report
+        # tab), so a copy generated for an email doesn't fall back to today
+        end_date = job.get('mitigation_end_date')
+        if not report_date and end_date:
+            if isinstance(end_date, str):
+                end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            report_date = (end_date + timedelta(days=1)).date().isoformat()
 
         property_address = job.get('property_address', 'Property')
         filename = f"{property_address} - Water Mitigation Report.pdf"

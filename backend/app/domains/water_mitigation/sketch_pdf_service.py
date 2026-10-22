@@ -17,7 +17,7 @@ import io
 import logging
 import mimetypes
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -2627,10 +2627,16 @@ class SketchPdfService:
         template_name = f"sketch_report{variant_suffix}.html"
         logger.info("Using sketch template: %s (variant=%s)", template_name, variant)
         template = env.get_template(template_name)
+        # Report date: mitigation end date + 1 day, fallback to today
+        report_date = (
+            job.mitigation_end_date + timedelta(days=1)
+            if job.mitigation_end_date
+            else datetime.now()
+        )
         return template.render(
             job=job,
             floor_data=floor_data,
-            report_date=datetime.now(),
+            report_date=report_date,
         )
 
     def _html_to_pdf(self, html_content: str) -> bytes:

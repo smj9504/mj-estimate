@@ -177,6 +177,12 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     mitigationEndDate ? dayjs(mitigationEndDate).add(1, 'day') : dayjs()
   );
 
+  // The tab stays mounted after its first visit, so follow end-date edits
+  // made on the Details tab instead of keeping the date from mount time
+  useEffect(() => {
+    setReportDate(mitigationEndDate ? dayjs(mitigationEndDate).add(1, 'day') : dayjs());
+  }, [mitigationEndDate]);
+
   // Generate default filename: Water Mitigation Photo - {address}
   const getDefaultFilename = () => {
     const addressPart = jobAddress ? jobAddress.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '-') : '';
