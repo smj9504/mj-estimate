@@ -3784,8 +3784,12 @@ a.cl-contact-line:hover {
 }
 
 /* Todos */
-.cl-todo .ant-checkbox-wrapper {
-  margin-top: 2px;
+.cl-todo .td-status {
+  margin-top: -1px;
+}
+/* A client without claims keeps its todos under the empty Claims tab */
+.cl-client-todos {
+  max-width: 640px;
 }
 .cl-todo.is-done .cl-todo-title {
   color: var(--color-neutral-600);

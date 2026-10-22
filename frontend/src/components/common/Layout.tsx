@@ -8,7 +8,6 @@ import {
   UserOutlined,
   LogoutOutlined,
   SettingOutlined,
-  ProjectOutlined,
   BarChartOutlined,
   ToolOutlined,
   DatabaseOutlined,
@@ -34,6 +33,7 @@ import {
   PlusOutlined,
   AppstoreOutlined,
   BorderOuterOutlined,
+  CheckSquareOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -41,6 +41,7 @@ import { colors, shadows, spacing, zIndex as zIndexScale, sidebar, breakpoints }
 import CommandPalette from './CommandPalette';
 import MessagesButton from '../messaging/MessagesButton';
 import AppBreadcrumbs from './AppBreadcrumbs';
+import TodoQuickAdd from '../todo/TodoQuickAdd';
 import { BreadcrumbProvider } from '../../contexts/BreadcrumbContext';
 import './Layout.css';
 
@@ -74,6 +75,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const [isMobile, setIsMobile] = useState(isMobileViewport);
   const [openKeys, setOpenKeys] = useState<string[]>([]);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const siderRef = useRef<HTMLDivElement>(null);
 
   // Close mobile sidebar on Escape key
@@ -138,11 +140,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const menuItems = useMemo(() => {
     const sections = [
-      // ── Dashboard ──────────────────────────────────────
+      // ── Todos (the home page; the old dashboard is hidden, its route kept) ──
       {
-        key: '/dashboard',
-        icon: <DashboardOutlined />,
-        label: 'Dashboard',
+        key: '/todos',
+        icon: <CheckSquareOutlined />,
+        label: 'Todos',
       },
 
       // ── Jobs & Claims ──────────────────────────────────
@@ -170,11 +172,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             key: '/rebuild-projects',
             icon: <BuildOutlined />,
             label: 'Rebuild Projects',
-          },
-          {
-            key: '/work-orders',
-            icon: <ProjectOutlined />,
-            label: 'Work Orders',
           },
           {
             key: '/clients',
@@ -677,13 +674,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       {isMobile && (
         <nav className="mobile-bottom-nav" aria-label="Quick navigation">
           <button
-            className={`bottom-nav-item${location.pathname === '/dashboard' ? ' active' : ''}`}
-            onClick={() => navigate('/dashboard')}
-            aria-label="Dashboard"
-            aria-current={location.pathname === '/dashboard' ? 'page' : undefined}
+            className={`bottom-nav-item${location.pathname === '/todos' ? ' active' : ''}`}
+            onClick={() => navigate('/todos')}
+            aria-label="Todos"
+            aria-current={location.pathname === '/todos' ? 'page' : undefined}
           >
-            <DashboardOutlined />
-            <span>Home</span>
+            <CheckSquareOutlined />
+            <span>Todos</span>
           </button>
           {canAccessPath('/claims-lifecycle') && (
           <button
@@ -696,16 +693,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <span>Claims</span>
           </button>
           )}
-          {canAccessPath('/work-orders/new') && (
           <button
             className="bottom-nav-item bottom-nav-create"
-            onClick={() => navigate('/work-orders/new')}
-            aria-label="Create new work order"
+            onClick={() => setQuickAddOpen(true)}
+            aria-label="New todo"
           >
             <PlusOutlined />
-            <span>Create</span>
+            <span>New todo</span>
           </button>
-          )}
           {canAccessPath('/documents/estimate') && (
           <button
             className={`bottom-nav-item${location.pathname.startsWith('/documents') ? ' active' : ''}`}
@@ -727,6 +722,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </button>
         </nav>
       )}
+      {isMobile && <TodoQuickAdd open={quickAddOpen} onClose={() => setQuickAddOpen(false)} />}
     </AntLayout>
     </BreadcrumbProvider>
   );

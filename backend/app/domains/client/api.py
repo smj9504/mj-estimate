@@ -38,6 +38,9 @@ from app.domains.client.schemas import (
     ClaimNoteUpdate,
     ClaimTodoCreate,
     ClaimTodoUpdate,
+    TodoCreate,
+    TodoReorder,
+    TodoUpdate,
 )
 from app.domains.client.service import (
     ClientService, ClaimService, ClaimNegotiationService,
@@ -1197,6 +1200,7 @@ def create_todo(
     """Create a todo"""
     todo_data = data.dict()
     todo_data['claim_id'] = claim_id
+    todo_data['client_id'] = client_id
     try:
         return service.create_todo(todo_data)
     except Exception as e:
@@ -1240,3 +1244,74 @@ def get_active_todos(
 ):
     """Get all active (uncompleted) todos across all claims for the dashboard"""
     return service.get_active_todos(include_completed=include_completed)
+
+
+# ============================================================
+# Todo board: each person's todos, with or without a client, by column and drag order
+# ============================================================
+
+todo_router = APIRouter()
+
+
+@todo_router.get("/", response_model=None)
+def list_board_todos(
+    client_id: Optional[str] = None,
+    claim_id: Optional[str] = None,
+    staff=Depends(get_current_staff),
+    service: ClaimTodoService = Depends(_get_todo_service),
+):
+    """Your board; or one client's todos, whoever owns them (with claim_id: that claim's and the client's general ones)"""
+    if client_id or claim_id:
+        return service.list_todos(client_id=client_id, claim_id=claim_id)
+    return service.list_todos(owner_id=str(staff.id))
+
+
+@todo_router.post("/", response_model=None)
+def create_board_todo(
+    data: TodoCreate,
+    staff=Depends(get_current_staff),
+    service: ClaimTodoService = Depends(_get_todo_service),
+):
+    """Add a todo at the top of its column on your board"""
+    todo_data = data.dict()
+    todo_data['owner_id'] = staff.id
+    try:
+        return service.create_todo(todo_data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@todo_router.put("/reorder", response_model=None)
+def reorder_board_todos(
+    data: TodoReorder,
+    staff=Depends(get_current_staff),
+    service: ClaimTodoService = Depends(_get_todo_service),
+):
+    """Save one column's order after a drag; todos dragged in from another column move to it"""
+    updated = service.reorder_todos(str(staff.id), data.status, [str(i) for i in data.ids])
+    return {"updated": updated}
+
+
+@todo_router.patch("/{todo_id}", response_model=None)
+def update_board_todo(
+    todo_id: str,
+    data: TodoUpdate,
+    staff=Depends(get_current_staff),
+    service: ClaimTodoService = Depends(_get_todo_service),
+):
+    """Edit a todo; a new status moves it to the top of that column"""
+    result = service.update_todo(todo_id, data.dict(exclude_unset=True))
+    if not result:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    return result
+
+
+@todo_router.delete("/{todo_id}")
+def delete_board_todo(
+    todo_id: str,
+    staff=Depends(get_current_staff),
+    service: ClaimTodoService = Depends(_get_todo_service),
+):
+    if not service.delete_todo(todo_id):
+        raise HTTPException(status_code=404, detail="Todo not found")
+    return {"message": "Todo deleted"}

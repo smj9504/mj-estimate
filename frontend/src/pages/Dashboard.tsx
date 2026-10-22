@@ -99,7 +99,7 @@ const Dashboard: React.FC = () => {
 
   const toggleTodoMutation = useMutation({
     mutationFn: ({ todo, completed }: { todo: ClaimTodoDashboard; completed: boolean }) =>
-      claimTodoService.update(todo.client_id!, todo.claim_id, todo.id, { is_completed: completed }),
+      claimTodoService.update(todo.client_id!, todo.claim_id!, todo.id, { is_completed: completed }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['active-todos'] });
     },

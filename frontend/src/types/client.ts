@@ -382,18 +382,43 @@ export interface ClaimNoteCreate {
 
 export type TodoPriority = 'low' | 'normal' | 'high' | 'urgent';
 
+/** Todo board column; is_completed mirrors done */
+export type TodoStatus = 'todo' | 'in_progress' | 'done';
+
 export interface ClaimTodo {
   id: string;
-  claim_id: string;
+  /** null for a todo tied to a client only, or to nothing */
+  claim_id: string | null;
+  client_id?: string | null;
+  /** Whose board it is on; todos from before the board have none */
+  owner_id?: string | null;
   title: string;
   description?: string;
   priority: TodoPriority;
   due_date?: string;
+  status: TodoStatus;
+  /** Order within the column; lower comes first */
+  sort_order: number;
   is_completed: boolean;
   completed_at?: string;
   created_at?: string;
   updated_at?: string;
 }
+
+/** A todo as the board and the client page list it, with what it is tied to and whose it is */
+export interface Todo extends ClaimTodo {
+  client_name?: string | null;
+  claim_number?: string | null;
+  owner_name?: string | null;
+}
+
+export interface TodoCreate extends ClaimTodoCreate {
+  client_id?: string | null;
+  claim_id?: string | null;
+  status?: TodoStatus;
+}
+
+export type TodoUpdate = Partial<TodoCreate & { is_completed: boolean }>;
 
 export interface ClaimTodoCreate {
   title: string;

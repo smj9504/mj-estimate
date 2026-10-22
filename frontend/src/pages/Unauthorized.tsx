@@ -15,15 +15,15 @@ const Unauthorized: React.FC = () => {
   const navigate = useNavigate();
 
   const handleGoHome = (): void => {
-    navigate('/dashboard', { replace: true });
+    navigate('/todos', { replace: true });
   };
 
   const handleGoBack = (): void => {
-    // If there's history, go back; otherwise go to dashboard
+    // If there's history, go back; otherwise go to the todo board
     if (window.history.length > 2) {
       navigate(-1);
     } else {
-      navigate('/dashboard', { replace: true });
+      navigate('/todos', { replace: true });
     }
   };
 
@@ -74,7 +74,7 @@ const Unauthorized: React.FC = () => {
               icon={<HomeOutlined />}
               onClick={handleGoHome}
             >
-              Go to Dashboard
+              Go to Todos
             </Button>
             <Button
               size="large"

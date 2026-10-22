@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import {
-  Input, Button, Checkbox, Popconfirm, message, Select, DatePicker, Form, Tooltip, Spin,
+  Input, Button, Popconfirm, message, Select, DatePicker, Form, Tooltip, Spin,
 } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { claimTodoService } from '../../services/clientService';
-import type { ClaimTodo, ClaimTodoCreate, TodoPriority } from '../../types/client';
+import { CLIENT_TODOS_KEY, TODO_BOARD_KEY, todoService } from '../../services/todoService';
+import { useAuth } from '../../contexts/AuthContext';
+import type { ClaimTodoCreate, Todo, TodoPriority, TodoUpdate } from '../../types/client';
 import { Pill, humanize, type TagTone } from '../common/ui';
+import { TodoStatusButton } from '../todo/todoUi';
 import ClaimSection from './ClaimSection';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -21,7 +23,8 @@ const PRIORITY_TONES: Partial<Record<TodoPriority, TagTone>> = {
 
 interface ClaimTodosProps {
   clientId: string;
-  claimId: string;
+  /** Without a claim (a client with none yet) it lists the client's todos */
+  claimId?: string;
 }
 
 const PRIORITY_OPTIONS: { value: TodoPriority; label: string }[] = [
@@ -31,9 +34,19 @@ const PRIORITY_OPTIONS: { value: TodoPriority; label: string }[] = [
   { value: 'urgent', label: 'Urgent' },
 ];
 
+/**
+ * A claim's todos and the client's todos that are not tied to a claim, from
+ * everyone. They are the same todos as on each person's board, so the board
+ * refreshes after a change here.
+ */
 const ClaimTodos: React.FC<ClaimTodosProps> = ({ clientId, claimId }) => {
   const queryClient = useQueryClient();
-  const queryKey = ['claim-todos', claimId];
+  const { user } = useAuth();
+  const queryKey = [CLIENT_TODOS_KEY, clientId, claimId ?? 'client'];
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: [CLIENT_TODOS_KEY] });
+    queryClient.invalidateQueries({ queryKey: TODO_BOARD_KEY });
+  };
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -43,16 +56,14 @@ const ClaimTodos: React.FC<ClaimTodosProps> = ({ clientId, claimId }) => {
 
   const { data: todos = [], isLoading } = useQuery({
     queryKey,
-    queryFn: () => claimTodoService.list(clientId, claimId),
+    queryFn: () => todoService.list({ client_id: clientId, claim_id: claimId }),
   });
 
   const createMutation = useMutation({
     mutationFn: (payload: ClaimTodoCreate) =>
-      claimTodoService.create(clientId, claimId, payload),
+      todoService.create({ ...payload, client_id: clientId, claim_id: claimId ?? null }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
-      // Also refresh dashboard todos
-      queryClient.invalidateQueries({ queryKey: ['active-todos'] });
+      refresh();
       form.resetFields();
       setShowForm(false);
       message.success('Todo added');
@@ -60,20 +71,19 @@ const ClaimTodos: React.FC<ClaimTodosProps> = ({ clientId, claimId }) => {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ todoId, payload }: { todoId: string; payload: Partial<ClaimTodo> }) =>
-      claimTodoService.update(clientId, claimId, todoId, payload),
+    mutationFn: ({ todoId, payload }: { todoId: string; payload: TodoUpdate }) =>
+      todoService.update(todoId, payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
-      queryClient.invalidateQueries({ queryKey: ['active-todos'] });
+      refresh();
       setEditingId(null);
     },
+    onError: () => message.error("Couldn't save the todo. Try again."),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (todoId: string) => claimTodoService.delete(clientId, claimId, todoId),
+    mutationFn: (todoId: string) => todoService.remove(todoId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
-      queryClient.invalidateQueries({ queryKey: ['active-todos'] });
+      refresh();
       message.success('Todo deleted');
     },
   });
@@ -88,11 +98,8 @@ const ClaimTodos: React.FC<ClaimTodosProps> = ({ clientId, claimId }) => {
     createMutation.mutate(payload);
   };
 
-  const handleToggleComplete = (todo: ClaimTodo) => {
-    updateMutation.mutate({
-      todoId: todo.id,
-      payload: { is_completed: !todo.is_completed },
-    });
+  const handleStatus = (todo: Todo, status: Todo['status']) => {
+    updateMutation.mutate({ todoId: todo.id, payload: { status } });
   };
 
   const handleSaveEdit = () => {
@@ -110,8 +117,8 @@ const ClaimTodos: React.FC<ClaimTodosProps> = ({ clientId, claimId }) => {
     });
   };
 
-  const activeTodos = todos.filter((t) => !t.is_completed);
-  const completedTodos = todos.filter((t) => t.is_completed);
+  const activeTodos = todos.filter((t) => t.status !== 'done');
+  const completedTodos = todos.filter((t) => t.status === 'done');
   const displayTodos = showCompleted ? todos : activeTodos;
 
   // Fields shared by the add and edit forms; rendered inside each <Form>
@@ -169,7 +176,7 @@ const ClaimTodos: React.FC<ClaimTodosProps> = ({ clientId, claimId }) => {
         !showForm && <div className="cl-empty">No todos yet.</div>
       ) : (
         <ul className="cl-list">
-          {displayTodos.map((todo: ClaimTodo) => {
+          {displayTodos.map((todo: Todo) => {
             const isOverdue = todo.due_date && !todo.is_completed && dayjs(todo.due_date).isBefore(dayjs(), 'day');
 
             if (editingId === todo.id) {
@@ -194,16 +201,20 @@ const ClaimTodos: React.FC<ClaimTodosProps> = ({ clientId, claimId }) => {
             }
 
             const meta = [
+              // Someone else's todo says whose; a client todo shows on every claim
+              todo.owner_name && todo.owner_id !== user?.id && todo.owner_name,
+              claimId && !todo.claim_id && 'All claims',
+              todo.status === 'in_progress' && 'In progress',
               todo.due_date && !todo.is_completed && !isOverdue && `Due ${dayjs(todo.due_date).format('MM/DD')}`,
               todo.completed_at && `Done ${dayjs(todo.completed_at).fromNow()}`,
             ].filter(Boolean);
 
             return (
               <li key={todo.id} className={`cl-list-item cl-todo${todo.is_completed ? ' is-done' : ''}`}>
-                <Checkbox
-                  checked={todo.is_completed}
-                  onChange={() => handleToggleComplete(todo)}
-                  aria-label={todo.is_completed ? `Mark "${todo.title}" not done` : `Mark "${todo.title}" done`}
+                <TodoStatusButton
+                  status={todo.status}
+                  title={todo.title}
+                  onChange={(next) => handleStatus(todo, next)}
                 />
                 <div className="cl-list-body">
                   <div className="cl-list-title">

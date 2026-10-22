@@ -2465,7 +2465,13 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
       </div>
 
       {claims.length === 0 && !isLoading ? (
-        <div className="cl-empty cl-empty--tab">No claims yet. Click "Add Claim" to get started.</div>
+        <>
+          <div className="cl-empty cl-empty--tab">No claims yet. Click "Add Claim" to get started.</div>
+          {/* Todos tied to the client show here until it has a claim, then on each claim */}
+          <div className="cl-client-todos">
+            <ClaimTodos clientId={client.id} />
+          </div>
+        </>
       ) : (
         <Collapse
           ghost

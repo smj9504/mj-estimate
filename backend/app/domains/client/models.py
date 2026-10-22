@@ -427,19 +427,28 @@ class ClaimNote(Base, BaseModel):
 
 
 class ClaimTodo(Base, BaseModel):
-    """Todo/task item attached to a claim"""
+    """Todo on its owner's board: tied to a claim, to a client only, or to nothing"""
     __tablename__ = "claim_todos"
     __table_args__ = (
         Index('ix_claim_todos_claim_id', 'claim_id'),
+        Index('ix_claim_todos_client_id', 'client_id'),
+        Index('ix_claim_todos_owner_id', 'owner_id'),
         Index('ix_claim_todos_is_completed', 'is_completed'),
         {'extend_existing': True}
     )
 
-    claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="CASCADE"), nullable=False)
+    claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="CASCADE"), nullable=True)
+    client_id = Column(UUIDType(), ForeignKey("clients.id", ondelete="SET NULL"), nullable=True)
+    # Whose board it is on. Todos from before the board have none and show on the client page only.
+    owner_id = Column(UUIDType(), ForeignKey("staff.id", ondelete="SET NULL"), nullable=True)
     title = Column(String(500), nullable=False)
     description = Column(Text)
     priority = Column(String(20), default="normal")  # low | normal | high | urgent
     due_date = Column(DateTime(timezone=True))
+    # Board column: todo | in_progress | done. is_completed mirrors done.
+    status = Column(String(20), nullable=False, default="todo", server_default="todo")
+    # Order within the column; lower comes first (higher priority)
+    sort_order = Column(Integer, nullable=False, default=0, server_default="0")
     is_completed = Column(Boolean, default=False)
     completed_at = Column(DateTime(timezone=True))
 

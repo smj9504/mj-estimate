@@ -51,6 +51,7 @@ const FieldContractSigning = lazyWithRetry(() => import('./pages/FieldContractSi
 // Dashboard Pages
 const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
 const RoleBasedDashboard = lazyWithRetry(() => import('./pages/RoleBasedDashboard'));
+const TodoBoard = lazyWithRetry(() => import('./pages/TodoBoard'));
 const Profile = lazyWithRetry(() => import('./pages/Profile'));
 const Messages = lazyWithRetry(() => import('./pages/Messages'));
 
@@ -299,6 +300,19 @@ const router = createBrowserRouter([
       </ProtectedRoute>
     )
   },
+  {
+    path: "/todos",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <TodoBoard />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Hidden from the menus for now (Todos took its place); the route stays for later
   {
     path: "/dashboard",
     element: (

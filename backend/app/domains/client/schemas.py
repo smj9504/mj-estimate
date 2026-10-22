@@ -492,11 +492,14 @@ class ClaimTodoUpdate(BaseModel):
 
 class ClaimTodoResponse(BaseModel):
     id: UUID
-    claim_id: UUID
+    claim_id: Optional[UUID] = None
+    client_id: Optional[UUID] = None
     title: str
     description: Optional[str] = None
     priority: str = "normal"
     due_date: Optional[datetime] = None
+    status: str = "todo"
+    sort_order: int = 0
     is_completed: bool = False
     completed_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
@@ -508,9 +511,71 @@ class ClaimTodoResponse(BaseModel):
 
 class ClaimTodoDashboardResponse(ClaimTodoResponse):
     """Extended todo for dashboard view with client/claim context"""
-    client_id: Optional[UUID] = None
     client_name: Optional[str] = None
     claim_number: Optional[str] = None
+
+
+# ============================================================
+# Todo board schemas
+# ============================================================
+
+TODO_STATUSES = ['todo', 'in_progress', 'done']
+TODO_PRIORITIES = ['low', 'normal', 'high', 'urgent']
+
+
+def _check_status(v):
+    if v is not None and v not in TODO_STATUSES:
+        raise ValueError(f"status must be one of {TODO_STATUSES}")
+    return v
+
+
+def _check_priority(v):
+    if v is not None and v not in TODO_PRIORITIES:
+        raise ValueError(f"priority must be one of {TODO_PRIORITIES}")
+    return v
+
+
+class TodoCreate(BaseModel):
+    """A board todo: a client and claim are both optional"""
+    title: str
+    client_id: Optional[UUID] = None
+    claim_id: Optional[UUID] = None
+    description: Optional[str] = None
+    priority: str = "normal"
+    due_date: Optional[datetime] = None
+    status: str = "todo"
+
+    _status = validator('status', allow_reuse=True)(_check_status)
+    _priority = validator('priority', allow_reuse=True)(_check_priority)
+
+    @validator('title')
+    def title_not_blank(cls, v):
+        if not v.strip():
+            raise ValueError("title is required")
+        return v.strip()
+
+
+class TodoUpdate(BaseModel):
+    """Changing the client drops the claim unless a claim is sent with it"""
+    title: Optional[str] = None
+    client_id: Optional[UUID] = None
+    claim_id: Optional[UUID] = None
+    description: Optional[str] = None
+    priority: Optional[str] = None
+    due_date: Optional[datetime] = None
+    status: Optional[str] = None
+    is_completed: Optional[bool] = None
+
+    _status = validator('status', allow_reuse=True)(_check_status)
+    _priority = validator('priority', allow_reuse=True)(_check_priority)
+
+
+class TodoReorder(BaseModel):
+    """The full order of one column after a drop; every todo listed moves into it"""
+    status: str
+    ids: List[UUID]
+
+    _status = validator('status', allow_reuse=True)(_check_status)
 
 
 # ============================================================

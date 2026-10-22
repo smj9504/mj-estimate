@@ -1,0 +1,350 @@
+/* ============================================================
+   Todo board (td-*): three columns on the sheet on desktop, status
+   view tabs over one row list on phones. Cards are flat with a
+   hairline; only the card being dragged floats.
+   ============================================================ */
+
+/* Status circle: empty, half, done. The hit area grows on touch. */
+.td-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  margin: -1px 0 0 -3px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 150ms ease-out;
+}
+.td-status:hover {
+  background: var(--color-ink-hover);
+}
+.td-status:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+}
+.td-status svg {
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.td-status:active svg {
+  transform: scale(0.86);
+}
+.td-status:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ── Board (desktop) ─────────────────────────────── */
+
+.td-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 360px));
+  gap: 16px;
+  align-items: start;
+}
+.td-column {
+  min-width: 0;
+}
+.td-column-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  margin-bottom: 4px;
+}
+.td-column-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 96px;
+  margin: 0 -6px;
+  padding: 6px;
+  border-radius: var(--radius-lg);
+  transition: background-color 150ms ease-out;
+}
+.td-column-body.is-over {
+  background: var(--color-ink-hover);
+}
+.td-column-empty {
+  padding: 10px 2px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.td-more.ant-btn {
+  align-self: flex-start;
+  height: 26px;
+  padding: 0 6px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+
+.td-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+.td-card:hover {
+  border-color: var(--color-neutral-400);
+  box-shadow: var(--shadow-hover);
+}
+.td-card:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+}
+/* The slot a dragged card leaves behind */
+.td-card.is-placeholder {
+  opacity: 0.4;
+}
+/* The card under the pointer while dragging */
+.td-card.is-overlay {
+  border-color: var(--color-neutral-400);
+  box-shadow: var(--shadow-elevated);
+  cursor: grabbing;
+}
+.td-card-body {
+  flex: 1;
+  min-width: 0;
+}
+.td-title {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--color-neutral-900);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.is-done .td-title {
+  color: var(--color-neutral-700);
+}
+.td-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.td-client-link {
+  color: inherit;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.td-client-link:hover {
+  color: var(--color-neutral-900);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Inline editor: the card opened in place */
+.td-card.is-editing {
+  display: block;
+  cursor: default;
+  border-color: var(--color-neutral-400);
+}
+.td-card.is-editing:hover {
+  box-shadow: none;
+}
+.td-editor-title.ant-input {
+  padding: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+.td-editor-client {
+  margin: 6px 0 0 -7px;
+  width: calc(100% + 7px);
+}
+.td-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+.td-editor-actions-end {
+  display: inline-flex;
+  gap: 6px;
+}
+
+/* Add a todo: a title line and a client line in one hairline box */
+.td-composer {
+  margin-bottom: 2px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-md);
+  transition: border-color 150ms ease-out;
+}
+.td-composer:hover,
+.td-composer:focus-within {
+  border-color: var(--color-neutral-400);
+}
+.td-composer-title.ant-input {
+  padding: 7px 10px;
+}
+.td-composer-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 6px 3px;
+}
+.td-composer-client {
+  flex: 1;
+  min-width: 0;
+}
+.td-composer-client .ant-select-prefix,
+.td-editor-client .ant-select-prefix {
+  color: var(--color-neutral-600);
+}
+
+.td-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  font-size: 14px;
+  color: var(--color-neutral-700);
+}
+
+/* ── Phone: view tabs over one row list ──────────── */
+
+.td-page .ui-status-tabs {
+  margin-bottom: 12px;
+}
+.td-page .td-composer {
+  margin-bottom: 12px;
+}
+.td-rows {
+  margin: 0 -16px;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.td-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 0 4px 0 6px;
+  border-bottom: 1px solid var(--color-neutral-200);
+  background: var(--color-surface);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+.td-row:active {
+  background: rgba(55, 53, 47, 0.04);
+}
+.td-row.is-placeholder {
+  opacity: 0.4;
+}
+.td-row.is-overlay {
+  border: 1px solid var(--color-neutral-400);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+}
+.td-row .td-status {
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  border-radius: var(--radius-md);
+}
+.td-row .td-status svg {
+  width: 18px;
+  height: 18px;
+}
+.td-row-body {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 0;
+}
+.td-row .td-title {
+  font-size: 15px;
+}
+.td-row .td-meta {
+  margin-top: 3px;
+}
+.td-row .td-client-link {
+  padding: 2px 0;
+}
+/* The drag handle takes the touch, so the rest of the row still scrolls */
+.td-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-neutral-600);
+  font-size: 16px;
+  cursor: grab;
+  touch-action: none;
+}
+.td-handle:active {
+  background: var(--color-ink-hover);
+  color: var(--color-neutral-900);
+}
+.td-rows-empty {
+  padding: 28px 16px;
+  font-size: 14px;
+  text-align: center;
+  color: var(--color-neutral-600);
+}
+.td-rows-more {
+  padding: 4px 10px;
+}
+
+/* Edit sheet: the status as a full-width segmented control */
+.td-sheet-status.ant-segmented {
+  width: 100%;
+}
+.td-sheet-status .ant-segmented-item-label {
+  min-height: 36px;
+  line-height: 36px;
+}
+.td-sheet-claim {
+  margin: -12px 0 16px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.ant-modal .ant-modal-footer > .ant-btn.td-sheet-delete,
+.ui-sheet .ant-modal .ant-modal-footer > .ant-btn.td-sheet-delete {
+  flex: 0 0 40px;
+  width: 40px;
+  margin-inline-end: auto !important;
+}
+
+/* Touch screens get thumb-sized circles on the board too */
+@media (pointer: coarse) {
+  .td-card .td-status {
+    width: 32px;
+    height: 32px;
+    margin: -6px -2px -6px -8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .td-status,
+  .td-status svg,
+  .td-card,
+  .td-column-body,
+  .td-composer {
+    transition: none;
+  }
+}

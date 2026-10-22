@@ -69,7 +69,7 @@ class ErrorBoundary extends Component<Props, State> {
   };
 
   private handleGoHome = (): void => {
-    window.location.href = '/dashboard';
+    window.location.href = '/todos';
   };
 
   private handleRetry = (): void => {
@@ -132,7 +132,7 @@ class ErrorBoundary extends Component<Props, State> {
                     icon={<HomeOutlined />}
                     onClick={this.handleGoHome}
                   >
-                    Go to Dashboard
+                    Go to Todos
                   </Button>
                   <Button size="large" onClick={this.handleRetry}>
                     Try Again

@@ -176,11 +176,11 @@ test.describe('Screen access', () => {
 
   test('role defaults decide which screens are in the sidebar', async ({ browser }) => {
     const page = await pageAs(browser, tech);
-    await page.goto('/dashboard');
+    await page.goto('/todos');
 
     const { groups, items } = await readSidebar(page);
     expect(groups).toEqual(['Jobs & Claims', 'Documents']);
-    expect(items).toEqual(['Dashboard', 'Clients', 'Supplements', 'Invoices']);
+    expect(items).toEqual(['Todos', 'Clients', 'Supplements', 'Invoices']);
   });
 
   test('a screen left out cannot be opened by URL, detail pages included', async ({ browser }) => {
@@ -196,20 +196,20 @@ test.describe('Screen access', () => {
     await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
     await expect(page).toHaveURL(/\/clients\//);
 
-    // Home normally opens the Claims Dashboard; without it, the dashboard
+    // Home opens the todo board, which every screen list includes
     await page.goto('/');
-    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page).toHaveURL(/\/todos$/);
   });
 
   test('mobile bottom nav hides shortcuts to screens left out', async ({ browser }) => {
     const page = await pageAs(browser, tech, { width: 390, height: 844 });
-    await page.goto('/dashboard');
+    await page.goto('/todos');
 
     const bottomNav = page.getByRole('navigation', { name: 'Quick navigation' });
-    await expect(bottomNav.getByRole('button', { name: 'Dashboard' })).toBeVisible();
+    await expect(bottomNav.getByRole('button', { name: 'Todos' })).toBeVisible();
+    await expect(bottomNav.getByRole('button', { name: 'New todo' })).toBeVisible();
     await expect(bottomNav.getByRole('button', { name: 'Open menu' })).toBeVisible();
     await expect(bottomNav.getByRole('button', { name: 'Claims' })).toHaveCount(0);
-    await expect(bottomNav.getByRole('button', { name: 'Create new work order' })).toHaveCount(0);
     await expect(bottomNav.getByRole('button', { name: 'Estimates' })).toHaveCount(0);
   });
 
@@ -244,10 +244,11 @@ test.describe('Screen access', () => {
     expect(staff.find((s: any) => s.id === tech.user.id).screen_access).toEqual(['work_orders', 'estimates']);
 
     const techPage = await pageAs(browser, tech);
-    await techPage.goto('/dashboard');
+    await techPage.goto('/todos');
     const { groups, items } = await readSidebar(techPage);
-    expect(groups).toEqual(['Jobs & Claims', 'Documents']);
-    expect(items).toEqual(['Dashboard', 'Work Orders', 'Estimates']);
+    // Work Orders is hidden from the menu for now, so its group drops out
+    expect(groups).toEqual(['Documents']);
+    expect(items).toEqual(['Todos', 'Estimates']);
   });
 
   test('"Same as role" puts the person back on the role defaults', async ({ browser }) => {
@@ -267,8 +268,8 @@ test.describe('Screen access', () => {
     expect(me.screens).toEqual(TECH_DEFAULTS);
 
     const techPage = await pageAs(browser, tech);
-    await techPage.goto('/dashboard');
-    expect((await readSidebar(techPage)).items).toEqual(['Dashboard', 'Clients', 'Supplements', 'Invoices']);
+    await techPage.goto('/todos');
+    expect((await readSidebar(techPage)).items).toEqual(['Todos', 'Clients', 'Supplements', 'Invoices']);
   });
 
   test('an admin sets a role\'s screens on the "Screens by role" tab', async ({ browser }) => {
@@ -294,25 +295,26 @@ test.describe('Screen access', () => {
     await page.fill('input#login_username', sales.user.username);
     await page.fill('input#login_password', salesPassword);
     await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page).toHaveURL(/\/todos$/);
 
     const { groups, items } = await readSidebar(page);
     expect(groups).toEqual(['Jobs & Claims', 'Tools & Data']);
-    expect(items).toEqual(['Dashboard', 'Claims Dashboard', 'Clients', 'Cheat Sheet']);
+    expect(items).toEqual(['Todos', 'Claims Dashboard', 'Clients', 'Cheat Sheet']);
 
-    // Home still opens the Claims Dashboard for people who have it
     await page.goto('/');
-    await expect(page).toHaveURL(/\/claims-lifecycle$/);
+    await expect(page).toHaveURL(/\/todos$/);
   });
 
   test('admins always see every screen', async ({ browser }) => {
     const page = await pageAs(browser, admin);
-    await page.goto('/dashboard');
+    await page.goto('/todos');
 
     const { groups, items } = await readSidebar(page);
     expect(groups).toEqual(['Jobs & Claims', 'Estimates', 'Documents', 'Tools & Data', 'Admin']);
-    for (const key of ALL_SCREEN_KEYS) {
+    // Work Orders is hidden from the menu for now
+    for (const key of ALL_SCREEN_KEYS.filter(k => k !== 'work_orders')) {
       expect(items).toContain(LABEL[key]);
     }
+    expect(items).not.toContain('Work Orders');
   });
 });

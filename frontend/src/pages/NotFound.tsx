@@ -9,7 +9,7 @@ const NotFound: React.FC = () => {
   const navigate = useNavigate();
 
   const handleGoHome = () => {
-    navigate('/dashboard', { replace: true });
+    navigate('/todos', { replace: true });
   };
 
   return (

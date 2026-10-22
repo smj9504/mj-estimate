@@ -33,7 +33,6 @@ interface CommandPaletteProps {
 
 const quickActions: QuickAction[] = [
   { key: '/create/estimate', label: 'New Estimate', icon: <PlusOutlined /> },
-  { key: '/work-orders/new', label: 'New Work Order', icon: <PlusOutlined /> },
   { key: '/water-mitigation/new', label: 'New WM Job', icon: <PlusOutlined /> },
   { key: '/create/invoice', label: 'New Invoice', icon: <PlusOutlined /> },
 ];

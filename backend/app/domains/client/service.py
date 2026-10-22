@@ -656,14 +656,70 @@ class ClaimTodoService:
         finally:
             session.close()
 
+    @staticmethod
+    def _apply_status(todo, status: str) -> None:
+        """Move a todo to a board column, keeping is_completed / completed_at in step with Done"""
+        from datetime import datetime, timezone
+        if status == 'done':
+            if not todo.is_completed or not todo.completed_at:
+                todo.completed_at = datetime.now(timezone.utc)
+            todo.is_completed = True
+        else:
+            todo.is_completed = False
+            todo.completed_at = None
+        todo.status = status
+
+    @staticmethod
+    def _owned_by(owner_id):
+        from app.domains.client.models import ClaimTodo
+        return ClaimTodo.owner_id.is_(None) if owner_id is None else ClaimTodo.owner_id == owner_id
+
+    @classmethod
+    def _top_sort_order(cls, session, status: str, owner_id, exclude_id=None) -> int:
+        """A sort_order that puts a todo above everything already in the column on its owner's board"""
+        from sqlalchemy import func as sa_func
+        from app.domains.client.models import ClaimTodo
+        query = session.query(sa_func.min(ClaimTodo.sort_order)).filter(
+            ClaimTodo.status == status, cls._owned_by(owner_id)
+        )
+        if exclude_id is not None:
+            query = query.filter(ClaimTodo.id != exclude_id)
+        lowest = query.scalar()
+        return 0 if lowest is None else lowest - 1
+
+    @staticmethod
+    def _staff_name(first_name, last_name) -> Optional[str]:
+        return ' '.join(n for n in (first_name, last_name) if n) or None
+
+    def _with_context(self, session, todo) -> Dict[str, Any]:
+        """The todo plus its client name, claim number and owner name"""
+        from app.domains.client.models import Claim, Client
+        from app.domains.staff.models import Staff
+        result = self._to_dict(todo)
+        client = session.query(Client).filter(Client.id == todo.client_id).first() if todo.client_id else None
+        claim = session.query(Claim).filter(Claim.id == todo.claim_id).first() if todo.claim_id else None
+        owner = session.query(Staff).filter(Staff.id == todo.owner_id).first() if todo.owner_id else None
+        result['client_name'] = client.display_name if client else None
+        result['claim_number'] = claim.claim_number if claim else None
+        result['owner_name'] = self._staff_name(owner.first_name, owner.last_name) if owner else None
+        return result
+
     def create_todo(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """New todos go to the top of their column"""
         session = self.database.get_session()
         try:
-            from app.domains.client.models import ClaimTodo
+            from app.domains.client.models import ClaimTodo, Claim
+            status = data.pop('status', None) or 'todo'
+            if data.get('claim_id') and not data.get('client_id'):
+                claim = session.query(Claim).filter(Claim.id == data['claim_id']).first()
+                if claim:
+                    data['client_id'] = claim.client_id
             todo = ClaimTodo(**data)
+            self._apply_status(todo, status)
+            todo.sort_order = self._top_sort_order(session, status, todo.owner_id)
             session.add(todo)
             session.flush()
-            result = self._to_dict(todo)
+            result = self._with_context(session, todo)
             session.commit()
             return result
         except Exception as e:
@@ -676,24 +732,32 @@ class ClaimTodoService:
         session = self.database.get_session()
         try:
             from app.domains.client.models import ClaimTodo
-            from datetime import datetime, timezone
             todo = session.query(ClaimTodo).filter(ClaimTodo.id == todo_id).first()
             if not todo:
                 return None
 
-            # Handle completion toggle
-            if 'is_completed' in data:
-                if data['is_completed'] and not todo.is_completed:
-                    data['completed_at'] = datetime.now(timezone.utc)
-                elif not data['is_completed']:
-                    data['completed_at'] = None
+            # The board sends a status; the older claim checkbox sends is_completed
+            completed = data.pop('is_completed', None)
+            status = data.pop('status', None)
+            if status is None and completed is not None:
+                status = 'done' if completed else 'todo'
+            if status and status != todo.status:
+                self._apply_status(todo, status)
+                todo.sort_order = self._top_sort_order(session, status, todo.owner_id, exclude_id=todo.id)
+
+            # Another client (or none) takes the todo off the old client's claim
+            if 'client_id' in data and 'claim_id' not in data:
+                if str(data['client_id'] or '') != str(todo.client_id or ''):
+                    todo.claim_id = None
 
             for key, value in data.items():
+                if key == 'title' and not value:
+                    continue
                 if hasattr(todo, key):
                     setattr(todo, key, value)
 
             session.flush()
-            result = self._to_dict(todo)
+            result = self._with_context(session, todo)
             session.commit()
             return result
         except Exception as e:
@@ -712,6 +776,88 @@ class ClaimTodoService:
             session.delete(todo)
             session.commit()
             return True
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def list_todos(
+        self,
+        owner_id: Optional[str] = None,
+        client_id: Optional[str] = None,
+        claim_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Todos in board order: To do, In progress, Done, each in its drag order.
+
+        With an owner: that person's board. With a claim: that claim's todos and
+        the client's todos that are not tied to a claim, whoever owns them. With
+        only a client: all of the client's todos.
+        """
+        session = self.database.get_readonly_session()
+        try:
+            from sqlalchemy import and_, case, or_
+            from app.domains.client.models import ClaimTodo, Claim, Client
+            from app.domains.staff.models import Staff
+
+            query = session.query(
+                ClaimTodo, Client.display_name, Claim.claim_number, Staff.first_name, Staff.last_name,
+            ).outerjoin(
+                Client, ClaimTodo.client_id == Client.id
+            ).outerjoin(
+                Claim, ClaimTodo.claim_id == Claim.id
+            ).outerjoin(
+                Staff, ClaimTodo.owner_id == Staff.id
+            )
+            if owner_id:
+                query = query.filter(ClaimTodo.owner_id == owner_id)
+            if claim_id:
+                condition = ClaimTodo.claim_id == claim_id
+                if client_id:
+                    condition = or_(
+                        condition,
+                        and_(ClaimTodo.client_id == client_id, ClaimTodo.claim_id.is_(None)),
+                    )
+                query = query.filter(condition)
+            elif client_id:
+                query = query.filter(ClaimTodo.client_id == client_id)
+
+            column_rank = case(
+                (ClaimTodo.status == 'in_progress', 1),
+                (ClaimTodo.status == 'done', 2),
+                else_=0,
+            )
+            query = query.order_by(column_rank, ClaimTodo.sort_order, ClaimTodo.created_at.desc())
+
+            todos = []
+            for todo, client_name, claim_number, first_name, last_name in query.all():
+                todo_dict = self._to_dict(todo)
+                todo_dict['client_name'] = client_name
+                todo_dict['claim_number'] = claim_number
+                todo_dict['owner_name'] = self._staff_name(first_name, last_name)
+                todos.append(todo_dict)
+            return todos
+        finally:
+            session.close()
+
+    def reorder_todos(self, owner_id: str, status: str, ids: List[str]) -> int:
+        """Set one column of a person's board after a drop; a todo dragged in from another column changes status"""
+        session = self.database.get_session()
+        try:
+            from app.domains.client.models import ClaimTodo
+            todos = session.query(ClaimTodo).filter(
+                ClaimTodo.id.in_(ids), ClaimTodo.owner_id == owner_id
+            ).all()
+            by_id = {str(t.id): t for t in todos}
+            for index, todo_id in enumerate(ids):
+                todo = by_id.get(str(todo_id))
+                if not todo:
+                    continue
+                if todo.status != status:
+                    self._apply_status(todo, status)
+                todo.sort_order = index
+            session.commit()
+            return len(by_id)
         except Exception as e:
             session.rollback()
             raise

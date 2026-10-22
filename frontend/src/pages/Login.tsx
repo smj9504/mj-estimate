@@ -11,7 +11,7 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const from = location.state?.from?.pathname || '/dashboard';
+  const from = location.state?.from?.pathname || '/todos';
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);

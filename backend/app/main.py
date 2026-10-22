@@ -193,7 +193,7 @@ from app.domains.water_mitigation.sketch_models import (
     WMContainmentZone,
     WMFloorProtection,
 )
-from app.domains.client.api import router as client_router, todo_dashboard_router
+from app.domains.client.api import router as client_router, todo_dashboard_router, todo_router
 from app.domains.acculynx_archive.api import router as acculynx_archive_router
 from app.domains.contract.api import router as contract_router
 from app.domains.contract.signing_api import router as signing_router
@@ -419,6 +419,11 @@ _NEEDED_COLUMNS = [
     ("water_mitigation_jobs", "payment_note_updated_at", "TIMESTAMPTZ"),
     # Client origin: NULL = entered here, 'acculynx' = archive import
     ("clients", "source", "VARCHAR(20)"),
+    # Todo board: whose board, client-only todos, board column and drag order
+    ("claim_todos", "owner_id", "UUID"),
+    ("claim_todos", "client_id", "UUID"),
+    ("claim_todos", "status", "VARCHAR(20) NOT NULL DEFAULT 'todo'"),
+    ("claim_todos", "sort_order", "INTEGER NOT NULL DEFAULT 0"),
     # Follow-up payment tracking
     ("followup_tasks", "payment_status", "VARCHAR(50)"),
     ("followup_tasks", "payment_note", "TEXT"),
@@ -993,6 +998,7 @@ app.include_router(company_router, prefix="/api/companies", tags=["Companies"])
 app.include_router(client_router, prefix="/api/clients", tags=["Clients"])
 app.include_router(acculynx_archive_router, prefix="/api/acculynx-archive", tags=["AccuLynx Archive"])
 app.include_router(todo_dashboard_router, prefix="/api/claim-todos", tags=["Claim Todos"])
+app.include_router(todo_router, prefix="/api/todos", tags=["Todos"])
 app.include_router(contract_router, prefix="/api/contracts", tags=["Contracts"])
 app.include_router(signing_router, prefix="/api/sign", tags=["Contract Signing (Public)"])
 app.include_router(field_signing_router, prefix="/api/field-sign", tags=["Field Signing (Public)"])
