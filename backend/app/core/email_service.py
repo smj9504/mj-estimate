@@ -2,6 +2,7 @@
 Email service for sending emails via SMTP
 """
 import smtplib
+from html import escape
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List, Optional
@@ -101,100 +102,37 @@ class EmailService:
         Returns:
             bool: True if email sent successfully
         """
+        brand = settings.SMTP_FROM_NAME
         reset_link = f"{settings.FRONTEND_URL}/reset-password?token={token}"
+        subject = f"Reset your {brand} password"
 
-        subject = "Reset Your Password - SimpleWorks"
+        html_content = _account_email(
+            title=subject,
+            preheader="Use the link inside to choose a new password. It expires in 1 hour.",
+            heading="Reset your password",
+            body=(
+                _paragraph(f"We got a request to reset the password for your {escape(brand)} account. "
+                           "Choose a new one with the button below.")
+                + _button(reset_link, "Reset password")
+                + _paragraph("This link expires in <strong style=\"color:#37352f; font-weight:500;\">1 hour</strong>.",
+                             muted=True, top=24, bottom=0)
+                + _link_fallback(reset_link)
+            ),
+            footer=("Didn't ask for this? Ignore this email and your password stays the same. "
+                    "This is an automated message; replies aren't read."),
+        )
 
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <style>
-                body {{
-                    font-family: Arial, sans-serif;
-                    line-height: 1.6;
-                    color: #333;
-                }}
-                .container {{
-                    max-width: 600px;
-                    margin: 0 auto;
-                    padding: 20px;
-                }}
-                .header {{
-                    background-color: #1890ff;
-                    color: white;
-                    padding: 20px;
-                    text-align: center;
-                    border-radius: 5px 5px 0 0;
-                }}
-                .content {{
-                    background-color: #f5f5f5;
-                    padding: 30px;
-                    border-radius: 0 0 5px 5px;
-                }}
-                .button {{
-                    display: inline-block;
-                    padding: 12px 30px;
-                    background-color: #1890ff;
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 5px;
-                    margin: 20px 0;
-                }}
-                .footer {{
-                    margin-top: 30px;
-                    padding-top: 20px;
-                    border-top: 1px solid #ddd;
-                    font-size: 12px;
-                    color: #666;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>Password Reset Request</h1>
-                </div>
-                <div class="content">
-                    <p>Hello,</p>
-                    <p>We received a request to reset your password for your SimpleWorks account.</p>
-                    <p>Click the button below to reset your password:</p>
-                    <p style="text-align: center;">
-                        <a href="{reset_link}" class="button">Reset Password</a>
-                    </p>
-                    <p>Or copy and paste this link into your browser:</p>
-                    <p style="word-break: break-all; color: #1890ff;">
-                        {reset_link}
-                    </p>
-                    <p><strong>This link will expire in 1 hour.</strong></p>
-                    <p>If you didn't request a password reset, you can safely ignore this email.</p>
-                    <div class="footer">
-                        <p>This is an automated message from SimpleWorks. Please do not reply to this email.</p>
-                    </div>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
+        text_content = f"""Reset your password
 
-        text_content = f"""
-        Password Reset Request
+We got a request to reset the password for your {brand} account.
+Choose a new one here:
+{reset_link}
 
-        Hello,
+This link expires in 1 hour.
 
-        We received a request to reset your password for your SimpleWorks account.
-
-        Click the link below to reset your password:
-        {reset_link}
-
-        This link will expire in 1 hour.
-
-        If you didn't request a password reset, you can safely ignore this email.
-
-        ---
-        This is an automated message from SimpleWorks. Please do not reply to this email.
-        """
+Didn't ask for this? Ignore this email and your password stays the same.
+This is an automated message; replies aren't read.
+"""
 
         return EmailService.send_email(
             to_email=to_email,
@@ -211,35 +149,36 @@ class EmailService:
         Returns:
             bool: True if email sent successfully
         """
-        sender = settings.SMTP_FROM_NAME
-        subject = f"Your password change code - {sender}"
+        brand = settings.SMTP_FROM_NAME
+        subject = f"Your password change code - {brand}"
 
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head><meta charset="utf-8"></head>
-        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #37352f;">
-            <div style="max-width: 480px; margin: 0 auto; padding: 24px;">
-                <p>Use this code to change your {sender} password:</p>
-                <p style="font-size: 28px; font-weight: 600; letter-spacing: 6px; margin: 16px 0;">{code}</p>
-                <p>It expires in {minutes} minutes.</p>
-                <p style="color: #73726e; font-size: 13px;">
-                    If you didn't ask to change your password, ignore this email
-                    and tell your administrator. Your password stays the same.
-                </p>
-            </div>
-        </body>
-        </html>
-        """
+        code_box = (
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+            'style="background-color:#f7f7f5; border-radius:8px; margin:0 0 24px;">'
+            f'<tr><td align="center" style="padding:18px 16px; font-family:{FONT}; font-size:30px; '
+            'font-weight:600; letter-spacing:8px; color:#37352f;">'
+            f'{escape(code)}</td></tr></table>'
+        )
+        html_content = _account_email(
+            title=subject,
+            preheader=f"Your code is {code}. It expires in {minutes} minutes.",
+            heading="Your password change code",
+            body=(
+                _paragraph(f"Enter this code on your profile to change your {escape(brand)} password.")
+                + code_box
+                + _paragraph(f"It expires in {minutes} minutes.", muted=True, bottom=0)
+            ),
+            footer=("Didn't ask to change your password? Ignore this email and tell your "
+                    "administrator. Your password stays the same."),
+        )
 
-        text_content = f"""
-        Use this code to change your {sender} password: {code}
+        text_content = f"""Use this code to change your {brand} password: {code}
 
-        It expires in {minutes} minutes.
+It expires in {minutes} minutes.
 
-        If you didn't ask to change your password, ignore this email and tell
-        your administrator. Your password stays the same.
-        """
+If you didn't ask to change your password, ignore this email and tell
+your administrator. Your password stays the same.
+"""
 
         return EmailService.send_email(
             to_email=to_email,
@@ -249,87 +188,55 @@ class EmailService:
         )
 
     @staticmethod
-    def send_welcome_email(to_email: str, username: str) -> bool:
+    def send_welcome_email(to_email: str, username: str, first_name: Optional[str] = None) -> bool:
         """
         Send welcome email to new users
 
         Args:
             to_email: User's email address
-            username: User's username
+            username: User's username, which they sign in with
+            first_name: Used in the greeting when known
 
         Returns:
             bool: True if email sent successfully
         """
-        subject = "Welcome to SimpleWorks"
+        brand = settings.SMTP_FROM_NAME
+        login_url = f"{settings.FRONTEND_URL}/login"
+        name = first_name or username
+        subject = f"Welcome to {brand}"
 
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <style>
-                body {{
-                    font-family: Arial, sans-serif;
-                    line-height: 1.6;
-                    color: #333;
-                }}
-                .container {{
-                    max-width: 600px;
-                    margin: 0 auto;
-                    padding: 20px;
-                }}
-                .header {{
-                    background-color: #52c41a;
-                    color: white;
-                    padding: 20px;
-                    text-align: center;
-                    border-radius: 5px 5px 0 0;
-                }}
-                .content {{
-                    background-color: #f5f5f5;
-                    padding: 30px;
-                    border-radius: 0 0 5px 5px;
-                }}
-                .button {{
-                    display: inline-block;
-                    padding: 12px 30px;
-                    background-color: #1890ff;
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 5px;
-                    margin: 20px 0;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>Welcome to SimpleWorks!</h1>
-                </div>
-                <div class="content">
-                    <p>Hi {username},</p>
-                    <p>Your account has been successfully created. You can now log in and start using SimpleWorks.</p>
-                    <p style="text-align: center;">
-                        <a href="{settings.FRONTEND_URL}/login" class="button">Go to Login</a>
-                    </p>
-                    <p>If you have any questions, feel free to contact our support team.</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
+        username_box = (
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+            'style="background-color:#f7f7f5; border-radius:8px; margin:0 0 28px;">'
+            f'<tr><td style="padding:14px 16px; font-family:{FONT}; font-size:13px; line-height:1.4; color:#73726e;">'
+            'Username'
+            f'<div style="margin-top:2px; font-size:15px; font-weight:500; color:#37352f;">{escape(username)}</div>'
+            '</td></tr></table>'
+        )
+        html_content = _account_email(
+            title=subject,
+            preheader=f"Your {brand} account is ready. Sign in with {username}.",
+            heading=f"Welcome, {escape(name)}",
+            body=(
+                _paragraph(f"Your {escape(brand)} account is ready. Sign in to get started.")
+                + username_box
+                + _button(login_url, f"Sign in to {brand}")
+                + _link_fallback(login_url)
+            ),
+            footer=(f"You're getting this because an account was created for {escape(to_email)}. "
+                    "Questions? Ask your administrator."),
+        )
 
-        text_content = f"""
-        Welcome to SimpleWorks!
+        text_content = f"""Welcome, {name}
 
-        Hi {username},
+Your {brand} account is ready. Sign in to get started.
 
-        Your account has been successfully created. You can now log in and start using SimpleWorks.
+Username: {username}
+Sign in: {login_url}
 
-        Login at: {settings.FRONTEND_URL}/login
-
-        If you have any questions, feel free to contact our support team.
-        """
+You're getting this because an account was created for {to_email}.
+Questions? Ask your administrator.
+"""
 
         return EmailService.send_email(
             to_email=to_email,
@@ -337,6 +244,87 @@ class EmailService:
             html_content=html_content,
             text_content=text_content
         )
+
+
+# ============================================================
+# Account email layout
+# ============================================================
+# Email clients drop <style> blocks and flexbox unevenly, so these are tables
+# with inline styles. Colours and type follow DESIGN.md. Arguments marked
+# html are inserted as is: escape anything a user typed before passing it.
+
+FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+
+
+def _paragraph(html: str, muted: bool = False, top: int = 0, bottom: int = 24) -> str:
+    color, size = ('#73726e', 13) if muted else ('#5f5e5b', 15)
+    return (f'<p style="margin:{top}px 0 {bottom}px; font-family:{FONT}; font-size:{size}px; '
+            f'line-height:1.6; color:{color};">{html}</p>')
+
+
+def _button(url: str, label: str) -> str:
+    return (
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>'
+        '<td style="border-radius:8px; background-color:#1f74c9;">'
+        f'<a href="{escape(url)}" style="display:inline-block; padding:12px 24px; font-family:{FONT}; '
+        'font-size:15px; font-weight:500; color:#ffffff; text-decoration:none; border-radius:8px;">'
+        f'{escape(label)}</a></td></tr></table>'
+    )
+
+
+def _link_fallback(url: str) -> str:
+    """The link as text, for clients that strip the button."""
+    u = escape(url)
+    return (f'<p style="margin:28px 0 0; font-family:{FONT}; font-size:13px; line-height:1.5; color:#73726e;">'
+            f'Button not working? Open <a href="{u}" style="color:#1f74c9; text-decoration:none; '
+            f'word-break:break-all;">{u}</a></p>')
+
+
+def _account_email(title: str, preheader: str, heading: str, body: str, footer: str) -> str:
+    """Brand name over a white card on a light page, with a small footer.
+
+    heading, body and footer are html; title and preheader are plain text.
+    """
+    brand = escape(settings.SMTP_FROM_NAME)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>{escape(title)}</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f7f7f5;">
+<div style="display:none; max-height:0; overflow:hidden;">{escape(preheader)}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f7f7f5;">
+  <tr>
+    <td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;">
+        <tr>
+          <td style="padding:0 4px 20px; font-family:{FONT}; font-size:15px; font-weight:600; letter-spacing:-0.01em; color:#37352f;">
+            {brand}
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#ffffff; border:1px solid #e9e9e7; border-radius:12px; padding:36px 28px;">
+            <h1 style="margin:0 0 12px; font-family:{FONT}; font-size:24px; line-height:1.3; font-weight:600; letter-spacing:-0.015em; color:#37352f;">
+              {heading}
+            </h1>
+            {body}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:20px 4px 0; font-family:{FONT}; font-size:12px; line-height:1.5; color:#a5a29a;">
+            {footer}
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>
+"""
 
 
 # Create singleton instance
