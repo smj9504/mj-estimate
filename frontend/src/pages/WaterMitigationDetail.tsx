@@ -53,15 +53,18 @@ import EditableSection from '../components/water-mitigation/EditableSection';
 import SendToAdjusterModal from '../components/water-mitigation/SendToAdjusterModal';
 import FollowUpAdjusterModal from '../components/water-mitigation/FollowUpAdjusterModal';
 import WMFinancialComparisonCard from '../components/water-mitigation/WMFinancialComparison';
-import WMContractTab from '../components/water-mitigation/WMContractTab';
 import { PageHeader, Pill, type TagTone } from '../components/common/ui';
 import { CompanyTag } from '../components/water-mitigation/paymentBoardShared';
 import { WMStatusPill, WM_STATUS_TONES } from '../components/water-mitigation/wmStatus';
 import { tagTones } from '../styles/tokens';
+import { useWaterMitigationAccess } from '../hooks/useWaterMitigationAccess';
 
 const WMSketchTab = React.lazy(() => import('../components/water-mitigation/sketch/WMSketchTab'));
 
 const { useBreakpoint } = Grid;
+
+// Tabs the Water Mitigation (View) grant opens
+const LIMITED_TABS = ['details', 'photos', 'documents', 'trash'];
 
 const WaterMitigationDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -72,6 +75,8 @@ const WaterMitigationDetail: React.FC = () => {
   const [activeTab, setActiveTab] = useState('details');
   const [sendToAdjusterOpen, setSendToAdjusterOpen] = useState(false);
   const [followUpOpen, setFollowUpOpen] = useState(false);
+  // The View grant: job details, photos, documents and trash; no adjuster emails
+  const { limited } = useWaterMitigationAccess();
 
   // While the claim's WM docs follow-up is unresolved, a follow-up sent from
   // here counts on it, so the action moves out of the menu into the header.
@@ -431,9 +436,9 @@ const WaterMitigationDetail: React.FC = () => {
   const EMPTY = <span className="ui-props-empty">Empty</span>;
 
   // Phones keep it in the menu; the header has no room for another button
-  const showFollowUpButton = !!openFollowUpTask && !isMobile;
+  const showFollowUpButton = !!openFollowUpTask && !isMobile && !limited;
 
-  const moreMenuItems = [
+  const adjusterItems = limited ? [] : [
     {
       key: 'send',
       icon: <SendOutlined />,
@@ -446,8 +451,12 @@ const WaterMitigationDetail: React.FC = () => {
       label: 'Follow Up',
       onClick: () => setFollowUpOpen(true),
     }] : []),
+  ];
+
+  const moreMenuItems = [
+    ...adjusterItems,
     ...(isMobile ? [
-      { type: 'divider' as const },
+      ...(adjusterItems.length > 0 ? [{ type: 'divider' as const }] : []),
       {
         key: 'edit',
         icon: <EditOutlined />,
@@ -495,9 +504,11 @@ const WaterMitigationDetail: React.FC = () => {
                 Edit
               </Button>
             )}
-            <Dropdown menu={{ items: moreMenuItems }} trigger={['click']}>
-              <Button icon={<MoreOutlined />} aria-label="More actions" />
-            </Dropdown>
+            {moreMenuItems.length > 0 && (
+              <Dropdown menu={{ items: moreMenuItems }} trigger={['click']}>
+                <Button icon={<MoreOutlined />} aria-label="More actions" />
+              </Dropdown>
+            )}
           </>
         }
       />
@@ -989,6 +1000,7 @@ const WaterMitigationDetail: React.FC = () => {
                   clientId={job.client_id}
                   companycamProjectId={job.companycam_project_id}
                   isActive={activeTab === 'photos'}
+                  aiTools={!limited}
                 />
               ) : null
             },
@@ -1004,19 +1016,7 @@ const WaterMitigationDetail: React.FC = () => {
                   companyId={job.company_id}
                   isActive={activeTab === 'documents'}
                   onJobDataChange={loadJob}
-                />
-              ) : null
-            },
-            {
-              key: 'contracts',
-              label: 'Contracts',
-              children: id ? (
-                <WMContractTab
-                  jobId={id}
-                  claimId={job.claim_id}
-                  clientId={job.client_id}
-                  companyId={job.company_id}
-                  companyName={job.company?.name}
+                  canEditInvoices={!limited}
                 />
               ) : null
             },
@@ -1057,7 +1057,7 @@ const WaterMitigationDetail: React.FC = () => {
               label: 'Trash',
               children: id ? <WaterMitigationTrashTab jobId={id} isActive={activeTab === 'trash'} /> : null
             }
-          ]}
+          ].filter(tab => !limited || LIMITED_TABS.includes(tab.key))}
         />
       </div>
 

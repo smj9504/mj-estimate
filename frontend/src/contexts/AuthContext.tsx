@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { message } from 'antd';
 import authService from '../services/authService';
 import { getErrorMessage } from '../api/errorHandler';
-import { screenForPath } from '../constants/screens';
+import { opensScreen, screenForPath } from '../constants/screens';
 
 export interface User {
   id: string;
@@ -190,7 +190,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!screen) return true;
     // A session stored before screen access existed has no list yet
     if (!user?.screens) return true;
-    return user.screens.includes(screen);
+    return opensScreen(user.screens, screen);
   }, [user?.screens]);
 
   // Memoize context value to prevent unnecessary re-renders of consumers

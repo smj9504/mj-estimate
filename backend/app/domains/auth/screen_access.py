@@ -6,7 +6,11 @@ can have their own list (staff.screen_access) that replaces the role's set.
 Admins always see every screen so they can never lock themselves out.
 
 This decides what the frontend shows; the API routes behind the screens are
-not checked against it yet.
+not checked against it yet, except where a route asks for require_screen.
+
+water_mitigation_view opens the Water Mitigation pages with less on them
+(job details, photos, documents, trash; no AI photo tools, no invoice
+editing). Someone who has water_mitigation as well gets the full pages.
 """
 from typing import Dict, Iterable, List, Optional
 
@@ -18,6 +22,7 @@ SCREEN_KEYS: tuple = (
     "claims_lifecycle",
     "claim_followup",
     "water_mitigation",
+    "water_mitigation_view",
     "rebuild_projects",
     "work_orders",
     "clients",
@@ -115,3 +120,7 @@ def effective_screens(db, staff: Staff) -> List[str]:
             return list(SCREEN_KEYS)
         allowed = set(row.screens or [])
     return [key for key in SCREEN_KEYS if key in allowed]
+
+
+def may_open(db, staff: Staff, key: str) -> bool:
+    return key in effective_screens(db, staff)

@@ -48,6 +48,9 @@ const ScreenChecklist: React.FC<ScreenChecklistProps> = ({ value, onChange, disa
                     onChange={e => toggle(screen.key, e.target.checked)}
                   >
                     {screen.label}
+                    {screen.hint && (
+                      <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>{screen.hint}</Text>
+                    )}
                   </Checkbox>
                 </Col>
               ))}

@@ -47,6 +47,7 @@ import JobFormModal from '../components/water-mitigation/JobFormModal';
 import GoogleSheetsSyncButton from '../components/water-mitigation/GoogleSheetsSyncButton';
 import SheetPAMappingButton from '../components/water-mitigation/SheetPAMappingButton';
 import WMPaymentLinkButton from '../components/water-mitigation/WMPaymentLinkButton';
+import { useWaterMitigationAccess } from '../hooks/useWaterMitigationAccess';
 import {
   CHECK_RECIPIENT_OPTIONS,
   CheckRecipientTag,
@@ -68,6 +69,9 @@ const WaterMitigationList: React.FC = () => {
   const navigate = useNavigate();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
+  // The View grant opens jobs and edits their details; no new jobs, sheet
+  // sync, payment view, deactivating or deleting
+  const { limited } = useWaterMitigationAccess();
   const [loading, setLoading] = useState(false);
   const [jobs, setJobs] = useState<WaterMitigationJob[]>([]);
   const [total, setTotal] = useState(0);
@@ -247,7 +251,7 @@ const WaterMitigationList: React.FC = () => {
         label: 'Edit',
         onClick: () => handleOpenEditModal(job)
       },
-      {
+      ...(limited ? [] : [{
         key: 'toggle-active',
         icon: <PoweroffOutlined />,
         label: job.active ? 'Deactivate' : 'Activate',
@@ -262,7 +266,7 @@ const WaterMitigationList: React.FC = () => {
           const confirmed = window.confirm('Delete this job?');
           if (confirmed) handleDelete(job.id);
         }
-      }
+      }])
     ]
   });
 
@@ -500,7 +504,7 @@ const WaterMitigationList: React.FC = () => {
       <PageHeader
         title="Water Mitigation Jobs"
         meta={<span>{total} {total === 1 ? 'job' : 'jobs'}</span>}
-        actions={
+        actions={limited ? undefined : (
           <>
             {!isMobile && (
               <>
@@ -522,7 +526,7 @@ const WaterMitigationList: React.FC = () => {
               New Job
             </Button>
           </>
-        }
+        )}
       />
 
       {/* Filters */}
@@ -559,30 +563,32 @@ const WaterMitigationList: React.FC = () => {
           <Option value="inactive">Inactive Only</Option>
         </Select>
 
-        <div className="ui-toolbar-end">
-          <label style={toggleLabelStyle}>
-            <Switch size="small" checked={paymentView} onChange={handlePaymentViewChange} />
-            Payment view
-          </label>
-          {paymentView && (
-            <>
-              <label style={toggleLabelStyle}>
-                <Switch size="small" checked={showAmounts} onChange={setShowAmounts} />
-                Amounts
-              </label>
-              <label style={toggleLabelStyle}>
-                <Switch
-                  size="small"
-                  checked={!!filters.hide_received}
-                  onChange={(checked) =>
-                    setFilters(prev => ({ ...prev, hide_received: checked || undefined, page: 1 }))
-                  }
-                />
-                Hide received
-              </label>
-            </>
-          )}
-        </div>
+        {!limited && (
+          <div className="ui-toolbar-end">
+            <label style={toggleLabelStyle}>
+              <Switch size="small" checked={paymentView} onChange={handlePaymentViewChange} />
+              Payment view
+            </label>
+            {paymentView && (
+              <>
+                <label style={toggleLabelStyle}>
+                  <Switch size="small" checked={showAmounts} onChange={setShowAmounts} />
+                  Amounts
+                </label>
+                <label style={toggleLabelStyle}>
+                  <Switch
+                    size="small"
+                    checked={!!filters.hide_received}
+                    onChange={(checked) =>
+                      setFilters(prev => ({ ...prev, hide_received: checked || undefined, page: 1 }))
+                    }
+                  />
+                  Hide received
+                </label>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {paymentView && showAmounts && (

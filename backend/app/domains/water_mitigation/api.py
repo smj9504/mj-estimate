@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 
 from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
-from app.domains.auth.dependencies import get_current_user
+from app.domains.auth.dependencies import get_current_user, require_screen
 
 from .models import WMPhoto
 from .schemas import (
@@ -65,6 +65,9 @@ router = APIRouter(prefix="/water-mitigation", tags=["Water Mitigation"])
 
 # Include template router as sub-router
 router.include_router(template_router)
+
+# The View grant (water_mitigation_view) leaves out the AI photo tools
+_full_wm_access = Depends(require_screen("water_mitigation"))
 
 
 def get_wm_service(db: DatabaseSession = Depends(get_db_session)) -> WaterMitigationService:
@@ -3975,7 +3978,7 @@ class AIClassifyResponse(BaseModel):
     results: List[dict]
 
 
-@router.get("/jobs/{job_id}/ai-results")
+@router.get("/jobs/{job_id}/ai-results", dependencies=[_full_wm_access])
 def get_ai_results_for_job(
     job_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service),
@@ -4016,7 +4019,7 @@ def get_ai_results_for_job(
     }
 
 
-@router.post("/photos/ai-classify", response_model=AIClassifyResponse)
+@router.post("/photos/ai-classify", response_model=AIClassifyResponse, dependencies=[_full_wm_access])
 async def ai_classify_photos(
     request: AIClassifyRequest,
     background_tasks: BackgroundTasks,
@@ -4230,7 +4233,7 @@ async def ai_classify_photos(
     )
 
 
-@router.post("/photos/{photo_id}/ai-classify")
+@router.post("/photos/{photo_id}/ai-classify", dependencies=[_full_wm_access])
 async def ai_classify_single_photo(
     photo_id: UUID,
     force_refresh: bool = Query(False, description="Force re-classification even if cached"),
@@ -4260,7 +4263,7 @@ async def ai_classify_single_photo(
         raise HTTPException(status_code=500, detail="Classification failed")
 
 
-@router.post("/photos/{photo_id}/ai-apply")
+@router.post("/photos/{photo_id}/ai-apply", dependencies=[_full_wm_access])
 async def apply_ai_classification(
     photo_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service),

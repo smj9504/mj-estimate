@@ -9,6 +9,10 @@ export interface ScreenDef {
   key: string;
   label: string;
   paths: string[];
+  // A lesser grant of another screen: it opens that screen's paths, and the
+  // pages leave out what it doesn't cover
+  limits?: string;
+  hint?: string;
 }
 
 export interface ScreenGroup {
@@ -23,6 +27,13 @@ export const SCREEN_GROUPS: ScreenGroup[] = [
       { key: 'claims_lifecycle', label: 'Claims Dashboard', paths: ['/claims-lifecycle'] },
       { key: 'claim_followup', label: 'Follow-up', paths: ['/claim-followup'] },
       { key: 'water_mitigation', label: 'Water Mitigation', paths: ['/water-mitigation'] },
+      {
+        key: 'water_mitigation_view',
+        label: 'Water Mitigation (View)',
+        paths: [],
+        limits: 'water_mitigation',
+        hint: 'Job details, photos, documents, trash',
+      },
       { key: 'rebuild_projects', label: 'Rebuild Projects', paths: ['/rebuild-projects'] },
       { key: 'work_orders', label: 'Work Orders', paths: ['/work-orders', '/work-order', '/create/work-order'] },
       { key: 'clients', label: 'Clients', paths: ['/clients'] },
@@ -99,4 +110,21 @@ const PATH_INDEX: { path: string; key: string }[] = SCREEN_GROUPS
 export function screenForPath(pathname: string): string | null {
   const match = PATH_INDEX.find(({ path }) => pathname === path || pathname.startsWith(`${path}/`));
   return match ? match.key : null;
+}
+
+const LIMITED_GRANTS: { key: string; limits: string }[] = SCREEN_GROUPS
+  .flatMap(g => g.screens)
+  .filter((s): s is ScreenDef & { limits: string } => !!s.limits)
+  .map(({ key, limits }) => ({ key, limits }));
+
+/** Whether a person given `granted` may open `screen`, in full or limited. */
+export function opensScreen(granted: string[], screen: string): boolean {
+  return granted.includes(screen)
+    || LIMITED_GRANTS.some(g => g.limits === screen && granted.includes(g.key));
+}
+
+/** Given only the limited grant of `screen`, not the full one. */
+export function hasLimitedScreen(granted: string[] | undefined, screen: string): boolean {
+  if (!granted || granted.includes(screen)) return false;
+  return LIMITED_GRANTS.some(g => g.limits === screen && granted.includes(g.key));
 }

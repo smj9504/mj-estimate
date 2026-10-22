@@ -267,6 +267,28 @@ async def require_manager_or_admin(
     return current_staff
 
 
+def require_screen(key: str):
+    """Require the current staff member to have a screen (see screen_access)"""
+    from . import screen_access
+
+    async def checker(
+        current_staff: Staff = Depends(get_current_staff),
+        db: Any = Depends(get_db)
+    ) -> Staff:
+        if current_staff.role in screen_access.ALL_SCREENS_ROLES:
+            return current_staff
+        # The cached staff record has no screen_access, so read the row
+        staff = auth_service.get_staff_by_id(db, current_staff.id)
+        if staff is None or not screen_access.may_open(db, staff, key):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have access to this"
+            )
+        return current_staff
+
+    return checker
+
+
 async def get_current_user_from_token(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> Dict[str, Any]:

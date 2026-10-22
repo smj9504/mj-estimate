@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin, Tooltip, Progress, Grid, Table, Select, Row, Col, Dropdown } from 'antd';
-import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined, ShareAltOutlined, CopyOutlined, RobotOutlined, ThunderboltOutlined, CloseOutlined, StarFilled, DownOutlined, ReloadOutlined, EnvironmentOutlined } from '@ant-design/icons';
+import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined, ShareAltOutlined, CopyOutlined, RobotOutlined, ThunderboltOutlined, CloseOutlined, StarFilled, DownOutlined, ReloadOutlined, EnvironmentOutlined, ToolOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
 import type { FileItem } from '../common/FileGallery/types';
@@ -331,6 +331,8 @@ interface WaterMitigationPhotosTabProps {
   companycamProjectId?: string;
   onProjectIdUpdated?: (projectId: string) => void;
   isActive?: boolean;
+  // AI Classify and its results; off for the Water Mitigation (View) grant
+  aiTools?: boolean;
 }
 
 const { useBreakpoint } = Grid;
@@ -341,6 +343,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   companycamProjectId,
   onProjectIdUpdated,
   isActive,
+  aiTools = true,
 }) => {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
@@ -1444,7 +1447,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
           <Dropdown
             menu={{
               items: [
-                {
+                ...(aiTools ? [{
                   key: 'ai-uncategorized',
                   icon: <RobotOutlined />,
                   label: 'AI Classify (uncategorized)',
@@ -1464,7 +1467,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                   label: 'View AI Results',
                   onClick: handleAiLoadPrevious,
                 },
-                { type: 'divider' as const },
+                { type: 'divider' as const }] : []),
                 {
                   key: 'export-drive',
                   icon: <GoogleOutlined />,
@@ -1476,7 +1479,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             }}
             trigger={['click']}
           >
-            <Button size={isMobile ? 'small' : 'middle'} icon={<RobotOutlined />}>
+            <Button size={isMobile ? 'small' : 'middle'} icon={aiTools ? <RobotOutlined /> : <ToolOutlined />}>
               Tools {!isMobile && <DownOutlined style={{ fontSize: 10 }} />}
             </Button>
           </Dropdown>

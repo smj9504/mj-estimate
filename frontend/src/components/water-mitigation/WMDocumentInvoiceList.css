@@ -1,4 +1,4 @@
-/* Shared responsive fixes for WMDocumentList / WMInvoiceList */
+/* Responsive fixes for WMDocumentList */
 
 /* Default (desktop/tablet): actions stay in a single row, but must wrap
    instead of overflowing when there are 3-4 buttons and limited width. */

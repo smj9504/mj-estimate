@@ -6,14 +6,13 @@
 
 import React, { useState, useRef, useCallback, useMemo } from 'react';
 import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox, Grid, Radio, Table, Tag, Empty } from 'antd';
-import { FilePdfOutlined, PlusOutlined, UploadOutlined, RotateRightOutlined, CloseOutlined, FileTextOutlined, DollarOutlined, EditOutlined, FormOutlined, ScissorOutlined } from '@ant-design/icons';
+import { FilePdfOutlined, PlusOutlined, UploadOutlined, RotateRightOutlined, CloseOutlined, FileTextOutlined, EditOutlined, FormOutlined, ScissorOutlined } from '@ant-design/icons';
 import PerspectiveCropModal from './PerspectiveCropModal';
 import { useQuery } from '@tanstack/react-query';
 import { contractTemplateService } from '../../services/contractService';
 import FileGallery from '../common/FileGallery/FileGallery';
 import WMDocumentList from './WMDocumentList';
 import WMDocumentUploadModal from './WMDocumentUploadModal';
-import WMInvoiceList from './WMInvoiceList';
 import WMPdfAnnotator from './pdf-annotator/WMPdfAnnotator';
 import type { PdfAnnotationData } from './pdf-annotator/types';
 import waterMitigationService from '../../services/waterMitigationService';
@@ -30,6 +29,7 @@ interface WaterMitigationDocumentsTabProps {
   companyId?: string;  // Assigned company ID for fetching contract templates
   isActive?: boolean;
   onJobDataChange?: () => void;  // Callback when job data changes (e.g., invoice amount sync)
+  canEditInvoices?: boolean;  // Off for the Water Mitigation (View) grant
 }
 
 interface DocumentType {
@@ -71,6 +71,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   companyId,
   isActive,
   onJobDataChange,
+  canEditInvoices = true,
 }) => {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
@@ -98,7 +99,6 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [generatingFromTemplate, setGeneratingFromTemplate] = useState(false);
   const documentListRef = useRef<any>(null);
-  const invoiceListRef = useRef<any>(null);
 
   // Fetch contract templates for assigned company (always fetch so we can decide default mode)
   const { data: templatesData } = useQuery({
@@ -120,7 +120,6 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   React.useEffect(() => {
     if (isActive && !prevActiveRef.current) {
       documentListRef.current?.refresh();
-      invoiceListRef.current?.refresh();
     }
     prevActiveRef.current = isActive;
   }, [isActive]);
@@ -413,28 +412,18 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
             </Button>
           </Space>
         }
-        style={{ marginBottom: 16 }}
       >
+        {/* Uploaded and generated documents, and the invoices from the scope */}
         <WMDocumentList
           ref={documentListRef}
           jobId={jobId}
+          jobAddress={jobAddress}
+          canEditInvoices={canEditInvoices}
           onDelete={() => {
             // Refresh list after delete
           }}
           onEditAnnotation={handleEditAnnotatedDocument}
           onInvoiceAmountChange={onJobDataChange}
-        />
-      </Card>
-
-      {/* Invoices Section */}
-      <Card
-        title={<span><DollarOutlined style={{ marginRight: 8 }} />Invoices</span>}
-        size="small"
-      >
-        <WMInvoiceList
-          ref={invoiceListRef}
-          jobId={jobId}
-          jobAddress={jobAddress}
         />
       </Card>
 
