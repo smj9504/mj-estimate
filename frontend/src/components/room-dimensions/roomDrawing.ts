@@ -10,6 +10,7 @@
 import { colors, fontFamily } from '../../styles/tokens';
 import { formatDimension } from '../water-mitigation/sketch/utils/wmCalculations';
 import { polylineLength, type Point, type RoomDetection, type RoomOpening, type WallFace } from '../../utils/roomDimensions';
+import { angleText, type TraceMetrics, type TraceSegment } from '../../utils/roomTrace';
 
 export const DRAWING_COLORS = {
   face: colors.primary,
@@ -19,6 +20,12 @@ export const DRAWING_COLORS = {
   hairline: colors.neutral400,
   room: 'rgba(31, 116, 201, 0.07)',
   pill: '#ffffff',
+  /** Traced outline, its corner dots, and the angle at a corner */
+  trace: colors.primary,
+  traceVertex: colors.primaryDeep,
+  angle: colors.neutral600,
+  /** Corners that are not square — the ones the user is looking for */
+  angleWarn: colors.warning,
 };
 
 export const LABEL_FONT = fontFamily.system;
@@ -87,6 +94,54 @@ export function openingLabel(opening: RoomOpening, text: string, unit: number): 
     walked += len;
   }
   return box(opening.path[0], opening.path[0], opening.path[0], text, unit);
+}
+
+// ============================================================================
+// Hand-traced outline (Trace walls mode)
+// ============================================================================
+
+/** The middle of a traced outline, so labels can be nudged toward the inside */
+export function centroid(points: Point[]): Point {
+  if (points.length === 0) return { x: 0, y: 0 };
+  const sum = points.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
+  return { x: sum.x / points.length, y: sum.y / points.length };
+}
+
+/** A pill that always reads upright, centred on a point */
+function uprightBox(center: Point, text: string, unit: number): LabelBox {
+  return {
+    cx: center.x,
+    cy: center.y,
+    angle: 0,
+    width: (text.length * 0.62 * FONT_SIZE + PILL_PAD * 2) * unit,
+    height: PILL_HEIGHT * unit,
+    fontSize: FONT_SIZE * unit,
+    text,
+  };
+}
+
+/** Length label running along a traced segment, nudged toward the room inside */
+export function traceLengthLabel(seg: TraceSegment, inside: Point, text: string, unit: number): LabelBox {
+  const mid = { x: (seg.start.x + seg.end.x) / 2, y: (seg.start.y + seg.end.y) / 2 };
+  const len = Math.hypot(seg.end.x - seg.start.x, seg.end.y - seg.start.y) || 1;
+  // Unit normal pointing toward the inside point
+  let nx = -(seg.end.y - seg.start.y) / len;
+  let ny = (seg.end.x - seg.start.x) / len;
+  if ((inside.x - mid.x) * nx + (inside.y - mid.y) * ny < 0) {
+    nx = -nx;
+    ny = -ny;
+  }
+  const offset = (LABEL_GAP + PILL_HEIGHT / 2) * unit;
+  return box({ x: mid.x + nx * offset, y: mid.y + ny * offset }, seg.start, seg.end, text, unit);
+}
+
+/** Angle pill sitting just inside a traced corner */
+export function traceAngleLabel(corner: Point, inside: Point, text: string, unit: number): LabelBox {
+  const dx = inside.x - corner.x;
+  const dy = inside.y - corner.y;
+  const d = Math.hypot(dx, dy) || 1;
+  const offset = (PILL_HEIGHT + LABEL_GAP) * unit;
+  return uprightBox({ x: corner.x + (dx / d) * offset, y: corner.y + (dy / d) * offset }, text, unit);
 }
 
 /** Short marks across both ends of a face, like a dimension line */
@@ -195,6 +250,73 @@ export function renderDrawingPng(
   }
   for (const face of detection.faces) {
     drawLabel(ctx, faceLabel(face, faceText(face, pxPerFt), unit), unit, DRAWING_COLORS.ink, DRAWING_COLORS.face);
+  }
+
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('Could not create the image'))), 'image/png'),
+  );
+}
+
+/**
+ * The capture with a hand-traced outline on it: each wall run's length and
+ * each corner's angle, square corners quietly and the rest in warning colour.
+ */
+export function renderTracePng(
+  image: CanvasImageSource,
+  imageWidth: number,
+  imageHeight: number,
+  metrics: TraceMetrics,
+  points: Point[],
+  pxPerFt: number | null,
+): Promise<Blob> {
+  const factor = Math.min(3, Math.max(1, 1600 / Math.max(imageWidth, imageHeight)));
+  const unit = 1.25 / factor;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(imageWidth * factor);
+  canvas.height = Math.round(imageHeight * factor);
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  ctx.scale(factor, factor);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  if (metrics.closed && points.length >= 3) {
+    ctx.beginPath();
+    points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.closePath();
+    ctx.fillStyle = DRAWING_COLORS.room;
+    ctx.fill();
+  }
+
+  ctx.strokeStyle = DRAWING_COLORS.trace;
+  ctx.lineWidth = 2 * unit;
+  for (const seg of metrics.segments) {
+    ctx.beginPath();
+    ctx.moveTo(seg.start.x, seg.start.y);
+    ctx.lineTo(seg.end.x, seg.end.y);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = DRAWING_COLORS.traceVertex;
+  for (const p of points) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 2.5 * unit, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const inside = centroid(points);
+  for (const seg of metrics.segments) {
+    const text = lengthText(seg.lengthPx, pxPerFt) ?? seg.label;
+    drawLabel(ctx, traceLengthLabel(seg, inside, text, unit), unit, DRAWING_COLORS.ink, DRAWING_COLORS.trace);
+  }
+  for (const v of metrics.vertices) {
+    const text = angleText(v.angleDeg);
+    if (!text) continue;
+    const color = v.isRightAngle ? DRAWING_COLORS.angle : DRAWING_COLORS.angleWarn;
+    drawLabel(ctx, traceAngleLabel(v.point, inside, text, unit), unit, color, color);
   }
 
   return new Promise((resolve, reject) =>

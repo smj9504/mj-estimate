@@ -10,12 +10,30 @@
   align-items: start;
 }
 
+.rd-modebar {
+  margin-bottom: 10px;
+}
+
 .rd-toolbar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 2px;
+  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 6px;
+}
+/* Zoom alone sits at the right, as before */
+.rd-toolbar:not(:has(.rd-trace-actions)) {
+  justify-content: flex-end;
+}
+.rd-trace-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rd-zoom {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 .ant-btn.rd-zoom-value {
   min-width: 52px;
@@ -42,6 +60,17 @@
   max-height: 72vh;
   margin: 0 auto;
   user-select: none;
+}
+
+/* While drawing, the stage invites a click to drop the next corner */
+.rd-trace.is-drawing {
+  cursor: crosshair;
+}
+.rd-trace-vertex {
+  cursor: grab;
+}
+.rd-trace-vertex:active {
+  cursor: grabbing;
 }
 
 .rd-face-label {
@@ -161,6 +190,39 @@
 .rd-face-length {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
+}
+
+/* Corner angles: the off-square ones are what the user is hunting for */
+.rd-angles {
+  margin: 10px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--color-neutral-200);
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rd-angle-row {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--color-neutral-100);
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+.rd-angle-row.is-off {
+  background: var(--color-warning-light);
+  color: var(--color-warning);
+  font-weight: 500;
+}
+.rd-angle-corner {
+  font-variant-numeric: tabular-nums;
+}
+.rd-angle-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
 .rd-processing {

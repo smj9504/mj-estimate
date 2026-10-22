@@ -217,6 +217,109 @@ test.describe('Room Dimensions', () => {
     await expect(page.getByRole('button', { name: 'Download PNG' })).toBeDisabled();
   });
 
+  // ── Trace walls mode ──────────────────────────────────────────────
+  // A blank capture carries no walls, so the user clicks the corners. Points
+  // are placed in image pixels; clicking segment A (320px) at 16' makes the
+  // scale 20px/ft, so every other length is exact.
+
+  /** A plain white 400×300 image: nothing to auto-detect, so Trace is the way */
+  async function blankCapture(page: Page): Promise<Buffer> {
+    const dataUrl = await page.evaluate(() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 400;
+      canvas.height = 300;
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, 400, 300);
+      return canvas.toDataURL('image/png');
+    });
+    return Buffer.from(dataUrl.split(',')[1], 'base64');
+  }
+
+  /** Click the stage at an image pixel, mapping through the drawing's box */
+  async function clickImage(page: Page, x: number, y: number) {
+    const box = (await page.locator('.rd-trace').boundingBox())!;
+    await page.mouse.click(box.x + (x / 400) * box.width, box.y + (y / 300) * box.height);
+  }
+
+  async function startTrace(page: Page) {
+    await page.goto('/tools/room-dimensions');
+    await page.locator('.rd-dropzone input[type="file"]').setInputFiles({
+      name: 'plan.png',
+      mimeType: 'image/png',
+      buffer: await blankCapture(page),
+    });
+    // An empty capture starts in Trace mode on its own; make sure
+    await page.getByText('Trace walls').click();
+  }
+
+  test('traces a room, measuring each wall and calling every corner square', async ({ page }) => {
+    await startTrace(page);
+
+    // A 320×200px rectangle
+    await clickImage(page, 40, 40);
+    await clickImage(page, 360, 40);
+    await clickImage(page, 360, 240);
+    await clickImage(page, 40, 240);
+    await page.getByRole('button', { name: 'Close loop' }).click();
+
+    await expect(page.locator('.rd-face-letter')).toHaveText(['A', 'B', 'C', 'D']);
+
+    // Top wall is 16'; that sets 20px/ft
+    await page.getByRole('button', { name: 'Wall A', exact: true }).click();
+    await page.getByLabel('Feet').fill('16');
+    await page.getByLabel('Inches').fill('0');
+    await page.getByRole('button', { name: 'Set scale' }).click();
+
+    await expect(wallRow(page, 'A')).toContainText(`16' 0"`);
+    await expect(wallRow(page, 'B')).toContainText(`10' 0"`);
+    await expect(wallRow(page, 'C')).toContainText(`16' 0"`);
+    await expect(wallRow(page, 'D')).toContainText(`10' 0"`);
+
+    // Every corner square, none flagged
+    await expect(page.locator('.rd-angle-row')).toHaveCount(4);
+    await expect(page.locator('.rd-angle-value')).toHaveText(['90°', '90°', '90°', '90°']);
+    await expect(page.locator('.rd-angle-row.is-off')).toHaveCount(0);
+
+    const room = page.locator('.ui-props');
+    await expect(room.locator('.ui-props-row', { hasText: 'Perimeter' })).toContainText(`52' 0"`);
+    await expect(room.locator('.ui-props-row', { hasText: 'Floor area' })).toContainText('160.00 SF');
+  });
+
+  test('flags a non-square corner on an angled wall and reports its angle', async ({ page }) => {
+    await startTrace(page);
+
+    // A 45° cut at the lower right: B goes down, C goes down-left at 45°
+    await clickImage(page, 40, 40);
+    await clickImage(page, 360, 40);
+    await clickImage(page, 360, 160);
+    await clickImage(page, 280, 240);
+    await clickImage(page, 40, 240);
+    await page.getByRole('button', { name: 'Close loop' }).click();
+
+    const corner = page.locator('.rd-angle-row', { hasText: 'B–C' });
+    await expect(corner).toContainText('135°');
+    await expect(corner).toHaveClass(/is-off/);
+    await expect(page.locator('.rd-angle-row.is-off')).not.toHaveCount(0);
+  });
+
+  test('downloads a traced plan with its lengths and angles drawn on', async ({ page }) => {
+    await startTrace(page);
+    await clickImage(page, 40, 40);
+    await clickImage(page, 360, 40);
+    await clickImage(page, 360, 240);
+    await clickImage(page, 40, 240);
+    await page.getByRole('button', { name: 'Close loop' }).click();
+    await page.getByRole('button', { name: 'Wall A', exact: true }).click();
+    await page.getByLabel('Feet').fill('16');
+    await page.getByRole('button', { name: 'Set scale' }).click();
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download PNG' }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe('plan-dimensions.png');
+  });
+
   test('fits a phone without sideways scrolling', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/tools/room-dimensions');
