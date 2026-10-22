@@ -37,7 +37,3 @@ MJ Estimate is an all-in-one back office for an insurance restoration contractor
 2. Act from anywhere: the common edits (note, status, upload, email) must be comfortable with one thumb on a phone.
 3. Quiet by default: color and badges are reserved for state that needs attention, not for labelling every field.
 4. Same truth on every screen size: mobile shows the same data, restructured, never a cropped desktop table.
-</content>
-</invoke>
-<invoke name="Bash">
-<parameter name="command">cd /c/Users/minje/.claude/skills/impeccable/reference && cat new-work.md operate.md
