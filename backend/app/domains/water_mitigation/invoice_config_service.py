@@ -52,6 +52,7 @@ _SCOPE_STANDARD_ALIASES: Dict[str, str] = {
     "wall - drywall 2ft (drywall)": "drywall - 2ft",
     "wall - drywall 2ft (plaster)": "drywall - 2ft",
     "wall - drywall 2ft (wall panel)": "drywall - 2ft",
+    "wall - drywall 2ft (wood panel)": "drywall - 2ft",
     "wall - drywall 4ft": "drywall - 4ft",
     "wall - drywall 4ft (drywall)": "drywall - 4ft",
     "wall - drywall 4ft (plaster)": "drywall - 4ft",
