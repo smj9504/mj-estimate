@@ -104,24 +104,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
+  // Errors propagate: the sign-in page shows them beside the form
   const login = useCallback(async (username: string, password: string) => {
-    try {
-      const response = await authService.login(username, password);
-      const { access_token, user: userData } = response;
+    const response = await authService.login(username, password);
+    const { access_token, user: userData } = response;
 
-      setToken(access_token);
-      setUser(userData);
+    setToken(access_token);
+    setUser(userData);
 
-      localStorage.setItem('auth_token', access_token);
-      localStorage.setItem('auth_user', JSON.stringify(userData));
+    localStorage.setItem('auth_token', access_token);
+    localStorage.setItem('auth_user', JSON.stringify(userData));
 
-      authService.setAuthToken(access_token);
+    authService.setAuthToken(access_token);
 
-      message.success('Login successful!');
-    } catch (error) {
-      message.error(getErrorMessage(error) || 'Login failed.');
-      throw error;
-    }
+    message.success('Login successful!');
   }, []);
 
   const logout = useCallback((showMessage: boolean = true) => {

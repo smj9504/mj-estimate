@@ -108,7 +108,9 @@ api.interceptors.response.use(
   },
   (error) => {
     console.error('[API] Response error:', error.response?.status, error.config?.method?.toUpperCase(), error.config?.url, error.response?.data);
-    if (error.response?.status === 401) {
+    // A wrong password on the sign-in form is a 401 too; the form shows its own error.
+    const isSignInAttempt = error.config?.url?.endsWith('/api/auth/login');
+    if (error.response?.status === 401 && !isSignInAttempt) {
       console.warn('[API] Unauthorized - session expired');
       localStorage.removeItem('auth_token');
       localStorage.removeItem('auth_user');
