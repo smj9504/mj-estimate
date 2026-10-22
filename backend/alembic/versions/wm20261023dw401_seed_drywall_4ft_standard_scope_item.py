@@ -1,7 +1,7 @@
 """Seed Drywall - 4ft standard scope item
 
 Revision ID: wm20261023dw401
-Revises: neg20261023rcv01
+Revises: td20261023brd01
 Create Date: 2026-10-23
 
 Sketch scope items named "Wall - Drywall 4ft (...)" alias to the
@@ -18,7 +18,7 @@ from alembic import op
 from sqlalchemy import text
 
 revision = "wm20261023dw401"
-down_revision = "neg20261023rcv01"
+down_revision = "td20261023brd01"
 branch_labels = None
 depends_on = None
 
