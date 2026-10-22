@@ -1303,6 +1303,16 @@ const router = createBrowserRouter([
   }
 ]);
 
+// Static message / notification / Modal.confirm calls render outside the React
+// tree, so they would miss the theme below; render them inside it too
+ConfigProvider.config({
+  holderRender: (children) => (
+    <ConfigProvider theme={antTheme} locale={enUS}>
+      {children}
+    </ConfigProvider>
+  ),
+});
+
 function App() {
   // Activates online/offline toast notifications app-wide (see hook for details)
   useNetworkStatus();
