@@ -26,6 +26,8 @@ interface WMDocumentListProps {
   onDelete?: () => void;
   onEditAnnotation?: (documentId: string, annotationData: string | null, previewUrl: string, hasSourcePdf: boolean, docType?: string, templateId?: string, signatureFields?: any[]) => void;
   onInvoiceAmountChange?: () => void;
+  // Shown at the right end of the select-all toolbar
+  toolbarExtra?: React.ReactNode;
 }
 
 interface Document {
@@ -54,7 +56,7 @@ type Row =
 const invoiceKey = (invoiceId: string) => `invoice:${invoiceId}`;
 
 const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListProps>(
-  ({ jobId, jobAddress, canEditInvoices = true, onDelete, onEditAnnotation, onInvoiceAmountChange }, ref) => {
+  ({ jobId, jobAddress, canEditInvoices = true, onDelete, onEditAnnotation, onInvoiceAmountChange, toolbarExtra }, ref) => {
     const screens = useBreakpoint();
     const isMobile = !screens.md;
     const navigate = useNavigate();
@@ -620,21 +622,22 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
 
   return (
     <div>
-      {/* Bulk action toolbar */}
-      {rows.length > 0 && (
-        <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <Checkbox
-            indeterminate={isIndeterminate}
-            checked={isAllSelected}
-            onChange={(e) => handleSelectAll(e.target.checked)}
-          >
-            Select All ({selectedRows.length}/{rows.length})
-          </Checkbox>
+      {/* Bulk actions on the left, the tab's own actions on the right */}
+      {(rows.length > 0 || toolbarExtra) && (
+        <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          {rows.length > 0 && (
+            <Checkbox
+              indeterminate={isIndeterminate}
+              checked={isAllSelected}
+              onChange={(e) => handleSelectAll(e.target.checked)}
+            >
+              Select All ({selectedRows.length}/{rows.length})
+            </Checkbox>
+          )}
 
           {selectedRows.length > 0 && (
             <Space>
               <Button
-                type="primary"
                 icon={<DownloadOutlined />}
                 onClick={handleBulkDownload}
               >
@@ -667,6 +670,8 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
               </Popconfirm>
             </Space>
           )}
+
+          {toolbarExtra && <div style={{ marginLeft: 'auto' }}>{toolbarExtra}</div>}
         </div>
       )}
 

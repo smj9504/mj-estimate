@@ -6,7 +6,7 @@
 
 import React, { useState, useRef, useCallback, useMemo } from 'react';
 import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox, Grid, Radio, Table, Tag, Empty } from 'antd';
-import { FilePdfOutlined, PlusOutlined, UploadOutlined, RotateRightOutlined, CloseOutlined, FileTextOutlined, EditOutlined, FormOutlined, ScissorOutlined } from '@ant-design/icons';
+import { FilePdfOutlined, PlusOutlined, UploadOutlined, RotateRightOutlined, CloseOutlined, EditOutlined, FormOutlined, ScissorOutlined } from '@ant-design/icons';
 import PerspectiveCropModal from './PerspectiveCropModal';
 import { useQuery } from '@tanstack/react-query';
 import { contractTemplateService } from '../../services/contractService';
@@ -382,16 +382,23 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
 
   return (
     <div className="wm-documents-tab" style={{ height: isMobile ? 'auto' : 'calc(100vh - 180px)', minHeight: isMobile ? 'calc(100vh - 250px)' : undefined, padding: isMobile ? '8px' : '16px', overflow: 'auto' }}>
-      {/* Documents Section */}
-      <Card
-        title={<span><FileTextOutlined style={{ marginRight: 8 }} />Documents</span>}
-        size="small"
-        extra={
+      {/* Uploaded and generated documents, and the invoices from the scope.
+          No titled card around it: the tab already says Documents */}
+      <WMDocumentList
+        ref={documentListRef}
+        jobId={jobId}
+        jobAddress={jobAddress}
+        canEditInvoices={canEditInvoices}
+        onDelete={() => {
+          // Refresh list after delete
+        }}
+        onEditAnnotation={handleEditAnnotatedDocument}
+        onInvoiceAmountChange={onJobDataChange}
+        toolbarExtra={
           <Space size="small">
             <Button
               icon={<UploadOutlined />}
               onClick={() => setUploadModalVisible(true)}
-              size="small"
             >
               Upload
             </Button>
@@ -399,33 +406,18 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
               type="primary"
               icon={<PlusOutlined />}
               onClick={handleCreateDocument}
-              size="small"
             >
               Create
             </Button>
             <Button
               icon={<EditOutlined />}
               onClick={handleOpenAnnotator}
-              size="small"
             >
               Annotate
             </Button>
           </Space>
         }
-      >
-        {/* Uploaded and generated documents, and the invoices from the scope */}
-        <WMDocumentList
-          ref={documentListRef}
-          jobId={jobId}
-          jobAddress={jobAddress}
-          canEditInvoices={canEditInvoices}
-          onDelete={() => {
-            // Refresh list after delete
-          }}
-          onEditAnnotation={handleEditAnnotatedDocument}
-          onInvoiceAmountChange={onJobDataChange}
-        />
-      </Card>
+      />
 
       <Modal
         title="Create Document"
