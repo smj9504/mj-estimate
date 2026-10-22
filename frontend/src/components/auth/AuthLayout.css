@@ -1,0 +1,224 @@
+/*
+ * Signed-out pages (auth-*): sign in, forgot and reset password.
+ * The brand in the corner, one 360px column on the white sheet, no card,
+ * no shadow. Built from the White Sheet tokens.
+ */
+
+.auth-page {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--color-surface);
+  color: var(--color-neutral-900);
+}
+
+/* The sidebar's workspace mark, one step larger */
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 64px;
+  padding: 0 24px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.auth-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--color-neutral-900);
+  color: var(--color-surface);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+/* Centred on the viewport rather than below the brand row, lifted a little */
+.auth-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 24px calc(64px + 8vh);
+}
+.auth-column {
+  width: 100%;
+  max-width: 360px;
+}
+
+.auth-head {
+  margin-bottom: 28px;
+}
+.auth-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  color: var(--color-neutral-900);
+  text-wrap: balance;
+}
+.auth-description {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.5714;
+  color: var(--color-neutral-700);
+  overflow-wrap: anywhere;
+}
+.auth-description strong {
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+
+/* ---- Form ---- */
+.auth-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.auth-label {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--color-neutral-700);
+}
+.auth-form .ant-form-item {
+  margin-bottom: 18px;
+}
+.auth-label-hint {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+/* antd lets a message take over the item's margin, flush against the next
+   label; the padding keeps the next label clear of it */
+.auth-form .ant-form-item-explain {
+  margin-top: 4px;
+  padding-bottom: 14px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.auth-form .auth-submit.ant-form-item {
+  margin: 26px 0 0;
+}
+
+/* ---- Links ---- */
+.auth-link,
+.auth-link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-primary);
+  text-decoration: none;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.auth-link:hover,
+.auth-link-button:hover {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+.auth-link:active,
+.auth-link-button:active {
+  color: var(--color-primary-deep);
+}
+
+.auth-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 24px;
+  font-size: 14px;
+}
+.auth-back .anticon {
+  font-size: 12px;
+}
+
+/* ---- Errors: the red tag tone, no border ---- */
+.auth-alert.ant-alert {
+  align-items: flex-start;
+  margin-bottom: 20px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--tag-red-bg);
+}
+.auth-alert .ant-alert-icon {
+  margin-top: 4px;
+  color: var(--color-error);
+}
+.auth-alert .ant-alert-message {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--tag-red-text);
+}
+.auth-alert .ant-alert-close-icon .anticon-close {
+  color: var(--tag-red-text);
+}
+
+/* ---- Result states (sent, invalid link, done) ---- */
+.auth-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.auth-actions .ant-btn {
+  width: 100%;
+}
+.auth-actions .auth-link-button {
+  font-size: 14px;
+}
+
+.auth-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--color-neutral-700);
+}
+
+/* ---- Development-only helpers ---- */
+.auth-dev {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 32px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--color-neutral-50);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-neutral-700);
+}
+.auth-dev-title {
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.auth-dev .ant-input {
+  font-family: SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+}
+
+@media (max-width: 575px) {
+  .auth-brand {
+    height: 56px;
+    padding: 0 16px;
+  }
+  .auth-main {
+    align-items: flex-start;
+    padding: 6vh 16px 32px;
+  }
+  .auth-title {
+    font-size: 22px;
+  }
+}

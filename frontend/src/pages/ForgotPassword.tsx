@@ -1,17 +1,17 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Card, Typography, Space, Alert, Result } from 'antd';
-import { MailOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { Link, useNavigate } from 'react-router-dom';
+import { Form, Input, Button, Alert } from 'antd';
+import { ArrowLeftOutlined } from '@ant-design/icons';
 import authService from '../services/authService';
-
-const { Title, Text, Link } = Typography;
+import AuthLayout, { AuthFieldLabel } from '../components/auth/AuthLayout';
 
 const ForgotPassword: React.FC = () => {
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  // The address the instructions went to; set once the request succeeds
+  const [sentTo, setSentTo] = useState<string | null>(null);
   const [resetToken, setResetToken] = useState<string | null>(null);
 
   const onFinish = async (values: { email: string }) => {
@@ -21,7 +21,7 @@ const ForgotPassword: React.FC = () => {
     try {
       const response = await authService.requestPasswordReset(values.email);
 
-      setSuccess(true);
+      setSentTo(values.email);
       // In development, show the token
       if (response.token) {
         setResetToken(response.token);
@@ -33,124 +33,113 @@ const ForgotPassword: React.FC = () => {
     }
   };
 
-  if (success) {
+  if (sentTo) {
     return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        minHeight: '100vh',
-        backgroundColor: '#f0f2f5'
-      }}>
-        <Card style={{ width: 500, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-          <Result
-            status="success"
-            title="Reset Email Sent"
-            subTitle="If an account exists with this email, you will receive password reset instructions."
-            extra={[
-              <Button type="primary" key="login" onClick={() => navigate('/login')}>
-                Back to Login
-              </Button>,
-              resetToken && process.env.NODE_ENV === 'development' && (
-                <div key="dev-token" style={{ marginTop: 20 }}>
-                  <Alert
-                    message="Development Mode"
-                    description={
-                      <Space direction="vertical" style={{ width: '100%' }}>
-                        <Text>Use this token to reset password:</Text>
-                        <Input.TextArea
-                          value={resetToken}
-                          autoSize={{ minRows: 2, maxRows: 4 }}
-                          readOnly
-                        />
-                        <Button
-                          size="small"
-                          onClick={() => navigate(`/reset-password?token=${resetToken}`)}
-                        >
-                          Go to Reset Password
-                        </Button>
-                      </Space>
-                    }
-                    type="info"
-                  />
-                </div>
-              )
-            ]}
-          />
-        </Card>
-      </div>
+      <AuthLayout
+        title="Check your email"
+        description={
+          <>
+            If an account exists for <strong>{sentTo}</strong>, you will receive password
+            reset instructions.
+          </>
+        }
+      >
+        <div className="auth-actions">
+          <Button type="primary" size="large" onClick={() => navigate('/login')}>
+            Back to sign in
+          </Button>
+          <button
+            type="button"
+            className="auth-link-button"
+            onClick={() => {
+              setSentTo(null);
+              setResetToken(null);
+            }}
+          >
+            Use a different email
+          </button>
+        </div>
+
+        {resetToken && process.env.NODE_ENV === 'development' && (
+          <div className="auth-dev">
+            <span className="auth-dev-title">Development mode</span>
+            <span>Use this token to reset password:</span>
+            <Input.TextArea
+              value={resetToken}
+              autoSize={{ minRows: 2, maxRows: 4 }}
+              readOnly
+            />
+            <Button
+              size="small"
+              onClick={() => navigate(`/reset-password?token=${resetToken}`)}
+            >
+              Go to reset password
+            </Button>
+          </div>
+        )}
+      </AuthLayout>
     );
   }
 
   return (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      minHeight: '100vh',
-      backgroundColor: '#f0f2f5'
-    }}>
-      <Card style={{ width: 450, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-        <Space direction="vertical" size="large" style={{ width: '100%' }}>
-          <div style={{ textAlign: 'center' }}>
-            <Title level={2}>Reset Password</Title>
-            <Text type="secondary">
-              Enter your email address and we'll send you instructions to reset your password.
-            </Text>
-          </div>
+    <AuthLayout
+      title="Reset your password"
+      description="Enter your email address and we'll send you instructions to reset your password."
+    >
+      {error && (
+        <Alert
+          className="auth-alert"
+          message={error}
+          type="error"
+          showIcon
+          closable
+          onClose={() => setError(null)}
+        />
+      )}
 
-          {error && (
-            <Alert
-              message={error}
-              type="error"
-              closable
-              onClose={() => setError(null)}
-            />
-          )}
+      <Form
+        form={form}
+        name="forgot-password"
+        className="auth-form"
+        onFinish={onFinish}
+        layout="vertical"
+        requiredMark={false}
+      >
+        <AuthFieldLabel htmlFor="forgot-password_email">Email</AuthFieldLabel>
+        <Form.Item
+          name="email"
+          rules={[
+            { required: true, message: 'Please enter your email' },
+            { type: 'email', message: 'Please enter a valid email' }
+          ]}
+        >
+          <Input
+            size="large"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            spellCheck={false}
+            autoFocus
+          />
+        </Form.Item>
 
-          <Form
-            form={form}
-            name="forgot-password"
-            onFinish={onFinish}
-            autoComplete="off"
-            layout="vertical"
-            requiredMark={false}
+        <Form.Item className="auth-submit">
+          <Button
+            type="primary"
+            htmlType="submit"
+            size="large"
+            loading={loading}
+            block
           >
-            <Form.Item
-              name="email"
-              rules={[
-                { required: true, message: 'Please enter your email' },
-                { type: 'email', message: 'Please enter a valid email' }
-              ]}
-            >
-              <Input
-                size="large"
-                prefix={<MailOutlined />}
-                placeholder="Email Address"
-              />
-            </Form.Item>
+            Send reset instructions
+          </Button>
+        </Form.Item>
+      </Form>
 
-            <Form.Item>
-              <Button
-                type="primary"
-                htmlType="submit"
-                size="large"
-                loading={loading}
-                block
-              >
-                Send Reset Instructions
-              </Button>
-            </Form.Item>
-          </Form>
-
-          <div style={{ textAlign: 'center' }}>
-            <Link onClick={() => navigate('/login')}>
-              <ArrowLeftOutlined /> Back to Login
-            </Link>
-          </div>
-        </Space>
-      </Card>
-    </div>
+      <Link to="/login" className="auth-link auth-back">
+        <ArrowLeftOutlined aria-hidden="true" /> Back to sign in
+      </Link>
+    </AuthLayout>
   );
 };
 
