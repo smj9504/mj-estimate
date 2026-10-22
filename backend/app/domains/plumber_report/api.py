@@ -10,6 +10,7 @@ import asyncio
 import json
 import io
 import logging
+from urllib.parse import quote
 
 from app.core.database_factory import get_db_session as get_db
 from app.domains.auth.dependencies import get_current_staff
@@ -34,6 +35,12 @@ from pydantic import BaseModel, field_validator
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _report_pdf_filename(property_address: Optional[str]) -> str:
+    """Plumber's Report - {street address}.pdf, shared by download and email."""
+    address = (property_address or "").split(",")[0].strip()
+    return f"Plumber's Report - {address}.pdf" if address else "Plumber's Report.pdf"
 
 
 class AIPhotoInput(BaseModel):
@@ -269,13 +276,19 @@ def generate_pdf(
         
         # Generate PDF using PDF service
         pdf_bytes = PDFService.generate_plumber_report_pdf(report_dict)
-        
+
+        # Starlette encodes headers as latin-1, so non-ASCII addresses go in
+        # the RFC 5987 filename* extension with an ASCII fallback.
+        filename = _report_pdf_filename(report.property_address)
+        ascii_filename = filename.encode('ascii', 'ignore').decode('ascii').strip() or "Plumber's Report.pdf"
+        content_disposition = f'attachment; filename="{ascii_filename}"'
+        if ascii_filename != filename:
+            content_disposition += f"; filename*=UTF-8''{quote(filename)}"
+
         return StreamingResponse(
             io.BytesIO(pdf_bytes),
             media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename=plumber_report_{report.report_number}.pdf"
-            }
+            headers={"Content-Disposition": content_disposition}
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
@@ -551,12 +564,8 @@ async def send_plumber_report_to_pa(
             status_code=500, detail=f"PDF generation failed: {e}"
         )
 
-    address_short = (
-        report.property_address or "property"
-    ).split(",")[0].strip()
-
     attachments = [{
-        "filename": f"Plumber Report {report.report_number} - {address_short}.pdf",
+        "filename": _report_pdf_filename(report.property_address),
         "data": pdf_bytes,
         "mime_type": "application/pdf",
     }]

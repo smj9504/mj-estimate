@@ -387,7 +387,8 @@ const DocumentList: React.FC = () => {
         filename = `estimate_${record.estimate_number || id}.pdf`;
       } else if (type === 'plumber_report') {
         blob = await plumberReportService.generatePDF(id);
-        filename = `plumber_report_${record.document_number || id}.pdf`;
+        const streetAddress = (record.client_address || '').split(',')[0].trim();
+        filename = streetAddress ? `Plumber's Report - ${streetAddress}.pdf` : `Plumber's Report.pdf`;
       } else if (type === 'electrician_report') {
         blob = await electricianReportService.generatePDF(id);
         filename = `electrician_report_${record.document_number || id}.pdf`;
