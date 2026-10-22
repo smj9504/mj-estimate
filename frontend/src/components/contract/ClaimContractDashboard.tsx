@@ -13,19 +13,15 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Badge,
   Button,
-  Collapse,
   Drawer,
   Empty,
   Input,
-  List,
   Modal,
   Popconfirm,
   Select,
   Space,
   Spin,
-  Tag,
   Timeline,
   Tooltip,
   Typography,
@@ -57,26 +53,24 @@ import type {
   ContractStatus,
 } from '../../types/contract';
 import ContractGenerateModal from './ContractGenerateModal';
-import { useSheetModal } from '../common/ui';
+import { Pill, humanize, useSheetModal, type TagTone } from '../common/ui';
+import ClaimSection from '../client/ClaimSection';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 
 // ── Status config ─────────────────────────────────────────────────────────────
 
-const STATUS_CONFIG: Record<ContractStatus, { color: string; icon: React.ReactNode; label: string }> = {
-  draft: { color: 'default', icon: <EditOutlined />, label: 'Draft' },
-  sent: { color: 'processing', icon: <SendOutlined />, label: 'Sent' },
-  viewed: { color: 'warning', icon: <EyeOutlined />, label: 'Viewed' },
-  signed: { color: 'success', icon: <CheckCircleFilled />, label: 'Signed' },
-  voided: { color: 'error', icon: <StopOutlined />, label: 'Voided' },
+const STATUS_CONFIG: Record<ContractStatus, { tone: TagTone; icon: React.ReactNode; label: string }> = {
+  draft: { tone: 'gray', icon: <EditOutlined />, label: 'Draft' },
+  sent: { tone: 'blue', icon: <SendOutlined />, label: 'Sent' },
+  viewed: { tone: 'yellow', icon: <EyeOutlined />, label: 'Viewed' },
+  signed: { tone: 'green', icon: <CheckCircleFilled />, label: 'Signed' },
+  voided: { tone: 'red', icon: <StopOutlined />, label: 'Voided' },
 };
 
-const ROLE_COLORS: Record<string, string> = {
-  plumber: 'blue',
-  water_mitigation: 'cyan',
-  reconstruction: 'purple',
-  moving: 'orange',
-  other: 'default',
+const ContractStatusPill: React.FC<{ status: ContractStatus }> = ({ status }) => {
+  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.draft;
+  return <Pill tone={cfg.tone} icon={cfg.icon}>{cfg.label}</Pill>;
 };
 
 // ── Audit log display ─────────────────────────────────────────────────────────
@@ -361,219 +355,152 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
     return parseAuditLog(activityContract.audit_log);
   }, [activityContract]);
 
-  if (isLoading) {
-    return (
-      <div style={{ textAlign: 'center', padding: 40 }}>
-        <Spin />
-      </div>
-    );
-  }
-
   const companies = dashboard?.companies || [];
 
-  return (
-    <div>
-      {/* Header */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 16,
-      }}>
-        <Space>
-          <FileTextOutlined style={{ fontSize: 18, color: '#1677ff' }} />
-          <Title level={5} style={{ margin: 0 }}>
-            Contracts ({dashboard?.total_contracts || 0})
-          </Title>
-        </Space>
-        <Button
-          type="primary"
-          size="small"
-          icon={<PlusOutlined />}
-          onClick={() => setGenerateOpen(true)}
+  const contractActions = (contract: ContractInstance) => [
+    contract.file_url && (
+      <Tooltip title="View PDF" key="view">
+        <a
+          className="sup-pdf-link cl-touch-link"
+          href={`${api.defaults.baseURL || ''}/api/contracts/contracts/${contract.id}/pdf`}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="View PDF"
         >
+          <FilePdfOutlined />
+        </a>
+      </Tooltip>
+    ),
+    contract.signing_token && contract.status !== 'voided' && (
+      <Tooltip title="Copy Signing Link" key="copy">
+        <Button
+          type="text"
+          size="small"
+          className="ui-icon-btn cl-touch-icon"
+          aria-label="Copy signing link"
+          icon={<CopyOutlined />}
+          onClick={() => handleCopyLink(contract.signing_token!)}
+        />
+      </Tooltip>
+    ),
+    contract.signing_token && contract.status !== 'voided' && contract.status !== 'signed' && (
+      <Tooltip title="Send via Email" key="email">
+        <Button
+          type="text"
+          size="small"
+          className="ui-icon-btn cl-touch-icon"
+          aria-label="Send via email"
+          icon={<MailOutlined />}
+          onClick={() => handleOpenEmailModal(contract)}
+        />
+      </Tooltip>
+    ),
+    contract.signing_token && (contract.status === 'sent' || contract.status === 'viewed') && (
+      <Tooltip title="Send Reminder" key="reminder">
+        <Button
+          type="text"
+          size="small"
+          className="ui-icon-btn cl-touch-icon"
+          aria-label="Send reminder"
+          icon={<BellOutlined />}
+          onClick={() => {
+            setReminderContract(contract);
+            setReminderMessage('');
+          }}
+        />
+      </Tooltip>
+    ),
+    <Tooltip title="Activity History" key="history">
+      <Button
+        type="text"
+        size="small"
+        className="ui-icon-btn cl-touch-icon"
+        aria-label="Activity history"
+        icon={<HistoryOutlined />}
+        onClick={() => setActivityContract(contract)}
+      />
+    </Tooltip>,
+    contract.status !== 'signed' && (
+      <Popconfirm
+        key="delete"
+        title="Delete this contract?"
+        description="This action cannot be undone."
+        onConfirm={() => handleDelete(contract)}
+        okText="Delete"
+        okButtonProps={{ danger: true }}
+      >
+        <Tooltip title="Delete">
+          <Button
+            type="text"
+            size="small"
+            className="ui-icon-btn ui-icon-btn--danger cl-touch-icon"
+            aria-label="Delete contract"
+            icon={<DeleteOutlined />}
+          />
+        </Tooltip>
+      </Popconfirm>
+    ),
+  ].filter(Boolean);
+
+  return (
+    <ClaimSection
+      title="Contracts"
+      count={dashboard?.total_contracts || undefined}
+      actions={(
+        <Button type="text" size="small" icon={<PlusOutlined />} onClick={() => setGenerateOpen(true)}>
           New Contract
         </Button>
-      </div>
-
-      {companies.length === 0 ? (
-        <Empty
-          description="No contracts yet"
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-        >
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => setGenerateOpen(true)}
-          >
-            Generate First Contract
-          </Button>
-        </Empty>
+      )}
+    >
+      {isLoading ? (
+        <Spin size="small" />
+      ) : companies.length === 0 ? (
+        <div className="cl-empty">No contracts yet.</div>
       ) : (
-        <Collapse
-          defaultActiveKey={companies.map((_, i) => String(i))}
-          style={{ background: '#fafafa' }}
-          items={companies.map((company: CompanyContractSummary, idx: number) => ({
-            key: String(idx),
-            label: (
-              <Space>
-                <Text strong>{company.company_name}</Text>
-                {company.role && (
-                  <Tag color={ROLE_COLORS[company.role] || 'default'} style={{ fontSize: 11 }}>
-                    {company.role.replace(/_/g, ' ')}
-                  </Tag>
-                )}
-                {company.is_primary && (
-                  <Tag color="gold" style={{ fontSize: 11 }}>Primary</Tag>
-                )}
-                {/* Summary badges */}
-                <Space size={4}>
-                  {company.summary.signed > 0 && (
-                    <Badge count={company.summary.signed} color="#52c41a" title="Signed" />
-                  )}
-                  {(company.summary.sent + company.summary.viewed) > 0 && (
-                    <Badge
-                      count={company.summary.sent + company.summary.viewed}
-                      color="#faad14"
-                      title="Pending"
-                    />
-                  )}
-                  {company.summary.draft > 0 && (
-                    <Badge count={company.summary.draft} color="#d9d9d9" title="Draft" />
-                  )}
-                </Space>
-              </Space>
-            ),
-            children: (
-              <List
-                size="small"
-                dataSource={company.contracts}
-                locale={{ emptyText: 'No contracts' }}
-                renderItem={(contract: ContractInstance) => {
-                  const statusCfg = STATUS_CONFIG[contract.status] || STATUS_CONFIG.draft;
-                  return (
-                    <List.Item
-                      actions={[
-                        // View PDF
-                        contract.file_url && (
-                          <Tooltip title="View PDF" key="view">
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<FilePdfOutlined />}
-                              href={`${api.defaults.baseURL || ''}/api/contracts/contracts/${contract.id}/pdf`}
-                              target="_blank"
-                            />
-                          </Tooltip>
-                        ),
-                        // Copy signing link
-                        contract.signing_token && contract.status !== 'voided' && (
-                          <Tooltip title="Copy Signing Link" key="copy">
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<CopyOutlined />}
-                              onClick={() => handleCopyLink(contract.signing_token!)}
-                            />
-                          </Tooltip>
-                        ),
-                        // Send email
-                        contract.signing_token && contract.status !== 'voided' && contract.status !== 'signed' && (
-                          <Tooltip title="Send via Email" key="email">
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<MailOutlined />}
-                              onClick={() => handleOpenEmailModal(contract)}
-                            />
-                          </Tooltip>
-                        ),
-                        // Send Reminder
-                        contract.signing_token && (contract.status === 'sent' || contract.status === 'viewed') && (
-                          <Tooltip title="Send Reminder" key="reminder">
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<BellOutlined style={{ color: '#fa8c16' }} />}
-                              onClick={() => {
-                                setReminderContract(contract);
-                                setReminderMessage('');
-                              }}
-                            />
-                          </Tooltip>
-                        ),
-                        // Activity History
-                        <Tooltip title="Activity History" key="history">
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<HistoryOutlined />}
-                            onClick={() => setActivityContract(contract)}
-                          />
-                        </Tooltip>,
-                        // Delete
-                        contract.status !== 'signed' && (
-                          <Popconfirm
-                            key="delete"
-                            title="Delete this contract?"
-                            description="This action cannot be undone."
-                            onConfirm={() => handleDelete(contract)}
-                            okText="Delete"
-                            okButtonProps={{ danger: true }}
-                          >
-                            <Tooltip title="Delete">
-                              <Button
-                                type="text"
-                                size="small"
-                                danger
-                                icon={<DeleteOutlined />}
-                              />
-                            </Tooltip>
-                          </Popconfirm>
-                        ),
-                      ].filter(Boolean)}
-                    >
-                      <List.Item.Meta
-                        title={
-                          <Space size={8}>
-                            <Text style={{ fontSize: 13 }}>
-                              {contract.title || contract.template_name || 'Untitled'}
-                            </Text>
-                            <Tag
-                              color={statusCfg.color}
-                              icon={statusCfg.icon}
-                              style={{ fontSize: 11 }}
-                            >
-                              {statusCfg.label}
-                            </Tag>
-                          </Space>
-                        }
-                        description={
-                          <Space size={16} style={{ fontSize: 11 }}>
-                            {contract.contract_number && (
-                              <Text type="secondary">{contract.contract_number}</Text>
-                            )}
-                            {contract.created_at && (
-                              <Text type="secondary">
-                                <ClockCircleOutlined style={{ marginRight: 4 }} />
-                                {new Date(contract.created_at).toLocaleDateString()}
-                              </Text>
-                            )}
-                            {contract.signature_count > 0 && (
-                              <Text type="secondary">
-                                {contract.signature_count} signature(s)
-                              </Text>
-                            )}
-                          </Space>
-                        }
-                      />
-                    </List.Item>
-                  );
-                }}
-              />
-            ),
-          }))}
-        />
+        companies.map((company: CompanyContractSummary, idx: number) => {
+          const pending = company.summary.sent + company.summary.viewed;
+          const counts = [
+            company.summary.signed > 0 && `${company.summary.signed} signed`,
+            pending > 0 && `${pending} pending`,
+            company.summary.draft > 0 && `${company.summary.draft} draft`,
+          ].filter(Boolean);
+          return (
+            <div key={idx} className="cl-group">
+              <div className="cl-group-head">
+                <span className="cl-group-name">{company.company_name}</span>
+                {company.role && <span className="cl-meta">{humanize(company.role)}</span>}
+                {company.is_primary && <Pill tone="gray">Primary</Pill>}
+                {counts.length > 0 && <span className="cl-meta cl-group-counts">{counts.join(' · ')}</span>}
+              </div>
+              {company.contracts.length === 0 ? (
+                <div className="cl-empty">No contracts</div>
+              ) : (
+                <ul className="cl-list">
+                  {company.contracts.map((contract: ContractInstance) => {
+                    const meta = [
+                      contract.contract_number,
+                      contract.created_at && new Date(contract.created_at).toLocaleDateString(),
+                      contract.signature_count > 0
+                        && `${contract.signature_count} signature${contract.signature_count === 1 ? '' : 's'}`,
+                    ].filter(Boolean);
+                    return (
+                      <li key={contract.id} className="cl-list-item">
+                        <div className="cl-list-body">
+                          <div className="cl-list-title">
+                            <span>{contract.title || contract.template_name || 'Untitled'}</span>
+                            <ContractStatusPill status={contract.status} />
+                          </div>
+                          {meta.length > 0 && <div className="cl-meta">{meta.join(' · ')}</div>}
+                        </div>
+                        <div className="cl-row-actions">{contractActions(contract)}</div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          );
+        })
       )}
 
       {/* Generate Contract Modal */}
@@ -589,7 +516,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
       <Modal
         title={
           <Space>
-            <MailOutlined style={{ color: '#1677ff' }} />
+            <MailOutlined />
             Send Signing Link via Email
           </Space>
         }
@@ -604,14 +531,14 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
         {...sheetProps}
       >
         {/* Document info */}
-        <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f6f8fa', borderRadius: 6 }}>
+        <div className="cl-quiet-box">
           <Text strong style={{ fontSize: 13 }}>
             {emailModalContract?.title || emailModalContract?.template_name || 'Contract'}
           </Text>
           {emailModalContract?.document_type && (
-            <Tag color="blue" style={{ marginLeft: 8, fontSize: 11 }}>
-              {emailModalContract.document_type.replace(/_/g, ' ')}
-            </Tag>
+            <Pill tone="gray" style={{ marginLeft: 8 }}>
+              {humanize(emailModalContract.document_type)}
+            </Pill>
           )}
           {emailModalContract?.contract_number && (
             <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
@@ -700,7 +627,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
       <Modal
         title={
           <Space>
-            <BellOutlined style={{ color: '#fa8c16' }} />
+            <BellOutlined />
             Send Reminder
           </Space>
         }
@@ -714,17 +641,12 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
         width={480}
         {...sheetProps}
       >
-        <div style={{ marginBottom: 16, padding: '8px 12px', background: '#fff7e6', borderRadius: 6, borderLeft: '3px solid #fa8c16' }}>
+        <div className="cl-quiet-box">
           <Text strong style={{ fontSize: 13 }}>
             {reminderContract?.title || reminderContract?.template_name || 'Contract'}
           </Text>
           {reminderContract?.status && (
-            <Tag
-              color={STATUS_CONFIG[reminderContract.status]?.color || 'default'}
-              style={{ marginLeft: 8, fontSize: 11 }}
-            >
-              {STATUS_CONFIG[reminderContract.status]?.label || reminderContract.status}
-            </Tag>
+            <span style={{ marginLeft: 8 }}><ContractStatusPill status={reminderContract.status} /></span>
           )}
         </div>
         <div style={{ marginBottom: 12 }}>
@@ -767,7 +689,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
       <Drawer
         title={
           <Space>
-            <HistoryOutlined style={{ color: '#1677ff' }} />
+            <HistoryOutlined />
             <span>Activity</span>
           </Space>
         }
@@ -780,7 +702,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
         {activityContract && (
           <div>
             {/* Document header */}
-            <div style={{ marginBottom: 20, padding: '12px 16px', background: '#f6f8fa', borderRadius: 8 }}>
+            <div className="cl-quiet-box" style={{ marginBottom: 20 }}>
               <Text strong style={{ fontSize: 14, display: 'block' }}>
                 {activityContract.title || activityContract.template_name || 'Contract'}
               </Text>
@@ -790,13 +712,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
                 </Text>
               )}
               <div style={{ marginTop: 6 }}>
-                <Tag
-                  color={STATUS_CONFIG[activityContract.status]?.color || 'default'}
-                  icon={STATUS_CONFIG[activityContract.status]?.icon}
-                  style={{ fontSize: 11 }}
-                >
-                  Status: {STATUS_CONFIG[activityContract.status]?.label || activityContract.status}
-                </Tag>
+                <ContractStatusPill status={activityContract.status} />
               </div>
             </div>
 
@@ -824,7 +740,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
                         <div style={{ fontSize: 13, lineHeight: 1.5 }}>
                           {getAuditDescription(entry)}
                         </div>
-                        <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2 }}>
+                        <div className="cl-meta" style={{ marginTop: 2 }}>
                           {formatAuditTimestamp(entry.timestamp)}
                           {entry.ip && (
                             <span style={{ marginLeft: 8 }}>
@@ -841,7 +757,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
           </div>
         )}
       </Drawer>
-    </div>
+    </ClaimSection>
   );
 };
 

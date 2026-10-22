@@ -5,16 +5,8 @@ import {
   Table,
   Select,
   Tag,
-  Space,
-  Typography,
   Input,
-  Row,
-  Col,
-  Empty,
   Tooltip,
-  Badge,
-  Statistic,
-  Card,
 } from 'antd';
 import {
   MailOutlined,
@@ -26,42 +18,47 @@ import {
   HomeOutlined,
   ExperimentOutlined,
   SearchOutlined,
-  CheckCircleOutlined,
-  LinkOutlined,
+  CheckOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { clientService } from '../../services/clientService';
 import type { ClientDocument, ClientDocType } from '../../types/client';
 import type { ColumnsType } from 'antd/es/table';
+import { Pill, humanize, type TagTone } from '../common/ui';
+import { tagTones } from '../../styles/tokens';
+import { WM_STATUS_TONES } from '../water-mitigation/wmStatus';
 
 dayjs.extend(relativeTime);
 
-const { Text } = Typography;
-
-const DOC_TYPE_CONFIG: Record<ClientDocType, { label: string; color: string; icon: React.ReactNode }> = {
-  email:              { label: 'Email',              color: 'blue',       icon: <MailOutlined /> },
-  invoice:            { label: 'Invoice',            color: 'green',      icon: <DollarOutlined /> },
-  estimate:           { label: 'Estimate',           color: 'purple',     icon: <FileTextOutlined /> },
-  contract:           { label: 'Contract',           color: 'orange',     icon: <SafetyOutlined /> },
-  insurance_estimate: { label: 'Insurance Est.',     color: 'red',        icon: <FilePdfOutlined /> },
-  work_order:         { label: 'Work Order',         color: 'cyan',       icon: <ToolOutlined /> },
-  wm_job:             { label: 'WM Job',             color: 'geekblue',   icon: <HomeOutlined /> },
-  cabinet_estimate:   { label: 'Cabinet Est.',       color: 'magenta',    icon: <ExperimentOutlined /> },
-  plumber_report:     { label: 'Plumber Report',     color: 'volcano',    icon: <ToolOutlined /> },
-  packing_estimate:   { label: 'Packing Est.',       color: 'lime',       icon: <FileTextOutlined /> },
+// Each type keeps one tone, shown as the dot on its filter chip and in the table
+const DOC_TYPE_CONFIG: Record<ClientDocType, { label: string; tone: TagTone; icon: React.ReactNode }> = {
+  email:              { label: 'Email',              tone: 'blue',   icon: <MailOutlined /> },
+  invoice:            { label: 'Invoice',            tone: 'green',  icon: <DollarOutlined /> },
+  estimate:           { label: 'Estimate',           tone: 'purple', icon: <FileTextOutlined /> },
+  contract:           { label: 'Contract',           tone: 'orange', icon: <SafetyOutlined /> },
+  insurance_estimate: { label: 'Insurance Est.',     tone: 'red',    icon: <FilePdfOutlined /> },
+  work_order:         { label: 'Work Order',         tone: 'brown',  icon: <ToolOutlined /> },
+  wm_job:             { label: 'WM Job',             tone: 'blue',   icon: <HomeOutlined /> },
+  cabinet_estimate:   { label: 'Cabinet Est.',       tone: 'pink',   icon: <ExperimentOutlined /> },
+  plumber_report:     { label: 'Plumber Report',     tone: 'yellow', icon: <ToolOutlined /> },
+  packing_estimate:   { label: 'Packing Est.',       tone: 'gray',   icon: <FileTextOutlined /> },
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  sent: 'blue', sending: 'processing', draft: 'default', paid: 'green',
-  pending: 'orange', overdue: 'red', cancelled: 'default',
-  signed: 'green', viewed: 'cyan', voided: 'default',
-  accepted: 'green', rejected: 'red', expired: 'default',
-  completed: 'green', in_progress: 'processing', approved: 'green',
+const STATUS_TONES: Record<string, TagTone> = {
+  sent: 'blue', sending: 'blue', draft: 'gray', paid: 'green',
+  pending: 'orange', overdue: 'red', cancelled: 'gray',
+  signed: 'green', viewed: 'yellow', voided: 'gray',
+  accepted: 'green', rejected: 'red', expired: 'gray',
+  completed: 'green', in_progress: 'blue', approved: 'green',
   uploaded: 'blue', extracted: 'green', failed: 'red',
-  Lead: 'default', 'In Progress': 'processing', 'Sent to adjuster': 'blue',
-  Completed: 'green', calculated: 'processing', exported: 'cyan', final: 'green',
+  'In Progress': 'blue', Completed: 'green',
+  calculated: 'blue', exported: 'purple', final: 'green',
+  ...WM_STATUS_TONES,
 };
+
+// WM job statuses are already written as labels; enum values get sentence case
+const statusLabel = (status: string) => (/[A-Z ]/.test(status) ? status : humanize(status));
 
 interface ClientDocumentHubProps {
   clientId: string;
@@ -73,27 +70,26 @@ const ClientDocumentHub: React.FC<ClientDocumentHubProps> = ({ clientId }) => {
   const [claimFilter, setClaimFilter] = useState<string | undefined>();
   const [searchText, setSearchText] = useState('');
 
+  // The type filter runs here, so the chips keep every type's count while one is selected
   const { data, isLoading } = useQuery({
-    queryKey: ['client-all-documents', clientId, typeFilter, claimFilter],
+    queryKey: ['client-all-documents', clientId, claimFilter],
     queryFn: () => clientService.getAllDocuments(clientId, {
-      doc_type: typeFilter,
       claim_id: claimFilter,
     }),
   });
 
-  const documents = data?.documents ?? [];
+  const documents = useMemo(() => data?.documents ?? [], [data]);
   const claims = data?.claims ?? [];
 
-  // Local text search filter
   const filtered = useMemo(() => {
-    if (!searchText) return documents;
     const q = searchText.toLowerCase();
     return documents.filter(d =>
-      d.title.toLowerCase().includes(q) ||
-      (d.description || '').toLowerCase().includes(q) ||
-      (d.claim_number || '').toLowerCase().includes(q)
+      (!typeFilter || d.doc_type === typeFilter) && (!q ||
+        d.title.toLowerCase().includes(q) ||
+        (d.description || '').toLowerCase().includes(q) ||
+        (d.claim_number || '').toLowerCase().includes(q))
     );
-  }, [documents, searchText]);
+  }, [documents, searchText, typeFilter]);
 
   // Summary counts by type
   const typeCounts = useMemo(() => {
@@ -109,20 +105,16 @@ const ClientDocumentHub: React.FC<ClientDocumentHubProps> = ({ clientId }) => {
       title: 'Type',
       dataIndex: 'doc_type',
       key: 'doc_type',
-      width: 140,
+      width: 150,
       render: (type: ClientDocType) => {
         const cfg = DOC_TYPE_CONFIG[type];
         return cfg ? (
-          <Tag color={cfg.color} icon={cfg.icon} style={{ margin: 0 }}>
+          <span className="cl-doc-type">
+            <span className="cl-doc-type-icon" aria-hidden="true">{cfg.icon}</span>
             {cfg.label}
-          </Tag>
+          </span>
         ) : type;
       },
-      filters: Object.entries(DOC_TYPE_CONFIG).map(([k, v]) => ({
-        text: v.label,
-        value: k,
-      })),
-      onFilter: (value, record) => record.doc_type === value,
     },
     {
       title: 'Title',
@@ -130,51 +122,42 @@ const ClientDocumentHub: React.FC<ClientDocumentHubProps> = ({ clientId }) => {
       key: 'title',
       ellipsis: true,
       render: (title: string, record: ClientDocument) => (
-        <Space direction="vertical" size={0}>
-          <Space size={4}>
-            <Text strong style={{ fontSize: 13 }}>{title}</Text>
-            {record.link && <LinkOutlined style={{ color: '#1890ff', fontSize: 11 }} />}
+        <>
+          <span className="cl-doc-title">
+            <span className={record.link ? 'ui-ink-link' : 'cl-doc-title-text'}>{title}</span>
             {record.reply_received && (
-              <Tooltip title="Reply received">
-                <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 12 }} />
-              </Tooltip>
+              <Pill tone="green" icon={<CheckOutlined />}>Replied</Pill>
             )}
-          </Space>
-          {record.description && (
-            <Text type="secondary" style={{ fontSize: 12 }} ellipsis>
-              {record.description}
-            </Text>
-          )}
-        </Space>
+          </span>
+          {record.description && <span className="ui-cell-meta">{record.description}</span>}
+        </>
       ),
     },
     {
       title: 'Claim',
       dataIndex: 'claim_number',
       key: 'claim_number',
-      width: 130,
-      render: (num?: string) => num ? <Text type="secondary">{num}</Text> : '—',
+      width: 140,
+      render: (num?: string) => num ? <span className="cl-meta">{num}</span> : '—',
       responsive: ['md'] as any,
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 120,
-      render: (status: string) => (
-        <Tag color={STATUS_COLORS[status] || 'default'} style={{ margin: 0 }}>
-          {status}
-        </Tag>
-      ),
+      width: 150,
+      render: (status: string) => status
+        ? <Pill tone={STATUS_TONES[status] || 'gray'}>{statusLabel(status)}</Pill>
+        : '—',
     },
     {
       title: 'Amount',
       dataIndex: 'amount',
       key: 'amount',
-      width: 110,
+      width: 120,
       align: 'right',
       render: (val?: number | null) =>
-        val ? `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—',
+        val ? <span className="cl-money">${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> : '—',
       sorter: (a, b) => (a.amount || 0) - (b.amount || 0),
       responsive: ['lg'] as any,
     },
@@ -185,7 +168,7 @@ const ClientDocumentHub: React.FC<ClientDocumentHubProps> = ({ clientId }) => {
       width: 120,
       render: (d?: string) => d ? (
         <Tooltip title={dayjs(d).format('YYYY-MM-DD HH:mm')}>
-          <Text style={{ fontSize: 12 }}>{dayjs(d).fromNow()}</Text>
+          <span className="cl-nowrap">{dayjs(d).fromNow()}</span>
         </Tooltip>
       ) : '—',
       sorter: (a, b) => dayjs(a.date).unix() - dayjs(b.date).unix(),
@@ -199,101 +182,88 @@ const ClientDocumentHub: React.FC<ClientDocumentHubProps> = ({ clientId }) => {
     }
   };
 
+  const chip = (key: string | undefined, label: string, count: number, tone?: TagTone) => {
+    const selected = typeFilter === key;
+    return (
+      <Tag
+        key={key || 'all'}
+        role="button"
+        tabIndex={0}
+        aria-pressed={selected}
+        className={`ui-filter-chip${selected ? ' is-selected' : ''}`}
+        onClick={() => setTypeFilter(selected && key ? undefined : key)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setTypeFilter(selected && key ? undefined : key);
+          }
+        }}
+      >
+        {tone && <span className="ui-filter-chip-dot" style={{ background: tagTones[tone].text }} aria-hidden="true" />}
+        {label}
+        <span className="ui-tab-count">{count}</span>
+      </Tag>
+    );
+  };
+
   return (
     <div>
-      {/* Summary cards */}
-      <Row gutter={[8, 8]} style={{ marginBottom: 16 }}>
-        {Object.entries(typeCounts).map(([type, count]) => {
-          const cfg = DOC_TYPE_CONFIG[type as ClientDocType];
-          if (!cfg) return null;
-          return (
-            <Col key={type}>
-              <Card
-                size="small"
-                style={{
-                  cursor: 'pointer',
-                  borderColor: typeFilter === type ? '#1890ff' : undefined,
-                  background: typeFilter === type ? '#e6f4ff' : undefined,
-                }}
-                styles={{ body: { padding: '8px 16px' } }}
-                onClick={() => setTypeFilter(typeFilter === type ? undefined : type)}
-              >
-                <Statistic
-                  title={<span style={{ fontSize: 11 }}>{cfg.label}</span>}
-                  value={count}
-                  valueStyle={{ fontSize: 20 }}
-                  prefix={cfg.icon}
-                />
-              </Card>
-            </Col>
-          );
-        })}
-      </Row>
+      {/* Filters: search and claim, then one chip per document type */}
+      <div className="cl-hub-toolbar">
+        <Input
+          placeholder="Search documents..."
+          prefix={<SearchOutlined />}
+          allowClear
+          value={searchText}
+          onChange={e => setSearchText(e.target.value)}
+          className="cl-hub-search"
+          aria-label="Search documents"
+        />
+        <Select
+          placeholder="All claims"
+          allowClear
+          className="cl-hub-claim"
+          value={claimFilter}
+          onChange={setClaimFilter}
+          aria-label="Claim"
+          options={claims.map(c => ({
+            value: c.id,
+            label: `Claim #${c.claim_number}`,
+          }))}
+        />
+        <span className="cl-meta cl-hub-total">
+          {filtered.length} document{filtered.length === 1 ? '' : 's'}
+        </span>
+      </div>
 
-      {/* Filters */}
-      <Row gutter={[8, 8]} style={{ marginBottom: 12 }}>
-        <Col xs={24} sm={8}>
-          <Input
-            placeholder="Search documents..."
-            prefix={<SearchOutlined />}
-            allowClear
-            value={searchText}
-            onChange={e => setSearchText(e.target.value)}
-          />
-        </Col>
-        <Col xs={12} sm={6}>
-          <Select
-            placeholder="Document type"
-            allowClear
-            style={{ width: '100%' }}
-            value={typeFilter}
-            onChange={setTypeFilter}
-            options={Object.entries(DOC_TYPE_CONFIG).map(([k, v]) => ({
-              value: k,
-              label: <Space>{v.icon}{v.label}</Space>,
-            }))}
-          />
-        </Col>
-        <Col xs={12} sm={6}>
-          <Select
-            placeholder="All claims"
-            allowClear
-            style={{ width: '100%' }}
-            value={claimFilter}
-            onChange={setClaimFilter}
-            options={claims.map(c => ({
-              value: c.id,
-              label: `Claim #${c.claim_number}`,
-            }))}
-          />
-        </Col>
-        <Col xs={24} sm={4}>
-          <Badge count={filtered.length} style={{ backgroundColor: '#1890ff' }}>
-            <Text type="secondary" style={{ lineHeight: '32px' }}>
-              Total documents
-            </Text>
-          </Badge>
-        </Col>
-      </Row>
+      {documents.length > 0 && (
+        <div className="cl-hub-chips" role="group" aria-label="Document type">
+          {chip(undefined, 'All', documents.length)}
+          {(Object.keys(DOC_TYPE_CONFIG) as ClientDocType[])
+            .filter(type => typeCounts[type])
+            .map(type => chip(type, DOC_TYPE_CONFIG[type].label, typeCounts[type], DOC_TYPE_CONFIG[type].tone))}
+        </div>
+      )}
 
-      {/* Table */}
       <Table<ClientDocument>
         rowKey="id"
         columns={columns}
         dataSource={filtered}
         loading={isLoading}
         size="small"
+        className="cl-table"
+        scroll={{ x: 640 }}
         pagination={{
           pageSize: 20,
           showSizeChanger: true,
           showTotal: (total) => `${total} documents`,
+          hideOnSinglePage: true,
         }}
         locale={{
           emptyText: (
-            <Empty
-              description={typeFilter ? `No ${DOC_TYPE_CONFIG[typeFilter as ClientDocType]?.label || typeFilter} found` : 'No documents found'}
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-            />
+            <div className="cl-empty">
+              {typeFilter ? `No ${DOC_TYPE_CONFIG[typeFilter as ClientDocType]?.label || typeFilter} found.` : 'No documents found.'}
+            </div>
           ),
         }}
         onRow={(record) => ({

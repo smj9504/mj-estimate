@@ -1,8 +1,8 @@
 import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Table, Tag, Button, Space, Typography, Tooltip, Empty, Popconfirm, message } from 'antd';
+import { Table, Button, Space, Tooltip, Popconfirm, message } from 'antd';
 import {
-  PaperClipOutlined, DownloadOutlined, InboxOutlined, DisconnectOutlined,
+  PaperClipOutlined, DownloadOutlined, DisconnectOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -11,10 +11,10 @@ import { fileService } from '../../services/fileService';
 import type { IngestionLog, ReceivedEmail } from '../../types/emailIngestion';
 import type { ColumnsType } from 'antd/es/table';
 import ReceivedEmailBody from './ReceivedEmailBody';
+import { Pill } from '../common/ui';
 
 dayjs.extend(relativeTime);
 
-const { Text } = Typography;
 
 interface ReceivedEmailsProps {
   claimId: string;
@@ -136,12 +136,7 @@ const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
   const isLoading = emailsLoading || logsLoading;
 
   if (rows.length === 0 && !isLoading) {
-    return (
-      <Empty
-        description="No received emails"
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
-      />
-    );
+    return <div className="cl-empty">No received emails.</div>;
   }
 
   const columns: ColumnsType<Row> = [
@@ -151,7 +146,7 @@ const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
       width: 120,
       render: (d?: string) => d ? (
         <Tooltip title={dayjs(d).format('YYYY-MM-DD HH:mm')}>
-          <Text style={{ fontSize: 12 }}>{dayjs(d).fromNow()}</Text>
+          <span className="cl-nowrap">{dayjs(d).fromNow()}</span>
         </Tooltip>
       ) : '-',
     },
@@ -162,7 +157,7 @@ const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
       ellipsis: true,
       render: (s?: string) => (
         <Tooltip title={s}>
-          <Text style={{ fontSize: 12 }}>{senderAddress(s)}</Text>
+          <span className="cl-meta">{senderAddress(s)}</span>
         </Tooltip>
       ),
     },
@@ -171,10 +166,8 @@ const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
       ellipsis: true,
       render: (_, r) => (
         <Tooltip title={r.subject}>
-          <Text style={{ fontSize: 12 }}>{r.subject || '(no subject)'}</Text>
-          {r.snippet && (
-            <Text type="secondary" style={{ fontSize: 12 }}> — {r.snippet}</Text>
-          )}
+          <span className="cl-subject-text">{r.subject || '(no subject)'}</span>
+          {r.snippet && <span className="cl-meta"> — {r.snippet}</span>}
         </Tooltip>
       ),
     },
@@ -185,16 +178,15 @@ const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
       render: (_, r) => r.attachmentNames.length ? (
         <Tooltip title={r.attachmentNames.join(', ')}>
           <Space size={2}>
-            <PaperClipOutlined style={{ fontSize: 11, color: '#73726e' }} />
-            <Text type="secondary" style={{ fontSize: 11 }}>{r.attachmentNames.length}</Text>
+            <PaperClipOutlined className="cl-meta" />
+            <span className="cl-meta">{r.attachmentNames.length}</span>
           </Space>
         </Tooltip>
       ) : null,
     },
     {
       title: 'Matched',
-      width: 90,
-      align: 'center',
+      width: 100,
       render: (_, r) => {
         if (!r.match_method) return '-';
         const manual = r.match_method === 'manual';
@@ -206,9 +198,7 @@ const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
                 : r.match_method
             }
           >
-            <Tag color={manual ? 'blue' : 'green'} style={{ fontSize: 11 }}>
-              {MATCH_LABELS[r.match_method] || r.match_method}
-            </Tag>
+            <span><Pill tone={manual ? 'blue' : 'gray'}>{MATCH_LABELS[r.match_method] || r.match_method}</Pill></span>
           </Tooltip>
         );
       },
@@ -219,16 +209,14 @@ const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
     .filter((f) => f.file_id)
     .map((f) => (
       <Space key={f.id} size={6} style={{ display: 'flex', marginTop: 6 }}>
-        <PaperClipOutlined style={{ fontSize: 11, color: '#73726e' }} />
-        <Text style={{ fontSize: 12 }}>{f.file_name || f.attachment_name}</Text>
-        {f.file_size ? (
-          <Text type="secondary" style={{ fontSize: 11 }}>{formatSize(f.file_size)}</Text>
-        ) : null}
+        <PaperClipOutlined className="cl-meta" />
+        <span>{f.file_name || f.attachment_name}</span>
+        {f.file_size ? <span className="cl-meta">{formatSize(f.file_size)}</span> : null}
         <Button
           size="small"
+          type="text"
           icon={<DownloadOutlined />}
           onClick={() => window.open(fileService.getInlineUrl(f.file_id!), '_blank')}
-          style={{ fontSize: 11 }}
         >
           Open
         </Button>
@@ -243,6 +231,8 @@ const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
       dataSource={rows}
       columns={columns}
       pagination={rows.length > 20 ? { pageSize: 20, size: 'small' } : false}
+      className="cl-table"
+      scroll={{ x: 640 }}
       expandable={{
         expandRowByClick: true,
         rowExpandable: (r) => !!r.email || r.files.some((f) => f.file_id),
@@ -260,7 +250,7 @@ const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
                     size="small"
                     type="text"
                     icon={<DisconnectOutlined />}
-                    style={{ fontSize: 11, marginTop: 8 }}
+                    style={{ marginTop: 8 }}
                   >
                     Not this claim
                   </Button>
@@ -272,12 +262,7 @@ const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
       }}
       locale={{
         emptyText: (
-          <Space direction="vertical" size={4} style={{ padding: 12 }}>
-            <InboxOutlined style={{ fontSize: 20, color: '#a5a29a' }} />
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              No received emails
-            </Text>
-          </Space>
+          <div className="cl-empty">No received emails.</div>
         ),
       }}
     />

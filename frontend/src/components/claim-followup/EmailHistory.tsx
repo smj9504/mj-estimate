@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Table, Tag, Button, Space, Typography, Tooltip, Modal, Input,
-  Empty, Badge, Popover,
+  Table, Button, Space, Typography, Tooltip, Modal, Input, Popover,
 } from 'antd';
 import {
-  CheckCircleOutlined, ClockCircleOutlined, MailOutlined,
-  ExclamationCircleOutlined, SendOutlined, MessageOutlined,
+  CheckCircleOutlined, ClockCircleOutlined,
+  MessageOutlined,
   EyeOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -14,7 +13,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import { claimFollowUpService } from '../../services/claimFollowUpService';
 import type { SentEmail } from '../../types/claimFollowUp';
 import type { ColumnsType } from 'antd/es/table';
-import { useSheetModal } from '../common/ui';
+import { Pill, useSheetModal } from '../common/ui';
 
 dayjs.extend(relativeTime);
 
@@ -48,13 +47,13 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
   });
 
   if (emails.length === 0 && !isLoading) {
-    return <Empty description="No emails sent yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+    return <div className="cl-empty">No emails sent yet.</div>;
   }
 
   const renderStatus = (r: SentEmail) => {
-    if (r.status === 'failed') return <Tag color="red">Failed</Tag>;
-    if (r.status === 'sent') return <Tag color="blue" icon={<CheckCircleOutlined />}>Sent</Tag>;
-    return <Tag>{r.status}</Tag>;
+    if (r.status === 'failed') return <Pill tone="red">Failed</Pill>;
+    if (r.status === 'sent') return <Pill tone="blue" icon={<CheckCircleOutlined />}>Sent</Pill>;
+    return <Pill tone="gray">{r.status}</Pill>;
   };
 
   const renderOpened = (r: SentEmail) => {
@@ -69,7 +68,7 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
             <div>Opens: {r.open_count}</div>
           </div>
         }>
-          <Tag color="green" icon={<EyeOutlined />}>Read</Tag>
+          <span><Pill tone="green" icon={<EyeOutlined />}>Read</Pill></span>
         </Tooltip>
       );
     }
@@ -80,7 +79,7 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
       if (r.tracking_pixel_sent === false) {
         return (
           <Tooltip title="No tracking pixel was attached to this email, so opens could not be recorded. This says nothing about whether the recipient read it.">
-            <Tag color="orange">Not tracked</Tag>
+            <span><Pill tone="orange">Not tracked</Pill></span>
           </Tooltip>
         );
       }
@@ -90,11 +89,11 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
             ? 'Tracking pixel was attached but never loaded. Most mail clients block remote images, so this does not prove the email is unread.'
             : 'Sent before open tracking was recorded, so it is unknown whether a tracking pixel was attached.'
         }>
-          <Tag icon={<EyeOutlined />}>Unread</Tag>
+          <span><Pill tone="gray" icon={<EyeOutlined />}>Unread</Pill></span>
         </Tooltip>
       );
     }
-    return '-';
+    return <span className="cl-meta">—</span>;
   };
 
   const columns: ColumnsType<SentEmail> = [
@@ -103,9 +102,9 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
       responsive: ['md'],
       render: (d?: string) => d ? (
         <Tooltip title={dayjs(d).format('YYYY-MM-DD HH:mm')}>
-          <Text style={{ fontSize: 12 }}>{dayjs(d).fromNow()}</Text>
+          <span className="cl-nowrap">{dayjs(d).fromNow()}</span>
         </Tooltip>
-      ) : '-',
+      ) : <span className="cl-meta">Not sent</span>,
       sorter: (a, b) => dayjs(a.sent_at).unix() - dayjs(b.sent_at).unix(),
       defaultSortOrder: 'descend',
     },
@@ -113,7 +112,9 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
       title: 'To', dataIndex: 'to_addresses', ellipsis: true,
       responsive: ['md'],
       render: (addrs: string[]) => (
-        <Text style={{ fontSize: 12 }}>{addrs?.join(', ')}</Text>
+        <Tooltip title={addrs?.join(', ')}>
+          <span className="cl-meta">{addrs?.join(', ')}</span>
+        </Tooltip>
       ),
     },
     {
@@ -128,15 +129,9 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
             }
             trigger="click"
           >
-            <Button
-              type="link"
-              size="small"
-              style={isPhone
-                ? { padding: 0, fontSize: 12, height: 'auto', whiteSpace: 'normal', textAlign: 'left' }
-                : { padding: 0, fontSize: 12 }}
-            >
-              {subj}
-            </Button>
+            <button type="button" className="cl-link-btn ui-ink-link cl-subject">
+              {subj || '(no subject)'}
+            </button>
           </Popover>
         );
         if (!isPhone) return link;
@@ -145,7 +140,7 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
           <>
             {link}
             <div>
-              <Text type="secondary" style={{ fontSize: 12, overflowWrap: 'anywhere' }}>
+              <Text type="secondary" style={{ fontSize: 13, overflowWrap: 'anywhere' }}>
                 {[record.sent_at && dayjs(record.sent_at).fromNow(), record.to_addresses?.join(', ')]
                   .filter(Boolean).join(' · ')}
               </Text>
@@ -159,17 +154,17 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
       },
     },
     {
-      title: 'Status', width: 80, align: 'center',
+      title: 'Status', width: 90,
       responsive: ['md'],
       render: (_, r) => renderStatus(r),
     },
     {
-      title: 'Opened', width: 90, align: 'center',
+      title: 'Opened', width: 110,
       responsive: ['md'],
       render: (_, r) => renderOpened(r),
     },
     {
-      title: 'Reply', width: 110, align: 'center',
+      title: 'Reply', width: 120, align: 'right',
       render: (_, r) => {
         if (r.reply_received) {
           return (
@@ -179,24 +174,23 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
                 {r.reply_summary && <div>Summary: {r.reply_summary}</div>}
               </div>
             }>
-              <Tag color="green" icon={<MessageOutlined />}>Replied</Tag>
+              <span><Pill tone="green" icon={<MessageOutlined />}>Replied</Pill></span>
             </Tooltip>
           );
         }
         if (r.status === 'sent') {
           return (
             <Button
-              type="dashed"
+              type="text"
               size="small"
               icon={<ClockCircleOutlined />}
               onClick={() => { setReplyModalEmail(r); setReplySummary(''); }}
-              style={{ fontSize: 11 }}
             >
               Mark Reply
             </Button>
           );
         }
-        return '-';
+        return <span className="cl-meta">—</span>;
       },
     },
   ];
@@ -210,7 +204,8 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
         size="small"
         loading={isLoading}
         pagination={false}
-        rowClassName={(r) => r.reply_received ? '' : r.status === 'sent' ? 'email-awaiting' : ''}
+        className="cl-table"
+        scroll={isPhone ? undefined : { x: 640 }}
       />
 
       {/* Mark Reply Modal */}
@@ -255,11 +250,6 @@ const EmailHistory: React.FC<EmailHistoryProps> = ({ claimId }) => {
         />
       </Modal>
 
-      <style>{`
-        .email-awaiting {
-          background-color: #fbf3db !important;
-        }
-      `}</style>
     </>
   );
 };

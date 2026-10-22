@@ -1,22 +1,23 @@
 import React, { useState } from 'react';
 import {
-  List, Input, Button, Space, Tag, Checkbox, Typography, Popconfirm,
-  message, Empty, Select, DatePicker, Form, Tooltip,
+  Input, Button, Checkbox, Popconfirm, message, Select, DatePicker, Form, Tooltip, Spin,
 } from 'antd';
-import {
-  PlusOutlined, DeleteOutlined, EditOutlined,
-  SaveOutlined, CloseOutlined,
-} from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { claimTodoService } from '../../services/clientService';
 import type { ClaimTodo, ClaimTodoCreate, TodoPriority } from '../../types/client';
-import { TODO_PRIORITY_COLORS } from '../../types/client';
+import { Pill, humanize, type TagTone } from '../common/ui';
+import ClaimSection from './ClaimSection';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 
 dayjs.extend(relativeTime);
 
-const { Text } = Typography;
+// Normal and low priority stay plain; only the ones that need attention get a tone
+const PRIORITY_TONES: Partial<Record<TodoPriority, TagTone>> = {
+  high: 'orange',
+  urgent: 'red',
+};
 
 interface ClaimTodosProps {
   clientId: string;
@@ -113,78 +114,72 @@ const ClaimTodos: React.FC<ClaimTodosProps> = ({ clientId, claimId }) => {
   const completedTodos = todos.filter((t) => t.is_completed);
   const displayTodos = showCompleted ? todos : activeTodos;
 
-  return (
-    <div>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <Space>
-          <Button
-            type="primary"
-            size="small"
-            icon={<PlusOutlined />}
-            onClick={() => setShowForm(!showForm)}
-          >
-            Add Todo
+  // Fields shared by the add and edit forms; rendered inside each <Form>
+  const renderForm = (onCancel: () => void, submitLabel: string, loading: boolean) => (
+    <div className="cl-inline-form">
+      <Form.Item name="title" rules={[{ required: true, message: 'Title required' }]}>
+        <Input placeholder="What needs to be done?" autoFocus />
+      </Form.Item>
+      <Form.Item name="description">
+        <Input.TextArea autoSize={{ minRows: 1, maxRows: 4 }} placeholder="Description (optional)" />
+      </Form.Item>
+      <div className="cl-inline-form-row">
+        <Form.Item name="priority" noStyle>
+          <Select options={PRIORITY_OPTIONS} style={{ width: 104 }} aria-label="Priority" />
+        </Form.Item>
+        <Form.Item name="due_date" noStyle>
+          <DatePicker placeholder="Due date" format="MM/DD/YYYY" style={{ width: 136 }} />
+        </Form.Item>
+        <span className="cl-inline-form-actions">
+          <Button onClick={onCancel}>Cancel</Button>
+          <Button type="primary" htmlType="submit" loading={loading}>
+            {submitLabel}
           </Button>
+        </span>
+      </div>
+    </div>
+  );
+
+  return (
+    <ClaimSection
+      title="Todos"
+      count={activeTodos.length || undefined}
+      actions={(
+        <>
           {completedTodos.length > 0 && (
-            <Button
-              type="link"
-              size="small"
-              onClick={() => setShowCompleted(!showCompleted)}
-            >
+            <Button type="text" size="small" onClick={() => setShowCompleted(!showCompleted)}>
               {showCompleted ? 'Hide completed' : `Show completed (${completedTodos.length})`}
             </Button>
           )}
-        </Space>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {activeTodos.length} active{completedTodos.length > 0 ? `, ${completedTodos.length} done` : ''}
-        </Text>
-      </div>
-
-      {/* Add form */}
+          <Button type="text" size="small" icon={<PlusOutlined />} onClick={() => setShowForm(!showForm)}>
+            Add Todo
+          </Button>
+        </>
+      )}
+    >
       {showForm && (
-        <div style={{ background: '#fafafa', padding: 12, borderRadius: 6, marginBottom: 12 }}>
-          <Form form={form} onFinish={handleCreate} layout="vertical" size="small">
-            <Form.Item name="title" rules={[{ required: true, message: 'Title required' }]}>
-              <Input placeholder="What needs to be done?" autoFocus />
-            </Form.Item>
-            <Form.Item name="description">
-              <Input.TextArea rows={1} placeholder="Description (optional)" />
-            </Form.Item>
-            <Space>
-              <Form.Item name="priority" initialValue="normal" noStyle>
-                <Select options={PRIORITY_OPTIONS} style={{ width: 100 }} />
-              </Form.Item>
-              <Form.Item name="due_date" noStyle>
-                <DatePicker placeholder="Due date" />
-              </Form.Item>
-              <Button type="primary" htmlType="submit" loading={createMutation.isPending}>
-                Add
-              </Button>
-              <Button onClick={() => { setShowForm(false); form.resetFields(); }}>
-                Cancel
-              </Button>
-            </Space>
-          </Form>
-        </div>
+        <Form form={form} onFinish={handleCreate} layout="vertical" size="small" initialValues={{ priority: 'normal' }}>
+          {renderForm(() => { setShowForm(false); form.resetFields(); }, 'Add', createMutation.isPending)}
+        </Form>
       )}
 
-      {/* Todo list */}
-      <List
-        loading={isLoading}
-        dataSource={displayTodos}
-        locale={{ emptyText: <Empty description="No todos yet" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
-        renderItem={(todo: ClaimTodo) => {
-          const isOverdue = todo.due_date && !todo.is_completed && dayjs(todo.due_date).isBefore(dayjs(), 'day');
+      {isLoading ? (
+        <Spin size="small" />
+      ) : displayTodos.length === 0 ? (
+        !showForm && <div className="cl-empty">No todos yet.</div>
+      ) : (
+        <ul className="cl-list">
+          {displayTodos.map((todo: ClaimTodo) => {
+            const isOverdue = todo.due_date && !todo.is_completed && dayjs(todo.due_date).isBefore(dayjs(), 'day');
 
-          if (editingId === todo.id) {
-            return (
-              <List.Item style={{ padding: '8px 0' }}>
-                <div style={{ width: '100%', background: '#fafafa', padding: 12, borderRadius: 6 }}>
+            if (editingId === todo.id) {
+              return (
+                <li key={todo.id} className="cl-list-item cl-list-item--form">
                   <Form
                     form={editForm}
                     layout="vertical"
                     size="small"
+                    onFinish={handleSaveEdit}
                     initialValues={{
                       title: todo.title,
                       description: todo.description,
@@ -192,98 +187,70 @@ const ClaimTodos: React.FC<ClaimTodosProps> = ({ clientId, claimId }) => {
                       due_date: todo.due_date ? dayjs(todo.due_date) : null,
                     }}
                   >
-                    <Form.Item name="title" rules={[{ required: true }]}>
-                      <Input autoFocus />
-                    </Form.Item>
-                    <Form.Item name="description">
-                      <Input.TextArea rows={1} />
-                    </Form.Item>
-                    <Space>
-                      <Form.Item name="priority" noStyle>
-                        <Select options={PRIORITY_OPTIONS} style={{ width: 100 }} />
-                      </Form.Item>
-                      <Form.Item name="due_date" noStyle>
-                        <DatePicker />
-                      </Form.Item>
-                      <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveEdit}>
-                        Save
-                      </Button>
-                      <Button icon={<CloseOutlined />} onClick={() => setEditingId(null)}>
-                        Cancel
-                      </Button>
-                    </Space>
+                    {renderForm(() => setEditingId(null), 'Save', updateMutation.isPending)}
                   </Form>
-                </div>
-              </List.Item>
-            );
-          }
+                </li>
+              );
+            }
 
-          return (
-            <List.Item
-              style={{
-                padding: '6px 0',
-                opacity: todo.is_completed ? 0.5 : 1,
-              }}
-              actions={[
-                <Button
-                  key="edit"
-                  type="link"
-                  size="small"
-                  icon={<EditOutlined />}
-                  onClick={() => setEditingId(todo.id)}
-                />,
-                <Popconfirm
-                  key="delete"
-                  title="Delete this todo?"
-                  onConfirm={() => deleteMutation.mutate(todo.id)}
-                  okText="Yes"
-                  cancelText="No"
-                >
-                  <Button type="link" size="small" danger icon={<DeleteOutlined />} />
-                </Popconfirm>,
-              ]}
-            >
-              <Space align="start">
+            const meta = [
+              todo.due_date && !todo.is_completed && !isOverdue && `Due ${dayjs(todo.due_date).format('MM/DD')}`,
+              todo.completed_at && `Done ${dayjs(todo.completed_at).fromNow()}`,
+            ].filter(Boolean);
+
+            return (
+              <li key={todo.id} className={`cl-list-item cl-todo${todo.is_completed ? ' is-done' : ''}`}>
                 <Checkbox
                   checked={todo.is_completed}
                   onChange={() => handleToggleComplete(todo)}
+                  aria-label={todo.is_completed ? `Mark "${todo.title}" not done` : `Mark "${todo.title}" done`}
                 />
-                <div>
-                  <div style={{ textDecoration: todo.is_completed ? 'line-through' : undefined }}>
-                    <Text strong={!todo.is_completed}>{todo.title}</Text>
+                <div className="cl-list-body">
+                  <div className="cl-list-title">
+                    <span className="cl-todo-title">{todo.title}</span>
+                    {!todo.is_completed && PRIORITY_TONES[todo.priority] && (
+                      <Pill tone={PRIORITY_TONES[todo.priority]!}>{humanize(todo.priority)}</Pill>
+                    )}
+                    {isOverdue && (
+                      <Tooltip title={dayjs(todo.due_date).format('MM/DD/YYYY')}>
+                        <span><Pill tone="red">Overdue {dayjs(todo.due_date).format('MM/DD')}</Pill></span>
+                      </Tooltip>
+                    )}
                   </div>
-                  {todo.description && (
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {todo.description}
-                    </Text>
-                  )}
-                  <div>
-                    <Space size={4} style={{ marginTop: 2 }}>
-                      <Tag color={TODO_PRIORITY_COLORS[todo.priority]} style={{ fontSize: 11 }}>
-                        {todo.priority}
-                      </Tag>
-                      {todo.due_date && (
-                        <Tooltip title={dayjs(todo.due_date).format('YYYY-MM-DD')}>
-                          <Tag color={isOverdue ? 'red' : undefined} style={{ fontSize: 11 }}>
-                            {isOverdue ? 'Overdue: ' : 'Due: '}
-                            {dayjs(todo.due_date).format('MM/DD')}
-                          </Tag>
-                        </Tooltip>
-                      )}
-                      {todo.completed_at && (
-                        <Text type="secondary" style={{ fontSize: 11 }}>
-                          Done {dayjs(todo.completed_at).fromNow()}
-                        </Text>
-                      )}
-                    </Space>
-                  </div>
+                  {todo.description && <div className="cl-meta">{todo.description}</div>}
+                  {meta.length > 0 && <div className="cl-meta">{meta.join(' · ')}</div>}
                 </div>
-              </Space>
-            </List.Item>
-          );
-        }}
-      />
-    </div>
+                <div className="cl-row-actions">
+                  <Button
+                    type="text"
+                    size="small"
+                    className="ui-icon-btn cl-touch-icon"
+                    aria-label="Edit todo"
+                    icon={<EditOutlined />}
+                    onClick={() => setEditingId(todo.id)}
+                  />
+                  <Popconfirm
+                    title="Delete this todo?"
+                    onConfirm={() => deleteMutation.mutate(todo.id)}
+                    okText="Delete"
+                    okButtonProps={{ danger: true }}
+                    cancelText="Cancel"
+                  >
+                    <Button
+                      type="text"
+                      size="small"
+                      className="ui-icon-btn ui-icon-btn--danger cl-touch-icon"
+                      aria-label="Delete todo"
+                      icon={<DeleteOutlined />}
+                    />
+                  </Popconfirm>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </ClaimSection>
   );
 };
 

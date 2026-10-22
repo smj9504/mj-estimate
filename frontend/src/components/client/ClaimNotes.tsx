@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  List, Input, Button, Space, Typography, Popconfirm, message, Empty, Tooltip,
+  Input, Button, Popconfirm, message, Tooltip, Spin,
 } from 'antd';
 import {
   PushpinOutlined, PushpinFilled, DeleteOutlined, EditOutlined,
@@ -9,13 +9,13 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { claimNoteService } from '../../services/clientService';
 import type { ClaimNote } from '../../types/client';
+import ClaimSection from './ClaimSection';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 
 dayjs.extend(relativeTime);
 
 const { TextArea } = Input;
-const { Text } = Typography;
 
 interface ClaimNotesProps {
   clientId: string;
@@ -77,121 +77,114 @@ const ClaimNotes: React.FC<ClaimNotesProps> = ({ clientId, claimId }) => {
     updateMutation.mutate({ noteId: note.id, payload: { pinned: !note.pinned } });
   };
 
+  // Pinned notes stay on top, newest first within each group (sort is stable)
+  const sorted = [...notes].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
+
   return (
-    <div>
-      {/* Add note */}
-      <div style={{ marginBottom: 12 }}>
+    <ClaimSection title="Notes" count={notes.length || undefined}>
+      <div className="cl-note-composer">
         <TextArea
-          rows={2}
+          autoSize={{ minRows: 2, maxRows: 8 }}
           placeholder="Add a note..."
+          aria-label="New note"
           value={newContent}
           onChange={(e) => setNewContent(e.target.value)}
           onPressEnter={(e) => {
             if (e.ctrlKey || e.metaKey) handleAdd();
           }}
-          style={{ marginBottom: 8 }}
         />
-        <Button
-          type="primary"
-          size="small"
-          onClick={handleAdd}
-          loading={createMutation.isPending}
-          disabled={!newContent.trim()}
-        >
-          Add Note
-        </Button>
-        <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-          Ctrl+Enter to save
-        </Text>
+        <div className="cl-note-composer-foot">
+          <span className="cl-meta">Ctrl+Enter to save</span>
+          <Button
+            size="small"
+            onClick={handleAdd}
+            loading={createMutation.isPending}
+            disabled={!newContent.trim()}
+          >
+            Add Note
+          </Button>
+        </div>
       </div>
 
-      {/* Notes list */}
-      <List
-        loading={isLoading}
-        dataSource={notes}
-        locale={{ emptyText: <Empty description="No notes yet" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
-        renderItem={(note: ClaimNote) => (
-          <List.Item
-            style={{
-              padding: '8px 0',
-              borderLeft: note.pinned ? '3px solid #1890ff' : undefined,
-              paddingLeft: note.pinned ? 8 : 0,
-            }}
-            actions={
-              editingId === note.id
-                ? [
-                    <Button
-                      key="save"
-                      type="link"
-                      size="small"
-                      icon={<SaveOutlined />}
-                      onClick={handleSaveEdit}
-                    />,
-                    <Button
-                      key="cancel"
-                      type="link"
-                      size="small"
-                      icon={<CloseOutlined />}
-                      onClick={() => setEditingId(null)}
-                    />,
-                  ]
-                : [
-                    <Tooltip key="pin" title={note.pinned ? 'Unpin' : 'Pin'}>
-                      <Button
-                        type="link"
-                        size="small"
-                        icon={note.pinned ? <PushpinFilled style={{ color: '#1890ff' }} /> : <PushpinOutlined />}
-                        onClick={() => handleTogglePin(note)}
-                      />
-                    </Tooltip>,
-                    <Button
-                      key="edit"
-                      type="link"
-                      size="small"
-                      icon={<EditOutlined />}
-                      onClick={() => {
-                        setEditingId(note.id);
-                        setEditContent(note.content);
-                      }}
-                    />,
-                    <Popconfirm
-                      key="delete"
-                      title="Delete this note?"
-                      onConfirm={() => deleteMutation.mutate(note.id)}
-                      okText="Yes"
-                      cancelText="No"
-                    >
-                      <Button type="link" size="small" danger icon={<DeleteOutlined />} />
-                    </Popconfirm>,
-                  ]
-            }
-          >
-            <List.Item.Meta
-              description={
-                editingId === note.id ? (
+      {isLoading ? (
+        <Spin size="small" />
+      ) : sorted.length === 0 ? (
+        <div className="cl-empty">No notes yet.</div>
+      ) : (
+        <ul className="cl-list">
+          {sorted.map((note: ClaimNote) => (
+            <li key={note.id} className="cl-list-item cl-note">
+              <div className="cl-list-body">
+                {editingId === note.id ? (
                   <TextArea
-                    rows={2}
+                    autoSize={{ minRows: 2, maxRows: 8 }}
                     value={editContent}
                     onChange={(e) => setEditContent(e.target.value)}
+                    onPressEnter={(e) => {
+                      if (e.ctrlKey || e.metaKey) handleSaveEdit();
+                    }}
+                    aria-label="Edit note"
                     autoFocus
                   />
                 ) : (
-                  <div>
-                    <div style={{ whiteSpace: 'pre-wrap', color: 'rgba(0,0,0,0.85)' }}>
-                      {note.content}
-                    </div>
-                    <Text type="secondary" style={{ fontSize: 11 }}>
-                      {note.created_at ? dayjs(note.created_at).fromNow() : ''}
-                      {note.created_by_name ? ` by ${note.created_by_name}` : ''}
-                    </Text>
-                  </div>
-                )
-              }
-            />
-          </List.Item>
-        )}
-      />
-    </div>
+                  <div className="cl-note-text">{note.content}</div>
+                )}
+                <div className="cl-meta cl-note-meta">
+                  {note.pinned && (
+                    <span className="cl-note-pin"><PushpinFilled aria-hidden="true" /> Pinned</span>
+                  )}
+                  <span>
+                    {note.created_at ? dayjs(note.created_at).fromNow() : ''}
+                    {note.created_by_name ? ` · ${note.created_by_name}` : ''}
+                  </span>
+                </div>
+              </div>
+              <div className="cl-row-actions">
+                {editingId === note.id ? (
+                  <>
+                    <Tooltip title="Save">
+                      <Button type="text" size="small" className="ui-icon-btn cl-touch-icon"
+                        aria-label="Save note" icon={<SaveOutlined />} onClick={handleSaveEdit} />
+                    </Tooltip>
+                    <Tooltip title="Cancel">
+                      <Button type="text" size="small" className="ui-icon-btn cl-touch-icon"
+                        aria-label="Cancel editing" icon={<CloseOutlined />} onClick={() => setEditingId(null)} />
+                    </Tooltip>
+                  </>
+                ) : (
+                  <>
+                    <Tooltip title={note.pinned ? 'Unpin' : 'Pin'}>
+                      <Button type="text" size="small" className="ui-icon-btn cl-touch-icon"
+                        aria-label={note.pinned ? 'Unpin note' : 'Pin note'}
+                        icon={note.pinned ? <PushpinFilled /> : <PushpinOutlined />}
+                        onClick={() => handleTogglePin(note)} />
+                    </Tooltip>
+                    <Tooltip title="Edit">
+                      <Button type="text" size="small" className="ui-icon-btn cl-touch-icon"
+                        aria-label="Edit note" icon={<EditOutlined />}
+                        onClick={() => {
+                          setEditingId(note.id);
+                          setEditContent(note.content);
+                        }} />
+                    </Tooltip>
+                    <Popconfirm
+                      title="Delete this note?"
+                      onConfirm={() => deleteMutation.mutate(note.id)}
+                      okText="Delete"
+                      okButtonProps={{ danger: true }}
+                      cancelText="Cancel"
+                    >
+                      <Button type="text" size="small" className="ui-icon-btn ui-icon-btn--danger cl-touch-icon"
+                        aria-label="Delete note" icon={<DeleteOutlined />} />
+                    </Popconfirm>
+                  </>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </ClaimSection>
   );
 };
 

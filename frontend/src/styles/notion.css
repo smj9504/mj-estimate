@@ -3342,17 +3342,689 @@ mark.fu-tpl-missing {
   font-variant-numeric: tabular-nums;
 }
 
-/* Claim facts: label over value, as many across as fit */
-.cl-claim-facts {
+.cl-money--strong {
+  font-weight: 500;
+}
+.cl-meta {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.cl-nowrap {
+  white-space: nowrap;
+}
+.cl-empty {
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.cl-empty--tab {
+  padding: 32px 0;
+  text-align: center;
+}
+.ant-table-placeholder .cl-empty {
+  padding: 4px 0;
+}
+
+/* Client facts under the page title: two property columns, no box */
+.cl-facts {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 8px 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 48px;
+  margin-bottom: 28px;
+}
+.cl-owners {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cl-owner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 10px;
+}
+.cl-owner-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+.cl-notes-text {
+  white-space: pre-wrap;
+}
+
+/* Tabs straight on the sheet; the count sits quietly after the label */
+.cl-tabs > .ant-tabs-nav {
   margin-bottom: 16px;
+}
+.cl-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cl-tab-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+/* Claims: one hairline row per claim (ui-collapse-rows), the claim number
+   with its status, insurer and figures on a grey line under it */
+.cl-claims.ant-collapse > .ant-collapse-item:first-child {
+  border-top: 1px solid var(--color-neutral-200);
+}
+.cl-claims.ant-collapse > .ant-collapse-item > .ant-collapse-header {
+  padding: 12px 4px;
+  align-items: center;
+}
+.cl-claims.ant-collapse > .ant-collapse-item > .ant-collapse-header .ant-collapse-expand-icon {
+  padding-top: 0;
+  align-self: flex-start;
+  margin-top: 4px;
+}
+.cl-claims.ant-collapse > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
+  padding: 4px 4px 28px 28px;
+}
+.cl-claim-head {
+  min-width: 0;
+}
+.cl-claim-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.cl-claim-num {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+}
+.cl-claim-head .cl-meta {
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* An open claim: the work in a wide column, facts and follow-ups beside it */
+.cl-claim {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-areas:
+    "main top"
+    "main bottom";
+  grid-template-rows: auto 1fr;
+  gap: 0 40px;
+  align-items: start;
+}
+.cl-claim-main {
+  grid-area: main;
+  min-width: 0;
+}
+.cl-claim-aside {
+  min-width: 0;
+}
+.cl-claim-aside--top {
+  grid-area: top;
+}
+.cl-claim-aside--bottom {
+  grid-area: bottom;
+}
+/* The first section in each column starts flush with the other column */
+.cl-claim-main > .cl-section:first-child,
+.cl-claim-aside--top > .cl-section:first-child {
+  margin-top: 0;
+}
+.cl-claim-aside--bottom > .ui-section.cl-section,
+.cl-claim-pair > .ui-section.cl-section {
+  margin-top: 24px;
+}
+/* Todos and notes side by side once the main column has room */
+.cl-claim-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 32px;
+  align-items: start;
+}
+@media (max-width: 991.98px) {
+  .cl-claim-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 1199.98px) {
+  .cl-claim {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "top" "main" "bottom";
+    grid-template-rows: auto;
+  }
+  .cl-claim-main > .cl-section:first-child {
+    margin-top: 24px;
+  }
+}
+
+/* Sections inside a claim: a 14px heading over a hairline */
+.cl-section--claim {
+  margin-top: 24px;
+}
+.cl-section--claim > .ui-section-head .ui-section-title {
+  font-size: 14px;
+}
+.cl-section .ui-section-head {
+  min-height: 31px;
+  padding-bottom: 4px;
+}
+.cl-section-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+}
+.cl-section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-right: -7px;
+}
+.cl-section-actions .ant-btn-text {
+  color: var(--color-neutral-700);
+}
+.cl-section-actions .ant-btn-text:not(:disabled):hover {
+  color: var(--color-neutral-900);
+}
+.cl-view-tabs {
+  display: inline-flex;
+  gap: 2px;
+}
+.cl-view-tabs .ant-btn.ui-view-tab {
+  height: 24px;
+}
+
+/* Claim facts in the side column: tighter property rows */
+.cl-claim-aside .ui-props-row {
+  min-height: 30px;
+  padding-block: 4px;
+}
+.cl-claim-aside .ui-props-label,
+.cl-claim-aside .ui-props-value {
   font-size: 13px;
 }
-.cl-claim-facts > div {
-  min-width: 0;
+.cl-contact {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+.cl-contact-line {
+  color: var(--color-neutral-700);
+  font-variant-numeric: tabular-nums;
+}
+a.cl-contact-line:hover {
+  color: var(--color-neutral-900);
+  text-decoration: underline;
+}
+.cl-link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
   overflow-wrap: anywhere;
+}
+.cl-link-btn.cl-contact-line {
+  color: var(--color-primary);
+}
+.cl-link-btn.cl-contact-line:hover {
+  text-decoration: underline;
+}
+.cl-link-btn:focus-visible,
+.cl-job:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+/* Jobs on the claim: tappable rows, status first */
+.cl-jobs {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.cl-job {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0 -6px;
+  padding: 7px 6px;
+  border-radius: 4px;
+  color: var(--color-neutral-900);
+  transition: background-color 0.12s ease;
+}
+.cl-job:hover {
+  color: var(--color-neutral-900);
+  background: rgba(55, 53, 47, 0.04);
+}
+.cl-job-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.cl-job-top .ui-pill {
+  flex-shrink: 0;
+}
+.cl-job-title {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.cl-job-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+}
+.cl-company {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Document counts on the claim: zero stays quiet */
+.cl-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 2px 16px;
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+.cl-counts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+}
+.cl-counts dt {
+  color: var(--color-neutral-600);
+  font-weight: 400;
+}
+.cl-counts dd {
+  margin: 0;
+  color: var(--color-neutral-900);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.cl-counts .is-zero dd {
+  color: var(--color-neutral-600);
+  font-weight: 400;
+}
+.cl-link-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-900);
+  font-weight: 500;
+}
+.cl-link-line:hover {
+  color: var(--color-neutral-900);
+  text-decoration: underline;
+}
+
+/* Quiet tables inside a claim */
+.cl-table .ant-table-thead > tr > th {
+  font-size: 12px;
+}
+.cl-table .ant-table-tbody > tr > td {
+  vertical-align: middle;
+}
+.cl-table .cl-nowrap-cell {
+  white-space: nowrap;
+}
+.cl-sections-table {
+  margin: 4px 0 8px 24px;
+}
+.cl-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.cl-row-actions .ant-btn.ui-icon-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}
+.cl-file-link.sup-pdf-link {
+  width: 26px;
+  height: 26px;
+}
+.cl-file-missing {
+  display: inline-flex;
+  width: 26px;
+  justify-content: center;
+  color: var(--color-neutral-400);
+}
+.cl-subject {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cl-subject-text {
+  color: var(--color-neutral-900);
+}
+
+/* Lists (contracts, todos, notes): rows divided by hairlines, actions at the end */
+.cl-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cl-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.cl-list-item:last-child {
+  border-bottom: none;
+}
+.cl-list-item--form {
+  display: block;
+}
+.cl-list-body {
+  flex: 1;
+  min-width: 0;
+}
+.cl-list-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 14px;
+  color: var(--color-neutral-900);
+  overflow-wrap: anywhere;
+}
+.cl-list-item .cl-row-actions {
+  margin-top: -2px;
+}
+.cl-group + .cl-group {
+  margin-top: 12px;
+}
+.cl-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 6px 0 2px;
+}
+.cl-group-name {
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.cl-group-counts {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.cl-quiet-box {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--color-neutral-50);
+}
+
+/* Todos */
+.cl-todo .ant-checkbox-wrapper {
+  margin-top: 2px;
+}
+.cl-todo.is-done .cl-todo-title {
+  color: var(--color-neutral-600);
+  text-decoration: line-through;
+}
+.cl-inline-form {
+  margin: 4px 0 8px;
+  padding: 10px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 6px;
+}
+.cl-inline-form .ant-form-item {
+  margin-bottom: 8px;
+}
+.cl-inline-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.cl-inline-form-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* Notes */
+.cl-note-composer {
+  margin-bottom: 4px;
+}
+.cl-note-composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+.cl-note-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  color: var(--color-neutral-900);
+}
+.cl-note-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin-top: 2px;
+}
+.cl-note-pin {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-neutral-700);
+}
+
+/* Activity: drawn icons in a quiet tile, time at the end */
+.cl-activity {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.cl-activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 0;
+}
+.cl-activity-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-700);
+  font-size: 12px;
+}
+.cl-activity-body {
+  flex: 1;
+  min-width: 0;
+}
+.cl-activity-title {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 24px;
+  color: var(--color-neutral-900);
+}
+.cl-activity-body .cl-meta {
+  margin-top: -2px;
+}
+.cl-activity-time {
+  font-size: 12px;
+  line-height: 24px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+}
+
+/* Financials: figures on the sheet (label over an ink value) */
+.cl-fin > .cl-section:first-child {
+  margin-top: 0;
+}
+.cl-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px 24px;
+  margin: 8px 0 12px;
+}
+.cl-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cl-figure dt {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+.cl-figure dd {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  min-height: 28px;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+}
+.cl-figure dd .ui-pill {
+  align-self: center;
+}
+.cl-figure dd.is-owed {
+  color: var(--tag-red-text);
+}
+.cl-figure-suffix {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+.cl-figure-note {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+.cl-fact-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.cl-note {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-900);
+}
+.cl-note--orange {
+  background: var(--tag-orange-bg);
+}
+.cl-note--orange strong {
+  color: var(--tag-orange-text);
+  font-weight: 600;
+}
+.cl-subhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 16px 0 4px;
+}
+.cl-subhead-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.cl-subhead .ant-btn-text {
+  margin-right: -7px;
+  color: var(--color-neutral-700);
+}
+
+/* Document hub */
+.cl-hub-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.cl-hub-search {
+  width: 260px;
+}
+.cl-hub-claim {
+  width: 200px;
+}
+.cl-hub-total {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.cl-hub-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.cl-hub-chips .ui-tab-count {
+  margin-left: 2px;
+}
+.cl-doc-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-neutral-700);
+  white-space: nowrap;
+}
+.cl-doc-type-icon {
+  display: inline-flex;
+  color: #a5a29a;
+}
+.cl-doc-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+.cl-doc-title > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cl-doc-title-text {
+  font-weight: 500;
+  color: var(--color-neutral-900);
 }
 
 /* Insurance estimate revisions on a phone: one block per revision */
@@ -3503,27 +4175,55 @@ mark.fu-tpl-missing {
     padding: 0 !important;
   }
 
-  /* Claims stay boxed (they are the records), with phone-sized padding */
-  .cl-claims.ant-collapse > .ant-collapse-item > .ant-collapse-header {
-    padding: 12px;
-    align-items: flex-start;
-  }
+  /* Phones give the claim body the full width */
   .cl-claims.ant-collapse > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
-    padding: 12px;
+    padding: 4px 0 24px;
   }
-
-  .cl-claim-facts {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px 12px;
+  .cl-facts {
+    grid-template-columns: minmax(0, 1fr);
+    margin-bottom: 20px;
   }
-  .cl-claim-fact--wide {
-    grid-column: 1 / -1;
+  .cl-sections-table {
+    margin-left: 0;
   }
 
   /* Row icon buttons grow to a thumb-sized target */
-  .ant-btn.cl-touch-icon {
+  .ant-btn.cl-touch-icon,
+  .cl-row-actions .ant-btn.ui-icon-btn.cl-touch-icon,
+  .cl-touch-link.sup-pdf-link {
     width: 36px !important;
     height: 36px !important;
+  }
+  .cl-section-actions .ant-btn,
+  .cl-subhead .ant-btn,
+  .cl-view-tabs .ant-btn.ui-view-tab {
+    height: 32px;
+  }
+  .cl-hub-search,
+  .cl-hub-claim {
+    flex: 1 1 160px;
+    width: auto;
+  }
+  .cl-hub-total {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+  .cl-group-counts {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+  .cl-inline-form-actions {
+    flex-basis: 100%;
+  }
+  .cl-inline-form-actions .ant-btn {
+    flex: 1;
+    height: 36px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 991.98px) {
+  .cl-facts {
+    gap: 0 24px;
   }
 }
 

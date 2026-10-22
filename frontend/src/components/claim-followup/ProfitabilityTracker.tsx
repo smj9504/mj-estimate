@@ -1,17 +1,27 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Card, Table, Button, Space, Tag, Modal, Form, Input, InputNumber,
-  Select, DatePicker, message, Typography, Row, Col, Statistic,
-  Popconfirm, Divider, Progress,
+  Table,
+  Button,
+  Modal,
+  Form,
+  Input,
+  InputNumber,
+  Select,
+  DatePicker,
+  message,
+  Typography,
+  Row,
+  Col,
+  Popconfirm,
 } from 'antd';
 import {
-  PlusOutlined, DeleteOutlined, DollarOutlined,
-  ArrowUpOutlined, ArrowDownOutlined,
+  PlusOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { expenseService } from '../../services/clientService';
-import type { ClaimExpense, ClaimExpenseCreate, ProfitabilitySummary, EXPENSE_CATEGORY_LABELS } from '../../types/client';
+import type { ClaimExpense, ClaimExpenseCreate } from '../../types/client';
 import type { ColumnsType } from 'antd/es/table';
 import { useSheetModal } from '../common/ui';
 
@@ -20,11 +30,6 @@ const { Text } = Typography;
 const CAT_LABELS: Record<string, string> = {
   material: 'Material', labor: 'Labor', subcontractor: 'Subcontractor',
   equipment: 'Equipment', permit: 'Permit', overhead: 'Overhead', other: 'Other',
-};
-
-const CAT_COLORS: Record<string, string> = {
-  material: 'blue', labor: 'green', subcontractor: 'purple',
-  equipment: 'cyan', permit: 'orange', overhead: 'default', other: 'default',
 };
 
 const formatCurrency = (val?: number) => {
@@ -77,7 +82,7 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
   const columns: ColumnsType<ClaimExpense> = [
     {
       title: 'Category', dataIndex: 'category', width: 110,
-      render: (c: string) => <Tag color={CAT_COLORS[c] || 'default'}>{CAT_LABELS[c] || c}</Tag>,
+      render: (c: string) => CAT_LABELS[c] || c,
     },
     {
       title: 'Description', dataIndex: 'description', ellipsis: !isPhone,
@@ -101,7 +106,7 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
     },
     {
       title: 'Amount', dataIndex: 'amount', width: 100, align: 'right',
-      render: (v: number) => <Text strong>{formatCurrency(v)}</Text>,
+      render: (v: number) => <span className="cl-money cl-money--strong">{formatCurrency(v)}</span>,
     },
     {
       title: 'Date', dataIndex: 'expense_date', width: 90,
@@ -109,11 +114,12 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
       responsive: ['md'],
     },
     {
-      title: '', key: 'actions', width: 40,
+      title: '', key: 'actions', width: 48, align: 'right',
       render: (_, r) => (
-        <Popconfirm title="Delete?" onConfirm={() => deleteMutation.mutate(r.id)}
-          okButtonProps={{ danger: true }}>
-          <Button type="text" size="small" icon={<DeleteOutlined />} danger />
+        <Popconfirm title="Delete this expense?" onConfirm={() => deleteMutation.mutate(r.id)}
+          okText="Delete" okButtonProps={{ danger: true }}>
+          <Button type="text" size="small" icon={<DeleteOutlined />}
+            className="ui-icon-btn ui-icon-btn--danger cl-touch-icon" aria-label="Delete expense" />
         </Popconfirm>
       ),
     },
@@ -125,96 +131,75 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
 
   return (
     <div>
-      {/* Profitability Summary */}
-      <Row gutter={[8, 8]} style={{ marginBottom: 12 }}>
-        <Col xs={12} sm={6}>
-          <Statistic title="Revenue (Paid)" value={p?.total_insurance_paid || 0}
-            prefix="$" precision={2} loading={isLoading} valueStyle={{ fontSize: 15 }} />
-        </Col>
-        <Col xs={12} sm={6}>
-          {(p?.pa_fee_percentage || 0) > 0 ? (
+      {/* Profitability Summary: figures on the sheet, money in ink */}
+      <dl className="cl-figures">
+        <div className="cl-figure">
+          <dt>Revenue (paid)</dt>
+          <dd>{isLoading ? '…' : formatCurrency(p?.total_insurance_paid || 0)}</dd>
+        </div>
+        <div className="cl-figure">
+          <dt>PA fee{(p?.pa_fee_percentage || 0) > 0 ? ` (${p?.pa_fee_percentage}%)` : ''}</dt>
+          <dd>{isLoading ? '…' : `${(p?.pa_fee_amount || 0) > 0 ? '−' : ''}${formatCurrency(p?.pa_fee_amount || 0)}`}</dd>
+          {(p?.pa_fee_percentage || 0) > 0 && (
+            <span className="cl-figure-note">
+              ({formatCurrency(p?.current_rcv)} − {formatCurrency(p?.deductible)} ded.) × {p?.pa_fee_percentage}%
+            </span>
+          )}
+        </div>
+        <div className="cl-figure">
+          <dt>Total expenses</dt>
+          <dd>{isLoading ? '…' : `${(p?.total_expenses || 0) > 0 ? '−' : ''}${formatCurrency(p?.total_expenses || 0)}`}</dd>
+        </div>
+        <div className="cl-figure">
+          <dt>Net profit</dt>
+          <dd className={isProfitable ? undefined : 'is-owed'}>
+            {isLoading ? '…' : `${isProfitable ? '' : '−'}${formatCurrency(Math.abs(netProfit))}`}
+            <span className="cl-figure-suffix">{netMargin}%</span>
+          </dd>
+        </div>
+      </dl>
+
+      {/* Deductible is paid by the homeowner, outside the insurance revenue above;
+          the cost lines show what the expenses are made of */}
+      {((p?.deductible || 0) > 0 || (p?.total_expenses || 0) > 0) && (
+        <div className="cl-fact-lines">
+          {(p?.deductible || 0) > 0 && (
             <div>
-              <Statistic title="PA Fee" value={p?.pa_fee_amount || 0}
-                prefix="-$" precision={2} loading={isLoading}
-                suffix={`(${p?.pa_fee_percentage}%)`}
-                valueStyle={{ fontSize: 15, color: '#b5403b' }} />
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                ({formatCurrency(p?.current_rcv)} − {formatCurrency(p?.deductible)} ded.) × {p?.pa_fee_percentage}%
-              </Text>
+              <span className="cl-meta">Deductible </span>
+              <span className="cl-money">{formatCurrency(p?.deductible)}</span>
+              {(p?.deductible_discount || 0) > 0 && (
+                <>
+                  <span className="cl-meta"> − discount </span>
+                  <span className="cl-money">{formatCurrency(p?.deductible_discount)}</span>
+                </>
+              )}
+              <span className="cl-meta"> · Homeowner owes </span>
+              <span className="cl-money cl-money--strong">{formatCurrency(p?.homeowner_deductible_due)}</span>
             </div>
-          ) : (
-            <Statistic title="PA Fee" value={0}
-              prefix="$" precision={2} loading={isLoading}
-              valueStyle={{ fontSize: 15 }} />
           )}
-        </Col>
-        <Col xs={12} sm={6}>
-          <Statistic title="Total Expenses" value={p?.total_expenses || 0}
-            prefix="-$" precision={2} loading={isLoading}
-            valueStyle={{ fontSize: 15, color: (p?.total_expenses || 0) > 0 ? '#b5403b' : undefined }} />
-        </Col>
-        <Col xs={12} sm={6}>
-          <Statistic title="Net Profit" value={Math.abs(netProfit)}
-            prefix={isProfitable ? '$' : '-$'} precision={2} loading={isLoading}
-            suffix={<span style={{ fontSize: 12 }}>({netMargin}%)</span>}
-            valueStyle={{ fontSize: 15, color: isProfitable ? '#448361' : '#b5403b' }} />
-        </Col>
-      </Row>
-
-      {/* Deductible is paid by the homeowner, outside the insurance revenue above */}
-      {(p?.deductible || 0) > 0 && (
-        <div style={{ marginBottom: 12, fontSize: 12 }}>
-          <Text type="secondary">Deductible </Text>
-          <Text>{formatCurrency(p?.deductible)}</Text>
-          {(p?.deductible_discount || 0) > 0 && (
-            <>
-              <Text type="secondary"> − discount </Text>
-              <Text style={{ color: '#b5403b' }}>{formatCurrency(p?.deductible_discount)}</Text>
-            </>
+          {(p?.total_expenses || 0) > 0 && (
+            <div>
+              {[
+                { label: 'Material', value: p?.total_material },
+                { label: 'Labor', value: p?.total_labor },
+                { label: 'Subcontractor', value: p?.total_subcontractor },
+                { label: 'Equipment', value: p?.total_equipment },
+                { label: 'Other', value: p?.total_other_expenses },
+              ].filter(i => (i.value || 0) > 0).map((item, i) => (
+                <span key={item.label}>
+                  {i > 0 && <span className="cl-meta"> · </span>}
+                  <span className="cl-meta">{item.label} </span>
+                  <span className="cl-money">{formatCurrency(item.value)}</span>
+                </span>
+              ))}
+            </div>
           )}
-          <Text type="secondary"> · Homeowner owes </Text>
-          <Text strong>{formatCurrency(p?.homeowner_deductible_due)}</Text>
         </div>
       )}
 
-      {/* Cost Breakdown */}
-      {(p?.total_expenses || 0) > 0 && (
-        <Row gutter={[8, 4]} style={{ marginBottom: 12 }}>
-          {[
-            { label: 'Material', value: p?.total_material },
-            { label: 'Labor', value: p?.total_labor },
-            { label: 'Subcontractor', value: p?.total_subcontractor },
-            { label: 'Equipment', value: p?.total_equipment },
-            { label: 'Other', value: p?.total_other_expenses },
-          ].filter(i => (i.value || 0) > 0).map(item => (
-            <Col key={item.label}>
-              <Tag>
-                {item.label}: {formatCurrency(item.value)}
-              </Tag>
-            </Col>
-          ))}
-        </Row>
-      )}
-
-      {/* Margin Bar */}
-      {(p?.total_insurance_paid || 0) > 0 && (
-        <div style={{ marginBottom: 12 }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>Profit Margin</Text>
-          <Progress
-            percent={Math.max(0, Math.min(100, netMargin))}
-            status={isProfitable ? 'success' : 'exception'}
-            size="small"
-            format={() => `${netMargin}%`}
-          />
-        </div>
-      )}
-
-      <Divider style={{ margin: '8px 0' }} />
-
-      {/* Expenses Table */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <Text strong>Expenses</Text>
-        <Button type="primary" size="small" icon={<PlusOutlined />}
+      <div className="cl-subhead">
+        <span className="cl-subhead-title">Expenses</span>
+        <Button type="text" size="small" icon={<PlusOutlined />}
           onClick={() => setExpenseModalOpen(true)}>
           Add Expense
         </Button>
@@ -222,7 +207,8 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
 
       <Table dataSource={p?.expenses || []} columns={columns} rowKey="id"
         size="small" loading={isLoading} pagination={false}
-        locale={{ emptyText: 'No expenses recorded yet' }}
+        className="cl-table"
+        locale={{ emptyText: <div className="cl-empty">No expenses recorded yet.</div> }}
         summary={(data) => {
           const total = data.reduce((sum, e) => sum + (e.amount || 0), 0);
           return total > 0 ? (
@@ -231,7 +217,7 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
                 <Text strong>Total</Text>
               </Table.Summary.Cell>
               <Table.Summary.Cell index={1} align="right">
-                <Text strong>{formatCurrency(total)}</Text>
+                <span className="cl-money cl-money--strong">{formatCurrency(total)}</span>
               </Table.Summary.Cell>
               <Table.Summary.Cell index={2} colSpan={isPhone ? 1 : 2} />
             </Table.Summary.Row>

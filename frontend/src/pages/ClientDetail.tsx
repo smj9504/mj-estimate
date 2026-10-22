@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card,
-  Descriptions,
   Button,
   Space,
   Tag,
@@ -24,9 +23,7 @@ import {
   Spin,
   Alert,
   Tooltip,
-  Statistic,
   Collapse,
-  Badge,
   Checkbox,
   Upload,
   Drawer,
@@ -48,21 +45,26 @@ import {
   FilePdfOutlined,
   CheckCircleOutlined,
   WarningOutlined,
-  DownloadOutlined,
   MailOutlined,
   SendOutlined,
   LoadingOutlined,
   FormOutlined,
-  CheckSquareOutlined,
   CameraOutlined,
   DownOutlined,
   FileAddOutlined,
-  InboxOutlined,
+  ScheduleOutlined,
+  FileDoneOutlined,
+  CloseCircleOutlined,
+  SwapOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
-import { PageHeader, Pill, useSheetModal } from '../components/common/ui';
+import { PageHeader, Pill, PropertyList, humanize, toneFromKey, useSheetModal, type TagTone } from '../components/common/ui';
+import { tagTones } from '../styles/tokens';
+import ClaimSection from '../components/client/ClaimSection';
+import { WMStatusPill } from '../components/water-mitigation/wmStatus';
+import { WorkOrderStatusPill } from '../components/work-order/workOrderUi';
 import { useBreadcrumbTitle } from '../contexts/BreadcrumbContext';
 import { clientService, claimService, negotiationService, claimActivityService } from '../services/clientService';
 import { fileService } from '../services/fileService';
@@ -74,7 +76,7 @@ import ClaimPhotosSection from '../components/client/ClaimPhotosSection';
 import ClaimTodos from '../components/client/ClaimTodos';
 import AccuLynxArchiveTab from '../components/client/AccuLynxArchiveTab';
 import { acculynxArchiveService } from '../services/acculynxArchiveService';
-import { HistoryOutlined } from '@ant-design/icons';
+import {  } from '@ant-design/icons';
 import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory, ReceivedEmails } from '../components/claim-followup';
 import type { ClaimContact } from '../components/claim-followup/EmailComposer';
 import type {
@@ -96,7 +98,6 @@ import {
   ESTIMATE_CATEGORY_CONFIG,
   CONTRACTOR_ESTIMATE_STAGE_ORDER,
   CONTRACTOR_ESTIMATE_STAGE_LABELS,
-  CONTRACTOR_ESTIMATE_STAGE_COLORS,
   WM_COST_STATUS_LABELS,
 } from '../types/client';
 import RebuildEstimateCompanySelect from '../components/claim-followup/RebuildEstimateCompanySelect';
@@ -106,7 +107,6 @@ dayjs.extend(relativeTime);
 
 const { Text } = Typography;
 const { Option } = Select;
-const { Panel } = Collapse;
 
 // ─────────────────────────────────────────────
 // Constants & Helpers
@@ -121,26 +121,33 @@ const US_STATES = [
 
 const CLAIM_STATUS_CONFIG: Record<
   ClaimStatus,
-  { color: string; label: string }
+  { tone: TagTone; label: string }
 > = {
-  open:        { color: 'blue',    label: 'Open' },
-  negotiating: { color: 'orange',  label: 'Negotiating' },
-  appraisal:   { color: 'magenta', label: 'Appraisal' },
-  settled:     { color: 'green',   label: 'Settled' },
-  closed:      { color: 'default', label: 'Closed' },
-  denied:      { color: 'red',     label: 'Denied' },
+  open:        { tone: 'blue',   label: 'Open' },
+  negotiating: { tone: 'orange', label: 'Negotiating' },
+  appraisal:   { tone: 'pink',   label: 'Appraisal' },
+  settled:     { tone: 'green',  label: 'Settled' },
+  closed:      { tone: 'gray',   label: 'Closed' },
+  denied:      { tone: 'red',    label: 'Denied' },
 };
 
 const REVISION_TYPE_CONFIG: Record<
   ClaimNegotiation['revision_type'],
-  { color: string; label: string }
+  { tone: TagTone; label: string }
 > = {
-  initial:       { color: 'blue',   label: 'Initial' },
-  supplement:    { color: 'orange', label: 'Supplement' },
-  re_inspection: { color: 'purple', label: 'Re-Inspection' },
-  // Same colour as the claim's Appraisal status ('cyan' renders as blue here)
-  appraisal:     { color: 'magenta', label: 'Appraisal' },
-  final:         { color: 'green',  label: 'Final' },
+  initial:       { tone: 'blue',   label: 'Initial' },
+  supplement:    { tone: 'orange', label: 'Supplement' },
+  re_inspection: { tone: 'purple', label: 'Re-Inspection' },
+  // Same tone as the claim's Appraisal status
+  appraisal:     { tone: 'pink',   label: 'Appraisal' },
+  final:         { tone: 'green',  label: 'Final' },
+};
+
+const CONTRACTOR_STAGE_TONES: Record<string, TagTone> = {
+  requested: 'gray',
+  estimate_sent: 'blue',
+  awaiting_approval: 'orange',
+  approved_initial_received: 'green',
 };
 
 const formatCurrency = (amount?: number) =>
@@ -151,17 +158,17 @@ const formatCurrency = (amount?: number) =>
 const formatDate = (dateStr?: string) =>
   dateStr ? dayjs(dateStr).format('MM/DD/YYYY') : '—';
 
-// Activity type config for timeline display
-const ACTIVITY_TYPE_CONFIG: Record<string, { color: string; icon: string }> = {
-  wm_sent_to_adjuster: { color: 'blue', icon: '📤' },
-  followup_created: { color: 'orange', icon: '📋' },
-  estimate_received: { color: 'green', icon: '📨' },
-  estimate_denied: { color: 'red', icon: '❌' },
-  rebuild_created: { color: 'cyan', icon: '🏗️' },
-  supplement_created: { color: 'purple', icon: '📝' },
-  payment_received: { color: 'green', icon: '💰' },
-  status_changed: { color: 'default', icon: '🔄' },
-  note: { color: 'default', icon: '📌' },
+// Activity type → drawn icon for the timeline
+const ACTIVITY_ICONS: Record<string, React.ReactNode> = {
+  wm_sent_to_adjuster: <SendOutlined />,
+  followup_created: <ScheduleOutlined />,
+  estimate_received: <FileDoneOutlined />,
+  estimate_denied: <CloseCircleOutlined />,
+  rebuild_created: <HomeOutlined />,
+  supplement_created: <FileAddOutlined />,
+  payment_received: <DollarOutlined />,
+  status_changed: <SwapOutlined />,
+  note: <FormOutlined />,
 };
 
 const ClaimActivityTimeline: React.FC<{ clientId: string; claimId: string }> = ({ clientId, claimId }) => {
@@ -170,34 +177,33 @@ const ClaimActivityTimeline: React.FC<{ clientId: string; claimId: string }> = (
     queryFn: () => claimActivityService.getActivities(clientId, claimId),
   });
 
-  if (isLoading) return <Spin size="small" />;
-  if (activities.length === 0) return <Text type="secondary">No activity recorded yet.</Text>;
-
   return (
-    <div>
-      <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
-        Activity History
-      </Text>
-      <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-        {activities.map((activity: any) => {
-          const cfg = ACTIVITY_TYPE_CONFIG[activity.activity_type] || ACTIVITY_TYPE_CONFIG.note;
-          return (
-            <div key={activity.id} style={{ display: 'flex', gap: 8, marginBottom: 8, padding: '4px 0', borderBottom: '1px solid #f0f0f0' }}>
-              <span>{cfg.icon}</span>
-              <div style={{ flex: 1 }}>
-                <Text strong style={{ fontSize: 13 }}>{activity.title}</Text>
-                {activity.description && (
-                  <div><Text type="secondary" style={{ fontSize: 12 }}>{activity.description}</Text></div>
-                )}
+    <ClaimSection title="Activity" count={activities.length || undefined}>
+      {isLoading ? (
+        <Spin size="small" />
+      ) : activities.length === 0 ? (
+        <div className="cl-empty">No activity recorded yet.</div>
+      ) : (
+        <ul className="cl-activity">
+          {activities.map((activity: any) => (
+            <li key={activity.id} className="cl-activity-item">
+              <span className="cl-activity-icon" aria-hidden="true">
+                {ACTIVITY_ICONS[activity.activity_type] || ACTIVITY_ICONS.note}
+              </span>
+              <div className="cl-activity-body">
+                <div className="cl-activity-title">{activity.title}</div>
+                {activity.description && <div className="cl-meta">{activity.description}</div>}
               </div>
-              <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
-                {activity.created_at ? dayjs(activity.created_at).fromNow() : ''}
-              </Text>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+              {activity.created_at && (
+                <Tooltip title={dayjs(activity.created_at).format('MM/DD/YYYY h:mm A')}>
+                  <span className="cl-activity-time">{dayjs(activity.created_at).fromNow()}</span>
+                </Tooltip>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </ClaimSection>
   );
 };
 
@@ -1622,22 +1628,22 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
   const renderFileActions = (record: ClaimNegotiation) => {
     const fileId = record.file_download_id;
     return (
-      <Space size={4}>
+      <Space size={2} className="cl-row-actions">
         {fileId ? (
           <Tooltip title={record.document_name || 'View PDF'}>
             <a
-              className="cl-file-link"
+              className="cl-file-link sup-pdf-link"
               href={`${fileService.getDownloadUrl(fileId)}?inline=true`}
               target="_blank"
               rel="noopener noreferrer"
               aria-label={`View PDF${record.document_name ? `: ${record.document_name}` : ''}`}
             >
-              <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+              <FilePdfOutlined />
             </a>
           </Tooltip>
         ) : record.document_url ? (
           <Tooltip title="PDF file not found">
-            <FilePdfOutlined style={{ color: '#d9d9d9' }} />
+            <span className="cl-file-missing" aria-label="PDF file not found"><FilePdfOutlined /></span>
           </Tooltip>
         ) : null}
         <Upload
@@ -1664,20 +1670,18 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
         >
           <Tooltip title={fileId ? 'Replace PDF' : 'Upload PDF'}>
             <Button type="text" size="small"
-              className="cl-touch-icon"
+              className="cl-touch-icon ui-icon-btn"
               aria-label={fileId ? 'Replace PDF' : 'Upload PDF'}
               icon={uploadingNegId === record.id ? <LoadingOutlined /> : <UploadOutlined />}
-              disabled={uploadingNegId === record.id}
-              style={{ padding: 0, width: 22, height: 22, color: fileId ? undefined : '#1890ff' }} />
+              disabled={uploadingNegId === record.id} />
           </Tooltip>
         </Upload>
         <Tooltip title="Edit amounts and details">
           <Button type="text" size="small"
-            className="cl-touch-icon"
+            className="cl-touch-icon ui-icon-btn"
             aria-label="Edit revision"
             icon={<EditOutlined />}
-            onClick={() => openEditNeg(record)}
-            style={{ padding: 0, width: 22, height: 22 }} />
+            onClick={() => openEditNeg(record)} />
         </Tooltip>
         <Popconfirm
           title="Delete this insurance estimate?"
@@ -1688,11 +1692,10 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
           cancelText="Cancel"
         >
           <Tooltip title="Delete estimate">
-            <Button type="text" size="small" danger
-              className="cl-touch-icon"
+            <Button type="text" size="small"
+              className="cl-touch-icon ui-icon-btn ui-icon-btn--danger"
               aria-label="Delete estimate"
-              icon={<DeleteOutlined />}
-              style={{ padding: 0, width: 22, height: 22 }} />
+              icon={<DeleteOutlined />} />
           </Tooltip>
         </Popconfirm>
       </Space>
@@ -1710,10 +1713,8 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
     return (
       <div key={record.id} className="cl-rev">
         <div className="cl-rev-head">
-          <Tag color={typeCfg.color} style={{ margin: 0, fontSize: 11 }}>{typeCfg.label}</Tag>
-          {catCfg && (
-            <Tag color={catCfg.color} style={{ margin: 0, fontSize: 11 }}>{catCfg.label}</Tag>
-          )}
+          <Pill tone={typeCfg.tone}>{typeCfg.label}</Pill>
+          {catCfg && <span className="cl-meta">{catCfg.label}</span>}
           <span className="cl-rev-num">#{record.revision_number}</span>
         </div>
         <div className="cl-rev-figures">
@@ -1782,23 +1783,19 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
       width: 90,
       render: (type: ClaimNegotiation['revision_type']) => {
         const cfg = REVISION_TYPE_CONFIG[type];
-        return <Tag color={cfg.color} style={{ fontSize: 11 }}>{cfg.label}</Tag>;
+        return <Pill tone={cfg.tone}>{cfg.label}</Pill>;
       },
     },
     {
       title: 'Category',
       dataIndex: 'estimate_category',
       key: 'estimate_category',
-      width: 110,
+      width: 140,
+      className: 'cl-nowrap-cell',
       responsive: ['md'] as any,
       render: (cat: ClaimNegotiation['estimate_category']) => {
         if (!cat) return <Text type="secondary">—</Text>;
-        const cfg = ESTIMATE_CATEGORY_CONFIG[cat];
-        return (
-          <Tag color={cfg?.color || 'default'} style={{ fontSize: 11 }}>
-            {cfg?.label || cat}
-          </Tag>
-        );
+        return ESTIMATE_CATEGORY_CONFIG[cat]?.label || humanize(cat);
       },
     },
     {
@@ -1806,24 +1803,25 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
       dataIndex: 'rcv_amount',
       key: 'rcv_amount',
       align: 'right',
-      width: 100,
-      render: formatCurrency,
+      width: 110,
+      render: (v: number) => <span className="cl-money cl-money--strong">{formatCurrency(v)}</span>,
     },
     {
       title: 'ACV',
       dataIndex: 'acv_amount',
       key: 'acv_amount',
       align: 'right',
-      width: 100,
+      width: 110,
       responsive: ['sm'] as any,
-      render: formatCurrency,
+      render: (v: number) => <span className="cl-money">{formatCurrency(v)}</span>,
     },
     {
       title: 'Dep.',
       dataIndex: 'depreciation_amount',
       key: 'depreciation_amount',
       align: 'right',
-      render: formatCurrency,
+      width: 100,
+      render: (v: number) => <span className="cl-money">{formatCurrency(v)}</span>,
       responsive: ['lg'] as any,
     },
     {
@@ -1838,9 +1836,9 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
         const delta = record.rcv_amount - prev.rcv_amount;
         if (delta === 0) return <Text type="secondary">$0</Text>;
         return (
-          <Text type={delta > 0 ? 'success' : 'danger'}>
+          <span className={delta > 0 ? 'sup-diff-up' : 'sup-diff-down'}>
             {delta > 0 ? '+' : ''}{formatCurrency(delta)}
-          </Text>
+          </span>
         );
       },
     },
@@ -1848,13 +1846,15 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
       title: 'Date',
       dataIndex: 'date_received',
       key: 'date_received',
+      width: 110,
       render: formatDate,
       responsive: ['md'] as any,
     },
     {
       title: '',
       key: 'pdf',
-      width: 100,
+      width: 120,
+      align: 'right',
       render: (_: any, record) => renderFileActions(record),
     },
   ];
@@ -1879,60 +1879,55 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
         dataSource={record.sections_data}
         pagination={false}
         size="small"
-        style={{ margin: '0 0 0 20px' }}
+        className="cl-sections-table"
       />
     );
   };
 
+  const origin = claim.estimate_origin ? ESTIMATE_ORIGIN_CONFIG[claim.estimate_origin] : null;
+
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-        <Space size={6} wrap>
-          <Text strong>Negotiation History</Text>
-          {claim.estimate_origin && (
-            <Tooltip title={ESTIMATE_ORIGIN_CONFIG[claim.estimate_origin]?.description}>
-              <Tag
-                color={ESTIMATE_ORIGIN_CONFIG[claim.estimate_origin]?.color || 'default'}
-                style={{ margin: 0, fontSize: 11 }}
-              >
-                {ESTIMATE_ORIGIN_CONFIG[claim.estimate_origin]?.label || claim.estimate_origin}
-              </Tag>
+    <ClaimSection
+      title="Negotiation history"
+      count={negotiations.length || undefined}
+      meta={
+        <>
+          {origin && (
+            <Tooltip title={origin.description}>
+              <span className="cl-meta">{origin.label}</span>
             </Tooltip>
           )}
           {claim.estimate_origin === 'contractor_prepared' && claim.contractor_estimate_stage && (
-            <Tag
-              color={CONTRACTOR_ESTIMATE_STAGE_COLORS[claim.contractor_estimate_stage] || 'default'}
-              style={{ margin: 0, fontSize: 11 }}
-            >
+            <Pill tone={CONTRACTOR_STAGE_TONES[claim.contractor_estimate_stage] || 'gray'}>
               {CONTRACTOR_ESTIMATE_STAGE_LABELS[claim.contractor_estimate_stage]
-                || claim.contractor_estimate_stage}
-            </Tag>
+                || humanize(claim.contractor_estimate_stage)}
+            </Pill>
           )}
           {claim.estimate_origin === 'contractor_prepared' && claim.rebuild_estimate_company_name && (
-            <Tag style={{ margin: 0, fontSize: 11 }}>By {claim.rebuild_estimate_company_name}</Tag>
+            <span className="cl-meta">By {claim.rebuild_estimate_company_name}</span>
           )}
           {claim.wm_cost_status === 'paid_per_invoice' && (
             <Tooltip title="The insurance company pays our WM invoice as billed, so no WM estimate is expected">
-              <Tag color="green" style={{ margin: 0, fontSize: 11 }}>
-                {WM_COST_STATUS_LABELS.paid_per_invoice}
-              </Tag>
+              <span><Pill tone="green">{WM_COST_STATUS_LABELS.paid_per_invoice}</Pill></span>
             </Tooltip>
           )}
-        </Space>
-        <Space size={8} wrap>
+        </>
+      }
+      actions={
+        <>
           {!wentToAppraisal && (claim.status === 'open' || claim.status === 'negotiating') && (
             <Tooltip title="The claim went to appraisal instead of more supplements">
-              <Button size="small" onClick={openAppraisalModal}>
-                Move to Appraisal
+              <Button size="small" type="text" onClick={openAppraisalModal}>
+                Move to appraisal
               </Button>
             </Tooltip>
           )}
-          <Button size="small" icon={<PlusOutlined />} onClick={() => setNegModalOpen(true)}>
-            Add Revision
+          <Button size="small" type="text" icon={<PlusOutlined />} onClick={() => setNegModalOpen(true)}>
+            Add revision
           </Button>
-        </Space>
-      </div>
-
+        </>
+      }
+    >
       {wentToAppraisal && (
         <div className="cl-appraisal" role="note">
           <div style={{ minWidth: 0 }}>
@@ -1996,7 +1991,7 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
         isLoading ? (
           <div style={{ textAlign: 'center', padding: 16 }}><Spin /></div>
         ) : sorted.length === 0 ? (
-          <Text type="secondary" style={{ display: 'block', padding: '8px 0' }}>No insurance estimates yet.</Text>
+          <div className="cl-empty">No insurance estimates yet.</div>
         ) : (
           <div className="cl-rev-list">{sorted.map(renderPhoneRevision)}</div>
         )
@@ -2008,64 +2003,15 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
         loading={isLoading}
         size="small"
         pagination={false}
-        scroll={{ x: 600 }}
+        scroll={{ x: 640 }}
+        className="cl-table"
+        locale={{ emptyText: <div className="cl-empty">No insurance estimates yet.</div> }}
         expandable={{
           expandedRowRender,
           rowExpandable: (record) => !!record.sections_data && record.sections_data.length > 0,
         }}
       />
       )}
-
-      {/* Linked Documents */}
-      <Divider style={{ margin: '16px 0 8px' }} />
-      <Row gutter={16}>
-        <Col>
-          <Space>
-            <FileTextOutlined style={{ color: '#1890ff' }} />
-            <Text type="secondary">Invoices: <strong>{claim.invoice_count}</strong></Text>
-          </Space>
-        </Col>
-        <Col>
-          <Space>
-            <FileTextOutlined style={{ color: '#52c41a' }} />
-            <Text type="secondary">Estimates: <strong>{claim.estimate_count}</strong></Text>
-          </Space>
-        </Col>
-        <Col>
-          <Space>
-            <FileTextOutlined style={{ color: '#722ed1' }} />
-            <Text type="secondary">WM Jobs: <strong>{claim.wm_job_count}</strong></Text>
-          </Space>
-        </Col>
-        <Col>
-          <Space>
-            <FileTextOutlined style={{ color: '#fa8c16' }} />
-            <Text type="secondary">Work Orders: <strong>{claim.work_order_count}</strong></Text>
-          </Space>
-        </Col>
-        <Col>
-          <Space>
-            <FileTextOutlined style={{ color: '#eb2f96' }} />
-            <Text type="secondary">Cabinet Estimates: <strong>{claim.cabinet_estimate_count}</strong></Text>
-          </Space>
-        </Col>
-        {claim.plumber_report_id && (
-          <Col>
-            <Space>
-              <FileTextOutlined style={{ color: '#13c2c2' }} />
-              <Text type="secondary">
-                <a
-                  href={`/plumber-reports/${claim.plumber_report_id}`}
-                  onClick={(e) => e.stopPropagation()}
-                  style={{ color: 'inherit' }}
-                >
-                  Plumber Report
-                </a>
-              </Text>
-            </Space>
-          </Col>
-        )}
-      </Row>
 
       <NegotiationModal
         open={negModalOpen}
@@ -2119,9 +2065,284 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
           />
         </label>
       </Modal>
+    </ClaimSection>
+  );
+};
+
+// ─────────────────────────────────────────────
+// Claim row (Claims and Financials tabs)
+// ─────────────────────────────────────────────
+
+const ClaimRowHead: React.FC<{ claim: Claim; showAmounts?: 'rcv' | 'both' }> = ({ claim, showAmounts = 'rcv' }) => {
+  const statusCfg = CLAIM_STATUS_CONFIG[claim.status];
+  const hasAmounts = claim.current_acv > 0 || claim.current_rcv > 0;
+  const meta = [
+    claim.insurance_company,
+    claim.date_of_loss && `Loss ${formatDate(claim.date_of_loss)}`,
+    hasAmounts && (showAmounts === 'both'
+      ? `ACV ${formatCurrency(claim.current_acv)} · RCV ${formatCurrency(claim.current_rcv)}`
+      : `RCV ${formatCurrency(claim.current_rcv)}`),
+  ].filter(Boolean);
+  return (
+    <div className="cl-claim-head">
+      <div className="cl-claim-title">
+        <span className="cl-claim-num">{claim.claim_number || 'No claim #'}</span>
+        {statusCfg && <Pill tone={statusCfg.tone}>{statusCfg.label}</Pill>}
+      </div>
+      {meta.length > 0 && <div className="cl-meta">{meta.join(' · ')}</div>}
     </div>
   );
 };
+
+const CompanyMark: React.FC<{ id?: string; name?: string }> = ({ id, name }) => {
+  if (!name) return <span className="cl-meta">Unassigned</span>;
+  const tone = tagTones[toneFromKey(id || name)];
+  const code = name.split(/\s+/).filter(w => /^[A-Za-z]/.test(w)).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+  return (
+    <span className="cl-company">
+      <span className="ui-monogram" aria-hidden="true" style={{ background: tone.bg, color: tone.text }}>
+        {code || name.slice(0, 2)}
+      </span>
+      <span>{name}</span>
+    </span>
+  );
+};
+
+// In-app link that still opens in a new tab on ctrl/cmd-click
+const useInAppLink = () => {
+  const navigate = useNavigate();
+  return (to: string) => ({
+    href: to,
+    onClick: (e: React.MouseEvent) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+      e.preventDefault();
+      navigate(to);
+    },
+  });
+};
+
+// The claim's facts: adjuster, deductible, estimate, loss description
+const ClaimFacts: React.FC<{ claim: Claim; onEdit: () => void; onEmail: () => void }> = ({ claim, onEdit, onEmail }) => (
+  <ClaimSection
+    title="Claim"
+    actions={(
+      <Button size="small" type="text" icon={<EditOutlined />} onClick={onEdit}>
+        Edit
+      </Button>
+    )}
+  >
+    <PropertyList
+      labelWidth={104}
+      items={[
+        { key: 'num', label: 'Claim #', value: claim.claim_number },
+        { key: 'dol', label: 'Date of loss', value: claim.date_of_loss ? formatDate(claim.date_of_loss) : null },
+        {
+          key: 'ded',
+          label: 'Deductible',
+          value: claim.insurance_deductible != null ? (
+            <>
+              <span className="cl-money">{formatCurrency(claim.insurance_deductible)}</span>
+              {(claim.deductible_discount || 0) > 0 && (
+                <span className="cl-meta"> · −{formatCurrency(claim.deductible_discount)} discount</span>
+              )}
+            </>
+          ) : null,
+        },
+        {
+          key: 'est',
+          label: 'Estimate',
+          value: claim.insurance_estimate_received
+            ? <Pill tone="green" icon={<CheckCircleOutlined />}>Received</Pill>
+            : <Pill tone="orange">Not received</Pill>,
+        },
+        {
+          key: 'amounts',
+          label: 'ACV / RCV',
+          hideEmpty: true,
+          value: (claim.current_acv > 0 || claim.current_rcv > 0) ? (
+            <span className="cl-money">{formatCurrency(claim.current_acv)} / {formatCurrency(claim.current_rcv)}</span>
+          ) : null,
+        },
+        {
+          key: 'adj',
+          label: 'Adjuster',
+          value: (claim.adjuster_name || claim.adjuster_phone || claim.adjuster_email) ? (
+            <div className="cl-contact">
+              {claim.adjuster_name && <div>{claim.adjuster_name}</div>}
+              {claim.adjuster_phone && (
+                <a className="cl-contact-line" href={`tel:${claim.adjuster_phone.split(/ext/i)[0].replace(/[^\d+]/g, '')}`}>
+                  {claim.adjuster_phone}
+                </a>
+              )}
+              {claim.adjuster_email && (
+                <Tooltip title="Send email">
+                  <button type="button" className="cl-contact-line cl-link-btn" onClick={onEmail}>
+                    {claim.adjuster_email}
+                  </button>
+                </Tooltip>
+              )}
+            </div>
+          ) : null,
+        },
+        { key: 'loss', label: 'Loss', hideEmpty: true, value: claim.loss_description || null },
+      ]}
+    />
+  </ClaimSection>
+);
+
+// Jobs and documents on the claim
+const ClaimLinks: React.FC<{ claim: Claim }> = ({ claim }) => {
+  const linkTo = useInAppLink();
+  const counts = [
+    { label: 'Invoices', n: claim.invoice_count },
+    { label: 'Estimates', n: claim.estimate_count },
+    { label: 'WM jobs', n: claim.wm_job_count },
+    { label: 'Work orders', n: claim.work_order_count },
+    { label: 'Cabinet estimates', n: claim.cabinet_estimate_count },
+  ];
+  const jobs = [
+    ...(claim.wm_jobs ?? []).map(job => ({
+      key: `wm-${job.id}`,
+      to: `/water-mitigation/${job.id}`,
+      title: job.property_address || job.claim_number || 'WM Job',
+      kind: 'Water mitigation',
+      status: <WMStatusPill status={job.status} />,
+      companyId: job.company_id,
+      company: job.company_name,
+    })),
+    ...(claim.rebuild_jobs ?? []).map(wo => ({
+      key: `wo-${wo.id}`,
+      to: `/work-order/${wo.id}`,
+      title: wo.property_address || wo.work_order_number || 'Work Order',
+      kind: wo.work_order_number ? `Rebuild · ${wo.work_order_number}` : 'Rebuild work order',
+      status: wo.status ? <WorkOrderStatusPill status={wo.status} /> : null,
+      companyId: wo.company_id,
+      company: wo.company_name,
+    })),
+  ];
+
+  return (
+    <ClaimSection title="Jobs & documents">
+      {jobs.length > 0 && (
+        <ul className="cl-jobs">
+          {jobs.map(job => (
+            <li key={job.key}>
+              <a className="cl-job" {...linkTo(job.to)}>
+                <span className="cl-job-top">
+                  {job.status}
+                  <span className="cl-job-title">{job.title}</span>
+                </span>
+                <span className="cl-meta cl-job-meta">
+                  <span>{job.kind}</span>
+                  <CompanyMark id={job.companyId} name={job.company} />
+                </span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+      <dl className="cl-counts">
+        {counts.map(c => (
+          <div key={c.label} className={(c.n ?? 0) > 0 ? '' : 'is-zero'}>
+            <dt>{c.label}</dt>
+            <dd>{c.n ?? 0}</dd>
+          </div>
+        ))}
+      </dl>
+      {claim.plumber_report_id && (
+        <a className="cl-link-line" {...linkTo(`/plumber-reports/${claim.plumber_report_id}`)}>
+          <FileTextOutlined aria-hidden="true" /> Plumber report
+        </a>
+      )}
+    </ClaimSection>
+  );
+};
+
+// Sent and received mail for the claim, one view at a time
+const ClaimEmailSection: React.FC<{ claimId: string; onSend: () => void }> = ({ claimId, onSend }) => {
+  const [view, setView] = useState<'sent' | 'received'>('sent');
+  return (
+    <ClaimSection
+      title="Email"
+      meta={(
+        <div className="cl-view-tabs" role="tablist" aria-label="Email view">
+          {(['sent', 'received'] as const).map(v => (
+            <Button
+              key={v}
+              type="text"
+              size="small"
+              role="tab"
+              aria-selected={view === v}
+              className={`ui-view-tab${view === v ? ' is-selected' : ''}`}
+              onClick={() => setView(v)}
+            >
+              {v === 'sent' ? 'Sent' : 'Received'}
+            </Button>
+          ))}
+        </div>
+      )}
+      actions={(
+        <Button size="small" type="text" icon={<SendOutlined />} onClick={onSend}>
+          Send Email
+        </Button>
+      )}
+    >
+      {/* Received: inbound mail matched to this claim, attachment or not -
+          received_emails, plus the stored attachment files that email
+          ingestion logged against the claim. */}
+      {view === 'sent' ? <EmailHistory claimId={claimId} /> : <ReceivedEmails claimId={claimId} />}
+    </ClaimSection>
+  );
+};
+
+const ClaimPhotos: React.FC<{ claimId: string }> = ({ claimId }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <ClaimSection
+      title="Completion photos"
+      actions={(
+        <Button size="small" type="text" icon={<CameraOutlined />} aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? 'Hide photos' : 'Show photos'}
+        </Button>
+      )}
+    >
+      {open && <ClaimPhotosSection claimId={claimId} />}
+    </ClaimSection>
+  );
+};
+
+// One open claim: the work in the wide column, the claim's facts and
+// activity beside it (one column below 1200px, facts first)
+const ClaimPanel: React.FC<{
+  claim: Claim;
+  client: Client;
+  onEdit: () => void;
+  onEmail: () => void;
+}> = ({ claim, client, onEdit, onEmail }) => (
+  <div className="cl-claim">
+    <div className="cl-claim-aside cl-claim-aside--top">
+      <ClaimFacts claim={claim} onEdit={onEdit} onEmail={onEmail} />
+      <ClaimLinks claim={claim} />
+    </div>
+    <div className="cl-claim-main">
+      <NegotiationHistory clientId={client.id} claim={claim} />
+      <ClaimContractDashboard
+        claimId={claim.id}
+        clientId={client.id}
+        clientEmail={client.email || undefined}
+      />
+      <ClaimEmailSection claimId={claim.id} onSend={onEmail} />
+      <div className="cl-claim-pair">
+        <ClaimTodos clientId={client.id} claimId={claim.id} />
+        <ClaimNotes clientId={client.id} claimId={claim.id} />
+      </div>
+      <ClaimPhotos claimId={claim.id} />
+    </div>
+    <div className="cl-claim-aside cl-claim-aside--bottom">
+      <ClaimActivityTimeline clientId={client.id} claimId={claim.id} />
+    </div>
+  </div>
+);
 
 // ─────────────────────────────────────────────
 // Claims Tab
@@ -2177,7 +2398,6 @@ function buildClaimContacts(claim: Claim, client: Client): ClaimContact[] {
 }
 
 const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
-  const navigate = useNavigate();
   const [claimModalOpen, setClaimModalOpen] = useState(false);
   const [editingClaim, setEditingClaim] = useState<Claim | null>(null);
   const [emailDrawerClaim, setEmailDrawerClaim] = useState<Claim | null>(null);
@@ -2218,17 +2438,6 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
     },
   });
 
-  const deleteClaimMutation = useMutation({
-    mutationFn: (claimId: string) => claimService.delete(client.id, claimId),
-    onSuccess: () => {
-      message.success('Claim deleted.');
-      queryClient.invalidateQueries({ queryKey: ['claims', client.id] });
-    },
-    onError: (err: any) => {
-      message.error(err?.response?.data?.detail || 'Failed to delete claim.');
-    },
-  });
-
   const handleClaimSubmit = async (values: ClaimCreate) => {
     if (editingClaim) {
       await updateClaimMutation.mutateAsync({ claimId: editingClaim.id, payload: values });
@@ -2237,106 +2446,13 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
     }
   };
 
-  const columns: ColumnsType<Claim> = [
-    {
-      title: 'Claim #',
-      dataIndex: 'claim_number',
-      key: 'claim_number',
-      render: (num: string) => num ? <Text strong>{num}</Text> : <Text type="warning">Not assigned</Text>,
-    },
-    {
-      title: 'Insurance Co.',
-      dataIndex: 'insurance_company',
-      key: 'insurance_company',
-      render: (val?: string) => val || '—',
-      responsive: ['md'],
-    },
-    {
-      title: 'Date of Loss',
-      dataIndex: 'date_of_loss',
-      key: 'date_of_loss',
-      render: formatDate,
-      responsive: ['md'],
-    },
-    {
-      title: 'ACV',
-      dataIndex: 'current_acv',
-      key: 'current_acv',
-      align: 'right',
-      render: formatCurrency,
-    },
-    {
-      title: 'RCV',
-      dataIndex: 'current_rcv',
-      key: 'current_rcv',
-      align: 'right',
-      render: formatCurrency,
-    },
-    {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
-      width: 120,
-      render: (status: ClaimStatus) => {
-        const cfg = CLAIM_STATUS_CONFIG[status];
-        return <Tag color={cfg.color}>{cfg.label}</Tag>;
-      },
-    },
-    {
-      title: 'Docs',
-      key: 'docs',
-      align: 'center',
-      width: 80,
-      render: (_: any, record) => {
-        const total =
-          record.invoice_count +
-          record.estimate_count +
-          record.wm_job_count +
-          record.work_order_count +
-          record.cabinet_estimate_count +
-          (record.plumber_report_id ? 1 : 0);
-        return <Badge count={total} style={{ backgroundColor: total > 0 ? '#1890ff' : '#d9d9d9' }} />;
-      },
-      responsive: ['sm'],
-    },
-    {
-      title: 'Actions',
-      key: 'actions',
-      width: 90,
-      align: 'center',
-      render: (_: any, record) => (
-        <Space size="small">
-          <Tooltip title="Edit claim">
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => {
-                setEditingClaim(record);
-                setClaimModalOpen(true);
-              }}
-            />
-          </Tooltip>
-          <Popconfirm
-            title="Delete this claim?"
-            description="All negotiations linked to this claim will also be removed."
-            onConfirm={() => deleteClaimMutation.mutate(record.id)}
-            okText="Delete"
-            okButtonProps={{ danger: true }}
-            cancelText="Cancel"
-          >
-            <Button type="text" size="small" icon={<DeleteOutlined />} danger />
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
-
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+      <div className="cl-tab-toolbar">
+        <span className="cl-meta">
+          {isLoading ? '' : `${claims.length} claim${claims.length === 1 ? '' : 's'}`}
+        </span>
         <Button
-          type="primary"
           icon={<PlusOutlined />}
           onClick={() => {
             setEditingClaim(null);
@@ -2348,268 +2464,44 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
       </div>
 
       {claims.length === 0 && !isLoading ? (
-        <Card style={{ textAlign: 'center', padding: '40px 0' }}>
-          <SafetyOutlined style={{ fontSize: 48, color: '#d9d9d9', marginBottom: 16 }} />
-          <div>
-            <Text type="secondary">No claims yet. Click "Add Claim" to get started.</Text>
-          </div>
-        </Card>
+        <div className="cl-empty cl-empty--tab">No claims yet. Click "Add Claim" to get started.</div>
       ) : (
-        <Collapse className="cl-claims" accordion defaultActiveKey={claims.length === 1 ? [claims[0].id] : undefined}>
-          {claims.map((claim) => {
-            const statusCfg = CLAIM_STATUS_CONFIG[claim.status];
-            return (
-              <Panel
-                key={claim.id}
-                header={
-                  <div style={{ width: '100%' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                      <Text strong>{claim.claim_number}</Text>
-                      {claim.insurance_company && (
-                        <Text type="secondary" style={{ fontSize: 13 }}>{claim.insurance_company}</Text>
-                      )}
-                      <Tag color={statusCfg.color} style={{ margin: 0 }}>{statusCfg.label}</Tag>
-                      <Tooltip title="Send Email">
-                        <Button
-                          type="text"
-                          size="small"
-                          className="cl-touch-icon"
-                          aria-label="Send email"
-                          icon={<MailOutlined />}
-                          style={{ padding: 0, width: 22, height: 22 }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEmailDrawerClaim(claim);
-                          }}
-                        />
-                      </Tooltip>
-                    </div>
-                  </div>
-                }
-              >
-                {/* Claim detail header */}
-                <div className="cl-claim-facts">
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 11 }}>Claim #</Text>
-                    <div><Text strong>{claim.claim_number}</Text></div>
-                  </div>
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 11 }}>Date of Loss</Text>
-                    <div>{formatDate(claim.date_of_loss)}</div>
-                  </div>
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 11 }}>Deductible</Text>
-                    <div>{formatCurrency(claim.insurance_deductible)}</div>
-                    {(claim.deductible_discount || 0) > 0 && (
-                      <Text type="secondary" style={{ fontSize: 11 }}>
-                        −{formatCurrency(claim.deductible_discount)} discount
-                      </Text>
-                    )}
-                  </div>
-                  {claim.adjuster_name && (
-                    <div>
-                      <Text type="secondary" style={{ fontSize: 11 }}>Adjuster</Text>
-                      <div>
-                        {claim.adjuster_name}
-                        <Button type="link" size="small" icon={<MailOutlined />}
-                          onClick={() => setEmailDrawerClaim(claim)}
-                          style={{ marginLeft: 4, padding: 0, fontSize: 12 }}>
-                          Email
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                  {claim.adjuster_phone && (
-                    <div>
-                      <Text type="secondary" style={{ fontSize: 11 }}>Phone</Text>
-                      <div>{claim.adjuster_phone}</div>
-                    </div>
-                  )}
-                  {claim.adjuster_email && (
-                    <div className="cl-claim-fact--wide" style={{ overflow: 'hidden' }}>
-                      <Text type="secondary" style={{ fontSize: 11 }}>Email</Text>
-                      <div style={{ wordBreak: 'break-all', fontSize: 12 }}>{claim.adjuster_email}</div>
-                    </div>
-                  )}
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 11 }}>Estimate</Text>
-                    <div>
-                      {claim.insurance_estimate_received
-                        ? <Tag color="green">Received</Tag>
-                        : <Tag color="orange">Not Received</Tag>
-                      }
-                    </div>
-                  </div>
-                  {(claim.current_acv > 0 || claim.current_rcv > 0) && (
-                    <div>
-                      <Text type="secondary" style={{ fontSize: 11 }}>ACV / RCV</Text>
-                      <div>{formatCurrency(claim.current_acv)} / {formatCurrency(claim.current_rcv)}</div>
-                    </div>
-                  )}
-                </div>
-                {claim.loss_description && (
-                  <div style={{ marginBottom: 12, fontSize: 13 }}>
-                    <Text type="secondary" style={{ fontSize: 11 }}>Loss Description</Text>
-                    <div>{claim.loss_description}</div>
-                  </div>
-                )}
-
-                {/* Water Mitigation Jobs */}
-                {claim.wm_jobs && claim.wm_jobs.length > 0 && (
-                  <>
-                    <Divider style={{ margin: '12px 0 8px' }} />
-                    <div style={{ marginBottom: 12 }}>
-                      <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 8 }}>
-                        <FileTextOutlined style={{ marginRight: 6 }} />
-                        Water Mitigation Jobs ({claim.wm_jobs.length})
-                      </Text>
-                      <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                        {claim.wm_jobs.map((job) => (
-                          <Button
-                            key={job.id}
-                            size="small"
-                            type="default"
-                            style={{ height: 'auto', textAlign: 'left', whiteSpace: 'normal' }}
-                            onClick={() => navigate(`/water-mitigation/${job.id}`)}
-                          >
-                            <Space wrap size={6}>
-                              <span>{job.property_address || job.claim_number || 'WM Job'}</span>
-                              {job.status && (
-                                <Tag
-                                  color={job.status === 'Completed' ? 'green' : job.status === 'Lead' ? 'blue' : 'orange'}
-                                  style={{ margin: 0, fontSize: 11 }}
-                                >
-                                  {job.status}
-                                </Tag>
-                              )}
-                              <Tag color={job.company_name ? 'geekblue' : 'default'} style={{ margin: 0, fontSize: 11 }}>
-                                {job.company_name || 'Unassigned'}
-                              </Tag>
-                            </Space>
-                          </Button>
-                        ))}
-                      </Space>
-                    </div>
-                  </>
-                )}
-
-                {/* Rebuild (Work Order) Jobs */}
-                {claim.rebuild_jobs && claim.rebuild_jobs.length > 0 && (
-                  <>
-                    <Divider style={{ margin: '12px 0 8px' }} />
-                    <div style={{ marginBottom: 12 }}>
-                      <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 8 }}>
-                        <HomeOutlined style={{ marginRight: 6 }} />
-                        Rebuild Work Orders ({claim.rebuild_jobs.length})
-                      </Text>
-                      <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                        {claim.rebuild_jobs.map((wo) => (
-                          <Button
-                            key={wo.id}
-                            size="small"
-                            type="default"
-                            style={{ height: 'auto', textAlign: 'left', whiteSpace: 'normal' }}
-                            onClick={() => navigate(`/work-order/${wo.id}`)}
-                          >
-                            <Space wrap size={6}>
-                              <span>{wo.property_address || wo.work_order_number || 'Work Order'}</span>
-                              {wo.status && (
-                                <Tag
-                                  color={wo.status === 'completed' ? 'green' : wo.status === 'in_progress' ? 'orange' : 'default'}
-                                  style={{ margin: 0, fontSize: 11 }}
-                                >
-                                  {wo.status}
-                                </Tag>
-                              )}
-                              <Tag color={wo.company_name ? 'geekblue' : 'default'} style={{ margin: 0, fontSize: 11 }}>
-                                {wo.company_name || 'Unassigned'}
-                              </Tag>
-                            </Space>
-                          </Button>
-                        ))}
-                      </Space>
-                    </div>
-                  </>
-                )}
-
-                {/* Negotiation table */}
-                <NegotiationHistory clientId={client.id} claim={claim} />
-
-                {/* Contract Dashboard */}
-                <Divider style={{ margin: '16px 0 12px' }} />
-                <ClaimContractDashboard
-                  claimId={claim.id}
-                  clientId={client.id}
-                  clientEmail={client.email || undefined}
+        <Collapse
+          ghost
+          className="ui-collapse-rows cl-claims"
+          accordion
+          defaultActiveKey={claims.length === 1 ? [claims[0].id] : undefined}
+          items={claims.map((claim) => ({
+            key: claim.id,
+            label: <ClaimRowHead claim={claim} />,
+            extra: (
+              <Tooltip title="Send Email">
+                <Button
+                  type="text"
+                  size="small"
+                  className="cl-touch-icon ui-icon-btn"
+                  aria-label="Send email"
+                  icon={<MailOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEmailDrawerClaim(claim);
+                  }}
                 />
-
-                {/* Email */}
-                <Divider style={{ margin: '16px 0 12px' }} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <Text strong style={{ fontSize: 14 }}>
-                    <MailOutlined style={{ marginRight: 6 }} />
-                    Email
-                  </Text>
-                  <Button
-                    size="small"
-                    type="primary"
-                    icon={<SendOutlined />}
-                    onClick={() => setEmailDrawerClaim(claim)}
-                  >
-                    Send Email
-                  </Button>
-                </div>
-                <EmailHistory claimId={claim.id} />
-
-                {/* Inbound mail matched to this claim, attachment or not -
-                    received_emails, plus the stored attachment files that
-                    email ingestion logged against the claim. */}
-                <Divider style={{ margin: '16px 0 12px' }} />
-                <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
-                  <InboxOutlined style={{ marginRight: 6 }} />
-                  Received Emails
-                </Text>
-                <ReceivedEmails claimId={claim.id} />
-
-                {/* Claim Todos */}
-                <Divider style={{ margin: '16px 0 12px' }} />
-                <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
-                  <CheckSquareOutlined style={{ marginRight: 6 }} />
-                  Todos
-                </Text>
-                <ClaimTodos clientId={client.id} claimId={claim.id} />
-
-                {/* Claim Notes */}
-                <Divider style={{ margin: '16px 0 12px' }} />
-                <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
-                  <FormOutlined style={{ marginRight: 6 }} />
-                  Notes
-                </Text>
-                <ClaimNotes clientId={client.id} claimId={claim.id} />
-
-                {/* Completion Photos */}
-                <Divider style={{ margin: '16px 0 12px' }} />
-                <Collapse ghost size="small">
-                  <Collapse.Panel
-                    header={
-                      <Text strong style={{ fontSize: 14 }}>
-                        <CameraOutlined style={{ marginRight: 6 }} />
-                        Completion Photos
-                      </Text>
-                    }
-                    key="photos"
-                  >
-                    <ClaimPhotosSection claimId={claim.id} />
-                  </Collapse.Panel>
-                </Collapse>
-
-                {/* Claim Activity Timeline */}
-                <Divider style={{ margin: '16px 0 12px' }} />
-                <ClaimActivityTimeline clientId={client.id} claimId={claim.id} />
-              </Panel>
-            );
-          })}
-        </Collapse>
+              </Tooltip>
+            ),
+            children: (
+              <ClaimPanel
+                claim={claim}
+                client={client}
+                onEdit={() => {
+                  setEditingClaim(claim);
+                  setClaimModalOpen(true);
+                }}
+                onEmail={() => setEmailDrawerClaim(claim)}
+              />
+            ),
+          }))}
+        />
       )}
 
       {isLoading && (
@@ -2680,13 +2572,19 @@ interface AllDocumentsTabProps {
   client: Client;
 }
 
-const STATUS_COLOR: Record<string, string> = {
-  draft: 'default',
-  calculated: 'processing',
-  approved: 'success',
-  exported: 'cyan',
+const DOC_STATUS_TONES: Record<string, TagTone> = {
+  draft: 'gray',
+  calculated: 'blue',
+  completed: 'blue',
+  approved: 'green',
+  exported: 'purple',
   final: 'green',
   sent: 'blue',
+};
+
+const DocStatusPill: React.FC<{ status?: string }> = ({ status }) => {
+  const value = status || 'draft';
+  return <Pill tone={DOC_STATUS_TONES[value] || 'gray'}>{humanize(value)}</Pill>;
 };
 
 const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
@@ -2710,7 +2608,7 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
       dataIndex: 'tier',
       key: 'tier',
       width: 120,
-      render: (val?: string) => val ? <Tag>{val}</Tag> : '—',
+      render: (val?: string) => val || '—',
       responsive: ['sm'] as any,
     },
     {
@@ -2719,7 +2617,7 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
       key: 'total',
       width: 120,
       align: 'right',
-      render: formatCurrency,
+      render: (v?: number) => <span className="cl-money">{formatCurrency(v)}</span>,
     },
     {
       title: 'Claim',
@@ -2737,9 +2635,7 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
       dataIndex: 'status',
       key: 'status',
       width: 110,
-      render: (status: string) => (
-        <Tag color={STATUS_COLOR[status] || 'default'}>{status}</Tag>
-      ),
+      render: (status: string) => <DocStatusPill status={status} />,
     },
     {
       title: 'Created',
@@ -2756,7 +2652,7 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
       title: 'Report #',
       dataIndex: 'report_number',
       key: 'report_number',
-      render: (val?: string) => <Text strong>{val || '—'}</Text>,
+      render: (val?: string) => <span className="ui-ink-link">{val || '—'}</span>,
     },
     {
       title: 'Technician',
@@ -2771,16 +2667,14 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
       key: 'total_amount',
       width: 120,
       align: 'right',
-      render: formatCurrency,
+      render: (v?: number) => <span className="cl-money">{formatCurrency(v)}</span>,
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
       width: 100,
-      render: (status?: string) => (
-        <Tag color={STATUS_COLOR[status || ''] || 'default'}>{status || 'draft'}</Tag>
-      ),
+      render: (status?: string) => <DocStatusPill status={status} />,
     },
     {
       title: 'Service Date',
@@ -2794,19 +2688,9 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
 
   return (
     <div>
-      {/* Cabinet Estimates */}
-      <Card
-        title={
-          <Space>
-            <FileTextOutlined style={{ color: '#eb2f96' }} />
-            <span>Cabinet Estimates ({cabinetEstimates.length})</span>
-          </Space>
-        }
-        style={{ marginBottom: 16 }}
-        size="small"
-      >
+      <ClaimSection title="Cabinet estimates" count={cabinetEstimates.length} size="page">
         {cabinetEstimates.length === 0 ? (
-          <Text type="secondary">No cabinet estimates linked to this client.</Text>
+          <div className="cl-empty">No cabinet estimates linked to this client.</div>
         ) : (
           <Table<CabinetEstimateSummary>
             rowKey="id"
@@ -2814,27 +2698,18 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
             dataSource={cabinetEstimates}
             pagination={false}
             size="small"
+            className="cl-table"
             onRow={(record) => ({
               onClick: () => navigate(`/cabinet-estimates/${record.id}`),
               style: { cursor: 'pointer' },
             })}
           />
         )}
-      </Card>
+      </ClaimSection>
 
-      {/* Plumber Reports */}
-      <Card
-        title={
-          <Space>
-            <FileTextOutlined style={{ color: '#13c2c2' }} />
-            <span>Plumber Reports ({plumberReports.length})</span>
-          </Space>
-        }
-        size="small"
-        style={{ marginBottom: 16 }}
-      >
+      <ClaimSection title="Plumber reports" count={plumberReports.length} size="page">
         {plumberReports.length === 0 ? (
-          <Text type="secondary">No plumber reports linked to this client.</Text>
+          <div className="cl-empty">No plumber reports linked to this client.</div>
         ) : (
           <Table<PlumberReportSummary>
             rowKey="id"
@@ -2842,13 +2717,14 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
             dataSource={plumberReports}
             pagination={false}
             size="small"
+            className="cl-table"
             onRow={(record) => ({
               onClick: () => navigate(`/plumber-reports/${record.id}`),
               style: { cursor: 'pointer' },
             })}
           />
         )}
-      </Card>
+      </ClaimSection>
 
       {/* Packing Estimates */}
       <PackingEstimatesCard clientId={client.id} />
@@ -2878,7 +2754,7 @@ const PackingEstimatesCard: React.FC<{ clientId: string }> = ({ clientId }) => {
       title: 'Estimate Name',
       dataIndex: 'calculation_name',
       key: 'calculation_name',
-      render: (val?: string) => <Text strong>{val || 'Untitled'}</Text>,
+      render: (val?: string) => <span className="ui-ink-link">{val || 'Untitled'}</span>,
     },
     {
       title: 'Address',
@@ -2901,7 +2777,7 @@ const PackingEstimatesCard: React.FC<{ clientId: string }> = ({ clientId }) => {
       width: 120,
       align: 'right' as const,
       render: (val?: number) => val
-        ? `$${val.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+        ? <span className="cl-money">${val.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
         : '—',
     },
     {
@@ -2909,15 +2785,7 @@ const PackingEstimatesCard: React.FC<{ clientId: string }> = ({ clientId }) => {
       dataIndex: 'status',
       key: 'status',
       width: 100,
-      render: (status?: string) => (
-        <Tag color={
-          status === 'approved' ? 'success'
-          : status === 'completed' ? 'processing'
-          : 'default'
-        }>
-          {status || 'draft'}
-        </Tag>
-      ),
+      render: (status?: string) => <DocStatusPill status={status} />,
     },
     {
       title: 'Created',
@@ -2930,17 +2798,9 @@ const PackingEstimatesCard: React.FC<{ clientId: string }> = ({ clientId }) => {
   ];
 
   return (
-    <Card
-      title={
-        <Space>
-          <FileTextOutlined style={{ color: '#722ed1' }} />
-          <span>Packing Estimates ({estimates.length})</span>
-        </Space>
-      }
-      size="small"
-    >
+    <ClaimSection title="Packing estimates" count={estimates.length} size="page">
       {estimates.length === 0 ? (
-        <Text type="secondary">No packing estimates linked to this client.</Text>
+        <div className="cl-empty">No packing estimates linked to this client.</div>
       ) : (
         <Table
           rowKey="id"
@@ -2948,13 +2808,14 @@ const PackingEstimatesCard: React.FC<{ clientId: string }> = ({ clientId }) => {
           dataSource={estimates}
           pagination={false}
           size="small"
+          className="cl-table"
           onRow={(record: any) => ({
             onClick: () => navigate(`/reconstruction-estimate/pack-calculator-new/${record.id}`),
             style: { cursor: 'pointer' },
           })}
         />
       )}
-    </Card>
+    </ClaimSection>
   );
 };
 
@@ -2983,47 +2844,23 @@ const FinancialsTab: React.FC<FinancialsTabProps> = ({ client }) => {
 
   if (claims.length === 0) {
     return (
-      <Card style={{ textAlign: 'center', padding: '40px 0' }}>
-        <DollarOutlined style={{ fontSize: 48, color: '#d9d9d9', marginBottom: 16 }} />
-        <div>
-          <Text type="secondary">No claims yet. Add a claim first to track payments and profitability.</Text>
-        </div>
-      </Card>
+      <div className="cl-empty cl-empty--tab">
+        No claims yet. Add a claim first to track payments and profitability.
+      </div>
     );
   }
 
   return (
-    <div>
-      <Collapse
-        className="cl-claims"
-        accordion={false}
-        defaultActiveKey={claims.length === 1 ? [claims[0].id] : claims.map(c => c.id)}
-      >
-        {claims.map((claim) => {
-          const statusCfg = CLAIM_STATUS_CONFIG[claim.status];
-          return (
-            <Panel
-              key={claim.id}
-              header={
-                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                  <Text strong>{claim.claim_number || 'No Claim #'}</Text>
-                  {claim.insurance_company && (
-                    <Text type="secondary" style={{ fontSize: 13 }}>{claim.insurance_company}</Text>
-                  )}
-                  <Tag color={statusCfg.color} style={{ margin: 0 }}>{statusCfg.label}</Tag>
-                  {(claim.current_acv > 0 || claim.current_rcv > 0) && (
-                    <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-                      ACV {formatCurrency(claim.current_acv)} / RCV {formatCurrency(claim.current_rcv)}
-                    </Text>
-                  )}
-                </div>
-              }
-            >
-              {/* Payment Tracking */}
-              <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
-                <DollarOutlined style={{ marginRight: 6 }} />
-                Payment Tracking
-              </Text>
+    <Collapse
+      ghost
+      className="ui-collapse-rows cl-claims"
+      defaultActiveKey={claims.map(c => c.id)}
+      items={claims.map((claim) => ({
+        key: claim.id,
+        label: <ClaimRowHead claim={claim} showAmounts="both" />,
+        children: (
+          <div className="cl-fin">
+            <ClaimSection title="Payment tracking">
               <PaymentTracker
                 clientId={client.id}
                 claimId={claim.id}
@@ -3033,13 +2870,8 @@ const FinancialsTab: React.FC<FinancialsTabProps> = ({ client }) => {
                   queryClient.invalidateQueries({ queryKey: ['claims', client.id] });
                 }}
               />
-
-              {/* Profitability Tracker */}
-              <Divider style={{ margin: '16px 0 12px' }} />
-              <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
-                <DollarOutlined style={{ marginRight: 6 }} />
-                Profitability
-              </Text>
+            </ClaimSection>
+            <ClaimSection title="Profitability">
               <ProfitabilityTracker
                 clientId={client.id}
                 claimId={claim.id}
@@ -3047,11 +2879,11 @@ const FinancialsTab: React.FC<FinancialsTabProps> = ({ client }) => {
                   queryClient.invalidateQueries({ queryKey: ['claims', client.id] });
                 }}
               />
-            </Panel>
-          );
-        })}
-      </Collapse>
-    </div>
+            </ClaimSection>
+          </div>
+        ),
+      }))}
+    />
   );
 };
 
@@ -3134,11 +2966,10 @@ const ClientDetail: React.FC = () => {
   const accuLynxHistoryTab = {
     key: 'acculynx-history',
     label: (
-      <Space>
-        <HistoryOutlined />
+      <span className="cl-tab-label">
         AccuLynx History
-        <Badge count={archivedJobs.length} style={{ backgroundColor: '#8c8c8c' }} />
-      </Space>
+        <span className="ui-tab-count">{archivedJobs.length}</span>
+      </span>
     ),
     children: <AccuLynxArchiveTab jobs={archivedJobs} isLoading={archivedJobsLoading} />,
   };
@@ -3148,44 +2979,26 @@ const ClientDetail: React.FC = () => {
     {
       key: 'claims',
       label: (
-        <Space>
-          <SafetyOutlined />
+        <span className="cl-tab-label">
           Claims
-          {client.claim_count > 0 && (
-            <Badge count={client.claim_count} style={{ backgroundColor: '#1890ff' }} />
-          )}
-        </Space>
+          {client.claim_count > 0 && <span className="ui-tab-count">{client.claim_count}</span>}
+        </span>
       ),
       children: <ClaimsTab client={client} />,
     },
     {
       key: 'financials',
-      label: (
-        <Space>
-          <DollarOutlined />
-          Financials
-        </Space>
-      ),
+      label: 'Financials',
       children: <FinancialsTab client={client} />,
     },
     {
       key: 'document-hub',
-      label: (
-        <Space>
-          <FilePdfOutlined />
-          Document Hub
-        </Space>
-      ),
+      label: 'Document Hub',
       children: <ClientDocumentHub clientId={client.id} />,
     },
     {
       key: 'documents',
-      label: (
-        <Space>
-          <FileTextOutlined />
-          Specialty Documents
-        </Space>
-      ),
+      label: 'Specialty Documents',
       children: <AllDocumentsTab client={client} />,
     },
     ...(!isAccuLynxImport && archivedJobs.length > 0 ? [accuLynxHistoryTab] : []),
@@ -3243,105 +3056,54 @@ const ClientDetail: React.FC = () => {
         }
       />
 
-      {/* Client Info Card */}
-      <Card className="cl-sheet" style={{ marginBottom: 24 }}>
-        <Row gutter={[32, 16]}>
-          {/* Owners */}
-          <Col xs={24} md={12}>
-            <div style={{ marginBottom: 8 }}>
-              <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
-                Owners
-              </Text>
-            </div>
-            {client.owners.length === 0 ? (
-              <Text type="secondary">—</Text>
-            ) : (
-              client.owners.map((o, i) => (
-                <div key={i} style={{ marginBottom: 6 }}>
-                  <Space wrap>
-                    <Text strong>
-                      {o.name}
-                      {o.is_primary && (
-                        <Tag color="blue" style={{ marginLeft: 6, fontSize: 10 }}>Primary</Tag>
+      {/* Client facts: contact on the left, insurance and notes on the right */}
+      <div className="cl-facts">
+        <PropertyList
+          labelWidth={120}
+          items={[
+            {
+              key: 'owners',
+              label: client.owners.length > 1 ? 'Owners' : 'Owner',
+              value: client.owners.length === 0 ? null : (
+                <div className="cl-owners">
+                  {client.owners.map((o, i) => (
+                    <div key={i} className="cl-owner">
+                      <span className="cl-owner-name">
+                        {o.name}
+                        {o.is_primary && client.owners.length > 1 && <Pill tone="gray">Primary</Pill>}
+                      </span>
+                      {(o.phone || o.email) && (
+                        <span className="cl-meta">{[o.phone, o.email].filter(Boolean).join(' · ')}</span>
                       )}
-                    </Text>
-                    {o.phone && (
-                      <Text type="secondary">
-                        <PhoneOutlined style={{ marginRight: 4 }} />
-                        {o.phone}
-                      </Text>
-                    )}
-                    {o.email && <Text type="secondary">{o.email}</Text>}
-                  </Space>
+                    </div>
+                  ))}
                 </div>
-              ))
-            )}
-          </Col>
+              ),
+            },
+            { key: 'address', label: 'Address', icon: <HomeOutlined />, value: fullAddress || null },
+            { key: 'phone', label: 'Phone', icon: <PhoneOutlined />, value: client.phone || owner?.phone || null },
+            { key: 'email', label: 'Email', icon: <MailOutlined />, value: client.email || owner?.email || null },
+          ]}
+        />
+        <PropertyList
+          labelWidth={120}
+          items={[
+            { key: 'ins', label: 'Insurance', value: client.insurance_company || null },
+            { key: 'policy', label: 'Policy #', value: client.insurance_policy_number || null },
+            {
+              key: 'notes',
+              label: 'Notes',
+              value: client.notes ? <span className="cl-notes-text">{client.notes}</span> : null,
+            },
+          ]}
+        />
+      </div>
 
-          {/* Contact & Address */}
-          <Col xs={24} md={12}>
-            <Descriptions size="small" column={1}>
-              {fullAddress && (
-                <Descriptions.Item
-                  label={<><HomeOutlined style={{ marginRight: 4 }} />Address</>}
-                >
-                  {fullAddress}
-                </Descriptions.Item>
-              )}
-              {(client.phone || owner?.phone) && (
-                <Descriptions.Item
-                  label={<><PhoneOutlined style={{ marginRight: 4 }} />Phone</>}
-                >
-                  {client.phone || owner?.phone}
-                </Descriptions.Item>
-              )}
-              {(client.email || owner?.email) && (
-                <Descriptions.Item label="Email">
-                  {client.email || owner?.email}
-                </Descriptions.Item>
-              )}
-            </Descriptions>
-          </Col>
-
-          {/* Insurance */}
-          {(client.insurance_company || client.insurance_policy_number) && (
-            <Col xs={24}>
-              <Divider style={{ margin: '0 0 12px' }} />
-              <div style={{ marginBottom: 8 }}>
-                <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
-                  Insurance
-                </Text>
-              </div>
-              <Descriptions size="small" column={{ xs: 1, sm: 2 }}>
-                {client.insurance_company && (
-                  <Descriptions.Item label="Company">{client.insurance_company}</Descriptions.Item>
-                )}
-                {client.insurance_policy_number && (
-                  <Descriptions.Item label="Policy #">{client.insurance_policy_number}</Descriptions.Item>
-                )}
-              </Descriptions>
-            </Col>
-          )}
-
-          {/* Notes */}
-          {client.notes && (
-            <Col xs={24}>
-              <Divider style={{ margin: '0 0 12px' }} />
-              <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
-                Notes
-              </Text>
-              <div style={{ marginTop: 6 }}>
-                <Text>{client.notes}</Text>
-              </div>
-            </Col>
-          )}
-        </Row>
-      </Card>
-
-      {/* Tabs */}
-      <Card className="cl-sheet">
-        <Tabs defaultActiveKey={isAccuLynxImport ? 'acculynx-history' : 'claims'} items={tabItems} />
-      </Card>
+      <Tabs
+        className="cl-tabs"
+        defaultActiveKey={isAccuLynxImport ? 'acculynx-history' : 'claims'}
+        items={tabItems}
+      />
 
       {/* Edit Modal */}
       <EditClientModal

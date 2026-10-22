@@ -1,11 +1,8 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Card,
   Table,
   Button,
-  Space,
-  Tag,
   Modal,
   Form,
   Input,
@@ -16,32 +13,22 @@ import {
   Typography,
   Row,
   Col,
-  Statistic,
-  Alert,
   Popconfirm,
-  Divider,
-  Tooltip,
-  Switch,
-  Upload,
 } from 'antd';
 import {
   PlusOutlined,
-  DollarOutlined,
   CheckCircleOutlined,
   WarningOutlined,
   ExclamationCircleOutlined,
   DeleteOutlined,
-  FilePdfOutlined,
-  UploadOutlined,
-  InfoCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { paymentService, claimService } from '../../services/clientService';
-import type { ClaimPayment, ClaimPaymentCreate, PaymentSummary } from '../../types/client';
-import { useSheetModal } from '../common/ui';
+import { paymentService } from '../../services/clientService';
+import type { ClaimPayment, ClaimPaymentCreate } from '../../types/client';
+import { Pill, useSheetModal, type TagTone } from '../common/ui';
 import type { ColumnsType } from 'antd/es/table';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 
 interface PaymentTrackerProps {
   clientId: string;
@@ -59,12 +46,12 @@ const PAYMENT_TYPE_LABELS: Record<string, string> = {
   other: 'Other',
 };
 
-const PAYMENT_STATUS_COLORS: Record<string, string> = {
-  unpaid: 'red',
-  partial: 'orange',
-  paid: 'green',
-  overpaid: 'blue',
-  disputed: 'volcano',
+const PAYMENT_STATUS: Record<string, { tone: TagTone; label: string }> = {
+  unpaid: { tone: 'red', label: 'Unpaid' },
+  partial: { tone: 'orange', label: 'Partial' },
+  paid: { tone: 'green', label: 'Paid' },
+  overpaid: { tone: 'blue', label: 'Overpaid' },
+  disputed: { tone: 'red', label: 'Disputed' },
 };
 
 const PaymentTracker: React.FC<PaymentTrackerProps> = ({
@@ -148,7 +135,7 @@ const PaymentTracker: React.FC<PaymentTrackerProps> = ({
       key: 'amount',
       width: 120,
       align: 'right',
-      render: (amount: number) => <Text strong>{formatCurrency(amount)}</Text>,
+      render: (amount: number) => <span className="cl-money cl-money--strong">{formatCurrency(amount)}</span>,
     },
     {
       title: 'Check #',
@@ -177,6 +164,7 @@ const PaymentTracker: React.FC<PaymentTrackerProps> = ({
       title: '',
       key: 'actions',
       width: 50,
+      align: 'right',
       render: (_, record) => (
         <Popconfirm
           title="Delete this payment?"
@@ -184,7 +172,8 @@ const PaymentTracker: React.FC<PaymentTrackerProps> = ({
           okText="Delete"
           okButtonProps={{ danger: true }}
         >
-          <Button type="text" size="small" icon={<DeleteOutlined />} danger />
+          <Button type="text" size="small" icon={<DeleteOutlined />}
+            className="ui-icon-btn ui-icon-btn--danger cl-touch-icon" aria-label="Delete payment" />
         </Popconfirm>
       ),
     },
@@ -209,103 +198,61 @@ const PaymentTracker: React.FC<PaymentTrackerProps> = ({
 
   return (
     <div>
-      {/* Payment Summary */}
-      <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
-        <Col xs={12} sm={6}>
-          <Statistic
-            title="Invoice Amount"
-            value={summary?.total_invoice_amount || 0}
-            prefix="$"
-            precision={2}
-            loading={isLoading}
-            valueStyle={{ fontSize: 16 }}
-          />
-        </Col>
-        <Col xs={12} sm={6}>
-          <Statistic
-            title="Insurance Paid"
-            value={summary?.total_insurance_paid || 0}
-            prefix="$"
-            precision={2}
-            loading={isLoading}
-            valueStyle={{ fontSize: 16, color: (summary?.total_insurance_paid || 0) > 0 ? '#448361' : undefined }}
-          />
-        </Col>
-        <Col xs={12} sm={6}>
-          <Statistic
-            title="Difference"
-            value={Math.abs(difference)}
-            prefix={isUnderpaid ? '-$' : '$'}
-            precision={2}
-            loading={isLoading}
-            valueStyle={{ fontSize: 16, color: hasDifference ? (isUnderpaid ? '#b5403b' : '#448361') : undefined }}
-          />
-        </Col>
-        <Col xs={12} sm={6}>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>Status</Text>
-            <div>
-              <Tag
-                color={PAYMENT_STATUS_COLORS[summary?.payment_status || 'unpaid']}
-                style={{ marginTop: 4 }}
-              >
-                {(summary?.payment_status || 'unpaid').toUpperCase()}
-              </Tag>
-            </div>
-          </div>
-        </Col>
-      </Row>
+      {/* Payment Summary: figures on the sheet, money in ink */}
+      <dl className="cl-figures">
+        <div className="cl-figure">
+          <dt>Invoice amount</dt>
+          <dd>{isLoading ? '…' : formatCurrency(summary?.total_invoice_amount || 0)}</dd>
+        </div>
+        <div className="cl-figure">
+          <dt>Insurance paid</dt>
+          <dd>{isLoading ? '…' : formatCurrency(summary?.total_insurance_paid || 0)}</dd>
+        </div>
+        <div className="cl-figure">
+          <dt>{isUnderpaid ? 'Still owed' : 'Difference'}</dt>
+          <dd className={hasDifference && isUnderpaid ? 'is-owed' : undefined}>
+            {isLoading ? '…' : `${isUnderpaid ? '−' : ''}${formatCurrency(Math.abs(difference))}`}
+          </dd>
+        </div>
+        <div className="cl-figure">
+          <dt>Status</dt>
+          <dd>
+            <Pill tone={(PAYMENT_STATUS[summary?.payment_status || 'unpaid'] || PAYMENT_STATUS.unpaid).tone}>
+              {(PAYMENT_STATUS[summary?.payment_status || 'unpaid'] || PAYMENT_STATUS.unpaid).label}
+            </Pill>
+          </dd>
+        </div>
+        <div className="cl-figure">
+          <dt>Estimate</dt>
+          <dd>
+            {summary?.insurance_estimate_received
+              ? <Pill tone="green" icon={<CheckCircleOutlined />}>Received</Pill>
+              : <Pill tone="orange" icon={<WarningOutlined />}>Not yet</Pill>}
+          </dd>
+        </div>
+        <div className="cl-figure">
+          <dt>Supplement</dt>
+          <dd>
+            {summary?.needs_supplement
+              ? <Pill tone="orange" icon={<ExclamationCircleOutlined />}>Needed</Pill>
+              : <Pill tone="gray">No</Pill>}
+          </dd>
+        </div>
+      </dl>
 
-      {/* Alerts */}
       {hasDifference && isUnderpaid && (summary?.total_insurance_paid || 0) > 0 && (
-        <Alert
-          message={`Payment difference: ${formatCurrency(difference)} remaining`}
-          description={summary?.needs_supplement
+        <div className="cl-note cl-note--orange" role="note">
+          <strong>{formatCurrency(difference)} remaining.</strong>{' '}
+          {summary?.needs_supplement
             ? 'A supplement may be needed to cover the difference.'
-            : 'Follow up with the insurance company for the remaining balance.'
-          }
-          type="warning"
-          showIcon
-          icon={<ExclamationCircleOutlined />}
-          style={{ marginBottom: 12 }}
-        />
+            : 'Follow up with the insurance company for the remaining balance.'}
+        </div>
       )}
 
-      {/* Insurance Estimate Status */}
-      <Row gutter={[12, 8]} style={{ marginBottom: 12 }}>
-        <Col xs={12}>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>Estimate</Text>
-            <div>
-              {summary?.insurance_estimate_received ? (
-                <Tag icon={<CheckCircleOutlined />} color="success" style={{ marginTop: 4 }}>Received</Tag>
-              ) : (
-                <Tag icon={<WarningOutlined />} color="warning" style={{ marginTop: 4 }}>Not Yet</Tag>
-              )}
-            </div>
-          </div>
-        </Col>
-        <Col xs={12}>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>Supplement</Text>
-            <div>
-              {summary?.needs_supplement ? (
-                <Tag icon={<ExclamationCircleOutlined />} color="warning" style={{ marginTop: 4 }}>Yes</Tag>
-              ) : (
-                <Tag color="default" style={{ marginTop: 4 }}>No</Tag>
-              )}
-            </div>
-          </div>
-        </Col>
-      </Row>
-
-      <Divider style={{ margin: '8px 0' }} />
-
-      {/* Payments Table */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <Text strong>Payment History</Text>
+      <div className="cl-subhead">
+        <span className="cl-subhead-title">Payment history</span>
         <Button
-          type="primary"
+          type="text"
           size="small"
           icon={<PlusOutlined />}
           onClick={() => setPaymentModalOpen(true)}
@@ -321,7 +268,8 @@ const PaymentTracker: React.FC<PaymentTrackerProps> = ({
         size="small"
         loading={isLoading}
         pagination={false}
-        locale={{ emptyText: 'No payments recorded yet' }}
+        className="cl-table"
+        locale={{ emptyText: <div className="cl-empty">No payments recorded yet.</div> }}
       />
 
       {/* Add Payment Modal */}
