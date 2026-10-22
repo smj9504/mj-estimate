@@ -34,6 +34,7 @@ from app.domains.line_items.models import LineItemTemplate
 from app.domains.water_mitigation.invoice_calculation_config import (
     GENERAL_CONDITIONS_TEMPLATE_ID,
     calculate_general_conditions_quantity,
+    convert_partial_wall_quantity,
     get_calculation_function,
     should_include_general_conditions_item,
 )
@@ -223,8 +224,14 @@ class InvoiceConfigService:
                 if config.scope_item:
                     # Scope item-based config - calculate quantity dynamically
                     base_qty = float(config.scope_item.quantity) if config.scope_item.quantity else 0
+                    billed_qty, invoice_unit = convert_partial_wall_quantity(
+                        config.scope_item.name,
+                        Decimal(str(base_qty)),
+                        config.scope_item.unit,
+                        config.line_item.unit if config.line_item else config.custom_unit,
+                    )
                     calc_qty, calc_note = self._calculate_quantity(
-                        base_qty, config.quantity_calc_type, mitigation_days, config.max_days
+                        float(billed_qty), config.quantity_calc_type, mitigation_days, config.max_days
                     )
 
                     # Process default_note template with placeholders
@@ -246,6 +253,7 @@ class InvoiceConfigService:
                     config_dict.update({
                         "calculated_quantity": calc_qty,
                         "calculation_note": calc_note,
+                        "invoice_unit": invoice_unit,
                         "effective_rate": rate,
                         "calculated_amount": calc_qty * rate,
                         "default_note": processed_note,  # Override with processed note
@@ -744,7 +752,7 @@ class InvoiceConfigService:
                 "base_quantity": float(config.get("scope_item_quantity") or 0),
                 "calculated_quantity": float(calc_qty),
                 "calculation_note": config.get("calculation_note") or "",
-                "unit": config.get("scope_item_unit") or "EA",
+                "unit": config.get("invoice_unit") or config.get("scope_item_unit") or "EA",
                 "rate": float(rate),
                 "amount": float(amount),
                 "default_note": config.get("default_note"),
@@ -1246,8 +1254,14 @@ class InvoiceConfigService:
                 calc_type = std_item.quantity_calc_type
                 max_days = std_item.max_days
 
+                billed_qty, invoice_unit = convert_partial_wall_quantity(
+                    agg_data["name"],
+                    agg_data["total_quantity"],
+                    agg_data["unit"],
+                    std_item.line_item.unit if std_item.line_item else std_item.unit,
+                )
                 calc_qty, calc_note = self._calculate_quantity(
-                    base_qty, calc_type, mitigation_days, max_days
+                    float(billed_qty), calc_type, mitigation_days, max_days
                 )
 
                 if std_item.line_item:
@@ -1269,7 +1283,7 @@ class InvoiceConfigService:
                     "base_quantity": base_qty,
                     "calculated_quantity": calc_qty,
                     "calculation_note": calc_note,
-                    "unit": agg_data["unit"],
+                    "unit": invoice_unit,
                     "rate": rate,
                     "amount": float(amount),
                     "default_note": std_item.default_invoice_note,

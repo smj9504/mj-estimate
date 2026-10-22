@@ -1376,6 +1376,7 @@ class InvoiceItemConfigResponse(InvoiceItemConfigBase):
     
     # Calculated values for preview
     calculated_quantity: Optional[float] = None
+    invoice_unit: Optional[str] = None  # Unit calculated_quantity is billed in (LF for partial-height wall drywall)
     effective_rate: Optional[float] = None
     calculated_amount: Optional[float] = None
     calculation_note: Optional[str] = None  # e.g., "3 units × 5 days = 15"

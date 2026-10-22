@@ -450,6 +450,13 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
         return patched;
       }));
 
+      // The billed quantity depends on the line item's unit (partial-height
+      // wall drywall is billed per LF), so take the server's recalculation
+      if ('line_item_id' in updates || 'custom_unit' in updates) {
+        const response = await waterMitigationService.invoiceConfig.list(jobId, true);
+        setConfigs(response.items);
+      }
+
       onConfigChange?.();
     } catch (error) {
       message.error('Failed to update configuration');
@@ -729,7 +736,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
       render: (_: any, record: InvoiceItemConfig) => (
         <Text>
           {record.calculated_quantity?.toFixed(2) || record.scope_item_quantity || 0}
-          {' '}{record.scope_item_unit}
+          {' '}{record.invoice_unit ?? record.scope_item_unit}
         </Text>
       )
     },

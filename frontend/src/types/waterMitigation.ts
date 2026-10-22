@@ -1069,6 +1069,7 @@ export interface InvoiceItemConfig {
 
   // Calculated values (when include_calculated=true)
   calculated_quantity?: number;
+  invoice_unit?: string;  // Unit calculated_quantity is billed in (LF for partial-height wall drywall)
   calculation_note?: string;  // e.g., "3 x 5 days = 15"
   effective_rate?: number;
   calculated_amount?: number;

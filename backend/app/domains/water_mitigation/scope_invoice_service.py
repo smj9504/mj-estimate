@@ -23,6 +23,9 @@ from app.domains.water_mitigation.models import (
     WMScopeItemInvoiceLink,
     WMInvoiceItemConfig,
 )
+from app.domains.water_mitigation.invoice_calculation_config import (
+    convert_partial_wall_quantity,
+)
 from app.domains.invoice.models import Invoice, InvoiceItem
 from app.domains.line_items.models import (
     LineItemTemplate,
@@ -307,6 +310,7 @@ class ScopeInvoiceService:
             rate = None
             line_item_name = scope_item.name
             resolved_line_item_id = None  # Track which line item was used
+            billing_unit = None  # Unit the resolved rate is priced in
 
             # Priority 1: Use config's line_item_id if available
             if config and config.line_item_id:
@@ -319,6 +323,7 @@ class ScopeInvoiceService:
                         line_item.description or scope_item.name
                     )
                     resolved_line_item_id = config.line_item_id
+                    billing_unit = line_item.unit
                     logger.info(
                         f"Config line_item rate for "
                         f"'{scope_item.name}': ${rate}"
@@ -327,6 +332,7 @@ class ScopeInvoiceService:
             # Priority 2: Use config's custom rate
             if rate is None and config and config.custom_rate:
                 rate = config.custom_rate
+                billing_unit = config.custom_unit
                 if config.custom_name:
                     line_item_name = config.custom_name
                 logger.info(
@@ -345,6 +351,7 @@ class ScopeInvoiceService:
                         line_item.description or scope_item.name
                     )
                     resolved_line_item_id = scope_item.line_item_id
+                    billing_unit = line_item.unit
                     logger.info(
                         f"Scope item line_item rate for "
                         f"'{scope_item.name}': ${rate}"
@@ -364,7 +371,12 @@ class ScopeInvoiceService:
                 rate = Decimal("0")
 
             # Calculate quantity based on config type
-            base_quantity = Decimal(str(scope_item.quantity or 0))
+            base_quantity, invoice_unit = convert_partial_wall_quantity(
+                scope_item.name,
+                Decimal(str(scope_item.quantity or 0)),
+                scope_item.unit,
+                billing_unit,
+            )
             quantity = base_quantity
 
             if config:
@@ -421,7 +433,7 @@ class ScopeInvoiceService:
                 name=line_item_name,
                 description=line_item_name,
                 quantity=quantity,
-                unit=scope_item.unit,
+                unit=invoice_unit,
                 rate=rate,
                 amount=item_amount,
                 taxable=True,

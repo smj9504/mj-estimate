@@ -7,7 +7,8 @@ This module provides easy-to-modify calculation logic for:
 - Equipment monitoring hours based on equipment count and complexity
 """
 
-from decimal import Decimal
+import re
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional, Tuple
 from uuid import UUID
 
@@ -332,6 +333,50 @@ def calculate_equipment_monitoring_hours(
     )
 
     return Decimal(str(hours)), note
+
+
+# =============================================================================
+# Partial-Height Wall Drywall Quantity (SF → LF)
+# =============================================================================
+
+# Sketch scope items for partial-height wall tear-out ("Wall - Drywall 2ft
+# (Drywall)") store SF — wall length × cut height — so debris weight comes out
+# right, but their line items are priced per LF up to that height
+PARTIAL_WALL_HEIGHT_PATTERN = re.compile(r"^wall - drywall (\d+(?:\.\d+)?)ft\b")
+
+
+def convert_partial_wall_quantity(
+    scope_item_name: str,
+    quantity: Decimal,
+    scope_unit: Optional[str],
+    billing_unit: Optional[str],
+) -> Tuple[Decimal, Optional[str]]:
+    """
+    Get the quantity and unit to bill a scope item in.
+
+    Partial-height wall drywall billed with a per-LF line item is converted
+    from SF to LF by dividing by the cut height in its name; anything else
+    comes back unchanged.
+
+    Args:
+        scope_item_name: Scope item name, e.g. "Wall - Drywall 4ft (Drywall)"
+        quantity: Scope item quantity
+        scope_unit: Scope item unit
+        billing_unit: Unit of the line item (or custom rate) it is billed with
+
+    Returns:
+        Tuple of (quantity, unit) to put on the invoice
+    """
+    if (scope_unit or "").upper() != "SF" or (billing_unit or "").upper() != "LF":
+        return quantity, scope_unit
+
+    match = PARTIAL_WALL_HEIGHT_PATTERN.match((scope_item_name or "").lower().strip())
+    height_ft = Decimal(match.group(1)) if match else Decimal("0")
+    if height_ft <= 0:
+        return quantity, scope_unit
+
+    linear_feet = quantity / height_ft
+    return linear_feet.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), "LF"
 
 
 # =============================================================================
