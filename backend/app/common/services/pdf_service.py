@@ -20,6 +20,7 @@ from app.common.services.document_resources import (
     DOCUMENT_LOCK, DiskPDFWriter, DocumentResourceError, document_job, release_memory,
     require_memory, MIB,
 )
+from app.common.utils.money import line_amount, to_cents
 
 # ── Local disk cache for remote-storage photos used in report PDFs ──
 # storage_path is stable per uploaded photo (a re-uploaded/replaced photo
@@ -290,9 +291,13 @@ class PDFService:
         logger = logging.getLogger(__name__)
         
         try:
+            # Round half up the way totals are summed, so a line shows the
+            # same cents it contributes to the subtotal
+            value = float(to_cents(value))
+
             # Check if value has decimal part (with small epsilon for floating point precision)
             has_decimal = abs(value % 1) > 1e-10
-            
+
             if value < 0:
                 # Format negative as -$X,XXX.XX instead of $-X,XXX.XX
                 if has_decimal:
@@ -307,7 +312,7 @@ class PDFService:
                 else:
                     result = f"${int(value):,}"
                 return result
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError, ArithmeticError) as e:
             logger.error(f"_format_currency error for value {value}: {e}")
             return "$0"
     
@@ -318,14 +323,18 @@ class PDFService:
         Examples: 94.24 -> 94.24, 20.10 -> 20.10, 78.0 -> 78, 10.0 -> 10
         """
         try:
+            if decimal_places == 2:
+                # Money: round half up, and a balance of -0.004 shows as 0
+                value = float(to_cents(value))
+
             # Check if value has decimal part (with small epsilon for floating point precision)
             has_decimal = abs(value % 1) > 1e-10
-            
+
             if has_decimal:
                 return f"{value:,.{decimal_places}f}"
             else:
                 return f"{int(value):,}"
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, ArithmeticError):
             return "0"
     
     @staticmethod
@@ -1032,11 +1041,11 @@ print(os.path.getsize(output_path))
         }
 
         if items:
-            items_subtotal = sum(
-                float(item.get('quantity', 0)) * float(item.get('rate', 0))
+            items_subtotal = float(sum(
+                line_amount(item.get('quantity', 0), item.get('rate', 0))
                 for item in items
                 if item.get('primary_group') not in lump_sum_titles
-            )
+            ))
             items_subtotal += sum(
                 float(s.get('subtotal', 0) or 0)
                 for s in sections
@@ -1046,10 +1055,10 @@ print(os.path.getsize(output_path))
             # When items is empty but sections exist (e.g. roofing invoice),
             # calculate subtotal from sections
             items_subtotal = sum(
-                float(s.get('subtotal', 0)) or sum(
-                    float(i.get('quantity', 0)) * float(i.get('rate', 0))
+                float(s.get('subtotal', 0)) or float(sum(
+                    line_amount(i.get('quantity', 0), i.get('rate', 0))
                     for i in s.get('items', [])
-                )
+                ))
                 for s in sections
             )
         else:
@@ -1111,11 +1120,11 @@ print(os.path.getsize(output_path))
 
         if tax_method == 'percentage':
             # Calculate tax on taxable items proportionally
-            taxable_amount = sum(
-                float(item.get('quantity', 0)) * float(item.get('rate', 0))
+            taxable_amount = float(sum(
+                line_amount(item.get('quantity', 0), item.get('rate', 0))
                 for item in items
                 if item.get('taxable', True)  # Default to taxable
-            )
+            ))
             
             if taxable_amount > 0 and items_subtotal > 0:
                 taxable_ratio = taxable_amount / items_subtotal
@@ -1232,10 +1241,10 @@ print(os.path.getsize(output_path))
                         }
                         for item in section_items
                     ],
-                    'subtotal': sum(
-                        float(item.get('quantity', 0)) * float(item.get('rate', 0))
+                    'subtotal': float(sum(
+                        line_amount(item.get('quantity', 0), item.get('rate', 0))
                         for item in section_items
-                    ),
+                    )),
                     'showSubtotal': len(section_items) > 1
                 })
         else:
@@ -1396,7 +1405,7 @@ print(os.path.getsize(output_path))
                     # Calculate item total
                     quantity = float(item.get('quantity', 0))
                     unit_price = float(item.get('unit_price', item.get('rate', 0)))
-                    item_total = quantity * unit_price
+                    item_total = float(line_amount(quantity, unit_price))
                     processed_item['total'] = item_total
                     section_subtotal += item_total
 
@@ -1442,7 +1451,7 @@ print(os.path.getsize(output_path))
                 # Calculate item total
                 quantity = float(item.get('quantity', 0))
                 unit_price = float(item.get('unit_price', item.get('rate', 0)))
-                item_total = quantity * unit_price
+                item_total = float(line_amount(quantity, unit_price))
                 processed_item['total'] = item_total
                 subtotal += item_total
                 

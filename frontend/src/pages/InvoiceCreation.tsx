@@ -88,6 +88,7 @@ import { LineItemType } from '../types/lineItem';
 import { useTemplateBuilder } from '../contexts/TemplateBuilderContext';
 import { generateId } from '../components/sketch/utils/idUtils';
 import { compressForInline } from '../utils/imageCompressor';
+import { lineAmount, roundCurrency } from '../utils/money';
 import {
   Collapse,
   Tag,
@@ -651,7 +652,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                   key: 'amount',
                   width: 90,
                   align: 'right' as const,
-                  render: (_: any, record: InvoiceItem) => formatCurrency((record.quantity || 0) * (record.rate || 0)),
+                  render: (_: any, record: InvoiceItem) => formatCurrency(lineAmount(record.quantity, record.rate)),
                 },
                 ]),
                 ...(!hidePricing && taxMethod === 'percentage' ? [{
@@ -1013,12 +1014,7 @@ const InvoiceCreation: React.FC = () => {
     });
 
     return Array.from(groupedItems.entries()).map(([title, groupItems], index) => {
-      const subtotal = groupItems.reduce((sum, item) => {
-        const quantity = parseFloat(String(item.quantity)) || 0;
-        const rate = parseFloat(String(item.rate)) || 0;
-        const amount = parseFloat(String(item.amount)) || (quantity * rate);
-        return sum + amount;
-      }, 0);
+      const subtotal = groupItems.reduce((sum, item) => sum + lineAmount(item.quantity, item.rate), 0);
 
       return {
         id: `section-${index}`,
@@ -1144,12 +1140,7 @@ const InvoiceCreation: React.FC = () => {
     if (section?.isLumpSum) {
       return section.lumpSumAmount ?? 0;
     }
-    return items.reduce((sum, item) => {
-      const quantity = parseFloat(String(item.quantity)) || 0;
-      const rate = parseFloat(String(item.rate)) || 0;
-      const amount = parseFloat(String(item.amount)) || (quantity * rate);
-      return sum + amount;
-    }, 0);
+    return items.reduce((sum, item) => sum + lineAmount(item.quantity, item.rate), 0);
   };
 
   // Multi-select row selection handler
@@ -1301,7 +1292,7 @@ const InvoiceCreation: React.FC = () => {
       quantity: item.quantity,
       unit: item.unit,
       rate: item.unit_price,
-      amount: item.total,
+      amount: lineAmount(item.quantity, item.unit_price),
       taxable: item.taxable !== false,
       primary_group: currentSection.title,
       secondary_group: item.secondary_group,
@@ -1426,7 +1417,7 @@ const InvoiceCreation: React.FC = () => {
       const flatItems = (data.items || []).map((item: any) => {
         const quantity = parseFloat(item.quantity) || 0;
         const rate = parseFloat(item.rate || item.unit_price) || 0;
-        const amount = parseFloat(item.amount || item.total) || (quantity * rate);
+        const amount = lineAmount(quantity, rate);
         return {
           id: item.id,
           line_item_id: item.line_item_id,
@@ -1459,12 +1450,7 @@ const InvoiceCreation: React.FC = () => {
           items: sectionItems,
           subtotal: isLumpSum
             ? (sd.lumpSumAmount ?? 0)
-            : sectionItems.reduce((sum: number, item: InvoiceItem) => {
-                const quantity = parseFloat(String(item.quantity)) || 0;
-                const rate = parseFloat(String(item.rate)) || 0;
-                const amount = parseFloat(String(item.amount)) || (quantity * rate);
-                return sum + amount;
-              }, 0),
+            : sectionItems.reduce((sum: number, item: InvoiceItem) => sum + lineAmount(item.quantity, item.rate), 0),
         };
       });
 
@@ -1476,7 +1462,7 @@ const InvoiceCreation: React.FC = () => {
         // Ensure numeric values are properly converted
         const quantity = parseFloat(item.quantity) || 0;
         const rate = parseFloat(item.rate || item.unit_price) || 0;
-        const amount = parseFloat(item.amount || item.total) || (quantity * rate);
+        const amount = lineAmount(quantity, rate);
         
         return {
           id: item.id,
@@ -2026,7 +2012,7 @@ const InvoiceCreation: React.FC = () => {
         note: processedNote,
         quantity: Number(values.quantity),
         rate: Number(values.rate),
-        amount: Number(values.quantity) * Number(values.rate),
+        amount: lineAmount(values.quantity, values.rate),
         taxable: values.taxable !== false, // Default to taxable if not specified
         primary_group: sections[editingSectionIndex]?.title,
         images: itemImages.length > 0 ? itemImages : undefined,
@@ -2179,7 +2165,7 @@ const InvoiceCreation: React.FC = () => {
         const paymentAmount = parseFloat(String(payment.amount)) || 0;
         return sum + paymentAmount;
       }, 0);
-      const balanceDue = total - totalPaid;
+      const balanceDue = roundCurrency(total - totalPaid);
 
       return {
         itemsSubtotal: lumpSumDocumentAmount,
@@ -2243,10 +2229,7 @@ const InvoiceCreation: React.FC = () => {
         }
         return sum + section.items.reduce((itemSum, item) => {
           if (item.taxable !== false) { // Default to taxable if not specified
-            const quantity = parseFloat(String(item.quantity)) || 0;
-            const rate = parseFloat(String(item.rate)) || 0;
-            const amount = parseFloat(String(item.amount)) || (quantity * rate);
-            return itemSum + amount;
+            return itemSum + lineAmount(item.quantity, item.rate);
           }
           return itemSum;
         }, 0);
@@ -2293,7 +2276,7 @@ const InvoiceCreation: React.FC = () => {
       const paymentAmount = parseFloat(String(payment.amount)) || 0;
       return sum + paymentAmount;
     }, 0);
-    const balanceDue = total - totalPaid;
+    const balanceDue = roundCurrency(total - totalPaid);
 
     return {
       itemsSubtotal,
@@ -2528,7 +2511,7 @@ const InvoiceCreation: React.FC = () => {
           title: section.title,
           items: section.items,
           showSubtotal: section.showSubtotal !== false,
-          subtotal: section.subtotal || section.items.reduce((sum, item) => sum + (item.quantity * item.rate), 0),
+          subtotal: section.subtotal || section.items.reduce((sum, item) => sum + lineAmount(item.quantity, item.rate), 0),
           isLumpSum: section.isLumpSum || false,
           lumpSumAmount: section.isLumpSum ? (section.lumpSumAmount ?? 0) : undefined,
           taxable: section.taxable ?? true,
@@ -3020,14 +3003,14 @@ const InvoiceCreation: React.FC = () => {
             quantity: parseFloat(item.quantity) || 1,
             unit: (item.unit || 'EA').toUpperCase(),
             rate: parseFloat(item.rate) || 0,
-            amount: (parseFloat(item.quantity) || 1) * (parseFloat(item.rate) || 0),
+            amount: lineAmount(parseFloat(item.quantity) || 1, item.rate),
             taxable: item.taxable !== false,
             primary_group: sec.title || `Section ${sIdx + 1}`,
             sort_order: iIdx,
             note: item.note || '',
           })),
           subtotal: (sec.items || []).reduce((sum: number, item: any) =>
-            sum + (parseFloat(item.quantity) || 1) * (parseFloat(item.rate) || 0), 0),
+            sum + lineAmount(parseFloat(item.quantity) || 1, item.rate), 0),
         }));
         setSections(newSections);
         setActiveKeys(newSections.map(s => s.id));
@@ -3150,7 +3133,7 @@ const InvoiceCreation: React.FC = () => {
       key: 'amount',
       width: 120,
       align: 'right' as const,
-      render: (_: any, record: InvoiceItem) => formatCurrency(record.quantity * record.rate),
+      render: (_: any, record: InvoiceItem) => formatCurrency(lineAmount(record.quantity, record.rate)),
     },
     ]),
     ...(!isLumpSumDocument && taxMethod === 'percentage' ? [{
@@ -3837,7 +3820,7 @@ const InvoiceCreation: React.FC = () => {
                             <HolderOutlined style={{ color: '#8c8c8c', fontSize: '12px' }} />
                             <span style={{ fontWeight: '500' }}>{item.name || 'Item'}</span>
                             <span style={{ color: '#8c8c8c' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
-                            <span style={{ color: '#1890ff', marginLeft: 'auto' }}>${formatCurrency(item.amount || (item.quantity * item.rate) || 0)}</span>
+                            <span style={{ color: '#1890ff', marginLeft: 'auto' }}>${formatCurrency(lineAmount(item.quantity, item.rate))}</span>
                           </div>
                         );
                       }
@@ -4564,7 +4547,7 @@ const InvoiceCreation: React.FC = () => {
               const rate = getFieldValue('rate');
               return quantity && rate ? (
                 <div style={{ textAlign: 'right', fontSize: '16px', fontWeight: 'bold' }}>
-                  Total: ${formatCurrency(quantity * rate)}
+                  Total: ${formatCurrency(lineAmount(quantity, rate))}
                 </div>
               ) : null;
             }}

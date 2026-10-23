@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import func, select, text
 
 from app.common.base_service import TransactionalService
+from app.common.utils.money import line_amount
 from app.core.database_factory import get_database
 from app.core.interfaces import DatabaseProvider
 from app.domains.estimate.repository import get_estimate_repository
@@ -307,7 +308,7 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                     item_data['order_index'] = idx
                     quantity = float(item_data.get('quantity', 1))
                     rate = float(item_data.get('rate', 0))
-                    item_data['amount'] = quantity * rate
+                    item_data['amount'] = float(line_amount(quantity, rate))
 
                     item_entity = EstimateItem(**item_data)
                     repository.db_session.add(item_entity)
@@ -514,12 +515,10 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                 if item.get('primary_group') in lump_sum_sections:
                     continue
 
-                quantity = Decimal(str(item.get('quantity', 1)))
-                rate = Decimal(str(item.get('rate', 0)))
                 item_tax_rate = Decimal(str(item.get('tax_rate', 0)))
                 depreciation_rate = Decimal(str(item.get('depreciation_rate', 0)))
 
-                item_amount = quantity * rate
+                item_amount = line_amount(item.get('quantity', 1), item.get('rate', 0))
                 item_tax = item_amount * (item_tax_rate / 100)
                 item_depreciation = item_amount * (depreciation_rate / 100)
 
@@ -580,9 +579,7 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                     if item.get('primary_group') in lump_sum_sections:
                         continue
                     if item.get('taxable', True):  # Default to taxable if not specified
-                        quantity = Decimal(str(item.get('quantity', 1)))
-                        rate = Decimal(str(item.get('rate', 0)))
-                        taxable_amount += quantity * rate
+                        taxable_amount += line_amount(item.get('quantity', 1), item.get('rate', 0))
 
                 for section in lump_sum_sections.values():
                     if section.get('taxable', True):

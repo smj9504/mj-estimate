@@ -68,6 +68,7 @@ import ItemCodeSelector from '../components/estimate/ItemCodeSelector';
 import { generateId } from '../components/sketch/utils/idUtils';
 
 import { formatCurrency } from '../utils/formatUtils';
+import { lineAmount } from '../utils/money';
 import { zIndex as zIndexScale } from '../styles/tokens';
 
 const { Title } = Typography;
@@ -317,7 +318,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       title,
       items: groupItems,
       showSubtotal: true,
-      subtotal: groupItems.reduce((sum, item) => sum + (item.total || 0), 0),
+      subtotal: groupItems.reduce((sum, item) => sum + lineAmount(item.quantity, item.unit_price), 0),
     }));
   };
 
@@ -901,7 +902,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     if (section?.isLumpSum) {
       return section.lumpSumAmount ?? 0;
     }
-    return items.reduce((sum, item) => sum + (item.total || 0), 0);
+    return items.reduce((sum, item) => sum + lineAmount(item.quantity, item.unit_price), 0);
   };
 
   // Adjustments handlers
@@ -978,7 +979,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
         }
         return sum + section.items.reduce((itemSum, item) => {
           if (item.taxable !== false) { // Default to taxable if not specified
-            return itemSum + (item.total || 0);
+            return itemSum + lineAmount(item.quantity, item.unit_price);
           }
           return itemSum;
         }, 0);
@@ -1100,7 +1101,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       name: values.name.trim(),
       description: currentItemDescription,
       note: currentItemNote,
-      total: values.quantity * values.unit_price,
+      total: lineAmount(values.quantity, values.unit_price),
       primary_group: sections[editingSectionIndex!]?.title,
       taxable: values.taxable !== false, // Default to taxable if not specified
     };
@@ -1883,7 +1884,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                 <HolderOutlined style={{ color: '#73726e', fontSize: '12px' }} />
                                 <span style={{ fontWeight: '500' }}>{item.name || 'Item'}</span>
                                 <span style={{ color: '#73726e' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
-                                <span style={{ color: '#37352f', fontWeight: 500, marginLeft: 'auto' }}>{formatCurrency(item.total || 0)}</span>
+                                <span style={{ color: '#37352f', fontWeight: 500, marginLeft: 'auto' }}>{formatCurrency(lineAmount(item.quantity, item.unit_price))}</span>
                               </div>
                             );
                           }

@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from app.common.base_repository import SQLAlchemyRepository, SupabaseRepository
+from app.common.utils.money import line_amount
 from app.core.config import settings
 from app.core.interfaces import DatabaseSession
 from app.domains.estimate.models import Estimate, EstimateItem
@@ -85,12 +86,10 @@ class EstimateRepositoryMixin:
             if item.get('primary_group') in lump_sum_sections:
                 continue
 
-            quantity = Decimal(str(item.get('quantity', 1)))
-            rate = Decimal(str(item.get('rate', 0)))
             tax_rate = Decimal(str(item.get('tax_rate', 0)))
             depreciation_rate = Decimal(str(item.get('depreciation_rate', 0)))
 
-            item_amount = quantity * rate
+            item_amount = line_amount(item.get('quantity', 1), item.get('rate', 0))
             item_tax = item_amount * (tax_rate / 100)
             item_depreciation = item_amount * (depreciation_rate / 100)
 
@@ -367,7 +366,7 @@ class EstimateSQLAlchemyRepository(SQLAlchemyRepository, EstimateRepositoryMixin
                     # Calculate item values
                     quantity = float(item_data.get('quantity', 1))
                     rate = float(item_data.get('rate', 0))
-                    amount = quantity * rate
+                    amount = float(line_amount(quantity, rate))
 
                     # Explicitly get taxable - default to True if not provided
                     taxable = item_data.get('taxable', True)
@@ -501,7 +500,7 @@ class EstimateSQLAlchemyRepository(SQLAlchemyRepository, EstimateRepositoryMixin
                 # Calculate item values
                 quantity = float(item_data.get('quantity', 1))
                 rate = float(item_data.get('rate', 0))
-                amount = quantity * rate
+                amount = float(line_amount(quantity, rate))
 
                 # Explicitly get taxable - default to True if not provided
                 taxable = item_data.get('taxable', True)

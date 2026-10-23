@@ -3,6 +3,7 @@ import { Button, Space, Switch, Tooltip, Popconfirm } from 'antd';
 import { EditOutlined, DeleteOutlined, FileTextFilled } from '@ant-design/icons';
 import DraggableTable from '../common/DraggableTable';
 import { EstimateLineItem } from '../../services/estimateService';
+import { lineAmount } from '../../utils/money';
 
 interface SectionItemsTableProps {
   sectionIndex: number;
@@ -115,7 +116,7 @@ const SectionItemsTable: React.FC<SectionItemsTableProps> = memo(({
           key: 'total',
           width: 90,
           align: 'right' as const,
-          render: (value: number) => formatCurrency(value || 0),
+          render: (_: number, record: EstimateLineItem) => formatCurrency(lineAmount(record.quantity, record.unit_price)),
         } as any,
       );
     }

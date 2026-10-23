@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from app.common.base_service import TransactionalService
+from app.common.utils.money import line_amount
 from app.core.database_factory import get_database
 from app.core.interfaces import DatabaseProvider
 from app.domains.invoice.repository import get_invoice_repository
@@ -376,11 +377,9 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
                 if item.get('primary_group') in lump_sum_sections:
                     continue
 
-                quantity = Decimal(str(item.get('quantity', 1)))
-                rate = Decimal(str(item.get('rate', 0)))
                 taxable = item.get('taxable', True)
 
-                item_amount = quantity * rate
+                item_amount = line_amount(item.get('quantity', 1), item.get('rate', 0))
                 items_subtotal += item_amount
 
                 # Track taxable amount for percentage tax calculation
