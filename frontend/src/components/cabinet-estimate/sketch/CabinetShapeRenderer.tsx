@@ -249,6 +249,8 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
       : [0, height, width, height];
   // Where the label fits: the strip along the back wall of an L, the deep half of an angle end.
   const labelBand = !shaped || !corner ? height : corner.kind === 'angle_end' ? height / 2 : corner.leg;
+  const turned = ((cabinet.rotation % 360) + 360) % 360;
+  const labelUpsideDown = turned > 90 && turned < 270;
   const outlineStyle = {
     stroke: '#8B5E3C',
     strokeWidth: 1.5,
@@ -328,8 +330,13 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
           ))}
         {showLabel && (
           <Text
-            x={2 * px}
-            y={isUpper ? 2 * px : Math.max(labelBand / 2 - 7 * px, labelBand - 16 * px)}
+            // Turned about its own middle when the cabinet is more than a
+            // quarter turn round, so the code never reads upside down.
+            x={width / 2}
+            y={(isUpper ? 2 * px : Math.max(labelBand / 2 - 7 * px, labelBand - 16 * px)) + 5.5 * px}
+            offsetX={width / 2 - 2 * px}
+            offsetY={5.5 * px}
+            rotation={labelUpsideDown ? 180 : 0}
             width={width - 4 * px}
             text={labelText}
             fontSize={11 * px}

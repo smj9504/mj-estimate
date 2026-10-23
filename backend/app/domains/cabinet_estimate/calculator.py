@@ -16,6 +16,8 @@ from .pricing import (
     BASE_RATES,
     COUNTERTOP_ANGLED_CUT_EACH,
     COUNTERTOP_MATERIALS,
+    COUNTERTOP_SUPPORT_PRICING,
+    COUNTERTOP_SUPPORT_RULE,
     CROWN_MOLDING_PRICING,
     DEFAULT_OVERHEAD_PCT,
     DEFAULT_PROFIT_PCT,
@@ -840,6 +842,10 @@ def calculate_estimate(
     filler_count: int = 0,
     # Places a run or island turns at an angle other than 90°.
     angled_joint_count: int = 0,
+    # Brackets / corbels under an island top's seating overhang, and the
+    # overhang itself (inches), which says whether they are needed.
+    countertop_support_count: int = 0,
+    island_seating_overhang_in: Optional[float] = None,
     end_panel_counts: Optional[dict] = None,
     dishwasher_return_panel_count: int = 0,
     include_light_rail: bool = False,
@@ -1486,6 +1492,38 @@ def calculate_estimate(
             category="countertop",
             location="island",
         ))
+
+    # ── 8b2. Island top overhang supports ──
+    # A seating overhang past what the top can carry on its own needs steel
+    # brackets or corbels under it, set before the top is templated.
+    if (include_countertop and countertop_support_count
+            and countertop_support_count > 0):
+        sup_mat = COUNTERTOP_SUPPORT_PRICING["bracket_each"]
+        sup_inst = COUNTERTOP_SUPPORT_PRICING["install_each"]
+        sup_unit = round(sup_mat + sup_inst, 2)
+        line_items.append(LineItem(
+            description="Countertop Overhang Support Bracket (steel)",
+            quantity=countertop_support_count,
+            unit="EA",
+            unit_price=sup_unit,
+            total=round(countertop_support_count * sup_unit, 2),
+            material_share=round(sup_mat / sup_unit, 4) if sup_unit else 0.0,
+            category="countertop",
+            location="island",
+            notes="Under the seating overhang, set before the top is templated",
+        ))
+    elif (include_countertop and island_countertop_sqft and not is_prefab
+            and island_seating_overhang_in):
+        # The overhang is past what the top carries on its own, yet no
+        # supports are billed: a missed line rather than a choice.
+        sup_top = island_countertop_material or countertop_material or "Laminate"
+        limit = COUNTERTOP_SUPPORT_RULE["max_unsupported_in"].get(sup_top)
+        if limit is not None and island_seating_overhang_in > limit:
+            warnings.append(
+                f"Island seating overhang {island_seating_overhang_in:g}\" is "
+                f"past the {limit}\" {sup_top} carries unsupported, but no "
+                f"overhang supports are billed."
+            )
 
     # ── 8c. 4" Countertop Backsplash ──
     if (include_countertop_backsplash

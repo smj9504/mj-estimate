@@ -719,6 +719,105 @@ export function countAngledJoints(cabinets: CabinetSketchCabinet[], scalePixelsP
   return joints;
 }
 
+// ---------------------------------------------------------------------------
+// Island countertop
+// ---------------------------------------------------------------------------
+
+/** How far a countertop runs past the box at a front or an exposed end or back, inches. */
+export const TOP_EDGE_OVERHANG_IN = 1.5;
+
+/**
+ * The island's countertop in plan, as convex pieces whose union is the
+ * top: each island floor cabinet grown by the edge overhang (and by the
+ * seating overhang behind its back), plus the wedge each angled joint
+ * leaves on the outside of its turn, so the top reads — and measures — as
+ * one piece however the island bends. Back-to-back rows need no special
+ * case: one row's seating strip lies over the other row.
+ */
+export function islandTopPieces(
+  cabinets: CabinetSketchCabinet[],
+  scalePixelsPerFoot: number,
+  seatingOverhangIn = 0
+): Pt[][] {
+  const island = cabinets.filter((c) => c.location === 'island' && onFloor(c));
+  const edge = inToPx(TOP_EDGE_OVERHANG_IN, scalePixelsPerFoot);
+  const behind = Math.max(edge, inToPx(seatingOverhangIn, scalePixelsPerFoot));
+  // A point on the cabinet, x along its run and y toward its front.
+  const at = (c: CabinetSketchCabinet, x: number, y: number) => {
+    const { ux, back } = axes(c.rotation);
+    return add({ x: c.x, y: c.y }, sub(scale(ux, x), scale(back, y)));
+  };
+
+  const pieces: Pt[][] = island.map((c) => [
+    at(c, -edge, -behind),
+    at(c, c.width + edge, -behind),
+    at(c, c.width + edge, c.height + edge),
+    at(c, -edge, c.height + edge),
+  ]);
+
+  // The wedge on the outside of each angled joint: from the inside corner
+  // the two cabinets share, out to their outside corners (and past them by
+  // the overhang on that side).
+  const tol = inToPx(1, scalePixelsPerFoot);
+  for (let i = 0; i < island.length; i++) {
+    for (let j = i + 1; j < island.length; j++) {
+      const [a, b] = [island[i], island[j]];
+      const quarter = Math.round((b.rotation - a.rotation) / 90) * 90;
+      if (angleDiffDeg(b.rotation, a.rotation + quarter) <= NEIGHBOR_SNAP_ANGLE_DEG) continue;
+      const phi = ((((b.rotation - a.rotation) % 360) + 540) % 360) - 180;
+      const [pastRight, beforeLeft] = angledJoinShifts(b, a).map((s) => Math.hypot(s.x, s.y) <= tol);
+      // Which ends meet, and whether the wedge opens at the back (inside corner at the front).
+      const join = pastRight
+        ? { aEnd: a.width, bEnd: 0, opensBack: phi > 0 }
+        : beforeLeft
+          ? { aEnd: 0, bEnd: b.width, opensBack: phi < 0 }
+          : null;
+      if (!join) continue;
+      const outY = (c: CabinetSketchCabinet) => (join.opensBack ? -behind : c.height + edge);
+      const hinge = at(a, join.aEnd, join.opensBack ? a.height : 0);
+      pieces.push([hinge, at(a, join.aEnd, outY(a)), at(b, join.bEnd, outY(b))]);
+    }
+  }
+  return pieces;
+}
+
+/** Point in a convex polygon (either winding). */
+function inConvex(p: Pt, poly: Pt[]): boolean {
+  let sign = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    const cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    if (Math.abs(cross) < 1e-9) continue;
+    const s = Math.sign(cross);
+    if (sign === 0) sign = s;
+    else if (s !== sign) return false;
+  }
+  return true;
+}
+
+/**
+ * Area of the island top (the union of islandTopPieces), square feet to a
+ * tenth. Sampled on a half-inch grid, which is well inside a fabricator's
+ * rounding.
+ */
+export function islandTopAreaSf(pieces: Pt[][], scalePixelsPerFoot: number): number {
+  const pts = pieces.flat();
+  if (pts.length === 0 || scalePixelsPerFoot <= 0) return 0;
+  const step = inToPx(0.5, scalePixelsPerFoot);
+  const [x0, x1] = [Math.min(...pts.map((p) => p.x)), Math.max(...pts.map((p) => p.x))];
+  const [y0, y1] = [Math.min(...pts.map((p) => p.y)), Math.max(...pts.map((p) => p.y))];
+  let inside = 0;
+  for (let y = y0 + step / 2; y < y1; y += step) {
+    for (let x = x0 + step / 2; x < x1; x += step) {
+      const p = { x, y };
+      if (pieces.some((poly) => inConvex(p, poly))) inside++;
+    }
+  }
+  const sf = (inside * step * step) / (scalePixelsPerFoot * scalePixelsPerFoot);
+  return Math.round(sf * 10) / 10;
+}
+
 /**
  * Where a dropped cabinet lands. By another cabinet, it lines up with it
  * (checked first, so a cabinet slid to the end of a run near a corner

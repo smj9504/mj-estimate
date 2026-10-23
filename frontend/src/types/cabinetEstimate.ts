@@ -142,6 +142,10 @@ export interface CabinetEstimate {
   filler_count: number;
   /** Places a run or island turns at an angle other than 90°. */
   angled_joint_count?: number;
+  /** How far the island top overhangs for seating, inches (null/0 = the 1.5" edge only). */
+  island_seating_overhang_in?: number | null;
+  /** Brackets / corbels under that overhang. */
+  countertop_support_count?: number;
   end_panel_counts?: Partial<Record<EndPanelType, number>> | null;
   dishwasher_return_panel_count: number;
   include_light_rail: boolean;
@@ -226,6 +230,8 @@ export interface CabinetEstimateCreate {
   include_permit?: boolean;
   filler_count?: number;
   angled_joint_count?: number;
+  island_seating_overhang_in?: number | null;
+  countertop_support_count?: number;
   end_panel_counts?: Partial<Record<EndPanelType, number>> | null;
   dishwasher_return_panel_count?: number;
   include_light_rail?: boolean;
@@ -297,6 +303,8 @@ export interface CabinetEstimateUpdate {
   include_permit?: boolean;
   filler_count?: number;
   angled_joint_count?: number;
+  island_seating_overhang_in?: number | null;
+  countertop_support_count?: number;
   end_panel_counts?: Partial<Record<EndPanelType, number>> | null;
   dishwasher_return_panel_count?: number;
   include_light_rail?: boolean;
@@ -396,4 +404,10 @@ export interface PricingInfo {
   appliance_rr_pricing: Record<string, { label: string; cost: number }>;
   countertop_materials: Record<string, { label: string; rate: number }>;
   countertop_backsplash_per_lf: Record<string, number>;
+  /** When an island top's seating overhang needs brackets, and how many (see pricing.py). */
+  countertop_support_rule?: {
+    max_unsupported_in: Record<string, number>;
+    spacing_in: number;
+    end_inset_in: number;
+  };
 }

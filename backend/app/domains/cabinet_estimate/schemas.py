@@ -191,6 +191,8 @@ class CabinetEstimateBase(BaseModel):
     include_permit: bool = False
     filler_count: int = 0
     angled_joint_count: int = 0
+    island_seating_overhang_in: Optional[float] = None
+    countertop_support_count: int = 0
     end_panel_counts: Optional[Dict[str, int]] = Field(
         None,
         description='Finished end panels, e.g. {"base": 2, "wall": 1}',
@@ -273,6 +275,8 @@ class CabinetEstimateUpdate(BaseModel):
     include_permit: Optional[bool] = None
     filler_count: Optional[int] = None
     angled_joint_count: Optional[int] = None
+    island_seating_overhang_in: Optional[float] = None
+    countertop_support_count: Optional[int] = None
     end_panel_counts: Optional[Dict[str, int]] = None
     dishwasher_return_panel_count: Optional[int] = None
     include_light_rail: Optional[bool] = None
@@ -346,6 +350,8 @@ class CabinetEstimateResponse(BaseModel):
     include_permit: bool = False
     filler_count: int = 0
     angled_joint_count: int = 0
+    island_seating_overhang_in: Optional[float] = None
+    countertop_support_count: int = 0
     end_panel_counts: Optional[Dict[str, int]] = None
     dishwasher_return_panel_count: int = 0
     include_light_rail: bool = False
@@ -458,3 +464,6 @@ class PricingInfoResponse(BaseModel):
     countertop_materials: Dict[str, Dict[str, Any]]
     # {material: rate} - 4" matching backsplash piece per LF
     countertop_backsplash_per_lf: Dict[str, float]
+    # When an island top's seating overhang needs brackets, and how many:
+    # {max_unsupported_in: {material: in}, spacing_in, end_inset_in}
+    countertop_support_rule: Dict[str, Any] = Field(default_factory=dict)

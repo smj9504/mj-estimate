@@ -158,6 +158,11 @@ const CabinetEstimateDetail: React.FC = () => {
   const selfSavedEstimateRef = useRef<CabinetEstimate | undefined>(undefined);
   // Narrows the wall-cabinet pickers in both the Edit and Sketch tabs.
   const [wallHeight, setWallHeight] = useState<WallHeightFilter>('all');
+  // Island top: seating overhang (inches, 0 = 1.5" edge only; saved with the estimate) and
+  // back-to-back rows. They shape the suggested island countertop SF and supports here,
+  // and the Sketch's island top.
+  const islandSeatingIn: number = Form.useWatch('island_seating_overhang_in', form) ?? 0;
+  const [islandTwoSided, setIslandTwoSided] = useState(false);
   const [activeTab, setActiveTab] = useState('edit');
   const [registerBidItemOpen, setRegisterBidItemOpen] = useState(false);
   const [clientSearch, setClientSearch] = useState('');
@@ -331,6 +336,8 @@ const CabinetEstimateDetail: React.FC = () => {
         include_permit: estimate.include_permit ?? false,
         filler_count: estimate.filler_count ?? 0,
         angled_joint_count: estimate.angled_joint_count ?? 0,
+        island_seating_overhang_in: estimate.island_seating_overhang_in ?? 0,
+        countertop_support_count: estimate.countertop_support_count ?? 0,
         end_panel_base: estimate.end_panel_counts?.base ?? 0,
         end_panel_wall: estimate.end_panel_counts?.wall ?? 0,
         end_panel_tall: estimate.end_panel_counts?.tall ?? 0,
@@ -1086,14 +1093,31 @@ const CabinetEstimateDetail: React.FC = () => {
                   </Form.Item>
 
                   {/* Island Countertop — only when custom build + has boxes */}
-                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_countertop !== cur.include_countertop || prev.island_type !== cur.island_type}>
+                  <Form.Item
+                    noStyle
+                    shouldUpdate={(prev, cur) =>
+                      prev.include_countertop !== cur.include_countertop ||
+                      prev.island_type !== cur.island_type ||
+                      // The supports suggestion depends on which material the top is.
+                      prev.island_countertop_material !== cur.island_countertop_material ||
+                      prev.countertop_material !== cur.countertop_material
+                    }
+                  >
                     {({ getFieldValue }) => {
                       if (!getFieldValue('include_countertop')) return null;
                       if (getFieldValue('island_type') === 'prefab' || islandBoxes.length === 0) return null;
                       const islandBaseLf = islandBoxes
                         .filter((b) => b.cab_type === 'base')
                         .reduce((sum, b) => sum + (b.width_inches * b.qty) / 12, 0);
-                      const suggestedSf = Math.round(islandBaseLf * 2.125 * 10) / 10;
+                      // A straight island's top: unlike a perimeter run it overhangs both
+                      // ends and the back too (1.5"), the back by the seating overhang when
+                      // there is one; cabinets on both sides make it one row half as long,
+                      // twice as deep. The Sketch's "Island top" measures any other shape.
+                      const rows = islandTwoSided ? 2 : 1;
+                      const topLengthIn = (islandBaseLf * 12) / rows + 2 * 1.5;
+                      const topDepthIn = 24 * rows + 1.5 + Math.max(1.5, islandSeatingIn);
+                      const suggestedSf =
+                        islandBaseLf > 0 ? Math.round(((topLengthIn * topDepthIn) / 144) * 10) / 10 : 0;
                       return (
                         <div style={{ borderTop: '1px solid #f0f0f0', margin: '16px 0', paddingTop: 12 }}>
                           <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Island Countertop</Text>
@@ -1112,9 +1136,9 @@ const CabinetEstimateDetail: React.FC = () => {
                                 <InputNumber min={0} max={500} step={0.5} style={{ width: '100%' }} addonAfter="SF" />
                               </Form.Item>
                               {suggestedSf > 0 && (
-                                <Space size={4}>
+                                <Space size={4} wrap>
                                   <Text type="secondary" style={{ fontSize: 11 }}>
-                                    Island Base LF({islandBaseLf.toFixed(1)}) x 2.125ft =
+                                    {Math.round(topLengthIn * 10) / 10}" × {Math.round(topDepthIn * 10) / 10}" =
                                   </Text>
                                   <Button
                                     type="link"
@@ -1128,6 +1152,83 @@ const CabinetEstimateDetail: React.FC = () => {
                               )}
                             </Col>
                           </Row>
+                          <Row gutter={16}>
+                            <Col xs={12}>
+                              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+                                Seating overhang
+                              </Text>
+                              <Form.Item name="island_seating_overhang_in" preserve noStyle>
+                                <Select
+                                  size="small"
+                                  style={{ width: '100%' }}
+                                  options={[
+                                    { label: 'None (1.5" edge)', value: 0 },
+                                    { label: '10"', value: 10 },
+                                    { label: '12" (counter stools)', value: 12 },
+                                    { label: '15" (bar height)', value: 15 },
+                                  ]}
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col xs={12} style={{ display: 'flex', alignItems: 'flex-end' }}>
+                              <Checkbox checked={islandTwoSided} onChange={(e) => setIslandTwoSided(e.target.checked)}>
+                                <Text style={{ fontSize: 12 }}>Cabinets on both sides</Text>
+                              </Checkbox>
+                            </Col>
+                            <Col xs={24}>
+                              <Text type="secondary" style={{ fontSize: 11 }}>
+                                L-shaped, three-sided or angled island? The Sketch tab's Island top measures the drawn shape.
+                              </Text>
+                            </Col>
+                          </Row>
+                          {(() => {
+                            // A seating overhang past what the top's material carries on its
+                            // own needs brackets under it, along the seating edge.
+                            const rule = pricingInfo?.countertop_support_rule;
+                            const material: string =
+                              getFieldValue('island_countertop_material') || getFieldValue('countertop_material') || 'Laminate';
+                            const maxFreeIn = rule?.max_unsupported_in?.[material];
+                            if (!rule || maxFreeIn === undefined || islandSeatingIn <= 0) return null;
+                            const needed = islandSeatingIn > maxFreeIn;
+                            const span = Math.max(0, topLengthIn - 2 * rule.end_inset_in);
+                            const suggestedSupports = needed ? Math.max(2, Math.ceil(span / rule.spacing_in) + 1) : 0;
+                            return (
+                              <Row gutter={16} style={{ marginTop: 12 }}>
+                                <Col xs={12}>
+                                  <Form.Item
+                                    name="countertop_support_count"
+                                    label="Overhang supports"
+                                    preserve
+                                    style={{ marginBottom: 4 }}
+                                    tooltip={`Steel brackets under the seating overhang. ${material} carries up to ${maxFreeIn}" unsupported; past that, brackets go every ${rule.spacing_in}" along the seating edge, within ${rule.end_inset_in}" of each end. Stone limits assume a 3cm top; a 2cm top carries less (quartz 12", granite 6").`}
+                                  >
+                                    <InputNumber min={0} max={30} size="small" style={{ width: '100%' }} addonAfter="EA" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} style={{ display: 'flex', alignItems: 'center' }}>
+                                  {needed ? (
+                                    <Space size={4} wrap>
+                                      <Text type="secondary" style={{ fontSize: 11 }}>
+                                        {islandSeatingIn}" &gt; {maxFreeIn}" for {material}:
+                                      </Text>
+                                      <Button
+                                        type="link"
+                                        size="small"
+                                        style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                        onClick={() => form.setFieldsValue({ countertop_support_count: suggestedSupports })}
+                                      >
+                                        {suggestedSupports} 적용
+                                      </Button>
+                                    </Space>
+                                  ) : (
+                                    <Text type="secondary" style={{ fontSize: 11 }}>
+                                      Not needed — {material} carries {maxFreeIn}" unsupported.
+                                    </Text>
+                                  )}
+                                </Col>
+                              </Row>
+                            );
+                          })()}
                         </div>
                       );
                     }}
@@ -1737,6 +1838,11 @@ const CabinetEstimateDetail: React.FC = () => {
             active={activeTab === 'sketch'}
             onCabinetsRemoved={handleSketchCabinetsRemoved}
             onCabinetChanged={handleSketchCabinetChanged}
+            islandSeatingIn={islandSeatingIn}
+            onApplyIslandTopSf={(sf) => {
+              form.setFieldsValue({ island_countertop_sqft: sf });
+              message.success(`Island countertop set to ${sf} SF on the Edit tab — Save or Save & Calculate to price it`);
+            }}
             onApplyAngledJoints={(count) => {
               form.setFieldsValue({ angled_joint_count: count });
               message.success(`Angled Joints set to ${count} on the Edit tab — Save or Save & Calculate to price it`);

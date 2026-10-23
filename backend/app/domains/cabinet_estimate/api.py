@@ -20,6 +20,7 @@ from .pricing import (
     BASE_RATES,
     COUNTERTOP_BACKSPLASH_PER_LF,
     COUNTERTOP_MATERIALS,
+    COUNTERTOP_SUPPORT_RULE,
     CROWN_MOLDING_PRICING,
     DOOR_STYLES,
     END_PANEL_TYPES,
@@ -110,6 +111,7 @@ def get_pricing_info():
         "appliance_rr_pricing": APPLIANCE_RR_PRICING,
         "countertop_materials": COUNTERTOP_MATERIALS,
         "countertop_backsplash_per_lf": COUNTERTOP_BACKSPLASH_PER_LF,
+        "countertop_support_rule": COUNTERTOP_SUPPORT_RULE,
     }
 
 

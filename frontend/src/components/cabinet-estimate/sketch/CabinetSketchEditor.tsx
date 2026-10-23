@@ -69,6 +69,9 @@ import {
   snapDroppedCabinet,
   turnCabinets,
   countAngledJoints,
+  islandTopAreaSf,
+  islandTopPieces,
+  TOP_EDGE_OVERHANG_IN,
   type SketchBoxSource,
 } from './cabinetSketchLayout';
 
@@ -163,6 +166,10 @@ export interface CabinetSketchEditorProps {
   onCabinetChanged?: (key: string, code: string) => void;
   /** "Use in estimate" on the plan's angled-joint count — set the Edit tab's Angled Joints to it. */
   onApplyAngledJoints?: (count: number) => void;
+  /** The Edit tab's island seating overhang, inches (0 = edge overhang only), for the island top. */
+  islandSeatingIn?: number;
+  /** "Use in estimate" on the plan's island top — set the Edit tab's island countertop SF to it. */
+  onApplyIslandTopSf?: (sf: number) => void;
 }
 
 const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
@@ -174,6 +181,8 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   onCabinetsRemoved,
   onCabinetChanged,
   onApplyAngledJoints,
+  islandSeatingIn = 0,
+  onApplyIslandTopSf,
 }) => {
   const queryClient = useQueryClient();
   const stageRef = useRef<Konva.Stage>(null);
@@ -468,6 +477,11 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   );
   // Floor cabinets joined at an angle in the plan — what the Edit tab's Angled Joints should count.
   const angledJoints = useMemo(() => countAngledJoints(cabinets, scalePixelsPerFoot), [cabinets, scalePixelsPerFoot]);
+  // The island countertop as the plan has it — any shape, angled or not — and its area.
+  const islandTop = useMemo(() => {
+    const pieces = islandTopPieces(cabinets, scalePixelsPerFoot, islandSeatingIn);
+    return { pieces, sf: islandTopAreaSf(pieces, scalePixelsPerFoot) };
+  }, [cabinets, scalePixelsPerFoot, islandSeatingIn]);
 
   // Cancel an in-progress wall chain, and undo/redo/delete shortcuts —
   // only while this tab is the one on screen.
@@ -898,6 +912,27 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                 </Tag>
               </Tooltip>
             )}
+            {islandTop.sf > 0 && (
+              <Tooltip
+                title={`The island countertop as drawn (shaded under the island): ${TOP_EDGE_OVERHANG_IN}" past every front, end and back${
+                  islandSeatingIn > 0 ? `, ${islandSeatingIn}" behind the backs for seating` : ''
+                }, with the wedges of angled joints filled. Set the seating overhang in the Edit tab's Island Countertop.`}
+              >
+                <Tag color="gold" style={{ marginInlineEnd: 0 }}>
+                  Island top: {islandTop.sf} SF
+                  {onApplyIslandTopSf && (
+                    <Button
+                      type="link"
+                      size="small"
+                      style={{ paddingInline: 4, height: 'auto' }}
+                      onClick={() => onApplyIslandTopSf(islandTop.sf)}
+                    >
+                      Use in estimate
+                    </Button>
+                  )}
+                </Tag>
+              </Tooltip>
+            )}
             {flipTarget && (
               <Tooltip title="Swap which end of the corner cabinet sits in the corner (for an angle end: which end is full depth)">
                 <Button
@@ -984,6 +1019,17 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                   snappedEnd={wallSnapEnd}
                 />
               )}
+
+              {/* The island top, under its cabinets: shows the overhang and closes the wedges of angled joints. */}
+              {islandTop.pieces.map((piece, i) => (
+                <Line
+                  key={`top-${i}`}
+                  points={piece.flatMap((p) => [p.x, p.y])}
+                  closed
+                  fill="#E4DED3"
+                  listening={false}
+                />
+              ))}
 
               {/* Floor-standing cabinets first, so uppers draw (and pick) on top of the bases they hang over. */}
               {[...cabinets.filter((c) => c.cab_type !== 'wall'), ...cabinets.filter((c) => c.cab_type === 'wall')].map(

@@ -125,6 +125,10 @@ class CabinetEstimate(Base, BaseModel):
     # Places a run or island turns at an angle other than 90°: each takes a
     # wedge filler, extra fitting and (with a countertop) an angled cut.
     angled_joint_count = Column(Integer, default=0)
+    # Island top: how far it overhangs for seating (inches; null/0 = the
+    # 1.5" edge only), and the support brackets that overhang needs.
+    island_seating_overhang_in = Column(Float, nullable=True)
+    countertop_support_count = Column(Integer, default=0)
     # {"wall": n, "base": n, "tall": n, "refrigerator": n}
     end_panel_counts = Column(JSON, nullable=True)
     dishwasher_return_panel_count = Column(Integer, default=0)

@@ -293,6 +293,12 @@ class CabinetEstimateService:
             angled_joint_count=(
                 getattr(estimate, 'angled_joint_count', 0) or 0
             ),
+            countertop_support_count=(
+                getattr(estimate, 'countertop_support_count', 0) or 0
+            ),
+            island_seating_overhang_in=getattr(
+                estimate, 'island_seating_overhang_in', None,
+            ),
             end_panel_counts=getattr(
                 estimate, 'end_panel_counts', None,
             ),
@@ -416,7 +422,8 @@ class CabinetEstimateService:
             "drywall_repair_sqft", "include_painting", "painting_sqft",
             "include_appliance_rr", "appliance_list", "include_dumpster",
             "include_electrical", "include_permit",
-            "filler_count", "angled_joint_count", "end_panel_counts",
+            "filler_count", "angled_joint_count", "island_seating_overhang_in",
+            "countertop_support_count", "end_panel_counts",
             "dishwasher_return_panel_count",
             "include_light_rail", "light_rail_lf",
             "outlet_relocation_count", "delivery_floor", "island_type",

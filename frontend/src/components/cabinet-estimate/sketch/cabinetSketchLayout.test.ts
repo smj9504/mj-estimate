@@ -12,6 +12,8 @@ import {
   snapDroppedCabinet,
   turnCabinets,
   countAngledJoints,
+  islandTopAreaSf,
+  islandTopPieces,
   type PresetCatalog,
   type SketchBoxSource,
 } from './cabinetSketchLayout';
@@ -381,6 +383,30 @@ describe('snapCabinetToNeighbors', () => {
     // Pulled a foot away, or squared up, it is no angled joint.
     expect(countAngledJoints([a, { ...side, ...joined, x: joined.x + 20 }], SCALE)).toBe(0);
     expect(countAngledJoints([a, b30({ id: 'next', x: 90 })], SCALE)).toBe(0);
+  });
+
+  it('measures an island top with its edge and seating overhangs', () => {
+    const isle = (over: Partial<CabinetSketchCabinet> = {}) => b30({ location: 'island', ...over });
+    // One B30: (30 + 2 x 1.5) x (24 + 1.5 + 1.5) = 33" x 27" = 6.19 SF.
+    expect(islandTopAreaSf(islandTopPieces([isle()], SCALE), SCALE)).toBeCloseTo(6.2, 1);
+    // A 12" seating overhang behind it: 33" x 37.5" = 8.59 SF.
+    expect(islandTopAreaSf(islandTopPieces([isle()], SCALE, 12), SCALE)).toBeCloseTo(8.6, 1);
+    // Back to back: one top 33" x (48 + 2 x 1.5) = 11.69 SF; each row's seating strip lies over the other.
+    const pair = [isle(), isle({ id: 'back', x: 90, y: 40, rotation: 180 })];
+    expect(islandTopAreaSf(islandTopPieces(pair, SCALE, 12), SCALE)).toBeCloseTo(11.7, 1);
+    // Perimeter cabinets have no island top.
+    expect(islandTopPieces([b30()], SCALE)).toEqual([]);
+  });
+
+  it('fills the wedge an angled island joint leaves, so the top is one piece', () => {
+    const a = b30({ location: 'island' });
+    const side = { ...b30({ id: 'side', width: 30, location: 'island' }), rotation: 45 };
+    const joined = { ...side, ...snapCabinetToNeighbors({ ...side, x: 121, y: 54 }, [a], SCALE)! };
+    const pieces = islandTopPieces([a, joined], SCALE);
+    expect(pieces).toHaveLength(3); // two cabinets + the wedge
+    const withWedge = islandTopAreaSf(pieces, SCALE);
+    const without = islandTopAreaSf(pieces.slice(0, 2), SCALE);
+    expect(withWedge).toBeGreaterThan(without);
   });
 
   it('turns a selected run as one piece, so it stays joined', () => {

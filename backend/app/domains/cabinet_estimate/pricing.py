@@ -1130,6 +1130,48 @@ COUNTERTOP_ANGLED_CUT_EACH = {
     "Marble": 110,
 }
 
+# ── Island top overhang supports ──
+# A seating overhang past what the top carries on its own needs steel
+# brackets (or corbels) under it, set before the top is templated.
+#
+# 2026-10-24 research. Unsupported overhang limits, assuming the 3cm stone
+# that US kitchens default to (the estimate does not record thickness):
+#   Quartz 3cm   15" (Cambria guideline v23A; Caesarstone v0622 and MSI say
+#                16" - the most conservative is used). 2cm: 12".
+#   Granite 3cm  10" (CTaSC citing the NSI Dimension Stone Design Manual;
+#                never over 1/3 of the top's width). 2cm: 6".
+#   Marble, quartzite: no figure of their own found - natural stone, so
+#                granite's 10".
+#   Solid surface 6" for the usual 1/2" sheet (DuPont Corian K-25291).
+#   Laminate     12" (MW Tops guideline; no Wilsonart/Formica document).
+#   Butcher block 8" across the grain (Vermont Butcher Block; allen+roth).
+# Spacing: 24" on center (Caesarstone, MSI, Corian, butcher block makers;
+# Cambria allows 36"), the first within 3-6" of each end (Original Granite
+# Bracket install guide) - 6" here.
+# Price: hidden steel island bar $68.35-$70.25 (Original Granite Bracket,
+# read live), Federal Brace Freedom $61.88-$78.60 list -> $70. Install:
+# the bar sits in a pocket cut in the cabinet back and is screwed through
+# the front wall, before the top goes on. Homewyse hardware install runs
+# $26-$71 per item; fabricators charge $45 (Any Top Shop, bracket included)
+# to $100-$300 installed (Blackburn's) -> $45 labor per bracket.
+COUNTERTOP_SUPPORT_PRICING = {
+    "bracket_each": 70,
+    "install_each": 45,
+}
+COUNTERTOP_SUPPORT_RULE = {
+    "max_unsupported_in": {
+        "Laminate": 12,
+        "Butcher Block": 8,
+        "Solid Surface": 6,
+        "Granite": 10,
+        "Quartz": 15,
+        "Quartzite": 10,
+        "Marble": 10,
+    },
+    "spacing_in": 24,
+    "end_inset_in": 6,
+}
+
 # Full-height (84-96") filler for a tall/pantry run. Measured $83.50.
 FILLER_TALL_PRICING = {
     "Stock": 84,
