@@ -674,24 +674,49 @@ export function snapCabinetToNeighbors(
 }
 
 /**
- * Turn cabinets a quarter turn (+90 clockwise on screen, -90 back) as one
- * piece about the middle of the group, so a selected run keeps its shape.
+ * Turn cabinets by `degrees` (positive is clockwise on screen) as one
+ * piece about the middle of the group, so a selected run keeps its shape
+ * — a quarter turn for the ends of a three-sided island, 45° for one side
+ * of an angled island.
  */
 export function turnCabinets(
   cabinets: Pick<CabinetSketchCabinet, 'id' | 'x' | 'y' | 'width' | 'height' | 'rotation'>[],
-  degrees: 90 | -90
+  degrees: number
 ): ({ id: string } & CabinetPose)[] {
   if (cabinets.length === 0) return [];
   const centers = cabinets.map(centerOf);
   const pivot = scale(centers.reduce(add, { x: 0, y: 0 }), 1 / centers.length);
-  const k = degrees === 90 ? 1 : -1;
+  const r = (degrees * Math.PI) / 180;
+  const [cos, sin] = [Math.cos(r), Math.sin(r)];
   return cabinets.map((c, i) => {
     const v = sub(centers[i], pivot);
-    const center = add(pivot, { x: -k * v.y, y: k * v.x });
-    const rotation = (((c.rotation + degrees) % 360) + 360) % 360;
+    const center = add(pivot, { x: cos * v.x - sin * v.y, y: sin * v.x + cos * v.y });
+    // Rounded to a hundredth of a degree, so 15° steps stay exact.
+    const rotation = Math.round(((((c.rotation + degrees) % 360) + 360) % 360) * 100) / 100;
     const p = cornerFor(center, c.width, c.height, rotation);
     return { id: c.id, x: p.x, y: p.y, rotation };
   });
+}
+
+/**
+ * Angled joints in the plan: floor cabinets joined end to end at an angle
+ * other than a quarter turn (see angledJoinShifts). It is what the Edit
+ * tab's Angled Joints should hold. Uppers are left out: each joint bills a
+ * countertop cut, which only the floor run has.
+ */
+export function countAngledJoints(cabinets: CabinetSketchCabinet[], scalePixelsPerFoot: number): number {
+  const tol = inToPx(1, scalePixelsPerFoot);
+  const floor = cabinets.filter(onFloor);
+  let joints = 0;
+  for (let i = 0; i < floor.length; i++) {
+    for (let j = i + 1; j < floor.length; j++) {
+      const [a, b] = [floor[i], floor[j]];
+      const quarter = Math.round((b.rotation - a.rotation) / 90) * 90;
+      if (angleDiffDeg(b.rotation, a.rotation + quarter) <= NEIGHBOR_SNAP_ANGLE_DEG) continue;
+      if (angledJoinShifts(b, a).some((s) => Math.hypot(s.x, s.y) <= tol)) joints++;
+    }
+  }
+  return joints;
 }
 
 /**

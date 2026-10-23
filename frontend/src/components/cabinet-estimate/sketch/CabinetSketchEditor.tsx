@@ -23,7 +23,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Stage, Layer, Line } from 'react-konva';
 import Konva from 'konva';
-import { Button, Segmented, Select, Space, Tag, Tooltip, message } from 'antd';
+import { Button, InputNumber, Segmented, Select, Space, Tag, Tooltip, message } from 'antd';
 import {
   BorderOutlined,
   CompressOutlined,
@@ -68,6 +68,7 @@ import {
   snapCabinetToNeighbors,
   snapDroppedCabinet,
   turnCabinets,
+  countAngledJoints,
   type SketchBoxSource,
 } from './cabinetSketchLayout';
 
@@ -157,6 +158,8 @@ export interface CabinetSketchEditorProps {
   onCabinetsRemoved?: (keys: string[]) => void;
   /** A cabinet was switched to another code from its picker — change one box of `key` to `code`. */
   onCabinetChanged?: (key: string, code: string) => void;
+  /** "Use in estimate" on the plan's angled-joint count — set the Edit tab's Angled Joints to it. */
+  onApplyAngledJoints?: (count: number) => void;
 }
 
 const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
@@ -167,6 +170,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   onCabinetPlaced,
   onCabinetsRemoved,
   onCabinetChanged,
+  onApplyAngledJoints,
 }) => {
   const queryClient = useQueryClient();
   const stageRef = useRef<Konva.Stage>(null);
@@ -431,16 +435,36 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     if (removedKeys.length > 0) onCabinetsRemoved?.(removedKeys);
   }, [cabinets, selectedIds, scalePixelsPerFoot, removeWall, removeCabinet, onCabinetsRemoved]);
 
-  // A quarter turn of the selected cabinets, as one piece — e.g. to set
-  // the end runs of a three-sided island across the main one.
+  // Turn the selected cabinets as one piece — a quarter turn for the ends
+  // of a three-sided island, 45° (or any angle) for a side of an angled one.
   const hasSelectedCabinet = cabinets.some((c) => selectedIds.has(c.id));
   const turnSelected = useCallback(
-    (degrees: 90 | -90) => {
+    (degrees: number) => {
       const picked = cabinets.filter((c) => selectedIds.has(c.id));
-      if (picked.length > 0) updateCabinets(turnCabinets(picked, degrees));
+      if (picked.length > 0 && degrees !== 0) updateCabinets(turnCabinets(picked, degrees));
     },
     [cabinets, selectedIds, updateCabinets]
   );
+  // The selection's angle, -180..180 (0 = backed to the top of the screen),
+  // or null when the selected cabinets are turned different ways.
+  const selectedAngle = useMemo(() => {
+    const picked = cabinets.filter((c) => selectedIds.has(c.id));
+    if (picked.length === 0) return null;
+    const first = picked[0].rotation;
+    if (picked.some((c) => Math.abs(((((c.rotation - first) % 360) + 540) % 360) - 180) > 0.5)) return null;
+    return Math.round((((((first % 360) + 540) % 360) - 180) * 10)) / 10;
+  }, [cabinets, selectedIds]);
+  // What is being typed into the angle box, applied on Enter / leaving it.
+  const [angleDraft, setAngleDraft] = useState<number | null>(null);
+  const applyAngle = useCallback(
+    (angle: number | null) => {
+      setAngleDraft(null);
+      if (angle !== null && selectedAngle !== null) turnSelected(angle - selectedAngle);
+    },
+    [selectedAngle, turnSelected]
+  );
+  // Floor cabinets joined at an angle in the plan — what the Edit tab's Angled Joints should count.
+  const angledJoints = useMemo(() => countAngledJoints(cabinets, scalePixelsPerFoot), [cabinets, scalePixelsPerFoot]);
 
   // Cancel an in-progress wall chain, and undo/redo/delete shortcuts —
   // only while this tab is the one on screen.
@@ -812,10 +836,55 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
               <Tooltip title="Turn 90° counter-clockwise (Shift+R). Several selected turn together.">
                 <Button icon={<RotateLeftOutlined />} disabled={!hasSelectedCabinet} onClick={() => turnSelected(-90)} />
               </Tooltip>
+              <Tooltip title="Turn 15° counter-clockwise">
+                <Button disabled={!hasSelectedCabinet} onClick={() => turnSelected(-15)}>
+                  −15°
+                </Button>
+              </Tooltip>
+              <Tooltip title="Angle of the selected cabinets (0° = backed to the top of the screen). Type an angle such as 45 and press Enter to set one side of an angled island; several selected turn together.">
+                <InputNumber
+                  style={{ width: 76 }}
+                  min={-180}
+                  max={180}
+                  step={15}
+                  precision={1}
+                  disabled={selectedAngle === null}
+                  placeholder="Angle"
+                  formatter={(v) => (v === undefined || v === null ? '' : `${v}°`)}
+                  parser={(v) => Number((v ?? '').replace('°', ''))}
+                  value={angleDraft ?? selectedAngle ?? undefined}
+                  onChange={(v) => setAngleDraft(typeof v === 'number' ? v : null)}
+                  onStep={(v) => applyAngle(v)}
+                  onPressEnter={() => applyAngle(angleDraft)}
+                  onBlur={() => applyAngle(angleDraft)}
+                />
+              </Tooltip>
+              <Tooltip title="Turn 15° clockwise">
+                <Button disabled={!hasSelectedCabinet} onClick={() => turnSelected(15)}>
+                  +15°
+                </Button>
+              </Tooltip>
               <Tooltip title="Turn 90° clockwise (R). Several selected turn together.">
                 <Button icon={<RotateRightOutlined />} disabled={!hasSelectedCabinet} onClick={() => turnSelected(90)} />
               </Tooltip>
             </Space.Compact>
+            {angledJoints > 0 && (
+              <Tooltip title="Floor cabinets joined at an angle other than 90° in this plan. Each needs an angled filler and fitting, and an angled countertop cut — the Edit tab's Angled Joints bills them.">
+                <Tag color="orange" style={{ marginInlineEnd: 0 }}>
+                  Angled joints: {angledJoints}
+                  {onApplyAngledJoints && (
+                    <Button
+                      type="link"
+                      size="small"
+                      style={{ paddingInline: 4, height: 'auto' }}
+                      onClick={() => onApplyAngledJoints(angledJoints)}
+                    >
+                      Use in estimate
+                    </Button>
+                  )}
+                </Tag>
+              </Tooltip>
+            )}
             {flipTarget && (
               <Tooltip title="Swap which end of the corner cabinet sits in the corner (for an angle end: which end is full depth)">
                 <Button
@@ -935,7 +1004,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         {cabinets.length === 0
           ? 'Cabinets you add in the Edit tab appear here. You can also draw the walls first, then pick a cabinet from the dropdown and click the canvas to place it.'
           : view === 'plan'
-            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. Dashed shapes are uppers; a blue double-line front marks glass doors. Sizes and glass come from the Edit tab; a selected cabinet shows in its list above, where picking another changes it (Esc or a click on empty canvas to add new ones instead).'
+            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. For an angled island, select the cabinets of one side, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors. Sizes and glass come from the Edit tab; a selected cabinet shows in its list above, where picking another changes it (Esc or a click on empty canvas to add new ones instead).'
             : 'Each run is drawn from the front, as laid out in the plan. Uppers hang at 54" above the floor; shorter ones line up with their tops.'}
       </div>
     </div>

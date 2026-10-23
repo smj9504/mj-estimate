@@ -11,6 +11,7 @@ import {
   snapCabinetToWall,
   snapDroppedCabinet,
   turnCabinets,
+  countAngledJoints,
   type PresetCatalog,
   type SketchBoxSource,
 } from './cabinetSketchLayout';
@@ -366,6 +367,20 @@ describe('snapCabinetToNeighbors', () => {
     expect(toBack.y).toBeCloseTo(40);
     // Too far from either end: left where it was dropped.
     expect(snapCabinetToNeighbors(b18(140, 60, { rotation: 45 }), [b30()], SCALE)).toBeNull();
+  });
+
+  it('turns a run by any angle and counts the angled joints it makes', () => {
+    const a = b30();
+    const [turned] = turnCabinets([b18(0, 0, { id: 'side' })], 45);
+    expect(turned.rotation).toBe(45);
+    // Joined to the B30's right end at 45°, toward its front: one angled joint.
+    const side = { ...b30({ id: 'side', width: 30 }), rotation: 45 };
+    const joined = snapCabinetToNeighbors({ ...side, x: 121, y: 54 }, [a], SCALE)!;
+    const plan = [a, { ...side, ...joined }];
+    expect(countAngledJoints(plan, SCALE)).toBe(1);
+    // Pulled a foot away, or squared up, it is no angled joint.
+    expect(countAngledJoints([a, { ...side, ...joined, x: joined.x + 20 }], SCALE)).toBe(0);
+    expect(countAngledJoints([a, b30({ id: 'next', x: 90 })], SCALE)).toBe(0);
   });
 
   it('turns a selected run as one piece, so it stays joined', () => {

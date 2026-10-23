@@ -1737,6 +1737,10 @@ const CabinetEstimateDetail: React.FC = () => {
             active={activeTab === 'sketch'}
             onCabinetsRemoved={handleSketchCabinetsRemoved}
             onCabinetChanged={handleSketchCabinetChanged}
+            onApplyAngledJoints={(count) => {
+              form.setFieldsValue({ angled_joint_count: count });
+              message.success(`Angled Joints set to ${count} on the Edit tab — Save or Save & Calculate to price it`);
+            }}
             onCabinetPlaced={(code, cabType) => {
               const preset = CABINET_PRESETS[code];
               if (!preset) return;
