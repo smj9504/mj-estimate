@@ -8,7 +8,7 @@ This module provides easy-to-modify calculation logic for:
 """
 
 import re
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional, Tuple
 from uuid import UUID
 
@@ -25,7 +25,7 @@ GENERAL_CONDITIONS_CALCULABLE_ITEMS = {
     # Matches by line item description (case-insensitive partial match)
     "hand loading disposal": "calculate_debris_disposal_hours",
     "equipment setup": "calculate_equipment_monitoring_hours",
-    "disposal fee": "calculate_debris_disposal_fee",  # Debris Disposal Fee - per bag pricing
+    "disposal fee": "calculate_debris_disposal_fee",  # Debris Disposal Fee - per CY, from bag count
 }
 
 
@@ -144,29 +144,47 @@ def calculate_debris_disposal_hours(
     return Decimal(str(total_hours)), note
 
 
+class DebrisDisposalFeeConfig:
+    """Configuration for debris disposal fee quantity"""
+
+    # 42-gallon contractor bag volume in cubic yards (42 gal × 231 in³ ÷ 46,656 in³/CY)
+    BAG_VOLUME_CY = Decimal("0.208")
+
+    # Billed CY is rounded up to this increment
+    CY_INCREMENT = Decimal("0.5")
+
+
 def calculate_debris_disposal_fee(
     bag_count: int,
     total_weight_ton: Decimal = Decimal("0"),
 ) -> Tuple[Decimal, str]:
     """
-    Calculate debris disposal fee based on number of 42-gallon contractor bags.
+    Calculate debris disposal fee quantity in cubic yards.
 
-    Quantity = bag_count (each bag is billed at the line item unit rate).
+    The Debris disposal fee line item is priced per CY, so the 42-gallon
+    contractor bag count is converted to CY and rounded up to the nearest 0.5 CY.
 
     Args:
         bag_count: Number of 42-gallon contractor bags needed
         total_weight_ton: Total debris weight in tons (used in note only)
 
     Returns:
-        Tuple of (quantity, note)
+        Tuple of (quantity in CY, note)
     """
     if bag_count <= 0:
         # No debris calculation done yet - default to 1 with a warning note
-        return Decimal("1"), "Debris disposal fee\n(Run debris calculation to auto-set bag count)"
+        return Decimal("1"), "Debris disposal fee\n(Run debris calculation to auto-set quantity)"
+
+    config = DebrisDisposalFeeConfig
+    volume_cy = bag_count * config.BAG_VOLUME_CY
+    billed_cy = (
+        (volume_cy / config.CY_INCREMENT).to_integral_value(rounding=ROUND_CEILING)
+        * config.CY_INCREMENT
+    )
 
     note_lines = [
-        f"42-gallon contractor bags: {bag_count} bags",
-        "Fee per bag (debris removal & disposal)",
+        f"42-gallon contractor bags: {bag_count} bags × {config.BAG_VOLUME_CY} CY = {volume_cy:.2f} CY",
+        f"Billed at {billed_cy} CY (rounded up to the nearest {config.CY_INCREMENT} CY)",
     ]
     if total_weight_ton > 0:
         note_lines.append(
@@ -175,7 +193,7 @@ def calculate_debris_disposal_fee(
         )
 
     note = "\n".join(note_lines)
-    return Decimal(str(bag_count)), note
+    return billed_cy, note
 
 
 def _generate_hauling_description(debris_floors: set = None) -> str:
