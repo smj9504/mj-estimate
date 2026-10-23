@@ -81,6 +81,9 @@ const PLACE_SECTIONS: { type: SectionType; label: string }[] = [
   { type: 'wall', label: 'Wall' },
   { type: 'tall', label: 'Tall' },
 ];
+/** The picker a cabinet belongs in; the legacy 'specialty' type is a base. */
+const sectionOf = (cabinet: CabinetSketchCabinet): SectionType =>
+  cabinet.cab_type === 'specialty' ? 'base' : cabinet.cab_type;
 
 /**
  * View transform of the plan stage. Canvas coordinates are saved at the
@@ -149,6 +152,8 @@ export interface CabinetSketchEditorProps {
   onCabinetPlaced?: (code: string, cabType: CabType) => void;
   /** Cabinets were deleted on the canvas — take one of each key (see boxKey) off the Edit tab. */
   onCabinetsRemoved?: (keys: string[]) => void;
+  /** A cabinet was switched to another code from its picker — change one box of `key` to `code`. */
+  onCabinetChanged?: (key: string, code: string) => void;
 }
 
 const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
@@ -158,6 +163,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   active = true,
   onCabinetPlaced,
   onCabinetsRemoved,
+  onCabinetChanged,
 }) => {
   const queryClient = useQueryClient();
   const stageRef = useRef<Konva.Stage>(null);
@@ -430,7 +436,9 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 
       if (e.key === 'Escape') {
+        // Deselecting turns the pickers back to adding cabinets.
         if (wallDrawStartRef.current) stopWallChain();
+        else deselect();
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
@@ -446,7 +454,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [active, view, undo, redo, selectedIds, deleteSelected, stopWallChain]);
+  }, [active, view, undo, redo, selectedIds, deleteSelected, stopWallChain, deselect]);
 
   const handleSelect = useCallback(
     (elementType: 'wall' | 'cabinet') => (id: string, ctrlKey?: boolean) => {
@@ -627,10 +635,33 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     }
     return out;
   }, [cabinets, scalePixelsPerFoot]);
+  const selectedCabinet = selectedIds.size === 1 ? cabinets.find((c) => selectedIds.has(c.id)) : undefined;
   // The one selected cabinet, if it is a corner unit whose corner end can be flipped.
-  const flipTarget =
-    selectedIds.size === 1 ? cabinets.find((c) => selectedIds.has(c.id) && cornerShapes.has(c.id)) : undefined;
+  const flipTarget = selectedCabinet && cornerShapes.has(selectedCabinet.id) ? selectedCabinet : undefined;
   const currentRun = elevations.find((r) => r.key === runKey) ?? elevations[0];
+
+  // Switch a cabinet to another code from its picker. It keeps its place
+  // (back-left corner, rotation, corner side, glass) and takes the new size.
+  const changeCabinet = (cabinet: CabinetSketchCabinet, code: string) => {
+    const preset = CABINET_PRESETS[code];
+    if (!preset || code === cabinet.preset_code) return;
+    const depthIn = footprintDepthIn(preset.cab_type, preset.specialty, preset.width);
+    const key = cabinetKey(cabinet, CABINET_PRESETS, scalePixelsPerFoot);
+    // Same event as the parent's box change, so the sync sees both together
+    // and the shape stays matched to its (changed) box.
+    updateCabinet({
+      id: cabinet.id,
+      preset_code: code,
+      cab_type: preset.cab_type,
+      label: code,
+      width_in: preset.width,
+      depth_in: depthIn,
+      height_in: preset.height,
+      width: inToPx(preset.width, scalePixelsPerFoot),
+      height: inToPx(depthIn, scalePixelsPerFoot),
+    });
+    onCabinetChanged?.(key, code);
+  };
 
   if (isLoading) {
     return <div style={{ padding: 24, textAlign: 'center', color: '#999' }}>Loading sketch…</div>;
@@ -701,8 +732,11 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
             <Space.Compact>
               {PLACE_SECTIONS.map(({ type, label }) => {
                 // Only the picker the pending placement came from shows it.
-                const code = state.activePresetCode;
-                const picked = code && CABINET_PRESETS[code]?.cab_type === type ? code : undefined;
+                // Otherwise the selected cabinet shows in its section's
+                // picker, and picking there changes that cabinet.
+                const placing = state.activeTool === 'place_cabinet' ? state.activePresetCode : null;
+                const editing = !placing && selectedCabinet && sectionOf(selectedCabinet) === type ? selectedCabinet : undefined;
+                const picked = placing && CABINET_PRESETS[placing]?.cab_type === type ? placing : editing?.preset_code;
                 return (
                   <Select
                     // Remount when the pending placement clears or moves to another
@@ -715,7 +749,13 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                     popupMatchSelectWidth={300}
                     showSearch
                     value={picked}
+                    // A custom box, or an upper outside the height filter, isn't in the list.
+                    labelRender={(p) => p.label ?? CABINET_PRESETS[String(p.value)]?.label ?? editing?.label ?? p.value}
                     onChange={(value: string) => {
+                      if (editing) {
+                        changeCabinet(editing, value);
+                        return;
+                      }
                       setActivePreset(value);
                       setTool('place_cabinet');
                     }}
@@ -727,10 +767,17 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                 );
               })}
             </Space.Compact>
-            {state.activeTool === 'place_cabinet' && state.activePresetCode && (
+            {state.activeTool === 'place_cabinet' && state.activePresetCode ? (
               <Tag color="blue">
                 Click canvas to place {CABINET_PRESETS[state.activePresetCode]?.label ?? state.activePresetCode}
               </Tag>
+            ) : (
+              selectedCabinet && (
+                <Tag>
+                  Pick another {PLACE_SECTIONS.find((s) => s.type === sectionOf(selectedCabinet))?.label} to replace{' '}
+                  {selectedCabinet.label || selectedCabinet.preset_code}
+                </Tag>
+              )
             )}
 
             <Button icon={<UndoOutlined />} disabled={!canUndo} onClick={undo} />
@@ -859,7 +906,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         {cabinets.length === 0
           ? 'Cabinets you add in the Edit tab appear here. You can also draw the walls first, then pick a cabinet from the dropdown and click the canvas to place it.'
           : view === 'plan'
-            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. Dashed shapes are uppers; a blue double-line front marks glass doors. Sizes and glass come from the Edit tab.'
+            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. Dashed shapes are uppers; a blue double-line front marks glass doors. Sizes and glass come from the Edit tab; a selected cabinet shows in its list above, where picking another changes it (Esc or a click on empty canvas to add new ones instead).'
             : 'Each run is drawn from the front, as laid out in the plan. Uppers hang at 54" above the floor; shorter ones line up with their tops.'}
       </div>
     </div>

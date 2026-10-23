@@ -164,6 +164,17 @@ describe('reconcileCabinets', () => {
     expect(boxKey(box('CUSTOM', { width_inches: 20 }))).not.toBe(boxKey(box('CUSTOM', { width_inches: 22 })));
   });
 
+  it('leaves a cabinet switched on the sketch, with its box, where it is', () => {
+    const first = reconcileCabinets([], [box('B30', { qty: 2 })], [], PRESETS, SCALE)!;
+    // As the sketch's picker does it: the second B30 becomes an SB36 in place,
+    // and the Edit tab splits one off its B30 × 2 row.
+    const switched = first.map((c, i) =>
+      i === 1 ? { ...c, preset_code: 'SB36', label: 'SB36', width_in: 36, width: 60, x: 400 } : c
+    );
+    const boxes = [box('B30'), box('SB36')];
+    expect(reconcileCabinets(switched, boxes, [], PRESETS, SCALE)).toBeNull();
+  });
+
   it('marks the shape of a glass-door box, one shape per glass / plain box', () => {
     const boxes = [box('W3030', { has_glass_door: true }), box('W3030')];
     const out = reconcileCabinets([], boxes, [], PRESETS, SCALE)!;
