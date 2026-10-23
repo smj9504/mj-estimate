@@ -86,6 +86,7 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
     const [deleting, setDeleting] = useState<string | null>(null);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [bulkDeleting, setBulkDeleting] = useState(false);
+    const [bulkDownloading, setBulkDownloading] = useState(false);
     const [emailOpen, setEmailOpen] = useState(false);
     // Inline invoice amount editing
     const [editingAmountId, setEditingAmountId] = useState<string | null>(null);
@@ -246,15 +247,33 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
     }
   };
 
-  const handleBulkDownload = () => {
-    selectedRows.forEach(row => {
-      if (row.kind === 'document') {
-        handleDownload(row.doc.id, row.doc.filename);
-      } else {
-        handleDownloadInvoice(row.invoice);
+  // One file at a time, each fetched before it is saved
+  const handleBulkDownload = async () => {
+    setBulkDownloading(true);
+    const failed: string[] = [];
+    for (const row of selectedRows) {
+      const filename = row.kind === 'document' ? row.doc.filename : invoiceFilename(row.invoice);
+      try {
+        if (row.kind === 'document') {
+          await waterMitigationService.documents.download(row.doc.id, filename);
+        } else {
+          await waterMitigationService.scopeInvoice.downloadPdf(jobId, row.invoice.invoice_id, filename);
+        }
+      } catch (error) {
+        console.error(`Failed to download ${filename}:`, error);
+        failed.push(filename);
       }
-    });
-    message.success(`${selectedRows.length} document(s) download started`);
+    }
+    setBulkDownloading(false);
+    // The invoice PDF endpoint saves each invoice as a document
+    if (selectedInvoiceCount > 0) invalidateDocs();
+
+    const downloaded = selectedRows.length - failed.length;
+    if (failed.length === 0) {
+      message.success(`${downloaded} document(s) downloaded`);
+    } else {
+      message.error(`Couldn't download ${failed.join(', ')}${downloaded > 0 ? ` (${downloaded} downloaded)` : ''}`);
+    }
   };
 
   // An invoice goes out as the PDF saved when it was last downloaded or
@@ -670,6 +689,7 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
               <Button
                 icon={<DownloadOutlined />}
                 onClick={handleBulkDownload}
+                loading={bulkDownloading}
               >
                 Download ({selectedRows.length})
               </Button>

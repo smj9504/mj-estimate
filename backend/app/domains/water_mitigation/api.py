@@ -2824,12 +2824,21 @@ def download_document(
             download_key = storage_file_id or file_path_str
             if download_key and hasattr(storage, 'download'):
                 file_bytes = storage.download(download_key)
+                # Headers are latin-1 encoded, so a filename with e.g. Korean
+                # in it raised and the download came back as a 500. ASCII
+                # fallback plus the RFC 5987 filename* for the real name.
+                from urllib.parse import quote
+                ascii_filename = (
+                    filename.encode('ascii', 'ignore').decode('ascii').replace('"', '').strip()
+                    or "document"
+                )
+                content_disposition = f'attachment; filename="{ascii_filename}"'
+                if ascii_filename != filename:
+                    content_disposition += f"; filename*=UTF-8''{quote(filename)}"
                 return Response(
                     content=file_bytes,
                     media_type=mime_type,
-                    headers={
-                        'Content-Disposition': f'attachment; filename="{filename}"'
-                    }
+                    headers={'Content-Disposition': content_disposition},
                 )
             raise HTTPException(status_code=404, detail="Document file not found in cloud storage")
 

@@ -5,6 +5,7 @@
 
 import api, { publicApi } from './api';
 import { isAxiosError } from 'axios';
+import { saveAs } from 'file-saver';
 import { compressIfNeeded } from '../utils/imageCompressor';
 import type {
   WMPaymentBoardToken,
@@ -653,6 +654,17 @@ export const waterMitigationService = {
       return `${base}${BASE_URL}/documents/${documentId}/download`;
     },
 
+    // Fetched and saved as a blob, so several can be saved in a row. Opening
+    // the download URL navigates to it, and a navigation started right after
+    // another cancels it - only the last of several files arrived.
+    download: async (documentId: string, filename: string): Promise<void> => {
+      const response = await api.get(`${BASE_URL}/documents/${documentId}/download`, {
+        responseType: 'blob',
+        timeout: 120000,
+      });
+      saveAs(response.data, filename);
+    },
+
     // Get document preview URL (opens in browser, includes backend base URL for production)
     getPreviewUrl: (documentId: string): string => {
       const base = api.defaults.baseURL || '';
@@ -1229,14 +1241,7 @@ export const waterMitigationService = {
     // Download invoice PDF (also saves as WMDocument)
     downloadPdf: async (jobId: string, invoiceId: string, filename?: string, templateVariant: string = 'a'): Promise<void> => {
       const blob = await waterMitigationService.scopeInvoice.getPdfBlob(jobId, invoiceId, templateVariant);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename || `invoice.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      saveAs(blob, filename || `invoice.pdf`);
     },
 
     // Delete a WM invoice and reset scope items
