@@ -6,7 +6,7 @@ import imageCompression from 'browser-image-compression';
 
 const COMPRESSION_OPTIONS = {
   maxSizeMB: 1.5,             // Target max size
-  maxWidthOrHeight: 2560,     // Keep good resolution for detail
+  maxWidthOrHeight: 1920,     // Cloud storage caps photos at 1920px - more is wasted upload
   useWebWorker: true,         // Non-blocking compression
   preserveExif: true,         // Keep GPS, date, device info
   fileType: 'image/jpeg',     // Standardize output

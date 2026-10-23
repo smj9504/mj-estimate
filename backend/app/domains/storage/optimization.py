@@ -52,6 +52,26 @@ class ImageOptimizer:
             # Get original dimensions
             original_width, original_height = img.size
 
+            # The browser already shrinks uploads to fit max_size and bakes the
+            # EXIF rotation into the pixels before sending. Re-encoding such a
+            # JPEG costs seconds of CPU per photo and the WebP comes out no
+            # smaller (often larger), so store it as-is.
+            if (
+                original_format == 'JPEG'
+                and original_width <= max_size[0]
+                and original_height <= max_size[1]
+                and img.getexif().get(0x0112, 1) == 1
+            ):
+                file_data.seek(0)
+                return file_data, {
+                    'original_format': original_format,
+                    'optimized_format': original_format,
+                    'optimized': False,
+                    'compression_ratio': '0.0%',
+                    'original_dimensions': f"{original_width}x{original_height}",
+                    'final_dimensions': f"{original_width}x{original_height}"
+                }
+
             # JPEG draft mode decodes directly at (close to) the target size
             # using the file's built-in DCT scaling, instead of allocating a
             # full-resolution pixel buffer just to immediately downscale it.
@@ -99,7 +119,8 @@ class ImageOptimizer:
 
             # Format-specific options
             if format == 'WebP':
-                save_kwargs['method'] = 6  # Best compression
+                # libwebp's default; 6 is 2-3x slower for ~1% smaller files
+                save_kwargs['method'] = 4
             elif format == 'JPEG':
                 save_kwargs['progressive'] = True
 

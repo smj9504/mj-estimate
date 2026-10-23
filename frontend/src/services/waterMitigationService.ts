@@ -255,7 +255,7 @@ export const waterMitigationService = {
     }> => {
       const results: any[] = [];
       const failed: { file: File; name: string; error: string }[] = [];
-      // Backend decodes/resizes/re-encodes each image in memory (PIL), and
+      // The backend may decode/resize/re-encode an image in memory (PIL), and
       // the Render instance runs a single worker with a 512MB limit that
       // sits near 80% at idle - confirmed via Render metrics that even 2
       // concurrent uploads spike memory to 0% (OOM kill + restart). One at
@@ -263,14 +263,7 @@ export const waterMitigationService = {
       const CONCURRENCY = 1;
       const MAX_ATTEMPTS = 3;
 
-      const uploadOne = async (file: File) => {
-        // Resize/compress on the client (web worker, non-blocking) before
-        // sending. The backend re-encodes every upload in memory on a
-        // 512MB single-worker instance - shrinking the source file here
-        // cuts that peak memory use dramatically instead of shipping a
-        // 5-15MB phone photo for the server to decode.
-        const uploadFile = await compressIfNeeded(file);
-
+      const uploadOne = async (uploadFile: File) => {
         const formData = new FormData();
         formData.append('file', uploadFile);
         if (category) formData.append('category', category);
@@ -303,9 +296,21 @@ export const waterMitigationService = {
         throw lastError;
       };
 
+      // Resize/compress on the client (web worker, non-blocking) before
+      // sending: a 5-15MB phone photo becomes a ~1MB JPEG the server stores
+      // without decoding it. The next batch compresses while the current one
+      // uploads, so compression time hides behind the network.
+      const startCompressing = (start: number) =>
+        files.slice(start, start + CONCURRENCY).map(f => compressIfNeeded(f));
+
+      let compressing = startCompressing(0);
       for (let i = 0; i < files.length; i += CONCURRENCY) {
         const batch = files.slice(i, i + CONCURRENCY);
-        const settled = await Promise.allSettled(batch.map(f => uploadOne(f)));
+        const compressed = compressing;
+        compressing = startCompressing(i + CONCURRENCY);
+        const settled = await Promise.allSettled(
+          compressed.map(async pending => uploadOne(await pending)),
+        );
         settled.forEach((result, idx) => {
           if (result.status === 'fulfilled') {
             results.push(result.value);
