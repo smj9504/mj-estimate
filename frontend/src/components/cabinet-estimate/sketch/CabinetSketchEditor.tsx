@@ -5,7 +5,8 @@
  *
  * - Plan (top): draw walls (click-click, snap-to-endpoint, Shift = axis
  *   lock) and arrange cabinets. Dropped near a wall, a cabinet turns to
- *   back onto it.
+ *   back onto it; brought up beside another cabinet, it lines its back up
+ *   with that one and butts against its side (see snapDroppedCabinet).
  * - Front (elevation): each run of cabinets drawn from the front, to
  *   scale, derived from the plan (see buildElevations).
  *
@@ -58,7 +59,8 @@ import {
   cabinetKey,
   inToPx,
   reconcileCabinets,
-  snapCabinetToWall,
+  snapCabinetToNeighbors,
+  snapDroppedCabinet,
   type SketchBoxSource,
 } from './cabinetSketchLayout';
 
@@ -69,6 +71,12 @@ const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 4;
 /** An empty sketch opens at 2× so a 30" cabinet is ~100 px wide. */
 const DEFAULT_VIEWPORT = { zoom: 2, x: 0, y: 0 };
+/** One cabinet picker per Edit-tab section, so each list stays short. */
+const PLACE_SECTIONS: { type: SectionType; label: string }[] = [
+  { type: 'base', label: 'Base' },
+  { type: 'wall', label: 'Wall' },
+  { type: 'tall', label: 'Tall' },
+];
 
 /**
  * View transform of the plan stage. Canvas coordinates are saved at the
@@ -341,10 +349,19 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
           const depthIn = cabinetDepthIn(preset.cab_type, preset.specialty);
           const width = inToPx(preset.width, scalePixelsPerFoot);
           const height = inToPx(depthIn, scalePixelsPerFoot);
-          const dropped = { x: pos.x - width / 2, y: pos.y - height / 2, width, height, rotation: 0 };
-          const placed = snapCabinetToWall(dropped, walls, scalePixelsPerFoot) ?? dropped;
+          const id = generateOverlayId();
+          const dropped = {
+            id,
+            cab_type: preset.cab_type,
+            x: pos.x - width / 2,
+            y: pos.y - height / 2,
+            width,
+            height,
+            rotation: 0,
+          };
+          const placed = snapDroppedCabinet(dropped, cabinets, walls, scalePixelsPerFoot);
           const cabinet: CabinetSketchCabinet = {
-            id: generateOverlayId(),
+            id,
             preset_code: code,
             cab_type: preset.cab_type,
             x: placed.x,
@@ -373,6 +390,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     [
       state.activeTool,
       state.activePresetCode,
+      cabinets,
       walls,
       scalePixelsPerFoot,
       getCanvasPos,
@@ -438,10 +456,22 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         return;
       }
       const cabinet = cabinets.find((c) => c.id === id);
-      const snapped = cabinet ? snapCabinetToWall({ ...cabinet, x, y }, walls, scalePixelsPerFoot) : null;
+      const snapped = cabinet ? snapDroppedCabinet({ ...cabinet, x, y }, cabinets, walls, scalePixelsPerFoot) : null;
       updateCabinet(snapped ? { id, ...snapped } : { id, x, y });
     },
     [selectedIds, cabinets, walls, scalePixelsPerFoot, batchMoveSelected, updateCabinet]
+  );
+
+  // Show a lone dragged cabinet butted against the neighbour it will snap
+  // to. Wall snapping waits for the drop: turning mid-drag would swing the
+  // shape out from under the pointer.
+  const handleCabinetDragSnap = useCallback(
+    (id: string, x: number, y: number) => {
+      if (selectedIds.size > 1 && selectedIds.has(id)) return null;
+      const cabinet = cabinets.find((c) => c.id === id);
+      return cabinet ? snapCabinetToNeighbors({ ...cabinet, x, y }, cabinets, scalePixelsPerFoot) : null;
+    },
+    [selectedIds, cabinets, scalePixelsPerFoot]
   );
 
   const handleCabinetTransformEnd = useCallback(
@@ -484,23 +514,24 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     [walls, updateWall]
   );
 
-  // Cabinet catalog select — same groups as CabinetBoxEditor, flattened to
-  // one level ("Base · Specialty") since antd Select can't nest groups.
+  // Cabinet catalog, one select per section with CabinetBoxEditor's groups
+  // (Specialty, Oven, …), listed by name only — the code stays searchable.
   // The "+ Custom Size..." entries are dropped: a custom box needs its size
   // typed in the Edit tab.
-  const presetOptions = useMemo(
-    () =>
-      (['base', 'wall', 'tall'] as SectionType[]).flatMap((type) => {
-        const section = type === 'base' ? 'Base' : type === 'wall' ? 'Wall' : 'Tall';
-        return getOptionsForType(type)
-          .map((group) => ({
-            label: group.label === section ? section : `${section} · ${group.label}`,
-            options: group.options.filter((o) => CABINET_PRESETS[o.value]),
-          }))
-          .filter((group) => group.options.length > 0);
-      }),
-    []
-  );
+  const presetOptions = useMemo(() => {
+    const out = {} as Record<SectionType, { label: string; options: { label: string; value: string }[] }[]>;
+    for (const { type } of PLACE_SECTIONS) {
+      out[type] = getOptionsForType(type)
+        .map((group) => ({
+          label: group.label,
+          options: group.options
+            .filter((o) => CABINET_PRESETS[o.value])
+            .map((o) => ({ label: CABINET_PRESETS[o.value].label, value: o.value })),
+        }))
+        .filter((group) => group.options.length > 0);
+    }
+    return out;
+  }, []);
 
   // ------------------------------------------------------------------
   // Plan zoom / pan (view only)
@@ -646,26 +677,38 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
               </Tooltip>
             </Space.Compact>
 
-            <Select
-              // Remount when the pending placement clears, so it falls back to
-              // the placeholder instead of keeping the last pick.
-              key={state.activePresetCode ?? 'idle'}
-              placeholder="+ Place cabinet…"
-              style={{ width: 200 }}
-              popupMatchSelectWidth={260}
-              showSearch
-              value={state.activePresetCode ?? undefined}
-              onChange={(code: string) => {
-                setActivePreset(code);
-                setTool('place_cabinet');
-              }}
-              options={presetOptions}
-              filterOption={(input, option: any) =>
-                (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
-              }
-            />
+            <Space.Compact>
+              {PLACE_SECTIONS.map(({ type, label }) => {
+                // Only the picker the pending placement came from shows it.
+                const code = state.activePresetCode;
+                const picked = code && CABINET_PRESETS[code]?.cab_type === type ? code : undefined;
+                return (
+                  <Select
+                    // Remount when the pending placement clears or moves to another
+                    // picker, so it falls back to the placeholder instead of keeping
+                    // the last pick.
+                    key={`${type}:${picked ?? 'idle'}`}
+                    placeholder={`+ ${label}…`}
+                    style={{ width: 120 }}
+                    popupMatchSelectWidth={300}
+                    showSearch
+                    value={picked}
+                    onChange={(value: string) => {
+                      setActivePreset(value);
+                      setTool('place_cabinet');
+                    }}
+                    options={presetOptions[type]}
+                    filterOption={(input, option: any) =>
+                      `${option?.label ?? ''} ${option?.value ?? ''}`.toLowerCase().includes(input.toLowerCase())
+                    }
+                  />
+                );
+              })}
+            </Space.Compact>
             {state.activeTool === 'place_cabinet' && state.activePresetCode && (
-              <Tag color="blue">Click canvas to place {state.activePresetCode}</Tag>
+              <Tag color="blue">
+                Click canvas to place {CABINET_PRESETS[state.activePresetCode]?.label ?? state.activePresetCode}
+              </Tag>
             )}
 
             <Button icon={<UndoOutlined />} disabled={!canUndo} onClick={undo} />
@@ -754,6 +797,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                     isSelected={selectedIds.has(cabinet.id)}
                     onSelect={handleSelect('cabinet')}
                     onDragEnd={handleCabinetDragEnd}
+                    onDragSnap={handleCabinetDragSnap}
                     onTransformEnd={handleCabinetTransformEnd}
                     zoom={viewport.zoom}
                   />
@@ -777,7 +821,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         {cabinets.length === 0
           ? 'Cabinets you add in the Edit tab appear here. You can also draw the walls first, then pick a cabinet from the dropdown and click the canvas to place it.'
           : view === 'plan'
-            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it. Dashed shapes are uppers. Sizes come from the Edit tab.'
+            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it. Dashed shapes are uppers. Sizes come from the Edit tab.'
             : 'Each run is drawn from the front, as laid out in the plan. Uppers hang at 54" above the floor; shorter ones line up with their tops.'}
       </div>
     </div>

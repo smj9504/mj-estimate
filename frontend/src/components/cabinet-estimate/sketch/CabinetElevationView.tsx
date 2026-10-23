@@ -302,8 +302,12 @@ const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, preset
         aria-label={`Front elevation, ${run.label}`}
         style={{ display: 'block', fontFamily: "'Inter', 'Segoe UI', sans-serif" }}
       >
-        {/* Wall and ceiling reference */}
-        <rect x={x(wallLeft)} y={y(CEILING_IN)} width={(wallRight - wallLeft) * ppi} height={CEILING_IN * ppi} fill={QUIET_FILL} stroke={HAIRLINE} />
+        {/* Wall and ceiling reference; an island stands free, so only the ceiling */}
+        {run.island ? (
+          <line x1={x(0)} x2={x(lengthIn)} y1={y(CEILING_IN)} y2={y(CEILING_IN)} stroke={HAIRLINE} strokeDasharray="4 3" />
+        ) : (
+          <rect x={x(wallLeft)} y={y(CEILING_IN)} width={(wallRight - wallLeft) * ppi} height={CEILING_IN * ppi} fill={QUIET_FILL} stroke={HAIRLINE} />
+        )}
         <text x={x(wallLeft) + 4} y={y(CEILING_IN) + 12} fontSize={10} fill={INK_SECONDARY}>
           8' ceiling
         </text>

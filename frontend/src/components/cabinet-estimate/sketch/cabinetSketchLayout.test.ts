@@ -5,7 +5,9 @@ import {
   mountHeightsIn,
   perimeterAnchor,
   reconcileCabinets,
+  snapCabinetToNeighbors,
   snapCabinetToWall,
+  snapDroppedCabinet,
   type PresetCatalog,
   type SketchBoxSource,
 } from './cabinetSketchLayout';
@@ -154,6 +156,85 @@ describe('snapCabinetToWall', () => {
   });
 });
 
+describe('snapCabinetToNeighbors', () => {
+  // A B30 backed at y = 40: occupies x 40–90, 40 px (24") deep.
+  const b30 = (over: Partial<CabinetSketchCabinet> = {}): CabinetSketchCabinet => ({
+    id: 'b30',
+    preset_code: 'B30',
+    cab_type: 'base',
+    x: 40,
+    y: 40,
+    width: 50,
+    height: 40,
+    rotation: 0,
+    label: 'B30',
+    ...over,
+  });
+  // An 18" base (30 px wide).
+  const b18 = (x: number, y: number, over: Partial<CabinetSketchCabinet> = {}) => ({
+    id: 'b18',
+    cab_type: 'base' as const,
+    x,
+    y,
+    width: 30,
+    height: 40,
+    rotation: 0,
+    ...over,
+  });
+
+  it('levels a cabinet dropped a little low and butts it against the right side', () => {
+    // 4 px (2.4") off the side, 15 px (9") lower than the B30.
+    expect(snapCabinetToNeighbors(b18(94, 55), [b30()], SCALE)).toEqual({ x: 90, y: 40, rotation: 0 });
+  });
+
+  it('butts against the left side, pushing out of a small overlap', () => {
+    expect(snapCabinetToNeighbors(b18(7, 35), [b30()], SCALE)).toMatchObject({ x: 10, y: 40 });
+    expect(snapCabinetToNeighbors(b18(85, 40), [b30()], SCALE)).toMatchObject({ x: 90, y: 40 });
+  });
+
+  it('squares up a slightly turned cabinet to its neighbour', () => {
+    const snapped = snapCabinetToNeighbors(b18(92, 42, { rotation: 5 }), [b30()], SCALE)!;
+    expect(snapped.rotation).toBe(0);
+    expect(snapped.x).toBeCloseTo(90);
+    expect(snapped.y).toBeCloseTo(40);
+  });
+
+  it('works along a rotated run', () => {
+    // Run along a vertical line, cabinets advancing down the screen (rotation 90).
+    const n = b30({ x: 100, y: 40, rotation: 90 });
+    const snapped = snapCabinetToNeighbors(b18(103, 95, { rotation: 90 }), [n], SCALE)!;
+    expect(snapped.x).toBeCloseTo(100);
+    expect(snapped.y).toBeCloseTo(90);
+  });
+
+  it('leaves alone a cabinet set in front, a gap away, or of the other row', () => {
+    expect(snapCabinetToNeighbors(b18(90, 80), [b30()], SCALE)).toBeNull(); // 24" in front
+    expect(snapCabinetToNeighbors(b18(110, 40), [b30()], SCALE)).toBeNull(); // 12" gap
+    expect(snapCabinetToNeighbors(b18(92, 40, { cab_type: 'wall' }), [b30()], SCALE)).toBeNull(); // upper by a base
+    expect(snapCabinetToNeighbors(b18(92, 40, { rotation: 90 }), [b30()], SCALE)).toBeNull(); // turned 90°
+  });
+
+  it('picks the closer of two neighbours', () => {
+    const right = b30({ id: 'r', x: 130 });
+    expect(snapCabinetToNeighbors(b18(92, 40), [b30(), right], SCALE)).toMatchObject({ x: 90 });
+    expect(snapCabinetToNeighbors(b18(98, 40), [b30(), right], SCALE)).toMatchObject({ x: 100 });
+  });
+
+  it('backs onto a wall first, then butts against the cabinet already on it', () => {
+    // Vertical wall at x = 100 (face x = 102); a B30 backed onto it, running up from y = 140.
+    const walls = [wall(100, 0, 100, 200)];
+    const onWall = b30({ x: 102, y: 140, rotation: 270 });
+    const placed = snapDroppedCabinet(b18(110, 50, { width: 25 }), [onWall], walls, SCALE);
+    expect(placed.rotation).toBe(270);
+    expect(placed.x).toBeCloseTo(102);
+    expect(placed.y).toBeCloseTo(90);
+  });
+
+  it('keeps the drop as is when nothing is close', () => {
+    expect(snapDroppedCabinet(b18(300, 300), [b30()], [], SCALE)).toEqual({ x: 300, y: 300, rotation: 0 });
+  });
+});
+
 describe('mountHeightsIn', () => {
   it('hangs 30" uppers at 54" and tops short uppers to match', () => {
     const cabs = reconcileCabinets([], [box('B30'), box('W3030'), box('W3015')], [], PRESETS, SCALE)!;
@@ -182,6 +263,24 @@ describe('buildElevations', () => {
     expect(sink.left_in).toBeCloseTo(30);
     const upper = north.items.find((i) => i.cabinet.preset_code === 'W3030')!;
     expect(upper.bottom_in).toBe(54);
+  });
+
+  it('calls a run standing in front of another an island, not a second wall', () => {
+    // All perimeter in the Edit tab, but the second B30 was dragged 4 ft out into the room.
+    const [a, b] = reconcileCabinets([], [box('B30', { qty: 2 })], [], PRESETS, SCALE)!;
+    const runs = buildElevations([a, { ...b, x: 40, y: 120 }], [], PRESETS, SCALE);
+    expect(runs.map((r) => r.label)).toEqual(['North wall', 'Island']);
+    expect(runs.map((r) => r.island)).toEqual([false, true]);
+  });
+
+  it('draws no wall behind an island in a walled room', () => {
+    const walls = [wall(0, 0, 200, 0), wall(200, 0, 200, 160), wall(200, 160, 0, 160), wall(0, 160, 0, 0)];
+    const cabs = reconcileCabinets([], [box('B30'), box('B30', { location: 'island' })], walls, PRESETS, SCALE)!;
+    const runs = buildElevations(cabs, walls, PRESETS, SCALE);
+    const island = runs.find((r) => r.island)!;
+    expect(island.label).toBe('Island');
+    expect(island.wall).toBeUndefined();
+    expect(island.length_in).toBeCloseTo(30);
   });
 
   it('extends the elevation to the wall the run backs onto', () => {

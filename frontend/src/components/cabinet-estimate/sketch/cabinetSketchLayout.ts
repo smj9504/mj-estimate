@@ -52,6 +52,12 @@ export const UPPER_BOTTOM_IN = 54;
 export const ISLAND_OFFSET_IN = 66;
 /** How close (feet) a dragged cabinet's back edge must come to a wall to snap onto it. */
 const WALL_SNAP_FT = 1.5;
+/** How far apart (inches) two cabinets' facing sides may be and still butt together. */
+const NEIGHBOR_SNAP_GAP_IN = 6;
+/** How far out of line (inches) two backs may be for a cabinet to be levelled with its neighbour. */
+const NEIGHBOR_SNAP_BACK_IN = 12;
+/** A cabinet turned less than this off its neighbour is squared up to it. */
+const NEIGHBOR_SNAP_ANGLE_DEG = 10;
 /** Two cabinets share an elevation if their back lines are within this (inches). */
 const RUN_BACK_TOLERANCE_IN = 6;
 const ANGLE_TOLERANCE_DEG = 3;
@@ -409,6 +415,92 @@ export function snapCabinetToWall(
 }
 
 // ---------------------------------------------------------------------------
+// Snap a dragged cabinet against its neighbour
+// ---------------------------------------------------------------------------
+
+export interface CabinetPose {
+  x: number;
+  y: number;
+  rotation: number;
+}
+
+type DroppedCabinet = Pick<CabinetSketchCabinet, 'id' | 'cab_type' | 'x' | 'y' | 'width' | 'height' | 'rotation'>;
+
+const isUpper = (c: Pick<CabinetSketchCabinet, 'cab_type'>) => c.cab_type === 'wall';
+
+/**
+ * If the cabinet was dropped beside another one in its row (uppers with
+ * uppers, everything else on the floor), return the pose that lines its
+ * back up with that neighbour's and butts its side against the
+ * neighbour's, turned to match. `null` when no cabinet is close enough.
+ *
+ * Only side by side counts: the backs must be within a foot of each other
+ * and the facing sides within a few inches, so a cabinet set in front of
+ * another, or left a dishwasher gap away, stays where it was dropped.
+ */
+export function snapCabinetToNeighbors(
+  cabinet: DroppedCabinet,
+  cabinets: CabinetSketchCabinet[],
+  scalePixelsPerFoot: number
+): CabinetPose | null {
+  const gapTol = inToPx(NEIGHBOR_SNAP_GAP_IN, scalePixelsPerFoot);
+  const backTol = inToPx(NEIGHBOR_SNAP_BACK_IN, scalePixelsPerFoot);
+  const own = axes(cabinet.rotation);
+  // Squared up to a neighbour, the cabinet turns about its middle.
+  const center = add(
+    { x: cabinet.x, y: cabinet.y },
+    sub(scale(own.ux, cabinet.width / 2), scale(own.back, cabinet.height / 2))
+  );
+
+  let best: (CabinetPose & { d: number }) | null = null;
+  for (const n of cabinets) {
+    if (n.id === cabinet.id || isUpper(n) !== isUpper(cabinet)) continue;
+    if (angleDiffDeg(n.rotation, cabinet.rotation) > NEIGHBOR_SNAP_ANGLE_DEG) continue;
+
+    // Both cabinets in the neighbour's run coordinates: t along the run, s toward the back.
+    const { ux, back } = axes(n.rotation);
+    const corner = add(sub(center, scale(ux, cabinet.width / 2)), scale(back, cabinet.height / 2));
+    const t = dot(corner, ux);
+    const s = dot(corner, back);
+    const tn = dot({ x: n.x, y: n.y }, ux);
+    const sn = dot({ x: n.x, y: n.y }, back);
+    if (Math.abs(sn - s) > backTol) continue;
+
+    const gapRight = t - (tn + n.width); // dropped to the neighbour's right…
+    const gapLeft = tn - (t + cabinet.width); // …or to its left
+    const gap = Math.max(gapRight, gapLeft);
+    if (Math.abs(gap) > gapTol) continue;
+
+    const d = Math.hypot(gap, sn - s);
+    if (best && d >= best.d) continue;
+    const newT = gapRight >= gapLeft ? tn + n.width : tn - cabinet.width;
+    const p = add(scale(ux, newT), scale(back, sn));
+    best = { x: p.x, y: p.y, rotation: n.rotation, d };
+  }
+  return best && { x: best.x, y: best.y, rotation: best.rotation };
+}
+
+/**
+ * Where a dropped cabinet lands. Beside another cabinet, it butts against
+ * it (checked first, so a cabinet slid to the end of a run near a corner
+ * joins the run instead of turning onto the side wall). Otherwise, near a
+ * wall, it backs onto the wall — and then butts against any cabinet
+ * already on that wall. Unchanged when nothing is close.
+ */
+export function snapDroppedCabinet(
+  cabinet: DroppedCabinet,
+  cabinets: CabinetSketchCabinet[],
+  walls: CabinetSketchWall[],
+  scalePixelsPerFoot: number
+): CabinetPose {
+  const beside = snapCabinetToNeighbors(cabinet, cabinets, scalePixelsPerFoot);
+  if (beside) return beside;
+  const onWall = snapCabinetToWall(cabinet, walls, scalePixelsPerFoot);
+  if (!onWall) return { x: cabinet.x, y: cabinet.y, rotation: cabinet.rotation };
+  return snapCabinetToNeighbors({ ...cabinet, ...onWall }, cabinets, scalePixelsPerFoot) ?? onWall;
+}
+
+// ---------------------------------------------------------------------------
 // Front elevations
 // ---------------------------------------------------------------------------
 
@@ -429,6 +521,8 @@ export interface ElevationRun {
   length_in: number;
   /** The drawn wall behind this run, if one lines up, in run coordinates. */
   wall?: { left_in: number; right_in: number };
+  /** Free-standing: no wall behind it, so the elevation draws none. */
+  island: boolean;
 }
 
 function compassLabel(back: Pt): string {
@@ -450,6 +544,12 @@ function compassLabel(back: Pt): string {
  * Group the plan's cabinets into front elevations: one per back line
  * (same facing, backs within a few inches), so the bases and uppers on a
  * wall share a drawing and an island gets its own.
+ *
+ * Only one run per facing is named for a wall. A run standing in front of
+ * another that faces the same way — an island or peninsula, whatever the
+ * Edit tab calls its cabinets — would hide part of that run from the
+ * front, so it gets its own drawing, but as an island rather than a
+ * second wall. A run backed onto a drawn wall is always a wall run.
  */
 export function buildElevations(
   cabinets: CabinetSketchCabinet[],
@@ -506,12 +606,17 @@ export function buildElevations(
       wallRange = { left, right };
       break;
     }
+
+    const standsInFront = groups.some(
+      (o) => o !== g && angleDiffDeg(o.rotation, g.rotation) <= ANGLE_TOLERANCE_DEG && o.s - g.s > tolPx
+    );
+    const island = g.cabinets.every((c) => c.location === 'island') || (!wallRange && standsInFront);
+    if (island) wallRange = undefined;
     if (wallRange) {
       min = Math.min(min, wallRange.left);
       max = Math.max(max, wallRange.right);
     }
 
-    const allIsland = g.cabinets.every((c) => c.location === 'island');
     const items: ElevationItem[] = raw
       .map((r) => ({
         cabinet: r.cabinet,
@@ -523,8 +628,8 @@ export function buildElevations(
       .sort((a, b) => a.left_in - b.left_in || a.bottom_in - b.bottom_in);
 
     return {
-      label: allIsland ? 'Island' : compassLabel(g.back),
-      island: allIsland,
+      label: island ? 'Island' : compassLabel(g.back),
+      island,
       items,
       length_in: max - min,
       wall: wallRange ? { left_in: wallRange.left - min, right_in: wallRange.right - min } : undefined,
@@ -544,6 +649,7 @@ export function buildElevations(
       items: r.items,
       length_in: r.length_in,
       wall: r.wall,
+      island: r.island,
     };
   });
 }

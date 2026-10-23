@@ -2,7 +2,8 @@
  * CabinetShapeRenderer
  *
  * Renders a placed cabinet as a rectangle on the Konva canvas.
- * Supports drag and rotate (Shift = 15° snap) via Transformer. No resize:
+ * Supports drag (optionally snapping as it goes, see onDragSnap) and
+ * rotate (Shift = 15° snap) via Transformer. No resize:
  * the footprint follows the Edit tab box the shape stands for.
  *
  * Uppers are drawn dashed and see-through over the bases, as on a printed
@@ -37,6 +38,11 @@ export interface CabinetShapeRendererProps {
   isSelected: boolean;
   onSelect: (id: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
+  /**
+   * Mid-drag: where the shape should sit instead of under the pointer
+   * (butted against a neighbour), or null to follow the pointer.
+   */
+  onDragSnap?: (id: string, x: number, y: number) => { x: number; y: number; rotation: number } | null;
   /** Rotation finished: the new back-left corner and rotation (size never changes here). */
   onTransformEnd?: (id: string, x: number, y: number, rotation: number) => void;
   /** Stage zoom, so labels and outlines keep a constant on-screen size. */
@@ -48,6 +54,7 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
   isSelected,
   onSelect,
   onDragEnd,
+  onDragSnap,
   onTransformEnd,
   zoom = 1,
 }) => {
@@ -94,6 +101,19 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
       onDragEnd(cabinet.id, e.target.x(), e.target.y());
     },
     [cabinet.id, onDragEnd]
+  );
+
+  // Konva re-places the node under the pointer before every dragmove, so
+  // moving it here sticks it to the snap without fighting the drag.
+  const handleDragMove = useCallback(
+    (e: Konva.KonvaEventObject<DragEvent>) => {
+      if (!onDragSnap) return;
+      const node = e.target;
+      const snapped = onDragSnap(cabinet.id, node.x(), node.y());
+      node.rotation(snapped?.rotation ?? cabinet.rotation);
+      if (snapped) node.position({ x: snapped.x, y: snapped.y });
+    },
+    [cabinet.id, cabinet.rotation, onDragSnap]
   );
 
   // Shift-key snap: toggle Konva's native rotationSnaps during transform.
@@ -176,6 +196,7 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
         draggable
         onClick={handleClick}
         onTap={handleClick}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
       >
         <Rect
