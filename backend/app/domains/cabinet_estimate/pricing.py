@@ -334,15 +334,20 @@ VOLATILE_FINISHES = {"Glazed"}
 #     SB36  $501.61 - B36  $667.45 = -$165.84   (sink base)
 # The last two came out NEGATIVE: a blind corner and a sink base carry
 # fewer doors and no drawer box, so the carcass really is cheaper. They
-# are set to $0 rather than a discount - the material saving is offset by
-# the harder install (a corner box has to be set and scribed blind, and a
-# sink base needs its back cut for the drain and supplies), and a negative
-# line on a customer estimate invites questions it does not deserve.
+# carry no premium; the saving is billed through
+# SPECIALTY_SUPPLY_MULTIPLIER below instead (a lower LF rate on their own
+# supply line), so no negative line reaches the customer.
+#
+# 2026-10-23: they were previously held at $0 on the theory that the
+# saving was offset by a harder install. Nothing billed that install -
+# cabinet install is a flat per-LF rate for every base - so the "offset"
+# was really a ~25% overcharge on the box, about $150-$175 per sink base
+# or blind corner at Stock and 3x that at Custom.
 SPECIALTY_PREMIUM = {
-    # Measured -$166 vs a standard base; held at $0, see note above.
+    # Measured -$166 vs a standard base: see SPECIALTY_SUPPLY_MULTIPLIER.
     "sink_base": 0,
     "lazy_susan": {33: 160, 36: 174},  # measured +$174.06 at 36"
-    # Measured -$177 vs a standard base; held at $0, see note above.
+    # Measured -$177 vs a standard base: see SPECIALTY_SUPPLY_MULTIPLIER.
     "blind_corner": {36: 0, 39: 0, 42: 0, 45: 0},
     # Measured +$162.89 at 24"; scaled by width off that anchor.
     "drawer_base": {
@@ -358,9 +363,11 @@ SPECIALTY_PREMIUM = {
     # +$134.66 at 36"H. 42"H measured +$158.78; held at the 30/36" figure
     # to stay flat across heights like the diagonal corner.
     "easy_reach_corner_wall": {24: 135},
-    # Blind corner in the WALL run - the old table only had the diagonal
-    # version, so a blind wall corner fell through to no premium at all.
-    "blind_corner_wall": {24: 45, 27: 55, 30: 65, 33: 75},
+    # Blind corner in the WALL run. The $45-$75 that used to sit here was
+    # never measured; KCD White Shaker WBC27 comes in UNDER the two-door
+    # W27 at every height (-$49 / -$65 / -$67 at 30/36/42"H), so it is a
+    # cheaper box: see SPECIALTY_SUPPLY_MULTIPLIER.
+    "blind_corner_wall": 0,
     # Trash / recycle pull-out. Standard issue in a new kitchen; the
     # hardware alone is $100-$250.
     "trash_pullout": {15: 195, 18: 215, 21: 235, 24: 255},
@@ -368,8 +375,8 @@ SPECIALTY_PREMIUM = {
     # which is a different box from a standard sink base ($0 premium).
     "farmhouse_sink_base": {30: 215, 33: 240, 36: 275, 42: 330},
     # Angle end base: a run end cut back at 45° (open or doored). KCD White
-    # Shaker BEC24 $414.00 vs B24 $462.22 = -$48.22, held at $0 under the
-    # same rule as sink_base and blind_corner above.
+    # Shaker BEC24 $414.00 vs B24 $462.22 = -$48.22: a cheaper box, see
+    # SPECIALTY_SUPPLY_MULTIPLIER.
     "angle_end_base": 0,
     # Diagonal corner base (diagonal lazy susan): KCD has none in the line,
     # so measured at Fourless ATL White Shaker CBD36 $581.04 vs B36 $470.88
@@ -398,6 +405,23 @@ SPECIALTY_PREMIUM = {
     # is a one-off carpentry cost that does not scale with panel count.
     "range_base_slide_in": 0,   # priced via RANGE_END_PANEL_EACH x panels
     "range_base_drop_in": 420,  # custom cabinet build + cutout
+}
+
+# Specialty boxes that measure CHEAPER than the standard box of the same
+# width (fewer doors, no drawer box, a blind or cut-back end). They are
+# billed on their own LF supply line at this fraction of the standard
+# rate, which keeps every line positive. Ratios are same-line KCD White
+# Shaker prices, specialty / standard of the same width:
+#     SB36  $501.61 / B36  $667.45 = 0.752
+#     BBC42 $530.43 / B42  $707.43 = 0.750
+#     WBC27 / W27 at 30, 36, 42"H  = 0.867, 0.846, 0.862
+#     BEC24 $414.00 / B24  $462.22 = 0.896
+# Install stays at the full per-LF rate: the box is set like any other.
+SPECIALTY_SUPPLY_MULTIPLIER = {
+    "sink_base": 0.75,
+    "blind_corner": 0.75,
+    "blind_corner_wall": 0.86,
+    "angle_end_base": 0.90,
 }
 
 # Specialty premiums above are quoted at Stock tier. The same feature

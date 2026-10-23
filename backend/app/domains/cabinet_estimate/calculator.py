@@ -39,6 +39,7 @@ from .pricing import (
     RANGE_END_PANEL_EACH,
     SPECIALTY_PREMIUM,
     SPECIALTY_PREMIUM_TIER_SCALE,
+    SPECIALTY_SUPPLY_MULTIPLIER,
     SPECIALTY_TALL_TYPES,
     TALL_CABINET_TYPES,
     TALL_HEIGHT_MULTIPLIER,
@@ -199,31 +200,44 @@ def _calc_location_cabinets(
         )
         return round(weighted / total_in, 4)
 
+    # A box that measures cheaper than the standard one of its width (sink
+    # base, blind corner, angle end) goes on its own supply line at a lower
+    # LF rate - see SPECIALTY_SUPPLY_MULTIPLIER. None for every other box.
+    def _cheaper_box(b: BoxInput) -> Optional[str]:
+        sp = b.specialty_type if b.is_specialty else None
+        return sp if sp in SPECIALTY_SUPPLY_MULTIPLIER else None
+
+    def _cheaper_label(sp: Optional[str]) -> str:
+        return f" - {sp.replace('_', ' ').title()}" if sp else ""
+
     # ── Cabinet supply ──
-    base_by_std: dict[bool, float] = {}
-    base_boxes_by_std: dict[bool, List[BoxInput]] = {}
+    base_by_std: dict[tuple[bool, Optional[str]], float] = {}
+    base_boxes_by_std: dict[tuple[bool, Optional[str]], List[BoxInput]] = {}
     for b in base_boxes:
-        std = is_standard_width(b.width_inches)
-        base_by_std[std] = base_by_std.get(std, 0) + (
+        key = (is_standard_width(b.width_inches), _cheaper_box(b))
+        base_by_std[key] = base_by_std.get(key, 0) + (
             b.width_inches * b.qty
         ) / 12
-        base_boxes_by_std.setdefault(std, []).append(b)
+        base_boxes_by_std.setdefault(key, []).append(b)
 
-    for std in (True, False):
-        std_lf = base_by_std.get(std, 0)
+    # Standard widths first, plain boxes before the cheaper ones.
+    for key in sorted(base_by_std, key=lambda k: (not k[0], k[1] or "")):
+        std, sp = key
+        std_lf = base_by_std[key]
         if std_lf <= 0:
             continue
         w_mult = 1.0 if std else NON_STANDARD_WIDTH_MULTIPLIER
+        sp_mult = SPECIALTY_SUPPLY_MULTIPLIER.get(sp, 1.0) if sp else 1.0
         eff_mult = _avg_width_efficiency(
-            base_boxes_by_std.get(std, []),
+            base_boxes_by_std.get(key, []),
         )
         base_unit = round(
-            rates["base_lf"] * total_mult * w_mult * eff_mult, 2,
+            rates["base_lf"] * total_mult * w_mult * eff_mult * sp_mult, 2,
         )
         base_total = round(std_lf * base_unit, 2)
         line_items.append(LineItem(
             description=(
-                f"{prefix}Base Cabinets - {tier}"
+                f"{prefix}Base Cabinets{_cheaper_label(sp)} - {tier}"
                 f"{'' if std else _NON_STD_SUFFIX}"
             ),
             quantity=round(std_lf, 2),
@@ -236,33 +250,34 @@ def _calc_location_cabinets(
         ))
 
     # Wall cabinets: split by height tier, then by standard/non-standard width
-    wall_by_tier: dict[tuple[str, bool], float] = {}
-    wall_boxes_by_tier: dict[tuple[str, bool], List[BoxInput]] = {}
+    wall_by_tier: dict[tuple[str, bool, Optional[str]], float] = {}
+    wall_boxes_by_tier: dict[tuple[str, bool, Optional[str]], List[BoxInput]] = {}
     for b in wall_boxes:
         htier = _wall_height_tier(b.height_inches)
-        key = (htier, is_standard_width(b.width_inches))
+        key = (htier, is_standard_width(b.width_inches), _cheaper_box(b))
         wall_by_tier[key] = wall_by_tier.get(
             key, 0,
         ) + (b.width_inches * b.qty) / 12
         wall_boxes_by_tier.setdefault(key, []).append(b)
 
-    for (htier, std), tier_lf in wall_by_tier.items():
+    for (htier, std, sp), tier_lf in wall_by_tier.items():
         if tier_lf <= 0:
             continue
         h_mult = WALL_HEIGHT_MULTIPLIER.get(htier, 1.0)
         w_mult = 1.0 if std else NON_STANDARD_WIDTH_MULTIPLIER
+        sp_mult = SPECIALTY_SUPPLY_MULTIPLIER.get(sp, 1.0) if sp else 1.0
         eff_mult = _avg_width_efficiency(
-            wall_boxes_by_tier.get((htier, std), []),
+            wall_boxes_by_tier.get((htier, std, sp), []),
         )
         wall_unit = round(
-            rates["wall_lf"] * total_mult * h_mult * w_mult * eff_mult,
+            rates["wall_lf"] * total_mult * h_mult * w_mult * eff_mult * sp_mult,
             2,
         )
         wall_total = round(tier_lf * wall_unit, 2)
         h_label = _WALL_TIER_LABELS.get(htier, htier)
         line_items.append(LineItem(
             description=(
-                f"{prefix}Wall Cabinets {h_label} - {tier}"
+                f"{prefix}Wall Cabinets {h_label}{_cheaper_label(sp)} - {tier}"
                 f"{'' if std else _NON_STD_SUFFIX}"
             ),
             quantity=round(tier_lf, 2),
@@ -522,11 +537,11 @@ def _calc_location_cabinets(
                 category="install",
                 location=loc,
             ))
-        # wall_by_tier is keyed by (height_tier, is_standard_width).
-        # Install labor doesn't vary with width, so merge the width split
-        # back out - otherwise the same tier yields two identical lines.
+        # wall_by_tier is keyed by (height_tier, is_standard_width,
+        # cheaper-box type). Install labor varies with none but the height,
+        # so merge the rest back out - else one tier yields several lines.
         install_wall_by_tier: dict[str, float] = {}
-        for (htier, _std), tier_lf in wall_by_tier.items():
+        for (htier, _std, _sp), tier_lf in wall_by_tier.items():
             install_wall_by_tier[htier] = (
                 install_wall_by_tier.get(htier, 0) + tier_lf
             )
