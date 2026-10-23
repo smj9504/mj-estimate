@@ -349,7 +349,15 @@ SPECIALTY_PREMIUM = {
         12: 115, 15: 128, 18: 140, 21: 152,
         24: 163, 27: 172, 30: 182, 36: 200,
     },
-    "diagonal_corner_wall": {24: 97, 27: 110},  # measured +$97.03 at 24"
+    # Measured +$97.03 at 24"x30". Flat across heights: the same catalog
+    # gives DCW2436 +$94.68 vs W2436 and DCW2442 +$106.44 vs W2442 (the
+    # height itself is already in the LF rate via WALL_HEIGHT_MULTIPLIER).
+    "diagonal_corner_wall": {24: 97, 27: 110},
+    # Easy-reach (pie-cut) corner wall, 24" along each wall with bi-fold
+    # doors. Measured WER2430 $468.09 - W2430 $332.84 = +$135.25, and
+    # +$134.66 at 36"H. 42"H measured +$158.78; held at the 30/36" figure
+    # to stay flat across heights like the diagonal corner.
+    "easy_reach_corner_wall": {24: 135},
     # Blind corner in the WALL run - the old table only had the diagonal
     # version, so a blind wall corner fell through to no premium at all.
     "blind_corner_wall": {24: 45, 27: 55, 30: 65, 33: 75},

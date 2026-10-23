@@ -37,10 +37,10 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'SB36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'sink_base', label: 'Sink Base 36"' },
   'SB42': { cab_type: 'base', width: 42, height: 34.5, specialty: 'sink_base', label: 'Sink Base 42"' },
   // Base - Blind Corner
-  'BBC36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'blind_corner', label: 'Blind Corner 36"' },
-  'BBC39': { cab_type: 'base', width: 39, height: 34.5, specialty: 'blind_corner', label: 'Blind Corner 39"' },
-  'BBC42': { cab_type: 'base', width: 42, height: 34.5, specialty: 'blind_corner', label: 'Blind Corner 42"' },
-  'BBC45': { cab_type: 'base', width: 45, height: 34.5, specialty: 'blind_corner', label: 'Blind Corner 45"' },
+  'BBC36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'blind_corner', label: 'Blind Corner Base 36"' },
+  'BBC39': { cab_type: 'base', width: 39, height: 34.5, specialty: 'blind_corner', label: 'Blind Corner Base 39"' },
+  'BBC42': { cab_type: 'base', width: 42, height: 34.5, specialty: 'blind_corner', label: 'Blind Corner Base 42"' },
+  'BBC45': { cab_type: 'base', width: 45, height: 34.5, specialty: 'blind_corner', label: 'Blind Corner Base 45"' },
   // Base - Drawer Base
   'DB12': { cab_type: 'base', width: 12, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 12"' },
   'DB15': { cab_type: 'base', width: 15, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 15"' },
@@ -51,8 +51,8 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'DB30': { cab_type: 'base', width: 30, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 30"' },
   'DB36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 36"' },
   // Base - Lazy Susan
-  'LS33': { cab_type: 'base', width: 33, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan 33"' },
-  'LS36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan 36"' },
+  'LS33': { cab_type: 'base', width: 33, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan Corner 33"' },
+  'LS36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan Corner 36"' },
   // Base - Trash / recycle pull-out (standard in a new kitchen)
   'TP15': { cab_type: 'base', width: 15, height: 34.5, specialty: 'trash_pullout', label: 'Trash Pull-out 15"' },
   'TP18': { cab_type: 'base', width: 18, height: 34.5, specialty: 'trash_pullout', label: 'Trash Pull-out 18"' },
@@ -123,13 +123,26 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'W3324': { cab_type: 'wall', width: 33, height: 24, label: '33"W x 24"H' },
   'W3624': { cab_type: 'wall', width: 36, height: 24, label: '36"W x 24"H' },
   'W3627': { cab_type: 'wall', width: 36, height: 27, label: '36"W x 27"H' },
-  // Wall - Specialty
-  'WDC24': { cab_type: 'wall', width: 24, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"' },
-  'WDC27': { cab_type: 'wall', width: 27, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 27"' },
-  'WBC24': { cab_type: 'wall', width: 24, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 24"' },
-  'WBC27': { cab_type: 'wall', width: 27, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 27"' },
-  'WBC30': { cab_type: 'wall', width: 30, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 30"' },
-  'WBC33': { cab_type: 'wall', width: 33, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 33"' },
+  // Wall - Corner. The 30"H codes predate the 36"/42" ones and carry no
+  // height; saved estimates use them, so they keep their names.
+  'WDC24':   { cab_type: 'wall', width: 24, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"W x 30"H' },
+  'WDC27':   { cab_type: 'wall', width: 27, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 27"W x 30"H' },
+  'WDC2436': { cab_type: 'wall', width: 24, height: 36, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"W x 36"H' },
+  'WDC2442': { cab_type: 'wall', width: 24, height: 42, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"W x 42"H' },
+  // Easy-reach (pie-cut) corner: 24" along each wall, bi-fold doors
+  'WER2430': { cab_type: 'wall', width: 24, height: 30, specialty: 'easy_reach_corner_wall', label: 'Easy Reach Corner 24"W x 30"H' },
+  'WER2436': { cab_type: 'wall', width: 24, height: 36, specialty: 'easy_reach_corner_wall', label: 'Easy Reach Corner 24"W x 36"H' },
+  'WER2442': { cab_type: 'wall', width: 24, height: 42, specialty: 'easy_reach_corner_wall', label: 'Easy Reach Corner 24"W x 42"H' },
+  'WBC24':   { cab_type: 'wall', width: 24, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 24"W x 30"H' },
+  'WBC27':   { cab_type: 'wall', width: 27, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 27"W x 30"H' },
+  'WBC30':   { cab_type: 'wall', width: 30, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 30"W x 30"H' },
+  'WBC33':   { cab_type: 'wall', width: 33, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 33"W x 30"H' },
+  'WBC2436': { cab_type: 'wall', width: 24, height: 36, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 24"W x 36"H' },
+  'WBC2736': { cab_type: 'wall', width: 27, height: 36, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 27"W x 36"H' },
+  'WBC3036': { cab_type: 'wall', width: 30, height: 36, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 30"W x 36"H' },
+  'WBC2442': { cab_type: 'wall', width: 24, height: 42, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 24"W x 42"H' },
+  'WBC2742': { cab_type: 'wall', width: 27, height: 42, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 27"W x 42"H' },
+  'WBC3042': { cab_type: 'wall', width: 30, height: 42, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 30"W x 42"H' },
   // Wall - OTR microwave cabinet (18"H with cut-out + venting)
   'WMW30': { cab_type: 'wall', width: 30, height: 18, specialty: 'otr_microwave_wall', label: 'OTR Microwave 30"' },
   'WMW33': { cab_type: 'wall', width: 33, height: 18, specialty: 'otr_microwave_wall', label: 'OTR Microwave 33"' },

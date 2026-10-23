@@ -1,23 +1,26 @@
 /**
  * CabinetShapeRenderer
  *
- * Renders a placed cabinet as a rectangle on the Konva canvas.
+ * Renders a placed cabinet on the Konva canvas: a rectangle, or for a
+ * corner unit its L / angled / blind footprint.
  * Supports drag (optionally snapping as it goes, see onDragSnap) and
  * rotate (Shift = 15° snap) via Transformer. No resize:
  * the footprint follows the Edit tab box the shape stands for.
  *
  * Uppers are drawn dashed and see-through over the bases, as on a printed
- * kitchen plan; the heavier line marks the front (door side).
+ * kitchen plan; the heavier line marks the front (door side), and a blue
+ * double line marks it instead on a cabinet with glass doors.
  *
  * Ported from water-mitigation/sketch/canvas/WMShapeRenderer.tsx, keeping
- * only the rectangle path — no ellipse/door/stairs branches, since cabinet
- * shapes are always rectangles.
+ * only the rectangle path — no ellipse/door/stairs branches; corner
+ * outlines are drawn here from the cabinet's own footprint.
  */
 
 import React, { useCallback, useRef, useEffect } from 'react';
 import { Group, Line, Rect, Text, Transformer } from 'react-konva';
 import Konva from 'konva';
 import type { CabinetSketchCabinet } from '../../../types/cabinetSketch';
+import type { CornerKind } from './cabinetSketchLayout';
 
 /** 15° snap angles for Shift+Rotate (0, 15, 30, …, 345) */
 const ROTATION_SNAP_ANGLES = Array.from({ length: 24 }, (_, i) => i * 15);
@@ -29,9 +32,41 @@ const FILL_BY_TYPE: Record<string, { fill: string; opacity: number }> = {
   wall: { fill: '#EADBC4', opacity: 0.55 },
 };
 
+const GLASS_STROKE = '#6E9CC0';
+
 /** Konva hit-target sizing — fixed desktop sizes (no touch-device variant needed here) */
 const ANCHOR_SIZE = 8;
 const ROTATE_ANCHOR_OFFSET = 20;
+
+/** A corner unit's footprint, in canvas pixels (see cornerFootprint). */
+export interface CornerShape {
+  kind: CornerKind;
+  side: 'left' | 'right';
+  /** Depth of each leg of an L / diagonal. */
+  leg: number;
+  /** Length of a blind corner's covered end. */
+  blind: number;
+}
+
+/**
+ * Closed outline (flat x, y list) of an L or diagonal corner unit, the
+ * corner end at local x = 0 unless it is on the right. From the third
+ * point to the second-last, it walks the inside (door) faces. `null` for
+ * a blind corner, which is a plain box.
+ */
+function cornerOutline(corner: CornerShape, w: number, h: number): number[] | null {
+  const d = corner.leg;
+  let pts: [number, number][];
+  if (corner.kind === 'l') {
+    pts = [[0, 0], [w, 0], [w, d], [d, d], [d, h], [0, h]];
+  } else if (corner.kind === 'diagonal') {
+    pts = [[0, 0], [w, 0], [w, d], [d, h], [0, h]];
+  } else {
+    return null;
+  }
+  if (corner.side === 'right') pts = pts.map(([x, y]) => [w - x, y]);
+  return pts.flat();
+}
 
 export interface CabinetShapeRendererProps {
   cabinet: CabinetSketchCabinet;
@@ -40,13 +75,15 @@ export interface CabinetShapeRendererProps {
   onDragEnd: (id: string, x: number, y: number) => void;
   /**
    * Mid-drag: where the shape should sit instead of under the pointer
-   * (butted against a neighbour), or null to follow the pointer.
+   * (lined up with a neighbour), or null to follow the pointer.
    */
   onDragSnap?: (id: string, x: number, y: number) => { x: number; y: number; rotation: number } | null;
   /** Rotation finished: the new back-left corner and rotation (size never changes here). */
   onTransformEnd?: (id: string, x: number, y: number, rotation: number) => void;
   /** Stage zoom, so labels and outlines keep a constant on-screen size. */
   zoom?: number;
+  /** Set for a corner unit, which draws its real footprint instead of a box. */
+  corner?: CornerShape | null;
 }
 
 const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
@@ -57,6 +94,7 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
   onDragSnap,
   onTransformEnd,
   zoom = 1,
+  corner,
 }) => {
   const groupRef = useRef<Konva.Group>(null);
   const rectRef = useRef<Konva.Rect>(null);
@@ -186,6 +224,29 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
   const px = 1 / zoom;
   const showLabel = labelText.length > 0 && width * zoom > 20 && height * zoom > 12;
 
+  // An L or diagonal corner draws its real outline; the Rect stays (unseen,
+  // unclickable) as the Transformer's frame. A blind corner keeps the box
+  // and shades the end the other run covers.
+  const outline = corner ? cornerOutline(corner, width, height) : null;
+  const blind = corner?.kind === 'blind' ? corner : null;
+  const blindX = blind ? (blind.side === 'left' ? 0 : width - blind.blind) : 0;
+  // Door side: the inside faces of an L/diagonal, the open part of a blind corner.
+  const front = outline
+    ? outline.slice(4, -2)
+    : blind
+      ? blind.side === 'left'
+        ? [blind.blind, height, width, height]
+        : [0, height, width - blind.blind, height]
+      : [0, height, width, height];
+  // The strip along the back wall, where an L's label fits.
+  const labelBand = outline && corner ? corner.leg : height;
+  const outlineStyle = {
+    stroke: '#8B5E3C',
+    strokeWidth: 1.5,
+    strokeScaleEnabled: false,
+    dash: isUpper ? [5 * px, 3 * px] : undefined,
+  };
+
   return (
     <>
       <Group
@@ -204,32 +265,62 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
           width={width}
           height={height}
           fill={look.fill}
-          opacity={look.opacity}
-          stroke="#8B5E3C"
-          strokeWidth={1.5}
-          strokeScaleEnabled={false}
-          dash={isUpper ? [5 * px, 3 * px] : undefined}
+          opacity={outline ? 0 : look.opacity}
+          listening={!outline}
+          {...outlineStyle}
           cornerRadius={2}
         />
-        {!isUpper && (
-          <Line points={[0, height, width, height]} stroke="#5A3E28" strokeWidth={2.5} strokeScaleEnabled={false} listening={false} />
+        {outline && <Line points={outline} closed fill={look.fill} opacity={look.opacity} {...outlineStyle} />}
+        {blind && (
+          <>
+            <Rect x={blindX} width={blind.blind} height={height} fill="#ffffff" opacity={0.45} listening={false} />
+            <Line
+              points={[blind.side === 'left' ? blind.blind : width - blind.blind, 0, blind.side === 'left' ? blind.blind : width - blind.blind, height]}
+              stroke="#8B5E3C"
+              strokeWidth={1}
+              strokeScaleEnabled={false}
+              dash={[3 * px, 3 * px]}
+              listening={false}
+            />
+          </>
         )}
-        {isSelected && (
-          <Rect
-            width={width}
-            height={height}
-            fill="transparent"
-            stroke="#1890ff"
-            strokeWidth={2}
-            strokeScaleEnabled={false}
-            dash={[6 * px, 3 * px]}
-            listening={false}
-          />
+        {cabinet.has_glass_door ? (
+          <>
+            <Line points={front} stroke={GLASS_STROKE} strokeWidth={4} strokeScaleEnabled={false} listening={false} />
+            <Line points={front} stroke="#ffffff" strokeWidth={1.5} strokeScaleEnabled={false} listening={false} />
+          </>
+        ) : (
+          !isUpper && (
+            <Line points={front} stroke="#5A3E28" strokeWidth={2.5} strokeScaleEnabled={false} listening={false} />
+          )
         )}
+        {isSelected &&
+          (outline ? (
+            <Line
+              points={outline}
+              closed
+              stroke="#1890ff"
+              strokeWidth={2}
+              strokeScaleEnabled={false}
+              dash={[6 * px, 3 * px]}
+              listening={false}
+            />
+          ) : (
+            <Rect
+              width={width}
+              height={height}
+              fill="transparent"
+              stroke="#1890ff"
+              strokeWidth={2}
+              strokeScaleEnabled={false}
+              dash={[6 * px, 3 * px]}
+              listening={false}
+            />
+          ))}
         {showLabel && (
           <Text
             x={2 * px}
-            y={isUpper ? 2 * px : Math.max(height / 2 - 7 * px, height - 16 * px)}
+            y={isUpper ? 2 * px : Math.max(labelBand / 2 - 7 * px, labelBand - 16 * px)}
             width={width - 4 * px}
             text={labelText}
             fontSize={11 * px}

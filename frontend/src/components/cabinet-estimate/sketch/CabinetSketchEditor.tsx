@@ -5,8 +5,9 @@
  *
  * - Plan (top): draw walls (click-click, snap-to-endpoint, Shift = axis
  *   lock) and arrange cabinets. Dropped near a wall, a cabinet turns to
- *   back onto it; brought up beside another cabinet, it lines its back up
- *   with that one and butts against its side (see snapDroppedCabinet).
+ *   back onto it; brought up to another cabinet, it lines its back up with
+ *   that one and butts against its side — or, an upper over a base, lines
+ *   its end up with the base's (see snapDroppedCabinet).
  * - Front (elevation): each run of cabinets drawn from the front, to
  *   scale, derived from the plan (see buildElevations).
  *
@@ -30,6 +31,7 @@ import {
   RedoOutlined,
   SaveOutlined,
   SelectOutlined,
+  SwapOutlined,
   TableOutlined,
   UndoOutlined,
   ZoomInOutlined,
@@ -56,8 +58,9 @@ import CabinetElevationView from './CabinetElevationView';
 import { pixelsToFeet, generateOverlayId, snapToWallEndpoint, constrainToAxis } from './cabinetSketchUtils';
 import {
   buildElevations,
-  cabinetDepthIn,
   cabinetKey,
+  cornerFootprint,
+  footprintDepthIn,
   inToPx,
   reconcileCabinets,
   snapCabinetToNeighbors,
@@ -350,7 +353,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         const code = state.activePresetCode;
         const preset = CABINET_PRESETS[code];
         if (preset) {
-          const depthIn = cabinetDepthIn(preset.cab_type, preset.specialty);
+          const depthIn = footprintDepthIn(preset.cab_type, preset.specialty, preset.width);
           const width = inToPx(preset.width, scalePixelsPerFoot);
           const height = inToPx(depthIn, scalePixelsPerFoot);
           const id = generateOverlayId();
@@ -466,7 +469,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     [selectedIds, cabinets, walls, scalePixelsPerFoot, batchMoveSelected, updateCabinet]
   );
 
-  // Show a lone dragged cabinet butted against the neighbour it will snap
+  // Show a lone dragged cabinet lined up with the neighbour it will snap
   // to. Wall snapping waits for the drop: turning mid-drag would swing the
   // shape out from under the pointer.
   const handleCabinetDragSnap = useCallback(
@@ -614,6 +617,19 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     () => buildElevations(cabinets, walls, CABINET_PRESETS, scalePixelsPerFoot),
     [cabinets, walls, scalePixelsPerFoot]
   );
+
+  // Corner units (lazy susan, blind, diagonal, easy-reach) draw their own footprint.
+  const cornerShapes = useMemo(() => {
+    const out = new Map<string, NonNullable<ReturnType<typeof cornerFootprint>>>();
+    for (const c of cabinets) {
+      const shape = cornerFootprint(c, CABINET_PRESETS, scalePixelsPerFoot);
+      if (shape) out.set(c.id, shape);
+    }
+    return out;
+  }, [cabinets, scalePixelsPerFoot]);
+  // The one selected cabinet, if it is a corner unit whose corner end can be flipped.
+  const flipTarget =
+    selectedIds.size === 1 ? cabinets.find((c) => selectedIds.has(c.id) && cornerShapes.has(c.id)) : undefined;
   const currentRun = elevations.find((r) => r.key === runKey) ?? elevations[0];
 
   if (isLoading) {
@@ -724,6 +740,21 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                 Delete
               </Button>
             </Tooltip>
+            {flipTarget && (
+              <Tooltip title="Swap which end of the corner cabinet sits in the corner">
+                <Button
+                  icon={<SwapOutlined />}
+                  onClick={() =>
+                    updateCabinet({
+                      id: flipTarget.id,
+                      corner_side: flipTarget.corner_side === 'right' ? 'left' : 'right',
+                    })
+                  }
+                >
+                  Flip corner
+                </Button>
+              </Tooltip>
+            )}
           </>
         ) : (
           elevations.length > 1 && (
@@ -806,6 +837,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                     onDragSnap={handleCabinetDragSnap}
                     onTransformEnd={handleCabinetTransformEnd}
                     zoom={viewport.zoom}
+                    corner={cornerShapes.get(cabinet.id)}
                   />
                 )
               )}
@@ -827,7 +859,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         {cabinets.length === 0
           ? 'Cabinets you add in the Edit tab appear here. You can also draw the walls first, then pick a cabinet from the dropdown and click the canvas to place it.'
           : view === 'plan'
-            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it. Dashed shapes are uppers. Sizes come from the Edit tab.'
+            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. Dashed shapes are uppers; a blue double-line front marks glass doors. Sizes and glass come from the Edit tab.'
             : 'Each run is drawn from the front, as laid out in the plan. Uppers hang at 54" above the floor; shorter ones line up with their tops.'}
       </div>
     </div>

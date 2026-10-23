@@ -35,6 +35,11 @@ class CabinetSketchCabinet(BaseModel):
     width_in: Optional[float] = None
     depth_in: Optional[float] = None
     height_in: Optional[float] = None
+    # Which end of a corner unit (lazy susan, blind corner, …) sits in the
+    # corner, seen from the front: "left" (default) or "right".
+    corner_side: Optional[str] = None
+    # Copied from the Edit-tab box: its doors are drawn as glass.
+    has_glass_door: Optional[bool] = None
 
 
 class CabinetSketchOverlayData(BaseModel):

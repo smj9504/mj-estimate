@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   boxKey,
   buildElevations,
+  cabinetKey,
+  cornerFootprint,
   mountHeightsIn,
   perimeterAnchor,
   reconcileCabinets,
@@ -21,6 +23,8 @@ const PRESETS: PresetCatalog = {
   W3030: { width: 30, height: 30 },
   W3015: { width: 30, height: 15 },
   T2484: { width: 24, height: 84 },
+  LS36: { width: 36, height: 34.5, specialty: 'lazy_susan' },
+  BBC42: { width: 42, height: 34.5, specialty: 'blind_corner' },
 };
 
 const box = (code: string, over: Partial<SketchBoxSource> = {}): SketchBoxSource => {
@@ -123,8 +127,72 @@ describe('reconcileCabinets', () => {
     expect(out[0].height).toBeCloseTo(40);
   });
 
+  it('keeps a moved cabinet where it is when its box is changed in the Edit tab', () => {
+    const first = reconcileCabinets([], [box('B30'), box('B15')], [], PRESETS, SCALE)!;
+    const moved = first.map((c, i) => (i === 0 ? { ...c, x: 300, y: 300, rotation: 90 } : c));
+    // The B30 row is switched to a sink base.
+    const out = reconcileCabinets(moved, [box('SB36'), box('B15')], [], PRESETS, SCALE)!;
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({ id: first[0].id, preset_code: 'SB36', label: 'SB36', x: 300, y: 300, rotation: 90 });
+    expect(out[0].width).toBeCloseTo(60); // resized to 36"
+  });
+
+  it("doesn't hand an upper's place to a floor cabinet", () => {
+    const first = reconcileCabinets([], [box('B30'), box('W3030')], [], PRESETS, SCALE)!;
+    const moved = first.map((c) => (c.preset_code === 'W3030' ? { ...c, x: 300, y: 300 } : c));
+    // The upper is removed and a base added at the same time.
+    const out = reconcileCabinets(moved, [box('B30'), box('B15')], [], PRESETS, SCALE)!;
+    expect(out.map((c) => c.preset_code)).toEqual(['B30', 'B15']);
+    expect(out[1]).toMatchObject({ x: 90, y: 40 }); // appended after the B30, not at the upper's spot
+  });
+
+  it('gives an L corner unit a footprint as deep as it is wide', () => {
+    const [ls] = reconcileCabinets([], [box('LS36')], [], PRESETS, SCALE)!;
+    expect(ls).toMatchObject({ width_in: 36, depth_in: 36 });
+    expect(ls.height).toBeCloseTo(60);
+    expect(cornerFootprint(ls, PRESETS, SCALE)).toMatchObject({ kind: 'l', side: 'left', leg: 40 });
+    const [bbc] = reconcileCabinets([], [box('BBC42')], [], PRESETS, SCALE)!;
+    expect(bbc.depth_in).toBe(24); // a blind corner stays a plain box…
+    expect(cornerFootprint({ ...bbc, corner_side: 'right' }, PRESETS, SCALE)).toMatchObject({
+      kind: 'blind',
+      side: 'right',
+      blind: 40, // …with its 24" covered end
+    });
+  });
+
   it('treats a custom box of a different size as a different cabinet', () => {
     expect(boxKey(box('CUSTOM', { width_inches: 20 }))).not.toBe(boxKey(box('CUSTOM', { width_inches: 22 })));
+  });
+
+  it('marks the shape of a glass-door box, one shape per glass / plain box', () => {
+    const boxes = [box('W3030', { has_glass_door: true }), box('W3030')];
+    const out = reconcileCabinets([], boxes, [], PRESETS, SCALE)!;
+    expect(out.map((c) => !!c.has_glass_door)).toEqual([true, false]);
+    expect(out[1].has_glass_door).toBeUndefined();
+    expect(reconcileCabinets(out, boxes, [], PRESETS, SCALE)).toBeNull();
+    // Deleting the glass shape on the canvas takes the glass box off the Edit tab.
+    expect(cabinetKey(out[0], PRESETS, SCALE)).toBe(boxKey(boxes[0]));
+    expect(cabinetKey(out[1], PRESETS, SCALE)).toBe(boxKey(boxes[1]));
+  });
+
+  it('keeps each cabinet in place when glass is toggled in the Edit tab', () => {
+    const first = reconcileCabinets([], [box('W3030'), box('W3015'), box('B30')], [], PRESETS, SCALE)!;
+    const idOf = (code: string) => first.find((c) => c.preset_code === code)!.id;
+    const moved = first.map((c) => (c.preset_code === 'W3030' ? { ...c, x: 300, y: 300 } : c));
+    // Both uppers turned to glass, listed in the other order: each still finds its own shape.
+    const glass = { has_glass_door: true };
+    const on = reconcileCabinets(
+      moved,
+      [box('W3015', glass), box('W3030', glass), box('B30')],
+      [],
+      PRESETS,
+      SCALE
+    )!;
+    expect(on.find((c) => c.preset_code === 'W3030')).toMatchObject({ id: idOf('W3030'), x: 300, y: 300, ...glass });
+    expect(on.find((c) => c.preset_code === 'W3015')).toMatchObject({ id: idOf('W3015'), x: 90, ...glass });
+    const off = reconcileCabinets(on, [box('W3030'), box('W3015'), box('B30')], [], PRESETS, SCALE)!;
+    expect(off.find((c) => c.preset_code === 'W3030')).toMatchObject({ id: idOf('W3030'), x: 300, y: 300 });
+    expect(off.every((c) => !c.has_glass_door)).toBe(true);
   });
 });
 
@@ -212,6 +280,31 @@ describe('snapCabinetToNeighbors', () => {
     expect(snapCabinetToNeighbors(b18(110, 40), [b30()], SCALE)).toBeNull(); // 12" gap
     expect(snapCabinetToNeighbors(b18(92, 40, { cab_type: 'wall' }), [b30()], SCALE)).toBeNull(); // upper by a base
     expect(snapCabinetToNeighbors(b18(92, 40, { rotation: 90 }), [b30()], SCALE)).toBeNull(); // turned 90°
+  });
+
+  it('squares an upper over a base: backs level, ends flush', () => {
+    // A 30" upper (12" deep) dropped a little off the B30 below it.
+    const upper = b18(44, 46, { cab_type: 'wall', width: 50, height: 20 });
+    expect(snapCabinetToNeighbors(upper, [b30()], SCALE)).toMatchObject({ x: 40, y: 40 });
+    // A narrower 18" upper nearer the B30's right end lines up with that end.
+    expect(snapCabinetToNeighbors(b18(62, 43, { cab_type: 'wall', height: 20 }), [b30()], SCALE)).toMatchObject({
+      x: 60,
+      y: 40,
+    });
+  });
+
+  it('squares a base under an upper the same way', () => {
+    const upper = b30({ id: 'w', cab_type: 'wall', height: 20 });
+    expect(snapCabinetToNeighbors(b18(43, 47), [upper], SCALE)).toMatchObject({ x: 40, y: 40 });
+  });
+
+  it('butts uppers and bases against a tall, which spans both heights', () => {
+    const tall = b30({ id: 't', cab_type: 'tall' });
+    expect(snapCabinetToNeighbors(b18(94, 42, { cab_type: 'wall', height: 20 }), [tall], SCALE)).toMatchObject({
+      x: 90,
+      y: 40,
+    });
+    expect(snapCabinetToNeighbors(b18(94, 42), [tall], SCALE)).toMatchObject({ x: 90, y: 40 });
   });
 
   it('picks the closer of two neighbours', () => {

@@ -4,7 +4,8 @@
  * Front elevation of one cabinet run, drawn to scale from the floor plan
  * (see buildElevations in cabinetSketchLayout.ts). Read-only: cabinets are
  * moved in the plan and sized in the Edit tab; this view only shows how
- * the run reads from the front — door/drawer layout, upper mounting
+ * the run reads from the front — door/drawer layout (glass doors from the
+ * Edit tab's Glass box drawn as panes), upper mounting
  * height, countertop line and widths.
  *
  * Plain SVG rather than Konva: nothing here is interactive, and SVG scales
@@ -12,8 +13,9 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { SpecialtyType } from '../../../types/cabinetEstimate';
-import type { ElevationItem, ElevationRun, PresetCatalog } from './cabinetSketchLayout';
+import type { CabType, SpecialtyType } from '../../../types/cabinetEstimate';
+import { blindLengthIn, cabinetDepthIn, cornerKind } from './cabinetSketchLayout';
+import type { CornerKind, ElevationItem, ElevationRun, PresetCatalog } from './cabinetSketchLayout';
 
 /** Reference ceiling drawn behind the run (8 ft). */
 const CEILING_IN = 96;
@@ -32,7 +34,11 @@ const FACE_STROKE = '#A87B54';
 const FACE_FILL = '#FBF6EF';
 const APPLIANCE_FILL = '#d9d9d6';
 const COUNTER_FILL = '#8c8a85';
+const GLASS_FILL = '#DCEAF3';
+const GLASS_STROKE = '#7FA6C2';
 const SELECTED = '#1f74c9';
+/** Width of the door frame around a glass insert, inches. */
+const GLASS_STILE_IN = 2.25;
 
 const MARGIN_X = 40;
 const MARGIN_TOP = 24;
@@ -64,13 +70,52 @@ function doorRow(x: number, y: number, w: number, h: number, n: number, kind: Fa
 
 const doorCount = (w: number) => (w >= 24 ? 2 : 1);
 
+/**
+ * Front of a corner unit. Its corner end shows no front of its own — an L
+ * or diagonal's other leg comes toward the viewer, a blind corner's end
+ * hides behind the other run — so doors go only on the open part.
+ */
+function cornerFaces(
+  cabType: CabType,
+  specialty: SpecialtyType,
+  kind: CornerKind,
+  side: 'left' | 'right',
+  w: number,
+  h: number
+): Face[] {
+  const r = REVEAL_IN;
+  const bottom = cabType === 'wall' ? r : TOE_KICK_IN + r;
+  const cornerLen =
+    kind === 'blind' ? Math.min(blindLengthIn(cabType), w * 0.75) : cabinetDepthIn(cabType, specialty);
+  const openW = w - cornerLen;
+  const faces: Face[] =
+    kind === 'blind'
+      ? [
+          { x: r, y: bottom, w: cornerLen - r, h: h - r - bottom, kind: 'panel', label: 'BLIND' },
+          // The open part reads like a plain box of its width.
+          ...facesFor(cabType, undefined, openW, h).map((f) => ({ ...f, x: f.x + cornerLen })),
+        ]
+      : // Lazy susan / easy-reach / diagonal: one full-height door on the open leaf.
+        doorRow(cornerLen, bottom, openW, h - r - bottom, 1);
+  return side === 'right' ? faces.map((f) => ({ ...f, x: w - f.x - f.w })) : faces;
+}
+
 /** Front layout of a cabinet by type, following the catalog's specialty. */
-function facesFor(cabType: string, specialty: SpecialtyType | undefined, w: number, h: number): Face[] {
+function facesFor(
+  cabType: CabType,
+  specialty: SpecialtyType | undefined,
+  w: number,
+  h: number,
+  cornerSide: 'left' | 'right' = 'left'
+): Face[] {
   const inner = w - REVEAL_IN * 2;
   const r = REVEAL_IN;
 
+  const corner = cornerKind(specialty);
+  if (corner && specialty) return cornerFaces(cabType, specialty, corner, cornerSide, w, h);
+
   if (cabType === 'wall') {
-    return doorRow(0, r, w, h - r * 2, specialty === 'diagonal_corner_wall' ? 1 : doorCount(w));
+    return doorRow(0, r, w, h - r * 2, doorCount(w));
   }
 
   if (cabType === 'tall') {
@@ -219,7 +264,7 @@ const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, preset
     const w = item.width_in * ppi;
     const h = item.height_in * ppi;
     const selected = selectedIds?.has(c.id);
-    const faces = facesFor(c.cab_type, specialty, item.width_in, item.height_in);
+    const faces = facesFor(c.cab_type, specialty, item.width_in, item.height_in, c.corner_side);
     const fx = (f: Face) => left + f.x * ppi;
     const fy = (f: Face) => y(item.bottom_in + f.y + f.h);
 
@@ -249,6 +294,15 @@ const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, preset
           // Drawer pull: a short bar centred near the top of the drawer front.
           const handleLen = Math.min(fw * 0.4, 4 * ppi);
           const handleY = fy(f) + Math.min(fh / 2, 2 * ppi);
+          // Glass insert: a pane inside the door frame, with the usual two reflection strokes.
+          const stile = Math.min(GLASS_STILE_IN, f.w / 4, f.h / 4) * ppi;
+          const pane =
+            c.has_glass_door && f.kind === 'door'
+              ? { x: fx(f) + stile, y: fy(f) + stile, w: fw - 2 * stile, h: fh - 2 * stile }
+              : null;
+          const m = pane ? Math.min(pane.w, pane.h) : 0;
+          const sx = pane ? pane.x + pane.w * 0.22 : 0;
+          const sy = pane ? pane.y + pane.h * 0.5 : 0;
           return (
             <g key={i}>
               <rect
@@ -261,6 +315,13 @@ const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, preset
                 strokeWidth={0.75}
                 strokeDasharray={f.kind === 'panel' ? '3 2' : undefined}
               />
+              {pane && pane.w > 4 && pane.h > 4 && (
+                <g stroke={GLASS_STROKE}>
+                  <rect x={pane.x} y={pane.y} width={pane.w} height={pane.h} fill={GLASS_FILL} strokeWidth={0.75} />
+                  <line x1={sx} y1={sy} x2={sx + m * 0.4} y2={sy - m * 0.4} strokeWidth={1} />
+                  <line x1={sx + m * 0.1} y1={sy + m * 0.1} x2={sx + m * 0.38} y2={sy - m * 0.18} strokeWidth={1} />
+                </g>
+              )}
               {f.kind === 'drawer' && fh > 6 && (
                 <line
                   x1={fx(f) + fw / 2 - handleLen / 2}

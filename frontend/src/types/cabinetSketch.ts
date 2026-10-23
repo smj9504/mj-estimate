@@ -44,8 +44,13 @@ export interface CabinetSketchCabinet {
    */
   location?: CabinetLocation;
   width_in?: number;
+  /** Plan depth; for an L or diagonal corner unit, its reach along the side wall. */
   depth_in?: number;
   height_in?: number;
+  /** Which end of a corner unit sits in the corner, seen from the front. Default left. */
+  corner_side?: 'left' | 'right';
+  /** The Edit tab box has glass door inserts; the sketch draws its doors as glass. */
+  has_glass_door?: boolean | null;
 }
 
 export interface CabinetSketchOverlayData {

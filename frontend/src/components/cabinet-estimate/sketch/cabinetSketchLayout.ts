@@ -38,6 +38,7 @@ export interface SketchBoxSource {
   width_inches: number;
   height_inches: number;
   specialty_type?: SpecialtyType | null;
+  has_glass_door?: boolean;
   qty: number;
 }
 
@@ -101,6 +102,59 @@ export function cabinetDepthIn(cabType: CabType, specialty?: SpecialtyType | nul
   return 24;
 }
 
+/**
+ * How a corner cabinet's footprint differs from a plain box:
+ * - 'l': lazy susan / easy-reach — an L, `width` along each wall;
+ * - 'diagonal': the same reach with the inside corner cut on an angle;
+ * - 'blind': a plain box whose corner end hides behind the other run.
+ */
+export type CornerKind = 'l' | 'diagonal' | 'blind';
+
+export function cornerKind(specialty?: SpecialtyType | null): CornerKind | null {
+  switch (specialty) {
+    case 'lazy_susan':
+    case 'easy_reach_corner_wall':
+      return 'l';
+    case 'diagonal_corner_wall':
+      return 'diagonal';
+    case 'blind_corner':
+    case 'blind_corner_wall':
+      return 'blind';
+    default:
+      return null;
+  }
+}
+
+/** Plan depth of the footprint: an L or diagonal corner reaches as far along the side wall as along its own. */
+export function footprintDepthIn(cabType: CabType, specialty: SpecialtyType | null | undefined, widthIn: number): number {
+  const kind = cornerKind(specialty);
+  return kind === 'l' || kind === 'diagonal' ? widthIn : cabinetDepthIn(cabType, specialty);
+}
+
+/** Length of a blind corner's end that the other run covers: that run's depth. */
+export const blindLengthIn = (cabType: CabType) => (cabType === 'wall' ? 12 : 24);
+
+/**
+ * A corner cabinet's shape in plan pixels, for drawing. The corner end is
+ * local x = 0 (the left end, seen from the front) unless `corner_side` is
+ * 'right'. `null` for an ordinary box.
+ */
+export function cornerFootprint(
+  cabinet: CabinetSketchCabinet,
+  presets: PresetCatalog,
+  scalePixelsPerFoot: number
+): { kind: CornerKind; side: 'left' | 'right'; leg: number; blind: number } | null {
+  const specialty = presets[cabinet.preset_code]?.specialty;
+  const kind = cornerKind(specialty);
+  if (!kind) return null;
+  return {
+    kind,
+    side: cabinet.corner_side ?? 'left',
+    leg: inToPx(cabinetDepthIn(cabinet.cab_type, specialty), scalePixelsPerFoot),
+    blind: Math.min(inToPx(blindLengthIn(cabinet.cab_type), scalePixelsPerFoot), cabinet.width * 0.75),
+  };
+}
+
 /** Inches of a sketch shape, falling back to the catalog for sketches saved before the sync. */
 export function cabinetSizeIn(
   cabinet: CabinetSketchCabinet,
@@ -111,7 +165,7 @@ export function cabinetSizeIn(
   const width = cabinet.width_in ?? preset?.width ?? pxToIn(cabinet.width, scalePixelsPerFoot);
   const height =
     cabinet.height_in ?? preset?.height ?? (cabinet.cab_type === 'wall' ? 30 : cabinet.cab_type === 'tall' ? 84 : 34.5);
-  const depth = cabinet.depth_in ?? cabinetDepthIn(cabinet.cab_type, preset?.specialty);
+  const depth = cabinet.depth_in ?? footprintDepthIn(cabinet.cab_type, preset?.specialty, width);
   return { width, depth, height };
 }
 
@@ -156,8 +210,16 @@ export function mountHeightsIn(
 
 const fmt = (n: number) => String(Math.round(n * 100) / 100);
 
-export function boxKey(box: Pick<SketchBoxSource, 'location' | 'code' | 'cab_type' | 'width_inches' | 'height_inches'>) {
-  return `${box.location}|${box.code}|${box.cab_type}|${fmt(box.width_inches)}x${fmt(box.height_inches)}`;
+/**
+ * A glass-door box is a different cabinet from the same box without, so
+ * that 1 glass + 1 plain W3030 each get a shape that shows which it is.
+ * The suffix is only added for glass, leaving plain keys as they were.
+ */
+export function boxKey(
+  box: Pick<SketchBoxSource, 'location' | 'code' | 'cab_type' | 'width_inches' | 'height_inches' | 'has_glass_door'>
+) {
+  const glass = box.has_glass_door ? '|glass' : '';
+  return `${box.location}|${box.code}|${box.cab_type}|${fmt(box.width_inches)}x${fmt(box.height_inches)}${glass}`;
 }
 
 export function cabinetKey(cabinet: CabinetSketchCabinet, presets: PresetCatalog, scalePixelsPerFoot: number) {
@@ -168,6 +230,7 @@ export function cabinetKey(cabinet: CabinetSketchCabinet, presets: PresetCatalog
     cab_type: cabinet.cab_type,
     width_inches: width,
     height_inches: height,
+    has_glass_door: !!cabinet.has_glass_door,
   });
 }
 
@@ -236,6 +299,10 @@ const rowOf = (location: CabinetLocation, cabType: CabType) =>
  * - Shapes that still match a box keep their position (and get their
  *   inch fields / footprint refreshed — older sketches drew depth from the
  *   cabinet's height).
+ * - A box changed in the Edit tab (another code, size or glass) no longer
+ *   matches its shape, so it takes over a leftover shape of the same
+ *   location and height (upper vs floor) instead — the cabinet keeps the
+ *   place it was dragged to.
  * - Shapes with no box left are dropped.
  * - Boxes with no shape yet get one, appended to the end of their row
  *   (bases then talls along the floor, uppers along the same back line,
@@ -262,31 +329,40 @@ export function reconcileCabinets(
     else needed.set(key, { count: qty, box });
   }
 
+  // `c`'s place in the plan, sized for `box`.
+  const fit = (c: CabinetSketchCabinet, box: SketchBoxSource): CabinetSketchCabinet => {
+    const depth = footprintDepthIn(box.cab_type, box.specialty_type, box.width_inches);
+    return {
+      ...c,
+      location: box.location,
+      width_in: box.width_inches,
+      depth_in: depth,
+      height_in: box.height_inches,
+      // Left off a plain cabinet, so its saved JSON stays as before.
+      has_glass_door: box.has_glass_door ? true : undefined,
+      width: inToPx(box.width_inches, scalePixelsPerFoot),
+      height: inToPx(depth, scalePixelsPerFoot),
+    };
+  };
+
   let changed = false;
   const used = new Map<string, number>();
-  const kept: CabinetSketchCabinet[] = [];
+  // One slot per existing shape, in order; null until a box claims it.
+  const slots: (CabinetSketchCabinet | null)[] = [];
+  const leftover: number[] = [];
 
   for (const c of cabinets) {
     const key = cabinetKey(c, presets, scalePixelsPerFoot);
     const entry = needed.get(key);
     const n = used.get(key) ?? 0;
     if (!entry || n >= entry.count) {
-      changed = true;
+      leftover.push(slots.length);
+      slots.push(null);
       continue;
     }
     used.set(key, n + 1);
 
-    const box = entry.box;
-    const depth = cabinetDepthIn(box.cab_type, box.specialty_type);
-    const refreshed: CabinetSketchCabinet = {
-      ...c,
-      location: box.location,
-      width_in: box.width_inches,
-      depth_in: depth,
-      height_in: box.height_inches,
-      width: inToPx(box.width_inches, scalePixelsPerFoot),
-      height: inToPx(depth, scalePixelsPerFoot),
-    };
+    const refreshed = fit(c, entry.box);
     if (
       refreshed.location !== c.location ||
       refreshed.width_in !== c.width_in ||
@@ -297,19 +373,44 @@ export function reconcileCabinets(
     ) {
       changed = true;
     }
-    kept.push(refreshed);
+    slots.push(refreshed);
   }
 
-  // Missing shapes, in placement order: lower row bases first, then talls.
-  const missing: SketchBoxSource[] = [];
+  // Boxes without a shape, in placement order: lower row bases first, then talls.
+  const unplaced: SketchBoxSource[] = [];
   const typeOrder: CabType[] = ['base', 'specialty', 'tall', 'wall'];
   for (const cabType of typeOrder) {
     for (const [key, entry] of Array.from(needed.entries())) {
       if (entry.box.cab_type !== cabType) continue;
       const short = entry.count - (used.get(key) ?? 0);
-      for (let i = 0; i < short; i++) missing.push(entry.box);
+      for (let i = 0; i < short; i++) unplaced.push(entry.box);
     }
   }
+
+  // A changed box takes over the leftover shape it most likely was: one of
+  // the same code (only its glass was toggled), else any at the same height.
+  const missing: SketchBoxSource[] = [];
+  for (const box of unplaced) {
+    const sameSpot = (c: CabinetSketchCabinet) =>
+      (c.location ?? 'perimeter') === box.location && (c.cab_type === 'wall') === (box.cab_type === 'wall');
+    let at = leftover.findIndex((i) => sameSpot(cabinets[i]) && cabinets[i].preset_code === box.code);
+    if (at < 0) at = leftover.findIndex((i) => sameSpot(cabinets[i]));
+    if (at < 0) {
+      missing.push(box);
+      continue;
+    }
+    const i = leftover.splice(at, 1)[0];
+    slots[i] = {
+      ...fit(cabinets[i], box),
+      preset_code: box.code,
+      cab_type: box.cab_type,
+      label: box.code === 'CUSTOM' ? `${fmt(box.width_inches)}"` : box.code,
+    };
+    changed = true;
+  }
+  if (leftover.length > 0) changed = true;
+
+  const kept = slots.filter((c): c is CabinetSketchCabinet => c !== null);
   if (missing.length === 0) return changed ? kept : null;
 
   const perim = perimeterAnchor(walls, scalePixelsPerFoot);
@@ -339,25 +440,22 @@ export function reconcileCabinets(
     const t0 = dot(anchor.origin, anchor.ux);
     const t = rowEnd.get(row) ?? t0;
     const pos = add(anchor.origin, scale(anchor.ux, t - t0));
-    const depth = cabinetDepthIn(box.cab_type, box.specialty_type);
-    const width = inToPx(box.width_inches, scalePixelsPerFoot);
-
-    next.push({
-      id: generateOverlayId(),
-      preset_code: box.code,
-      cab_type: box.cab_type,
-      x: pos.x,
-      y: pos.y,
-      width,
-      height: inToPx(depth, scalePixelsPerFoot),
-      rotation: anchorRotation,
-      label: box.code === 'CUSTOM' ? `${fmt(box.width_inches)}"` : box.code,
-      location: box.location,
-      width_in: box.width_inches,
-      depth_in: depth,
-      height_in: box.height_inches,
-    });
-    rowEnd.set(row, t + width);
+    const shape = fit(
+      {
+        id: generateOverlayId(),
+        preset_code: box.code,
+        cab_type: box.cab_type,
+        x: pos.x,
+        y: pos.y,
+        width: 0,
+        height: 0,
+        rotation: anchorRotation,
+        label: box.code === 'CUSTOM' ? `${fmt(box.width_inches)}"` : box.code,
+      },
+      box
+    );
+    next.push(shape);
+    rowEnd.set(row, t + shape.width);
   }
   return next;
 }
@@ -426,17 +524,26 @@ export interface CabinetPose {
 
 type DroppedCabinet = Pick<CabinetSketchCabinet, 'id' | 'cab_type' | 'x' | 'y' | 'width' | 'height' | 'rotation'>;
 
-const isUpper = (c: Pick<CabinetSketchCabinet, 'cab_type'>) => c.cab_type === 'wall';
+type CabTypeOf = Pick<CabinetSketchCabinet, 'cab_type'>;
+/** The heights a cabinet fills: uppers hang, bases stand, talls span both. */
+const onFloor = (c: CabTypeOf) => c.cab_type !== 'wall';
+const atUpperHeight = (c: CabTypeOf) => c.cab_type === 'wall' || c.cab_type === 'tall';
+const sharesHeight = (a: CabTypeOf, b: CabTypeOf) =>
+  (onFloor(a) && onFloor(b)) || (atUpperHeight(a) && atUpperHeight(b));
 
 /**
- * If the cabinet was dropped beside another one in its row (uppers with
- * uppers, everything else on the floor), return the pose that lines its
- * back up with that neighbour's and butts its side against the
- * neighbour's, turned to match. `null` when no cabinet is close enough.
+ * If the cabinet was dropped by a neighbour, return the pose that lines
+ * its back up with that neighbour's, turned to match, and then:
  *
- * Only side by side counts: the backs must be within a foot of each other
- * and the facing sides within a few inches, so a cabinet set in front of
- * another, or left a dishwasher gap away, stays where it was dropped.
+ * - at the same height (base by base, upper by upper, either by a tall),
+ *   butts its side against the neighbour's;
+ * - an upper over a base, or a base under an upper, lines its left or
+ *   right end up with the other's, so the two stack square in the plan.
+ *
+ * `null` when no cabinet is close enough. The backs must be within a foot
+ * of each other and the ends within a few inches, so a cabinet set in
+ * front of another, or left a dishwasher gap away, stays where it was
+ * dropped.
  */
 export function snapCabinetToNeighbors(
   cabinet: DroppedCabinet,
@@ -454,7 +561,7 @@ export function snapCabinetToNeighbors(
 
   let best: (CabinetPose & { d: number }) | null = null;
   for (const n of cabinets) {
-    if (n.id === cabinet.id || isUpper(n) !== isUpper(cabinet)) continue;
+    if (n.id === cabinet.id) continue;
     if (angleDiffDeg(n.rotation, cabinet.rotation) > NEIGHBOR_SNAP_ANGLE_DEG) continue;
 
     // Both cabinets in the neighbour's run coordinates: t along the run, s toward the back.
@@ -466,25 +573,26 @@ export function snapCabinetToNeighbors(
     const sn = dot({ x: n.x, y: n.y }, back);
     if (Math.abs(sn - s) > backTol) continue;
 
-    const gapRight = t - (tn + n.width); // dropped to the neighbour's right…
-    const gapLeft = tn - (t + cabinet.width); // …or to its left
-    const gap = Math.max(gapRight, gapLeft);
-    if (Math.abs(gap) > gapTol) continue;
-
-    const d = Math.hypot(gap, sn - s);
-    if (best && d >= best.d) continue;
-    const newT = gapRight >= gapLeft ? tn + n.width : tn - cabinet.width;
-    const p = add(scale(ux, newT), scale(back, sn));
-    best = { x: p.x, y: p.y, rotation: n.rotation, d };
+    // Where along the run the cabinet's left end may go.
+    const targets = sharesHeight(cabinet, n)
+      ? [tn + n.width, tn - cabinet.width] // butted to the neighbour's right, or its left
+      : [tn, tn + n.width - cabinet.width]; // left ends flush, or right ends flush
+    for (const newT of targets) {
+      if (Math.abs(newT - t) > gapTol) continue;
+      const d = Math.hypot(newT - t, sn - s);
+      if (best && d >= best.d) continue;
+      const p = add(scale(ux, newT), scale(back, sn));
+      best = { x: p.x, y: p.y, rotation: n.rotation, d };
+    }
   }
   return best && { x: best.x, y: best.y, rotation: best.rotation };
 }
 
 /**
- * Where a dropped cabinet lands. Beside another cabinet, it butts against
- * it (checked first, so a cabinet slid to the end of a run near a corner
+ * Where a dropped cabinet lands. By another cabinet, it lines up with it
+ * (checked first, so a cabinet slid to the end of a run near a corner
  * joins the run instead of turning onto the side wall). Otherwise, near a
- * wall, it backs onto the wall — and then butts against any cabinet
+ * wall, it backs onto the wall — and then lines up with any cabinet
  * already on that wall. Unchanged when nothing is close.
  */
 export function snapDroppedCabinet(

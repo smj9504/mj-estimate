@@ -12,7 +12,7 @@ export type CabinetLocation = 'perimeter' | 'island';
 export type EstimateStatus = 'draft' | 'calculated' | 'approved' | 'exported';
 export type SpecialtyType =
   | 'sink_base' | 'lazy_susan' | 'blind_corner' | 'drawer_base'
-  | 'diagonal_corner_wall' | 'blind_corner_wall'
+  | 'diagonal_corner_wall' | 'blind_corner_wall' | 'easy_reach_corner_wall'
   | 'trash_pullout' | 'farmhouse_sink_base' | 'microwave_drawer_base'
   | 'refrigerator_wall_deep' | 'otr_microwave_wall'
   | 'oven_cabinet' | 'refrigerator_cabinet'
