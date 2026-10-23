@@ -491,7 +491,9 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
 
           {reattachDocs && docs && (
             <div style={{ marginLeft: 24, marginBottom: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px' }}>
+              {/* As in SendToAdjusterModal: columns that can shrink, so a long
+                  label wraps instead of widening the modal */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))', gap: '6px 16px' }}>
                 {DOC_ORDER.map(key => {
                   const doc = docs[key as keyof DocumentReadiness];
                   const ready = doc && typeof doc === 'object' && 'ready' in doc && doc.ready;
@@ -519,9 +521,9 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
                       ) : (
                         <CloseCircleFilled style={{ color: '#d44c47', fontSize: 14 }} />
                       )}
-                      <Text style={{ fontSize: 13 }}>{DOC_LABELS[key]}</Text>
+                      <Text style={{ fontSize: 13, minWidth: 0 }}>{DOC_LABELS[key]}</Text>
                       {!ready && (
-                        <Tag color="red" style={{ fontSize: 10, marginLeft: 'auto' }}>Missing</Tag>
+                        <Tag color="red" style={{ fontSize: 10, marginLeft: 'auto', flexShrink: 0 }}>Missing</Tag>
                       )}
                     </div>
                   );

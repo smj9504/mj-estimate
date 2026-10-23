@@ -333,7 +333,7 @@ const SendDocumentsEmailModal: React.FC<SendDocumentsEmailModalProps> = ({
                   {item.filename.toLowerCase().endsWith('.pdf')
                     ? <FilePdfOutlined style={{ color: '#d44c47' }} />
                     : <FileOutlined style={{ color: '#787774' }} />}
-                  <Text style={{ fontSize: 12 }} ellipsis={{ tooltip: item.filename }}>
+                  <Text style={{ fontSize: 12, minWidth: 0 }} ellipsis={{ tooltip: item.filename }}>
                     {item.filename}
                   </Text>
                   {!!item.size && (

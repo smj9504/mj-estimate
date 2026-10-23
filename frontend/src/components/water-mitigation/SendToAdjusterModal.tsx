@@ -323,7 +323,10 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
             <Text strong style={{ display: 'block', marginBottom: 8 }}>
               Documents to Attach:
             </Text>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px' }}>
+            {/* Columns may shrink below their content (1fr can't), so a long
+                label wraps instead of pushing the grid past the modal; one
+                column when there isn't room for two */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: '6px 16px' }}>
               {DOC_ORDER.map(key => {
                 const doc = docs?.[key as keyof DocumentReadiness];
                 const ready = doc && typeof doc === 'object' && 'ready' in doc && doc.ready;
@@ -336,6 +339,8 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
                     <div
                       key={key}
                       style={{
+                        // The whole row, so the document picker has room
+                        gridColumn: '1 / -1',
                         display: 'flex', alignItems: 'center', gap: 8,
                         padding: '4px 8px', borderRadius: 4, background: '#f7f7f5',
                       }}
@@ -388,19 +393,19 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
                     ) : (
                       <CloseCircleFilled style={{ color: '#d44c47', fontSize: 14 }} />
                     )}
-                    <Text style={{ fontSize: 13 }} ellipsis>
+                    <Text style={{ fontSize: 13, minWidth: 0 }}>
                       {DOC_LABELS[key]}
                     </Text>
                     {mappedDoc && (
-                      <Tag color="blue" style={{ fontSize: 10 }}>Mapped</Tag>
+                      <Tag color="blue" style={{ fontSize: 10, flexShrink: 0 }}>Mapped</Tag>
                     )}
                     {!ready && (
-                      <Tag color="red" style={{ fontSize: 10 }}>Missing</Tag>
+                      <Tag color="red" style={{ fontSize: 10, flexShrink: 0 }}>Missing</Tag>
                     )}
                     <Button
                       size="small"
                       type="link"
-                      style={{ marginLeft: 'auto', fontSize: 11, padding: 0, height: 'auto' }}
+                      style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 11, padding: 0, height: 'auto' }}
                       onClick={(e) => { e.stopPropagation(); setMappingSlot(key); }}
                     >
                       {mappedDoc ? 'Change' : 'Map document'}
