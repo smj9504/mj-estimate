@@ -1688,6 +1688,18 @@ export interface SendToAdjusterPayload {
   selected_documents?: string[];
 }
 
+// Documents picked by id rather than by adjuster slot, attached as saved.
+export interface SendDocumentsPayload {
+  to_addresses: string[];
+  cc_addresses?: string[];
+  bcc_addresses?: string[];
+  subject: string;
+  body_html: string;
+  email_account_id?: string;
+  from_address?: string;
+  document_ids: string[];
+}
+
 export interface WMFollowUpTask {
   id: string;
   status: string;
@@ -1829,6 +1841,21 @@ export const adjusterEmailService = {
   }> => {
     const response = await api.post(
       `${BASE_URL}/jobs/${jobId}/send-followup`,
+      payload,
+      { timeout: 300000 }
+    );
+    return response.data;
+  },
+
+  // Emails exactly the documents picked in the Documents tab, to anyone.
+  // Long for the same reason as send() above.
+  sendDocuments: async (jobId: string, payload: SendDocumentsPayload): Promise<{
+    success: boolean;
+    email_id: string;
+    attachments_count: number;
+  }> => {
+    const response = await api.post(
+      `${BASE_URL}/jobs/${jobId}/send-documents`,
       payload,
       { timeout: 300000 }
     );

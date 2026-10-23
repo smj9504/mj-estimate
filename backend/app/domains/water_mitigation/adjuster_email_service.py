@@ -1066,6 +1066,113 @@ class AdjusterEmailService:
             session.close()
 
     # ================================================================
+    # Send Selected Documents
+    # ================================================================
+
+    @document_job
+    def send_documents(self, job_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Email documents picked in the Documents tab.
+
+        Attaches exactly the chosen documents, of any type, as saved - nothing
+        is rendered at send time. It can go to anyone, so it leaves
+        documents_sent_date, the status and the follow-up task alone.
+        """
+        timer = StageTimer()
+        session = self._get_session()
+        try:
+            from .models import WaterMitigationJob
+            from app.domains.client.models import ClaimActivity
+
+            job = session.query(WaterMitigationJob).filter(
+                WaterMitigationJob.id == job_id
+            ).first()
+            if not job:
+                raise ValueError("Job not found")
+
+            to_addresses = data.get("to_addresses", [])
+            # In the order picked, each once
+            document_ids = list(dict.fromkeys(str(i) for i in data.get("document_ids") or []))
+
+            if not to_addresses:
+                raise ValueError("No recipient email address provided")
+            if not document_ids:
+                raise ValueError("No documents selected")
+
+            attachments, failed_docs = self._collect_selected_documents(
+                session, job, document_ids
+            )
+            timer.lap("collect")
+
+            # Block send if any selected document failed to attach
+            if failed_docs:
+                raise ValueError(
+                    f"Failed to attach: {', '.join(failed_docs)}. "
+                    f"Email was NOT sent. Please check the documents and try again."
+                )
+
+            attachments = self._compress_attachments_if_needed(attachments)
+            timer.lap("compress")
+            self._assert_within_email_limit(attachments)
+
+            from app.domains.claim_followup.service import ClaimFollowUpService
+            email_service = ClaimFollowUpService(self.database)
+
+            claim_id = str(job.claim_id) if job.claim_id else None
+
+            send_payload = {
+                "claim_id": claim_id,
+                "email_account_id": data.get("email_account_id"),
+                "to_addresses": to_addresses,
+                "cc_addresses": data.get("cc_addresses", []),
+                "bcc_addresses": data.get("bcc_addresses", []),
+                "subject": data.get("subject", ""),
+                "body_html": data.get("body_html", ""),
+                "attachments": attachments,
+            }
+            if data.get("from_address"):
+                send_payload["from_address"] = data["from_address"]
+            send_payload.update(
+                {k: v for k, v in self._get_reply_identity(session, job, data).items() if v}
+            )
+            require_memory(6 * sum(len(a["data"]) for a in attachments))
+            email_result = email_service.send_email(send_payload)
+            timer.lap("send")
+
+            if job.claim_id:
+                activity = ClaimActivity(
+                    claim_id=job.claim_id,
+                    activity_type='wm_documents_emailed',
+                    title=f"WM documents emailed ({to_addresses[0]})",
+                    description=(
+                        f"{len(attachments)} document(s) emailed for water "
+                        f"mitigation job at {job.property_address}: "
+                        f"{', '.join(a['filename'] for a in attachments)}"
+                    ),
+                    related_entity_type='wm_job',
+                    related_entity_id=str(job.id),
+                )
+                session.add(activity)
+
+            session.commit()
+            timer.lap("records")
+            logger.info(
+                f"Emailed {len(attachments)} selected WM document(s) for job {job_id} "
+                f"in {timer.summary()}"
+            )
+
+            return {
+                "success": True,
+                "email_id": str(email_result.get("id", "")),
+                "attachments_count": len(attachments),
+            }
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error emailing documents after {timer.summary()}: {e}")
+            raise
+        finally:
+            session.close()
+
+    # ================================================================
     # Attachment Collection
     # ================================================================
 
@@ -1223,6 +1330,76 @@ class AdjusterEmailService:
         )
 
         return attachments, failed_docs
+
+    def _collect_selected_documents(
+        self, session, job, document_ids: List[str]
+    ) -> tuple:
+        """Collect attachments for documents picked by id, as saved.
+
+        An id that isn't an active document of this job counts as failed,
+        so a stale selection can't attach a file from another job.
+
+        Returns:
+            Tuple of (attachments_list, failed_names_list)
+        """
+        from .models import WMDocument
+
+        timer = StageTimer()
+        attachments = []
+        failed = []
+
+        def add_attachment(att):
+            # As in _collect_attachments: reduce one file before fetching the next.
+            self._compress_attachments_if_needed([att])
+            check_size(sum(len(a['data']) for a in attachments) + len(att['data']),
+                       self._MAX_COMPRESSIBLE_SIZE)
+            attachments.append(att)
+
+        docs = {}
+        if document_ids:
+            docs = {
+                str(doc.id): doc
+                for doc in session.query(WMDocument).filter(
+                    WMDocument.id.in_(document_ids),
+                    WMDocument.job_id == str(job.id),
+                    WMDocument.is_active == True,
+                )
+            }
+        missing = sum(1 for doc_id in document_ids if doc_id not in docs)
+        if missing:
+            failed.append(f"{missing} document(s) no longer on this job")
+
+        for doc_id in document_ids:
+            doc = docs.get(doc_id)
+            if not doc:
+                continue
+            saved_size = doc.file_size or 0
+            if saved_size > self._MAX_COMPRESSIBLE_SIZE:
+                # Downloading it would trade a clear error for an OOM
+                raise ValueError(
+                    f"{doc.filename} is {saved_size / 1024 / 1024:.1f}MB, too large "
+                    f"to attach. Email was NOT sent. A Photo Report can be "
+                    f"regenerated with Compress enabled."
+                )
+            att = self._attachment_from_wm_document(doc, doc.filename)
+            if att:
+                add_attachment(att)
+            else:
+                failed.append(doc.filename)
+            timer.lap("documents")
+
+        if failed:
+            logger.warning(
+                f"Failed to collect selected documents: {failed} "
+                f"(succeeded={len(attachments)})"
+            )
+        logger.info(
+            f"Collected {len(attachments)} selected attachment(s), "
+            f"{sum(len(a['data']) for a in attachments) / MIB:.1f}MB, "
+            f"in {timer.summary()}"
+        )
+
+        return attachments, failed
 
     def _attachment_from_wm_document(
         self, doc, display_filename: str

@@ -5899,3 +5899,46 @@ async def send_followup_email(job_id: UUID, data: FollowUpEmailRequest):
             status_code=500,
             detail=f"Failed to send follow-up: {str(e)}",
         )
+
+
+# ============================================================
+# Email Selected Documents
+# ============================================================
+
+class SendDocumentsEmailRequest(BaseModel):
+    to_addresses: List[str]
+    cc_addresses: Optional[List[str]] = []
+    bcc_addresses: Optional[List[str]] = []
+    subject: str
+    body_html: str
+    email_account_id: Optional[str] = None
+    from_address: Optional[str] = None
+    document_ids: List[UUID] = []
+
+
+@router.post("/jobs/{job_id}/send-documents")
+async def send_documents_email(job_id: UUID, data: SendDocumentsEmailRequest):
+    """Email the documents selected in the Documents tab, as saved.
+
+    Does NOT update documents_sent_date or the job status.
+    """
+    import asyncio
+
+    service = get_adjuster_email_service()
+    try:
+        # See send_to_adjuster above: offload the blocking downloads and SMTP
+        # send so they can't stall the event loop.
+        result = await asyncio.to_thread(
+            service.send_documents, str(job_id), data.dict()
+        )
+        return result
+    except DocumentResourceError as e:
+        raise HTTPException(status_code=503, detail=str(e), headers={"Retry-After": "10"})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error emailing documents: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send documents: {str(e)}",
+        )

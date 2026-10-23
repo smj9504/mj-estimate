@@ -7,12 +7,13 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { List, Button, Popconfirm, message, Tag, Typography, Checkbox, Space, InputNumber, Select, Tooltip, Grid, Dropdown, Modal } from 'antd';
 import type { MenuProps } from 'antd';
-import { FilePdfOutlined, FileImageOutlined, FileOutlined, FileTextOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, EditOutlined, DollarOutlined, CheckOutlined, CloseOutlined, DownOutlined } from '@ant-design/icons';
+import { FilePdfOutlined, FileImageOutlined, FileOutlined, FileTextOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, EditOutlined, DollarOutlined, CheckOutlined, CloseOutlined, DownOutlined, MailOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import waterMitigationService from '../../services/waterMitigationService';
 import type { WMScopeInvoiceResponse } from '../../types/waterMitigation';
 import { WM_DOCUMENT_TYPES, getDocumentTypeInfo } from '../../constants/wmDocumentTypes';
+import SendDocumentsEmailModal, { type DocumentEmailAttachment } from './SendDocumentsEmailModal';
 import './WMDocumentInvoiceList.css';
 
 const { Text } = Typography;
@@ -39,6 +40,8 @@ interface Document {
   annotation_data?: string | null;
   has_source_pdf?: boolean;
   invoice_amount?: number | null;
+  // Generated invoice this PDF was saved from
+  invoice_id?: string | null;
   upload_source?: string | null;
   title?: string | null;
   description?: string | null;
@@ -83,6 +86,7 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
     const [deleting, setDeleting] = useState<string | null>(null);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [bulkDeleting, setBulkDeleting] = useState(false);
+    const [emailOpen, setEmailOpen] = useState(false);
     // Inline invoice amount editing
     const [editingAmountId, setEditingAmountId] = useState<string | null>(null);
     const [editingAmountValue, setEditingAmountValue] = useState<number | null>(null);
@@ -251,6 +255,32 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
       }
     });
     message.success(`${selectedRows.length} document(s) download started`);
+  };
+
+  // An invoice goes out as the PDF saved when it was last downloaded or
+  // previewed; nothing is rendered on send
+  const savedInvoicePdf = (invoice: WMScopeInvoiceResponse) => documents.find((doc: Document) =>
+    doc.invoice_id === invoice.invoice_id);
+
+  const emailAttachments: DocumentEmailAttachment[] = [];
+  const invoicesWithoutPdf: string[] = [];
+  selectedRows.forEach(row => {
+    const doc = row.kind === 'document' ? row.doc : savedInvoicePdf(row.invoice);
+    if (!doc) {
+      if (row.kind === 'invoice') invoicesWithoutPdf.push(row.invoice.invoice_number || 'Invoice');
+      return;
+    }
+    // Picking an invoice and its saved PDF attaches it once
+    if (emailAttachments.some(a => a.id === doc.id)) return;
+    emailAttachments.push({ id: doc.id, filename: doc.filename, size: doc.file_size });
+  });
+
+  const handleEmailSent = () => {
+    setSelectedIds([]);
+    // The claim's email history shows this send
+    queryClient.invalidateQueries({ queryKey: ['sent-emails'] });
+    queryClient.invalidateQueries({ queryKey: ['communications'] });
+    queryClient.invalidateQueries({ queryKey: ['claim-followup-detail'] });
   };
 
   // --- Invoice Amount Editing ---
@@ -643,6 +673,12 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
               >
                 Download ({selectedRows.length})
               </Button>
+              <Button
+                icon={<MailOutlined />}
+                onClick={() => setEmailOpen(true)}
+              >
+                Email ({selectedRows.length})
+              </Button>
               <Popconfirm
                 title="Delete selected documents"
                 description={
@@ -714,6 +750,15 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
           />
         )}
       </Modal>
+
+      <SendDocumentsEmailModal
+        open={emailOpen}
+        onClose={() => setEmailOpen(false)}
+        jobId={jobId}
+        attachments={emailAttachments}
+        invoicesWithoutPdf={invoicesWithoutPdf}
+        onSent={handleEmailSent}
+      />
     </div>
   );
 });
