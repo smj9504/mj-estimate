@@ -29,6 +29,8 @@ import {
   CompressOutlined,
   DeleteOutlined,
   RedoOutlined,
+  RotateLeftOutlined,
+  RotateRightOutlined,
   SaveOutlined,
   SelectOutlined,
   SwapOutlined,
@@ -65,6 +67,7 @@ import {
   reconcileCabinets,
   snapCabinetToNeighbors,
   snapDroppedCabinet,
+  turnCabinets,
   type SketchBoxSource,
 } from './cabinetSketchLayout';
 
@@ -207,6 +210,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     removeWall,
     addCabinet,
     updateCabinet,
+    updateCabinets,
     removeCabinet,
     syncCabinets,
     loadOverlayData,
@@ -427,6 +431,17 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     if (removedKeys.length > 0) onCabinetsRemoved?.(removedKeys);
   }, [cabinets, selectedIds, scalePixelsPerFoot, removeWall, removeCabinet, onCabinetsRemoved]);
 
+  // A quarter turn of the selected cabinets, as one piece — e.g. to set
+  // the end runs of a three-sided island across the main one.
+  const hasSelectedCabinet = cabinets.some((c) => selectedIds.has(c.id));
+  const turnSelected = useCallback(
+    (degrees: 90 | -90) => {
+      const picked = cabinets.filter((c) => selectedIds.has(c.id));
+      if (picked.length > 0) updateCabinets(turnCabinets(picked, degrees));
+    },
+    [cabinets, selectedIds, updateCabinets]
+  );
+
   // Cancel an in-progress wall chain, and undo/redo/delete shortcuts —
   // only while this tab is the one on screen.
   useEffect(() => {
@@ -450,11 +465,17 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.size > 0) {
         e.preventDefault();
         deleteSelected();
+        return;
+      }
+      // R turns the selection a quarter turn clockwise, Shift+R back.
+      if (e.key.toLowerCase() === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        turnSelected(e.shiftKey ? -90 : 90);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [active, view, undo, redo, selectedIds, deleteSelected, stopWallChain, deselect]);
+  }, [active, view, undo, redo, selectedIds, deleteSelected, stopWallChain, deselect, turnSelected]);
 
   const handleSelect = useCallback(
     (elementType: 'wall' | 'cabinet') => (id: string, ctrlKey?: boolean) => {
@@ -787,6 +808,14 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                 Delete
               </Button>
             </Tooltip>
+            <Space.Compact>
+              <Tooltip title="Turn 90° counter-clockwise (Shift+R). Several selected turn together.">
+                <Button icon={<RotateLeftOutlined />} disabled={!hasSelectedCabinet} onClick={() => turnSelected(-90)} />
+              </Tooltip>
+              <Tooltip title="Turn 90° clockwise (R). Several selected turn together.">
+                <Button icon={<RotateRightOutlined />} disabled={!hasSelectedCabinet} onClick={() => turnSelected(90)} />
+              </Tooltip>
+            </Space.Compact>
             {flipTarget && (
               <Tooltip title="Swap which end of the corner cabinet sits in the corner">
                 <Button

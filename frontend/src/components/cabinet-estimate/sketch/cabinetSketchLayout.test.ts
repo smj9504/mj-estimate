@@ -10,6 +10,7 @@ import {
   snapCabinetToNeighbors,
   snapCabinetToWall,
   snapDroppedCabinet,
+  turnCabinets,
   type PresetCatalog,
   type SketchBoxSource,
 } from './cabinetSketchLayout';
@@ -318,6 +319,37 @@ describe('snapCabinetToNeighbors', () => {
     expect(snapCabinetToNeighbors(b18(94, 42), [tall], SCALE)).toMatchObject({ x: 90, y: 40 });
   });
 
+  it('closes an L: a cabinet at a right angle sets against the front, flush with the end', () => {
+    // Backed west (rotation 270), 18" wide, in front of the B30's left end (x 40-80, y 80-110).
+    expect(snapCabinetToNeighbors(b18(43, 113, { rotation: 270 }), [b30()], SCALE)).toMatchObject({
+      x: 40,
+      y: 110,
+      rotation: 270,
+    });
+  });
+
+  it("butts a cabinet at a right angle against a run's end, outside faces flush", () => {
+    // The end of a three-sided island: backed east (rotation 90), past the B30's right end.
+    expect(snapCabinetToNeighbors(b18(133, 43, { rotation: 90 }), [b30()], SCALE)).toMatchObject({
+      x: 130,
+      y: 40,
+      rotation: 90,
+    });
+  });
+
+  it('sets a two-sided island back to back, ends flush', () => {
+    const behind = b18(93, 37, { width: 50, rotation: 180 });
+    expect(snapCabinetToNeighbors(behind, [b30()], SCALE)).toMatchObject({ x: 90, y: 40, rotation: 180 });
+  });
+
+  it('turns a selected run as one piece, so it stays joined', () => {
+    const [a, b] = [b30(), b30({ id: 'b2', x: 90 })];
+    const [ta, tb] = turnCabinets([a, b], 90);
+    expect(ta.rotation).toBe(90);
+    // Turned about the middle of the pair (90, 60): now one above the other on x 70-110, backs east.
+    expect([ta.x, ta.y, tb.x, tb.y].map((v) => Math.round(v * 1000) / 1000)).toEqual([110, 10, 110, 60]);
+  });
+
   it('picks the closer of two neighbours', () => {
     const right = b30({ id: 'r', x: 130 });
     expect(snapCabinetToNeighbors(b18(92, 40), [b30(), right], SCALE)).toMatchObject({ x: 90 });
@@ -367,6 +399,36 @@ describe('buildElevations', () => {
     expect(sink.left_in).toBeCloseTo(30);
     const upper = north.items.find((i) => i.cabinet.preset_code === 'W3030')!;
     expect(upper.bottom_in).toBe(54);
+  });
+
+  it('names each side of a three-sided island for the way it faces', () => {
+    const island = (id: string, x: number, y: number, rotation: number): CabinetSketchCabinet => ({
+      id,
+      preset_code: 'B30',
+      cab_type: 'base',
+      x,
+      y,
+      width: 50,
+      height: 40,
+      rotation,
+      label: 'B30',
+      location: 'island',
+    });
+    const runs = buildElevations(
+      [
+        island('front', 40, 200, 0), // doors south
+        island('left', 0, 150, 90), // backed east: doors west
+        island('right', 130, 200, 270), // backed west: doors east
+      ],
+      [],
+      PRESETS,
+      SCALE
+    );
+    expect(runs.map((r) => r.label).sort()).toEqual([
+      'Island – East side',
+      'Island – South side',
+      'Island – West side',
+    ]);
   });
 
   it('calls a run standing in front of another an island, not a second wall', () => {

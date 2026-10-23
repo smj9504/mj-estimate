@@ -42,6 +42,7 @@ type CabinetSketchAction =
   | { type: 'REMOVE_WALL'; payload: string }
   | { type: 'ADD_CABINET'; payload: CabinetSketchCabinet }
   | { type: 'UPDATE_CABINET'; payload: Partial<CabinetSketchCabinet> & { id: string } }
+  | { type: 'UPDATE_CABINETS'; payload: (Partial<CabinetSketchCabinet> & { id: string })[] }
   | { type: 'REMOVE_CABINET'; payload: string }
   | { type: 'BATCH_MOVE_SELECTED'; payload: { draggedId: string; newX: number; newY: number } }
   | { type: 'BRING_TO_FRONT'; payload: string }
@@ -167,6 +168,21 @@ function cabinetSketchReducer(
         overlayData: {
           ...state.overlayData,
           cabinets: updateById(state.overlayData.cabinets, action.payload),
+        },
+      };
+    }
+
+    // Several cabinets at once (turning a group), as one undo step.
+    case 'UPDATE_CABINETS': {
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          cabinets: action.payload.reduce((cabs, patch) => updateById(cabs, patch), state.overlayData.cabinets),
         },
       };
     }
@@ -364,6 +380,7 @@ export interface CabinetSketchStateReturn {
 
   addCabinet: (cabinet: CabinetSketchCabinet) => void;
   updateCabinet: (patch: Partial<CabinetSketchCabinet> & { id: string }) => void;
+  updateCabinets: (patches: (Partial<CabinetSketchCabinet> & { id: string })[]) => void;
   removeCabinet: (id: string) => void;
 
   bringToFront: (id: string) => void;
@@ -422,6 +439,11 @@ export function useCabinetSketchState(
       dispatch({ type: 'UPDATE_CABINET', payload: patch }),
     []
   );
+  const updateCabinets = useCallback(
+    (patches: (Partial<CabinetSketchCabinet> & { id: string })[]) =>
+      dispatch({ type: 'UPDATE_CABINETS', payload: patches }),
+    []
+  );
   const removeCabinet = useCallback((id: string) => dispatch({ type: 'REMOVE_CABINET', payload: id }), []);
 
   const bringToFront = useCallback((id: string) => dispatch({ type: 'BRING_TO_FRONT', payload: id }), []);
@@ -458,6 +480,7 @@ export function useCabinetSketchState(
     removeWall,
     addCabinet,
     updateCabinet,
+    updateCabinets,
     removeCabinet,
     bringToFront,
     sendToBack,

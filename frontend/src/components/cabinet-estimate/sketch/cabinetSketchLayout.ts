@@ -531,61 +531,125 @@ const atUpperHeight = (c: CabTypeOf) => c.cab_type === 'wall' || c.cab_type === 
 const sharesHeight = (a: CabTypeOf, b: CabTypeOf) =>
   (onFloor(a) && onFloor(b)) || (atUpperHeight(a) && atUpperHeight(b));
 
+/** Where a cabinet's footprint centre is, in canvas pixels. */
+function centerOf(c: Pick<CabinetSketchCabinet, 'x' | 'y' | 'width' | 'height' | 'rotation'>): Pt {
+  const { ux, back } = axes(c.rotation);
+  return add({ x: c.x, y: c.y }, sub(scale(ux, c.width / 2), scale(back, c.height / 2)));
+}
+
+/** The back-left corner that puts a `width` × `height` footprint's centre at `center`. */
+function cornerFor(center: Pt, width: number, height: number, rotation: number): Pt {
+  const { ux, back } = axes(rotation);
+  return add(sub(center, scale(ux, width / 2)), scale(back, height / 2));
+}
+
 /**
- * If the cabinet was dropped by a neighbour, return the pose that lines
- * its back up with that neighbour's, turned to match, and then:
+ * If the cabinet was dropped by a neighbour, return the pose that squares
+ * it up to that neighbour (turned to match, or to a right angle or back to
+ * back with it) and lines its edges up with the neighbour's:
  *
- * - at the same height (base by base, upper by upper, either by a tall),
- *   butts its side against the neighbour's;
- * - an upper over a base, or a base under an upper, lines its left or
- *   right end up with the other's, so the two stack square in the plan.
+ * - facing the same way at the same height (base by base, upper by upper,
+ *   either by a tall): backs level, side butted against the neighbour's;
+ * - an upper over a base, or a base under an upper: backs level, left or
+ *   right ends flush, so the two stack square in the plan;
+ * - back to back (a two-sided island): backs touching, ends flush;
+ * - at a right angle (an L, or the ends of a three-sided island): butted
+ *   against the neighbour's end with its outside face flush with the
+ *   neighbour's back or front, or set against the neighbour's front or
+ *   back with its side flush with the neighbour's end.
  *
- * `null` when no cabinet is close enough. The backs must be within a foot
- * of each other and the ends within a few inches, so a cabinet set in
+ * `null` when no cabinet is close enough: edges must be within a few
+ * inches (backs within a foot when only levelling), so a cabinet set in
  * front of another, or left a dishwasher gap away, stays where it was
- * dropped.
+ * dropped. `sameFacingOnly` skips the right-angle joins.
  */
 export function snapCabinetToNeighbors(
   cabinet: DroppedCabinet,
   cabinets: CabinetSketchCabinet[],
-  scalePixelsPerFoot: number
+  scalePixelsPerFoot: number,
+  { sameFacingOnly = false }: { sameFacingOnly?: boolean } = {}
 ): CabinetPose | null {
   const gapTol = inToPx(NEIGHBOR_SNAP_GAP_IN, scalePixelsPerFoot);
   const backTol = inToPx(NEIGHBOR_SNAP_BACK_IN, scalePixelsPerFoot);
-  const own = axes(cabinet.rotation);
+  const { width: w, height: h } = cabinet;
   // Squared up to a neighbour, the cabinet turns about its middle.
-  const center = add(
-    { x: cabinet.x, y: cabinet.y },
-    sub(scale(own.ux, cabinet.width / 2), scale(own.back, cabinet.height / 2))
-  );
+  const center = centerOf(cabinet);
 
   let best: (CabinetPose & { d: number }) | null = null;
   for (const n of cabinets) {
     if (n.id === cabinet.id) continue;
-    if (angleDiffDeg(n.rotation, cabinet.rotation) > NEIGHBOR_SNAP_ANGLE_DEG) continue;
+    // Quarter turns from the neighbour: 0 same facing, 2 back to back, 1 / 3 at a right angle.
+    const turn = (((Math.round((cabinet.rotation - n.rotation) / 90) % 4) + 4) % 4);
+    const rotation = turn === 0 ? n.rotation : (((n.rotation + turn * 90) % 360) + 360) % 360;
+    if (angleDiffDeg(rotation, cabinet.rotation) > NEIGHBOR_SNAP_ANGLE_DEG) continue;
+    if (sameFacingOnly && turn % 2 === 1) continue;
+    const same = sharesHeight(cabinet, n);
+    if (!same && turn !== 0) continue;
 
-    // Both cabinets in the neighbour's run coordinates: t along the run, s toward the back.
+    // Both footprints in the neighbour's run coordinates: t along its run, s toward its back.
     const { ux, back } = axes(n.rotation);
-    const corner = add(sub(center, scale(ux, cabinet.width / 2)), scale(back, cabinet.height / 2));
-    const t = dot(corner, ux);
-    const s = dot(corner, back);
-    const tn = dot({ x: n.x, y: n.y }, ux);
-    const sn = dot({ x: n.x, y: n.y }, back);
-    if (Math.abs(sn - s) > backTol) continue;
+    const ht = (turn % 2 === 0 ? w : h) / 2;
+    const hs = (turn % 2 === 0 ? h : w) / 2;
+    const ct = dot(center, ux);
+    const cs = dot(center, back);
+    const [mt0, mt1, ms0, ms1] = [ct - ht, ct + ht, cs - hs, cs + hs];
+    const nt0 = dot({ x: n.x, y: n.y }, ux);
+    const nt1 = nt0 + n.width;
+    const ns1 = dot({ x: n.x, y: n.y }, back);
+    const ns0 = ns1 - n.height;
 
-    // Where along the run the cabinet's left end may go.
-    const targets = sharesHeight(cabinet, n)
-      ? [tn + n.width, tn - cabinet.width] // butted to the neighbour's right, or its left
-      : [tn, tn + n.width - cabinet.width]; // left ends flush, or right ends flush
-    for (const newT of targets) {
-      if (Math.abs(newT - t) > gapTol) continue;
-      const d = Math.hypot(newT - t, sn - s);
-      if (best && d >= best.d) continue;
-      const p = add(scale(ux, newT), scale(back, sn));
-      best = { x: p.x, y: p.y, rotation: n.rotation, d };
+    // Shifts (dt along the run, ds toward the back) that bring an edge onto an edge.
+    const besideEnd = [nt1 - mt0, nt0 - mt1]; // past the neighbour's right / left end
+    const endsFlush = [nt0 - mt0, nt1 - mt1]; // left ends / right ends lined up
+    const backsLevel = ns1 - ms1;
+    const frontsLevel = ns0 - ms0;
+    const againstFront = ns0 - ms1;
+    const againstBack = ns1 - ms0;
+
+    // [shifts along the run, shifts toward the back, how far the latter may reach]
+    const joins: [number[], number[], number][] =
+      turn === 0
+        ? [[same ? besideEnd : endsFlush, [backsLevel], backTol]]
+        : turn === 2
+          ? [[endsFlush, [againstBack], gapTol]]
+          : [
+              [besideEnd, [backsLevel, frontsLevel], gapTol],
+              [endsFlush, [againstFront, againstBack], gapTol],
+            ];
+    for (const [dts, dss, sTol] of joins) {
+      for (const dt of dts) {
+        for (const ds of dss) {
+          if (Math.abs(dt) > gapTol || Math.abs(ds) > sTol) continue;
+          const d = Math.hypot(dt, ds);
+          if (best && d >= best.d) continue;
+          const p = cornerFor(add(center, add(scale(ux, dt), scale(back, ds))), w, h, rotation);
+          best = { x: p.x, y: p.y, rotation, d };
+        }
+      }
     }
   }
   return best && { x: best.x, y: best.y, rotation: best.rotation };
+}
+
+/**
+ * Turn cabinets a quarter turn (+90 clockwise on screen, -90 back) as one
+ * piece about the middle of the group, so a selected run keeps its shape.
+ */
+export function turnCabinets(
+  cabinets: Pick<CabinetSketchCabinet, 'id' | 'x' | 'y' | 'width' | 'height' | 'rotation'>[],
+  degrees: 90 | -90
+): ({ id: string } & CabinetPose)[] {
+  if (cabinets.length === 0) return [];
+  const centers = cabinets.map(centerOf);
+  const pivot = scale(centers.reduce(add, { x: 0, y: 0 }), 1 / centers.length);
+  const k = degrees === 90 ? 1 : -1;
+  return cabinets.map((c, i) => {
+    const v = sub(centers[i], pivot);
+    const center = add(pivot, { x: -k * v.y, y: k * v.x });
+    const rotation = (((c.rotation + degrees) % 360) + 360) % 360;
+    const p = cornerFor(center, c.width, c.height, rotation);
+    return { id: c.id, x: p.x, y: p.y, rotation };
+  });
 }
 
 /**
@@ -601,11 +665,19 @@ export function snapDroppedCabinet(
   walls: CabinetSketchWall[],
   scalePixelsPerFoot: number
 ): CabinetPose {
-  const beside = snapCabinetToNeighbors(cabinet, cabinets, scalePixelsPerFoot);
+  // A right-angle join waits until the walls have had their say: near a
+  // wall, the cabinet belongs on it rather than sideways off a neighbour.
+  const beside = snapCabinetToNeighbors(cabinet, cabinets, scalePixelsPerFoot, { sameFacingOnly: true });
   if (beside) return beside;
   const onWall = snapCabinetToWall(cabinet, walls, scalePixelsPerFoot);
-  if (!onWall) return { x: cabinet.x, y: cabinet.y, rotation: cabinet.rotation };
-  return snapCabinetToNeighbors({ ...cabinet, ...onWall }, cabinets, scalePixelsPerFoot) ?? onWall;
+  if (onWall) return snapCabinetToNeighbors({ ...cabinet, ...onWall }, cabinets, scalePixelsPerFoot) ?? onWall;
+  return (
+    snapCabinetToNeighbors(cabinet, cabinets, scalePixelsPerFoot) ?? {
+      x: cabinet.x,
+      y: cabinet.y,
+      rotation: cabinet.rotation,
+    }
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -633,19 +705,32 @@ export interface ElevationRun {
   island: boolean;
 }
 
-function compassLabel(back: Pt): string {
-  const deg = (Math.atan2(back.y, back.x) * 180) / Math.PI;
+/** Compass point a direction points to (screen up = north), or null when it's off-axis. */
+function compassName(dir: Pt): string | null {
+  const deg = (Math.atan2(dir.y, dir.x) * 180) / Math.PI;
   const cardinals: [number, string][] = [
-    [-90, 'North wall'],
-    [0, 'East wall'],
-    [90, 'South wall'],
-    [180, 'West wall'],
-    [-180, 'West wall'],
+    [-90, 'North'],
+    [0, 'East'],
+    [90, 'South'],
+    [180, 'West'],
+    [-180, 'West'],
   ];
-  for (const [angle, label] of cardinals) {
-    if (Math.abs(deg - angle) <= 10) return label;
+  for (const [angle, name] of cardinals) {
+    if (Math.abs(deg - angle) <= 10) return name;
   }
-  return 'Angled wall';
+  return null;
+}
+
+/** A wall run is named for the wall its back is on. */
+function compassLabel(back: Pt): string {
+  const name = compassName(back);
+  return name ? `${name} wall` : 'Angled wall';
+}
+
+/** One side of an island with several (an L, three sides, back to back): named for the way its doors face. */
+function islandSideLabel(back: Pt): string {
+  const name = compassName(scale(back, -1));
+  return name ? `Island – ${name} side` : 'Island';
 }
 
 /**
@@ -737,6 +822,7 @@ export function buildElevations(
 
     return {
       label: island ? 'Island' : compassLabel(g.back),
+      back: g.back,
       island,
       items,
       length_in: max - min,
@@ -746,11 +832,14 @@ export function buildElevations(
 
   runs.sort((a, b) => Number(a.island) - Number(b.island) || b.items.length - a.items.length);
 
+  // A one-run island is just "Island"; with several runs each is named for its side.
+  const islandRuns = runs.filter((r) => r.island).length;
   const seen = new Map<string, number>();
   return runs.map((r) => {
-    const n = (seen.get(r.label) ?? 0) + 1;
-    seen.set(r.label, n);
-    const label = n > 1 ? `${r.label} ${n}` : r.label;
+    const name = r.island && islandRuns > 1 ? islandSideLabel(r.back) : r.label;
+    const n = (seen.get(name) ?? 0) + 1;
+    seen.set(name, n);
+    const label = n > 1 ? `${name} ${n}` : name;
     return {
       key: label,
       label,

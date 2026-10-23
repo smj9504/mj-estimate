@@ -129,6 +129,8 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'WDC27':   { cab_type: 'wall', width: 27, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 27"W x 30"H' },
   'WDC2436': { cab_type: 'wall', width: 24, height: 36, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"W x 36"H' },
   'WDC2442': { cab_type: 'wall', width: 24, height: 42, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"W x 42"H' },
+  'WDC2736': { cab_type: 'wall', width: 27, height: 36, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 27"W x 36"H' },
+  'WDC2742': { cab_type: 'wall', width: 27, height: 42, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 27"W x 42"H' },
   // Easy-reach (pie-cut) corner: 24" along each wall, bi-fold doors
   'WER2430': { cab_type: 'wall', width: 24, height: 30, specialty: 'easy_reach_corner_wall', label: 'Easy Reach Corner 24"W x 30"H' },
   'WER2436': { cab_type: 'wall', width: 24, height: 36, specialty: 'easy_reach_corner_wall', label: 'Easy Reach Corner 24"W x 36"H' },
@@ -140,9 +142,11 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'WBC2436': { cab_type: 'wall', width: 24, height: 36, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 24"W x 36"H' },
   'WBC2736': { cab_type: 'wall', width: 27, height: 36, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 27"W x 36"H' },
   'WBC3036': { cab_type: 'wall', width: 30, height: 36, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 30"W x 36"H' },
+  'WBC3336': { cab_type: 'wall', width: 33, height: 36, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 33"W x 36"H' },
   'WBC2442': { cab_type: 'wall', width: 24, height: 42, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 24"W x 42"H' },
   'WBC2742': { cab_type: 'wall', width: 27, height: 42, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 27"W x 42"H' },
   'WBC3042': { cab_type: 'wall', width: 30, height: 42, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 30"W x 42"H' },
+  'WBC3342': { cab_type: 'wall', width: 33, height: 42, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 33"W x 42"H' },
   // Wall - OTR microwave cabinet (18"H with cut-out + venting)
   'WMW30': { cab_type: 'wall', width: 30, height: 18, specialty: 'otr_microwave_wall', label: 'OTR Microwave 30"' },
   'WMW33': { cab_type: 'wall', width: 33, height: 18, specialty: 'otr_microwave_wall', label: 'OTR Microwave 33"' },
@@ -627,7 +631,10 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
           placeholder={`+ Add ${label.replace(' Cabinets', '')}...`}
           style={{ width: 260, marginTop: sectionBoxes.length > 0 ? 8 : 0 }}
           showSearch
-          value={undefined}
+          // Controlled and always empty: left uncontrolled (undefined) it kept
+          // the last pick, so picking the same cabinet again was no change
+          // and added nothing.
+          value={null}
           onChange={(val: string) => addBox(type, val)}
           options={options}
           filterOption={(input, option) =>
