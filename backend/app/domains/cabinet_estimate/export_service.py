@@ -5,22 +5,130 @@ Cabinet Estimate export service - PDF and Excel generation.
 import base64
 import io
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 # ── Line item category → section mapping ──
+# Installation shares the cabinet section: the PDF folds each install line
+# into the supply line it installs, leaving only stand-alone install scope
+# (toe kick) behind. See _merge_install_into_supply.
 SECTION_ORDER = [
-    ("Cabinet Supply", ["supply", "premium"]),
+    ("Cabinets", ["supply", "premium", "install"]),
     ("Demolition & Removal", ["demo"]),
-    ("Installation", ["install"]),
     ("Plumbing & Fixtures", ["plumbing"]),
     ("Countertop", ["countertop"]),
     ("Backsplash", ["backsplash"]),
     ("Finishing", ["finishing"]),
     ("General Conditions", ["misc"]),
 ]
+
+# "Tall Cabinets 24"W x 84"H - Stock", "Oven Cabinet 33"W x 84"H - Stock"
+_TALL_SUPPLY = re.compile(r'\d+"W x [\d.]+"H - ')
+# The tag a supply line carries while its install is quoted separately
+_SUPPLY_TAG = re.compile(r" \((?:Material|Supply)\)$")
+
+
+def _supply_lines_installed_by(
+    install: Dict[str, Any],
+    supply: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """The supply lines an install line installs, or [] if it stands alone.
+
+    Matched on the descriptions calculator.py builds. One install line can
+    cover several supply lines - "Base Cabinet Installation" installs the
+    standard, non-standard and sink base runs alike - so all are returned.
+    """
+    m = re.fullmatch(
+        r"(Island )?(.+) Installation",
+        install.get("description", ""),
+    )
+    if not m:
+        return []
+    prefix, subject = m.group(1) or "", m.group(2)
+    if subject == "Tall Cabinet":
+        # Generic and typed tall boxes alike, billed per EA by size
+        return [
+            s for s in supply
+            if s.get("description", "").startswith(prefix)
+            and _TALL_SUPPLY.search(s.get("description", ""))
+        ]
+    if subject == "Hardware":
+        lead = f"{prefix}Cabinet Hardware"
+    else:
+        # "Wall Cabinet Standard" → "Wall Cabinets Standard - Stock",
+        # "Crown Molding" → "Crown Molding - Stock (Material)"
+        lead = (
+            f"{prefix}"
+            f"{subject.replace('Cabinet', 'Cabinets', 1)} - "
+        )
+    return [
+        s for s in supply
+        if s.get("description", "").startswith(lead)
+    ]
+
+
+def _merge_install_into_supply(
+    line_items: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Show material and labor as one line: fold install into its supply.
+
+    The calculator quotes cabinet supply and installation as separate lines
+    (and the estimate screen keeps them that way); the customer PDF shows
+    one supply-and-install price per item instead. An install line spread
+    over several supply lines is split by quantity, the last line taking
+    the rounding remainder so every section total stays exact.
+    """
+    items = [dict(li) for li in line_items]
+    folded = set()
+    for inst in items:
+        if inst.get("category") != "install":
+            continue
+        loc = inst.get("location", "perimeter")
+        covered = _supply_lines_installed_by(inst, [
+            s for s in items
+            if s.get("category") == "supply"
+            and s.get("location", "perimeter") == loc
+            and s.get("unit") == inst.get("unit")
+        ])
+        qty = sum(s.get("quantity", 0) for s in covered)
+        if qty <= 0:
+            continue
+
+        left = {
+            k: inst.get(k) or 0
+            for k in ("total", "material_total", "labor_total")
+        }
+        for i, s in enumerate(covered):
+            for k in left:
+                part = (
+                    left[k] if i == len(covered) - 1
+                    else round(
+                        (inst.get(k) or 0)
+                        * s.get("quantity", 0) / qty, 2,
+                    )
+                )
+                left[k] = round(left[k] - part, 2)
+                s[k] = round((s.get(k) or 0) + part, 2)
+            for k in (
+                "unit_price",
+                "material_unit_price",
+                "labor_unit_price",
+            ):
+                s[k] = round(
+                    (s.get(k) or 0) + (inst.get(k) or 0), 2,
+                )
+            s["description"] = _SUPPLY_TAG.sub(
+                "", s.get("description", ""),
+            )
+            s["notes"] = " · ".join(
+                filter(None, [s.get("notes"), "Supply & install"]),
+            )
+        folded.add(id(inst))
+
+    return [li for li in items if id(li) not in folded]
 
 
 def _group_line_items(
@@ -448,7 +556,9 @@ class CabinetExportService:
         # LINE ITEMS: Grouped by section
         # ══════════════════════════════════════
 
-        line_items = estimate.get("line_items", [])
+        line_items = _merge_install_into_supply(
+            estimate.get("line_items", []),
+        )
         sections = _group_line_items(line_items)
 
         col_widths = [
