@@ -53,6 +53,10 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   // Base - Lazy Susan
   'LS33': { cab_type: 'base', width: 33, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan Corner 33"' },
   'LS36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan Corner 36"' },
+  // Base - Diagonal corner (angled front, 36" along each wall)
+  'DCB36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'diagonal_corner_base', label: 'Diagonal Corner Base 36"' },
+  // Base - Angle end: a run end cut back at 45° (KCD BEC24, two doors)
+  'BEC24': { cab_type: 'base', width: 24, height: 34.5, specialty: 'angle_end_base', label: 'Angle End Base 24"' },
   // Base - Trash / recycle pull-out (standard in a new kitchen)
   'TP15': { cab_type: 'base', width: 15, height: 34.5, specialty: 'trash_pullout', label: 'Trash Pull-out 15"' },
   'TP18': { cab_type: 'base', width: 18, height: 34.5, specialty: 'trash_pullout', label: 'Trash Pull-out 18"' },

@@ -85,6 +85,8 @@ function cornerFaces(
 ): Face[] {
   const r = REVEAL_IN;
   const bottom = cabType === 'wall' ? r : TOE_KICK_IN + r;
+  // An angle end's cut face spans its whole width: full-height doors across it (two on BEC24).
+  if (kind === 'angle_end') return doorRow(0, bottom, w, h - r - bottom, doorCount(w));
   const cornerLen =
     kind === 'blind' ? Math.min(blindLengthIn(cabType), w * 0.75) : cabinetDepthIn(cabType, specialty);
   const openW = w - cornerLen;

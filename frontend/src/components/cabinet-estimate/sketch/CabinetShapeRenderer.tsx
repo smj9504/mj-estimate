@@ -49,23 +49,31 @@ export interface CornerShape {
 }
 
 /**
- * Closed outline (flat x, y list) of an L or diagonal corner unit, the
- * corner end at local x = 0 unless it is on the right. From the third
- * point to the second-last, it walks the inside (door) faces. `null` for
- * a blind corner, which is a plain box.
+ * Closed outline and door faces (flat x, y lists) of a shaped unit, its
+ * corner — or, for an angle end, its full-depth end — at local x = 0
+ * unless it is on the right. `null` for a blind corner, which is a plain
+ * box.
  */
-function cornerOutline(corner: CornerShape, w: number, h: number): number[] | null {
+function cornerOutline(corner: CornerShape, w: number, h: number): { outline: number[]; front: number[] } | null {
   const d = corner.leg;
   let pts: [number, number][];
+  let front: [number, number][];
   if (corner.kind === 'l') {
     pts = [[0, 0], [w, 0], [w, d], [d, d], [d, h], [0, h]];
+    front = [[w, d], [d, d], [d, h]];
   } else if (corner.kind === 'diagonal') {
     pts = [[0, 0], [w, 0], [w, d], [d, h], [0, h]];
+    front = [[w, d], [d, h]];
+  } else if (corner.kind === 'angle_end') {
+    // Cut back at 45° from the full-depth end: a triangle once it is as wide as it is deep.
+    const outer = Math.max(h - w, 0);
+    pts = [[0, 0], [w, 0], [w, outer], [0, h]];
+    front = [[w, outer], [0, h]];
   } else {
     return null;
   }
-  if (corner.side === 'right') pts = pts.map(([x, y]) => [w - x, y]);
-  return pts.flat();
+  const mirror = (p: [number, number][]) => (corner.side === 'right' ? p.map(([x, y]) => [w - x, y]) : p).flat();
+  return { outline: mirror(pts), front: mirror(front) };
 }
 
 export interface CabinetShapeRendererProps {
@@ -227,19 +235,20 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
   // An L or diagonal corner draws its real outline; the Rect stays (unseen,
   // unclickable) as the Transformer's frame. A blind corner keeps the box
   // and shades the end the other run covers.
-  const outline = corner ? cornerOutline(corner, width, height) : null;
+  const shaped = corner ? cornerOutline(corner, width, height) : null;
+  const outline = shaped?.outline ?? null;
   const blind = corner?.kind === 'blind' ? corner : null;
   const blindX = blind ? (blind.side === 'left' ? 0 : width - blind.blind) : 0;
-  // Door side: the inside faces of an L/diagonal, the open part of a blind corner.
-  const front = outline
-    ? outline.slice(4, -2)
+  // Door side: the inside faces of an L/diagonal, the cut face of an angle end, the open part of a blind corner.
+  const front = shaped
+    ? shaped.front
     : blind
       ? blind.side === 'left'
         ? [blind.blind, height, width, height]
         : [0, height, width - blind.blind, height]
       : [0, height, width, height];
-  // The strip along the back wall, where an L's label fits.
-  const labelBand = outline && corner ? corner.leg : height;
+  // Where the label fits: the strip along the back wall of an L, the deep half of an angle end.
+  const labelBand = !shaped || !corner ? height : corner.kind === 'angle_end' ? height / 2 : corner.leg;
   const outlineStyle = {
     stroke: '#8B5E3C',
     strokeWidth: 1.5,

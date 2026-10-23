@@ -106,9 +106,11 @@ export function cabinetDepthIn(cabType: CabType, specialty?: SpecialtyType | nul
  * How a corner cabinet's footprint differs from a plain box:
  * - 'l': lazy susan / easy-reach — an L, `width` along each wall;
  * - 'diagonal': the same reach with the inside corner cut on an angle;
- * - 'blind': a plain box whose corner end hides behind the other run.
+ * - 'blind': a plain box whose corner end hides behind the other run;
+ * - 'angle_end': a run end cut back at 45°, full depth only at the end
+ *   that joins the run.
  */
-export type CornerKind = 'l' | 'diagonal' | 'blind';
+export type CornerKind = 'l' | 'diagonal' | 'blind' | 'angle_end';
 
 export function cornerKind(specialty?: SpecialtyType | null): CornerKind | null {
   switch (specialty) {
@@ -116,7 +118,10 @@ export function cornerKind(specialty?: SpecialtyType | null): CornerKind | null 
     case 'easy_reach_corner_wall':
       return 'l';
     case 'diagonal_corner_wall':
+    case 'diagonal_corner_base':
       return 'diagonal';
+    case 'angle_end_base':
+      return 'angle_end';
     case 'blind_corner':
     case 'blind_corner_wall':
       return 'blind';
@@ -135,9 +140,9 @@ export function footprintDepthIn(cabType: CabType, specialty: SpecialtyType | nu
 export const blindLengthIn = (cabType: CabType) => (cabType === 'wall' ? 12 : 24);
 
 /**
- * A corner cabinet's shape in plan pixels, for drawing. The corner end is
- * local x = 0 (the left end, seen from the front) unless `corner_side` is
- * 'right'. `null` for an ordinary box.
+ * A corner cabinet's shape in plan pixels, for drawing. The corner end (an
+ * angle end's full-depth end) is local x = 0 (the left end, seen from the
+ * front) unless `corner_side` is 'right'. `null` for an ordinary box.
  */
 export function cornerFootprint(
   cabinet: CabinetSketchCabinet,
@@ -544,6 +549,32 @@ function cornerFor(center: Pt, width: number, height: number, rotation: number):
 }
 
 /**
+ * Two runs meeting at an angle that isn't a quarter turn (an angled island,
+ * or a run turning off a bay wall). The cabinet keeps its own angle; its
+ * end meets the neighbour's end at the inside corner of the turn, which
+ * leaves the wedge on the outside for a tapered filler. Returns the moves
+ * that put it past the neighbour's right end, or before its left end.
+ */
+function angledJoinShifts(cabinet: DroppedCabinet, n: CabinetSketchCabinet): Pt[] {
+  // How far the cabinet's run turns from the neighbour's; > 0 turns toward the neighbour's front.
+  const phi = ((((cabinet.rotation - n.rotation) % 360) + 540) % 360) - 180;
+  const N = axes(n.rotation);
+  const M = axes(cabinet.rotation);
+  const nLeftBack = { x: n.x, y: n.y };
+  const nRightBack = add(nLeftBack, scale(N.ux, n.width));
+  const nFront = scale(N.back, -n.height);
+  const mLeftBack = { x: cabinet.x, y: cabinet.y };
+  const mRightBack = add(mLeftBack, scale(M.ux, cabinet.width));
+  const mFront = scale(M.back, -cabinet.height);
+  return [
+    // Its left end on the neighbour's right end: the turn is phi.
+    phi > 0 ? sub(add(nRightBack, nFront), add(mLeftBack, mFront)) : sub(nRightBack, mLeftBack),
+    // Its right end on the neighbour's left end: from it to the neighbour, the turn is -phi.
+    phi < 0 ? sub(add(nLeftBack, nFront), add(mRightBack, mFront)) : sub(nLeftBack, mRightBack),
+  ];
+}
+
+/**
  * If the cabinet was dropped by a neighbour, return the pose that squares
  * it up to that neighbour (turned to match, or to a right angle or back to
  * back with it) and lines its edges up with the neighbour's:
@@ -556,12 +587,14 @@ function cornerFor(center: Pt, width: number, height: number, rotation: number):
  * - at a right angle (an L, or the ends of a three-sided island): butted
  *   against the neighbour's end with its outside face flush with the
  *   neighbour's back or front, or set against the neighbour's front or
- *   back with its side flush with the neighbour's end.
+ *   back with its side flush with the neighbour's end;
+ * - at any other angle (an angled island): end to end at the inside corner
+ *   of the turn, keeping its own angle (see angledJoinShifts).
  *
  * `null` when no cabinet is close enough: edges must be within a few
  * inches (backs within a foot when only levelling), so a cabinet set in
  * front of another, or left a dishwasher gap away, stays where it was
- * dropped. `sameFacingOnly` skips the right-angle joins.
+ * dropped. `sameFacingOnly` skips the right-angle and angled joins.
  */
 export function snapCabinetToNeighbors(
   cabinet: DroppedCabinet,
@@ -581,7 +614,16 @@ export function snapCabinetToNeighbors(
     // Quarter turns from the neighbour: 0 same facing, 2 back to back, 1 / 3 at a right angle.
     const turn = (((Math.round((cabinet.rotation - n.rotation) / 90) % 4) + 4) % 4);
     const rotation = turn === 0 ? n.rotation : (((n.rotation + turn * 90) % 360) + 360) % 360;
-    if (angleDiffDeg(rotation, cabinet.rotation) > NEIGHBOR_SNAP_ANGLE_DEG) continue;
+    if (angleDiffDeg(rotation, cabinet.rotation) > NEIGHBOR_SNAP_ANGLE_DEG) {
+      // Well off a quarter turn: an angled run, joined end to end at its own angle.
+      if (sameFacingOnly || !sharesHeight(cabinet, n)) continue;
+      for (const shift of angledJoinShifts(cabinet, n)) {
+        const d = Math.hypot(shift.x, shift.y);
+        if (d > gapTol || (best && d >= best.d)) continue;
+        best = { x: cabinet.x + shift.x, y: cabinet.y + shift.y, rotation: cabinet.rotation, d };
+      }
+      continue;
+    }
     if (sameFacingOnly && turn % 2 === 1) continue;
     const same = sharesHeight(cabinet, n);
     if (!same && turn !== 0) continue;
@@ -708,14 +750,19 @@ export interface ElevationRun {
 /** Compass point a direction points to (screen up = north), or null when it's off-axis. */
 function compassName(dir: Pt): string | null {
   const deg = (Math.atan2(dir.y, dir.x) * 180) / Math.PI;
-  const cardinals: [number, string][] = [
+  // Eight points, so a run set at 45° (an angled island side) is still named.
+  const points: [number, string][] = [
+    [-135, 'Northwest'],
     [-90, 'North'],
+    [-45, 'Northeast'],
     [0, 'East'],
+    [45, 'Southeast'],
     [90, 'South'],
+    [135, 'Southwest'],
     [180, 'West'],
     [-180, 'West'],
   ];
-  for (const [angle, name] of cardinals) {
+  for (const [angle, name] of points) {
     if (Math.abs(deg - angle) <= 10) return name;
   }
   return null;

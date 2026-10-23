@@ -11,8 +11,10 @@ from typing import List, Optional
 from .appliance_labor import appliance_pricing_dict
 from .rate_meta import Basis, resolve_basis
 from .pricing import (
+    ANGLED_JOINT_PRICING,
     BACKSPLASH_TYPES,
     BASE_RATES,
+    COUNTERTOP_ANGLED_CUT_EACH,
     COUNTERTOP_MATERIALS,
     CROWN_MOLDING_PRICING,
     DEFAULT_OVERHEAD_PCT,
@@ -593,9 +595,12 @@ def _calc_location_cabinets(
                     openings = 5
                 else:
                     openings = 4
-            elif b.specialty_type == "lazy_susan":
+            elif b.specialty_type in ("lazy_susan", "diagonal_corner_base"):
                 # Single door
                 openings = 1
+            elif b.specialty_type == "angle_end_base":
+                # Two full-height doors, no drawer (KCD BEC24)
+                openings = 2
             elif b.specialty_type == "blind_corner":
                 # 1 door + 1 drawer
                 openings = 2
@@ -818,6 +823,8 @@ def calculate_estimate(
     # Trim and panel scope. Fillers and finished end panels appear on
     # essentially every real kitchen but had no line item before.
     filler_count: int = 0,
+    # Places a run or island turns at an angle other than 90°.
+    angled_joint_count: int = 0,
     end_panel_counts: Optional[dict] = None,
     dishwasher_return_panel_count: int = 0,
     include_light_rail: bool = False,
@@ -1659,6 +1666,52 @@ def calculate_estimate(
             location="shared",
             notes="Scribed and fitted to the wall",
         ))
+
+    # ── 11e2. Angled (non-90°) joints ──
+    # The boxes stay square; each place the run turns at an angle takes a
+    # 45° angled filler and extra fitting, and the top an angled cut.
+    if angled_joint_count and angled_joint_count > 0:
+        aj_mat = ANGLED_JOINT_PRICING.get(
+            tier, ANGLED_JOINT_PRICING["Stock"],
+        )
+        aj_inst = ANGLED_JOINT_PRICING["install_each"]
+        aj_unit = round(aj_mat + aj_inst, 2)
+        line_items.append(LineItem(
+            description=f"Angled Cabinet Joint - Angled Filler + Fitting - {tier}",
+            quantity=angled_joint_count,
+            unit="EA",
+            unit_price=aj_unit,
+            total=round(angled_joint_count * aj_unit, 2),
+            material_share=round(aj_mat / aj_unit, 4) if aj_unit else 0.0,
+            category="premium",
+            location="shared",
+            notes="Boxes set at the angle; the wedge taken up by an angled filler",
+        ))
+        # The top turns with the run. An island top is the likelier one to
+        # be angled, so its material sets the rate when there is one.
+        has_island_top = bool(island_countertop_sqft) and not is_prefab
+        if include_countertop and (countertop_sqft or has_island_top):
+            cut_mat = (
+                island_countertop_material if has_island_top
+                else countertop_material
+            ) or "Laminate"
+            cut_rate = COUNTERTOP_ANGLED_CUT_EACH.get(
+                cut_mat, COUNTERTOP_ANGLED_CUT_EACH["Laminate"],
+            )
+            line_items.append(LineItem(
+                description=f"Countertop Angled Cut - {cut_mat}",
+                quantity=angled_joint_count,
+                unit="EA",
+                unit_price=cut_rate,
+                total=round(angled_joint_count * cut_rate, 2),
+                material_share=0.0,
+                category="countertop",
+                location="island" if has_island_top else "perimeter",
+                notes=(
+                    "Fabrication for a non-90° corner; the extra slab "
+                    "waste belongs in the countertop SF"
+                ),
+            ))
 
     # ── 11f. Finished end panels ──
     # A run that ends in open space shows a raw box side without one.

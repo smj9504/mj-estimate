@@ -190,6 +190,7 @@ class CabinetEstimateBase(BaseModel):
     include_electrical: bool = False
     include_permit: bool = False
     filler_count: int = 0
+    angled_joint_count: int = 0
     end_panel_counts: Optional[Dict[str, int]] = Field(
         None,
         description='Finished end panels, e.g. {"base": 2, "wall": 1}',
@@ -271,6 +272,7 @@ class CabinetEstimateUpdate(BaseModel):
     include_electrical: Optional[bool] = None
     include_permit: Optional[bool] = None
     filler_count: Optional[int] = None
+    angled_joint_count: Optional[int] = None
     end_panel_counts: Optional[Dict[str, int]] = None
     dishwasher_return_panel_count: Optional[int] = None
     include_light_rail: Optional[bool] = None
@@ -343,6 +345,7 @@ class CabinetEstimateResponse(BaseModel):
     include_electrical: bool = False
     include_permit: bool = False
     filler_count: int = 0
+    angled_joint_count: int = 0
     end_panel_counts: Optional[Dict[str, int]] = None
     dishwasher_return_panel_count: int = 0
     include_light_rail: bool = False

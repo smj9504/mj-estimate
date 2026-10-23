@@ -122,6 +122,9 @@ class CabinetEstimate(Base, BaseModel):
     # Trim and panel scope. These appear on essentially every real
     # kitchen but had no line item before.
     filler_count = Column(Integer, default=0)
+    # Places a run or island turns at an angle other than 90°: each takes a
+    # wedge filler, extra fitting and (with a countertop) an angled cut.
+    angled_joint_count = Column(Integer, default=0)
     # {"wall": n, "base": n, "tall": n, "refrigerator": n}
     end_panel_counts = Column(JSON, nullable=True)
     dishwasher_return_panel_count = Column(Integer, default=0)

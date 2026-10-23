@@ -367,6 +367,14 @@ SPECIALTY_PREMIUM = {
     # Farmhouse / apron sink base - the front is cut away for the apron,
     # which is a different box from a standard sink base ($0 premium).
     "farmhouse_sink_base": {30: 215, 33: 240, 36: 275, 42: 330},
+    # Angle end base: a run end cut back at 45° (open or doored). KCD White
+    # Shaker BEC24 $414.00 vs B24 $462.22 = -$48.22, held at $0 under the
+    # same rule as sink_base and blind_corner above.
+    "angle_end_base": 0,
+    # Diagonal corner base (diagonal lazy susan): KCD has none in the line,
+    # so measured at Fourless ATL White Shaker CBD36 $581.04 vs B36 $470.88
+    # = +$110.16. Shape-wise the base twin of diagonal_corner_wall.
+    "diagonal_corner_base": {36: 110},
     # Microwave drawer base - cut opening + reinforced support.
     "microwave_drawer_base": {24: 185, 27: 200, 30: 220},
     # Deep upper over a fridge (24" deep rather than 12"). Nearly twice
@@ -1057,6 +1065,45 @@ FILLER_PRICING = {
     "Semi-Custom": 39,
     "Custom": 66,
     "install_each": 38,   # rip, scribe to the wall, fasten
+}
+
+# ── Angled (non-90°) joint ──
+# Where a run or island turns at an angle other than 90°, the boxes stay
+# square and the angle is taken up at the joint: a 45° angled filler,
+# extra fitting to set the boxes at the angle, and (with a countertop) an
+# angled cut in the top. Billed per joint (angled_joint_count).
+#
+# 2026-10-23 research:
+#  * Angled filler: CabinetSelect Bay Shaker White AF342F 45° 3"x42" $63
+#    vs the flat WF342 $46 in the same line = 1.37x. Applied to the flat
+#    filler table above (27/39/66) -> 37/53/90. Retail angled fillers only
+#    come in 45°; another angle is ripped from flat stock at similar cost.
+#  * Fitting: no published "angled joint" line item exists (Xactimate is
+#    not public). The nearest is a scribed filler panel, $75-$150 labor
+#    each (handymaninstall.com 2026); angled runs add 20-30% install time
+#    (Suparate). Set at $95, low in that band, since the filler's own fit
+#    is in it and the run's LF install is billed separately.
+#  * Angled countertop cut, per corner: stone $50-$155 (Accent Countertops
+#    THD sheet "45° angle/inside corner" $155; Stonify and SlabWise
+#    $50-$150) -> $110; laminate $40-$53 (CNC Cabinetry 2025) -> $46.
+#    Solid surface and butcher block were not quoted: solid surface is
+#    CNC-cut like stone, butcher block cut like laminate, so they take
+#    those rates. Angled pieces also waste 20-35% more slab - that belongs
+#    in the countertop SF, not here.
+ANGLED_JOINT_PRICING = {
+    "Stock": 37,
+    "Semi-Custom": 53,
+    "Custom": 90,
+    "install_each": 95,
+}
+COUNTERTOP_ANGLED_CUT_EACH = {
+    "Laminate": 46,
+    "Butcher Block": 46,
+    "Solid Surface": 110,
+    "Granite": 110,
+    "Quartz": 110,
+    "Quartzite": 110,
+    "Marble": 110,
 }
 
 # Full-height (84-96") filler for a tall/pantry run. Measured $83.50.

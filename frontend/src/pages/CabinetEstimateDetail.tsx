@@ -330,6 +330,7 @@ const CabinetEstimateDetail: React.FC = () => {
         include_electrical: estimate.include_electrical ?? false,
         include_permit: estimate.include_permit ?? false,
         filler_count: estimate.filler_count ?? 0,
+        angled_joint_count: estimate.angled_joint_count ?? 0,
         end_panel_base: estimate.end_panel_counts?.base ?? 0,
         end_panel_wall: estimate.end_panel_counts?.wall ?? 0,
         end_panel_tall: estimate.end_panel_counts?.tall ?? 0,
@@ -1284,6 +1285,16 @@ const CabinetEstimateDetail: React.FC = () => {
                           tooltip="Filler strips at run ends and inside corners. Walls are never plumb, so most kitchens need 2-6."
                         >
                           <InputNumber min={0} max={30} size="small" style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Form.Item
+                          label="Angled Joints"
+                          name="angled_joint_count"
+                          style={{ marginBottom: 8 }}
+                          tooltip='Places a run or island turns at an angle other than 90°. Each adds a 45° angled filler and fitting, plus an angled countertop cut when a countertop is in scope. Angled tops also waste 20-35% more slab — add that to the countertop SF.'
+                        >
+                          <InputNumber min={0} max={20} size="small" style={{ width: '100%' }} />
                         </Form.Item>
                       </Col>
                       <Col xs={12} md={8}>

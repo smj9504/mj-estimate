@@ -12,6 +12,7 @@ export type CabinetLocation = 'perimeter' | 'island';
 export type EstimateStatus = 'draft' | 'calculated' | 'approved' | 'exported';
 export type SpecialtyType =
   | 'sink_base' | 'lazy_susan' | 'blind_corner' | 'drawer_base'
+  | 'angle_end_base' | 'diagonal_corner_base'
   | 'diagonal_corner_wall' | 'blind_corner_wall' | 'easy_reach_corner_wall'
   | 'trash_pullout' | 'farmhouse_sink_base' | 'microwave_drawer_base'
   | 'refrigerator_wall_deep' | 'otr_microwave_wall'
@@ -139,6 +140,8 @@ export interface CabinetEstimate {
   include_electrical: boolean;
   include_permit: boolean;
   filler_count: number;
+  /** Places a run or island turns at an angle other than 90°. */
+  angled_joint_count?: number;
   end_panel_counts?: Partial<Record<EndPanelType, number>> | null;
   dishwasher_return_panel_count: number;
   include_light_rail: boolean;
@@ -222,6 +225,7 @@ export interface CabinetEstimateCreate {
   include_electrical?: boolean;
   include_permit?: boolean;
   filler_count?: number;
+  angled_joint_count?: number;
   end_panel_counts?: Partial<Record<EndPanelType, number>> | null;
   dishwasher_return_panel_count?: number;
   include_light_rail?: boolean;
@@ -292,6 +296,7 @@ export interface CabinetEstimateUpdate {
   include_electrical?: boolean;
   include_permit?: boolean;
   filler_count?: number;
+  angled_joint_count?: number;
   end_panel_counts?: Partial<Record<EndPanelType, number>> | null;
   dishwasher_return_panel_count?: number;
   include_light_rail?: boolean;

@@ -26,6 +26,8 @@ const PRESETS: PresetCatalog = {
   T2484: { width: 24, height: 84 },
   LS36: { width: 36, height: 34.5, specialty: 'lazy_susan' },
   BBC42: { width: 42, height: 34.5, specialty: 'blind_corner' },
+  DCB36: { width: 36, height: 34.5, specialty: 'diagonal_corner_base' },
+  BEC24: { width: 24, height: 34.5, specialty: 'angle_end_base' },
 };
 
 const box = (code: string, over: Partial<SketchBoxSource> = {}): SketchBoxSource => {
@@ -145,6 +147,15 @@ describe('reconcileCabinets', () => {
     const out = reconcileCabinets(moved, [box('B30'), box('B15')], [], PRESETS, SCALE)!;
     expect(out.map((c) => c.preset_code)).toEqual(['B30', 'B15']);
     expect(out[1]).toMatchObject({ x: 90, y: 40 }); // appended after the B30, not at the upper's spot
+  });
+
+  it('shapes a diagonal corner base like its wall twin, and an angle end as a plain-depth box', () => {
+    const [dcb] = reconcileCabinets([], [box('DCB36')], [], PRESETS, SCALE)!;
+    expect(dcb.depth_in).toBe(36); // 36" along each wall
+    expect(cornerFootprint(dcb, PRESETS, SCALE)).toMatchObject({ kind: 'diagonal', leg: 40 });
+    const [bec] = reconcileCabinets([], [box('BEC24')], [], PRESETS, SCALE)!;
+    expect(bec.depth_in).toBe(24); // full depth at the end that joins the run
+    expect(cornerFootprint(bec, PRESETS, SCALE)).toMatchObject({ kind: 'angle_end', side: 'left' });
   });
 
   it('gives an L corner unit a footprint as deep as it is wide', () => {
@@ -340,6 +351,21 @@ describe('snapCabinetToNeighbors', () => {
   it('sets a two-sided island back to back, ends flush', () => {
     const behind = b18(93, 37, { width: 50, rotation: 180 });
     expect(snapCabinetToNeighbors(behind, [b30()], SCALE)).toMatchObject({ x: 90, y: 40, rotation: 180 });
+  });
+
+  it('joins an angled run end to end at the inside corner of the turn', () => {
+    // Turned 45° toward the B30's front: the front corners meet at (90, 80), the wedge opens at the back.
+    const toFront = snapCabinetToNeighbors(b18(121, 54, { rotation: 45 }), [b30()], SCALE)!;
+    expect(toFront.rotation).toBe(45);
+    expect(toFront.x).toBeCloseTo(90 + 40 * Math.SQRT1_2);
+    expect(toFront.y).toBeCloseTo(80 - 40 * Math.SQRT1_2);
+    // Turned 45° toward its back: the back corners meet at (90, 40).
+    const toBack = snapCabinetToNeighbors(b18(93, 42, { rotation: -45 }), [b30()], SCALE)!;
+    expect(toBack.rotation).toBe(-45);
+    expect(toBack.x).toBeCloseTo(90);
+    expect(toBack.y).toBeCloseTo(40);
+    // Too far from either end: left where it was dropped.
+    expect(snapCabinetToNeighbors(b18(140, 60, { rotation: 45 }), [b30()], SCALE)).toBeNull();
   });
 
   it('turns a selected run as one piece, so it stays joined', () => {

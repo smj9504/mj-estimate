@@ -290,6 +290,9 @@ class CabinetEstimateService:
             filler_count=(
                 getattr(estimate, 'filler_count', 0) or 0
             ),
+            angled_joint_count=(
+                getattr(estimate, 'angled_joint_count', 0) or 0
+            ),
             end_panel_counts=getattr(
                 estimate, 'end_panel_counts', None,
             ),
@@ -413,7 +416,7 @@ class CabinetEstimateService:
             "drywall_repair_sqft", "include_painting", "painting_sqft",
             "include_appliance_rr", "appliance_list", "include_dumpster",
             "include_electrical", "include_permit",
-            "filler_count", "end_panel_counts",
+            "filler_count", "angled_joint_count", "end_panel_counts",
             "dishwasher_return_panel_count",
             "include_light_rail", "light_rail_lf",
             "outlet_relocation_count", "delivery_floor", "island_type",
