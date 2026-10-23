@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -151,6 +151,11 @@ const CabinetEstimateDetail: React.FC = () => {
   const [form] = Form.useForm();
   const [perimeterBoxes, setPerimeterBoxes] = useState<CabinetBoxCreate[]>([]);
   const [islandBoxes, setIslandBoxes] = useState<CabinetBoxCreate[]>([]);
+  // Bumped when the sketch adds, swaps or deletes a cabinet, so the box list is saved (see saveSketchBoxes).
+  const [sketchBoxEdits, setSketchBoxEdits] = useState(0);
+  // The cached estimate as the sketch's box save left it: the form and box
+  // list already hold that (or newer), so it isn't loaded back into them.
+  const selfSavedEstimateRef = useRef<CabinetEstimate | undefined>(undefined);
   // Narrows the wall-cabinet pickers in both the Edit and Sketch tabs.
   const [wallHeight, setWallHeight] = useState<WallHeightFilter>('all');
   const [activeTab, setActiveTab] = useState('edit');
@@ -273,7 +278,7 @@ const CabinetEstimateDetail: React.FC = () => {
 
   // ── Populate form when estimate loads ──
   useEffect(() => {
-    if (estimate) {
+    if (estimate && estimate !== selfSavedEstimateRef.current) {
       // If estimate has a claim, load client's claims for the dropdown
       if (estimate.claim_id && estimate.client_name) {
         setClientSearch(estimate.client_name);
@@ -426,6 +431,7 @@ const CabinetEstimateDetail: React.FC = () => {
     };
     setPerimeterBoxes((prev) => keys.reduce(takeOne, prev));
     setIslandBoxes((prev) => keys.reduce(takeOne, prev));
+    setSketchBoxEdits((n) => n + 1);
   }, []);
 
   // A cabinet switched to another code on the sketch: its row changes the
@@ -453,6 +459,7 @@ const CabinetEstimateDetail: React.FC = () => {
     };
     setPerimeterBoxes(changeOne);
     setIslandBoxes(changeOne);
+    setSketchBoxEdits((n) => n + 1);
   }, []);
 
   // Merge perimeter + island boxes for API
@@ -460,6 +467,38 @@ const CabinetEstimateDetail: React.FC = () => {
     ...b,
     display_order: i,
   }));
+
+  // The sketch saves itself, but a cabinet added, swapped or deleted there
+  // only changes the box list above, which Save writes. Save the list too,
+  // shortly after the last such change (and on leaving the page) — else a
+  // reload loses the cabinet, and the sketch then drops it as well.
+  const latestBoxesRef = useRef(allBoxes);
+  latestBoxesRef.current = allBoxes;
+  const sketchBoxesPendingRef = useRef(false);
+  const { mutate: saveSketchBoxes } = useMutation({
+    mutationFn: (boxes: CabinetBoxCreate[]) => cabinetEstimateService.update(id!, { boxes }),
+    onSuccess: (saved) => {
+      queryClient.setQueryData<CabinetEstimate>(['cabinet-estimate', id], (old) => old && { ...old, boxes: saved.boxes });
+      selfSavedEstimateRef.current = queryClient.getQueryData<CabinetEstimate>(['cabinet-estimate', id]);
+    },
+    onError: () => message.error('Failed to save the cabinets changed on the sketch — use Save'),
+  });
+  useEffect(() => {
+    if (sketchBoxEdits === 0) return;
+    sketchBoxesPendingRef.current = true;
+    const timer = window.setTimeout(() => {
+      sketchBoxesPendingRef.current = false;
+      saveSketchBoxes(latestBoxesRef.current);
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [sketchBoxEdits, saveSketchBoxes]);
+  useEffect(() => {
+    return () => {
+      if (sketchBoxesPendingRef.current) {
+        cabinetEstimateService.update(id!, { boxes: latestBoxesRef.current }).catch(() => {});
+      }
+    };
+  }, [id]);
 
   // Build the API payload from the form store.
   // Read from the store, not validateFields(): conditionally rendered
@@ -1704,6 +1743,7 @@ const CabinetEstimateDetail: React.FC = () => {
                 display_order: perimeterBoxes.length,
               };
               setPerimeterBoxes((prev) => [...prev, newBox]);
+              setSketchBoxEdits((n) => n + 1);
             }}
           />
         </Tabs.TabPane>
