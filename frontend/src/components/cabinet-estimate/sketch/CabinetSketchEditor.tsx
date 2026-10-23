@@ -72,6 +72,9 @@ import {
   type SketchBoxSource,
 } from './cabinetSketchLayout';
 
+// three.js is big; it's only fetched once the 3D view is opened.
+const Cabinet3DView = React.lazy(() => import('./Cabinet3DView'));
+
 const CANVAS_HEIGHT = 560;
 /** Quiet period after the last change before the sketch saves itself. */
 const AUTOSAVE_DELAY_MS = 1500;
@@ -712,6 +715,64 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     return <div style={{ padding: 24, textAlign: 'center', color: '#999' }}>Loading sketch…</div>;
   }
 
+  // Cabinet pickers, in the Top and 3D toolbars.
+  const cabinetPickers = (
+    <>
+      <Space.Compact>
+        {PLACE_SECTIONS.map(({ type, label }) => {
+          // Only the picker the pending placement came from shows it.
+          // Otherwise the selected cabinet shows in its section's
+          // picker, and picking there changes that cabinet.
+          const placing = state.activeTool === 'place_cabinet' ? state.activePresetCode : null;
+          const editing = !placing && selectedCabinet && sectionOf(selectedCabinet) === type ? selectedCabinet : undefined;
+          const picked = placing && CABINET_PRESETS[placing]?.cab_type === type ? placing : editing?.preset_code;
+          return (
+            <Select
+              // Remount when the pending placement clears or moves to another
+              // picker, so it falls back to the placeholder instead of keeping
+              // the last pick.
+              key={`${type}:${picked ?? 'idle'}`}
+              // The Wall picker says which height it's narrowed to, e.g. "+ Wall 36"…".
+              placeholder={`+ ${label}${type === 'wall' && wallHeight !== 'all' ? ` ${wallHeightLabel}` : ''}…`}
+              style={{ width: type === 'wall' && wallHeight !== 'all' ? 140 : 120 }}
+              popupMatchSelectWidth={300}
+              showSearch
+              value={picked}
+              // A custom box, or an upper outside the height filter, isn't in the list.
+              labelRender={(p) => p.label ?? CABINET_PRESETS[String(p.value)]?.label ?? editing?.label ?? p.value}
+              onChange={(value: string) => {
+                if (editing) {
+                  changeCabinet(editing, value);
+                  return;
+                }
+                // Placing needs the plan, so the 3D view hands over to it.
+                setView('plan');
+                setActivePreset(value);
+                setTool('place_cabinet');
+              }}
+              options={presetOptions[type]}
+              filterOption={(input, option: any) =>
+                `${option?.label ?? ''} ${option?.value ?? ''}`.toLowerCase().includes(input.toLowerCase())
+              }
+            />
+          );
+        })}
+      </Space.Compact>
+      {state.activeTool === 'place_cabinet' && state.activePresetCode ? (
+        <Tag color="blue">
+          Click canvas to place {CABINET_PRESETS[state.activePresetCode]?.label ?? state.activePresetCode}
+        </Tag>
+      ) : (
+        selectedCabinet && (
+          <Tag>
+            Pick another {PLACE_SECTIONS.find((s) => s.type === sectionOf(selectedCabinet))?.label} to replace{' '}
+            {selectedCabinet.label || selectedCabinet.preset_code}
+          </Tag>
+        )
+      )}
+    </>
+  );
+
   return (
     <div>
       <Space style={{ marginBottom: 12 }} wrap>
@@ -726,6 +787,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
           options={[
             { label: <Tooltip title="Floor plan, seen from above">Top</Tooltip>, value: 'plan' },
             { label: <Tooltip title="Elevation of each run, seen from the front">Front</Tooltip>, value: 'elevation' },
+            { label: <Tooltip title="The kitchen in 3D — drag to look around">3D</Tooltip>, value: '3d' },
           ]}
         />
 
@@ -774,56 +836,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
               </Tooltip>
             </Space.Compact>
 
-            <Space.Compact>
-              {PLACE_SECTIONS.map(({ type, label }) => {
-                // Only the picker the pending placement came from shows it.
-                // Otherwise the selected cabinet shows in its section's
-                // picker, and picking there changes that cabinet.
-                const placing = state.activeTool === 'place_cabinet' ? state.activePresetCode : null;
-                const editing = !placing && selectedCabinet && sectionOf(selectedCabinet) === type ? selectedCabinet : undefined;
-                const picked = placing && CABINET_PRESETS[placing]?.cab_type === type ? placing : editing?.preset_code;
-                return (
-                  <Select
-                    // Remount when the pending placement clears or moves to another
-                    // picker, so it falls back to the placeholder instead of keeping
-                    // the last pick.
-                    key={`${type}:${picked ?? 'idle'}`}
-                    // The Wall picker says which height it's narrowed to, e.g. "+ Wall 36"…".
-                    placeholder={`+ ${label}${type === 'wall' && wallHeight !== 'all' ? ` ${wallHeightLabel}` : ''}…`}
-                    style={{ width: type === 'wall' && wallHeight !== 'all' ? 140 : 120 }}
-                    popupMatchSelectWidth={300}
-                    showSearch
-                    value={picked}
-                    // A custom box, or an upper outside the height filter, isn't in the list.
-                    labelRender={(p) => p.label ?? CABINET_PRESETS[String(p.value)]?.label ?? editing?.label ?? p.value}
-                    onChange={(value: string) => {
-                      if (editing) {
-                        changeCabinet(editing, value);
-                        return;
-                      }
-                      setActivePreset(value);
-                      setTool('place_cabinet');
-                    }}
-                    options={presetOptions[type]}
-                    filterOption={(input, option: any) =>
-                      `${option?.label ?? ''} ${option?.value ?? ''}`.toLowerCase().includes(input.toLowerCase())
-                    }
-                  />
-                );
-              })}
-            </Space.Compact>
-            {state.activeTool === 'place_cabinet' && state.activePresetCode ? (
-              <Tag color="blue">
-                Click canvas to place {CABINET_PRESETS[state.activePresetCode]?.label ?? state.activePresetCode}
-              </Tag>
-            ) : (
-              selectedCabinet && (
-                <Tag>
-                  Pick another {PLACE_SECTIONS.find((s) => s.type === sectionOf(selectedCabinet))?.label} to replace{' '}
-                  {selectedCabinet.label || selectedCabinet.preset_code}
-                </Tag>
-              )
-            )}
+            {cabinetPickers}
 
             <Button icon={<UndoOutlined />} disabled={!canUndo} onClick={undo} />
             <Button icon={<RedoOutlined />} disabled={!canRedo} onClick={redo} />
@@ -901,6 +914,8 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
               </Tooltip>
             )}
           </>
+        ) : view === '3d' ? (
+          cabinetPickers
         ) : (
           elevations.length > 1 && (
             <Select
@@ -989,6 +1004,27 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
             </Layer>
           </Stage>
         </div>
+      ) : view === '3d' ? (
+        <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, overflow: 'hidden', background: '#f7f7f5' }}>
+          <React.Suspense
+            fallback={
+              <div style={{ height: CANVAS_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+                Loading 3D view…
+              </div>
+            }
+          >
+            <Cabinet3DView
+              cabinets={cabinets}
+              walls={walls}
+              presets={CABINET_PRESETS}
+              scalePixelsPerFoot={scalePixelsPerFoot}
+              height={CANVAS_HEIGHT}
+              selectedIds={selectedIds}
+              onSelect={handleSelect('cabinet')}
+              onDeselect={deselect}
+            />
+          </React.Suspense>
+        </div>
       ) : (
         <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, overflow: 'hidden', background: '#ffffff' }}>
           <CabinetElevationView
@@ -1005,7 +1041,9 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
           ? 'Cabinets you add in the Edit tab appear here. You can also draw the walls first, then pick a cabinet from the dropdown and click the canvas to place it.'
           : view === 'plan'
             ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. For an angled island, select the cabinets of one side, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors. Sizes and glass come from the Edit tab; a selected cabinet shows in its list above, where picking another changes it (Esc or a click on empty canvas to add new ones instead).'
-            : 'Each run is drawn from the front, as laid out in the plan. Uppers hang at 54" above the floor; shorter ones line up with their tops.'}
+            : view === '3d'
+              ? 'The plan in 3D, at real sizes. Drag to look around, scroll to zoom, right-drag to pan. Click a cabinet to select it and change it from its list above; move cabinets in Top.'
+              : 'Each run is drawn from the front, as laid out in the plan. Uppers hang at 54" above the floor; shorter ones line up with their tops.'}
       </div>
     </div>
   );

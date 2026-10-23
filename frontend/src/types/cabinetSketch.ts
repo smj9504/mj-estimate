@@ -87,8 +87,8 @@ export const DEFAULT_WALL_COLOR = '#333333';
 
 export type CabinetSketchTool = 'select' | 'wall' | 'place_cabinet' | 'pan';
 
-/** Which drawing the Sketch tab shows: the floor plan or a front elevation. */
-export type CabinetSketchView = 'plan' | 'elevation';
+/** Which drawing the Sketch tab shows: the floor plan, a front elevation, or the 3D model. */
+export type CabinetSketchView = 'plan' | 'elevation' | '3d';
 
 export interface CabinetSketchSelection {
   element_id: string;

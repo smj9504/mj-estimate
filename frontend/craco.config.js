@@ -46,6 +46,13 @@ module.exports = {
                 name: 'vendor-recharts',
                 priority: 20,
               },
+              // Only the cabinet sketch's 3D view uses three.js, and it is
+              // lazy-loaded; kept out of `vendor`, it downloads with that view.
+              three: {
+                test: /[\\/]node_modules[\\/]three[\\/]/,
+                name: 'vendor-three',
+                priority: 20,
+              },
               vendor: {
                 test: /[\\/]node_modules[\\/]/,
                 name: 'vendor',
