@@ -1235,7 +1235,7 @@ def download_invoice_pdf_with_document(
         except Exception:
             pass
 
-    # --- Upsert WMDocument (replace existing Invoice doc) ---
+    # --- Upsert WMDocument (replace this invoice's earlier PDF) ---
     try:
         address = (
             job.property_address or ""
@@ -1253,28 +1253,28 @@ def download_invoice_pdf_with_document(
             category="documents",
         )
 
-        # Upsert: deactivate existing Invoice documents
+        # Upsert: deactivate only the PDFs saved of this same invoice. The
+        # job's other invoices' PDFs and uploaded invoices stay.
         doc_repo = WMDocumentRepository(db)
-        existing_docs = doc_repo.get_by_type(
-            str(job_id), "Invoice", is_active=True
-        )
-        # Also check lowercase
-        existing_docs += doc_repo.get_by_type(
-            str(job_id), "invoice", is_active=True
-        )
+        existing_docs = db.query(WMDocument).filter(
+            WMDocument.job_id == str(job_id),
+            WMDocument.invoice_id == str(invoice_id),
+            WMDocument.is_active == True,
+        ).all()
 
         if existing_docs:
             for old_doc in existing_docs:
                 old_doc.is_active = False
                 db.add(old_doc)
             _logger.info(
-                f"Deactivated {len(existing_docs)} old "
-                f"Invoice WMDocument(s) for job {job_id}"
+                f"Deactivated {len(existing_docs)} old PDF(s) of "
+                f"invoice {invoice_id} for job {job_id}"
             )
 
         # Create new document
         doc_repo.create({
             "job_id": str(job_id),
+            "invoice_id": str(invoice_id),
             "document_type": "Invoice",
             "filename": filename,
             "file_path": storage_info["file_path"],

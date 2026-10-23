@@ -300,6 +300,7 @@ class WMDocument(Base, BaseModel):
     __table_args__ = (
         Index('ix_wm_documents_job', 'job_id'),
         Index('ix_wm_documents_type', 'document_type'),
+        Index('ix_wm_documents_invoice', 'invoice_id'),
         {'extend_existing': True}
     )
 
@@ -338,6 +339,10 @@ class WMDocument(Base, BaseModel):
 
     # Invoice-specific fields
     invoice_amount = Column(DECIMAL(10, 2))  # Amount for invoice documents
+    # Generated invoice this PDF was saved from, so saving it again replaces
+    # only its own earlier PDF. No FK: deleting the invoice mustn't be
+    # blocked by the PDF kept of it.
+    invoice_id = Column(UUIDType())
 
     # Upload source: 'generated' (from photos), 'manual_upload'
     upload_source = Column(String(50), default='generated')

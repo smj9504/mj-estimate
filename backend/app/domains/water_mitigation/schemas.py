@@ -488,6 +488,7 @@ class WMDocumentResponse(WMDocumentBase):
     annotation_data: Optional[str] = None  # JSON string of annotation data for re-editing
     has_source_pdf: bool = False  # Whether original PDF is available for re-editing
     invoice_amount: Optional[float] = None  # Amount for invoice documents
+    invoice_id: Optional[UUID] = None  # Generated invoice this PDF was saved from, if any
     upload_source: Optional[str] = 'generated'  # 'generated' or 'manual_upload'
     title: Optional[str] = None
     description: Optional[str] = None
