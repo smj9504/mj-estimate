@@ -550,6 +550,21 @@ export const waterMitigationService = {
       return response.data;
     },
 
+    // Fingerprint up to `limit` photos that lack one, for the gallery's
+    // "Similar" sort. Call repeatedly until remaining is 0.
+    computeVisualSignatures: async (jobId: string, limit: number = 30): Promise<{
+      computed: number;
+      failed: number;
+      remaining: number;
+    }> => {
+      const response = await api.post(
+        `${BASE_URL}/jobs/${jobId}/photos/visual-signatures`,
+        null,
+        { params: { limit }, timeout: 120000 },
+      );
+      return response.data;
+    },
+
     // Apply AI classification to photo (updates the photo's category)
     aiApply: async (photoId: string): Promise<any> => {
       const response = await api.post(`${BASE_URL}/photos/${photoId}/ai-apply`);

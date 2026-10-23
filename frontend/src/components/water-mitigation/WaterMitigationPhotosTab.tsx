@@ -8,7 +8,7 @@ import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spi
 import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined, ShareAltOutlined, CopyOutlined, RobotOutlined, ThunderboltOutlined, CloseOutlined, StarFilled, DownOutlined, ReloadOutlined, EnvironmentOutlined, ToolOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
-import type { FileItem } from '../common/FileGallery/types';
+import type { FileItem, PhotoSortBy } from '../common/FileGallery/types';
 import CompanyCamDateSelectModal from './CompanyCamDateSelectModal';
 import WMPhotoLocationModal from './WMPhotoLocationModal';
 import WMBulkPhotoLocationModal from './WMBulkPhotoLocationModal';
@@ -36,6 +36,8 @@ import {
 } from '../../utils/pendingPhotoUploadQueue';
 
 const { Text, Title } = Typography;
+
+const PHOTO_SORT_STORAGE_KEY = 'wm-photo-sort';
 
 // ─── Duplicate Detection Types ───
 interface DuplicateGroup {
@@ -418,6 +420,62 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
 
   // Photo source filter state
   const [sourceFilter, setSourceFilter] = useState<string | undefined>(undefined);
+
+  // Photo order: newest first, or look-alike photos together within each
+  // category (helps spot duplicates). Remembered per browser.
+  const [photoSort, setPhotoSort] = useState<PhotoSortBy>(() => {
+    try {
+      return localStorage.getItem(PHOTO_SORT_STORAGE_KEY) === 'similarity' ? 'similarity' : 'captured_date';
+    } catch {
+      return 'captured_date';
+    }
+  });
+  // Progress while fingerprinting photos for the Similar sort
+  const [similarPrep, setSimilarPrep] = useState<{ done: number; total: number } | null>(null);
+
+  const changePhotoSort = (sort: PhotoSortBy) => {
+    setPhotoSort(sort);
+    try {
+      localStorage.setItem(PHOTO_SORT_STORAGE_KEY, sort);
+    } catch {
+      // Storage unavailable (private mode) - the choice just isn't remembered
+    }
+  };
+
+  // Similar sort needs every photo fingerprinted; do any missing ones in
+  // batches, then reload the gallery so they take their place.
+  useEffect(() => {
+    if (photoSort !== 'similarity' || !jobId) return;
+    let cancelled = false;
+
+    (async () => {
+      let done = 0;
+      try {
+        for (;;) {
+          const result = await waterMitigationService.photos.computeVisualSignatures(jobId);
+          if (cancelled) return;
+          const processed = result.computed + result.failed;
+          done += processed;
+          if (result.remaining === 0 || processed === 0) break;
+          setSimilarPrep({ done, total: done + result.remaining });
+        }
+        if (done > 0) {
+          queryClient.invalidateQueries({ queryKey: ['files-infinite', 'water-mitigation', jobId] });
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          message.error(`Could not prepare similar sort: ${err?.response?.data?.detail || err.message}`);
+        }
+      } finally {
+        if (!cancelled) setSimilarPrep(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      setSimilarPrep(null);
+    };
+  }, [photoSort, jobId, queryClient]);
 
   // Google Drive export state
   const [exportModalVisible, setExportModalVisible] = useState(false);
@@ -1368,6 +1426,29 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
               {tab.label}
             </Button>
           ))}
+          <span aria-hidden="true" style={{ width: 1, alignSelf: 'stretch', margin: '4px 4px', background: '#e9e9e7' }} />
+          {[
+            { key: 'captured_date' as const, label: 'Newest', tip: 'Newest photos first, grouped by date' },
+            { key: 'similarity' as const, label: 'Similar', tip: 'Look-alike photos side by side within each category, to spot duplicates' },
+          ].map(tab => (
+            <Tooltip key={tab.key} title={tab.tip}>
+              <Button
+                type="text"
+                size="small"
+                aria-pressed={photoSort === tab.key}
+                className={`ui-view-tab${photoSort === tab.key ? ' is-selected' : ''}`}
+                onClick={() => changePhotoSort(tab.key)}
+              >
+                {tab.label}
+              </Button>
+            </Tooltip>
+          ))}
+          {similarPrep && (
+            <span style={{ alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#73726e' }}>
+              <Spin size="small" />
+              Finding similar photos {similarPrep.done}/{similarPrep.total}
+            </span>
+          )}
           {currentProjectId && (
             <Tooltip title={`CompanyCam ID: ${currentProjectId}`}>
               <Pill tone="green" icon={<CheckCircleOutlined />} style={{ alignSelf: 'center' }}>Linked</Pill>
@@ -1606,11 +1687,14 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             accept: 'image/*'
           }}
 
-          // Enable date grouping for water mitigation photos
-          enableDateGrouping={true}
+          // Date headers only make sense in date order; the Similar sort
+          // keeps look-alike photos together across dates
+          enableDateGrouping={photoSort === 'captured_date'}
 
           // Source filter (companycam, magicplan, manual_upload)
           sourceFilter={sourceFilter}
+
+          sortBy={photoSort}
 
           // Enhanced styling
           className="wm-photo-gallery"

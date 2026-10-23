@@ -2328,6 +2328,12 @@ class WaterMitigationService:
                             synced_count += 1
                             batch_saved += 1
 
+                            # Fingerprint for the gallery's "Similar" sort while the bytes are here
+                            from .photo_similarity import compute_visual_signature
+                            wm_photo.visual_signature = await asyncio.to_thread(
+                                compute_visual_signature, photo_bytes
+                            )
+
                             # AI classify using already-downloaded bytes (no extra network cost)
                             if settings.ENABLE_AI_PHOTO_CLASSIFICATION and (
                                 settings.ANTHROPIC_API_KEY or settings.GEMINI_API_KEY

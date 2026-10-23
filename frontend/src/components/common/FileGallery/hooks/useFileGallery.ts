@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { message } from 'antd';
-import { FileItem, FileContext, FileCategory } from '../types';
+import { FileItem, FileContext, FileCategory, PhotoSortBy } from '../types';
 import { fileService } from '../../../../services/fileService';
 import api from '../../../../services/api';
 
@@ -15,6 +15,7 @@ interface UseFileGalleryProps {
   pageSize?: number;
   categoryFilter?: string | string[];  // Category filter for server-side filtering
   sourceFilter?: string;  // Source filter (companycam, magicplan, manual_upload)
+  sortBy?: PhotoSortBy;  // Water-mitigation photo order (default: newest first)
 }
 
 export const useFileGallery = ({
@@ -26,7 +27,8 @@ export const useFileGallery = ({
   enableInfiniteScroll = false,
   pageSize = 20,  // Optimized default: smaller initial load for faster perceived performance
   categoryFilter,  // Category filter passed to API
-  sourceFilter  // Source filter passed to API
+  sourceFilter,  // Source filter passed to API
+  sortBy = 'captured_date'
 }: UseFileGalleryProps) => {
   const queryClient = useQueryClient();
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
@@ -102,7 +104,7 @@ export const useFileGallery = ({
   // either skips a range of rows or re-fetches rows, which is why some
   // uploaded photos were silently missing from the gallery.
   const infiniteQuery = useInfiniteQuery({
-    queryKey: ['files-infinite', context, contextId, fileCategory, pageSize, normalizedCategoryFilter, sourceFilter],
+    queryKey: ['files-infinite', context, contextId, fileCategory, pageSize, normalizedCategoryFilter, sourceFilter, sortBy],
     queryFn: async ({ pageParam = { skip: 0, size: 20 } }) => {
       if (!contextId) return { items: [], total: 0, page: 1, page_size: pageSize, total_pages: 1, nextSkip: 0, requestedSize: 1 };
 
@@ -113,7 +115,7 @@ export const useFileGallery = ({
         const params: Record<string, any> = {
           skip,
           page_size: dynamicPageSize,
-          sort_by: 'captured_date',
+          sort_by: sortBy,
           sort_order: 'desc'
         };
 
@@ -186,6 +188,9 @@ export const useFileGallery = ({
             uploadedBy: photo.source === 'magicplan' ? 'MagicPlan' : photo.source === 'companycam' ? 'CompanyCam' : undefined,
             locationLevel: photo.location_level,
             locationRoom: photo.location_room,
+            similarGroup: photo.similar_group ?? undefined,
+            similarGroupSize: photo.similar_group_size ?? undefined,
+            similarIndex: photo.similar_index ?? undefined,
           };
         });
 

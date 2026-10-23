@@ -309,6 +309,30 @@
   line-height: 18px;
 }
 
+/* "Similar" sort: group badge on a thumbnail; colors alternate per group */
+.file-grid-similar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  padding: 0 6px;
+  height: 18px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.file-grid-similar--a {
+  background: var(--tag-orange-bg);
+  color: var(--tag-orange-text);
+}
+
+.file-grid-similar--b {
+  background: var(--tag-purple-bg);
+  color: var(--tag-purple-text);
+}
+
 .file-grid-item .ant-card-cover {
   position: relative;
   overflow: hidden;

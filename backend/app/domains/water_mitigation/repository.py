@@ -296,6 +296,95 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         Returns:
             Tuple of (photos, total_count)
         """
+        query = self._filtered_photos_query(
+            job_id, category_filter, uncategorized_only,
+            source_filter, level_filter, room_filter
+        )
+
+        # Get total count (after filters) - only for the first page
+        # Skip count for later pages to significantly improve performance.
+        # When an explicit `skip` is given (variable page-size callers), it
+        # takes precedence over `page` for deciding whether this is page 1 -
+        # `page` is otherwise left at its default and would incorrectly look
+        # like page 1 on every request.
+        is_first_page = skip == 0 if skip is not None else page == 1
+        total = None
+        if is_first_page:
+            # Only count on first page - this is the most expensive operation
+            total = query.count()
+            if category_filter:
+                logger.info(f"📸 Total matching '{category_filter}': {total}")
+
+        # Apply sorting with secondary sort by id for deterministic ordering
+        # This ensures consistent pagination even when primary sort field has duplicates
+        if sort_order.lower() == 'asc':
+            order_clause = [getattr(WMPhoto, sort_by).asc(), WMPhoto.id.asc()]
+        else:
+            order_clause = [getattr(WMPhoto, sort_by).desc(), WMPhoto.id.desc()]
+
+        # Use standard offset pagination
+        # Note: Offset pagination is simpler and more reliable than keyset pagination
+        # for fields like captured_date that can have duplicate values
+        # If skip is provided, use it; otherwise calculate from page number
+        offset = skip if skip is not None else (page - 1) * page_size
+        photos = query.order_by(*order_clause).limit(page_size).offset(offset).all()
+
+        return photos, total
+
+    def find_by_job_similarity_ordered(
+        self,
+        job_id: UUID,
+        page: int = 1,
+        page_size: int = 50,
+        category_filter: Optional[List[str]] = None,
+        uncategorized_only: bool = False,
+        skip: Optional[int] = None,
+        source_filter: Optional[str] = None,
+        level_filter: Optional[List[str]] = None,
+        room_filter: Optional[List[str]] = None
+    ) -> tuple[List[WMPhoto], int, Dict[str, tuple]]:
+        """Like find_by_job_paginated, but similar-looking photos are placed
+        next to each other within each category (see photo_similarity.py).
+
+        The order is computed over every matching photo's fingerprint, then
+        sliced to the requested page.
+
+        Returns:
+            Tuple of (photos, total_count, {photo_id: (group, group_size, index)})
+        """
+        from .photo_similarity import order_by_similarity
+
+        query = self._filtered_photos_query(
+            job_id, category_filter, uncategorized_only,
+            source_filter, level_filter, room_filter
+        )
+        rows = query.with_entities(
+            WMPhoto.id, WMPhoto.category, WMPhoto.captured_date, WMPhoto.visual_signature
+        ).all()
+        ordered = order_by_similarity(rows)
+
+        offset = skip if skip is not None else (page - 1) * page_size
+        page_rows = ordered[offset:offset + page_size]
+
+        by_id = {
+            str(photo.id): photo
+            for photo in self.find_by_ids([row[0] for row in page_rows])
+        }
+        photos = [by_id[str(row[0])] for row in page_rows if str(row[0]) in by_id]
+        groups = {str(row[0]): row[1:] for row in page_rows}
+
+        return photos, len(ordered), groups
+
+    def _filtered_photos_query(
+        self,
+        job_id: UUID,
+        category_filter: Optional[List[str]] = None,
+        uncategorized_only: bool = False,
+        source_filter: Optional[str] = None,
+        level_filter: Optional[List[str]] = None,
+        room_filter: Optional[List[str]] = None
+    ):
+        """Non-trashed photos of a job with the gallery's filters applied"""
         # Base query (exclude trashed photos by default)
         query = self.db_session.query(WMPhoto).filter(
             WMPhoto.job_id == job_id,
@@ -351,35 +440,7 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
             normalized_rooms = [r.lower().strip() for r in room_filter]
             query = query.filter(func.lower(WMPhoto.location_room).in_(normalized_rooms))
 
-        # Get total count (after filters) - only for the first page
-        # Skip count for later pages to significantly improve performance.
-        # When an explicit `skip` is given (variable page-size callers), it
-        # takes precedence over `page` for deciding whether this is page 1 -
-        # `page` is otherwise left at its default and would incorrectly look
-        # like page 1 on every request.
-        is_first_page = skip == 0 if skip is not None else page == 1
-        total = None
-        if is_first_page:
-            # Only count on first page - this is the most expensive operation
-            total = query.count()
-            if category_filter:
-                logger.info(f"📸 Total matching '{category_filter}': {total}")
-
-        # Apply sorting with secondary sort by id for deterministic ordering
-        # This ensures consistent pagination even when primary sort field has duplicates
-        if sort_order.lower() == 'asc':
-            order_clause = [getattr(WMPhoto, sort_by).asc(), WMPhoto.id.asc()]
-        else:
-            order_clause = [getattr(WMPhoto, sort_by).desc(), WMPhoto.id.desc()]
-
-        # Use standard offset pagination
-        # Note: Offset pagination is simpler and more reliable than keyset pagination
-        # for fields like captured_date that can have duplicate values
-        # If skip is provided, use it; otherwise calculate from page number
-        offset = skip if skip is not None else (page - 1) * page_size
-        photos = query.order_by(*order_clause).limit(page_size).offset(offset).all()
-
-        return photos, total
+        return query
 
     def find_by_ids(self, photo_ids: List[UUID], include_trashed: bool = False) -> List[WMPhoto]:
         """Find multiple photos by their IDs in a single query (optimized for batch operations)

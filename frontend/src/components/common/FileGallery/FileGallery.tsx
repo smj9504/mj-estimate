@@ -58,6 +58,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   enableInfiniteScroll = false,
   pageSize = 50,
   sourceFilter,
+  sortBy,
   showDocumentPreview = true,
   enableDocumentSearch = false,
   showDocumentDetails = true,
@@ -152,6 +153,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
     pageSize,
     categoryFilter: selectedCategory,  // Pass selected category to backend for server-side filtering
     sourceFilter,  // Pass source filter (companycam, magicplan, manual_upload)
+    sortBy,
   });
 
   // Intersection Observer for infinite scroll

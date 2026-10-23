@@ -333,6 +333,12 @@ class PhotoResponse(BaseModel):
     location_level: Optional[str] = None
     location_room: Optional[str] = None
 
+    # Set only when listing with sort_by=similarity: photos sharing a group
+    # number look alike (likely duplicates); index is 1-based within the group
+    similar_group: Optional[int] = None
+    similar_group_size: Optional[int] = None
+    similar_index: Optional[int] = None
+
     class Config:
         from_attributes = True
 

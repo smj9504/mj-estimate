@@ -508,19 +508,33 @@ async def list_photos(
             rooms = None
 
     # Get paginated photos with filters applied at database level (more efficient)
-    photos, total = service.photo_repo.find_by_job_paginated(
-        job_id=job_id,
-        page=page,
-        page_size=page_size,
-        skip=skip,
-        sort_by=sort_by,
-        sort_order=sort_order,
-        category_filter=categories,
-        uncategorized_only=uncategorized_only,
-        source_filter=source_filter,
-        level_filter=levels,
-        room_filter=rooms
-    )
+    similar_groups = None
+    if sort_by == 'similarity':
+        photos, total, similar_groups = service.photo_repo.find_by_job_similarity_ordered(
+            job_id=job_id,
+            page=page,
+            page_size=page_size,
+            skip=skip,
+            category_filter=categories,
+            uncategorized_only=uncategorized_only,
+            source_filter=source_filter,
+            level_filter=levels,
+            room_filter=rooms
+        )
+    else:
+        photos, total = service.photo_repo.find_by_job_paginated(
+            job_id=job_id,
+            page=page,
+            page_size=page_size,
+            skip=skip,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            category_filter=categories,
+            uncategorized_only=uncategorized_only,
+            source_filter=source_filter,
+            level_filter=levels,
+            room_filter=rooms
+        )
 
     # Calculate total pages (handle None total for performance optimization)
     if total is not None and total > 0:
@@ -680,6 +694,14 @@ async def list_photos(
 
         photo_dict['preview_url'] = preview_url
         photo_dict['thumbnail_url'] = thumbnail_url
+
+        if similar_groups is not None:
+            group, group_size, index = similar_groups.get(str(photo.id), (None, 1, 1))
+            if group is not None:
+                photo_dict['similar_group'] = group
+                photo_dict['similar_group_size'] = group_size
+                photo_dict['similar_index'] = index
+
         items.append(photo_dict)
 
     result = {
@@ -4206,6 +4228,13 @@ async def ai_classify_photos(
                 failed += 1
                 continue
 
+            # Image is already in hand - fingerprint it for the "Similar" sort
+            if not photo.visual_signature:
+                from .photo_similarity import compute_visual_signature
+                photo.visual_signature = await asyncio.to_thread(
+                    compute_visual_signature, image_data
+                )
+
             # Classify photo
             result = await ai_classification_service.classify_photo_two_phase(
                 image_data,
@@ -4949,6 +4978,78 @@ async def detect_duplicate_photos(
         "groups": groups,
         "total_duplicates": total_duplicates,
         "total_photos_analyzed": len(photo_hashes),
+    }
+
+
+def _read_cached_preview(photo_id) -> bytes | None:
+    """Return a photo's disk-cached web/thumbnail preview, if one exists.
+    Much cheaper than downloading the original from cloud storage."""
+    from app.core.config import settings as app_settings
+
+    cache_base_dir = Path(app_settings.STORAGE_BASE_DIR) / ".cache" / "previews"
+    for size in ("web", "thumbnail"):
+        cache_file = cache_base_dir / size / f"{photo_id}.webp"
+        if cache_file.exists():
+            return cache_file.read_bytes()
+    return None
+
+
+@router.post("/jobs/{job_id}/photos/visual-signatures", dependencies=[_full_wm_access])
+async def compute_photo_visual_signatures(
+    job_id: UUID,
+    limit: int = Query(30, ge=1, le=100, description="Max photos to fingerprint in this call"),
+    db: DatabaseSession = Depends(get_db_session),
+):
+    """
+    Fingerprint photos that have no visual_signature yet, for the gallery's
+    "Similar" sort. Handles up to `limit` photos per call so the client can
+    loop and show progress until `remaining` reaches 0.
+    """
+    from .models import WMPhoto
+    from .photo_similarity import compute_visual_signature
+
+    pending = db.query(WMPhoto).filter(
+        WMPhoto.job_id == job_id,
+        WMPhoto.is_trashed.is_(False),
+        WMPhoto.visual_signature.is_(None),
+    )
+    batch = pending.limit(limit).all()
+
+    semaphore = asyncio.Semaphore(6)
+
+    async def fingerprint(photo) -> str | None:
+        if photo.file_type == 'video' or (photo.mime_type or '').startswith('video/'):
+            return None
+        async with semaphore:
+            image_data = await asyncio.to_thread(_read_cached_preview, photo.id)
+            if image_data is None:
+                image_data = await _load_photo_image_data({
+                    'file_path': photo.file_path,
+                    'storage_file_id': photo.storage_file_id,
+                    'storage_provider': photo.storage_provider or '',
+                    'storage_thumbnail_url': photo.storage_thumbnail_url or '',
+                    'source': photo.source,
+                })
+        if image_data is None:
+            return None
+        return await asyncio.to_thread(compute_visual_signature, image_data)
+
+    signatures = await asyncio.gather(*(fingerprint(photo) for photo in batch))
+
+    computed = 0
+    for photo, signature in zip(batch, signatures):
+        # '' = image unreadable; keeps it from being retried on every call
+        photo.visual_signature = signature or ''
+        computed += 1 if signature else 0
+    db.commit()
+
+    if batch:
+        _invalidate_photo_list_cache()
+
+    return {
+        "computed": computed,
+        "failed": len(batch) - computed,
+        "remaining": pending.count(),
     }
 
 

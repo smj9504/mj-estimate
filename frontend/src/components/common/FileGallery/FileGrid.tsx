@@ -162,6 +162,10 @@ const FileCardItem = memo<FileCardItemProps>(({
   // Ensure imageQuality has a default value
   const quality = imageQuality || 'web';
 
+  // "Similar" sort: look-alike groups alternate two colors so the boundary
+  // between neighboring groups stays visible
+  const similarTone = file.similarGroup ? (file.similarGroup % 2 ? 'a' : 'b') : null;
+
   return (
     <Card
       key={file.id}
@@ -270,6 +274,15 @@ const FileCardItem = memo<FileCardItemProps>(({
             </div>
           )}
 
+          {similarTone && (
+            <span
+              className={`file-grid-similar file-grid-similar--${similarTone}`}
+              title="Looks like its neighbors - compare them and remove duplicates"
+            >
+              Similar {file.similarIndex}/{file.similarGroupSize}
+            </span>
+          )}
+
           {allowMultiSelect && (
             <div
               onClick={(e) => e.stopPropagation()}
@@ -315,7 +328,11 @@ const FileCardItem = memo<FileCardItemProps>(({
       ] : undefined}
       size="small"
       style={{
-        border: isSelected ? '2px solid #1f74c9' : '1px solid #e9e9e7',
+        border: isSelected
+          ? '2px solid #1f74c9'
+          : similarTone
+          ? `2px solid var(${similarTone === 'a' ? '--color-warning' : '--color-purple'})`
+          : '1px solid #e9e9e7',
         cursor: 'pointer',
         transition: 'border-color 0.15s ease' // Smooth visual feedback
       }}
@@ -333,6 +350,9 @@ const FileCardItem = memo<FileCardItemProps>(({
 
   return (
     prevProps.file.id === nextProps.file.id &&
+    prevProps.file.similarGroup === nextProps.file.similarGroup &&
+    prevProps.file.similarIndex === nextProps.file.similarIndex &&
+    prevProps.file.similarGroupSize === nextProps.file.similarGroupSize &&
     prevProps.isSelected === nextProps.isSelected &&
     prevProps.allowMultiSelect === nextProps.allowMultiSelect
   );

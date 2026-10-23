@@ -26,7 +26,14 @@ export interface FileItem {
   // Water-mitigation-specific location tag (undefined for other contexts)
   locationLevel?: string;
   locationRoom?: string;
+  // Water-mitigation "Similar" sort: photos sharing a group look alike
+  similarGroup?: number;
+  similarGroupSize?: number;
+  similarIndex?: number;
 }
+
+// Water-mitigation photo order: newest first, or similar-looking photos together
+export type PhotoSortBy = 'captured_date' | 'similarity';
 
 export interface FileGalleryProps {
   // Context & Mode
@@ -84,6 +91,9 @@ export interface FileGalleryProps {
 
   // Source filter (for water-mitigation: 'companycam' | 'magicplan' | 'manual_upload')
   sourceFilter?: string;
+
+  // Photo order (water-mitigation only)
+  sortBy?: PhotoSortBy;
 
   // Document-specific features
   showDocumentPreview?: boolean;

@@ -283,6 +283,10 @@ class WMPhoto(Base, BaseModel):
     # MagicPlan metadata (floor, room info - nullable for non-magicplan photos)
     magicplan_metadata = Column(JSONB, nullable=True)  # {floor_name, room_name, floor_id, ...}
 
+    # Image fingerprint for the gallery's "Similar" sort (see photo_similarity.py).
+    # NULL = not computed yet, '' = image could not be read.
+    visual_signature = Column(String(112), nullable=True)
+
     # Trash/Deletion tracking
     is_trashed = Column(Boolean, default=False)
     trashed_at = Column(DateTime(timezone=True))
