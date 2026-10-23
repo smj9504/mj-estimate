@@ -97,7 +97,7 @@ alembic==1.13.1
 aioredis==2.0.1
 
 # Xactimate Helper Tool - AI Pipeline
-anthropic>=0.39.0  # Claude API for Vision + LLM matching
+anthropic>=1.15.0  # Claude API for Vision + LLM matching (WM photo classification uses output_config + fallbacks)
 pgvector>=0.3.6  # PostgreSQL vector similarity search
 numpy>=1.26.0  # Required by pgvector
 

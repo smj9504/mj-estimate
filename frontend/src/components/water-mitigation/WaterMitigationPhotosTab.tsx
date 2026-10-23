@@ -930,7 +930,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         }
       }
 
-      // Classify in small batches so a slow photo (2-phase Gemini verification)
+      // Classify in small batches so a slow photo (2-phase AI verification)
       // doesn't blow the whole batch past the request timeout.
       const batchSize = 5;
       const allResults: AIClassifyResult[] = resume ? [...aiResults] : [];
@@ -965,7 +965,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       }
 
       if (allResults.length === 0 && !aiAbortRef.current) {
-        message.warning('AI classification returned no results. Check GEMINI_API_KEY configuration.');
+        message.warning('AI classification returned no results. Check ANTHROPIC_API_KEY configuration.');
       }
     } catch (error: any) {
       console.error('AI classification failed:', error);

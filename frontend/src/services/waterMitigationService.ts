@@ -502,7 +502,7 @@ export const waterMitigationService = {
     // ─── AI Photo Classification ───
 
     // Classify multiple photos using AI
-    // Backend processes photos sequentially, up to 2 Gemini calls each (2-phase
+    // Backend processes photos sequentially, up to 2 AI calls each (2-phase
     // verification) - a batch of several photos can easily exceed the default
     // 30s client timeout even though the server is still working. Give it room.
     aiClassify: async (photoIds: string[], forceRefresh: boolean = false, signal?: AbortSignal): Promise<AIClassifyResponse> => {

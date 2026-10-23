@@ -4038,7 +4038,7 @@ async def ai_classify_photos(
     db: DatabaseSession = Depends(get_db_session)
 ):
     """
-    Classify photos using AI (Gemini Vision).
+    Classify photos using AI (Claude Vision, Gemini fallback).
 
     This endpoint analyzes photos and suggests categories based on:
     - Moisture meter color (red/yellow/green)
@@ -4062,18 +4062,18 @@ async def ai_classify_photos(
             detail="AI photo classification is disabled"
         )
 
-    if not settings.GEMINI_API_KEY:
+    if not ai_classification_service.has_provider:
         import logging
         _logger = logging.getLogger(__name__)
         _logger.error(
-            f"GEMINI_API_KEY not configured. "
-            f"settings value empty={not settings.GEMINI_API_KEY}, "
-            f"os.environ has key={bool(os.environ.get('GEMINI_API_KEY'))}, "
+            f"No AI photo classification key configured. "
+            f"os.environ has ANTHROPIC_API_KEY={bool(os.environ.get('ANTHROPIC_API_KEY'))}, "
+            f"GEMINI_API_KEY={bool(os.environ.get('GEMINI_API_KEY'))}, "
             f"env={settings.ENVIRONMENT}"
         )
         raise HTTPException(
             status_code=500,
-            detail="GEMINI_API_KEY is not configured. Check Render environment variables."
+            detail="ANTHROPIC_API_KEY is not configured. Check Render environment variables."
         )
 
     results = []

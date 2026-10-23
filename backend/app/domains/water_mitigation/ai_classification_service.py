@@ -1,7 +1,9 @@
 """
 AI Photo Classification Service for Water Mitigation
 
-Uses Gemini Vision API for photo classification with rule-based post-processing.
+Uses Claude Vision (Anthropic) for photo classification with rule-based
+post-processing. Gemini is only tried when Claude fails or ANTHROPIC_API_KEY
+is not set.
 
 Categories:
 - wet-area: High meter reading + no demolition (water detected, before work)
@@ -17,8 +19,8 @@ Categories:
 - uncategorized: Anything else, mold detected, needs manual review
 
 Cost optimization:
-- Images resized to max 1024px before sending (70%+ token savings)
-- gemini-2.0-flash-lite default ($0.0375/1M input tokens)
+- Images resized to max 1280px before sending (70%+ token savings)
+- Model and effort set by PHOTO_CLASSIFICATION_MODEL / PHOTO_CLASSIFICATION_EFFORT
 - Cache layer avoids duplicate API calls
 """
 
@@ -31,6 +33,7 @@ import re
 from datetime import datetime
 from typing import Optional
 
+import anthropic
 import httpx
 from sqlalchemy.orm import Session
 
@@ -38,6 +41,19 @@ from app.core.config import settings
 
 # Gemini REST API endpoint
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
+# Thinking is always on for current Claude models and counts against
+# max_tokens, so leave room beyond the ~300 tokens of JSON we expect.
+CLAUDE_MAX_TOKENS = 4096
+
+# Models that accept fallbacks="default" (server-side retry on another model
+# if Claude declines). Other models reject the parameter.
+CLAUDE_SERVER_FALLBACK_MODELS = {
+    "claude-fable-5-1",
+    "claude-opus-5-5",
+    "claude-opus-5",
+    "claude-sonnet-5-5",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +179,47 @@ metadata fields:
 - mold_visible: boolean — visible mold or mold-like growth?"""
 
 
+def _nullable(schema: dict) -> dict:
+    return {"anyOf": [schema, {"type": "null"}]}
+
+
+# JSON schema Claude's response is constrained to (mirrors CLASSIFICATION_PROMPT)
+CLASSIFICATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "category": {"type": "string", "enum": VALID_CATEGORIES},
+        "confidence": {"type": "number"},
+        "metadata": {
+            "type": "object",
+            "properties": {
+                "meter_visible": {"type": "boolean"},
+                "meter_reading": _nullable({"type": "string"}),
+                "meter_color": _nullable(
+                    {"type": "string", "enum": ["red", "yellow", "green"]}
+                ),
+                "is_demolished": {"type": "boolean"},
+                "demolition_confidence": {"type": "number"},
+                "surface_description": _nullable({"type": "string"}),
+                "equipment_count": {"type": "integer"},
+                "equipment_status": _nullable(
+                    {"type": "string", "enum": ["operating", "stacked"]}
+                ),
+                "mold_visible": {"type": "boolean"},
+            },
+            "required": [
+                "meter_visible", "meter_reading", "meter_color",
+                "is_demolished", "demolition_confidence",
+                "surface_description", "equipment_count",
+                "equipment_status", "mold_visible",
+            ],
+            "additionalProperties": False,
+        },
+    },
+    "required": ["category", "confidence", "metadata"],
+    "additionalProperties": False,
+}
+
+
 def _resize_image(image_data: bytes, max_size: int = 1024) -> tuple[bytes, str]:
     """
     Resize image to max_size px on longest side. Returns (resized_bytes, mime_type).
@@ -192,7 +249,7 @@ def _resize_image(image_data: bytes, max_size: int = 1024) -> tuple[bytes, str]:
 
 def _parse_json_response(response_text: str) -> dict:
     """
-    Parse JSON from Gemini response with robust cleanup.
+    Parse JSON from an AI response with robust cleanup.
     Handles markdown code blocks, trailing commas, truncated output,
     and other common issues.
     """
@@ -290,6 +347,24 @@ Fields:
 - surface_description: string — what the meter is touching
 - confidence: float 0.0-1.0 — confidence in surface_type
 """
+
+METER_VERIFICATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "meter_reading": _nullable({"type": "string"}),
+        "meter_color": _nullable(
+            {"type": "string", "enum": ["green", "yellow", "red"]}
+        ),
+        "surface_type": {"type": "string", "enum": ["intact", "demolished"]},
+        "surface_description": {"type": "string"},
+        "confidence": {"type": "number"},
+    },
+    "required": [
+        "meter_reading", "meter_color", "surface_type",
+        "surface_description", "confidence",
+    ],
+    "additionalProperties": False,
+}
 
 
 # PIN/WOOD moisture readings are physically bounded — meters display "HI"
@@ -594,12 +669,115 @@ def validate_and_correct(ai_result: dict) -> dict:
 
 
 class AIClassificationService:
-    """AI Photo Classification Service using Gemini Vision REST API (no SDK)."""
+    """AI Photo Classification Service: Claude Vision first, Gemini fallback."""
 
     def __init__(self):
         self.enabled = settings.ENABLE_AI_PHOTO_CLASSIFICATION
-        self.api_key = settings.GEMINI_API_KEY
-        self.model_name = settings.GEMINI_MODEL
+
+    @property
+    def has_provider(self) -> bool:
+        """True when at least one AI provider key is configured."""
+        return bool(settings.ANTHROPIC_API_KEY or settings.GEMINI_API_KEY)
+
+    async def _call_vision(
+        self,
+        prompt: str,
+        schema: dict,
+        image_data: bytes,
+        mime_type: str = "image/jpeg",
+        max_output_tokens: int = 1024,
+    ) -> str:
+        """
+        Call Claude first, then Gemini if Claude fails or has no key.
+
+        Raises ValueError listing each provider's failure if none succeed.
+        """
+        failures = []
+
+        if settings.ANTHROPIC_API_KEY:
+            try:
+                return await self._call_anthropic(
+                    prompt, schema, image_data, mime_type
+                )
+            except Exception as e:
+                logger.warning(f"Claude photo classification failed: {e}")
+                failures.append(f"Anthropic: {e}")
+
+        if settings.GEMINI_API_KEY:
+            try:
+                return await self._call_gemini(
+                    prompt, image_data, mime_type, max_output_tokens
+                )
+            except Exception as e:
+                logger.warning(f"Gemini photo classification failed: {e}")
+                failures.append(f"Gemini: {e}")
+
+        if not failures:
+            raise ValueError(
+                "No AI provider configured (set ANTHROPIC_API_KEY or GEMINI_API_KEY)"
+            )
+        raise ValueError(" | ".join(failures))
+
+    async def _call_anthropic(
+        self,
+        prompt: str,
+        schema: dict,
+        image_data: bytes,
+        mime_type: str = "image/jpeg",
+    ) -> str:
+        """Call Claude Vision with the response constrained to `schema`."""
+        model = settings.PHOTO_CLASSIFICATION_MODEL
+
+        output_config = {"format": {"type": "json_schema", "schema": schema}}
+        if settings.PHOTO_CLASSIFICATION_EFFORT:
+            output_config["effort"] = settings.PHOTO_CLASSIFICATION_EFFORT
+
+        fallback_kwargs = {}
+        if model in CLAUDE_SERVER_FALLBACK_MODELS:
+            fallback_kwargs = {
+                "betas": ["server-side-fallback-2026-07-01"],
+                "fallbacks": "default",
+            }
+
+        image_b64 = base64.standard_b64encode(image_data).decode("utf-8")
+
+        async with anthropic.AsyncAnthropic(
+            api_key=settings.ANTHROPIC_API_KEY, timeout=60.0, max_retries=1
+        ) as client:
+            response = await client.beta.messages.create(
+                model=model,
+                max_tokens=CLAUDE_MAX_TOKENS,
+                output_config=output_config,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": mime_type,
+                                "data": image_b64,
+                            },
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }],
+                **fallback_kwargs,
+            )
+
+        if response.stop_reason == "refusal":
+            category = response.stop_details.category if response.stop_details else None
+            raise ValueError(f"Claude declined to classify (category={category})")
+        if response.stop_reason == "max_tokens":
+            raise ValueError("Claude response was cut off at max_tokens")
+
+        for block in response.content:
+            if block.type == "text":
+                return block.text.strip()
+
+        raise ValueError(
+            f"No text in Claude response (stop_reason={response.stop_reason})"
+        )
 
     async def _call_gemini(
         self,
@@ -609,10 +787,12 @@ class AIClassificationService:
         max_output_tokens: int = 1024,
     ) -> str:
         """Call Gemini REST API directly with httpx (no SDK needed)."""
-        if not self.api_key:
+        if not settings.GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY is not configured")
 
-        url = f"{GEMINI_API_URL}/{self.model_name}:generateContent?key={self.api_key}"
+        # Key goes in a header, not the URL - httpx puts the URL in its error
+        # messages, which are returned to the client.
+        url = f"{GEMINI_API_URL}/{settings.GEMINI_MODEL}:generateContent"
 
         image_b64 = base64.b64encode(image_data).decode("utf-8")
 
@@ -639,7 +819,11 @@ class AIClassificationService:
         }
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(url, json=payload)
+            resp = await client.post(
+                url,
+                json=payload,
+                headers={"x-goog-api-key": settings.GEMINI_API_KEY},
+            )
             resp.raise_for_status()
 
         data = resp.json()
@@ -662,7 +846,7 @@ class AIClassificationService:
         mime_type: str = "image/jpeg"
     ) -> dict:
         """
-        Classify a single photo using Gemini Vision API.
+        Classify a single photo (Claude first, Gemini fallback).
 
         Images are resized to 1280px max before sending to reduce costs.
         """
@@ -681,8 +865,9 @@ class AIClassificationService:
                 _resize_image, image_data, max_size=1280
             )
 
-            response_text = await self._call_gemini(
+            response_text = await self._call_vision(
                 prompt=CLASSIFICATION_PROMPT,
+                schema=CLASSIFICATION_SCHEMA,
                 image_data=resized_data,
                 mime_type=resized_mime,
                 max_output_tokens=1024,
@@ -715,7 +900,7 @@ class AIClassificationService:
             return corrected_result
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse Gemini response: {e}, raw: {response_text[:200] if 'response_text' in dir() else 'N/A'}")
+            logger.error(f"Failed to parse AI response: {e}, raw: {response_text[:200] if 'response_text' in dir() else 'N/A'}")
             return {
                 "category": "uncategorized",
                 "confidence": 0.0,
@@ -781,8 +966,9 @@ class AIClassificationService:
                 _resize_image, image_data, max_size=1536
             )
 
-            response_text = await self._call_gemini(
+            response_text = await self._call_vision(
                 prompt=METER_VERIFICATION_PROMPT,
+                schema=METER_VERIFICATION_SCHEMA,
                 image_data=resized_data,
                 mime_type=resized_mime,
                 max_output_tokens=512,

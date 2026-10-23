@@ -2329,7 +2329,9 @@ class WaterMitigationService:
                             batch_saved += 1
 
                             # AI classify using already-downloaded bytes (no extra network cost)
-                            if settings.ENABLE_AI_PHOTO_CLASSIFICATION and settings.GEMINI_API_KEY:
+                            if settings.ENABLE_AI_PHOTO_CLASSIFICATION and (
+                                settings.ANTHROPIC_API_KEY or settings.GEMINI_API_KEY
+                            ):
                                 try:
                                     from .ai_classification_service import ai_classification_service
                                     ai_result = await ai_classification_service.classify_photo_two_phase(

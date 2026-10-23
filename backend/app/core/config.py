@@ -224,10 +224,14 @@ class Settings(BaseSettings):
     PHOTO_ANALYSIS_CACHE_TTL_DAYS: int = int(os.getenv("PHOTO_ANALYSIS_CACHE_TTL_DAYS", "30"))
     PHOTO_ANALYSIS_MODEL: str = os.getenv("PHOTO_ANALYSIS_MODEL", "gpt-4o")  # gpt-4-vision-preview is deprecated
 
-    # Gemini Vision API Settings (AI-powered photo classification)
+    # Water Mitigation AI photo classification
+    # Claude (ANTHROPIC_API_KEY, below) is tried first; Gemini only on Claude failure.
+    ENABLE_AI_PHOTO_CLASSIFICATION: bool = os.getenv("ENABLE_AI_PHOTO_CLASSIFICATION", "true").lower() == "true"
+    PHOTO_CLASSIFICATION_MODEL: str = os.getenv("PHOTO_CLASSIFICATION_MODEL", "claude-opus-5-5")
+    # low | medium | high | xhigh | max. Leave empty for models without effort (e.g. claude-haiku-4-5).
+    PHOTO_CLASSIFICATION_EFFORT: str = os.getenv("PHOTO_CLASSIFICATION_EFFORT", "low")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-    ENABLE_AI_PHOTO_CLASSIFICATION: bool = os.getenv("ENABLE_AI_PHOTO_CLASSIFICATION", "true").lower() == "true"
 
     # Storage Configuration
     STORAGE_PROVIDER: str = os.getenv("STORAGE_PROVIDER", "local")  # local, gdrive, gcs, s3, azure
