@@ -748,6 +748,13 @@ class AIClassificationService:
                 model=model,
                 max_tokens=CLAUDE_MAX_TOKENS,
                 output_config=output_config,
+                # The prompt is identical for every photo - cache it so only
+                # the image is billed at the full input rate after the first call.
+                system=[{
+                    "type": "text",
+                    "text": prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }],
                 messages=[{
                     "role": "user",
                     "content": [
@@ -759,11 +766,20 @@ class AIClassificationService:
                                 "data": image_b64,
                             },
                         },
-                        {"type": "text", "text": prompt},
+                        {"type": "text", "text": "Analyze this photo and respond with the JSON."},
                     ],
                 }],
                 **fallback_kwargs,
             )
+
+        usage = response.usage
+        logger.info(
+            f"Claude photo classification: model={response.model}, "
+            f"input_tokens={usage.input_tokens}, "
+            f"cache_read={usage.cache_read_input_tokens}, "
+            f"cache_write={usage.cache_creation_input_tokens}, "
+            f"output_tokens={usage.output_tokens}"
+        )
 
         if response.stop_reason == "refusal":
             category = response.stop_details.category if response.stop_details else None
