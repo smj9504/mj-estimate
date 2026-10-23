@@ -47,7 +47,8 @@ import type {
 } from '../../../types/cabinetSketch';
 import { WALL_SNAP_THRESHOLD, DEFAULT_WALL_THICKNESS, DEFAULT_WALL_COLOR } from '../../../types/cabinetSketch';
 import { CABINET_PRESETS, getOptionsForType } from '../CabinetBoxEditor';
-import type { SectionType } from '../CabinetBoxEditor';
+import { WALL_HEIGHT_OPTIONS } from '../CabinetBoxEditor';
+import type { SectionType, WallHeightFilter } from '../CabinetBoxEditor';
 import type { CabType } from '../../../types/cabinetEstimate';
 import CabinetWallRenderer, { CabinetWallPreview } from './CabinetWallRenderer';
 import CabinetShapeRenderer from './CabinetShapeRenderer';
@@ -137,6 +138,8 @@ export interface CabinetSketchEditorProps {
   estimateId: string;
   /** The Edit tab's boxes (perimeter + island) — the cabinets the sketch shows. */
   boxes: SketchBoxSource[];
+  /** The Edit tab's Upper height: the Wall picker lists only that height. */
+  wallHeight?: WallHeightFilter;
   /** False while another tab is showing, so canvas shortcuts (Delete!) stay off. */
   active?: boolean;
   /** A cabinet was placed from the sketch's dropdown — add it to the Edit tab. */
@@ -148,6 +151,7 @@ export interface CabinetSketchEditorProps {
 const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   estimateId,
   boxes,
+  wallHeight = 'all',
   active = true,
   onCabinetPlaced,
   onCabinetsRemoved,
@@ -515,13 +519,13 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   );
 
   // Cabinet catalog, one select per section with CabinetBoxEditor's groups
-  // (Specialty, Oven, …), listed by name only — the code stays searchable.
-  // The "+ Custom Size..." entries are dropped: a custom box needs its size
-  // typed in the Edit tab.
+  // (Specialty, Oven, …) and its Upper height, listed by name only — the
+  // code stays searchable. The "+ Custom Size..." entries are dropped: a
+  // custom box needs its size typed in the Edit tab.
   const presetOptions = useMemo(() => {
     const out = {} as Record<SectionType, { label: string; options: { label: string; value: string }[] }[]>;
     for (const { type } of PLACE_SECTIONS) {
-      out[type] = getOptionsForType(type)
+      out[type] = getOptionsForType(type, wallHeight)
         .map((group) => ({
           label: group.label,
           options: group.options
@@ -531,7 +535,8 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         .filter((group) => group.options.length > 0);
     }
     return out;
-  }, []);
+  }, [wallHeight]);
+  const wallHeightLabel = WALL_HEIGHT_OPTIONS.find((o) => o.value === wallHeight)?.label;
 
   // ------------------------------------------------------------------
   // Plan zoom / pan (view only)
@@ -688,8 +693,9 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                     // picker, so it falls back to the placeholder instead of keeping
                     // the last pick.
                     key={`${type}:${picked ?? 'idle'}`}
-                    placeholder={`+ ${label}…`}
-                    style={{ width: 120 }}
+                    // The Wall picker says which height it's narrowed to, e.g. "+ Wall 36"…".
+                    placeholder={`+ ${label}${type === 'wall' && wallHeight !== 'all' ? ` ${wallHeightLabel}` : ''}…`}
+                    style={{ width: type === 'wall' && wallHeight !== 'all' ? 140 : 120 }}
                     popupMatchSelectWidth={300}
                     showSearch
                     value={picked}

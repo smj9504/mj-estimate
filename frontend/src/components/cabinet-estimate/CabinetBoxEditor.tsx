@@ -5,6 +5,7 @@ import {
   Col,
   InputNumber,
   Row,
+  Segmented,
   Select,
   Space,
   Table,
@@ -191,8 +192,28 @@ const SECTION_CONFIG: { type: SectionType; label: string; color: string; unit: s
   { type: 'tall', label: 'Tall Cabinets', color: 'orange', unit: 'EA' },
 ];
 
-export function getOptionsForType(cabType: SectionType) {
-  const entries = Object.entries(CABINET_PRESETS).filter(([, v]) => v.cab_type === cabType);
+/**
+ * Upper height the Wall pickers are narrowed to, so they list one height's
+ * worth of cabinets instead of the whole catalog. 'short' is everything
+ * under 30" (over a fridge, range or OTR microwave).
+ */
+export type WallHeightFilter = 'all' | 30 | 36 | 42 | 'short';
+
+export const WALL_HEIGHT_OPTIONS: { label: string; value: WallHeightFilter }[] = [
+  { label: 'All', value: 'all' },
+  { label: '30"', value: 30 },
+  { label: '36"', value: 36 },
+  { label: '42"', value: 42 },
+  { label: 'Short', value: 'short' },
+];
+
+export const matchesWallHeight = (height: number, filter: WallHeightFilter) =>
+  filter === 'all' || (filter === 'short' ? height < 30 : height === filter);
+
+export function getOptionsForType(cabType: SectionType, wallHeight: WallHeightFilter = 'all') {
+  const entries = Object.entries(CABINET_PRESETS).filter(
+    ([, v]) => v.cab_type === cabType && (cabType !== 'wall' || matchesWallHeight(v.height, wallHeight))
+  );
 
   if (cabType === 'base') {
     return [
@@ -236,7 +257,7 @@ export function getOptionsForType(cabType: SectionType) {
     ];
   }
 
-  // wall
+  // wall — groups the height filter emptied are dropped
   return [
     {
       label: 'Standard (30"H)',
@@ -269,21 +290,31 @@ export function getOptionsForType(cabType: SectionType) {
         .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
     },
     { label: 'Other', options: [{ label: '+ Custom Size...', value: CUSTOM_VALUE }] },
-  ];
+  ].filter((group) => group.options.length > 0);
 }
 
 interface CabinetBoxEditorProps {
   boxes: CabinetBoxCreate[];
   onChange: (boxes: CabinetBoxCreate[]) => void;
   location: CabinetLocation;
+  /** Narrows the Wall pickers to one upper height (shared with the Sketch tab). */
+  wallHeight?: WallHeightFilter;
+  /** Shows the Upper height control on the Wall section when given. */
+  onWallHeightChange?: (height: WallHeightFilter) => void;
 }
 
-const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, location }) => {
+const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
+  boxes,
+  onChange,
+  location,
+  wallHeight = 'all',
+  onWallHeightChange,
+}) => {
   const addBox = (cabType: SectionType, codeOrCustom: string) => {
     if (codeOrCustom === CUSTOM_VALUE) {
       const defaults: Record<SectionType, { width: number; height: number }> = {
         base: { width: 24, height: 34.5 },
-        wall: { width: 24, height: 30 },
+        wall: { width: 24, height: typeof wallHeight === 'number' ? wallHeight : 30 },
         tall: { width: 24, height: 84 },
       };
       const newBox: CabinetBoxCreate = {
@@ -342,7 +373,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
     if (value === CUSTOM_VALUE) {
       const defaults: Record<SectionType, { width: number; height: number }> = {
         base: { width: 24, height: 34.5 },
-        wall: { width: 24, height: 30 },
+        wall: { width: 24, height: typeof wallHeight === 'number' ? wallHeight : 30 },
         tall: { width: 24, height: 84 },
       };
       updateBox(globalIndex, {
@@ -377,13 +408,21 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
 
   const isCustom = (record: CabinetBoxCreate) => !CABINET_PRESETS[record.code];
 
+  // A row keeps its own cabinet in its list even when the height filter
+  // hides it, so the select shows the name rather than a bare code.
+  const optionsForRow = (record: CabinetBoxCreate, options: ReturnType<typeof getOptionsForType>) => {
+    const preset = CABINET_PRESETS[record.code];
+    if (!preset || preset.cab_type !== 'wall' || matchesWallHeight(preset.height, wallHeight)) return options;
+    return [{ label: 'Current', options: [{ label: `${record.code} — ${preset.label}`, value: record.code }] }, ...options];
+  };
+
   // Summary
   const baseLF = boxes.filter(b => b.cab_type === 'base').reduce((sum, b) => sum + (b.width_inches * b.qty) / 12, 0);
   const wallLF = boxes.filter(b => b.cab_type === 'wall').reduce((sum, b) => sum + (b.width_inches * b.qty) / 12, 0);
   const tallCount = boxes.filter(b => b.cab_type === 'tall').reduce((sum, b) => sum + b.qty, 0);
   const totalBoxes = boxes.reduce((sum, b) => sum + b.qty, 0);
 
-  const makeColumns = (cabType: SectionType, options: any[]) => [
+  const makeColumns = (cabType: SectionType, options: ReturnType<typeof getOptionsForType>) => [
     {
       title: 'Cabinet',
       dataIndex: 'code',
@@ -396,7 +435,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
             value={CABINET_PRESETS[record.code] ? record.code : CUSTOM_VALUE}
             style={{ width: 200 }}
             onChange={(val) => handleCodeChange(gi, val, cabType)}
-            options={options}
+            options={optionsForRow(record, options)}
             filterOption={(input, option) =>
               (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
             }
@@ -535,7 +574,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
     const sectionBoxes = boxes
       .filter(b => b.cab_type === type)
       .map((b, i) => ({ ...b, _localIdx: i, key: i }));
-    const options = getOptionsForType(type);
+    const options = getOptionsForType(type, wallHeight);
 
     const summary = type === 'tall'
       ? `${sectionBoxes.reduce((s, b) => s + b.qty, 0)} EA`
@@ -543,9 +582,22 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
 
     return (
       <div key={type} style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
           <Tag color={color} style={{ fontSize: 12, margin: 0 }}>{label}</Tag>
           <Text type="secondary" style={{ fontSize: 12 }}>{summary}</Text>
+          {type === 'wall' && onWallHeightChange && (
+            <Space size={6} style={{ marginLeft: 8 }}>
+              <Tooltip title='List only wall cabinets of this height. Short = under 30" (over a fridge, range or microwave).'>
+                <Text type="secondary" style={{ fontSize: 12 }}>Upper height</Text>
+              </Tooltip>
+              <Segmented<WallHeightFilter>
+                size="small"
+                value={wallHeight}
+                onChange={onWallHeightChange}
+                options={WALL_HEIGHT_OPTIONS}
+              />
+            </Space>
+          )}
         </div>
 
         {sectionBoxes.length > 0 && (

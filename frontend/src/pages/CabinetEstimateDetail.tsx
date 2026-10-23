@@ -35,7 +35,7 @@ import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { cabinetEstimateService } from '../services/cabinetEstimateService';
 import { clientService, claimService } from '../services/clientService';
 import { companyService } from '../services/companyService';
-import CabinetBoxEditor, { CABINET_PRESETS } from '../components/cabinet-estimate/CabinetBoxEditor';
+import CabinetBoxEditor, { CABINET_PRESETS, type WallHeightFilter } from '../components/cabinet-estimate/CabinetBoxEditor';
 import CabinetEstimateResult from '../components/cabinet-estimate/CabinetEstimateResult';
 import CabinetPurchaseOrder from '../components/cabinet-estimate/CabinetPurchaseOrder';
 import CabinetEstimateHistory from '../components/cabinet-estimate/CabinetEstimateHistory';
@@ -151,6 +151,8 @@ const CabinetEstimateDetail: React.FC = () => {
   const [form] = Form.useForm();
   const [perimeterBoxes, setPerimeterBoxes] = useState<CabinetBoxCreate[]>([]);
   const [islandBoxes, setIslandBoxes] = useState<CabinetBoxCreate[]>([]);
+  // Narrows the wall-cabinet pickers in both the Edit and Sketch tabs.
+  const [wallHeight, setWallHeight] = useState<WallHeightFilter>('all');
   const [activeTab, setActiveTab] = useState('edit');
   const [registerBidItemOpen, setRegisterBidItemOpen] = useState(false);
   const [clientSearch, setClientSearch] = useState('');
@@ -800,7 +802,13 @@ const CabinetEstimateDetail: React.FC = () => {
 
                 {/* Perimeter Cabinets */}
                 <Card size="small" title="Perimeter Cabinets" style={{ marginBottom: 16 }}>
-                  <CabinetBoxEditor boxes={perimeterBoxes} onChange={setPerimeterBoxes} location="perimeter" />
+                  <CabinetBoxEditor
+                    boxes={perimeterBoxes}
+                    onChange={setPerimeterBoxes}
+                    location="perimeter"
+                    wallHeight={wallHeight}
+                    onWallHeightChange={setWallHeight}
+                  />
                 </Card>
 
                 {/* Island Cabinets + Panels + Countertop */}
@@ -1648,6 +1656,7 @@ const CabinetEstimateDetail: React.FC = () => {
           <CabinetSketchEditor
             estimateId={id!}
             boxes={sketchBoxes}
+            wallHeight={wallHeight}
             active={activeTab === 'sketch'}
             onCabinetsRemoved={handleSketchCabinetsRemoved}
             onCabinetPlaced={(code, cabType) => {
