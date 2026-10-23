@@ -13,13 +13,17 @@ import {
   SendOutlined, FilePdfOutlined, CheckCircleFilled,
   CloseCircleFilled, MailOutlined, ReloadOutlined,
 } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import RichTextEditor from '../editor/RichTextEditor';
+import AdjusterEmailsPanel, { senderName } from './AdjusterEmails';
 import {
   adjusterEmailService,
   type AdjusterEmailInfo,
   type DocumentReadiness,
   type SendToAdjusterPayload,
   type FollowUpTemplate,
+  type FollowUpSuggestion,
+  type WMAdjusterInboxCheck,
 } from '../../services/waterMitigationService';
 
 const { Text } = Typography;
@@ -58,6 +62,16 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
   const [customNotes, setCustomNotes] = useState('');
   const [template, setTemplate] = useState<FollowUpTemplate | undefined>();
   const [followupCount, setFollowupCount] = useState(0);
+  // The adjuster email the default template was read from, if any
+  const [suggestion, setSuggestion] = useState<FollowUpSuggestion | null>(null);
+  // The inbox check can turn up a reply after the default was picked. It
+  // may replace the default only while no template was picked and the email
+  // is still as filled in: `generated`, asked for at `requestedAt`.
+  const [templatePicked, setTemplatePicked] = useState(false);
+  const [generated, setGenerated] = useState<{
+    subject: string; body_html: string; requestedAt: number;
+  } | null>(null);
+  const [newMailAt, setNewMailAt] = useState<number | null>(null);
 
   // Email addresses
   const [toEmails, setToEmails] = useState<string[]>([]);
@@ -72,6 +86,7 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
   const loadInfo = useCallback(async () => {
     if (!jobId) return;
     setLoading(true);
+    const requestedAt = Date.now();
     try {
       const [data, followup] = await Promise.all([
         adjusterEmailService.getInfo(jobId),
@@ -80,7 +95,9 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
       setInfo(data);
       setFollowupCount(followup.followup_count);
       setTemplate(followup.template);
+      setSuggestion(followup.suggested_by);
       setEmailContent({ subject: followup.subject, body_html: followup.body_html });
+      setGenerated({ subject: followup.subject, body_html: followup.body_html, requestedAt });
 
       // Pre-fill To with all preset emails
       const presetEmails = data.preset_emails || [];
@@ -105,6 +122,10 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
     } else {
       setCustomNotes('');
       setTemplate(undefined);
+      setSuggestion(null);
+      setTemplatePicked(false);
+      setGenerated(null);
+      setNewMailAt(null);
       setToEmails([]);
       setBccEmails([]);
       setManualFromEmail('');
@@ -124,9 +145,39 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
     }
   };
 
+  const handleInboxChecked = useCallback((result: WMAdjusterInboxCheck) => {
+    if (result.saved > 0) setNewMailAt(Date.now());
+  }, []);
+
+  // A reply the inbox check just found can move the situation on ("still
+  // under review"), so the default is picked again - unless someone already
+  // chose a template, typed notes or edited the email.
+  useEffect(() => {
+    if (!newMailAt || !generated || generated.requestedAt > newMailAt) return;
+    if (templatePicked || customNotes.trim()) return;
+    if (emailContent.subject !== generated.subject || emailContent.body_html !== generated.body_html) return;
+    let cancelled = false;
+    const requestedAt = Date.now();
+    adjusterEmailService.generateFollowUp(jobId).then((followup) => {
+      if (cancelled) return;
+      if (followup.template !== template) {
+        message.info('Situation updated from the adjuster’s latest email');
+      }
+      setTemplate(followup.template);
+      setSuggestion(followup.suggested_by);
+      setEmailContent({ subject: followup.subject, body_html: followup.body_html });
+      setGenerated({ subject: followup.subject, body_html: followup.body_html, requestedAt });
+    }).catch(() => { /* keep the current draft */ });
+    return () => { cancelled = true; };
+  // Runs when a check finds mail or the draft is first filled in; the rest
+  // is read as it stands then
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newMailAt, generated]);
+
   // Rewrites the body for the chosen situation, keeping any applied notes.
   const handleTemplateChange = async (next: FollowUpTemplate) => {
     setTemplate(next);
+    setTemplatePicked(true);
     try {
       const followup = await adjusterEmailService.generateFollowUp(jobId, customNotes, next);
       setEmailContent({ subject: followup.subject, body_html: followup.body_html });
@@ -218,6 +269,9 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
         </Button>,
       ]}
     >
+      {/* What the adjuster already sent, checked fresh while the rest loads */}
+      <AdjusterEmailsPanel jobId={jobId} open={open} onChecked={handleInboxChecked} />
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40 }}>
           <Spin size="large" />
@@ -369,6 +423,13 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
               onChange={val => handleTemplateChange(val as FollowUpTemplate)}
               options={TEMPLATE_OPTIONS}
             />
+            {suggestion && suggestion.template === template && (
+              <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
+                From {senderName(suggestion.sender)}’s email
+                {suggestion.received_at && ` on ${dayjs(suggestion.received_at).format('MMM D')}`}
+                : “{suggestion.sentence}”
+              </Text>
+            )}
           </div>
 
           {/* Custom Notes */}

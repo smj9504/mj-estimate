@@ -692,13 +692,27 @@ class AdjusterEmailService:
         ),
     }
 
+    def _suggest_template_from_mail(self, session, job) -> Optional[Dict[str, Any]]:
+        """What the adjuster's own mail says about the documents (see
+        adjuster_inbox.suggest_followup_template)."""
+        try:
+            from .adjuster_inbox import suggest_followup_template
+            return suggest_followup_template(session, job)
+        except Exception as e:
+            # Never let the inbox lookup block writing the follow-up.
+            logger.warning(f"Failed to read adjuster mail for follow-up template: {e}")
+            session.rollback()
+            return None
+
     def generate_followup_email(
         self, job_id: str, custom_notes: str = "", template: Optional[str] = None
     ) -> Dict[str, Any]:
         """Generate follow-up email template when adjuster hasn't responded.
 
-        Without a template, picks one from the job status: once the adjuster
-        has confirmed the paperwork, the follow-up asks about the review.
+        Without a template, picks one from the job status and the adjuster's
+        latest email, whichever is further along: once the adjuster has
+        confirmed the paperwork the follow-up asks about the review, and once
+        they've said it's under review it asks for an update.
         """
         session = self._get_readonly_session()
         try:
@@ -748,10 +762,21 @@ class AdjusterEmailService:
             else:
                 greeting = f"{greeting_time},"
 
+            suggested_by = None
             if template not in self.FOLLOWUP_TEMPLATES:
                 template = (
                     "review_status" if job.status == "Paperwork received" else "receipt"
                 )
+                # The adjuster's latest word moves it on: "it's under review"
+                # asks for an update, not for the status of a review
+                from .adjuster_inbox import further_template
+                suggested_by = self._suggest_template_from_mail(session, job)
+                if suggested_by and further_template(
+                    template, suggested_by["template"]
+                ) == suggested_by["template"]:
+                    template = suggested_by["template"]
+                else:
+                    suggested_by = None
             message = self.FOLLOWUP_TEMPLATES[template].format(
                 sent_on=f" on {sent_date_str}" if sent_date_str else "",
                 for_address=f" for {address}" if address else "",
@@ -776,6 +801,8 @@ class AdjusterEmailService:
                 "subject": subject,
                 "body_html": body_html.strip(),
                 "template": template,
+                # The adjuster email the template was picked from, if any
+                "suggested_by": suggested_by,
                 "followup_count": followup_count,
                 "days_since_sent": days_since_sent,
                 "documents_sent_date": sent_date_str,

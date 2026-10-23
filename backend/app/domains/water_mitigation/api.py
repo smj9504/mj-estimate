@@ -58,6 +58,7 @@ from .schemas import (
 )
 from .service import WaterMitigationService
 from .template_api import router as template_router
+from .adjuster_inbox_api import router as adjuster_inbox_router
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ router = APIRouter(prefix="/water-mitigation", tags=["Water Mitigation"])
 
 # Include template router as sub-router
 router.include_router(template_router)
+router.include_router(adjuster_inbox_router)
 
 # The View grant (water_mitigation_view) leaves out the AI photo tools
 _full_wm_access = Depends(require_screen("water_mitigation"))

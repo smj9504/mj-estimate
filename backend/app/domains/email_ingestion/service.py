@@ -115,6 +115,10 @@ def _is_own_sent_attachment(attachment, sent_index) -> bool:
 # Message-IDs inside In-Reply-To / References headers.
 _MESSAGE_ID_PATTERN = re.compile(r"<[^<>\s]+>")
 
+# Claim matches that name the claim outright, rather than guessing it from an
+# address or a name
+_CERTAIN_MATCH_METHODS = {"reply_thread", "claim_number"}
+
 # Marketing HTML runs to hundreds of KB; nothing past this is worth keeping.
 _MAX_BODY_CHARS = 200_000
 
@@ -162,6 +166,7 @@ def _received_email_dict(row, include_body: bool) -> Dict[str, Any]:
         "matched_claim_id": str(row.matched_claim_id) if row.matched_claim_id else None,
         "match_method": row.match_method,
         "match_confidence": row.match_confidence,
+        "matched_wm_job_id": str(row.matched_wm_job_id) if row.matched_wm_job_id else None,
         "created_at": row.created_at,
     }
     if include_body:
@@ -567,10 +572,16 @@ class EmailIngestionService:
             # attachment scanned the whole sent_emails JSONB column for every
             # PDF, which dropped the Neon connection partway through a poll.
             sent_index = _load_sent_attachment_index(session)
+            # Same for the water mitigation jobs inbound mail is matched to
+            from app.domains.water_mitigation.adjuster_inbox import JobMailIndex
+            wm_index = JobMailIndex.load(session)
 
             for fetched_email in all_emails:
                 try:
-                    if self._save_received_email(session, account_id, fetched_email):
+                    if self._save_received_email(
+                        session, account_id, fetched_email,
+                        wm_index=wm_index, own_address=account["email_address"],
+                    ):
                         stats["emails_saved"] += 1
                 except Exception as e:
                     session.rollback()
@@ -717,13 +728,65 @@ class EmailIngestionService:
     # Received emails (all inbound mail)
     # ============================================================
 
-    def _save_received_email(self, session, account_id: str, fetched_email) -> bool:
-        """Store one inbound message if it belongs to a claim.
+    def search_account(
+        self,
+        account: Dict[str, Any],
+        criteria: List[str],
+        since_date: Optional[datetime] = None,
+        limit: int = 50,
+    ) -> int:
+        """Store the account's INBOX messages matching any IMAP search term,
+        for a check that can't wait for the next poll. Returns how many were
+        new.
 
-        False if it was already stored or matched no client/claim - the
-        inbox also holds newsletters, receipts and personal mail, none of
-        which belong in the app. Unmatched mail is re-checked on the next
-        poll that covers its date, so a claim created later still picks it up.
+        Only received_emails is written: attachments still reach the PDF
+        pipeline through the regular poll, which this leaves untouched
+        (last_synced_at included).
+        """
+        from app.domains.water_mitigation.adjuster_inbox import JobMailIndex
+
+        session = self._get_session()
+        try:
+            imap = self._build_imap_client(account, session)
+            fetched = imap.search_emails(criteria, since_date=since_date, limit=limit)
+            wm_index = JobMailIndex.load(session)
+            saved = 0
+            for fetched_email in fetched:
+                try:
+                    if self._save_received_email(
+                        session, str(account["id"]), fetched_email,
+                        wm_index=wm_index, own_address=account["email_address"],
+                    ):
+                        saved += 1
+                except Exception as e:
+                    # e.g. the scheduled poll stored the same message meanwhile
+                    session.rollback()
+                    logger.error(
+                        f"Error saving received email {fetched_email.message_id}: {e}"
+                    )
+            return saved
+        finally:
+            session.close()
+
+    def _save_received_email(
+        self,
+        session,
+        account_id: str,
+        fetched_email,
+        wm_index=None,
+        own_address: Optional[str] = None,
+    ) -> bool:
+        """Store one inbound message if it belongs to a claim or a water
+        mitigation job.
+
+        False if it was already stored or matched nothing - the inbox also
+        holds newsletters, receipts and personal mail, none of which belong
+        in the app. Unmatched mail is re-checked on the next poll that
+        covers its date, so a claim created later still picks it up.
+
+        `wm_index` (a JobMailIndex) also matches WM jobs; `own_address` is
+        the receiving account's, so copies of our own mail aren't taken for
+        an adjuster's.
         """
         from app.domains.email_ingestion.models import ReceivedEmail
 
@@ -738,7 +801,27 @@ class EmailIngestionService:
         client_id, claim_id, method, confidence = self._match_received_email(
             session, fetched_email, text
         )
-        if not client_id and not claim_id:
+
+        wm_job_id = None
+        if wm_index is not None:
+            wm_job_id, wm_method, wm_confidence = wm_index.match(
+                fetched_email.subject, text, fetched_email.sender,
+                claim_id=claim_id, own_address=own_address,
+            )
+            job_claim_id, job_client_id = wm_index.claim_of(wm_job_id)
+            if wm_job_id and job_claim_id and job_claim_id != claim_id:
+                if method in _CERTAIN_MATCH_METHODS:
+                    # The thread or claim number says another claim
+                    wm_job_id = None
+                else:
+                    # The job's claim number or adjuster beats an address or
+                    # name guess at the claim
+                    client_id, claim_id = job_client_id, job_claim_id
+                    method, confidence = wm_method, wm_confidence
+            elif wm_job_id and not method:
+                method, confidence = wm_method, wm_confidence
+
+        if not client_id and not claim_id and not wm_job_id:
             return False
 
         session.add(ReceivedEmail(
@@ -758,6 +841,7 @@ class EmailIngestionService:
             matched_claim_id=claim_id,
             match_method=method,
             match_confidence=confidence,
+            matched_wm_job_id=wm_job_id,
         ))
         session.commit()
         return True
@@ -907,6 +991,9 @@ class EmailIngestionService:
             row = session.query(ReceivedEmail).filter(ReceivedEmail.id == email_id).first()
             if not row:
                 raise ValueError(f"Received email {email_id} not found")
+            # A person's call overrides the automatic WM job match; mail on a
+            # claim still shows on that claim's job
+            row.matched_wm_job_id = None
             if claim_id:
                 claim = session.query(Claim).filter(Claim.id == claim_id).first()
                 if not claim:

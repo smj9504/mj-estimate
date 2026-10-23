@@ -57,6 +57,7 @@ const senderAddress = (sender?: string): string => {
 
 const MATCH_LABELS: Record<string, string> = {
   reply_thread: 'Reply',
+  adjuster_email: 'Adjuster',
   claim_number: 'Claim #',
   policy_number: 'Policy #',
   address: 'Address',

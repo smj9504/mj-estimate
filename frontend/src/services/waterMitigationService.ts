@@ -1696,9 +1696,48 @@ export interface WMFollowUpTask {
   next_followup_date: string | null;
 }
 
+// Inbound mail about a job, matched by its claim, claim number or the
+// adjuster's address. from_adjuster: sent by one of the job's adjuster contacts.
+export interface WMAdjusterEmail {
+  id: string;
+  subject?: string;
+  sender?: string;
+  received_at?: string;
+  snippet?: string;
+  attachment_names: string[];
+  /** reply_thread | claim_number | adjuster_email | ... (see ReceivedEmail) */
+  match_method?: string;
+  account_email?: string;
+  from_adjuster: boolean;
+}
+
+export interface WMAdjusterEmails {
+  items: WMAdjusterEmail[];
+  adjuster_addresses: string[];
+}
+
+export interface WMAdjusterInboxCheck extends WMAdjusterEmails {
+  checked_at: string;
+  accounts_checked: number;
+  saved: number;
+  errors: { account: string; error: string }[];
+  /** Set when nothing could be searched: no adjuster email / claim number, or no inbox */
+  skipped_reason: string | null;
+}
+
 // Where the adjuster went quiet: no receipt confirmation, received but no
 // review status, or said it's under review and nothing since.
 export type FollowUpTemplate = 'receipt' | 'review_status' | 'review_update';
+
+// The adjuster email a default template was read from ("still under review").
+export interface FollowUpSuggestion {
+  template: FollowUpTemplate;
+  email_id: string;
+  sender?: string;
+  received_at?: string;
+  /** The sentence that says where the documents stand */
+  sentence: string;
+}
 
 export const adjusterEmailService = {
   getInfo: async (jobId: string): Promise<AdjusterEmailInfo> => {
@@ -1751,13 +1790,16 @@ export const adjusterEmailService = {
     return response.data;
   },
 
-  // Without a template the backend picks one from the job status and echoes it back.
+  // Without a template the backend picks one from the job status and the
+  // adjuster's latest email, and echoes it back.
   generateFollowUp: async (
     jobId: string, customNotes: string = '', template?: FollowUpTemplate,
   ): Promise<{
     subject: string;
     body_html: string;
     template: FollowUpTemplate;
+    /** Set when the default came from an adjuster email */
+    suggested_by: FollowUpSuggestion | null;
     followup_count: number;
     days_since_sent: number | null;
     documents_sent_date: string;
@@ -1789,6 +1831,23 @@ export const adjusterEmailService = {
       `${BASE_URL}/jobs/${jobId}/send-followup`,
       payload,
       { timeout: 300000 }
+    );
+    return response.data;
+  },
+
+  // Mail about the job the inbox polls have already found.
+  getAdjusterEmails: async (jobId: string): Promise<WMAdjusterEmails> => {
+    const response = await api.get(`${BASE_URL}/jobs/${jobId}/adjuster-emails`);
+    return response.data;
+  },
+
+  // Searches every connected inbox for the job now instead of waiting for
+  // the morning poll — an IMAP round-trip per account.
+  checkAdjusterEmails: async (jobId: string): Promise<WMAdjusterInboxCheck> => {
+    const response = await api.post(
+      `${BASE_URL}/jobs/${jobId}/adjuster-emails/check`,
+      null,
+      { timeout: 120000 }
     );
     return response.data;
   },

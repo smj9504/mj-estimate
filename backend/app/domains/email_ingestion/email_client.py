@@ -293,6 +293,53 @@ class IMAPClient:
 
         return results
 
+    def search_emails(
+        self,
+        criteria: List[str],
+        since_date: Optional[datetime] = None,
+        limit: int = 50,
+    ) -> List[FetchedEmail]:
+        """Fetch INBOX messages matching any of the search terms (e.g.
+        'FROM "adjuster@carrier.com"'), the newest `limit` overall.
+
+        One search per term rather than nested ORs, so a term the server
+        rejects doesn't sink the others. Read-only and BODY.PEEK, so
+        nothing is marked read.
+        """
+        results: List[FetchedEmail] = []
+        since = f" SINCE {since_date.strftime('%d-%b-%Y')}" if since_date else ""
+
+        try:
+            self.connect()
+            self._connection.select("INBOX", readonly=True)
+
+            msg_nums: set = set()
+            for term in criteria:
+                try:
+                    status, data = self._connection.search(None, f"({term}{since})")
+                except imaplib.IMAP4.error as e:
+                    logger.debug(f"IMAP search failed for {term}: {e}")
+                    continue
+                if status == "OK" and data[0]:
+                    msg_nums.update(data[0].split())
+
+            for msg_num in sorted(msg_nums, key=int)[-limit:]:
+                try:
+                    fetched = self._fetch_single(msg_num)
+                    if fetched:
+                        results.append(fetched)
+                except Exception as e:
+                    logger.warning(f"Failed to fetch email {msg_num}: {e}")
+                    continue
+
+        except Exception as e:
+            logger.error(f"Error searching emails: {e}")
+            raise
+        finally:
+            self.disconnect()
+
+        return results
+
     def _fetch_single(self, msg_id: bytes) -> Optional[FetchedEmail]:
         """Fetch a single email by its IMAP sequence ID"""
         # BODY.PEEK[] rather than RFC822: RFC822 sets \Seen, and now that

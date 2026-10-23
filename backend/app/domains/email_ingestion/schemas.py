@@ -213,6 +213,7 @@ class ReceivedEmailResponse(BaseModel):
     matched_claim_id: Optional[UUID] = None
     match_method: Optional[str] = None
     match_confidence: Optional[int] = None
+    matched_wm_job_id: Optional[UUID] = None
     client_name: Optional[str] = None
     claim_number: Optional[str] = None
     created_at: Optional[datetime] = None

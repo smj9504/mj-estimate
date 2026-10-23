@@ -424,6 +424,8 @@ _NEEDED_COLUMNS = [
     ("claim_todos", "client_id", "UUID"),
     ("claim_todos", "status", "VARCHAR(20) NOT NULL DEFAULT 'todo'"),
     ("claim_todos", "sort_order", "INTEGER NOT NULL DEFAULT 0"),
+    # Inbound mail matched to a water mitigation job (adjuster replies)
+    ("received_emails", "matched_wm_job_id", "UUID"),
     # Follow-up payment tracking
     ("followup_tasks", "payment_status", "VARCHAR(50)"),
     ("followup_tasks", "payment_note", "TEXT"),

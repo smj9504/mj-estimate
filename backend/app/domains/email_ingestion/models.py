@@ -165,6 +165,7 @@ class ReceivedEmail(Base, BaseModel):
             "email_account_id", "message_id", unique=True,
         ),
         Index("ix_received_emails_claim_id", "matched_claim_id"),
+        Index("ix_received_emails_wm_job_id", "matched_wm_job_id"),
         Index("ix_received_emails_received_at", "received_at"),
         {"extend_existing": True},
     )
@@ -195,5 +196,13 @@ class ReceivedEmail(Base, BaseModel):
     matched_claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="SET NULL"), nullable=True)
     match_method = Column(String(100), nullable=True)
     match_confidence = Column(Integer, nullable=True)
+    # The water mitigation job it is about, matched by claim, claim number
+    # or the adjuster's address (water_mitigation/adjuster_inbox.py). Mail
+    # about a job's claim also shows on the job without this set.
+    matched_wm_job_id = Column(
+        UUIDType(),
+        ForeignKey("water_mitigation_jobs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     email_account = relationship("EmailAccount")

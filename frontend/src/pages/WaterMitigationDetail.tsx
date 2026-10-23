@@ -35,9 +35,10 @@ import {
   SendOutlined,
   ReloadOutlined,
   MoreOutlined,
+  MailOutlined,
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import waterMitigationService, { adjusterEmailService } from '../services/waterMitigationService';
+import waterMitigationService, { adjusterEmailService, type WMAdjusterEmail } from '../services/waterMitigationService';
 import { companyService } from '../services/companyService';
 import api from '../services/api';
 import type { WaterMitigationJob, JobStatusHistory, JobStatus } from '../types/waterMitigation';
@@ -52,6 +53,8 @@ import WaterMitigationScopeTab from '../components/water-mitigation/WaterMitigat
 import EditableSection from '../components/water-mitigation/EditableSection';
 import SendToAdjusterModal from '../components/water-mitigation/SendToAdjusterModal';
 import FollowUpAdjusterModal from '../components/water-mitigation/FollowUpAdjusterModal';
+import { useAdjusterEmails, senderName } from '../components/water-mitigation/AdjusterEmails';
+import ReceivedEmailBody from '../components/claim-followup/ReceivedEmailBody';
 import WMFinancialComparisonCard from '../components/water-mitigation/WMFinancialComparison';
 import { PageHeader, Pill, type TagTone } from '../components/common/ui';
 import { CompanyTag } from '../components/water-mitigation/paymentBoardShared';
@@ -403,6 +406,16 @@ const WaterMitigationDetail: React.FC = () => {
   // Timeline dot colour: the status pill's text tone
   const getStatusColor = useCallback((status: JobStatus): string =>
     tagTones[WM_STATUS_TONES[status] ?? 'gray'].text, []);
+
+  // Mail about the job sits in its history next to the status changes. The
+  // View grant doesn't get adjuster correspondence.
+  const { emails: receivedEmails, check: inboxCheck } = useAdjusterEmails(id || '', !limited);
+  const [openEmail, setOpenEmail] = useState<WMAdjusterEmail | null>(null);
+  const historyEntries = useMemo(() => [
+    ...statusHistory.map((status) => ({ kind: 'status' as const, at: status.changed_at, status })),
+    ...(limited ? [] : receivedEmails).map((email) => ({ kind: 'email' as const, at: email.received_at, email })),
+  ].sort((a, b) => dayjs(b.at || 0).valueOf() - dayjs(a.at || 0).valueOf()),
+  [statusHistory, receivedEmails, limited]);
 
   // Memoize company select options
   const companyOptions = useMemo(() =>
@@ -935,29 +948,97 @@ const WaterMitigationDetail: React.FC = () => {
                     )}
                   </Col>
 
-                  {/* Status History */}
+                  {/* History: status changes and received emails */}
                   <Col xs={24} lg={8}>
-                    <Card title="Status History" className="ui-sheet-card">
+                    <Card
+                      title="History"
+                      className="ui-sheet-card"
+                      extra={!limited && (
+                        <Tooltip title="Search the connected inboxes for this job's adjuster emails now">
+                          <Button
+                            size="small"
+                            type="text"
+                            icon={<MailOutlined />}
+                            loading={inboxCheck.isPending}
+                            onClick={() => inboxCheck.mutate(undefined, {
+                              onSuccess: (result) => {
+                                if (result.skipped_reason) message.info(result.skipped_reason);
+                                else if (result.errors.length) message.warning(`Couldn't check ${result.errors.map(e => e.account).join(', ')}`);
+                                else message.success(result.saved ? `${result.saved} new email(s) found` : 'No new emails');
+                              },
+                              onError: () => message.error('Inbox check failed'),
+                            })}
+                          >
+                            Check inbox
+                          </Button>
+                        </Tooltip>
+                      )}
+                    >
                       <Timeline
-                        items={statusHistory.map((history) => ({
-                          key: history.id,
-                          color: getStatusColor(history.new_status as JobStatus),
-                          children: (
-                            <>
-                              <p style={{ margin: 0, fontWeight: 500 }}>
-                                {history.new_status}
-                              </p>
-                              <p style={{ margin: 0, fontSize: '12px', color: '#73726e' }}>
-                                {dayjs(history.changed_at).format('MMM D, YYYY h:mm A')}
-                              </p>
-                              {history.notes && (
-                                <p style={{ margin: '4px 0 0', fontSize: '13px' }}>
-                                  {history.notes}
+                        items={historyEntries.map((entry) => {
+                          if (entry.kind === 'status') {
+                            const history = entry.status;
+                            return {
+                              key: history.id,
+                              color: getStatusColor(history.new_status as JobStatus),
+                              children: (
+                                <>
+                                  <p style={{ margin: 0, fontWeight: 500 }}>
+                                    {history.new_status}
+                                  </p>
+                                  <p style={{ margin: 0, fontSize: '12px', color: '#73726e' }}>
+                                    {dayjs(history.changed_at).format('MMM D, YYYY h:mm A')}
+                                  </p>
+                                  {history.notes && (
+                                    <p style={{ margin: '4px 0 0', fontSize: '13px' }}>
+                                      {history.notes}
+                                    </p>
+                                  )}
+                                </>
+                              ),
+                            };
+                          }
+                          const { email } = entry;
+                          return {
+                            key: email.id,
+                            color: email.from_adjuster ? tagTones.blue.text : tagTones.gray.text,
+                            dot: <MailOutlined />,
+                            children: (
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => setOpenEmail(email)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    setOpenEmail(email);
+                                  }
+                                }}
+                                style={{ cursor: 'pointer' }}
+                              >
+                                <p style={{ margin: 0, fontWeight: 500 }}>
+                                  {email.from_adjuster ? 'Email from adjuster' : 'Email received'}
+                                  {' · '}{senderName(email.sender)}
                                 </p>
-                              )}
-                            </>
-                          ),
-                        }))}
+                                <p style={{ margin: 0, fontSize: '12px', color: '#73726e' }}>
+                                  {email.received_at ? dayjs(email.received_at).format('MMM D, YYYY h:mm A') : '-'}
+                                </p>
+                                <p style={{ margin: '4px 0 0', fontSize: '13px' }}>
+                                  {email.subject || '(no subject)'}
+                                </p>
+                                {email.snippet && (
+                                  <p style={{
+                                    margin: '2px 0 0', fontSize: '12px', color: '#73726e',
+                                    overflow: 'hidden', display: '-webkit-box',
+                                    WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                                  }}>
+                                    {email.snippet}
+                                  </p>
+                                )}
+                              </div>
+                            ),
+                          };
+                        })}
                       />
                     </Card>
 
@@ -1139,6 +1220,18 @@ const WaterMitigationDetail: React.FC = () => {
           }}
         />
       )}
+
+      {/* A received email from the history, in full */}
+      <Modal
+        open={!!openEmail}
+        title={openEmail?.subject || '(no subject)'}
+        footer={null}
+        width={720}
+        onCancel={() => setOpenEmail(null)}
+        destroyOnHidden
+      >
+        {openEmail && <ReceivedEmailBody emailId={openEmail.id} />}
+      </Modal>
     </div>
   );
 };
