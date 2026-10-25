@@ -726,39 +726,28 @@ export function countAngledJoints(cabinets: CabinetSketchCabinet[], scalePixelsP
 /** How far a countertop runs past the box at a front or an exposed end or back, inches. */
 export const TOP_EDGE_OVERHANG_IN = 1.5;
 
-/**
- * The island's countertop in plan, as convex pieces whose union is the
- * top: each island floor cabinet grown by the edge overhang (and by the
- * seating overhang behind its back), plus the wedge each angled joint
- * leaves on the outside of its turn, so the top reads — and measures — as
- * one piece however the island bends. Back-to-back rows need no special
- * case: one row's seating strip lies over the other row.
- */
-export function islandTopPieces(
-  cabinets: CabinetSketchCabinet[],
-  scalePixelsPerFoot: number,
-  seatingOverhangIn = 0
-): Pt[][] {
-  const island = cabinets.filter((c) => c.location === 'island' && onFloor(c));
-  const edge = inToPx(TOP_EDGE_OVERHANG_IN, scalePixelsPerFoot);
-  const behind = Math.max(edge, inToPx(seatingOverhangIn, scalePixelsPerFoot));
-  // A point on the cabinet, x along its run and y toward its front.
-  const at = (c: CabinetSketchCabinet, x: number, y: number) => {
-    const { ux, back } = axes(c.rotation);
-    return add({ x: c.x, y: c.y }, sub(scale(ux, x), scale(back, y)));
-  };
+const islandFloor = (cabinets: CabinetSketchCabinet[]) =>
+  cabinets.filter((c) => c.location === 'island' && onFloor(c));
 
-  const pieces: Pt[][] = island.map((c) => [
-    at(c, -edge, -behind),
-    at(c, c.width + edge, -behind),
-    at(c, c.width + edge, c.height + edge),
-    at(c, -edge, c.height + edge),
-  ]);
+/** A point on a cabinet, x along its run and y toward its front. */
+export function pointOnCabinet(c: Pick<CabinetSketchCabinet, 'x' | 'y' | 'rotation'>, x: number, y: number): Pt {
+  const { ux, back } = axes(c.rotation);
+  return add({ x: c.x, y: c.y }, sub(scale(ux, x), scale(back, y)));
+}
 
-  // The wedge on the outside of each angled joint: from the inside corner
-  // the two cabinets share, out to their outside corners (and past them by
-  // the overhang on that side).
+/** Two island cabinets joined end to end at an angle: which ends meet, and which side the wedge between them opens on. */
+interface IslandJoint {
+  a: CabinetSketchCabinet;
+  b: CabinetSketchCabinet;
+  aEnd: number;
+  bEnd: number;
+  /** The wedge opens at the backs (the fronts meet at the inside corner of the turn). */
+  opensBack: boolean;
+}
+
+function islandJoints(island: CabinetSketchCabinet[], scalePixelsPerFoot: number): IslandJoint[] {
   const tol = inToPx(1, scalePixelsPerFoot);
+  const joints: IslandJoint[] = [];
   for (let i = 0; i < island.length; i++) {
     for (let j = i + 1; j < island.length; j++) {
       const [a, b] = [island[i], island[j]];
@@ -766,19 +755,175 @@ export function islandTopPieces(
       if (angleDiffDeg(b.rotation, a.rotation + quarter) <= NEIGHBOR_SNAP_ANGLE_DEG) continue;
       const phi = ((((b.rotation - a.rotation) % 360) + 540) % 360) - 180;
       const [pastRight, beforeLeft] = angledJoinShifts(b, a).map((s) => Math.hypot(s.x, s.y) <= tol);
-      // Which ends meet, and whether the wedge opens at the back (inside corner at the front).
-      const join = pastRight
-        ? { aEnd: a.width, bEnd: 0, opensBack: phi > 0 }
-        : beforeLeft
-          ? { aEnd: 0, bEnd: b.width, opensBack: phi < 0 }
-          : null;
-      if (!join) continue;
-      const outY = (c: CabinetSketchCabinet) => (join.opensBack ? -behind : c.height + edge);
-      const hinge = at(a, join.aEnd, join.opensBack ? a.height : 0);
-      pieces.push([hinge, at(a, join.aEnd, outY(a)), at(b, join.bEnd, outY(b))]);
+      if (pastRight) joints.push({ a, b, aEnd: a.width, bEnd: 0, opensBack: phi > 0 });
+      else if (beforeLeft) joints.push({ a, b, aEnd: 0, bEnd: b.width, opensBack: phi < 0 });
     }
   }
+  return joints;
+}
+
+/**
+ * The island's countertop in plan, as convex pieces whose union is the
+ * top: each island floor cabinet grown by the edge overhang (and by the
+ * seating overhang behind its back), plus the wedge each angled joint
+ * leaves on the outside of its turn, so the top reads — and measures — as
+ * one piece however the island bends. Back-to-back rows need no special
+ * case: one row's seating strip lies over the other row. polygonUnion
+ * turns the pieces into the top's outline.
+ */
+export function islandTopPieces(
+  cabinets: CabinetSketchCabinet[],
+  scalePixelsPerFoot: number,
+  seatingOverhangIn = 0
+): Pt[][] {
+  const island = islandFloor(cabinets);
+  const edge = inToPx(TOP_EDGE_OVERHANG_IN, scalePixelsPerFoot);
+  const behind = Math.max(edge, inToPx(seatingOverhangIn, scalePixelsPerFoot));
+
+  const pieces: Pt[][] = island.map((c) => [
+    pointOnCabinet(c, -edge, -behind),
+    pointOnCabinet(c, c.width + edge, -behind),
+    pointOnCabinet(c, c.width + edge, c.height + edge),
+    pointOnCabinet(c, -edge, c.height + edge),
+  ]);
+
+  // The wedge on the outside of each angled joint: from the inside corner
+  // the two cabinets share, out to their outside corners (and past them by
+  // the overhang on that side).
+  for (const { a, b, aEnd, bEnd, opensBack } of islandJoints(island, scalePixelsPerFoot)) {
+    const outY = (c: CabinetSketchCabinet) => (opensBack ? -behind : c.height + edge);
+    const hinge = pointOnCabinet(a, aEnd, opensBack ? a.height : 0);
+    pieces.push([hinge, pointOnCabinet(a, aEnd, outY(a)), pointOnCabinet(b, bEnd, outY(b))]);
+  }
   return pieces;
+}
+
+/**
+ * The tapered filler in each angled island joint: the wedge between the
+ * two boxes, from the inside corner they share out to the outside corners
+ * of their joined ends (a's, then b's), so the island reads as one run.
+ * `atFront` when it fills the door side (the backs meet), not the backs.
+ */
+export function islandJointFillers(
+  cabinets: CabinetSketchCabinet[],
+  scalePixelsPerFoot: number
+): { wedge: Pt[]; atFront: boolean; a: CabinetSketchCabinet; b: CabinetSketchCabinet }[] {
+  return islandJoints(islandFloor(cabinets), scalePixelsPerFoot).map(({ a, b, aEnd, bEnd, opensBack }) => {
+    const outY = (c: CabinetSketchCabinet) => (opensBack ? 0 : c.height);
+    const hinge = pointOnCabinet(a, aEnd, opensBack ? a.height : 0);
+    return { wedge: [hinge, pointOnCabinet(a, aEnd, outY(a)), pointOnCabinet(b, bEnd, outY(b))], atFront: !opensBack, a, b };
+  });
+}
+
+/** Twice a polygon's signed area (shoelace); its sign is the winding. */
+export function signedArea2(poly: Pt[]): number {
+  let s = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % poly.length];
+    s += p.x * q.y - q.x * p.y;
+  }
+  return s;
+}
+
+const cross = (a: Pt, b: Pt) => a.x * b.y - a.y * b.x;
+const lerp = (a: Pt, b: Pt, t: number): Pt => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+
+/** A loop without its zero-length sides and the corners that don't turn. */
+function dropStraightCorners(loop: Pt[], tol: number): Pt[] {
+  const pts = [...loop];
+  for (let i = 0; pts.length >= 3 && i < pts.length; ) {
+    const prev = pts[(i + pts.length - 1) % pts.length];
+    const next = pts[(i + 1) % pts.length];
+    const across = Math.hypot(next.x - prev.x, next.y - prev.y);
+    const offLine = Math.abs(cross(sub(pts[i], prev), sub(next, pts[i])));
+    if (Math.hypot(pts[i].x - prev.x, pts[i].y - prev.y) <= tol || offLine <= tol * across) {
+      pts.splice(i, 1);
+      i = Math.max(i - 1, 0);
+    } else {
+      i++;
+    }
+  }
+  return pts;
+}
+
+/**
+ * The outline of the union of convex polygons, as closed loops: each
+ * separate shape's outside wound with a positive signedArea2, any hole the
+ * other way, so a nonzero fill draws it right. Each edge is cut where the
+ * other pieces cross or touch it, and a stretch is kept when the union is
+ * on its inner side but not its outer side — which drops the edges buried
+ * in other pieces, and keeps one copy of an outside edge two pieces share.
+ */
+export function polygonUnion(pieces: Pt[][]): Pt[][] {
+  const polys = pieces
+    .filter((p) => p.length >= 3 && Math.abs(signedArea2(p)) > 1e-9)
+    .map((p) => (signedArea2(p) > 0 ? p : [...p].reverse()));
+  const pts = polys.flat();
+  if (pts.length === 0) return [];
+  const span = Math.max(
+    Math.max(...pts.map((p) => p.x)) - Math.min(...pts.map((p) => p.x)),
+    Math.max(...pts.map((p) => p.y)) - Math.min(...pts.map((p) => p.y))
+  );
+  // Points closer than `tol` are one point; the in / out probes sit `probe` off the edge.
+  const tol = span * 1e-6;
+  const probe = span * 1e-5;
+  const inUnion = (p: Pt) => polys.some((poly) => inConvex(p, poly));
+  const same = (p: Pt, q: Pt) => Math.hypot(p.x - q.x, p.y - q.y) <= tol;
+
+  const sides: [Pt, Pt][] = [];
+  polys.forEach((poly, i) => {
+    poly.forEach((a, k) => {
+      const b = poly[(k + 1) % poly.length];
+      const d = sub(b, a);
+      const len = Math.hypot(d.x, d.y);
+      if (len <= tol) return;
+      const cuts = [0, 1];
+      polys.forEach((other, j) => {
+        if (j === i) return;
+        other.forEach((c, m) => {
+          // Its corner on this edge…
+          const ac = sub(c, a);
+          const t = dot(ac, d) / (len * len);
+          if (t > 0 && t < 1 && Math.abs(cross(d, ac)) / len <= tol) cuts.push(t);
+          // …or its edge across this one.
+          const f = sub(other[(m + 1) % other.length], c);
+          const den = cross(d, f);
+          if (Math.abs(den) <= 1e-9 * len * Math.hypot(f.x, f.y)) return;
+          const s = cross(ac, f) / den;
+          const u = cross(ac, d) / den;
+          if (s > 0 && s < 1 && u >= 0 && u <= 1) cuts.push(s);
+        });
+      });
+      cuts.sort((p, q) => p - q);
+      // The interior of a positively wound polygon is on the left of each edge.
+      const outward = scale({ x: d.y, y: -d.x }, probe / len);
+      for (let n = 0; n + 1 < cuts.length; n++) {
+        if ((cuts[n + 1] - cuts[n]) * len <= tol) continue;
+        const mid = lerp(a, b, (cuts[n] + cuts[n + 1]) / 2);
+        if (inUnion(add(mid, outward)) || !inUnion(sub(mid, outward))) continue;
+        const side: [Pt, Pt] = [lerp(a, b, cuts[n]), lerp(a, b, cuts[n + 1])];
+        if (!sides.some(([p, q]) => same(p, side[0]) && same(q, side[1]))) sides.push(side);
+      }
+    });
+  });
+
+  // Chain the kept stretches, end to start, into loops.
+  const loops: Pt[][] = [];
+  const used = sides.map(() => false);
+  for (let first = 0; first < sides.length; first++) {
+    if (used[first]) continue;
+    const loop: Pt[] = [];
+    for (let cur = first; cur >= 0; ) {
+      used[cur] = true;
+      loop.push(sides[cur][0]);
+      const end = sides[cur][1];
+      cur = sides.findIndex(([p], k) => !used[k] && same(p, end));
+    }
+    const clean = dropStraightCorners(loop, tol);
+    if (clean.length >= 3 && Math.abs(signedArea2(clean)) > tol * span) loops.push(clean);
+  }
+  return loops;
 }
 
 /** Point in a convex polygon (either winding). */

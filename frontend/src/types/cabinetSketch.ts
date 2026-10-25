@@ -53,9 +53,30 @@ export interface CabinetSketchCabinet {
   has_glass_door?: boolean | null;
 }
 
+/**
+ * One unit of the Edit tab's Appliance Detach & Reset list, placed on the
+ * plan so the drawing shows where it comes out and goes back. The Edit tab
+ * says which appliances there are; the sketch only owns where they sit
+ * (see sketchAppliances.ts).
+ */
+export interface CabinetSketchAppliance {
+  id: string;
+  /** The appliance_list type it stands for: 'dishwasher', 'range_gas', … */
+  type: string;
+  /** Plan position and footprint in canvas pixels, as a cabinet's: (x, y) the back-left corner, front toward local +y. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  /** The cabinet it sits in or on (a range base, a sink base, an oven cabinet…); it moves with it. Absent or null: it stands on its own. */
+  host_id?: string | null;
+}
+
 export interface CabinetSketchOverlayData {
   walls: CabinetSketchWall[];
   cabinets: CabinetSketchCabinet[];
+  appliances: CabinetSketchAppliance[];
   element_order: string[];
 }
 
@@ -77,6 +98,7 @@ export interface CabinetSketchUpdate {
 export const EMPTY_CABINET_OVERLAY_DATA: CabinetSketchOverlayData = {
   walls: [],
   cabinets: [],
+  appliances: [],
   element_order: [],
 };
 
@@ -92,5 +114,5 @@ export type CabinetSketchView = 'plan' | 'elevation' | '3d';
 
 export interface CabinetSketchSelection {
   element_id: string;
-  element_type: 'wall' | 'cabinet';
+  element_type: 'wall' | 'cabinet' | 'appliance';
 }

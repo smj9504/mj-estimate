@@ -12,8 +12,11 @@ import {
   snapDroppedCabinet,
   turnCabinets,
   countAngledJoints,
+  islandJointFillers,
   islandTopAreaSf,
   islandTopPieces,
+  polygonUnion,
+  signedArea2,
   type PresetCatalog,
   type SketchBoxSource,
 } from './cabinetSketchLayout';
@@ -394,6 +397,9 @@ describe('snapCabinetToNeighbors', () => {
     // Back to back: one top 33" x (48 + 2 x 1.5) = 11.69 SF; each row's seating strip lies over the other.
     const pair = [isle(), isle({ id: 'back', x: 90, y: 40, rotation: 180 })];
     expect(islandTopAreaSf(islandTopPieces(pair, SCALE, 12), SCALE)).toBeCloseTo(11.7, 1);
+    const pairTop = polygonUnion(islandTopPieces(pair, SCALE, 12));
+    expect(pairTop).toHaveLength(1);
+    expect(pairTop[0]).toHaveLength(4);
     // Perimeter cabinets have no island top.
     expect(islandTopPieces([b30()], SCALE)).toEqual([]);
   });
@@ -407,6 +413,34 @@ describe('snapCabinetToNeighbors', () => {
     const withWedge = islandTopAreaSf(pieces, SCALE);
     const without = islandTopAreaSf(pieces.slice(0, 2), SCALE);
     expect(withWedge).toBeGreaterThan(without);
+  });
+
+  it('outlines an angled island as one top, with a filler in each joint', () => {
+    // B36, a 24" base turned 45° toward its back, and a B36 turned a quarter: backs on the inside of the bend.
+    const a = b30({ location: 'island', width: 60 });
+    const mid = { ...b30({ id: 'mid', width: 40, location: 'island' }), rotation: -45 };
+    const midJoined = { ...mid, ...snapCabinetToNeighbors({ ...mid, x: 93, y: 42 }, [a], SCALE)! };
+    const end = { ...b30({ id: 'end', width: 60, location: 'island' }), rotation: -90 };
+    const endJoined = { ...end, ...snapCabinetToNeighbors({ ...end, x: 119, y: 12 }, [a, midJoined], SCALE)! };
+    const plan = [a, midJoined, endJoined];
+    expect(countAngledJoints(plan, SCALE)).toBe(2);
+
+    const pieces = islandTopPieces(plan, SCALE);
+    const outline = polygonUnion(pieces);
+    expect(outline).toHaveLength(1);
+    // The outline encloses what the sampled measure counts.
+    const sf = signedArea2(outline[0]) / 2 / (SCALE * SCALE);
+    expect(sf).toBeCloseTo(islandTopAreaSf(pieces, SCALE), 0);
+
+    const fillers = islandJointFillers(plan, SCALE);
+    expect(fillers).toHaveLength(2);
+    for (const { wedge, atFront } of fillers) {
+      expect(atFront).toBe(true);
+      expect(Math.abs(signedArea2(wedge))).toBeGreaterThan(1);
+    }
+    // Perimeter runs and square joints get none.
+    expect(islandJointFillers(plan.map((c) => ({ ...c, location: 'perimeter' as const })), SCALE)).toEqual([]);
+    expect(islandJointFillers([a, b30({ id: 'next', x: 100, location: 'island' })], SCALE)).toEqual([]);
   });
 
   it('turns a selected run as one piece, so it stays joined', () => {
@@ -523,5 +557,41 @@ describe('buildElevations', () => {
     expect(run.label).toBe('North wall');
     expect(run.length_in).toBeCloseTo(120); // the 10 ft wall
     expect(run.wall).toBeDefined();
+  });
+});
+
+describe('polygonUnion', () => {
+  const rect = (x0: number, y0: number, x1: number, y1: number) => [
+    { x: x0, y: y0 },
+    { x: x1, y: y0 },
+    { x: x1, y: y1 },
+    { x: x0, y: y1 },
+  ];
+  const area = (loops: { x: number; y: number }[][]) => loops.reduce((s, l) => s + signedArea2(l) / 2, 0);
+
+  it('merges overlapping and edge-sharing pieces into one outline', () => {
+    const overlap = polygonUnion([rect(0, 0, 10, 10), rect(5, 5, 15, 15)]);
+    expect(overlap).toHaveLength(1);
+    expect(overlap[0]).toHaveLength(8);
+    expect(area(overlap)).toBeCloseTo(175);
+    // Side by side, sharing an edge or overlapping along it: one rectangle, no seam.
+    for (const right of [rect(10, 0, 20, 10), rect(8, 0, 20, 10)]) {
+      const run = polygonUnion([rect(0, 0, 10, 10), right]);
+      expect(run).toHaveLength(1);
+      expect(run[0]).toHaveLength(4);
+      expect(area(run)).toBeCloseTo(200);
+    }
+  });
+
+  it('keeps apart pieces that do not touch, winds every outside the same way, and finds holes', () => {
+    const apart = polygonUnion([rect(0, 0, 10, 10), rect(20, 0, 30, 10).reverse()]);
+    expect(apart).toHaveLength(2);
+    expect(apart.every((l) => signedArea2(l) > 0)).toBe(true);
+    // A ring of four bars: an outside and a hole wound the other way.
+    const ring = polygonUnion([rect(0, 0, 30, 10), rect(20, 0, 30, 30), rect(0, 20, 30, 30), rect(0, 0, 10, 30)]);
+    expect(ring).toHaveLength(2);
+    expect(ring.map((l) => Math.sign(signedArea2(l))).sort()).toEqual([-1, 1]);
+    expect(area(ring)).toBeCloseTo(900 - 100);
+    expect(polygonUnion([])).toEqual([]);
   });
 });

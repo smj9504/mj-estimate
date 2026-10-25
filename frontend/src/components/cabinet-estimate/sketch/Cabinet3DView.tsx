@@ -2,7 +2,8 @@
  * Cabinet3DView
  *
  * The sketch in 3D: the plan's cabinets stood up at their real sizes, with
- * doors, drawers, glass, countertops and the drawn walls. Drag to orbit,
+ * doors, drawers, glass, countertops, sinks, the detach & reset appliances
+ * (each tagged) and the drawn walls. Drag to orbit,
  * scroll to zoom, right-drag to pan; click a cabinet to select it (Ctrl /
  * Cmd adds to the selection), click empty space to deselect.
  *
@@ -20,12 +21,22 @@ import { Button, Tooltip } from 'antd';
 import { AimOutlined } from '@ant-design/icons';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { CabinetSketchCabinet, CabinetSketchWall } from '../../../types/cabinetSketch';
+import type { CabinetSketchAppliance, CabinetSketchCabinet, CabinetSketchWall } from '../../../types/cabinetSketch';
 import type { PresetCatalog } from './cabinetSketchLayout';
-import { cabinetSolids, mainFacing, modelBounds, wallSolids } from './cabinet3dModel';
+import {
+  applianceExtent,
+  applianceSolids,
+  cabinetSolids,
+  islandFillerSolids,
+  islandTopSlabs,
+  mainFacing,
+  modelBounds,
+  wallSolids,
+} from './cabinet3dModel';
 import { buildCabinetScene, cabinetIdOf, disposeScene } from './cabinet3dScene';
 
 const BACKGROUND = '#f7f7f5';
+const NO_APPLIANCES: CabinetSketchAppliance[] = [];
 /** How far (screen px) the pointer may move between press and release and still count as a click. */
 const CLICK_SLOP_PX = 4;
 
@@ -41,9 +52,15 @@ interface Stage {
 export interface Cabinet3DViewProps {
   cabinets: CabinetSketchCabinet[];
   walls: CabinetSketchWall[];
+  /** The plan's detach & reset appliances. */
+  appliances?: CabinetSketchAppliance[];
+  /** Bowls of the sinks drawn on sink bases (the Edit tab's sink type). */
+  sinkBowls?: 1 | 2;
   presets: PresetCatalog;
   scalePixelsPerFoot: number;
   height: number;
+  /** The Edit tab's island seating overhang, inches, for the island top. */
+  islandSeatingIn?: number;
   selectedIds: Set<string>;
   onSelect: (id: string, additive: boolean) => void;
   onDeselect: () => void;
@@ -52,9 +69,12 @@ export interface Cabinet3DViewProps {
 const Cabinet3DView: React.FC<Cabinet3DViewProps> = ({
   cabinets,
   walls,
+  appliances = NO_APPLIANCES,
+  sinkBowls = 1,
   presets,
   scalePixelsPerFoot,
   height,
+  islandSeatingIn = 0,
   selectedIds,
   onSelect,
   onDeselect,
@@ -70,15 +90,24 @@ const Cabinet3DView: React.FC<Cabinet3DViewProps> = ({
   pickRef.current = { onSelect, onDeselect };
 
   const solids = useMemo(
-    () => cabinetSolids(cabinets, presets, scalePixelsPerFoot),
-    [cabinets, presets, scalePixelsPerFoot]
+    () => cabinetSolids(cabinets, presets, scalePixelsPerFoot, sinkBowls),
+    [cabinets, presets, scalePixelsPerFoot, sinkBowls]
   );
   const wallModels = useMemo(() => wallSolids(walls, scalePixelsPerFoot), [walls, scalePixelsPerFoot]);
+  // The island in one piece (its top over all its cabinets, the fillers closing its angled joints) and the appliances.
+  const extras = useMemo(
+    () => ({
+      counters: islandTopSlabs(solids, scalePixelsPerFoot, islandSeatingIn),
+      fillers: islandFillerSolids(solids, scalePixelsPerFoot),
+      appliances: applianceSolids(appliances, cabinets, presets, scalePixelsPerFoot),
+    }),
+    [solids, scalePixelsPerFoot, islandSeatingIn, appliances, cabinets, presets]
+  );
 
   // Stand in front of the doors, a little to one side and above, far enough back to see it all.
   const frameView = useCallback(() => {
     const stage = stageRef.current;
-    const bounds = modelBounds(solids, wallModels);
+    const bounds = modelBounds(solids, wallModels, applianceExtent(extras.appliances));
     if (!stage || !bounds) return;
     const cx = (bounds.minX + bounds.maxX) / 2;
     const cz = (bounds.minZ + bounds.maxZ) / 2;
@@ -90,7 +119,7 @@ const Cabinet3DView: React.FC<Cabinet3DViewProps> = ({
     stage.controls.target.set(cx, 36, cz);
     stage.controls.update();
     stage.render();
-  }, [solids, wallModels]);
+  }, [solids, wallModels, extras]);
 
   // Renderer, camera, lights and controls: once.
   useEffect(() => {
@@ -195,7 +224,7 @@ const Cabinet3DView: React.FC<Cabinet3DViewProps> = ({
       stage.scene.remove(stage.content);
       disposeScene(stage.content);
     }
-    stage.content = buildCabinetScene(solids, wallModels, selectedIds);
+    stage.content = buildCabinetScene(solids, wallModels, selectedIds, extras);
     stage.scene.add(stage.content);
     // Frame the kitchen the first time there is one to see; after that the camera stays where it was put.
     if (!framed.current && (solids.length > 0 || wallModels.length > 0)) {
@@ -204,7 +233,7 @@ const Cabinet3DView: React.FC<Cabinet3DViewProps> = ({
     } else {
       stage.render();
     }
-  }, [solids, wallModels, selectedIds, frameView, stageVersion]);
+  }, [solids, wallModels, extras, selectedIds, frameView, stageVersion]);
 
   if (failed) {
     return (

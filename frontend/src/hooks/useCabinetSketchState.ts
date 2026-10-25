@@ -3,7 +3,7 @@
  *
  * useReducer-based state management for the cabinet sketch canvas overlay
  * data. Trimmed down from the water mitigation sketch's useWMSketchState:
- * only walls + placed cabinets, selection, batch-move, z-order, and
+ * only walls + placed cabinets and appliances, selection, batch-move, z-order, and
  * undo/redo (up to 50 entries) — no demolition/equipment/containment/room
  * concepts.
  */
@@ -13,6 +13,7 @@ import type {
   CabinetSketchOverlayData,
   CabinetSketchWall,
   CabinetSketchCabinet,
+  CabinetSketchAppliance,
   CabinetSketchTool,
   CabinetSketchSelection,
 } from '../types/cabinetSketch';
@@ -50,6 +51,8 @@ type CabinetSketchAction =
   | { type: 'BRING_FORWARD'; payload: string }
   | { type: 'SEND_BACKWARD'; payload: string }
   | { type: 'SYNC_CABINETS'; payload: CabinetSketchCabinet[] }
+  | { type: 'UPDATE_APPLIANCES'; payload: (Partial<CabinetSketchAppliance> & { id: string })[] }
+  | { type: 'SYNC_APPLIANCES'; payload: CabinetSketchAppliance[] }
   | { type: 'LOAD_OVERLAY_DATA'; payload: CabinetSketchOverlayData }
   | { type: 'MARK_SAVED' }
   | { type: 'UNDO' }
@@ -217,6 +220,8 @@ function cabinetSketchReducer(
         items.map((item) =>
           selectedIdSet.has(item.id) ? { ...item, x: item.x + dx, y: item.y + dy } : item
         );
+      // An appliance in a cabinet goes with the cabinet (see sketchAppliances), so only free-standing ones move here.
+      const free = (state.overlayData.appliances ?? []).map((a) => (a.host_id ? a : moveIfSelected([a])[0]));
 
       const { undoStack, redoStack } = pushUndo(state);
       return {
@@ -227,6 +232,7 @@ function cabinetSketchReducer(
         overlayData: {
           ...state.overlayData,
           cabinets: moveIfSelected(state.overlayData.cabinets),
+          appliances: free,
         },
       };
     }
@@ -303,6 +309,36 @@ function cabinetSketchReducer(
           (s) => s.element_type !== 'cabinet' || ids.has(s.element_id)
         ),
         overlayData: { ...state.overlayData, cabinets: action.payload, element_order: order },
+      };
+    }
+
+    // Appliances dragged or turned on the canvas, as one undo step.
+    case 'UPDATE_APPLIANCES': {
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          appliances: action.payload.reduce(
+            (apps, patch) => updateById(apps, patch),
+            state.overlayData.appliances ?? []
+          ),
+        },
+      };
+    }
+
+    // Follows the Edit tab's appliance list (and the cabinets appliances sit
+    // in), like SYNC_CABINETS — not an undo step.
+    case 'SYNC_APPLIANCES': {
+      const ids = new Set(action.payload.map((a) => a.id));
+      return {
+        ...state,
+        isDirty: true,
+        selections: state.selections.filter((s) => s.element_type !== 'appliance' || ids.has(s.element_id)),
+        overlayData: { ...state.overlayData, appliances: action.payload },
       };
     }
 
@@ -389,6 +425,8 @@ export interface CabinetSketchStateReturn {
   sendBackward: (id: string) => void;
 
   syncCabinets: (cabinets: CabinetSketchCabinet[]) => void;
+  updateAppliances: (patches: (Partial<CabinetSketchAppliance> & { id: string })[]) => void;
+  syncAppliances: (appliances: CabinetSketchAppliance[]) => void;
   loadOverlayData: (data: CabinetSketchOverlayData) => void;
   markSaved: () => void;
 
@@ -455,6 +493,15 @@ export function useCabinetSketchState(
     (cabinets: CabinetSketchCabinet[]) => dispatch({ type: 'SYNC_CABINETS', payload: cabinets }),
     []
   );
+  const updateAppliances = useCallback(
+    (patches: (Partial<CabinetSketchAppliance> & { id: string })[]) =>
+      dispatch({ type: 'UPDATE_APPLIANCES', payload: patches }),
+    []
+  );
+  const syncAppliances = useCallback(
+    (appliances: CabinetSketchAppliance[]) => dispatch({ type: 'SYNC_APPLIANCES', payload: appliances }),
+    []
+  );
   const loadOverlayData = useCallback(
     (data: CabinetSketchOverlayData) => dispatch({ type: 'LOAD_OVERLAY_DATA', payload: data }),
     []
@@ -487,6 +534,8 @@ export function useCabinetSketchState(
     bringForward,
     sendBackward,
     syncCabinets,
+    updateAppliances,
+    syncAppliances,
     loadOverlayData,
     markSaved,
     undo,

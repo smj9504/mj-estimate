@@ -14,14 +14,16 @@
  * The Edit tab's box list decides which cabinets exist: every box × qty
  * has one shape here, kept in step by reconcileCabinets. Placing a cabinet
  * from the dropdown adds a box to the Edit tab; deleting one here takes it
- * off the Edit tab. The sketch itself only stores positions, and never
+ * off the Edit tab. Likewise each unit of the Edit tab's Appliance Detach &
+ * Reset list is drawn where it goes (reconcileAppliances), and a sink on
+ * each sink base. The sketch itself only stores positions, and never
  * affects pricing on its own.
  *
  * Scoped-down analog of water-mitigation/sketch/WMFloorSketchEditor.tsx.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Stage, Layer, Line } from 'react-konva';
+import { Stage, Layer, Line, Shape } from 'react-konva';
 import Konva from 'konva';
 import { Button, InputNumber, Segmented, Select, Space, Tag, Tooltip, message } from 'antd';
 import {
@@ -44,6 +46,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cabinetSketchService } from '../../../services/cabinetSketchService';
 import { useCabinetSketchState } from '../../../hooks/useCabinetSketchState';
 import type {
+  CabinetSketchAppliance,
   CabinetSketchCabinet,
   CabinetSketchOverlayData,
   CabinetSketchView,
@@ -56,6 +59,7 @@ import type { SectionType, WallHeightFilter } from '../CabinetBoxEditor';
 import type { CabType } from '../../../types/cabinetEstimate';
 import CabinetWallRenderer, { CabinetWallPreview } from './CabinetWallRenderer';
 import CabinetShapeRenderer from './CabinetShapeRenderer';
+import { ApplianceShape, DR_TAG_COLOR, SinkShape } from './CabinetApplianceRenderer';
 import CabinetElevationView from './CabinetElevationView';
 import { pixelsToFeet, generateOverlayId, snapToWallEndpoint, constrainToAxis } from './cabinetSketchUtils';
 import {
@@ -69,11 +73,21 @@ import {
   snapDroppedCabinet,
   turnCabinets,
   countAngledJoints,
+  islandJointFillers,
   islandTopAreaSf,
   islandTopPieces,
+  polygonUnion,
   TOP_EDGE_OVERHANG_IN,
+  cabinetSizeIn,
   type SketchBoxSource,
 } from './cabinetSketchLayout';
+import {
+  SINK_SPECIALTIES,
+  applianceNeighbors,
+  applianceSpec,
+  placeDroppedAppliance,
+  reconcileAppliances,
+} from './sketchAppliances';
 
 // three.js is big; it's only fetched once the 3D view is opened.
 const Cabinet3DView = React.lazy(() => import('./Cabinet3DView'));
@@ -94,6 +108,8 @@ const PLACE_SECTIONS: { type: SectionType; label: string }[] = [
 /** The picker a cabinet belongs in; the legacy 'specialty' type is a base. */
 const sectionOf = (cabinet: CabinetSketchCabinet): SectionType =>
   cabinet.cab_type === 'specialty' ? 'base' : cabinet.cab_type;
+const NO_APPLIANCES: CabinetSketchAppliance[] = [];
+const NO_LIST: { type: string; qty: number }[] = [];
 
 /**
  * View transform of the plan stage. Canvas coordinates are saved at the
@@ -170,6 +186,10 @@ export interface CabinetSketchEditorProps {
   islandSeatingIn?: number;
   /** "Use in estimate" on the plan's island top — set the Edit tab's island countertop SF to it. */
   onApplyIslandTopSf?: (sf: number) => void;
+  /** The Edit tab's Appliance Detach & Reset list (empty when that is off) — the appliances the sketch shows. */
+  applianceList?: { type: string; qty: number }[];
+  /** Bowls of the sink drawn on each sink base: the Edit tab's sink type. */
+  sinkBowls?: 1 | 2;
 }
 
 const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
@@ -183,6 +203,8 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   onApplyAngledJoints,
   islandSeatingIn = 0,
   onApplyIslandTopSf,
+  applianceList = NO_LIST,
+  sinkBowls = 1,
 }) => {
   const queryClient = useQueryClient();
   const stageRef = useRef<Konva.Stage>(null);
@@ -229,6 +251,8 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     updateCabinets,
     removeCabinet,
     syncCabinets,
+    updateAppliances,
+    syncAppliances,
     loadOverlayData,
     markSaved,
     undo,
@@ -247,14 +271,25 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
 
   const scalePixelsPerFoot = sketch?.scale_pixels_per_foot ?? 20;
   const { cabinets, walls } = state.overlayData;
+  const appliances = state.overlayData.appliances ?? NO_APPLIANCES;
 
   // Keep the shapes in step with the Edit tab. Also re-runs after undo/redo,
   // which can bring back a shape whose box is gone (or drop one that has a box).
+  // The appliances follow once the cabinets have settled, so a new range finds
+  // the range base that came with it, and those in a cabinet move with it.
   useEffect(() => {
     if (!loaded) return;
     const next = reconcileCabinets(cabinets, boxes, walls, CABINET_PRESETS, scalePixelsPerFoot);
-    if (next) syncCabinets(next);
-  }, [loaded, boxes, cabinets, walls, scalePixelsPerFoot, syncCabinets]);
+    if (next) {
+      syncCabinets(next);
+      return;
+    }
+    const nextAppliances = reconcileAppliances(appliances, applianceList, cabinets, walls, CABINET_PRESETS, scalePixelsPerFoot);
+    if (nextAppliances) syncAppliances(nextAppliances);
+  }, [loaded, boxes, cabinets, walls, appliances, applianceList, scalePixelsPerFoot, syncCabinets, syncAppliances]);
+
+  // What a dropped cabinet lines up with: the other cabinets, and free-standing appliances.
+  const neighbors = useMemo(() => [...cabinets, ...applianceNeighbors(appliances)], [cabinets, appliances]);
 
   // ------------------------------------------------------------------
   // Saving: on demand, after a quiet period, and when leaving the page
@@ -392,7 +427,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
             height,
             rotation: 0,
           };
-          const placed = snapDroppedCabinet(dropped, cabinets, walls, scalePixelsPerFoot);
+          const placed = snapDroppedCabinet(dropped, neighbors, walls, scalePixelsPerFoot);
           const cabinet: CabinetSketchCabinet = {
             id,
             preset_code: code,
@@ -423,7 +458,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     [
       state.activeTool,
       state.activePresetCode,
-      cabinets,
+      neighbors,
       walls,
       scalePixelsPerFoot,
       getCanvasPos,
@@ -436,26 +471,38 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     ]
   );
 
+  // Appliances come and go with the Edit tab's list, so Delete leaves them.
+  const deletableIds = useMemo(
+    () => state.selections.filter((s) => s.element_type !== 'appliance').map((s) => s.element_id),
+    [state.selections]
+  );
   const deleteSelected = useCallback(() => {
     const removedKeys = cabinets
-      .filter((c) => selectedIds.has(c.id))
+      .filter((c) => deletableIds.includes(c.id))
       .map((c) => cabinetKey(c, CABINET_PRESETS, scalePixelsPerFoot));
-    selectedIds.forEach((id) => {
+    deletableIds.forEach((id) => {
       removeWall(id);
       removeCabinet(id);
     });
     if (removedKeys.length > 0) onCabinetsRemoved?.(removedKeys);
-  }, [cabinets, selectedIds, scalePixelsPerFoot, removeWall, removeCabinet, onCabinetsRemoved]);
+  }, [cabinets, deletableIds, scalePixelsPerFoot, removeWall, removeCabinet, onCabinetsRemoved]);
 
-  // Turn the selected cabinets as one piece — a quarter turn for the ends
-  // of a three-sided island, 45° (or any angle) for a side of an angled one.
-  const hasSelectedCabinet = cabinets.some((c) => selectedIds.has(c.id));
+  // Turn the selected cabinets (and free-standing appliances) as one piece —
+  // a quarter turn for the ends of a three-sided island, 45° (or any angle)
+  // for a side of an angled one.
+  const pickedAppliances = appliances.filter((a) => selectedIds.has(a.id) && !a.host_id);
+  const hasSelectedCabinet = cabinets.some((c) => selectedIds.has(c.id)) || pickedAppliances.length > 0;
   const turnSelected = useCallback(
     (degrees: number) => {
       const picked = cabinets.filter((c) => selectedIds.has(c.id));
-      if (picked.length > 0 && degrees !== 0) updateCabinets(turnCabinets(picked, degrees));
+      const pickedApps = appliances.filter((a) => selectedIds.has(a.id) && !a.host_id);
+      if (picked.length + pickedApps.length === 0 || degrees === 0) return;
+      const turned = turnCabinets([...picked, ...pickedApps], degrees);
+      const isApp = new Set(pickedApps.map((a) => a.id));
+      if (picked.length > 0) updateCabinets(turned.filter((t) => !isApp.has(t.id)));
+      if (pickedApps.length > 0) updateAppliances(turned.filter((t) => isApp.has(t.id)));
     },
-    [cabinets, selectedIds, updateCabinets]
+    [cabinets, appliances, selectedIds, updateCabinets, updateAppliances]
   );
   // The selection's angle, -180..180 (0 = backed to the top of the screen),
   // or null when the selected cabinets are turned different ways.
@@ -477,10 +524,15 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   );
   // Floor cabinets joined at an angle in the plan — what the Edit tab's Angled Joints should count.
   const angledJoints = useMemo(() => countAngledJoints(cabinets, scalePixelsPerFoot), [cabinets, scalePixelsPerFoot]);
-  // The island countertop as the plan has it — any shape, angled or not — and its area.
+  // The island countertop as the plan has it — any shape, angled or not — its outline and area,
+  // and the fillers that close the wedges between the boxes of its angled joints.
   const islandTop = useMemo(() => {
     const pieces = islandTopPieces(cabinets, scalePixelsPerFoot, islandSeatingIn);
-    return { pieces, sf: islandTopAreaSf(pieces, scalePixelsPerFoot) };
+    return {
+      outline: polygonUnion(pieces),
+      sf: islandTopAreaSf(pieces, scalePixelsPerFoot),
+      fillers: islandJointFillers(cabinets, scalePixelsPerFoot).map((f) => f.wedge),
+    };
   }, [cabinets, scalePixelsPerFoot, islandSeatingIn]);
 
   // Cancel an in-progress wall chain, and undo/redo/delete shortcuts —
@@ -503,7 +555,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         else undo();
         return;
       }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.size > 0) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && deletableIds.length > 0) {
         e.preventDefault();
         deleteSelected();
         return;
@@ -516,10 +568,10 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [active, view, undo, redo, selectedIds, deleteSelected, stopWallChain, deselect, turnSelected]);
+  }, [active, view, undo, redo, deletableIds.length, deleteSelected, stopWallChain, deselect, turnSelected]);
 
   const handleSelect = useCallback(
-    (elementType: 'wall' | 'cabinet') => (id: string, ctrlKey?: boolean) => {
+    (elementType: 'wall' | 'cabinet' | 'appliance') => (id: string, ctrlKey?: boolean) => {
       if (ctrlKey) toggleSelectElement({ element_id: id, element_type: elementType });
       else selectElement({ element_id: id, element_type: elementType });
     },
@@ -533,10 +585,21 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         return;
       }
       const cabinet = cabinets.find((c) => c.id === id);
-      const snapped = cabinet ? snapDroppedCabinet({ ...cabinet, x, y }, cabinets, walls, scalePixelsPerFoot) : null;
+      const snapped = cabinet ? snapDroppedCabinet({ ...cabinet, x, y }, neighbors, walls, scalePixelsPerFoot) : null;
       updateCabinet(snapped ? { id, ...snapped } : { id, x, y });
     },
-    [selectedIds, cabinets, walls, scalePixelsPerFoot, batchMoveSelected, updateCabinet]
+    [selectedIds, cabinets, neighbors, walls, scalePixelsPerFoot, batchMoveSelected, updateCabinet]
+  );
+
+  // A free-standing appliance dropped into the cabinet that holds it goes in it; else it lines up like a cabinet.
+  const handleApplianceDragEnd = useCallback(
+    (id: string, x: number, y: number) => {
+      const appliance = appliances.find((a) => a.id === id);
+      if (!appliance) return;
+      const placed = placeDroppedAppliance({ ...appliance, x, y }, appliances, cabinets, walls, CABINET_PRESETS, scalePixelsPerFoot);
+      updateAppliances([{ id, ...placed }]);
+    },
+    [appliances, cabinets, walls, scalePixelsPerFoot, updateAppliances]
   );
 
   // Show a lone dragged cabinet lined up with the neighbour it will snap
@@ -546,9 +609,9 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     (id: string, x: number, y: number) => {
       if (selectedIds.size > 1 && selectedIds.has(id)) return null;
       const cabinet = cabinets.find((c) => c.id === id);
-      return cabinet ? snapCabinetToNeighbors({ ...cabinet, x, y }, cabinets, scalePixelsPerFoot) : null;
+      return cabinet ? snapCabinetToNeighbors({ ...cabinet, x, y }, neighbors, scalePixelsPerFoot) : null;
     },
-    [selectedIds, cabinets, scalePixelsPerFoot]
+    [selectedIds, cabinets, neighbors, scalePixelsPerFoot]
   );
 
   const handleCabinetTransformEnd = useCallback(
@@ -619,7 +682,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       { x: w.start_x, y: w.start_y },
       { x: w.end_x, y: w.end_y },
     ]);
-    for (const c of cabinets) {
+    for (const c of [...cabinets, ...appliances]) {
       const r = (c.rotation * Math.PI) / 180;
       const across = { x: Math.cos(r) * c.width, y: Math.sin(r) * c.width };
       const deep = { x: -Math.sin(r) * c.height, y: Math.cos(r) * c.height };
@@ -645,7 +708,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       x: stageWidth / 2 - ((minX + maxX) / 2) * zoom,
       y: CANVAS_HEIGHT / 2 - ((minY + maxY) / 2) * zoom,
     });
-  }, [walls, cabinets, scalePixelsPerFoot, stageWidth]);
+  }, [walls, cabinets, appliances, scalePixelsPerFoot, stageWidth]);
 
   // Frame the drawing once, the first time it has something in it.
   const framedRef = useRef(false);
@@ -701,6 +764,26 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   // The one selected cabinet, if it is a corner unit whose corner end can be flipped.
   const flipTarget = selectedCabinet && cornerShapes.has(selectedCabinet.id) ? selectedCabinet : undefined;
   const currentRun = elevations.find((r) => r.key === runKey) ?? elevations[0];
+
+  // A sink on each sink base, sized from the cabinet.
+  const sinks = cabinets.flatMap((c) => {
+    const specialty = CABINET_PRESETS[c.preset_code]?.specialty;
+    if (c.cab_type === 'wall' || !specialty || !SINK_SPECIALTIES.includes(specialty)) return [];
+    const { width, depth } = cabinetSizeIn(c, CABINET_PRESETS, scalePixelsPerFoot);
+    return [{ cabinet: c, widthIn: width, depthIn: depth, apron: specialty === 'farmhouse_sink_base' }];
+  });
+  // Hung appliances draw over the uppers; the rest over the bases, under the uppers.
+  const isHung = (a: CabinetSketchAppliance) => applianceSpec(a.type).mount === 'hung';
+  const applianceShape = (a: CabinetSketchAppliance) => (
+    <ApplianceShape
+      key={a.id}
+      appliance={a}
+      isSelected={selectedIds.has(a.id)}
+      zoom={viewport.zoom}
+      onSelect={handleSelect('appliance')}
+      onDragEnd={handleApplianceDragEnd}
+    />
+  );
 
   // Switch a cabinet to another code from its picker. It keeps its place
   // (back-left corner, rotation, corner side, glass) and takes the new size.
@@ -855,7 +938,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
             <Button icon={<UndoOutlined />} disabled={!canUndo} onClick={undo} />
             <Button icon={<RedoOutlined />} disabled={!canRedo} onClick={redo} />
             <Tooltip title="Also removes the cabinet from the Edit tab list">
-              <Button icon={<DeleteOutlined />} danger disabled={selectedIds.size === 0} onClick={deleteSelected}>
+              <Button icon={<DeleteOutlined />} danger disabled={deletableIds.length === 0} onClick={deleteSelected}>
                 Delete
               </Button>
             </Tooltip>
@@ -930,6 +1013,17 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                       Use in estimate
                     </Button>
                   )}
+                </Tag>
+              </Tooltip>
+            )}
+            {appliances.length > 0 && (
+              <Tooltip
+                title={`The Edit tab's Appliance Detach & Reset list: ${appliances
+                  .map((a) => applianceSpec(a.type).label)
+                  .join(', ')}. One that goes in a cabinet (range base, oven or refrigerator cabinet, OTR microwave cabinet, sink base) sits in it and moves with it; drag the rest into place.`}
+              >
+                <Tag color={DR_TAG_COLOR} style={{ marginInlineEnd: 0 }}>
+                  D&R appliances: {appliances.length}
                 </Tag>
               </Tooltip>
             )}
@@ -1020,20 +1114,45 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                 />
               )}
 
-              {/* The island top, under its cabinets: shows the overhang and closes the wedges of angled joints. */}
-              {islandTop.pieces.map((piece, i) => (
-                <Line
-                  key={`top-${i}`}
-                  points={piece.flatMap((p) => [p.x, p.y])}
-                  closed
+              {/* The island top, under its cabinets, as one outlined piece: shows the overhang and closes the wedges of angled joints. */}
+              {islandTop.outline.length > 0 && (
+                <Shape
+                  sceneFunc={(ctx, shape) => {
+                    // Holes wind the other way, so the nonzero fill leaves them open.
+                    ctx.beginPath();
+                    for (const loop of islandTop.outline) {
+                      loop.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+                      ctx.closePath();
+                    }
+                    ctx.fillStrokeShape(shape);
+                  }}
                   fill="#E4DED3"
+                  stroke="#A89F8F"
+                  strokeWidth={1}
+                  strokeScaleEnabled={false}
+                  listening={false}
+                />
+              )}
+              {/* The tapered filler in each angled island joint, so the boxes read as one run. */}
+              {islandTop.fillers.map((wedge, i) => (
+                <Line
+                  key={`filler-${i}`}
+                  points={wedge.flatMap((p) => [p.x, p.y])}
+                  closed
+                  fill="#D2B48C"
+                  opacity={0.85}
+                  stroke="#8B5E3C"
+                  strokeWidth={1.5}
+                  strokeScaleEnabled={false}
                   listening={false}
                 />
               ))}
 
-              {/* Floor-standing cabinets first, so uppers draw (and pick) on top of the bases they hang over. */}
-              {[...cabinets.filter((c) => c.cab_type !== 'wall'), ...cabinets.filter((c) => c.cab_type === 'wall')].map(
-                (cabinet) => (
+              {/* Floor-standing cabinets first, so uppers draw (and pick) on top of the bases they hang over —
+                  with the sinks and the appliances on the floor or counter between them, and hung appliances last. */}
+              {cabinets
+                .filter((c) => c.cab_type !== 'wall')
+                .map((cabinet) => (
                   <CabinetShapeRenderer
                     key={cabinet.id}
                     cabinet={cabinet}
@@ -1045,8 +1164,27 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                     zoom={viewport.zoom}
                     corner={cornerShapes.get(cabinet.id)}
                   />
-                )
-              )}
+                ))}
+              {sinks.map((sink) => (
+                <SinkShape key={`sink-${sink.cabinet.id}`} bowls={sinkBowls} {...sink} />
+              ))}
+              {appliances.filter((a) => !isHung(a)).map(applianceShape)}
+              {cabinets
+                .filter((c) => c.cab_type === 'wall')
+                .map((cabinet) => (
+                  <CabinetShapeRenderer
+                    key={cabinet.id}
+                    cabinet={cabinet}
+                    isSelected={selectedIds.has(cabinet.id)}
+                    onSelect={handleSelect('cabinet')}
+                    onDragEnd={handleCabinetDragEnd}
+                    onDragSnap={handleCabinetDragSnap}
+                    onTransformEnd={handleCabinetTransformEnd}
+                    zoom={viewport.zoom}
+                    corner={cornerShapes.get(cabinet.id)}
+                  />
+                ))}
+              {appliances.filter(isHung).map(applianceShape)}
             </Layer>
           </Stage>
         </div>
@@ -1062,9 +1200,12 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
             <Cabinet3DView
               cabinets={cabinets}
               walls={walls}
+              appliances={appliances}
+              sinkBowls={sinkBowls}
               presets={CABINET_PRESETS}
               scalePixelsPerFoot={scalePixelsPerFoot}
               height={CANVAS_HEIGHT}
+              islandSeatingIn={islandSeatingIn}
               selectedIds={selectedIds}
               onSelect={handleSelect('cabinet')}
               onDeselect={deselect}
@@ -1086,9 +1227,9 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         {cabinets.length === 0
           ? 'Cabinets you add in the Edit tab appear here. You can also draw the walls first, then pick a cabinet from the dropdown and click the canvas to place it.'
           : view === 'plan'
-            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. For an angled island, select the cabinets of one side, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors. Sizes and glass come from the Edit tab; a selected cabinet shows in its list above, where picking another changes it (Esc or a click on empty canvas to add new ones instead).'
+            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. For an angled island, select the cabinets of one side, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors. Detach & reset appliances (D&R) come from the Edit tab: one that goes in a cabinet sits in it, the rest start in a row below the drawing — drag them into place (onto a range base, oven cabinet or sink base to put them in it). Sizes and glass come from the Edit tab; a selected cabinet shows in its list above, where picking another changes it (Esc or a click on empty canvas to add new ones instead).'
             : view === '3d'
-              ? 'The plan in 3D, at real sizes. Drag to look around, scroll to zoom, right-drag to pan. Click a cabinet to select it and change it from its list above; move cabinets in Top.'
+              ? 'The plan in 3D, at real sizes, with each detach & reset appliance tagged. Drag to look around, scroll to zoom, right-drag to pan. Click a cabinet to select it and change it from its list above; move cabinets and appliances in Top.'
               : 'Each run is drawn from the front, as laid out in the plan. Uppers hang at 54" above the floor; shorter ones line up with their tops.'}
       </div>
     </div>
