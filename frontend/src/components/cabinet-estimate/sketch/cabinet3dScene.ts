@@ -1,7 +1,8 @@
 /**
  * Turns the 3D model (cabinet3dModel.ts) into three.js objects: cabinet
- * boxes with their doors, drawers, glass and countertops, appliances, see-
- * through walls and a floor with a 1 ft grid. One inch is one world unit.
+ * boxes with their doors, drawers, glass and countertops, sinks, the
+ * detach & reset appliances with a tag over each, see-through walls and a
+ * floor with a 1 ft grid. One inch is one world unit.
  *
  * Colours follow the Front view, so the two read as the same drawing.
  */
@@ -9,8 +10,9 @@
 import * as THREE from 'three';
 import { COUNTER_TOP_IN, GLASS_STILE_IN } from './cabinetFronts';
 import type { Face } from './cabinetFronts';
-import { modelBounds } from './cabinet3dModel';
-import type { CabinetSolid, FrontRun, Pt2, WallSolid } from './cabinet3dModel';
+import { applianceExtent, modelBounds, toPlan } from './cabinet3dModel';
+import type { ApplianceSolid, CabinetSolid, CounterSlab, FillerSolid, FrontRun, Pt2, WallSolid } from './cabinet3dModel';
+import type { LocalRect } from './sketchAppliances';
 
 /** Walls are drawn to the 8 ft ceiling the Front view uses. */
 export const WALL_HEIGHT_IN = 96;
@@ -35,6 +37,16 @@ const COLORS = {
   floor: '#f1eee8',
   grid: '#dcd8d0',
   selected: '#1f74c9',
+  steel: '#c5cbd0',
+  steelFace: '#d9dee2',
+  steelEdge: '#5f6b73',
+  dark: '#2f3337',
+  burner: '#5a6066',
+  window: '#39424a',
+  wood: '#c49a6c',
+  bowl: '#8f99a1',
+  /** The detach & reset tag, as on the plan. */
+  tag: '#b45309',
 };
 
 /** A solid colour that sits a hair behind its outline, so the edges don't flicker. */
@@ -50,11 +62,13 @@ function solidMaterial(color: string, extra: THREE.MeshStandardMaterialParameter
   });
 }
 
-/** A plan outline (local x, z) stood up between heights y0 and y1. */
-function prism(points: Pt2[], y0: number, y1: number): THREE.BufferGeometry {
+/** A plan outline (local x, z), less any holes, stood up between heights y0 and y1. */
+function prism(points: Pt2[], y0: number, y1: number, holes: Pt2[][] = []): THREE.BufferGeometry {
   // The shape is drawn in (x, -z) and extruded along +Z; turning it a
   // quarter about X then stands it up with z back where it belongs.
-  const shape = new THREE.Shape(points.map(([x, z]) => new THREE.Vector2(x, -z)));
+  const flat = (pts: Pt2[]) => pts.map(([x, z]) => new THREE.Vector2(x, -z));
+  const shape = new THREE.Shape(flat(points));
+  shape.holes = holes.map((h) => new THREE.Path(flat(h)));
   const geometry = new THREE.ExtrudeGeometry(shape, { depth: y1 - y0, bevelEnabled: false });
   geometry.rotateX(-Math.PI / 2);
   geometry.translate(0, y0, 0);
@@ -115,6 +129,42 @@ function frontMeshes(run: FrontRun, glass: boolean, edgeColor: string): THREE.Ob
   return out;
 }
 
+const rectPoints = ([x0, z0, x1, z1]: LocalRect): Pt2[] => [
+  [x0, z0],
+  [x1, z0],
+  [x1, z1],
+  [x0, z1],
+];
+
+/** A box between local x0..x1, z0..z1 and heights y0..y1, outlined. */
+function block(rect: LocalRect, y0: number, y1: number, color: string, edge: string): THREE.Mesh {
+  return withEdges(new THREE.Mesh(prism(rectPoints(rect), y0, y1), solidMaterial(color)), edge);
+}
+
+/** An upright cylinder standing on (x, y0, z). */
+function post(x: number, z: number, radius: number, y0: number, height: number, color: string): THREE.Mesh {
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, 24), solidMaterial(color));
+  mesh.position.set(x, y0 + height / 2, z);
+  return mesh;
+}
+
+/** A sink set in the counter of its base: rim, bowls with their drains, and the faucet behind. */
+function sinkObject(sink: NonNullable<CabinetSolid['sink']>): THREE.Group {
+  const group = new THREE.Group();
+  const top = COUNTER_TOP_IN;
+  group.add(block(sink.rim, top, top + 0.15, COLORS.steelFace, COLORS.steelEdge));
+  for (const bowl of sink.bowls) {
+    group.add(block(bowl, top + 0.15, top + 0.18, COLORS.bowl, COLORS.steelEdge));
+    group.add(post((bowl[0] + bowl[2]) / 2, (bowl[1] + bowl[3]) / 2, 1.4, top + 0.18, 0.04, COLORS.dark));
+  }
+  const [fx, fz] = sink.faucet;
+  group.add(post(fx, fz, 0.6, top, 11, COLORS.steel));
+  const spout = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 8), solidMaterial(COLORS.steel));
+  spout.position.set(fx, top + 10.5, fz + 4);
+  group.add(spout);
+  return group;
+}
+
 function cabinetObject(solid: CabinetSolid, selected: boolean): THREE.Group {
   const group = new THREE.Group();
   group.userData.cabinetId = solid.cabinet.id;
@@ -138,6 +188,154 @@ function cabinetObject(solid: CabinetSolid, selected: boolean): THREE.Group {
     group.add(withEdges(top, '#6f6d68'));
   }
   for (const run of solid.fronts) group.add(...frontMeshes(run, solid.glass, faceEdge));
+  if (solid.sink) group.add(sinkObject(solid.sink));
+  return group;
+}
+
+/** One detach & reset appliance, built from boxes in its own frame: x along it, z from its back to its front, y up from its bottom. */
+function applianceObject(a: ApplianceSolid, selected: boolean): THREE.Group {
+  const group = new THREE.Group();
+  // In a cabinet, picking it picks the cabinet.
+  if (a.hostId) group.userData.cabinetId = a.hostId;
+  group.position.set(a.x, a.bottom, a.z);
+  group.rotation.y = (-a.rotation * Math.PI) / 180;
+
+  const { width: w, height: h, back: b } = a;
+  const front = b + a.depth;
+  const edge = selected ? COLORS.selected : COLORS.steelEdge;
+  const body = (color: string = COLORS.steel) => block([0, b, w, front], 0, h, color, edge);
+  // A panel on the front, standing out from it by `out`.
+  const panel = (x0: number, x1: number, y0: number, y1: number, color: string, out = 0.4) =>
+    block([x0, front, x1, front + out], y0, y1, color, edge);
+  const barAcross = (x0: number, x1: number, y: number) => block([x0, front + 0.4, x1, front + 1.4], y - 0.4, y + 0.4, COLORS.dark, COLORS.dark);
+  const barUp = (x: number, y0: number, y1: number) => block([x - 0.4, front + 0.4, x + 0.4, front + 1.4], y0, y1, COLORS.dark, COLORS.dark);
+  const burners = (y: number) => {
+    for (const fx of [0.28, 0.72]) {
+      for (const fz of [0.3, 0.7]) group.add(post(w * fx, b + a.depth * fz, Math.min(w, a.depth) * 0.12, y, 0.25, COLORS.burner));
+    }
+  };
+
+  switch (a.spec.model) {
+    case 'fridge': {
+      const split = h * 0.36;
+      group.add(body());
+      group.add(panel(0.4, w / 2 - 0.2, split + 0.3, h - 0.4, COLORS.steelFace));
+      group.add(panel(w / 2 + 0.2, w - 0.4, split + 0.3, h - 0.4, COLORS.steelFace));
+      group.add(panel(0.4, w - 0.4, 0.4, split - 0.3, COLORS.steelFace));
+      group.add(barUp(w / 2 - 1.6, split + 6, Math.min(split + 34, h - 4)));
+      group.add(barUp(w / 2 + 1.6, split + 6, Math.min(split + 34, h - 4)));
+      group.add(barAcross(w * 0.3, w * 0.7, split - 3));
+      break;
+    }
+    case 'range': {
+      group.add(body());
+      group.add(panel(0.8, w - 0.8, 0.5, 4.5, COLORS.steelFace));
+      group.add(panel(0.8, w - 0.8, 5, h - 6, COLORS.steelFace));
+      group.add(panel(4, w - 4, 10, h - 14, COLORS.window, 0.6));
+      group.add(barAcross(3, w - 3, h - 8));
+      group.add(block([0.5, b + 0.5, w - 0.5, front - 0.5], h, h + 0.3, COLORS.dark, COLORS.dark));
+      burners(h + 0.3);
+      break;
+    }
+    case 'cooktop':
+      group.add(body(COLORS.dark));
+      burners(h);
+      break;
+    case 'oven':
+      group.add(body());
+      group.add(panel(4, w - 4, h * 0.2, h - 7, COLORS.window, 0.3));
+      group.add(barAcross(3, w - 3, h - 3.5));
+      break;
+    case 'microwave':
+      group.add(body());
+      group.add(panel(1.5, w * 0.68, 2, h - 2, COLORS.window));
+      group.add(panel(w * 0.72, w - 1.5, 2, h - 2, COLORS.dark));
+      group.add(barUp(w * 0.7, 3, h - 3));
+      break;
+    case 'hood':
+      group.add(body(h > 12 ? COLORS.wood : COLORS.steel));
+      break;
+    case 'disposal':
+      group.add(post(w / 2, b + a.depth / 2, (Math.min(w, a.depth) / 2) * 0.9, 0, h, COLORS.dark));
+      break;
+    default: {
+      // A dishwasher (and any appliance this catalog doesn't know).
+      group.add(body());
+      group.add(panel(0.3, w - 0.3, 4.5, h - 0.3, COLORS.steelFace));
+      group.add(barAcross(3, w - 3, h - 3));
+    }
+  }
+  if (a.counter) {
+    group.add(block([0, b, w, front + 1], h, COUNTER_TOP_IN, COLORS.counter, '#6f6d68'));
+  }
+  return group;
+}
+
+/** A flat tag that always faces the camera and shows through everything: where a detach & reset appliance is. */
+function tagSprite(text: string): THREE.Sprite {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return new THREE.Sprite();
+  const font = '600 40px "Segoe UI", Inter, sans-serif';
+  const pad = 18;
+  const tall = 64;
+  ctx.font = font;
+  canvas.width = Math.ceil(ctx.measureText(text).width) + pad * 2;
+  canvas.height = tall;
+  // Resizing the canvas reset the context.
+  ctx.font = font;
+  const r = 14;
+  const wide = canvas.width;
+  ctx.beginPath();
+  ctx.moveTo(r, 0);
+  ctx.arcTo(wide, 0, wide, tall, r);
+  ctx.arcTo(wide, tall, 0, tall, r);
+  ctx.arcTo(0, tall, 0, 0, r);
+  ctx.arcTo(0, 0, wide, 0, r);
+  ctx.closePath();
+  ctx.fillStyle = COLORS.tag;
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, pad, tall / 2 + 2);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
+  const heightIn = 5;
+  sprite.scale.set((heightIn * wide) / tall, heightIn, 1);
+  sprite.renderOrder = 10;
+  return sprite;
+}
+
+/**
+ * The tag of an appliance: over one that stands on the floor or the
+ * counter; on the face of one that hangs, or sits in a cabinet (an oven,
+ * a disposal under the sink), so tags stacked one over another stay apart.
+ */
+function applianceTag(a: ApplianceSolid): THREE.Sprite {
+  const sprite = tagSprite(`D&R · ${a.spec.label}`);
+  const above = a.spec.mount === 'floor' || a.spec.mount === 'counter';
+  const [x, z] = toPlan(a, [a.width / 2, above ? a.back + a.depth / 2 : a.back + a.depth + 1]);
+  const y = above ? Math.max(a.bottom + a.height, COUNTER_TOP_IN) + 4 : a.bottom + a.height / 2;
+  sprite.position.set(x, y, z);
+  return sprite;
+}
+
+/** A countertop laid over several cabinets (the island top), in plan coordinates. */
+function slabObject(slab: CounterSlab): THREE.Mesh {
+  const top = new THREE.Mesh(prism(slab.outline, slab.bottom, COUNTER_TOP_IN, slab.holes), solidMaterial(COLORS.counter));
+  return withEdges(top, '#6f6d68');
+}
+
+/** A tapered filler in an angled joint, in plan coordinates: finished like the doors on the door side, like the boxes at the back. */
+function fillerObject(filler: FillerSolid): THREE.Group {
+  const group = new THREE.Group();
+  const front = !!filler.toeOutline;
+  const body = new THREE.Mesh(prism(filler.outline, filler.toeKick, filler.height), solidMaterial(front ? COLORS.face : COLORS.box));
+  group.add(withEdges(body, front ? COLORS.faceEdge : COLORS.boxEdge));
+  if (filler.toeOutline && filler.toeKick > 0) {
+    group.add(new THREE.Mesh(prism(filler.toeOutline, 0, filler.toeKick), solidMaterial(COLORS.toe)));
+  }
   return group;
 }
 
@@ -156,9 +354,18 @@ function wallObject(wall: WallSolid): THREE.Mesh {
 }
 
 /** Everything the 3D view draws for the sketch, as one group to swap out when the sketch changes. */
-export function buildCabinetScene(solids: CabinetSolid[], walls: WallSolid[], selectedIds: Set<string>): THREE.Group {
+export function buildCabinetScene(
+  solids: CabinetSolid[],
+  walls: WallSolid[],
+  selectedIds: Set<string>,
+  {
+    counters = [],
+    fillers = [],
+    appliances = [],
+  }: { counters?: CounterSlab[]; fillers?: FillerSolid[]; appliances?: ApplianceSolid[] } = {}
+): THREE.Group {
   const root = new THREE.Group();
-  const bounds = modelBounds(solids, walls);
+  const bounds = modelBounds(solids, walls, applianceExtent(appliances));
   if (bounds) {
     // Floor and 1 ft grid, a couple of feet past the drawing on every side.
     const size = Math.ceil((Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ) + 48) / 12) * 12;
@@ -173,7 +380,17 @@ export function buildCabinetScene(solids: CabinetSolid[], walls: WallSolid[], se
     root.add(grid);
   }
   for (const wall of walls) root.add(wallObject(wall));
-  for (const solid of solids) root.add(cabinetObject(solid, selectedIds.has(solid.cabinet.id)));
+  // A range in its range base is drawn in place of the base's own appliance box.
+  const replaced = new Set(appliances.filter((a) => a.replacesHost).map((a) => a.hostId));
+  for (const solid of solids) {
+    if (!replaced.has(solid.cabinet.id)) root.add(cabinetObject(solid, selectedIds.has(solid.cabinet.id)));
+  }
+  for (const slab of counters) root.add(slabObject(slab));
+  for (const filler of fillers) root.add(fillerObject(filler));
+  for (const a of appliances) {
+    root.add(applianceObject(a, !!a.hostId && selectedIds.has(a.hostId)));
+    root.add(applianceTag(a));
+  }
   return root;
 }
 
@@ -183,8 +400,13 @@ export function disposeScene(root: THREE.Object3D) {
     const item = obj as THREE.Mesh;
     item.geometry?.dispose();
     const material = item.material as THREE.Material | THREE.Material[] | undefined;
-    if (Array.isArray(material)) material.forEach((m) => m.dispose());
-    else material?.dispose();
+    // A tag's text is a texture of its own.
+    const release = (m: THREE.Material) => {
+      (m as THREE.SpriteMaterial).map?.dispose();
+      m.dispose();
+    };
+    if (Array.isArray(material)) material.forEach(release);
+    else if (material) release(material);
   });
 }
 

@@ -5,14 +5,14 @@
  */
 import React, { useState, useRef, useCallback, useMemo } from 'react';
 import {
-  Modal, Button, Checkbox, message, Tooltip, Typography, Progress,
+  Modal, Button, Checkbox, message, Tooltip, Progress,
 } from 'antd';
 import {
   FolderOpenOutlined, ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import type { PhotoRoom } from '../../types/packing-estimate';
-
-const { Text } = Typography;
+import { useSheetModal } from '../common/ui';
+import './packing.css';
 
 const IMAGE_EXTENSIONS = new Set([
   '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.heic', '.heif', '.tiff', '.tif',
@@ -120,6 +120,7 @@ interface FolderImportModalProps {
 const FolderImportModal: React.FC<FolderImportModalProps> = ({
   open, onClose, onRoomsCreated, existingRoomNames,
 }) => {
+  const { sheetProps } = useSheetModal();
   const [folderRooms, setFolderRooms] = useState<FolderRoom[]>([]);
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0 });
@@ -229,142 +230,92 @@ const FolderImportModal: React.FC<FolderImportModalProps> = ({
       onCancel={handleClose}
       title="Import Rooms from Folder"
       width={520}
-      footer={hasFolderPreview ? (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {selectedRooms.length} room{selectedRooms.length !== 1 ? 's' : ''} · {totalPhotos} photos
-          </Text>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button onClick={handleClose}>Cancel</Button>
-            <Button
-              type="primary"
-              onClick={handleImport}
-              disabled={selectedRooms.length === 0 || importing}
-              loading={importing}
-            >
-              {importing
-                ? `Importing... (${importProgress.current}/${importProgress.total})`
-                : `Import ${selectedRooms.length} room${selectedRooms.length !== 1 ? 's' : ''}`}
-            </Button>
-          </div>
-        </div>
-      ) : null}
+      className="pk-folder-modal"
+      {...sheetProps}
+      footer={hasFolderPreview ? [
+        <span key="count" className="pk-folder-count">
+          {selectedRooms.length} room{selectedRooms.length !== 1 ? 's' : ''} · {totalPhotos} photos
+        </span>,
+        <Button key="cancel" onClick={handleClose}>Cancel</Button>,
+        <Button
+          key="import"
+          type="primary"
+          onClick={handleImport}
+          disabled={selectedRooms.length === 0 || importing}
+          loading={importing}
+        >
+          {importing
+            ? `Importing... (${importProgress.current}/${importProgress.total})`
+            : `Import ${selectedRooms.length} room${selectedRooms.length !== 1 ? 's' : ''}`}
+        </Button>,
+      ] : null}
       destroyOnHidden
     >
-      <div style={{ marginBottom: 16 }}>
-        <Text type="secondary" style={{ fontSize: 13 }}>
-          Each subfolder becomes a room. Photos inside become that room's photos.
-        </Text>
-      </div>
+      <p className="pk-folder-intro">
+        Each subfolder becomes a room. Photos inside become that room's photos.
+      </p>
 
       {!hasFolderPreview ? (
         /* Source selector */
         <Tooltip title={!hasWebkitDirectory ? 'Folder upload not supported in this browser' : ''}>
-          <div
-            onClick={() => hasWebkitDirectory && folderInputRef.current?.click()}
-            style={{
-              padding: '32px 16px',
-              border: '1.5px dashed #d9d9d9',
-              borderRadius: 8,
-              textAlign: 'center',
-              cursor: hasWebkitDirectory ? 'pointer' : 'not-allowed',
-              opacity: hasWebkitDirectory ? 1 : 0.5,
-              transition: 'all 0.2s ease',
-            }}
-            onMouseEnter={e => {
-              if (!hasWebkitDirectory) return;
-              (e.currentTarget as HTMLDivElement).style.borderColor = '#1890ff';
-              (e.currentTarget as HTMLDivElement).style.background = '#f0f5ff';
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLDivElement).style.borderColor = '#d9d9d9';
-              (e.currentTarget as HTMLDivElement).style.background = '';
-            }}
+          <button
+            type="button"
+            className="pk-drop"
+            onClick={() => folderInputRef.current?.click()}
+            disabled={!hasWebkitDirectory}
           >
-            <FolderOpenOutlined style={{ fontSize: 32, color: '#8c8c8c', display: 'block', marginBottom: 8 }} />
-            <div style={{ fontSize: 14, fontWeight: 600 }}>Select Folder from Computer</div>
-            <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 4 }}>
-              Choose a folder with subfolders named by room
-            </div>
-          </div>
+            <FolderOpenOutlined className="pk-drop-icon" aria-hidden="true" />
+            <span className="pk-drop-title">Select Folder from Computer</span>
+            <span className="pk-drop-hint">Choose a folder with subfolders named by room</span>
+          </button>
         </Tooltip>
       ) : (
         /* Folder preview */
         <div>
-          <div style={{
-            border: '1px solid #f0f0f0',
-            borderRadius: 6,
-            overflow: 'hidden',
-            maxHeight: 320,
-            overflowY: 'auto',
-          }}>
+          <div className="pk-folder-list">
             {folderRooms.map(room => (
               <div
                 key={room.name}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '10px 14px',
-                  borderBottom: '1px solid #f0f0f0',
-                  background: room.selected ? '#fff' : '#fafafa',
-                  opacity: room.selected ? 1 : 0.6,
-                  transition: 'all 0.15s ease',
-                }}
+                className={`pk-folder-row${room.selected ? '' : ' is-off'}`}
               >
                 <Checkbox
                   checked={room.selected}
                   onChange={() => toggleRoom(room.name)}
                 />
-                <FolderOpenOutlined style={{ fontSize: 16, color: '#8c8c8c', flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{
-                    fontSize: 13, fontWeight: 600,
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>
-                    {room.name}
-                  </div>
-                </div>
-                <span style={{ fontSize: 12, color: '#8c8c8c', flexShrink: 0 }}>
+                <FolderOpenOutlined className="pk-folder-icon" aria-hidden="true" />
+                <span className="pk-folder-name">{room.name}</span>
+                <span className="pk-folder-photos">
                   {room.files.length} photo{room.files.length !== 1 ? 's' : ''}
                 </span>
                 {room.files.length > MAX_PHOTOS_PER_ROOM && (
                   <Tooltip title={`Only first ${MAX_PHOTOS_PER_ROOM} photos will be used`}>
-                    <ExclamationCircleOutlined style={{ fontSize: 13, color: '#faad14', flexShrink: 0 }} />
+                    <ExclamationCircleOutlined className="pk-folder-warn" aria-label={`Only first ${MAX_PHOTOS_PER_ROOM} photos will be used`} />
                   </Tooltip>
                 )}
               </div>
             ))}
             {folderRooms.length === 0 && (
-              <div style={{ padding: '24px 16px', textAlign: 'center', color: '#8c8c8c', fontSize: 13 }}>
-                No subfolders with images found.
-              </div>
+              <div className="pk-folder-empty">No subfolders with images found.</div>
             )}
           </div>
 
           {rootFileCount > 0 && (
-            <div style={{
-              marginTop: 10, padding: '8px 12px',
-              background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 4,
-              fontSize: 12, color: '#92400e',
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}>
-              <ExclamationCircleOutlined style={{ flexShrink: 0 }} />
-              {rootFileCount} photo{rootFileCount !== 1 ? 's' : ''} at root level will be skipped.
-              Move them into a subfolder to include them.
+            <div className="pk-note pk-note--warn">
+              <ExclamationCircleOutlined aria-hidden="true" />
+              <span>
+                {rootFileCount} photo{rootFileCount !== 1 ? 's' : ''} at root level will be skipped.
+                Move them into a subfolder to include them.
+              </span>
             </div>
           )}
 
           {oversizedRooms.length > 0 && (
-            <div style={{
-              marginTop: 8, padding: '8px 12px',
-              background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 4,
-              fontSize: 12, color: '#666',
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}>
-              <ExclamationCircleOutlined style={{ flexShrink: 0 }} />
-              {oversizedRooms.length} room{oversizedRooms.length !== 1 ? 's have' : ' has'} more than {MAX_PHOTOS_PER_ROOM} photos.
-              Only the first {MAX_PHOTOS_PER_ROOM} will be used.
+            <div className="pk-note">
+              <ExclamationCircleOutlined aria-hidden="true" />
+              <span>
+                {oversizedRooms.length} room{oversizedRooms.length !== 1 ? 's have' : ' has'} more than {MAX_PHOTOS_PER_ROOM} photos.
+                Only the first {MAX_PHOTOS_PER_ROOM} will be used.
+              </span>
             </div>
           )}
 
@@ -372,12 +323,13 @@ const FolderImportModal: React.FC<FolderImportModalProps> = ({
             <Progress
               percent={Math.round((importProgress.current / importProgress.total) * 100)}
               size="small"
+              strokeColor="var(--color-neutral-900)"
               style={{ marginTop: 10 }}
             />
           )}
 
-          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
-            <Button type="link" size="small" onClick={handleReset} style={{ fontSize: 12, color: '#8c8c8c', padding: 0 }}>
+          <div className="pk-folder-reset">
+            <Button type="text" size="small" onClick={handleReset}>
               Choose different folder
             </Button>
           </div>

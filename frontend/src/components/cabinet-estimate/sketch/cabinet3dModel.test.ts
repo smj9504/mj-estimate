@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { cabinetSolids, mainFacing, modelBounds, toPlan, wallSolids, type CabinetSolid, type FrontRun } from './cabinet3dModel';
-import { reconcileCabinets, type PresetCatalog, type SketchBoxSource } from './cabinetSketchLayout';
+import {
+  cabinetSolids,
+  islandFillerSolids,
+  islandTopSlabs,
+  mainFacing,
+  modelBounds,
+  toPlan,
+  wallSolids,
+  type CabinetSolid,
+  type FrontRun,
+} from './cabinet3dModel';
+import { reconcileCabinets, snapCabinetToNeighbors, type PresetCatalog, type SketchBoxSource } from './cabinetSketchLayout';
 import type { CabinetSketchCabinet, CabinetSketchWall } from '../../../types/cabinetSketch';
 
 const SCALE = 20; // px per foot
@@ -128,6 +138,65 @@ describe('cabinetSolids', () => {
   it('marks a glass-door cabinet', () => {
     const [upper] = solidsOf(shapes('W3030').map((c) => ({ ...c, has_glass_door: true })));
     expect(upper.glass).toBe(true);
+  });
+});
+
+describe('island top and fillers', () => {
+  // Plan shapes at 20 px/ft: a 30" x 24" base is 50 x 40 px.
+  const isle = (id: string, over: Partial<CabinetSketchCabinet> = {}): CabinetSketchCabinet => ({
+    id,
+    preset_code: 'B30',
+    cab_type: 'base',
+    x: 40,
+    y: 40,
+    width: 50,
+    height: 40,
+    rotation: 0,
+    label: id,
+    location: 'island',
+    ...over,
+  });
+  const span = (pts: [number, number][], i: 0 | 1) => Math.max(...pts.map((p) => p[i])) - Math.min(...pts.map((p) => p[i]));
+
+  it('lays one top over the island, 1.5" past every edge, instead of a counter per cabinet', () => {
+    const solids = solidsOf([isle('a'), isle('b', { x: 90 })]);
+    expect(solids.every((s) => s.counter === null)).toBe(true);
+    const [top, ...rest] = islandTopSlabs(solids, SCALE);
+    expect(rest).toHaveLength(0);
+    expect(top.outline).toHaveLength(4);
+    expect(span(top.outline, 0)).toBeCloseTo(63);
+    expect(span(top.outline, 1)).toBeCloseTo(27);
+    expect(top).toMatchObject({ bottom: 34.5, holes: [] });
+    // With a 12" seating overhang behind the backs.
+    expect(span(islandTopSlabs(solids, SCALE, 12)[0].outline, 1)).toBeCloseTo(37.5);
+    // Perimeter cabinets keep their own counters and have no island top.
+    const perimeter = solidsOf([isle('p', { location: 'perimeter' })]);
+    expect(perimeter[0].counter).not.toBeNull();
+    expect(islandTopSlabs(perimeter, SCALE)).toEqual([]);
+  });
+
+  it('cuts a range in the island out of the top', () => {
+    const solids = solidsOf([isle('a'), isle('range', { x: 90, preset_code: 'RB30S' }), isle('b', { x: 140 })]);
+    const [top] = islandTopSlabs(solids, SCALE);
+    expect(top.holes).toHaveLength(1);
+    expect(span(top.holes[0], 0)).toBeCloseTo(30);
+    expect(span(top.holes[0], 1)).toBeCloseTo(24);
+  });
+
+  it('closes each angled joint with a filler over a set-back toe kick', () => {
+    const a = isle('a');
+    const side = isle('side', { rotation: -45 });
+    const joined = { ...side, ...snapCabinetToNeighbors({ ...side, x: 93, y: 42 }, [a], SCALE)! };
+    const solids = solidsOf([a, joined]);
+    const [filler, ...rest] = islandFillerSolids(solids, SCALE);
+    expect(rest).toHaveLength(0);
+    expect(filler).toMatchObject({ height: 34.5, toeKick: 4 });
+    // Hinged at the backs' shared corner, out to the two front corners 24" away; the toe kick 3" short of them.
+    const [hinge, ...outer] = filler.outline;
+    for (const [x, z] of outer) expect(Math.hypot(x - hinge[0], z - hinge[1])).toBeCloseTo(24);
+    for (const [x, z] of filler.toeOutline!.slice(1)) expect(Math.hypot(x - hinge[0], z - hinge[1])).toBeCloseTo(21);
+    // The top covers the joint in one piece.
+    expect(islandTopSlabs(solids, SCALE)).toHaveLength(1);
   });
 });
 

@@ -16,7 +16,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.domains.cabinet_estimate.sketch_models import CabinetSketch
 from app.domains.cabinet_estimate.sketch_schemas import CabinetSketchOverlayData
 
-EMPTY_OVERLAY = {"walls": [], "cabinets": [], "element_order": []}
+EMPTY_OVERLAY = {"walls": [], "cabinets": [], "appliances": [], "element_order": []}
 
 
 class CabinetSketchRepository:

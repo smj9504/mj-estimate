@@ -163,6 +163,15 @@ const CabinetEstimateDetail: React.FC = () => {
   // and the Sketch's island top.
   const islandSeatingIn: number = Form.useWatch('island_seating_overhang_in', form) ?? 0;
   const [islandTwoSided, setIslandTwoSided] = useState(false);
+  // What the Sketch draws besides the cabinets: the detach & reset appliances and the sink's bowls.
+  // preserve: the appliance list's field is only mounted while Appliance Detach & Reset is ticked.
+  const includeApplianceRr: boolean = Form.useWatch('include_appliance_rr', form) ?? false;
+  const applianceList: { type: string; qty: number }[] | undefined = Form.useWatch('appliance_list', { form, preserve: true });
+  const sinkType: string | undefined = Form.useWatch('sink_type', { form, preserve: true });
+  const sketchAppliances = useMemo(
+    () => (includeApplianceRr ? applianceList ?? [] : []),
+    [includeApplianceRr, applianceList]
+  );
   const [activeTab, setActiveTab] = useState('edit');
   const [registerBidItemOpen, setRegisterBidItemOpen] = useState(false);
   const [clientSearch, setClientSearch] = useState('');
@@ -1839,6 +1848,8 @@ const CabinetEstimateDetail: React.FC = () => {
             onCabinetsRemoved={handleSketchCabinetsRemoved}
             onCabinetChanged={handleSketchCabinetChanged}
             islandSeatingIn={islandSeatingIn}
+            applianceList={sketchAppliances}
+            sinkBowls={sinkType === 'double' ? 2 : 1}
             onApplyIslandTopSf={(sf) => {
               form.setFieldsValue({ island_countertop_sqft: sf });
               message.success(`Island countertop set to ${sf} SF on the Edit tab — Save or Save & Calculate to price it`);

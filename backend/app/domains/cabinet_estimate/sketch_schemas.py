@@ -42,9 +42,25 @@ class CabinetSketchCabinet(BaseModel):
     has_glass_door: Optional[bool] = None
 
 
+class CabinetSketchAppliance(BaseModel):
+    """One unit of the estimate's Appliance Detach & Reset list, placed on the plan."""
+
+    id: str
+    type: str                  # appliance_list type: dishwasher, range_gas, ...
+    x: float
+    y: float
+    width: float               # canvas pixels
+    height: float              # canvas pixels (depth)
+    rotation: float = 0
+    # The cabinet it sits in or on (range base, sink base, oven cabinet, ...);
+    # it moves with that cabinet. None when it stands on its own.
+    host_id: Optional[str] = None
+
+
 class CabinetSketchOverlayData(BaseModel):
     walls: List[CabinetSketchWall] = Field(default_factory=list)
     cabinets: List[CabinetSketchCabinet] = Field(default_factory=list)
+    appliances: List[CabinetSketchAppliance] = Field(default_factory=list)
     element_order: List[str] = Field(default_factory=list)
 
 

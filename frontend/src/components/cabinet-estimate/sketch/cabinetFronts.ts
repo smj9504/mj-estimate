@@ -19,6 +19,13 @@ export const GLASS_STILE_IN = 2.25;
 
 export type FaceKind = 'door' | 'drawer' | 'panel' | 'opening';
 
+/** An oven cabinet's opening: where the oven sits, inches above the floor. */
+export const ovenOpening = (specialty?: SpecialtyType | null) =>
+  specialty === 'double_oven_cabinet' ? { bottom: 22, height: 52 } : { bottom: 30, height: 30 };
+
+/** How tall a refrigerator cabinet's opening is, under its upper doors, for a cabinet `h` tall. */
+export const fridgeOpeningHeight = (h: number) => h - Math.min(24, h * 0.3) - REVEAL_IN;
+
 /** A door, drawer or appliance opening, in inches from the cabinet's bottom-left (y up). */
 export interface Face {
   x: number;
@@ -98,13 +105,12 @@ export function facesFor(
     if (specialty === 'refrigerator_cabinet') {
       const upper = Math.min(24, h * 0.3);
       return [
-        { x: r, y: 0, w: inner, h: h - upper - r, kind: 'opening', label: 'FRIDGE' },
+        { x: r, y: 0, w: inner, h: fridgeOpeningHeight(h), kind: 'opening', label: 'FRIDGE' },
         ...doorRow(0, h - upper, w, upper - r, doorCount(w)),
       ];
     }
     if (specialty === 'oven_cabinet' || specialty === 'double_oven_cabinet') {
-      const ovenH = specialty === 'double_oven_cabinet' ? 52 : 30;
-      const ovenBottom = specialty === 'double_oven_cabinet' ? 22 : 30;
+      const { height: ovenH, bottom: ovenBottom } = ovenOpening(specialty);
       const upperY = ovenBottom + ovenH + r;
       return [
         ...doorRow(0, bottom, w, ovenBottom - bottom - r, 1, 'drawer'),
