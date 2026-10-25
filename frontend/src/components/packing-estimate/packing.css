@@ -1,0 +1,1309 @@
+/* ============================================================
+   Packing estimates (calculator, list, detail)
+   ============================================================ */
+
+.pk-money,
+.pk-figure dd,
+.pk-bd-num,
+.pk-totals dd {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pk-muted {
+  color: var(--color-neutral-600);
+}
+.pk-empty-line {
+  margin: 0;
+  padding: 8px 0;
+  color: var(--color-neutral-600);
+}
+
+/* Company: its square tile, then the name */
+.pk-company {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.pk-company-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Figures: label over an ink value, on the sheet */
+.pk-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, max-content));
+  gap: 8px 40px;
+  margin: 0 0 24px;
+  padding: 0;
+}
+.pk-figure {
+  min-width: 0;
+}
+.pk-figure dt {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+.pk-figure dd {
+  margin: 2px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-neutral-900);
+}
+@media (max-width: 576px) {
+  .pk-figures {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 16px;
+    margin-bottom: 20px;
+  }
+  .pk-figure dd {
+    font-size: 18px;
+  }
+}
+
+/* Breakdown: one block per section, lines below, totals to close */
+.pk-bd-section + .pk-bd-section {
+  margin-top: 20px;
+}
+.pk-bd-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.pk-bd-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.pk-bd-head .pk-money {
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.pk-bd-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.pk-bd-table td {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+  vertical-align: top;
+}
+.pk-bd-item {
+  padding-right: 16px !important;
+}
+.pk-bd-name {
+  display: block;
+  color: var(--color-neutral-900);
+}
+.pk-bd-detail {
+  display: block;
+  margin-top: 1px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-neutral-600);
+}
+.pk-bd-calc {
+  display: none;
+}
+.pk-bd-num {
+  text-align: right;
+  color: var(--color-neutral-900);
+}
+.pk-bd-qty {
+  width: 96px;
+}
+.pk-bd-rate {
+  width: 104px;
+  color: var(--color-neutral-700);
+}
+.pk-bd-amount {
+  width: 112px;
+}
+@media (max-width: 576px) {
+  .pk-bd-qty,
+  .pk-bd-rate {
+    display: none;
+  }
+  .pk-bd-calc {
+    display: block;
+    margin-top: 2px;
+    font-size: 13px;
+    color: var(--color-neutral-700);
+    font-variant-numeric: tabular-nums;
+  }
+  .pk-bd-amount {
+    width: auto;
+  }
+}
+
+.pk-totals {
+  max-width: 360px;
+  margin: 20px 0 0 auto;
+  padding: 0;
+}
+.pk-totals-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0;
+}
+.pk-totals-row dt {
+  font-weight: 400;
+  color: var(--color-neutral-700);
+}
+.pk-totals-row dd {
+  margin: 0;
+  color: var(--color-neutral-900);
+}
+.pk-totals-grand {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-neutral-900);
+}
+.pk-totals-grand dt,
+.pk-totals-grand dd {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+@media (max-width: 576px) {
+  .pk-totals {
+    max-width: none;
+  }
+}
+
+/* List: status tabs share the toolbar row with search */
+.pk-status-tabs.ui-status-tabs {
+  margin: 0;
+  min-width: 0;
+}
+.pk-list-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 0;
+}
+.pk-list-empty p {
+  margin: 0;
+  color: var(--color-neutral-600);
+}
+
+/* New estimate: two method rows divided by a hairline */
+.pk-mode-intro {
+  margin: 0 0 16px;
+  color: var(--color-neutral-600);
+}
+.pk-mode-options {
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.pk-mode-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px;
+  border: 0;
+  background: var(--color-surface);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.pk-mode-option + .pk-mode-option {
+  border-top: 1px solid var(--color-neutral-200);
+}
+.pk-mode-option:hover {
+  background: var(--color-ink-hover);
+}
+.pk-mode-option:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: -2px;
+}
+.pk-mode-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-700);
+  font-size: 18px;
+}
+.pk-mode-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.pk-mode-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.pk-mode-desc {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.pk-mode-chevron {
+  color: var(--color-neutral-600);
+  font-size: 12px;
+}
+
+/* Loading and not-found states sit in the middle of the sheet */
+.pk-page-state {
+  display: flex;
+  justify-content: center;
+  padding: 64px 0;
+}
+
+/* Detail: the work in a wide column, the facts beside it */
+.pk-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-areas:
+    "figures side"
+    "main side";
+  grid-template-rows: auto 1fr;
+  column-gap: 40px;
+  align-items: start;
+}
+.pk-detail-figures {
+  grid-area: figures;
+}
+.pk-detail-main {
+  grid-area: main;
+  min-width: 0;
+}
+.pk-detail-side {
+  grid-area: side;
+}
+.pk-detail-main .ant-tabs-nav {
+  margin-bottom: 20px;
+}
+.pk-detail-side .ui-section-head {
+  margin-bottom: 4px;
+}
+/* One column: the facts sit between the figures and the work on tablets;
+   phones lead with the estimate and keep the facts for last */
+@media (max-width: 1199.98px) {
+  .pk-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "figures"
+      "side"
+      "main";
+    grid-template-rows: auto;
+  }
+  .pk-detail-side {
+    margin-bottom: 24px;
+  }
+}
+@media (max-width: 767.98px) {
+  .pk-detail-grid {
+    grid-template-areas:
+      "figures"
+      "main"
+      "side";
+  }
+  .pk-detail-side {
+    margin: 32px 0 0;
+  }
+}
+.pk-title-input.ant-input {
+  max-width: 480px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* Quiet tables inside the tabs: no header fill, hairline rows */
+.pk-quiet-table .ant-table-thead > tr > th {
+  background: transparent;
+}
+.pk-quiet-table .ant-table-summary td {
+  background: transparent;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.pk-code {
+  font-family: SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+.pk-item-name {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+.pk-room-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.pk-room-title {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.pk-room-meta {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.pk-notes {
+  margin: 0;
+  padding-left: 18px;
+}
+.pk-plain-list {
+  margin: 0;
+  color: var(--color-neutral-900);
+}
+
+/* Folder import */
+.pk-folder-intro {
+  margin: 0 0 16px;
+  color: var(--color-neutral-600);
+}
+.pk-folder-modal .ant-modal-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pk-folder-modal .ant-modal-footer > .ant-btn {
+  margin: 0 !important;
+}
+.pk-folder-count {
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 767.98px) {
+  .pk-folder-count {
+    flex-basis: 100%;
+  }
+}
+.pk-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 32px 16px;
+  border: 1px dashed var(--color-neutral-400);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.pk-drop:hover:not(:disabled) {
+  border-color: #c8c7c3;
+  background: var(--color-neutral-50);
+}
+.pk-drop:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+}
+.pk-drop:disabled {
+  cursor: not-allowed;
+  color: var(--color-neutral-600);
+}
+.pk-drop-icon {
+  margin-bottom: 4px;
+  font-size: 24px;
+  color: var(--color-neutral-600);
+}
+.pk-drop-title {
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.pk-drop-hint {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.pk-folder-list {
+  max-height: 320px;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.pk-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--color-neutral-200);
+  transition: opacity 0.12s ease;
+}
+.pk-folder-row.is-off {
+  opacity: 0.6;
+}
+.pk-folder-icon {
+  flex-shrink: 0;
+  color: var(--color-neutral-600);
+}
+.pk-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.pk-folder-photos {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.pk-folder-warn {
+  flex-shrink: 0;
+  color: var(--tag-orange-text);
+}
+.pk-folder-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--color-neutral-600);
+}
+.pk-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--tag-gray-bg);
+  color: var(--tag-gray-text);
+  font-size: 13px;
+}
+.pk-note .anticon {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.pk-note--warn {
+  background: var(--tag-orange-bg);
+  color: var(--tag-orange-text);
+}
+.pk-folder-reset {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+.pk-folder-reset .ant-btn {
+  color: var(--color-neutral-600);
+}
+
+/* Rooms (calculator): each room a block between hairlines */
+.pk-count {
+  margin-left: 6px;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.pk-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.pk-section-actions .ant-btn-text {
+  color: var(--color-neutral-700);
+}
+.pk-section-actions .ant-btn.pk-stop {
+  color: var(--color-error);
+}
+.pk-room-list > .pk-room {
+  padding: 14px 0 16px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.pk-room-list > .pk-room:first-child {
+  padding-top: 6px;
+}
+.pk-room-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.pk-room-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.pk-room-actions .ant-btn-text:not(.ui-icon-btn) {
+  color: var(--color-neutral-700);
+}
+
+/* Photos: square thumbs, a quiet remove button, an add tile */
+.pk-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.pk-photo {
+  position: relative;
+  width: 72px;
+  height: 72px;
+}
+.pk-photo .ant-image,
+.pk-photo .ant-image-img {
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-md);
+  object-fit: cover;
+}
+.pk-photo-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--color-neutral-900);
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  z-index: 1;
+}
+.pk-photo:hover .pk-photo-remove,
+.pk-photo-remove:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .pk-photo-remove {
+    opacity: 1;
+  }
+}
+.pk-photo-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border: 1px dashed var(--color-neutral-400);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-neutral-600);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.pk-photo-add:hover {
+  background: var(--color-neutral-50);
+  color: var(--color-neutral-900);
+}
+
+/* Room settings: three labelled selects in a row, wrapping when narrow */
+.pk-room-settings {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+.pk-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.pk-field-label {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.pk-field .ant-select {
+  width: 100%;
+}
+@media (max-width: 576px) {
+  .pk-room-settings {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.pk-field-notes {
+  margin: 12px 0 0;
+  padding: 8px 10px 8px 26px;
+  border-radius: var(--radius-md);
+  background: var(--tag-blue-bg);
+  color: var(--tag-blue-text);
+  font-size: 13px;
+}
+.pk-items-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 2px 6px 2px 2px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+  cursor: pointer;
+}
+.pk-items-toggle:hover {
+  background: var(--color-ink-hover);
+  color: var(--color-neutral-900);
+}
+.pk-items-caret {
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+.pk-items-caret.is-open {
+  transform: rotate(90deg);
+}
+.pk-items-table {
+  margin-top: 6px;
+}
+
+/* Add a room: a quiet row that opens an inline composer */
+.pk-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  margin-top: 4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  font: inherit;
+  color: var(--color-neutral-600);
+  text-align: left;
+  cursor: pointer;
+}
+.pk-add-row:hover {
+  background: var(--color-ink-hover);
+  color: var(--color-neutral-900);
+}
+.pk-composer {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: var(--radius-lg);
+  background: var(--color-neutral-50);
+}
+.pk-composer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.pk-composer-title {
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.pk-composer-name {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.pk-composer-name > .ant-select,
+.pk-composer-name > .ant-input {
+  flex: 1;
+  min-width: 0;
+}
+.pk-dragger.ant-upload-wrapper .ant-upload-drag {
+  border-color: var(--color-neutral-400);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.pk-dragger.ant-upload-wrapper .ant-upload-drag:hover {
+  border-color: #c8c7c3 !important;
+}
+.pk-dragger .ant-upload-btn {
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 20px 0 !important;
+}
+
+/* Quick estimate presets: a category label beside its room chips */
+.pk-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 0 12px;
+}
+.pk-preset-row {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+.pk-preset-cat {
+  padding-top: 3px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.pk-preset-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.pk-preset-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px 0 7px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.pk-preset-chip .anticon {
+  font-size: 10px;
+  color: var(--color-neutral-600);
+}
+.pk-preset-chip:hover {
+  background: var(--color-ink-hover);
+  color: var(--color-neutral-900);
+}
+.pk-preset-chip:active {
+  background: var(--color-ink-selected);
+}
+.pk-preset-chip:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+}
+@media (pointer: coarse) {
+  .pk-preset-chip {
+    height: 32px;
+  }
+}
+@media (max-width: 576px) {
+  .pk-preset-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+}
+.pk-rooms-empty {
+  border-top: 1px solid var(--color-neutral-200);
+  padding-top: 12px;
+}
+
+/* Form rows: grey label column beside the control, like property rows */
+.pk-form-row {
+  display: grid;
+  grid-template-columns: 136px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px 12px;
+  padding: 4px 0;
+}
+.pk-form-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+  font-size: 14px;
+  color: var(--color-neutral-600);
+}
+.pk-required {
+  color: var(--color-error);
+}
+.pk-form-control {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  min-height: 32px;
+  justify-content: center;
+}
+.pk-form-control > .ant-select,
+.pk-form-control > .ant-input,
+.pk-form-control > .ant-select-auto-complete {
+  width: 100%;
+}
+.pk-form-control > * {
+  max-width: 100%;
+}
+.pk-form-meta {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.pk-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+.pk-toggle-text {
+  color: var(--color-neutral-700);
+}
+@media (max-width: 576px) {
+  .pk-form-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    padding: 6px 0;
+  }
+  .pk-form-label {
+    min-height: 0;
+    font-size: 13px;
+  }
+}
+
+/* ============================================================
+   Calculator: inputs left, the estimate right
+   ============================================================ */
+.pk-builder-page {
+  container: pk-page / inline-size;
+}
+.pk-builder {
+  display: grid;
+  grid-template-columns: minmax(0, 600px) minmax(0, 1fr);
+  gap: 48px;
+  align-items: start;
+}
+.pk-builder-inputs {
+  min-width: 0;
+}
+.pk-builder-inline-action {
+  display: none;
+}
+
+/* The estimate stays in view while the inputs scroll */
+.pk-estimate {
+  container-type: inline-size;
+  position: sticky;
+  top: 72px;
+  max-height: calc(100vh - 92px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-width: 0;
+  padding-right: 2px;
+}
+.pk-open-link.ant-btn {
+  color: var(--color-neutral-700);
+}
+.pk-estimate-body {
+  padding-top: 8px;
+  transition: opacity 0.2s ease;
+  animation: pk-estimate-in 0.36s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pk-estimate.is-calculating .pk-estimate-body,
+.pk-estimate-body.is-stale {
+  opacity: 0.45;
+}
+@keyframes pk-estimate-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pk-estimate-body {
+    animation: none;
+  }
+}
+/* One line of figures; the grand total ends it, over the amounts column */
+.pk-figures--estimate {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  margin-bottom: 20px;
+}
+.pk-figures--estimate .pk-figure:last-child {
+  margin-left: auto;
+  text-align: right;
+}
+
+/* Inputs changed after a calculation: held until recalculated */
+.pk-stale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 4px;
+  padding: 8px 8px 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--tag-orange-bg);
+  color: var(--tag-orange-text);
+  font-size: 13px;
+}
+.pk-stale .ant-btn {
+  flex-shrink: 0;
+}
+
+/* Before the first calculation: what is missing, and what is set */
+.pk-estimate-empty {
+  margin-top: 8px;
+  padding: 20px;
+  border-radius: var(--radius-lg);
+  background: var(--color-neutral-50);
+}
+.pk-estimate-empty-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.pk-estimate-empty-text {
+  margin: 0 0 16px;
+  color: var(--color-neutral-600);
+}
+.pk-estimate-inputs {
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.pk-estimate-inputs > div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px;
+  padding: 3px 0;
+}
+.pk-estimate-inputs dt {
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+.pk-estimate-inputs dd {
+  margin: 0;
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A narrow estimate column folds qty and rate under the line name */
+@container (max-width: 560px) {
+  .pk-bd-qty,
+  .pk-bd-rate {
+    display: none;
+  }
+  .pk-bd-calc {
+    display: block;
+    margin-top: 2px;
+    font-size: 13px;
+    color: var(--color-neutral-700);
+    font-variant-numeric: tabular-nums;
+  }
+  .pk-bd-amount {
+    width: auto;
+  }
+  .pk-totals {
+    max-width: none;
+  }
+}
+
+/* Mid widths: the columns share the page evenly */
+@container pk-page (max-width: 1100px) {
+  .pk-builder {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 32px;
+  }
+}
+
+/* One column when the page is narrow: estimate after the inputs */
+@container pk-page (max-width: 880px) {
+  .pk-builder {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+  .pk-estimate {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+    scroll-margin-top: 64px;
+  }
+  .pk-builder-inline-action {
+    display: block;
+    margin-top: 24px;
+  }
+  .pk-builder-inline-action .ant-btn {
+    height: 40px;
+  }
+}
+
+/* Collapsible breakdown (calculator): sections as rows that open to their lines */
+.pk-breakdown--collapsible .pk-bd-section + .pk-bd-section {
+  margin-top: 0;
+}
+.pk-bd-head--toggle {
+  width: 100%;
+  padding: 9px 4px 9px 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0;
+  transition: background-color 0.12s ease;
+}
+.pk-bd-head--toggle:hover {
+  background: rgba(55, 53, 47, 0.03);
+}
+.pk-bd-head--toggle:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: -2px;
+}
+.pk-bd-head--toggle .pk-bd-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.pk-bd-head--toggle .pk-items-caret {
+  font-size: 10px;
+  color: var(--color-neutral-600);
+}
+.pk-bd-count {
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.pk-breakdown--collapsible .pk-bd-table {
+  margin-bottom: 8px;
+}
+.pk-breakdown--collapsible .pk-bd-table td:first-child {
+  padding-left: 18px;
+}
+
+/* Section heads with actions wrap as a unit on narrow screens */
+.pk-rooms > .ui-section-head {
+  flex-wrap: wrap;
+}
+.pk-rooms > .ui-section-head .ui-section-title {
+  white-space: nowrap;
+}
+
+/* List: the date column keeps clear of the money column before it */
+.ant-table .pk-col-after-money {
+  padding-left: 32px !important;
+}
+
+/* Breakdown column header: Item, Qty, Rate, Amount over the first section */
+.pk-bd-cols {
+  display: flex;
+  align-items: center;
+  padding: 0 0 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-neutral-600);
+}
+.pk-bd-cols-item {
+  flex: 1;
+  min-width: 0;
+}
+.pk-bd-cols .pk-bd-qty,
+.pk-bd-cols .pk-bd-rate,
+.pk-bd-cols .pk-bd-amount {
+  flex-shrink: 0;
+  text-align: right;
+}
+.pk-breakdown--collapsible .pk-bd-cols-item {
+  padding-left: 18px;
+}
+@media (max-width: 576px) {
+  .pk-bd-cols .pk-bd-amount {
+    width: auto;
+  }
+}
+
+/* Calculator checklist: what the first calculation still needs */
+.pk-checklist {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+.pk-checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0;
+  color: var(--color-neutral-900);
+}
+.pk-checklist li.is-done {
+  color: var(--color-neutral-600);
+}
+.pk-check-icon {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--color-success);
+}
+.pk-check-ring {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 4px;
+  border: 1.5px solid var(--color-neutral-600);
+  border-radius: 50%;
+}
+
+/* A select value with a tone dot (flagged water) */
+.pk-tone-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pk-tone-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Quick rooms as ledger rows: one header, name then three selects inline */
+.pk-ledger {
+  container-type: inline-size;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.pk-ledger-head,
+.pk-ledger-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px 124px 160px 28px;
+  align-items: center;
+  gap: 8px;
+}
+.pk-ledger-head {
+  padding: 8px 0 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-neutral-600);
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.pk-ledger-row {
+  min-height: 44px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.pk-ledger-name {
+  min-width: 0;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+  overflow-wrap: anywhere;
+}
+.pk-ledger-row .ant-select {
+  width: 100%;
+  min-width: 0;
+}
+.pk-ledger-prefix {
+  display: none;
+  color: var(--color-neutral-600);
+}
+@container (max-width: 539px) {
+  .pk-ledger-head {
+    display: none;
+  }
+  .pk-ledger-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "name remove"
+      "floor density"
+      "contamination contamination";
+    row-gap: 6px;
+    padding: 10px 0 12px;
+  }
+  .pk-ledger-name {
+    grid-area: name;
+  }
+  .pk-ledger-row > .ant-select:nth-of-type(1) {
+    grid-area: floor;
+  }
+  .pk-ledger-row > .ant-select:nth-of-type(2) {
+    grid-area: density;
+  }
+  .pk-ledger-row > .ant-select:nth-of-type(3) {
+    grid-area: contamination;
+  }
+  .pk-ledger-remove {
+    grid-area: remove;
+    justify-self: end;
+  }
+  .pk-ledger-prefix {
+    display: inline;
+  }
+}
+
+/* Phones: the last room setting takes the full row instead of half */
+@media (max-width: 576px) {
+  .pk-room-settings > .pk-field:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Phones: each detected item stacks its name over its controls */
+.pk-item-rows {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.pk-item-row {
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.pk-item-row-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.pk-item-row-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 8px;
+}
+.pk-item-row-controls .ant-select,
+.pk-item-row-controls .ant-input-number-group-wrapper {
+  width: 100%;
+}
+
+/* A setting's multiplier beside its name in a closed select: "Dense 1.3×" */
+.pk-mult-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.pk-mult {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}

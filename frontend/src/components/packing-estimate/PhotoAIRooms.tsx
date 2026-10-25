@@ -4,15 +4,13 @@
  */
 import React, { useState, useRef, useCallback } from 'react';
 import {
-  Card, Button, Select, Input, Space, Tag, Tooltip, message,
-  Typography, Row, Col, Upload, Badge, Collapse, InputNumber,
-  Popconfirm, Progress, Image, Table, Empty, Alert,
+  Button, Select, Input, Tooltip, message, Upload, InputNumber,
+  Popconfirm, Image, Table, Grid,
 } from 'antd';
 import {
-  PlusOutlined, DeleteOutlined, CameraOutlined, ScanOutlined,
-  StarOutlined, WarningOutlined, LoadingOutlined, EditOutlined,
+  PlusOutlined, DeleteOutlined, ScanOutlined, LoadingOutlined,
   CheckOutlined, CloseOutlined, ThunderboltOutlined, InboxOutlined,
-  EyeOutlined, FolderOpenOutlined, StopOutlined,
+  FolderOpenOutlined, StopOutlined, RightOutlined,
 } from '@ant-design/icons';
 import * as packingService from '../../services/packingEstimateService';
 import type {
@@ -23,8 +21,10 @@ import {
   DENSITY_OPTIONS, FLOOR_OPTIONS, CONTAMINATION_OPTIONS,
 } from './constants';
 import FolderImportModal from './FolderImportModal';
+import { Pill, type TagTone } from '../common/ui';
+import { contaminationSelectLabel, multiplierSelectLabel } from './packingUi';
+import './packing.css';
 
-const { Text, Title } = Typography;
 const { Option } = Select;
 const { Dragger } = Upload;
 
@@ -145,7 +145,8 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
           ? room.items.map(i => ({ name: i.name, quantity: i.quantity }))
           : undefined,
       );
-      updateRoom(roomId, {
+      setRooms(roomsRef.current.map(r => r.id === roomId ? {
+        ...r,
         items: result.items,
         density: (result.density as PhotoRoom['density']) ?? room.density,
         room_size: result.room_size,
@@ -153,14 +154,14 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
         field_notes: result.field_notes,
         analyzed: true,
         analyzing: false,
-      });
+      } : r));
       message.success(`${room.room_name}: ${result.items.length} items detected`);
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
       message.error(detail || 'Failed to analyze room');
-      updateRoom(roomId, { analyzing: false });
+      setRooms(roomsRef.current.map(r => r.id === roomId ? { ...r, analyzing: false } : r));
     }
-  }, [rooms, updateRoom]);
+  }, [rooms, updateRoom, setRooms]);
 
   // ── Batch Analysis ─────────────────────────
 
@@ -261,176 +262,151 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
     setRooms([...rooms, ...newRooms]);
   }, [rooms, setRooms]);
 
+  const closeAddRoom = () => { setShowAddRoom(false); setPendingPhotos([]); };
+
   // ── Render ─────────────────────────────────
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      {/* Header */}
-      <Row justify="space-between" align="middle">
-        <Col>
-          <Title level={5} style={{ margin: 0 }}>
-            <CameraOutlined /> Photo AI Rooms ({rooms.length})
-          </Title>
-        </Col>
-        <Col>
-          <Space>
-            <Tooltip title="Import rooms from folder (each subfolder = 1 room)">
-              <Button
-                icon={<FolderOpenOutlined />}
-                onClick={() => setFolderModalOpen(true)}
-              >
-                Import Folder
-              </Button>
-            </Tooltip>
-            {batchAnalyzing ? (
-              <Button
-                icon={<StopOutlined />}
-                onClick={handleStopBatch}
-                danger
-              >
-                Stop Analysis
-              </Button>
-            ) : unanalyzedRooms.length > 0 ? (
-              <Button
-                icon={<ThunderboltOutlined />}
-                onClick={handleBatchAnalyze}
-                type="primary"
-                ghost
-              >
-                Analyze All ({unanalyzedRooms.length})
-              </Button>
-            ) : null}
-          </Space>
-        </Col>
-      </Row>
+    <section className="ui-section pk-rooms" aria-label="Photo AI Rooms">
+      <div className="ui-section-head">
+        <h2 className="ui-section-title">
+          Photo AI Rooms <span className="pk-count">{rooms.length}</span>
+        </h2>
+        <div className="pk-section-actions">
+          <Tooltip title="Import rooms from folder (each subfolder = 1 room)">
+            <Button
+              type="text"
+              size="small"
+              icon={<FolderOpenOutlined />}
+              onClick={() => setFolderModalOpen(true)}
+            >
+              Import Folder
+            </Button>
+          </Tooltip>
+          {batchAnalyzing ? (
+            <Button type="text" size="small" icon={<StopOutlined />} onClick={handleStopBatch} className="pk-stop">
+              Stop Analysis
+            </Button>
+          ) : unanalyzedRooms.length > 0 ? (
+            <Button size="small" icon={<ThunderboltOutlined />} onClick={handleBatchAnalyze}>
+              Analyze All ({unanalyzedRooms.length})
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      {rooms.length === 0 && !showAddRoom && (
+        <p className="pk-empty-line">Add rooms with photos to start AI analysis.</p>
+      )}
+
+      <div className="pk-room-list">
+        {rooms.map(room => (
+          <RoomCard
+            key={room.id}
+            room={room}
+            presets={allPresets}
+            onAnalyze={() => handleAnalyzeRoom(room.id)}
+            onRemove={() => removeRoom(room.id)}
+            onUpdate={(patch) => updateRoom(room.id, patch)}
+            onAddPhotos={(files) => handleAddPhotosToRoom(room.id, files)}
+            onUpdateItem={(idx, patch) => updateItem(room.id, idx, patch)}
+            onRemoveItem={(idx) => removeItem(room.id, idx)}
+          />
+        ))}
+      </div>
 
       {/* Add Room Panel */}
       {!showAddRoom ? (
-        <Button
-          type="dashed"
-          block
-          icon={<PlusOutlined />}
-          onClick={() => setShowAddRoom(true)}
-          style={{ height: 48 }}
-        >
-          Add a room with photos...
-        </Button>
+        <button type="button" className="pk-add-row" onClick={() => setShowAddRoom(true)}>
+          <PlusOutlined aria-hidden="true" /> Add a room with photos...
+        </button>
       ) : (
-        <Card size="small" title="Add Room" extra={
-          <Button size="small" icon={<CloseOutlined />} type="text"
-            onClick={() => { setShowAddRoom(false); setPendingPhotos([]); }}
-          />
-        }>
-          {/* Room name selection */}
-          <Row gutter={8} style={{ marginBottom: 12 }}>
-            <Col flex="auto">
-              {useCustomName ? (
-                <Input
-                  placeholder="Room name (e.g. Master Bedroom)"
-                  value={newRoomName}
-                  onChange={e => setNewRoomName(e.target.value)}
-                  onPressEnter={handleAddRoom}
-                />
-              ) : (
-                <Select
-                  placeholder="Select a room"
-                  value={newRoomPreset}
-                  onChange={setNewRoomPreset}
-                  style={{ width: '100%' }}
-                  showSearch
-                  optionFilterProp="label"
-                >
-                  {Object.entries(presets).map(([cat, list]) => (
-                    <Select.OptGroup key={cat} label={cat}>
-                      {list.map(p => (
-                        <Option key={p.key} value={p.key} label={p.name}>
-                          {p.name}
-                        </Option>
-                      ))}
-                    </Select.OptGroup>
-                  ))}
-                </Select>
-              )}
-            </Col>
-            <Col>
-              <Button size="middle" onClick={() => setUseCustomName(v => !v)}>
-                {useCustomName ? 'Preset' : 'Custom'}
-              </Button>
-            </Col>
-          </Row>
+        <div className="pk-composer" role="group" aria-label="Add Room">
+          <div className="pk-composer-head">
+            <span className="pk-composer-title">Add Room</span>
+            <Button size="small" type="text" className="ui-icon-btn" icon={<CloseOutlined />} onClick={closeAddRoom} aria-label="Close" />
+          </div>
+          <div className="pk-composer-name">
+            {useCustomName ? (
+              <Input
+                placeholder="Room name (e.g. Master Bedroom)"
+                value={newRoomName}
+                onChange={e => setNewRoomName(e.target.value)}
+                onPressEnter={handleAddRoom}
+                autoFocus
+              />
+            ) : (
+              <Select
+                placeholder="Select a room"
+                value={newRoomPreset}
+                onChange={setNewRoomPreset}
+                style={{ width: '100%' }}
+                showSearch
+                optionFilterProp="label"
+              >
+                {Object.entries(presets).map(([cat, list]) => (
+                  <Select.OptGroup key={cat} label={cat}>
+                    {list.map(p => (
+                      <Option key={p.key} value={p.key} label={p.name}>
+                        {p.name}
+                      </Option>
+                    ))}
+                  </Select.OptGroup>
+                ))}
+              </Select>
+            )}
+            <Button onClick={() => setUseCustomName(v => !v)}>
+              {useCustomName ? 'Preset' : 'Custom'}
+            </Button>
+          </div>
 
-          {/* Photo upload */}
           {pendingPhotos.length === 0 ? (
             <Dragger
+              className="pk-dragger"
               multiple
               accept="image/*"
               showUploadList={false}
-              beforeUpload={(file, fileList) => {
-                handlePhotoFiles(fileList);
+              // Called once per selected file, so add just that file
+              beforeUpload={(file) => {
+                handlePhotoFiles([file]);
                 return false;
               }}
-              style={{ padding: '16px 0' }}
             >
-              <p><InboxOutlined style={{ fontSize: 32, color: '#1890ff' }} /></p>
-              <p>Click or drag photos here</p>
+              <InboxOutlined className="pk-drop-icon" aria-hidden="true" />
+              <span className="pk-drop-title">Click or drag photos here</span>
             </Dragger>
           ) : (
-            <div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            <>
+              <div className="pk-photos">
                 {pendingPhotos.map((p, i) => (
-                  <div key={i} style={{ position: 'relative', width: 80, height: 80 }}>
-                    <Image
-                      src={toDataUri(p)}
-                      width={80} height={80}
-                      style={{ objectFit: 'cover', borderRadius: 4 }}
-                      preview={false}
-                    />
-                    <Button
-                      size="small" type="text" danger
-                      icon={<CloseOutlined />}
-                      style={{ position: 'absolute', top: 0, right: 0, background: 'rgba(255,255,255,0.8)' }}
+                  <div key={i} className="pk-photo">
+                    <Image src={toDataUri(p)} width={72} height={72} preview={false} />
+                    <button
+                      type="button"
+                      className="pk-photo-remove"
                       onClick={() => setPendingPhotos(prev => prev.filter((_, idx) => idx !== i))}
-                    />
+                      aria-label="Remove photo"
+                    >
+                      <CloseOutlined />
+                    </button>
                   </div>
                 ))}
                 <Upload
                   multiple accept="image/*" showUploadList={false}
-                  beforeUpload={(file, fileList) => { handlePhotoFiles(fileList); return false; }}
+                  beforeUpload={(file) => { handlePhotoFiles([file]); return false; }}
                 >
-                  <div style={{
-                    width: 80, height: 80, border: '1px dashed #d9d9d9', borderRadius: 4,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                  }}>
+                  <button type="button" className="pk-photo-add" aria-label="Add photos">
                     <PlusOutlined />
-                  </div>
+                  </button>
                 </Upload>
               </div>
               <Button type="primary" onClick={handleAddRoom} block>
                 Add Room ({pendingPhotos.length} photo{pendingPhotos.length > 1 ? 's' : ''})
               </Button>
-            </div>
+            </>
           )}
-        </Card>
+        </div>
       )}
-
-      {/* Room Cards */}
-      {rooms.length === 0 && !showAddRoom && (
-        <Empty description="Add rooms with photos to start AI analysis" />
-      )}
-
-      {rooms.map(room => (
-        <RoomCard
-          key={room.id}
-          room={room}
-          presets={allPresets}
-          onAnalyze={() => handleAnalyzeRoom(room.id)}
-          onRemove={() => removeRoom(room.id)}
-          onUpdate={(patch) => updateRoom(room.id, patch)}
-          onAddPhotos={(files) => handleAddPhotosToRoom(room.id, files)}
-          onUpdateItem={(idx, patch) => updateItem(room.id, idx, patch)}
-          onRemoveItem={(idx) => removeItem(room.id, idx)}
-        />
-      ))}
 
       {/* Folder Import Modal */}
       <FolderImportModal
@@ -439,7 +415,7 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
         onRoomsCreated={handleBulkAddRooms}
         existingRoomNames={rooms.map(r => r.room_name)}
       />
-    </Space>
+    </section>
   );
 };
 
@@ -456,47 +432,54 @@ interface RoomCardProps {
   onRemoveItem: (idx: number) => void;
 }
 
+/** How sure the AI is about the room, as a tone: sure is green, unsure is red */
+const confidenceTone = (s: number): TagTone => {
+  if (s >= 0.8) return 'green';
+  if (s >= 0.6) return 'yellow';
+  return 'red';
+};
+
 const RoomCard: React.FC<RoomCardProps> = ({
   room, presets, onAnalyze, onRemove, onUpdate, onAddPhotos,
   onUpdateItem, onRemoveItem,
 }) => {
   const [showItems, setShowItems] = useState(room.analyzed);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Phones stack each detected item instead of clipping a four-column table
+  const screens = Grid.useBreakpoint();
+  const stackItems = !screens.sm;
 
-  const confidenceColor = (s?: number) => {
-    if (!s) return '#999';
-    if (s >= 0.8) return '#52c41a';
-    if (s >= 0.6) return '#faad14';
-    return '#f5222d';
-  };
+  // Open the items the first time an analysis lands
+  React.useEffect(() => {
+    if (room.analyzed) setShowItems(true);
+  }, [room.analyzed]);
 
   return (
-    <Card
-      size="small"
-      title={
-        <Space>
-          <CameraOutlined />
-          <Text strong>{room.room_name}</Text>
-          <Tag>{room.photos.length} photo{room.photos.length !== 1 ? 's' : ''}</Tag>
-          {room.analyzed && (
-            <Tag color="success" icon={<CheckOutlined />}>
-              {room.items.length} items
-            </Tag>
-          )}
-          {room.confidence_score && (
-            <Tag color={confidenceColor(room.confidence_score)}>
-              {Math.round(room.confidence_score * 100)}%
-            </Tag>
-          )}
-          {room.analyzing && <Tag color="processing" icon={<LoadingOutlined />}>Analyzing...</Tag>}
-        </Space>
-      }
-      extra={
-        <Space size="small">
+    <article className="pk-room" aria-label={room.room_name}>
+      <div className="pk-room-bar">
+        <div className="pk-room-head">
+          <span className="pk-room-title">
+            {room.room_name}
+            {room.analyzing && <Pill tone="blue" icon={<LoadingOutlined />}>Analyzing...</Pill>}
+            {!room.analyzing && room.analyzed && (
+              <Pill tone="green" icon={<CheckOutlined />}>{room.items.length} items</Pill>
+            )}
+            {!room.analyzing && !room.analyzed && room.photos.length > 0 && <Pill tone="gray">Not analyzed</Pill>}
+            {room.confidence_score ? (
+              <Pill tone={confidenceTone(room.confidence_score)} title="AI confidence">
+                {Math.round(room.confidence_score * 100)}%
+              </Pill>
+            ) : null}
+          </span>
+          <span className="pk-room-meta">
+            {room.photos.length} photo{room.photos.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+        <div className="pk-room-actions">
           {!room.analyzed && room.photos.length > 0 && (
             <Button
-              type="primary" size="small"
-              icon={room.analyzing ? <LoadingOutlined /> : <ScanOutlined />}
+              size="small"
+              icon={<ScanOutlined />}
               onClick={onAnalyze}
               loading={room.analyzing}
             >
@@ -504,50 +487,43 @@ const RoomCard: React.FC<RoomCardProps> = ({
             </Button>
           )}
           {room.analyzed && (
-            <Button size="small" icon={<ScanOutlined />} onClick={onAnalyze}>
+            <Button size="small" type="text" icon={<ScanOutlined />} onClick={onAnalyze} loading={room.analyzing}>
               Re-analyze
             </Button>
           )}
-          <Popconfirm title="Remove this room?" onConfirm={onRemove}>
-            <Button danger size="small" icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
-      }
-    >
-      {/* Photos strip */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-        {room.photos.map((p, i) => (
-          <div key={i} style={{ position: 'relative' }}>
-            <Image
-              src={toDataUri(p)}
-              width={72} height={72}
-              style={{ objectFit: 'cover', borderRadius: 4 }}
-            />
+          <Popconfirm title="Remove this room?" onConfirm={onRemove} okButtonProps={{ danger: true }} okText="Remove">
             <Button
-              size="small" type="text" danger
-              icon={<CloseOutlined style={{ fontSize: 10 }} />}
-              style={{
-                position: 'absolute', top: -4, right: -4,
-                width: 18, height: 18, padding: 0,
-                background: 'rgba(255,255,255,0.9)', borderRadius: '50%',
-              }}
+              size="small"
+              type="text"
+              className="ui-icon-btn ui-icon-btn--danger"
+              icon={<DeleteOutlined />}
+              aria-label={`Remove ${room.room_name}`}
+            />
+          </Popconfirm>
+        </div>
+      </div>
+
+      {/* Photos strip */}
+      <div className="pk-photos">
+        {room.photos.map((p, i) => (
+          <div key={i} className="pk-photo">
+            <Image src={toDataUri(p)} width={72} height={72} />
+            <button
+              type="button"
+              className="pk-photo-remove"
               onClick={() => {
                 const newPhotos = room.photos.filter((_, idx) => idx !== i);
                 onUpdate({ photos: newPhotos, analyzed: false });
               }}
-            />
+              aria-label="Remove photo"
+            >
+              <CloseOutlined />
+            </button>
           </div>
         ))}
-        <div
-          onClick={() => fileRef.current?.click()}
-          style={{
-            width: 72, height: 72, border: '1px dashed #d9d9d9', borderRadius: 4,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', color: '#8c8c8c',
-          }}
-        >
+        <button type="button" className="pk-photo-add" onClick={() => fileRef.current?.click()} aria-label="Add photos">
           <PlusOutlined />
-        </div>
+        </button>
         <input
           ref={fileRef} type="file" accept="image/*" multiple hidden
           onChange={e => { if (e.target.files) onAddPhotos(e.target.files); e.target.value = ''; }}
@@ -555,83 +531,107 @@ const RoomCard: React.FC<RoomCardProps> = ({
       </div>
 
       {/* Room settings */}
-      <Row gutter={8} style={{ marginBottom: 8 }}>
-        <Col span={8}>
-          <Text type="secondary" style={{ fontSize: 12 }}>Floor</Text>
-          <Select
-            size="small" value={room.floor} style={{ width: '100%' }}
-            onChange={v => onUpdate({ floor: v })}
-          >
+      <div className="pk-room-settings">
+        <label className="pk-field">
+          <span className="pk-field-label">Floor</span>
+          <Select size="small" value={room.floor} onChange={v => onUpdate({ floor: v })} popupMatchSelectWidth={false}>
             {FLOOR_OPTIONS.map(o => <Option key={o.value} value={o.value}>{o.label}</Option>)}
           </Select>
-        </Col>
-        <Col span={8}>
-          <Text type="secondary" style={{ fontSize: 12 }}>Density</Text>
-          <Select
-            size="small" value={room.density} style={{ width: '100%' }}
-            onChange={v => onUpdate({ density: v })}
-          >
+        </label>
+        <label className="pk-field">
+          <span className="pk-field-label">Density</span>
+          <Select size="small" value={room.density} onChange={v => onUpdate({ density: v })} labelRender={multiplierSelectLabel} popupMatchSelectWidth={false}>
             {DENSITY_OPTIONS.map(o => <Option key={o.value} value={o.value}>{o.label}</Option>)}
           </Select>
-        </Col>
-        <Col span={8}>
-          <Text type="secondary" style={{ fontSize: 12 }}>Contamination</Text>
-          <Select
-            size="small" value={room.contamination} style={{ width: '100%' }}
-            onChange={v => onUpdate({ contamination: v })}
-          >
+        </label>
+        <label className="pk-field">
+          <span className="pk-field-label">Contamination</span>
+          <Select size="small" value={room.contamination} onChange={v => onUpdate({ contamination: v })} labelRender={contaminationSelectLabel} popupMatchSelectWidth={false}>
             {CONTAMINATION_OPTIONS.map(o => <Option key={o.value} value={o.value}>{o.label}</Option>)}
           </Select>
-        </Col>
-      </Row>
+        </label>
+      </div>
 
       {/* Field notes */}
       {room.field_notes && room.field_notes.length > 0 && (
-        <Alert
-          type="info" showIcon
-          message={
-            <ul style={{ margin: 0, paddingLeft: 16 }}>
-              {room.field_notes.map((n, i) => <li key={i} style={{ fontSize: 12 }}>{n}</li>)}
-            </ul>
-          }
-          style={{ marginBottom: 8 }}
-        />
+        <ul className="pk-field-notes">
+          {room.field_notes.map((n, i) => <li key={i}>{n}</li>)}
+        </ul>
       )}
 
       {/* Detected items */}
       {room.analyzed && room.items.length > 0 && (
         <>
-          <div
-            style={{ cursor: 'pointer', padding: '4px 0', marginBottom: 4 }}
+          <button
+            type="button"
+            className="pk-items-toggle"
             onClick={() => setShowItems(v => !v)}
+            aria-expanded={showItems}
           >
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {showItems ? '▼' : '▶'} Detected Items ({room.items.length})
-            </Text>
-          </div>
-          {showItems && (
+            <RightOutlined className={`pk-items-caret${showItems ? ' is-open' : ''}`} aria-hidden="true" />
+            Detected Items ({room.items.length})
+          </button>
+          {showItems && stackItems && (
+            <ul className="pk-item-rows">
+              {room.items.map((item, idx) => (
+                <li className="pk-item-row" key={`${room.id}_m_${idx}`}>
+                  <div className="pk-item-row-main">
+                    <span className="pk-item-name">
+                      {item.name}
+                      {item.is_fragile && <Pill tone="orange">Fragile</Pill>}
+                      {item.is_high_value && <Pill tone="yellow">High Value</Pill>}
+                    </span>
+                    <Button
+                      size="small" type="text"
+                      className="ui-icon-btn ui-icon-btn--danger"
+                      icon={<DeleteOutlined />}
+                      onClick={() => onRemoveItem(idx)}
+                      aria-label={`Remove ${item.name}`}
+                    />
+                  </div>
+                  <div className="pk-item-row-controls">
+                    <Select
+                      size="small" value={item.category}
+                      onChange={v => onUpdateItem(idx, { category: v })}
+                      aria-label={`${item.name} category`}
+                    >
+                      {ITEM_CATEGORIES.map(c => <Option key={c} value={c}>{c}</Option>)}
+                    </Select>
+                    <InputNumber
+                      size="small" min={1} value={item.quantity}
+                      onChange={v => onUpdateItem(idx, { quantity: v || 1 })}
+                      addonBefore="Qty"
+                      aria-label={`${item.name} quantity`}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {showItems && !stackItems && (
             <Table
+              className="pk-quiet-table pk-items-table"
               dataSource={room.items.map((item, i) => ({ ...item, _idx: i }))}
               rowKey={(_, i) => `${room.id}_${i}`}
               size="small"
               pagination={false}
-              scroll={{ x: 600 }}
+              scroll={{ x: 460 }}
               columns={[
                 {
                   title: 'Item', dataIndex: 'name', key: 'name',
                   render: (name: string, record: any) => (
-                    <Space size={4}>
-                      <Text style={{ fontSize: 12 }}>{name}</Text>
-                      {record.is_fragile && <Tag color="orange" style={{ fontSize: 10, padding: '0 4px' }}>Fragile</Tag>}
-                      {record.is_high_value && <Tag color="gold" style={{ fontSize: 10, padding: '0 4px' }}>High Value</Tag>}
-                    </Space>
+                    <span className="pk-item-name">
+                      {name}
+                      {record.is_fragile && <Pill tone="orange">Fragile</Pill>}
+                      {record.is_high_value && <Pill tone="yellow">High Value</Pill>}
+                    </span>
                   ),
                 },
                 {
-                  title: 'Category', dataIndex: 'category', key: 'category', width: 110,
+                  title: 'Category', dataIndex: 'category', key: 'category', width: 128,
                   render: (cat: string, record: any) => (
                     <Select
-                      size="small" value={cat} style={{ width: '100%' }}
+                      size="small" value={cat} style={{ width: '100%' }} variant="borderless"
                       onChange={v => onUpdateItem(record._idx, { category: v })}
                     >
                       {ITEM_CATEGORIES.map(c => <Option key={c} value={c}>{c}</Option>)}
@@ -639,7 +639,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
                   ),
                 },
                 {
-                  title: 'Qty', dataIndex: 'quantity', key: 'quantity', width: 65,
+                  title: 'Qty', dataIndex: 'quantity', key: 'quantity', width: 72,
                   render: (qty: number, record: any) => (
                     <InputNumber
                       size="small" min={1} value={qty}
@@ -649,12 +649,14 @@ const RoomCard: React.FC<RoomCardProps> = ({
                   ),
                 },
                 {
-                  title: '', key: 'actions', width: 40,
+                  title: <span className="ui-sr-only">Remove</span>, key: 'actions', width: 40,
                   render: (_: any, record: any) => (
                     <Button
-                      size="small" type="text" danger
-                      icon={<DeleteOutlined style={{ fontSize: 12 }} />}
+                      size="small" type="text"
+                      className="ui-icon-btn ui-icon-btn--danger"
+                      icon={<DeleteOutlined />}
                       onClick={() => onRemoveItem(record._idx)}
+                      aria-label={`Remove ${record.name}`}
                     />
                   ),
                 },
@@ -663,7 +665,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
           )}
         </>
       )}
-    </Card>
+    </article>
   );
 };
 

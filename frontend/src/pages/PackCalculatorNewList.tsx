@@ -3,32 +3,38 @@
  * Shows all packing estimates with client/company info
  * Includes mode selection modal for new estimates
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Table, Button, Space, Card, message, Popconfirm, Tag,
-  Typography, Row, Col, Tooltip, Empty, Modal,
-  Grid, List, Dropdown,
+  Table, Button, message, Tooltip, Modal, Grid, List, Dropdown, Input,
 } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import {
-  PlusOutlined, EyeOutlined, DeleteOutlined,
-  ReloadOutlined, ThunderboltOutlined, UserOutlined,
-  CameraOutlined, CloseOutlined, MoreOutlined,
+  PlusOutlined, EyeOutlined, DeleteOutlined, ReloadOutlined, MoreOutlined,
+  AppstoreOutlined, CameraOutlined, RightOutlined,
 } from '@ant-design/icons';
 import * as packingService from '../services/packingEstimateService';
 import type { PackEstimateSummary } from '../types/packing-estimate';
-import { formatDate } from '../utils/formatters';
+import { formatDateShort } from '../utils/formatters';
+import { PageHeader, Pill, useSheetModal } from '../components/common/ui';
+import { tagTones } from '../styles/tokens';
+import {
+  PACK_STATUSES, PACK_STATUS_TONES, PackStatusPill, packStatusLabel,
+  CompanyName, formatMoney, modeLabel,
+} from '../components/packing-estimate/packingUi';
 
-const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
 
 const PackCalculatorNewList: React.FC = () => {
   const navigate = useNavigate();
   const screens = useBreakpoint();
-  const isMobile = !screens.lg;
+  const isMobile = !screens.md;
+  const { sheetProps } = useSheetModal();
   const [estimates, setEstimates] = useState<PackEstimateSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [modeModalOpen, setModeModalOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [search, setSearch] = useState('');
 
   useEffect(() => { fetchEstimates(); }, []);
 
@@ -65,350 +71,287 @@ const PackCalculatorNewList: React.FC = () => {
     });
   }, [navigate]);
 
-  const columns = [
+  const openDetail = (record: PackEstimateSummary) =>
+    navigate(`/reconstruction-estimate/pack-calculator-new/${record.id}`);
+
+  const confirmDelete = (record: PackEstimateSummary) => Modal.confirm({
+    title: 'Delete this estimate?',
+    content: record.calculation_name || 'Untitled',
+    okText: 'Delete',
+    okButtonProps: { danger: true },
+    onOk: () => handleDelete(record.id),
+  });
+
+  const rowMenu = (record: PackEstimateSummary) => ({
+    items: [
+      { key: 'view', icon: <EyeOutlined />, label: 'View', onClick: () => openDetail(record) },
+      { type: 'divider' as const },
+      { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true, onClick: () => confirmDelete(record) },
+    ],
+  });
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    estimates.forEach(e => { const s = e.status || 'draft'; counts[s] = (counts[s] || 0) + 1; });
+    return counts;
+  }, [estimates]);
+
+  const visibleEstimates = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return estimates.filter(e => {
+      if (statusFilter && (e.status || 'draft') !== statusFilter) return false;
+      if (!q) return true;
+      return [e.calculation_name, e.project_address, e.client_name, e.company_name]
+        .some(v => v?.toLowerCase().includes(q));
+    });
+  }, [estimates, statusFilter, search]);
+
+  const columns: ColumnsType<PackEstimateSummary> = [
     {
       title: 'Estimate',
       dataIndex: 'calculation_name',
       key: 'name',
-      render: (text: string, record: PackEstimateSummary) => (
-        <Space direction="vertical" size={0}>
-          <Text strong>
-            {text || 'Untitled'}
-          </Text>
-          {record.project_address && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {record.project_address}
-            </Text>
-          )}
-        </Space>
-      ),
       ellipsis: true,
+      render: (text: string, record) => (
+        <div style={{ minWidth: 0 }}>
+          <span className="ui-ink-link">{text || 'Untitled'}</span>
+          {record.project_address && <span className="ui-cell-meta">{record.project_address}</span>}
+        </div>
+      ),
     },
     {
       title: 'Client',
       key: 'client',
-      render: (_: any, record: PackEstimateSummary) => (
-        record.client_name ? (
-          <Space size={4} style={{ whiteSpace: 'nowrap' }}>
-            <UserOutlined />
-            <Text ellipsis={{ tooltip: record.client_name }}>{record.client_name}</Text>
-          </Space>
-        ) : <Text type="secondary">-</Text>
-      ),
-      width: 180,
+      width: 210,
       ellipsis: true,
-    },
-    {
-      title: 'Mode',
-      dataIndex: 'mode',
-      key: 'mode',
-      align: 'center' as const,
-      render: (mode: string | null) => (
-        <Tag color={mode === 'photo_ai' ? 'purple' : 'blue'}>
-          {mode === 'photo_ai' ? 'Photo AI' : 'Quick'}
-        </Tag>
+      render: (_, record) => (
+        record.client_name || record.company_name ? (
+          <div style={{ minWidth: 0 }}>
+            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {record.client_name || <span className="pk-muted">No client</span>}
+            </div>
+            {record.company_name && (
+              <span className="ui-cell-meta"><CompanyName id={record.company_id} name={record.company_name} /></span>
+            )}
+          </div>
+        ) : <span className="ui-props-empty">Empty</span>
       ),
-      width: 90,
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      align: 'center' as const,
-      render: (status: string | null) => {
-        const colorMap: Record<string, string> = {
-          draft: 'default', completed: 'success', approved: 'blue',
-        };
-        return <Tag color={colorMap[status || 'draft'] || 'default'}>
-          {status || 'draft'}
-        </Tag>;
-      },
-      width: 80,
+      width: 116,
+      render: (status: string | null) => <PackStatusPill status={status} />,
+    },
+    {
+      title: 'Mode',
+      dataIndex: 'mode',
+      key: 'mode',
+      width: 128,
+      responsive: ['lg'],
+      render: (mode: string | null) => <span className="pk-muted">{modeLabel(mode)}</span>,
+    },
+    {
+      title: 'Rooms',
+      dataIndex: 'total_rooms',
+      key: 'rooms',
+      width: 76,
+      align: 'right',
+      responsive: ['lg'],
+      render: (v: number) => <span className="pk-money">{v || 0}</span>,
+    },
+    {
+      title: 'Total',
+      dataIndex: 'grand_total',
+      key: 'total',
+      width: 128,
+      align: 'right',
+      render: (v: number | null) => <span className="pk-money">{formatMoney(v)}</span>,
     },
     {
       title: 'Created',
       dataIndex: 'created_at',
       key: 'created_at',
-      render: (v: string | null) => v ? <span style={{ whiteSpace: 'nowrap' }}>{formatDate(v)}</span> : '-',
-      width: 150,
+      width: 152,
+      className: 'pk-col-after-money',
+      render: (v: string | null) => <span className="pk-muted" style={{ whiteSpace: 'nowrap' }}>{v ? formatDateShort(v) : '-'}</span>,
     },
     {
-      title: 'Actions',
+      title: <span className="ui-sr-only">Actions</span>,
       key: 'actions',
-      align: 'center' as const,
-      fixed: 'right' as const,
-      render: (_: any, record: PackEstimateSummary) => (
-        <Space size="small">
-          <Tooltip title="View">
-            <Button
-              type="primary" size="small"
-              icon={<EyeOutlined />}
-              onClick={() => navigate(`/reconstruction-estimate/pack-calculator-new/${record.id}`)}
-            />
-          </Tooltip>
-          <Popconfirm
-            title="Delete this estimate?"
-            onConfirm={() => handleDelete(record.id)}
-            okButtonProps={{ danger: true }}
-          >
-            <Button danger size="small" icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
+      width: 48,
+      align: 'center',
+      render: (_, record) => (
+        <Dropdown menu={rowMenu(record)} trigger={['click']}>
+          <Button type="text" size="small" className="ui-icon-btn" icon={<MoreOutlined />} aria-label="Row actions" />
+        </Dropdown>
       ),
-      width: 100,
     },
   ];
 
+  // Phone row: status first, then the name, then client, money and date
   const renderMobileItem = (record: PackEstimateSummary) => (
-    <List.Item
-      style={{ padding: '12px 0' }}
-      actions={[
-        <Dropdown
-          key="actions"
-          menu={{
-            items: [
-              {
-                key: 'view',
-                icon: <EyeOutlined />,
-                label: 'View',
-                onClick: () => navigate(`/reconstruction-estimate/pack-calculator-new/${record.id}`),
-              },
-              { type: 'divider' as const },
-              {
-                key: 'delete',
-                icon: <DeleteOutlined />,
-                label: 'Delete',
-                danger: true,
-                onClick: () => {
-                  if (window.confirm('Delete this estimate?')) {
-                    handleDelete(record.id);
-                  }
-                },
-              },
-            ],
-          }}
-          trigger={['click']}
-        >
-          <Button type="text" icon={<MoreOutlined />} />
-        </Dropdown>,
-      ]}
-    >
-      <div
-        style={{ flex: 1, cursor: 'pointer', minWidth: 0 }}
-        onClick={() => navigate(`/reconstruction-estimate/pack-calculator-new/${record.id}`)}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-          <Tag color={record.mode === 'photo_ai' ? 'purple' : 'blue'}>
-            {record.mode === 'photo_ai' ? 'Photo AI' : 'Quick'}
-          </Tag>
-          <Tag color={
-            record.status === 'completed' ? 'success'
-              : record.status === 'approved' ? 'blue'
-              : 'default'
-          }>
-            {record.status || 'draft'}
-          </Tag>
+    <div className="ui-row" onClick={() => openDetail(record)}>
+      <div className="ui-row-body">
+        <div className="ui-row-tags">
+          <PackStatusPill status={record.status} />
         </div>
-        <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 2 }}>
-          {record.calculation_name || 'Untitled'}
-        </Text>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          {record.project_address && (
-            <Text type="secondary" style={{ fontSize: 12 }}>{record.project_address}</Text>
-          )}
-          {record.client_name && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              <UserOutlined style={{ marginRight: 2 }} />{record.client_name}
-            </Text>
-          )}
+        <span className="ui-row-title">{record.calculation_name || 'Untitled'}</span>
+        <div className="ui-row-meta">
+          {record.company_name && <CompanyName id={record.company_id} name={record.company_name} />}
+          {record.client_name && <span>{record.client_name}</span>}
+          {record.project_address && <span>{record.project_address}</span>}
         </div>
-        {record.created_at && (
-          <Text type="secondary" style={{ fontSize: 11, marginTop: 2, display: 'block' }}>
-            {formatDate(record.created_at)}
-          </Text>
-        )}
+        <div className="ui-row-meta">
+          <span className="pk-money" style={{ color: 'var(--color-neutral-900)' }}>{formatMoney(record.grand_total)}</span>
+          <span>{record.total_rooms || 0} room{record.total_rooms === 1 ? '' : 's'}</span>
+          <span>{modeLabel(record.mode)}</span>
+          {record.created_at && <span>{formatDateShort(record.created_at)}</span>}
+        </div>
       </div>
-    </List.Item>
+      <div onClick={e => e.stopPropagation()}>
+        <Dropdown menu={rowMenu(record)} trigger={['click']}>
+          <Button type="text" icon={<MoreOutlined />} aria-label="Row actions" style={{ marginRight: -8 }} />
+        </Dropdown>
+      </div>
+    </div>
   );
 
-  return (
-    <div style={{ padding: isMobile ? 0 : undefined }}>
-      <Space direction="vertical" size={isMobile ? 'middle' : 'large'} style={{ width: '100%' }}>
-        <Card
-          styles={{
-            header: isMobile ? { padding: '0 12px' } : undefined,
-            body: { padding: isMobile ? '12px' : '24px' },
-          }}
-        >
-          <Row justify="space-between" align="middle" wrap>
-            <Col>
-              <Title level={isMobile ? 4 : 3} style={{ margin: 0 }}>
-                <ThunderboltOutlined /> Packing Estimates
-              </Title>
-            </Col>
-            <Col>
-              <Space size="small">
-                {!isMobile && (
-                  <Button icon={<ReloadOutlined />} onClick={fetchEstimates} loading={loading}>
-                    Refresh
-                  </Button>
-                )}
-                <Button
-                  type="primary" size={isMobile ? 'middle' : 'large'}
-                  icon={<PlusOutlined />}
-                  onClick={handleNewEstimate}
-                >
-                  {isMobile ? 'New' : 'New Estimate'}
-                </Button>
-              </Space>
-            </Col>
-          </Row>
-        </Card>
+  const emptyText = estimates.length === 0 ? (
+    <div className="pk-list-empty">
+      <p>No packing estimates yet</p>
+      <Button type="primary" icon={<PlusOutlined />} onClick={handleNewEstimate}>
+        Create First Estimate
+      </Button>
+    </div>
+  ) : search.trim()
+    ? `No estimates match "${search.trim()}"`
+    : `No ${packStatusLabel(statusFilter).toLowerCase()} estimates`;
 
-        <Card styles={{ body: { padding: isMobile ? '12px' : '24px' } }}>
-          {isMobile ? (
-            <List
-              dataSource={estimates}
-              loading={loading}
-              renderItem={renderMobileItem}
-              pagination={{ pageSize: 10, size: 'small', showTotal: t => `${t} estimates` }}
-              locale={{
-                emptyText: (
-                  <Empty description={
-                    <Space direction="vertical">
-                      <Text>No packing estimates yet</Text>
-                      <Button type="primary" icon={<PlusOutlined />} onClick={handleNewEstimate}>
-                        Create First Estimate
-                      </Button>
-                    </Space>
-                  } />
-                ),
-              }}
-            />
-          ) : (
-            <Table
-              columns={columns}
-              dataSource={estimates}
-              rowKey="id"
-              loading={loading}
-              scroll={{ x: 700 }}
-              pagination={{ pageSize: 10, showTotal: t => `${t} estimates` }}
-              locale={{
-                emptyText: (
-                  <Empty description={
-                    <Space direction="vertical">
-                      <Text>No packing estimates yet</Text>
-                      <Button type="primary" icon={<PlusOutlined />} onClick={handleNewEstimate}>
-                        Create First Estimate
-                      </Button>
-                    </Space>
-                  } />
-                ),
-              }}
-            />
-          )}
-        </Card>
-      </Space>
+  return (
+    <div className="pk-page">
+      <PageHeader
+        title="Packing Estimates"
+        meta={loading && estimates.length === 0 ? undefined : (
+          <span>
+            {visibleEstimates.length} {visibleEstimates.length === 1 ? 'estimate' : 'estimates'}
+            {statusFilter ? ` · ${packStatusLabel(statusFilter).toLowerCase()}` : ''}
+          </span>
+        )}
+        actions={
+          <>
+            <Tooltip title="Refresh">
+              <Button icon={<ReloadOutlined spin={loading} />} onClick={fetchEstimates} aria-label="Refresh" />
+            </Tooltip>
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleNewEstimate}>
+              New Estimate
+            </Button>
+          </>
+        }
+      />
+
+      <div className="ui-toolbar">
+        <div className="ui-status-tabs pk-status-tabs" role="group" aria-label="Filter by status">
+          <Button
+            type="text"
+            size="small"
+            aria-pressed={!statusFilter}
+            className={`ui-view-tab${!statusFilter ? ' is-selected' : ''}`}
+            onClick={() => setStatusFilter(undefined)}
+          >
+            All
+            <span className="ui-tab-count">{estimates.length}</span>
+          </Button>
+          {PACK_STATUSES.map(key => (
+            <Button
+              key={key}
+              type="text"
+              size="small"
+              aria-pressed={statusFilter === key}
+              className={`ui-view-tab${statusFilter === key ? ' is-selected' : ''}`}
+              onClick={() => setStatusFilter(key)}
+            >
+              <span
+                className="ui-filter-chip-dot"
+                style={{ background: tagTones[PACK_STATUS_TONES[key]].text }}
+                aria-hidden="true"
+              />
+              {packStatusLabel(key)}
+              <span className="ui-tab-count">{statusCounts[key] || 0}</span>
+            </Button>
+          ))}
+        </div>
+        <div className="ui-toolbar-end" style={isMobile ? { width: '100%' } : undefined}>
+          <Input.Search
+            placeholder="Search name, address, client..."
+            allowClear
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: isMobile ? '100%' : 280 }}
+            aria-label="Search estimates"
+          />
+        </div>
+      </div>
+
+      {isMobile ? (
+        <List
+          className="ui-row-list"
+          dataSource={visibleEstimates}
+          loading={loading}
+          renderItem={renderMobileItem}
+          locale={{ emptyText }}
+          pagination={visibleEstimates.length > 20 ? { pageSize: 20, size: 'small', align: 'center' } : false}
+        />
+      ) : (
+        <Table
+          columns={columns}
+          dataSource={visibleEstimates}
+          rowKey="id"
+          loading={loading}
+          size="middle"
+          scroll={{ x: 760 }}
+          locale={{ emptyText }}
+          onRow={(record) => ({
+            onClick: (e) => {
+              const target = e.target as HTMLElement;
+              if (target.closest('a, button, .ant-dropdown-trigger, .ant-btn')) return;
+              openDetail(record);
+            },
+            style: { cursor: 'pointer' },
+          })}
+          pagination={{ pageSize: 20, hideOnSinglePage: true, showTotal: t => `${t} estimates` }}
+        />
+      )}
 
       {/* Mode Selection Modal */}
       <Modal
         open={modeModalOpen}
         onCancel={() => setModeModalOpen(false)}
         footer={null}
-        closable
-        closeIcon={<CloseOutlined />}
+        title="New Estimate"
         width={480}
-        centered
+        centered={!isMobile}
+        {...sheetProps}
       >
-        <div style={{ padding: '8px 0' }}>
-          <Title level={4} style={{ margin: 0 }}>New Estimate</Title>
-          <Text type="secondary">Choose an estimation method to get started.</Text>
-
-          <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {/* Quick Estimate Option */}
-            <div
-              onClick={() => handleSelectMode('quick')}
-              style={{
-                border: '1px solid #e8e8e8',
-                borderRadius: 12,
-                padding: '20px 24px',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 16,
-              }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLDivElement).style.borderColor = '#52c41a';
-                (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 8px rgba(82,196,26,0.15)';
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLDivElement).style.borderColor = '#e8e8e8';
-                (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
-              }}
-            >
-              <div style={{
-                width: 48, height: 48, borderRadius: 12,
-                background: '#f6ffed', display: 'flex',
-                alignItems: 'center', justifyContent: 'center',
-              }}>
-                <ThunderboltOutlined style={{ fontSize: 24, color: '#52c41a' }} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <Space>
-                  <Text strong style={{ fontSize: 16 }}>Quick Estimate</Text>
-                  <Tag color="success" style={{ borderRadius: 10, fontSize: 11 }}>Free</Tag>
-                </Space>
-                <div>
-                  <Text type="secondary" style={{ fontSize: 13 }}>
-                    Room presets with content hints. Fast and reliable.
-                  </Text>
-                </div>
-              </div>
-            </div>
-
-            {/* Photo AI Option */}
-            <div
-              onClick={() => handleSelectMode('photo_ai')}
-              style={{
-                border: '1px solid #e8e8e8',
-                borderRadius: 12,
-                padding: '20px 24px',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 16,
-              }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLDivElement).style.borderColor = '#1890ff';
-                (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 8px rgba(24,144,255,0.15)';
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLDivElement).style.borderColor = '#e8e8e8';
-                (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
-              }}
-            >
-              <div style={{
-                width: 48, height: 48, borderRadius: 12,
-                background: '#e6f7ff', display: 'flex',
-                alignItems: 'center', justifyContent: 'center',
-              }}>
-                <CameraOutlined style={{ fontSize: 24, color: '#1890ff' }} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <Space>
-                  <Text strong style={{ fontSize: 16 }}>Photo AI</Text>
-                  <Tag color="blue" style={{ borderRadius: 10, fontSize: 11 }}>Beta</Tag>
-                </Space>
-                <div>
-                  <Text type="secondary" style={{ fontSize: 13 }}>
-                    Upload room photos. AI detects items automatically.
-                  </Text>
-                </div>
-              </div>
-            </div>
-          </div>
+        <p className="pk-mode-intro">Choose an estimation method to get started.</p>
+        <div className="pk-mode-options">
+          <button type="button" className="pk-mode-option" onClick={() => handleSelectMode('quick')}>
+            <span className="pk-mode-icon" aria-hidden="true"><AppstoreOutlined /></span>
+            <span className="pk-mode-text">
+              <span className="pk-mode-title">Quick Estimate <Pill tone="green">Free</Pill></span>
+              <span className="pk-mode-desc">Room presets with content hints. Fast and reliable.</span>
+            </span>
+            <RightOutlined className="pk-mode-chevron" aria-hidden="true" />
+          </button>
+          <button type="button" className="pk-mode-option" onClick={() => handleSelectMode('photo_ai')}>
+            <span className="pk-mode-icon" aria-hidden="true"><CameraOutlined /></span>
+            <span className="pk-mode-text">
+              <span className="pk-mode-title">Photo AI <Pill tone="blue">Beta</Pill></span>
+              <span className="pk-mode-desc">Upload room photos. AI detects items automatically.</span>
+            </span>
+            <RightOutlined className="pk-mode-chevron" aria-hidden="true" />
+          </button>
         </div>
       </Modal>
     </div>
