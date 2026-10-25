@@ -148,6 +148,23 @@
   font-size: 11px;
 }
 
+/* Kinds of work within a stage: one filter chip each, with its count */
+.lc-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.lc-kinds .ui-tab-count {
+  margin-left: 2px;
+}
+/* Touch: thumb-sized chips */
+@media (pointer: coarse) {
+  .lc-kinds .ant-tag.ui-filter-chip {
+    height: 32px;
+  }
+}
+
 /* A sorted column keeps the white sheet; the header arrow already shows the sort */
 .lc-page .ant-table-tbody > tr > td.ant-table-column-sort,
 .lc-page .ant-table-thead > tr > th.ant-table-column-sort {
