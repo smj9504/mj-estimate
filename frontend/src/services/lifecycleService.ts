@@ -3,6 +3,8 @@
  */
 
 import api from './api';
+import type { FollowUpTask } from '../types/claimFollowUp';
+import type { RebuildProject } from '../types/rebuild';
 
 export interface LifecycleStats {
   followup: {
@@ -98,7 +100,7 @@ export const lifecycleService = {
     return data;
   },
 
-  async getOverdueItems(): Promise<any[]> {
+  async getOverdueItems(): Promise<FollowUpTask[]> {
     const { data } = await api.get(`${BASE}/overdue`);
     return data;
   },
@@ -115,7 +117,7 @@ export const lifecycleService = {
     return data;
   },
 
-  async getActiveRebuilds(): Promise<any[]> {
+  async getActiveRebuilds(): Promise<RebuildProject[]> {
     const { data } = await api.get(`${BASE}/active-rebuilds`);
     return data;
   },

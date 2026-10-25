@@ -1,0 +1,240 @@
+/* ============================================================
+   Claims lifecycle dashboard: a stage bar of counts over one list
+   ============================================================ */
+
+/* Phones: the lone Refresh button stays beside the title instead of taking a row */
+@media (max-width: 768px) {
+  .lc-page .ui-page-header {
+    flex-wrap: nowrap;
+    align-items: flex-start;
+  }
+  .lc-page .ui-page-header-main {
+    flex: 1 1 auto;
+  }
+}
+
+/* Stage bar: one tab per stage, label over count over a short note.
+   The cells share row tracks (subgrid) so counts line up when a label wraps. */
+.lc-stages-wrap {
+  container-type: inline-size;
+  margin-bottom: 20px;
+}
+.lc-stages {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+  /* Cell padding sits in the gutter, so the labels line up with the page title */
+  margin: 0 -10px;
+}
+.lc-stage {
+  display: grid;
+  grid-row: span 3;
+  grid-template-rows: subgrid;
+  row-gap: 2px;
+  align-content: start;
+  min-width: 0;
+  padding: 8px 10px 9px;
+  border: 0;
+  border-radius: var(--radius-md, 6px);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  color: var(--color-neutral-900);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.12s ease;
+}
+.lc-stage:hover {
+  background: var(--color-ink-hover);
+}
+.lc-stage[aria-selected='true'] {
+  background: var(--color-ink-selected);
+}
+.lc-stage-label {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--color-neutral-600);
+}
+.lc-stage:hover .lc-stage-label,
+.lc-stage[aria-selected='true'] .lc-stage-label {
+  color: var(--color-neutral-900);
+}
+.lc-stage[aria-selected='true'] .lc-stage-label {
+  font-weight: 500;
+}
+.lc-stage-value {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-neutral-900);
+}
+/* Nothing waiting: the count steps back */
+.lc-stage-value.is-zero {
+  color: var(--color-neutral-600);
+  font-weight: 500;
+}
+/* Overdue follow-ups and unpaid money: the only colour in the bar */
+.lc-stage-value.is-alert {
+  color: var(--tag-red-text);
+}
+.lc-stage-skel {
+  display: block;
+  width: 36px;
+  height: 22px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-neutral-100);
+}
+.lc-stage-note {
+  min-height: 17px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Narrow content area (tablets, phones): two rows of three */
+@container (max-width: 760px) {
+  .lc-stages {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0 -8px;
+  }
+  .lc-stage {
+    padding: 8px;
+  }
+  .lc-stage-value {
+    min-height: 28px;
+    font-size: 21px;
+  }
+}
+@media (pointer: coarse) {
+  .lc-stage:hover {
+    background: transparent;
+  }
+  .lc-stage[aria-selected='true'] {
+    background: var(--color-ink-selected);
+  }
+}
+
+/* Panel: what the list holds on the left, the full page for it on the right */
+.lc-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-bottom: 8px;
+}
+.lc-panel-meta {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.lc-panel-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.lc-panel-link .anticon {
+  font-size: 11px;
+}
+
+/* A sorted column keeps the white sheet; the header arrow already shows the sort */
+.lc-page .ant-table-tbody > tr > td.ant-table-column-sort,
+.lc-page .ant-table-thead > tr > th.ant-table-column-sort {
+  background: transparent;
+}
+.lc-page .ant-table-tbody > tr.ant-table-row:hover > td.ant-table-column-sort {
+  background: inherit;
+}
+
+.lc-title {
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.lc-title-pill {
+  margin-left: 8px;
+}
+.lc-muted {
+  color: var(--color-neutral-600);
+}
+.lc-nowrap {
+  white-space: nowrap;
+}
+.lc-num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.lc-num--muted {
+  color: var(--color-neutral-600);
+}
+.lc-num--strong {
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.lc-late {
+  color: var(--tag-red-text);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.lc-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 32px 16px;
+  font-size: 14px;
+  color: var(--color-neutral-600);
+}
+.lc-empty-icon {
+  font-size: 16px;
+  color: var(--tag-green-text);
+}
+
+/* Phone rows: the whole row is a link; an action button sits outside it */
+.ui-row.lc-row {
+  align-items: center;
+  gap: 0;
+  padding: 0;
+}
+.lc-row-link {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  padding: 12px 16px;
+  color: inherit;
+}
+.lc-row-link:hover,
+.lc-row-link:active {
+  color: inherit;
+}
+.lc-row-link:not(:last-child) {
+  padding-right: 4px;
+}
+.lc-row-end {
+  flex-shrink: 0;
+  padding-top: 1px;
+  font-size: 15px;
+  text-align: right;
+}
+.lc-row-action {
+  flex-shrink: 0;
+  padding-right: 8px;
+}
+.lc-row-action .ant-btn {
+  width: 40px;
+  height: 40px;
+}
