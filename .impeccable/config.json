@@ -1,0 +1,35 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/builder.html"
+        ],
+        "createdAt": "2026-10-25T16:11:51.830Z",
+        "reason": "Claude: throwaway low-fidelity structure sketch for a closed decision round; not shipped"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/steps.html"
+        ],
+        "createdAt": "2026-10-25T16:11:51.938Z",
+        "reason": "Claude: throwaway low-fidelity structure sketch for a closed decision round; not shipped"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/one-page.html"
+        ],
+        "createdAt": "2026-10-25T16:11:52.068Z",
+        "reason": "Claude: throwaway low-fidelity structure sketch for a closed decision round; not shipped"
+      }
+    ]
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "title": "Pack Calculator: choose the page structure",
+  "question": "The look stays the White Sheet system. Three structures for building a packing estimate were dealt. Lock one, steer it, or re-roll.",
+  "options": [
+    {
+      "id": "builder",
+      "kind": "assigned",
+      "kicker": "THE ROLL",
+      "label": "Builder: inputs left, estimate right",
+      "thesis": "The estimate is the page: job, rooms and settings on the left, the line-item estimate on the right, read in dollars.",
+      "palette": ["#ffffff", "#37352f", "#f7f7f5", "#e9e9e7", "#1f74c9"],
+      "materials": ["hairline sections", "property rows", "tabular figures"],
+      "viewport": "Page header with Quick / Photo AI switch and Calculate; a 560px input column (Job, Rooms, Settings) beside the estimate: four figures, then sections with line items and totals.",
+      "risk": "At 1280px both columns get narrow, so Photo AI rooms (photos plus item tables) need room to breathe.",
+      "raised": [
+        {
+          "from": "challenger-gate-board",
+          "raise": "Changing an input after a calculation marks the estimate out of date: figures dim and an orange 'Inputs changed, recalculate' line stays until you recalculate."
+        }
+      ],
+      "html": ".impeccable/mocks/decision/builder.html"
+    },
+    {
+      "id": "steps",
+      "kind": "dealt",
+      "label": "Three steps on the sheet",
+      "thesis": "Keep Details, Rooms, Review, but as one calm sheet with a small step track and the actions in one footer.",
+      "palette": ["#ffffff", "#37352f", "#f7f7f5", "#e9e9e7", "#1f74c9"],
+      "materials": ["small step track", "section headings over hairlines", "footer action bar"],
+      "viewport": "Page header, a small three-step track, then the current step in a 960px column (Details as property rows), Back and Next in a footer.",
+      "risk": "The total stays hidden until the last step, so checking what a setting costs means clicking back and forth.",
+      "html": ".impeccable/mocks/decision/steps.html"
+    },
+    {
+      "id": "one-page",
+      "kind": "dealt",
+      "label": "One page: properties, rooms, estimate",
+      "thesis": "A Notion-style page: job facts as property rows at the top, rooms as the body, the estimate appearing below after Calculate.",
+      "palette": ["#ffffff", "#37352f", "#f7f7f5", "#e9e9e7", "#1f74c9"],
+      "materials": ["page properties", "room rows", "estimate section"],
+      "viewport": "Page title is the estimate name; under it two property columns (job, settings); then Rooms with an add bar; a sticky bottom bar carries room count and Calculate.",
+      "risk": "A long Photo AI job pushes the estimate far down the page, so you scroll to see what changed.",
+      "html": ".impeccable/mocks/decision/one-page.html"
+    },
+    {
+      "id": "challenger-gate-board",
+      "kind": "challenger",
+      "catalogId": "vernacular-ephemera-boarding-pass-and-gate-board",
+      "label": "Boarding pass and gate board",
+      "verdict": "declined",
+      "thesis": "A segmented pass with tabular figures, and a board that keeps a changed row lit until noticed.",
+      "palette": ["#f4f4f2", "#111111", "#ffcc00"],
+      "materials": ["segmented pass", "fixed column board"],
+      "viewport": "Rooms as board rows ranked by floor, the estimate as a segmented pass.",
+      "risk": "A ranking board does not fit a calculator you fill in.",
+      "case": "Estimators do not watch a ranking; they fill inputs and read a total.",
+      "kept": "A changed input keeps the estimate marked out of date until recalculated.",
+      "hero": "https://impeccable.style/worlds/cards/vernacular-ephemera-boarding-pass-and-gate-board-hero.webp"
+    },
+    {
+      "id": "challenger-split-flap",
+      "kind": "challenger",
+      "catalogId": "signals-instruments-split-flap-concourse",
+      "label": "Split-flap concourse board",
+      "verdict": "declined",
+      "thesis": "Rows as live entities whose values flip in place.",
+      "palette": ["#111111", "#ffffff", "#f0a020"],
+      "materials": ["flap cells", "steel frame"],
+      "viewport": "Room rows in fixed columns with flipping figures.",
+      "risk": "Costume on a working back-office screen.",
+      "case": "Animated figures add noise to a money screen.",
+      "kept": "Columns never move; recalculation changes values in place.",
+      "hero": "https://impeccable.style/worlds/cards/signals-instruments-split-flap-concourse-hero.webp"
+    },
+    {
+      "id": "challenger-orienteering",
+      "kind": "challenger",
+      "catalogId": "notation-diagram-systems-orienteering-map",
+      "label": "Orienteering map",
+      "verdict": "declined",
+      "thesis": "A numbered course over fixed terrain, each control paired with a coded row.",
+      "palette": ["#ffffff", "#9a5a2a", "#b33fb3"],
+      "materials": ["contours", "course overlay"],
+      "viewport": "Rooms as numbered controls along a course.",
+      "risk": "Map metaphor for a form.",
+      "case": "Rooms have no route between them.",
+      "kept": "Each room row carries one coded line: floor, density, contamination.",
+      "hero": "https://impeccable.style/worlds/cards/notation-diagram-systems-orienteering-map-hero.webp"
+    },
+    {
+      "id": "challenger-centre-rail",
+      "kind": "challenger",
+      "catalogId": "rw-centre-rail-reference-setting",
+      "label": "Centre-rail reference page",
+      "verdict": "declined",
+      "thesis": "Twin columns around one rail of keys.",
+      "palette": ["#f2ede2", "#1a1a1a", "#c0392b"],
+      "materials": ["ruled hairlines", "small caps apparatus"],
+      "viewport": "Inputs and estimate as twin columns.",
+      "risk": "A book page, not a tool.",
+      "case": "Reads as an edition, not a calculator.",
+      "kept": "One moving part: only the estimate column changes.",
+      "hero": "https://impeccable.style/worlds/cards/rw-centre-rail-reference-setting-hero.webp"
+    },
+    {
+      "id": "challenger-feed",
+      "kind": "challenger",
+      "catalogId": "pop-culture-shelf-vertical-video-feed-surface",
+      "label": "Vertical media feed",
+      "verdict": "declined",
+      "thesis": "One room fills the screen, the next one snap away.",
+      "palette": ["#000000", "#ffffff"],
+      "materials": ["full-bleed media", "action rail"],
+      "viewport": "Each room's photos fill the viewport.",
+      "risk": "Phone-first; this page is used at a desk.",
+      "case": "Hides the total and the other rooms.",
+      "kept": "Photos stay large enough to judge a room at a glance.",
+      "hero": "https://impeccable.style/worlds/cards/pop-culture-shelf-vertical-video-feed-surface-hero.webp"
+    },
+    {
+      "id": "challenger-transit",
+      "kind": "challenger",
+      "catalogId": "wayfinding-cartography-signage-midnight-transit-diagram",
+      "label": "Transit diagram",
+      "verdict": "declined",
+      "thesis": "Lines and interchanges as the composition.",
+      "palette": ["#13204a", "#ffffff", "#e03a3e"],
+      "materials": ["enamel ground", "line inks"],
+      "viewport": "Floors as lines, rooms as stations.",
+      "risk": "Dark mural on a white-sheet product.",
+      "case": "Breaks the product's look and adds no clarity.",
+      "kept": "Focus one room while the others stay readable around it.",
+      "hero": "https://impeccable.style/worlds/cards/wayfinding-cartography-signage-midnight-transit-diagram-hero.webp"
+    }
+  ],
+  "reroll": true,
+  "steer": true,
+  "buildPath": { "value": "code" }
+}

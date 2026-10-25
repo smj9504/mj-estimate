@@ -1,0 +1,84 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>One page</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:1440px;height:900px;overflow:hidden;font:14px/1.55 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;color:#37352f;background:#fff;display:flex}
+.side{width:240px;background:#f7f7f5;border-right:1px solid #e9e9e7;padding:12px 8px}
+.brand{display:flex;gap:8px;align-items:center;padding:6px 8px 14px;font-weight:600}
+.mark{width:22px;height:22px;border-radius:5px;background:#37352f;color:#fff;font-size:12px;display:grid;place-items:center}
+.grp{font-size:12px;color:#73726e;padding:12px 8px 4px}
+.it{height:30px;display:flex;align-items:center;padding:0 8px;border-radius:6px;color:#5f5e5b}
+.it.on{background:rgba(55,53,47,.08);color:#37352f;font-weight:500}
+.main{flex:1;display:flex;flex-direction:column;position:relative}
+.top{height:52px;border-bottom:1px solid #e9e9e7;display:flex;align-items:center;padding:0 16px}
+.search{width:320px;height:30px;border-radius:6px;background:#f1f1ef;color:#73726e;font-size:13px;display:flex;align-items:center;padding:0 10px}
+.av{margin-left:auto;width:28px;height:28px;border-radius:50%;background:#f4eeee;color:#8a5a45;display:grid;place-items:center;font-size:12px;font-weight:600}
+.page{padding:20px 32px 0}
+.wrap{max-width:1000px}
+.crumb{font-size:13px;color:#73726e;margin-bottom:6px}
+.ph{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px}
+h1{font-size:24px;font-weight:600;letter-spacing:-.015em}
+.meta{font-size:13px;color:#73726e;margin-top:6px}
+.seg{display:flex;background:#f1f1ef;border-radius:6px;padding:2px;height:32px}
+.seg span{padding:0 12px;display:flex;align-items:center;border-radius:4px;font-size:13px;color:#5f5e5b}
+.seg .on{background:#fff;color:#37352f;font-weight:500;box-shadow:0 1px 2px rgba(15,15,15,.08)}
+.props{display:grid;grid-template-columns:1fr 1fr;gap:0 40px;margin-bottom:28px}
+.row{display:grid;grid-template-columns:132px 1fr;gap:8px;min-height:34px;align-items:center}
+.lbl{color:#73726e}.mut{color:#73726e}
+.mono{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 4px;border-radius:4px;background:#e7f3f8;color:#2f74a0;font-size:11px;font-weight:600;margin-right:6px}
+.sh{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e9e9e7;padding-bottom:6px;margin-bottom:4px}
+.sh h2{font-size:16px;font-weight:600}
+.tb{height:28px;padding:0 8px;border-radius:6px;display:flex;align-items:center;color:#5f5e5b;font-weight:500}
+.room{display:grid;grid-template-columns:1fr 120px 130px 130px 28px;gap:12px;align-items:center;padding:10px 4px;border-bottom:1px solid #e9e9e7}
+.room b{font-weight:500;display:block}
+.sub{font-size:13px;color:#73726e}
+.sel{height:28px;border:1px solid #dfdfdc;border-radius:6px;padding:0 8px;font-size:13px;display:flex;align-items:center}
+.x{color:#73726e;text-align:center}
+.pill{height:20px;padding:0 6px;border-radius:4px;font-size:12px;font-weight:500;display:inline-flex;align-items:center}
+.adder{display:flex;gap:8px;align-items:center;padding:12px 4px}
+.inp{width:280px;height:32px;border:1px solid #dfdfdc;border-radius:6px;padding:0 10px;color:#73726e;display:flex;align-items:center}
+.chip{height:26px;padding:0 10px;border-radius:6px;border:1px solid #e9e9e7;font-size:13px;color:#5f5e5b;display:flex;align-items:center}
+.est{margin-top:24px}
+.empty{color:#73726e;padding:14px 4px}
+.bar{position:absolute;left:0;right:0;bottom:0;height:64px;border-top:1px solid #e9e9e7;background:rgba(255,255,255,.96);display:flex;align-items:center;padding:0 32px;gap:24px}
+.f{font-size:13px;color:#73726e}.f b{display:block;color:#37352f;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+.btn{margin-left:auto;height:32px;padding:0 14px;border-radius:6px;display:flex;align-items:center;font-weight:500;background:#1f74c9;color:#fff}
+</style></head><body>
+<aside class="side">
+<div class="brand"><span class="mark">S</span>MJ Estimate</div>
+<div class="it">Todos</div><div class="it">Clients</div>
+<div class="grp">Reconstruction</div>
+<div class="it">Estimates</div><div class="it on">Packing estimates</div><div class="it">Cabinet estimates</div>
+<div class="grp">Mitigation</div><div class="it">Water mitigation</div><div class="it">Rebuild projects</div>
+</aside>
+<div class="main">
+<div class="top"><div class="search">Search</div><div class="av">MS</div></div>
+<div class="page"><div class="wrap">
+<div class="crumb">Packing estimates / New</div>
+<div class="ph"><div><h1>Nguyen Residence Pack-Out</h1><div class="meta">New packing estimate</div></div>
+<div class="seg"><span class="on">Quick estimate</span><span>Photo AI</span></div></div>
+<div class="props">
+<div>
+<div class="row"><span class="lbl">Company</span><span><span class="mono">MJR</span>MJ Restoration</span></div>
+<div class="row"><span class="lbl">Client</span><span>Daniel Nguyen</span></div>
+<div class="row"><span class="lbl">Claim</span><span>CLM-2026-0418 · State Farm</span></div>
+<div class="row"><span class="lbl">Address</span><span>6305 Musket Ball Dr, Columbia, MD 21045</span></div>
+</div>
+<div>
+<div class="row"><span class="lbl">Crew</span><span>4 people</span></div>
+<div class="row"><span class="lbl">Region</span><span>Mid-Atlantic (DC/VA)</span></div>
+<div class="row"><span class="lbl">Staging</span><span>Off-site · 1 month storage</span></div>
+<div class="row"><span class="lbl">Adjustments</span><span>Pack-back <span class="mut">· O&amp;P off · Contingency off</span></span></div>
+</div>
+</div>
+<div class="sh"><h2>Rooms</h2><span class="tb">Import folder</span></div>
+<div class="room"><div><b>Kitchen</b><span class="sub">Kitchen preset</span></div><span class="sel">1st floor</span><span class="sel">Dense 1.3x</span><span class="sel">Clean</span><span class="x">⋯</span></div>
+<div class="room"><div><b>Living room</b><span class="sub">Living preset</span></div><span class="sel">1st floor</span><span class="sel">Normal 1.0x</span><span class="sel">Clean</span><span class="x">⋯</span></div>
+<div class="room"><div><b>Primary bedroom</b><span class="sub">Bedroom preset</span></div><span class="sel">2nd floor</span><span class="sel">Heavy 1.6x</span><span class="sel"><span class="pill" style="background:#fbf3db;color:#8f6714">Gray water</span></span><span class="x">⋯</span></div>
+<div class="room"><div><b>Basement storage</b><span class="sub">Storage preset</span></div><span class="sel">Basement</span><span class="sel">Dense 1.3x</span><span class="sel"><span class="pill" style="background:#fdebec;color:#b93a35">Black water</span></span><span class="x">⋯</span></div>
+<div class="adder"><span class="inp">Add a room…</span><span class="chip">Bedroom</span><span class="chip">Bathroom</span><span class="chip">Office</span><span class="chip">Garage</span></div>
+<div class="est"><div class="sh"><h2>Estimate</h2></div><div class="empty">Calculate to see labor, materials, transport and totals here.</div></div>
+</div></div>
+<div class="bar"><div class="f">Rooms<b>4</b></div><div class="f">Crew<b>4</b></div><div class="f">Last total<b>Not calculated</b></div><span class="btn">Calculate estimate</span></div>
+</div>
+</body></html>

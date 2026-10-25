@@ -1,0 +1,94 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Steps</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:1440px;height:900px;overflow:hidden;font:14px/1.55 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;color:#37352f;background:#fff;display:flex}
+.side{width:240px;background:#f7f7f5;border-right:1px solid #e9e9e7;padding:12px 8px}
+.brand{display:flex;gap:8px;align-items:center;padding:6px 8px 14px;font-weight:600}
+.mark{width:22px;height:22px;border-radius:5px;background:#37352f;color:#fff;font-size:12px;display:grid;place-items:center}
+.grp{font-size:12px;color:#73726e;padding:12px 8px 4px}
+.it{height:30px;display:flex;align-items:center;padding:0 8px;border-radius:6px;color:#5f5e5b}
+.it.on{background:rgba(55,53,47,.08);color:#37352f;font-weight:500}
+.main{flex:1;display:flex;flex-direction:column}
+.top{height:52px;border-bottom:1px solid #e9e9e7;display:flex;align-items:center;padding:0 16px}
+.search{width:320px;height:30px;border-radius:6px;background:#f1f1ef;color:#73726e;font-size:13px;display:flex;align-items:center;padding:0 10px}
+.av{margin-left:auto;width:28px;height:28px;border-radius:50%;background:#f4eeee;color:#8a5a45;display:grid;place-items:center;font-size:12px;font-weight:600}
+.page{padding:20px 32px 0;flex:1;position:relative}
+.wrap{max-width:960px}
+.crumb{font-size:13px;color:#73726e;margin-bottom:6px}
+.ph{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:20px}
+h1{font-size:24px;font-weight:600;letter-spacing:-.015em}
+.meta{font-size:13px;color:#73726e;margin-top:6px}
+.seg{display:flex;background:#f1f1ef;border-radius:6px;padding:2px;height:32px}
+.seg span{padding:0 12px;display:flex;align-items:center;border-radius:4px;font-size:13px;color:#5f5e5b}
+.seg .on{background:#fff;color:#37352f;font-weight:500;box-shadow:0 1px 2px rgba(15,15,15,.08)}
+.steps{display:flex;gap:28px;margin-bottom:28px;align-items:center}
+.stp{display:flex;align-items:center;gap:8px;font-size:14px;color:#73726e}
+.num{width:22px;height:22px;border-radius:50%;border:1px solid #dfdfdc;display:grid;place-items:center;font-size:12px}
+.stp.on{color:#37352f;font-weight:500}.stp.on .num{background:#37352f;border-color:#37352f;color:#fff}
+.line{width:64px;height:1px;background:#e9e9e7}
+.sh{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e9e9e7;padding-bottom:6px;margin-bottom:8px}
+.sh h2{font-size:16px;font-weight:600}
+.sec{margin-bottom:28px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:40px}
+.row{display:grid;grid-template-columns:140px 1fr;gap:8px;min-height:38px;align-items:center}
+.lbl{color:#73726e}
+.in{height:32px;border:1px solid #dfdfdc;border-radius:6px;display:flex;align-items:center;padding:0 10px}
+.ph2{color:#73726e}
+.mono{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 4px;border-radius:4px;background:#e7f3f8;color:#2f74a0;font-size:11px;font-weight:600;margin-right:6px}
+.tog{display:flex;align-items:center;gap:8px}
+.sw{width:28px;height:16px;border-radius:8px;background:#1f74c9;position:relative}
+.sw:after{content:"";position:absolute;right:2px;top:2px;width:12px;height:12px;border-radius:50%;background:#fff}
+.sw.off{background:#dfdfdc}.sw.off:after{left:2px;right:auto}
+.foot{position:absolute;left:32px;right:32px;bottom:0;max-width:960px;border-top:1px solid #e9e9e7;padding:14px 0 20px;display:flex;justify-content:space-between;background:#fff}
+.btn{height:32px;padding:0 12px;border-radius:6px;border:1px solid #dfdfdc;display:flex;align-items:center;font-weight:500}
+.btn.p{background:#1f74c9;border-color:#1f74c9;color:#fff}
+.btn.d{color:#73726e;background:#f7f7f5}
+</style></head><body>
+<aside class="side">
+<div class="brand"><span class="mark">S</span>MJ Estimate</div>
+<div class="it">Todos</div><div class="it">Clients</div>
+<div class="grp">Reconstruction</div>
+<div class="it">Estimates</div><div class="it on">Packing estimates</div><div class="it">Cabinet estimates</div>
+<div class="grp">Mitigation</div><div class="it">Water mitigation</div><div class="it">Rebuild projects</div>
+</aside>
+<div class="main">
+<div class="top"><div class="search">Search</div><div class="av">MS</div></div>
+<div class="page"><div class="wrap">
+<div class="crumb">Packing estimates / New</div>
+<div class="ph"><div><h1>New packing estimate</h1><div class="meta">Materials and labor for pack-out and pack-back</div></div>
+<div class="seg"><span class="on">Quick estimate</span><span>Photo AI</span></div></div>
+<div class="steps"><div class="stp on"><span class="num">1</span>Details</div><span class="line"></span><div class="stp"><span class="num">2</span>Rooms</div><span class="line"></span><div class="stp"><span class="num">3</span>Review</div></div>
+<div class="sec"><div class="sh"><h2>Job</h2></div>
+<div class="row"><span class="lbl">Estimate name</span><span class="in">Nguyen Residence Pack-Out</span></div>
+<div class="two">
+<div>
+<div class="row"><span class="lbl">Company</span><span class="in"><span class="mono">MJR</span>MJ Restoration</span></div>
+<div class="row"><span class="lbl">Claim</span><span class="in">CLM-2026-0418 · State Farm</span></div>
+</div>
+<div>
+<div class="row"><span class="lbl">Client</span><span class="in">Daniel Nguyen</span></div>
+<div class="row"><span class="lbl">Address</span><span class="in">6305 Musket Ball Dr, Columbia, MD</span></div>
+</div>
+</div>
+</div>
+<div class="sec"><div class="sh"><h2>Settings</h2></div>
+<div class="two">
+<div>
+<div class="row"><span class="lbl">Crew size</span><span class="in">4</span></div>
+<div class="row"><span class="lbl">Region</span><span class="in">Mid-Atlantic (DC/VA)</span></div>
+<div class="row"><span class="lbl">Staging</span><span class="seg" style="width:fit-content"><span class="on">Off-site</span><span>On-site</span></span></div>
+</div>
+<div>
+<div class="row"><span class="lbl">Storage months</span><span class="in">1</span></div>
+<div class="row"><span class="lbl">Pack-back</span><span class="tog"><span class="sw"></span>Included</span></div>
+<div class="row"><span class="lbl">O&amp;P</span><span class="tog"><span class="sw off"></span><span class="ph2">Off</span></span></div>
+<div class="row"><span class="lbl">Contingency</span><span class="tog"><span class="sw off"></span><span class="ph2">Off</span></span></div>
+</div>
+</div>
+</div>
+</div>
+<div class="foot"><span class="btn d">Back</span><span class="btn p">Next: Rooms</span></div>
+</div>
+</div>
+</body></html>
