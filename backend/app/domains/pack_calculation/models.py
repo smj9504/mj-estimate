@@ -204,8 +204,15 @@ class PackRoom(Base, BaseModel):
 
     # Preset & density (from packing_tool_export)
     preset_key = Column(String(100))  # e.g., "bedroom_standard"
-    density = Column(SQLEnum(Density), default=Density.NORMAL)
-    contamination = Column(SQLEnum(ContaminationLevel), default=ContaminationLevel.CLEAN)
+    # DB enum labels are the lowercase values ('normal'), not the member names ('NORMAL')
+    density = Column(
+        SQLEnum(Density, values_callable=lambda e: [m.value for m in e]),
+        default=Density.NORMAL,
+    )
+    contamination = Column(
+        SQLEnum(ContaminationLevel, values_callable=lambda e: [m.value for m in e]),
+        default=ContaminationLevel.CLEAN,
+    )
 
     # Content hints for quick estimate mode
     hints = Column(JSONB)  # ["clothing_hanging", "furniture", ...]
