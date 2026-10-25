@@ -764,6 +764,12 @@ h4.ant-typography {
   cursor: pointer;
   transition: background-color 0.12s ease, border-color 0.12s ease;
 }
+/* Outranks the grey default-tag fill above, which otherwise makes a chip at
+   rest look the same as a selected one */
+.ant-tag.ui-filter-chip:not([class*='ant-tag-']) {
+  background: #fff;
+  color: var(--color-neutral-700);
+}
 .ant-tag.ui-filter-chip:hover {
   background: var(--color-ink-hover);
 }

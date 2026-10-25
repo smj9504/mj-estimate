@@ -139,32 +139,100 @@ def get_pending_estimates():
         session.close()
 
 
-@router.get("/lifecycle/wm-doc-prep")
-def get_wm_doc_prep():
-    """Get WM jobs with 'Lead' or 'Doc prepping' status - need documents prepared"""
+# Depreciation phases where the recovery packet is ours to put together
+DEPRECIATION_PREP_PHASES = ['construction_done', 'preparing_docs']
+
+
+@router.get("/lifecycle/doc-prep")
+def get_doc_prep():
+    """Documents we still have to prepare, of three kinds:
+    - wm_docs: WM jobs in 'Lead' or 'Doc prepping' (invoice, COS, EWA, photo
+      report, W9 and sketch not yet sent to the adjuster)
+    - supplement_estimate: open supplement_estimate_prep tasks
+    - depreciation_docs: open depreciation_recovery tasks whose construction
+      is done but whose recovery documents have not gone out
+
+    `since` is when the wait started: the job or task's creation, or for
+    depreciation the last phase change. Oldest first across all kinds.
+    """
+    from sqlalchemy import func
+    from sqlalchemy.orm import selectinload
     from app.core.database_factory import get_database
+    from app.domains.claim_followup.models import FollowUpTask
+    from app.domains.client.models import Claim, ClaimActivity
     from app.domains.water_mitigation.models import WaterMitigationJob
+
+    def iso(value):
+        return value.isoformat() if value else None
 
     database = get_database()
     session = database.get_readonly_session()
     try:
+        results: List[Dict[str, Any]] = []
+
         jobs = session.query(WaterMitigationJob).filter(
             WaterMitigationJob.active == True,
             WaterMitigationJob.status.in_(['Lead', 'Doc prepping']),
-        ).order_by(WaterMitigationJob.created_at.asc()).all()
-
-        results = []
+        ).all()
         for job in jobs:
             results.append({
+                "id": f"wm:{job.id}",
+                "kind": "wm_docs",
                 "job_id": str(job.id),
+                "claim_id": str(job.claim_id) if job.claim_id else None,
                 "claim_number": job.claim_number,
                 "insurance_company": job.insurance_company,
                 "property_address": job.property_address,
                 "homeowner_name": job.homeowner_name,
-                "date_of_loss": job.date_of_loss.isoformat() if job.date_of_loss else None,
                 "status": job.status,
-                "created_at": job.created_at.isoformat() if job.created_at else None,
+                "since": iso(job.created_at),
             })
+
+        tasks = session.query(FollowUpTask).options(
+            selectinload(FollowUpTask.claim).selectinload(Claim.client)
+        ).filter(
+            FollowUpTask.status.notin_(['resolved', 'cancelled']),
+            (FollowUpTask.task_type == 'supplement_estimate_prep') | (
+                (FollowUpTask.task_type == 'depreciation_recovery')
+                & FollowUpTask.depreciation_phase.in_(DEPRECIATION_PREP_PHASES)
+            ),
+        ).all()
+
+        # When each depreciation task last changed phase
+        dep_ids = [t.id for t in tasks if t.task_type == 'depreciation_recovery']
+        phase_changed_at: Dict[str, Any] = {}
+        if dep_ids:
+            rows = session.query(
+                ClaimActivity.related_entity_id, func.max(ClaimActivity.created_at),
+            ).filter(
+                ClaimActivity.activity_type == 'depreciation_phase_changed',
+                ClaimActivity.related_entity_id.in_(dep_ids),
+            ).group_by(ClaimActivity.related_entity_id).all()
+            phase_changed_at = {str(tid): at for tid, at in rows}
+
+        for t in tasks:
+            claim = t.claim
+            client = claim.client if claim else None
+            is_dep = t.task_type == 'depreciation_recovery'
+            results.append({
+                "id": f"task:{t.id}",
+                "kind": "depreciation_docs" if is_dep else "supplement_estimate",
+                "task_id": str(t.id),
+                "claim_id": str(t.claim_id),
+                "claim_number": claim.claim_number if claim else None,
+                "insurance_company": claim.insurance_company if claim else None,
+                "property_address": client.address if client else None,
+                "homeowner_name": client.display_name if client else None,
+                "status": t.status,
+                "depreciation_phase": t.depreciation_phase,
+                "priority": t.priority,
+                "since": iso(
+                    (phase_changed_at.get(str(t.id)) if is_dep else None) or t.created_at
+                ),
+            })
+
+        # ISO strings sort by time; undated items go last
+        results.sort(key=lambda r: (r["since"] is None, r["since"] or ""))
         return results
     finally:
         session.close()

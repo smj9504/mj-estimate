@@ -1,6 +1,6 @@
 import React, { useMemo, useRef } from 'react';
 import { useIsFetching, useQuery, useQueryClient, type Query } from '@tanstack/react-query';
-import { Button, Grid, List, Table, Tooltip } from 'antd';
+import { Button, Grid, List, Table, Tag, Tooltip } from 'antd';
 import {
   ArrowRightOutlined, CheckCircleOutlined, CheckOutlined, MailOutlined, ReloadOutlined,
 } from '@ant-design/icons';
@@ -8,13 +8,15 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
 import { lifecycleService } from '../services/lifecycleService';
-import type { PaymentGap, PendingEstimate, WMDocPrep, SupplementWork } from '../services/lifecycleService';
-import type { FollowUpTask } from '../types/claimFollowUp';
+import type {
+  DocPrepItem, DocPrepKind, PaymentGap, PendingEstimate, SupplementWork,
+} from '../services/lifecycleService';
+import { DEPRECIATION_PHASE_LABELS } from '../types/claimFollowUp';
+import type { DepreciationPhase, FollowUpTask } from '../types/claimFollowUp';
 import type { RebuildProject } from '../types/rebuild';
 import { PageHeader, Pill, humanize } from '../components/common/ui';
-import { WMStatusPill } from '../components/water-mitigation/wmStatus';
 import { SupplementStatusPill, formatSignedCurrency } from '../components/supplement/supplementUi';
-import { getStageLabel } from '../components/claim-followup/claimProgress';
+import { STAGE_ORDER, TASK_STATUS_PHRASES, getStageLabel } from '../components/claim-followup/claimProgress';
 import '../components/lifecycle/lifecycle.css';
 
 const formatCurrency = (val?: number) => {
@@ -47,6 +49,28 @@ const lateText = (days: number) => (days === 0 ? 'Due today' : `${plural(days, '
 
 const isLifecycleQuery = (q: Query) => String(q.queryKey[0]).startsWith('lifecycle-');
 
+// Doc prep kinds in lifecycle order
+const DOC_PREP_KINDS: readonly DocPrepKind[] = ['wm_docs', 'supplement_estimate', 'depreciation_docs'];
+const DOC_PREP_LABELS: Record<DocPrepKind, string> = {
+  wm_docs: 'WM docs',
+  supplement_estimate: 'Supplement estimate',
+  depreciation_docs: 'Depreciation docs',
+};
+
+/** Where a doc prep item stands: the WM job status, the depreciation phase or the task status */
+const docPrepDetail = (d: DocPrepItem) => {
+  if (d.kind === 'wm_docs') return d.status;
+  if (d.kind === 'depreciation_docs' && d.depreciation_phase) {
+    return DEPRECIATION_PHASE_LABELS[d.depreciation_phase as DepreciationPhase] || humanize(d.depreciation_phase);
+  }
+  return TASK_STATUS_PHRASES[d.status] || humanize(d.status);
+};
+
+const docPrepPath = (d: DocPrepItem) =>
+  d.kind === 'wm_docs' ? `/water-mitigation/${d.job_id}` : d.claim_id ? `/claim-followup/claim/${d.claim_id}` : undefined;
+
+const waitingText = (days: number) => (days === 0 ? 'Added today' : `Waiting ${plural(days, 'day')}`);
+
 type StageKey = 'docprep' | 'estimates' | 'followups' | 'payments' | 'supplements' | 'rebuilds';
 const STAGE_KEYS: StageKey[] = ['docprep', 'estimates', 'followups', 'payments', 'supplements', 'rebuilds'];
 // The list people act on first; the stage bar shows every other count beside it
@@ -67,6 +91,11 @@ interface StageView<T> {
   emptyIsGood?: boolean;
   rows: T[];
   rowKey: string;
+  /** What kind of work a row is, when a stage holds several; they become filter chips */
+  kindOf?: (r: T) => string;
+  kindLabel?: (kind: string) => string;
+  /** Chip order; kinds not listed follow alphabetically */
+  kindOrder?: readonly string[];
   pathOf: (r: T) => string | undefined;
   columns: ColumnsType<T>;
   renderRow: (r: T) => React.ReactNode;
@@ -164,9 +193,54 @@ const PhoneRow: React.FC<{
   );
 };
 
-const StagePanel: React.FC<{ stage: StageView<any>; isPhone: boolean }> = ({ stage, isPhone }) => {
+/** One kind of work in a stage, with how many rows it holds */
+const KindChip: React.FC<{ selected: boolean; label: string; count: number; onSelect: () => void }> = ({
+  selected, label, count, onSelect,
+}) => (
+  <Tag
+    role="button"
+    tabIndex={0}
+    aria-pressed={selected}
+    className={`ui-filter-chip${selected ? ' is-selected' : ''}`}
+    onClick={onSelect}
+    onKeyDown={(e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onSelect();
+      }
+    }}
+  >
+    {label}
+    <span className="ui-tab-count">{count}</span>
+  </Tag>
+);
+
+const StagePanel: React.FC<{
+  stage: StageView<any>;
+  isPhone: boolean;
+  kind?: string;
+  onKindChange: (kind?: string) => void;
+}> = ({ stage, isPhone, kind, onKindChange }) => {
   const navigate = useNavigate();
-  const rows = stage.error ? [] : stage.rows;
+  const allRows = stage.error ? [] : stage.rows;
+
+  // Chips only for the kinds that have rows, once there are two to choose between
+  const kindCounts = new Map<string, number>();
+  if (stage.kindOf) {
+    allRows.forEach(r => {
+      const k = stage.kindOf!(r);
+      kindCounts.set(k, (kindCounts.get(k) || 0) + 1);
+    });
+  }
+  const rank = (k: string) => {
+    const i = stage.kindOrder?.indexOf(k) ?? -1;
+    return i < 0 ? Infinity : i;
+  };
+  const kinds = Array.from(kindCounts.keys()).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  // A kind that has emptied since it was picked falls back to all
+  const activeKind = kind && kindCounts.has(kind) ? kind : undefined;
+  const rows = activeKind ? allRows.filter(r => stage.kindOf!(r) === activeKind) : allRows;
+  const kindLabel = stage.kindLabel ?? humanize;
 
   const empty = stage.error ? (
     <div className="lc-empty">
@@ -190,6 +264,21 @@ const StagePanel: React.FC<{ stage: StageView<any>; isPhone: boolean }> = ({ sta
           </Link>
         )}
       </div>
+
+      {kinds.length > 1 && (
+        <div className="lc-kinds" role="group" aria-label="Filter by type">
+          <KindChip selected={!activeKind} label="All" count={allRows.length} onSelect={() => onKindChange(undefined)} />
+          {kinds.map(k => (
+            <KindChip
+              key={k}
+              selected={activeKind === k}
+              label={kindLabel(k)}
+              count={kindCounts.get(k)!}
+              onSelect={() => onKindChange(activeKind === k ? undefined : k)}
+            />
+          ))}
+        </div>
+      )}
 
       {isPhone ? (
         <List
@@ -234,6 +323,8 @@ const ClaimsLifecycleDashboard: React.FC = () => {
   const screens = Grid.useBreakpoint();
   const isPhone = !screens.md;
   const [searchParams, setSearchParams] = useSearchParams();
+  // The chosen kind within a stage (?type=), cleared when the stage changes
+  const kindParam = searchParams.get('type') || undefined;
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const statsQ = useQuery({
@@ -257,8 +348,8 @@ const ClaimsLifecycleDashboard: React.FC = () => {
     queryFn: () => lifecycleService.getActiveRebuilds(),
   });
   const docPrepQ = useQuery({
-    queryKey: ['lifecycle-wm-doc-prep'],
-    queryFn: () => lifecycleService.getWMDocPrep(),
+    queryKey: ['lifecycle-doc-prep'],
+    queryFn: () => lifecycleService.getDocPrep(),
   });
   const suppWorkQ = useQuery({
     queryKey: ['lifecycle-supplement-work'],
@@ -302,54 +393,70 @@ const ClaimsLifecycleDashboard: React.FC = () => {
     </Tooltip>
   );
 
-  const docPrepStage: StageView<WMDocPrep> = {
+  // WM packets live on the WM pages; supplement and depreciation work on Claim Follow-up
+  const docPrepLink = kindParam === 'supplement_estimate' || kindParam === 'depreciation_docs'
+    ? { to: '/claim-followup', label: 'Claim Follow-up' }
+    : { to: '/water-mitigation', label: 'Water Mitigation' };
+
+  const docPrepStage: StageView<DocPrepItem> = {
     key: 'docprep',
     label: 'Doc prep',
     count: docPrep.length,
-    note: oldestNote(docPrep.map(j => j.created_at)),
-    meta: 'Lead or Doc prepping · oldest first',
-    link: { to: '/water-mitigation', label: 'Water Mitigation' },
+    note: oldestNote(docPrep.map(d => d.since)),
+    meta: 'WM documents, supplement estimates and depreciation packets still to prepare · oldest first',
+    link: docPrepLink,
     emptyText: 'All documents prepared',
     emptyIsGood: true,
     rows: docPrep,
-    rowKey: 'job_id',
-    pathOf: j => `/water-mitigation/${j.job_id}`,
-    scrollX: 680,
+    rowKey: 'id',
+    kindOf: d => d.kind,
+    kindLabel: k => DOC_PREP_LABELS[k as DocPrepKind] || humanize(k),
+    kindOrder: DOC_PREP_KINDS,
+    pathOf: docPrepPath,
+    scrollX: 720,
     loading: docPrepQ.isLoading,
     error: docPrepQ.isError,
     retry: () => docPrepQ.refetch(),
     columns: [
       {
         title: 'Property', key: 'property', ellipsis: true,
-        render: (_, j) => (
+        render: (_, d) => (
           <>
-            <TitleLink to={`/water-mitigation/${j.job_id}`}>{j.property_address || 'No address'}</TitleLink>
-            <CellMeta parts={[j.homeowner_name]} />
+            <TitleLink to={docPrepPath(d)}>{d.property_address || 'No address'}</TitleLink>
+            <CellMeta parts={[d.homeowner_name]} />
           </>
         ),
       },
-      { title: 'Status', dataIndex: 'status', width: 150, render: (v: string) => <WMStatusPill status={v} /> },
+      {
+        title: 'Type', key: 'type', width: 190, ellipsis: true,
+        render: (_, d) => (
+          <>
+            {DOC_PREP_LABELS[d.kind]}
+            <CellMeta parts={[docPrepDetail(d)]} />
+          </>
+        ),
+      },
       {
         title: 'Insurance', key: 'insurance', width: 200, ellipsis: true,
-        render: (_, j) => (
+        render: (_, d) => (
           <>
-            {j.insurance_company || <NoValue />}
-            <CellMeta parts={[j.claim_number]} />
+            {d.insurance_company || <NoValue />}
+            <CellMeta parts={[d.claim_number]} />
           </>
         ),
       },
-      { title: 'Created', dataIndex: 'created_at', width: 130, render: (v?: string) => <DaysAgo date={v} /> },
+      { title: 'Waiting since', dataIndex: 'since', width: 130, render: (v?: string) => <DaysAgo date={v} /> },
     ],
-    renderRow: j => {
-      const age = daysSince(j.created_at);
+    renderRow: d => {
+      const age = daysSince(d.since);
       return (
         <PhoneRow
-          to={`/water-mitigation/${j.job_id}`}
-          tags={<WMStatusPill status={j.status} />}
-          title={j.property_address || 'No address'}
+          to={docPrepPath(d)}
+          title={d.property_address || 'No address'}
           lines={[
-            [j.homeowner_name, j.insurance_company],
-            [age != null && `Created ${agoText(age).toLowerCase()}`],
+            [DOC_PREP_LABELS[d.kind], docPrepDetail(d)],
+            [d.homeowner_name, d.insurance_company],
+            [age != null && waitingText(age)],
           ]}
         />
       );
@@ -439,6 +546,9 @@ const ClaimsLifecycleDashboard: React.FC = () => {
     emptyIsGood: true,
     rows: overdue,
     rowKey: 'id',
+    kindOf: t => t.task_type,
+    kindLabel: getStageLabel,
+    kindOrder: STAGE_ORDER,
     pathOf: taskPath,
     scrollX: 640,
     loading: overdueQ.isLoading,
@@ -661,6 +771,14 @@ const ClaimsLifecycleDashboard: React.FC = () => {
     const next = new URLSearchParams(searchParams);
     if (key === DEFAULT_STAGE) next.delete('stage');
     else next.set('stage', key);
+    if (key !== activeKey) next.delete('type');
+    setSearchParams(next, { replace: true });
+  };
+
+  const selectKind = (kind?: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (kind) next.set('type', kind);
+    else next.delete('type');
     setSearchParams(next, { replace: true });
   };
 
@@ -735,7 +853,13 @@ const ClaimsLifecycleDashboard: React.FC = () => {
       </div>
 
       <section id="lc-panel" role="tabpanel" aria-labelledby={`lc-tab-${active.key}`}>
-        <StagePanel key={active.key} stage={active} isPhone={isPhone} />
+        <StagePanel
+          key={active.key}
+          stage={active}
+          isPhone={isPhone}
+          kind={kindParam}
+          onKindChange={selectKind}
+        />
       </section>
     </div>
   );

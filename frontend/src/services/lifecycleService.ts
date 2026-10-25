@@ -65,15 +65,26 @@ export interface PendingEstimate {
   status: string;
 }
 
-export interface WMDocPrep {
-  job_id: string;
+export type DocPrepKind = 'wm_docs' | 'supplement_estimate' | 'depreciation_docs';
+
+/** Documents we still have to prepare: a WM job's adjuster packet or a follow-up task */
+export interface DocPrepItem {
+  /** "wm:<job id>" or "task:<task id>" */
+  id: string;
+  kind: DocPrepKind;
+  job_id?: string;
+  task_id?: string;
+  claim_id?: string | null;
   claim_number?: string;
   insurance_company?: string;
   property_address?: string;
   homeowner_name?: string;
-  date_of_loss?: string;
+  /** WM job status for wm_docs, follow-up task status otherwise */
   status: string;
-  created_at?: string;
+  depreciation_phase?: string | null;
+  priority?: string;
+  /** When the wait started: creation, or the last depreciation phase change */
+  since?: string;
 }
 
 export interface SupplementWork {
@@ -122,8 +133,8 @@ export const lifecycleService = {
     return data;
   },
 
-  async getWMDocPrep(): Promise<WMDocPrep[]> {
-    const { data } = await api.get(`${BASE}/wm-doc-prep`);
+  async getDocPrep(): Promise<DocPrepItem[]> {
+    const { data } = await api.get(`${BASE}/doc-prep`);
     return data;
   },
 
