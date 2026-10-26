@@ -135,6 +135,7 @@ class IngestionLogResponse(BaseModel):
 
     # Joined fields (populated by service)
     client_name: Optional[str] = None
+    client_address: Optional[str] = None
     claim_number: Optional[str] = None
     account_email: Optional[str] = None
     file_name: Optional[str] = None

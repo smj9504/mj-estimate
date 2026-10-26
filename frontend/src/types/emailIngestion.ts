@@ -102,6 +102,7 @@ export interface IngestionLog {
   created_at?: string;
   // Joined fields
   client_name?: string;
+  client_address?: string;
   claim_number?: string;
   account_email?: string;
   file_name?: string;

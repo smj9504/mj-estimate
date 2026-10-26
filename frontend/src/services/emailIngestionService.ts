@@ -85,7 +85,13 @@ export const emailIngestionService = {
   // Logs
   // ============================================================
 
-  async listLogs(params?: { status?: string; account_id?: string; limit?: number; offset?: number }) {
+  async listLogs(params?: {
+    status?: string;
+    account_id?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) {
     const { data } = await api.get(`${BASE}/logs`, { params });
     return data as IngestionLog[];
   },

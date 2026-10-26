@@ -9,7 +9,7 @@ from sqlalchemy import func, or_
 
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
-from app.domains.email_ingestion.models import EmailAccount, EmailIngestionLog
+from app.domains.email_ingestion.models import EmailAccount, EmailIngestionLog, ReceivedEmail
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +79,15 @@ class EmailIngestionLogRepository(SQLAlchemyRepository):
         offset: int = 0,
         claim_id: Optional[str] = None,
         has_attachment: bool = False,
+        search: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Get logs with optional filters"""
         query = self.db_session.query(EmailIngestionLog)
+
+        if search and search.strip():
+            query = query.filter(
+                EmailIngestionLog.message_id.in_(self._message_ids_matching(search.strip()))
+            )
 
         if status:
             query = query.filter(EmailIngestionLog.status == status)
@@ -117,6 +123,49 @@ class EmailIngestionLogRepository(SQLAlchemyRepository):
             EmailIngestionLog.created_at.desc()
         ).offset(offset).limit(limit).all()
         return [self._convert_to_dict(log) for log in logs]
+
+    def _message_ids_matching(self, term: str):
+        """Messages any of whose rows mention `term` - in the email itself,
+        or in the client/claim one of its attachments was matched to.
+
+        Returns message ids rather than log ids so a hit keeps the whole
+        email together: only the attachment that won the match carries the
+        client and claim, and its siblings should come back with it.
+        """
+        from app.domains.client.address_utils import normalize_address
+        from app.domains.client.models import Claim, Client
+
+        like = f"%{term}%"
+        client_terms = [
+            Client.display_name.ilike(like),
+            Client.address.ilike(like),
+            Client.city.ilike(like),
+            Client.zipcode.ilike(like),
+            Client.insurance_policy_number.ilike(like),
+        ]
+        # "123 Main Street" should find a client stored as "123 Main St."
+        normalized = normalize_address(term)
+        if normalized:
+            client_terms.append(Client.normalized_address.ilike(f"%{normalized}%"))
+        client_ids = self.db_session.query(Client.id).filter(or_(*client_terms))
+        claim_ids = self.db_session.query(Claim.id).filter(or_(
+            Claim.claim_number.ilike(like),
+            Claim.insurance_policy_number.ilike(like),
+        ))
+        # Carriers put the claim number and loss address in the body as often
+        # as in the subject, and an unmatched attachment has nothing else.
+        body_message_ids = self.db_session.query(ReceivedEmail.message_id).filter(or_(
+            ReceivedEmail.snippet.ilike(like),
+            ReceivedEmail.body_text.ilike(like),
+        ))
+        return self.db_session.query(EmailIngestionLog.message_id).filter(or_(
+            EmailIngestionLog.subject.ilike(like),
+            EmailIngestionLog.sender.ilike(like),
+            EmailIngestionLog.attachment_name.ilike(like),
+            EmailIngestionLog.matched_client_id.in_(client_ids),
+            EmailIngestionLog.matched_claim_id.in_(claim_ids),
+            EmailIngestionLog.message_id.in_(body_message_ids),
+        ))
 
     def get_stats(self) -> Dict[str, int]:
         """Get aggregated stats"""

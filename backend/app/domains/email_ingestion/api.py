@@ -209,6 +209,11 @@ def list_logs(
     has_attachment: bool = Query(
         False, description="Only rows whose attachment was stored"
     ),
+    search: Optional[str] = Query(
+        None,
+        description="Subject / sender / file name / email body, or the matched "
+                    "client's name, address, policy number or claim number contains",
+    ),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
 ):
@@ -216,7 +221,7 @@ def list_logs(
     service = _get_service()
     return service.get_logs(
         status=status, account_id=account_id, limit=limit, offset=offset,
-        claim_id=claim_id, has_attachment=has_attachment,
+        claim_id=claim_id, has_attachment=has_attachment, search=search,
     )
 
 

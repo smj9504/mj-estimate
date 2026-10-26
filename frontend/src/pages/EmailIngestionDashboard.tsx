@@ -72,6 +72,7 @@ const EmailIngestionDashboard: React.FC = () => {
   // large share of the log - 52 of 129 at the time of writing - which buried
   // the rows that actually need action. Clearing the filter still shows all.
   const [statusFilter, setStatusFilter] = useState<string | undefined>('pending');
+  const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('inbox');
   // Multi-attachment emails expand to list every file. Controlled so the
   // Files tag and a row click can open it, not only the small "+" icon.
@@ -92,8 +93,12 @@ const EmailIngestionDashboard: React.FC = () => {
   });
 
   const { data: logs = [], isLoading: logsLoading, refetch: refetchLogs } = useQuery({
-    queryKey: ['email-ingestion-logs', statusFilter],
-    queryFn: () => emailIngestionService.listLogs({ status: statusFilter, limit: 100 }),
+    queryKey: ['email-ingestion-logs', statusFilter, search],
+    queryFn: () => emailIngestionService.listLogs({
+      status: statusFilter,
+      search: search || undefined,
+      limit: 100,
+    }),
   });
 
   const { data: accounts = [] } = useQuery({
@@ -376,10 +381,14 @@ const EmailIngestionDashboard: React.FC = () => {
       title: 'Client',
       key: 'client_name',
       width: 150,
+      // The address shows on hover so a search by address can be checked
+      // against the client it matched.
       render: (_: any, r: EmailRow) => r.head.client_name ? (
-        <a onClick={() => r.head.matched_client_id && navigate(`/clients/${r.head.matched_client_id}`)}>
-          <UserOutlined style={{ marginRight: 4 }} />{r.head.client_name}
-        </a>
+        <Tooltip title={r.head.client_address}>
+          <a onClick={() => r.head.matched_client_id && navigate(`/clients/${r.head.matched_client_id}`)}>
+            <UserOutlined style={{ marginRight: 4 }} />{r.head.client_name}
+          </a>
+        </Tooltip>
       ) : <Text type="secondary">-</Text>,
     },
     {
@@ -545,7 +554,13 @@ const EmailIngestionDashboard: React.FC = () => {
               <>
                 {/* Filters */}
                 <Card size="small" style={{ marginBottom: 16 }}>
-                  <Space>
+                  <Space wrap>
+                    <Input.Search
+                      allowClear
+                      placeholder="Search address, claim #, policy #, client, subject"
+                      style={{ width: 340 }}
+                      onSearch={(v) => setSearch(v.trim())}
+                    />
                     <Text strong>Filter:</Text>
                     <Select
                       placeholder="All statuses"
@@ -580,6 +595,11 @@ const EmailIngestionDashboard: React.FC = () => {
                       showTotal: (t) => `Total: ${t} emails`,
                     }}
                     scroll={{ x: 1280 }}
+                    // The status filter defaults to pending, so a search for an
+                    // email that was already uploaded comes back empty - say so.
+                    locale={search && statusFilter ? {
+                      emptyText: `No ${statusFilter} emails match "${search}" - clear the status filter to search all.`,
+                    } : undefined}
                     onRow={(r) => ({
                       onClick: () => { if (r.attachments.length > 1) toggleExpanded(r.key); },
                       style: r.attachments.length > 1 ? { cursor: 'pointer' } : undefined,

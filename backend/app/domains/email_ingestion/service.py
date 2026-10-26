@@ -1355,6 +1355,7 @@ class EmailIngestionService:
         offset: int = 0,
         claim_id: Optional[str] = None,
         has_attachment: bool = False,
+        search: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Get ingestion logs with filters"""
         session = self._get_readonly_session()
@@ -1363,7 +1364,7 @@ class EmailIngestionService:
             repo = get_email_ingestion_log_repository(session)
             logs = repo.get_logs_with_filters(
                 status, account_id, limit, offset,
-                claim_id=claim_id, has_attachment=has_attachment,
+                claim_id=claim_id, has_attachment=has_attachment, search=search,
             )
 
             # Attach stored-file metadata. `file_id` is a plain String column,
@@ -1389,6 +1390,7 @@ class EmailIngestionService:
                         Client.id == log["matched_client_id"]
                     ).first()
                     log["client_name"] = client.display_name if client else None
+                    log["client_address"] = client.address if client else None
 
                 if log.get("matched_claim_id"):
                     from app.domains.client.models import Claim
