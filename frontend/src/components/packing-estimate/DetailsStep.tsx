@@ -27,8 +27,6 @@ interface DetailsStepProps {
   setSelectedClaimId: (id: string | null) => void;
   projectAddress: string;
   setProjectAddress: (addr: string) => void;
-  calculationName: string;
-  setCalculationName: (name: string) => void;
   /** Render Estimation Settings below the job fields (pages that place it elsewhere use EstimationSettings) */
   includeSettings?: boolean;
 }
@@ -162,7 +160,6 @@ const DetailsStep: React.FC<DetailsStepProps> = ({
   selectedClientId, setSelectedClientId,
   selectedClaimId, setSelectedClaimId,
   projectAddress, setProjectAddress,
-  calculationName, setCalculationName,
   includeSettings = true,
 }) => {
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -228,14 +225,6 @@ const DetailsStep: React.FC<DetailsStepProps> = ({
     <div className="pk-details">
       <section className="ui-section" aria-label="Company & Client">
         <div className="ui-section-head"><h2 className="ui-section-title">Company &amp; Client</h2></div>
-        <FormRow label="Estimate Name" htmlFor="pk-name">
-          <Input
-            id="pk-name"
-            placeholder="e.g., Smith Residence Pack-Out"
-            value={calculationName}
-            onChange={e => setCalculationName(e.target.value)}
-          />
-        </FormRow>
         <FormRow label="Company" htmlFor="pk-company" required>
           <Select
             id="pk-company"

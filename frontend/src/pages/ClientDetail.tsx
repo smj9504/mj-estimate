@@ -2758,17 +2758,11 @@ const PackingEstimatesCard: React.FC<{ clientId: string }> = ({ clientId }) => {
 
   const packColumns = [
     {
-      title: 'Estimate Name',
-      dataIndex: 'calculation_name',
-      key: 'calculation_name',
-      render: (val?: string) => <span className="ui-ink-link">{val || 'Untitled'}</span>,
-    },
-    {
       title: 'Address',
-      dataIndex: 'project_address',
-      key: 'project_address',
-      render: (val?: string) => val || '—',
-      responsive: ['md'] as any,
+      key: 'address',
+      render: (_: unknown, record: any) => (
+        <span className="ui-ink-link">{record.project_address || record.calculation_name || 'Packing Estimate'}</span>
+      ),
     },
     {
       title: 'Rooms',

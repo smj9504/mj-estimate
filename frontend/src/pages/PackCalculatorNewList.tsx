@@ -20,7 +20,7 @@ import { PageHeader, Pill, useSheetModal } from '../components/common/ui';
 import { tagTones } from '../styles/tokens';
 import {
   PACK_STATUSES, PACK_STATUS_TONES, PackStatusPill, packStatusLabel,
-  CompanyName, formatMoney, modeLabel,
+  CompanyName, formatMoney, modeLabel, packEstimateTitle,
 } from '../components/packing-estimate/packingUi';
 
 const { useBreakpoint } = Grid;
@@ -76,7 +76,7 @@ const PackCalculatorNewList: React.FC = () => {
 
   const confirmDelete = (record: PackEstimateSummary) => Modal.confirm({
     title: 'Delete this estimate?',
-    content: record.calculation_name || 'Untitled',
+    content: packEstimateTitle(record),
     okText: 'Delete',
     okButtonProps: { danger: true },
     onOk: () => handleDelete(record.id),
@@ -109,15 +109,9 @@ const PackCalculatorNewList: React.FC = () => {
   const columns: ColumnsType<PackEstimateSummary> = [
     {
       title: 'Estimate',
-      dataIndex: 'calculation_name',
       key: 'name',
       ellipsis: true,
-      render: (text: string, record) => (
-        <div style={{ minWidth: 0 }}>
-          <span className="ui-ink-link">{text || 'Untitled'}</span>
-          {record.project_address && <span className="ui-cell-meta">{record.project_address}</span>}
-        </div>
-      ),
+      render: (_, record) => <span className="ui-ink-link">{packEstimateTitle(record)}</span>,
     },
     {
       title: 'Client',
@@ -190,18 +184,17 @@ const PackCalculatorNewList: React.FC = () => {
     },
   ];
 
-  // Phone row: status first, then the name, then client, money and date
+  // Phone row: status first, then the address, then client, money and date
   const renderMobileItem = (record: PackEstimateSummary) => (
     <div className="ui-row" onClick={() => openDetail(record)}>
       <div className="ui-row-body">
         <div className="ui-row-tags">
           <PackStatusPill status={record.status} />
         </div>
-        <span className="ui-row-title">{record.calculation_name || 'Untitled'}</span>
+        <span className="ui-row-title">{packEstimateTitle(record)}</span>
         <div className="ui-row-meta">
           {record.company_name && <CompanyName id={record.company_id} name={record.company_name} />}
           {record.client_name && <span>{record.client_name}</span>}
-          {record.project_address && <span>{record.project_address}</span>}
         </div>
         <div className="ui-row-meta">
           <span className="pk-money" style={{ color: 'var(--color-neutral-900)' }}>{formatMoney(record.grand_total)}</span>

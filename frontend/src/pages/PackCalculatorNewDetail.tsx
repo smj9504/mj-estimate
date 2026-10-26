@@ -23,7 +23,7 @@ import type { PropertyItem } from '../components/common/ui';
 import {
   PACK_STATUSES, PackStatusPill, packStatusLabel, CompanyName, ContaminationPill,
   EstimateBreakdown, Figures, estimateFigures, formatMoney, modeLabel,
-  floorLabel, densityLabel, regionLabel,
+  floorLabel, densityLabel, regionLabel, packEstimateTitle,
 } from '../components/packing-estimate/packingUi';
 
 interface DetectedItem {
@@ -85,7 +85,6 @@ const PackCalculatorNewDetail: React.FC = () => {
   // Edit mode state
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [editName, setEditName] = useState('');
   const [editStatus, setEditStatus] = useState('');
   const [editNotes, setEditNotes] = useState('');
 
@@ -116,7 +115,6 @@ const PackCalculatorNewDetail: React.FC = () => {
 
   const startEdit = useCallback(() => {
     if (!estimate) return;
-    setEditName(estimate.calculation_name || '');
     setEditStatus(estimate.status || 'draft');
     setEditNotes(estimate.notes || '');
     setEditing(true);
@@ -131,7 +129,6 @@ const PackCalculatorNewDetail: React.FC = () => {
     setSaving(true);
     try {
       await packingService.updateEstimate(id, {
-        calculation_name: editName,
         status: editStatus,
         notes: editNotes,
       });
@@ -143,7 +140,7 @@ const PackCalculatorNewDetail: React.FC = () => {
     } finally {
       setSaving(false);
     }
-  }, [id, editName, editStatus, editNotes]);
+  }, [id, editStatus, editNotes]);
 
   // ── PDF Export ──────────────────────────────
 
@@ -182,7 +179,6 @@ const PackCalculatorNewDetail: React.FC = () => {
           special_items: estimate.special_items || [],
           custom_special_items: estimate.custom_special_items || [],
         },
-        calculationName: estimate.calculation_name,
         projectAddress: estimate.project_address,
         clientId: estimate.client_id,
         companyId: estimate.company_id,
@@ -431,16 +427,7 @@ const PackCalculatorNewDetail: React.FC = () => {
         leading={
           <Button type="text" icon={<ArrowLeftOutlined />} onClick={handleBack} aria-label="Back to packing estimates" />
         }
-        title={editing ? (
-          <Input
-            value={editName}
-            onChange={e => setEditName(e.target.value)}
-            className="pk-title-input"
-            placeholder="Estimate Name"
-            aria-label="Estimate name"
-            autoFocus
-          />
-        ) : (estimate.calculation_name || 'Untitled')}
+        title={packEstimateTitle(estimate)}
         meta={
           <>
             <PackStatusPill status={editing ? editStatus : estimate.status} />

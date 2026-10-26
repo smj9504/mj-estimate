@@ -2353,7 +2353,7 @@ const SupplementDetail: React.FC = () => {
                     const est = packingEstimatesForBid.find(e => e.id === val);
                     if (est) {
                       bidItemForm.setFieldsValue({
-                        title: est.calculation_name || est.project_address || 'Packing Estimate',
+                        title: est.project_address || est.calculation_name || 'Packing Estimate',
                         custom_amount: est.grand_total ?? undefined,
                       });
                     }
@@ -2372,7 +2372,7 @@ const SupplementDetail: React.FC = () => {
                       }))
                     : packingEstimatesForBid.map(e => ({
                         value: e.id,
-                        label: `${e.calculation_name || e.project_address || e.id.slice(0, 8)} ($${((e.grand_total ?? 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })})`,
+                        label: `${e.project_address || e.calculation_name || e.id.slice(0, 8)} ($${((e.grand_total ?? 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })})`,
                       }))
                 }
               />

@@ -328,12 +328,6 @@
     margin: 32px 0 0;
   }
 }
-.pk-title-input.ant-input {
-  max-width: 480px;
-  font-size: 20px;
-  font-weight: 600;
-}
-
 /* Quiet tables inside the tabs: no header fill, hairline rows */
 .pk-quiet-table .ant-table-thead > tr > th {
   background: transparent;

@@ -15,7 +15,7 @@ import PhotoAIRooms from '../components/packing-estimate/PhotoAIRooms';
 import QuickEstimateRooms from '../components/packing-estimate/QuickEstimateRooms';
 import { DEFAULT_SETTINGS } from '../components/packing-estimate/constants';
 import {
-  EstimateBreakdown, Figures, estimateFigures, regionLabel, modeLabel, sectionsWithLines,
+  EstimateBreakdown, Figures, estimateFigures, regionLabel, modeLabel, sectionsWithLines, packEstimateTitle,
 } from '../components/packing-estimate/packingUi';
 import { PageHeader } from '../components/common/ui';
 import * as packingService from '../services/packingEstimateService';
@@ -60,9 +60,6 @@ const PackCalculatorNew: React.FC = () => {
   );
   const [projectAddress, setProjectAddress] = useState(
     recalcState?.projectAddress || ''
-  );
-  const [calculationName, setCalculationName] = useState(
-    recalcState?.calculationName || ''
   );
 
   // Room state
@@ -116,9 +113,8 @@ const PackCalculatorNew: React.FC = () => {
     selectedCompanyId,
     selectedClientId,
     selectedClaimId,
-    calculationName,
     projectAddress,
-  }), [mode, roomInputs, contentRooms, settings, selectedCompanyId, selectedClientId, selectedClaimId, calculationName, projectAddress]);
+  }), [mode, roomInputs, contentRooms, settings, selectedCompanyId, selectedClientId, selectedClaimId, projectAddress]);
 
   const isStale = !!result && calculatedInputs !== null && calculatedInputs !== inputsKey;
 
@@ -133,7 +129,6 @@ const PackCalculatorNew: React.FC = () => {
           client_id: selectedClientId || undefined,
           company_id: selectedCompanyId || undefined,
           claim_id: selectedClaimId || undefined,
-          calculation_name: calculationName || undefined,
           project_address: projectAddress || undefined,
           rooms: roomInputs,
           crew_size: settings.crew_size,
@@ -153,7 +148,6 @@ const PackCalculatorNew: React.FC = () => {
           client_id: selectedClientId || undefined,
           company_id: selectedCompanyId || undefined,
           claim_id: selectedClaimId || undefined,
-          calculation_name: calculationName || undefined,
           project_address: projectAddress || undefined,
           rooms: contentRooms,
           crew_size: settings.crew_size,
@@ -186,7 +180,7 @@ const PackCalculatorNew: React.FC = () => {
     } finally {
       setCalculating(false);
     }
-  }, [mode, roomInputs, contentRooms, settings, selectedClientId, selectedCompanyId, selectedClaimId, calculationName, projectAddress, inputsKey]);
+  }, [mode, roomInputs, contentRooms, settings, selectedClientId, selectedCompanyId, selectedClaimId, projectAddress, inputsKey]);
 
   const roomCount = mode === 'quick' ? rooms.length : photoRooms.length;
   const canCalculate = roomCount > 0;
@@ -254,7 +248,7 @@ const PackCalculatorNew: React.FC = () => {
             aria-label="Back to packing estimates"
           />
         }
-        title={calculationName.trim() || 'Packing Estimate'}
+        title={packEstimateTitle({ project_address: projectAddress })}
         meta={roomCount === 0 && !result
           ? <span>Calculate materials and labor for pack-out/pack-in operations</span>
           : <span>{meta}</span>}
@@ -287,8 +281,6 @@ const PackCalculatorNew: React.FC = () => {
             setSelectedClaimId={setSelectedClaimId}
             projectAddress={projectAddress}
             setProjectAddress={setProjectAddress}
-            calculationName={calculationName}
-            setCalculationName={setCalculationName}
             includeSettings={false}
           />
 

@@ -31,6 +31,13 @@ export const PackStatusPill: React.FC<{ status?: string | null }> = ({ status })
 
 export const modeLabel = (mode?: string | null) => (mode === 'photo_ai' ? 'Photo AI' : 'Quick estimate');
 
+/** An estimate goes by its property; names typed on older estimates stand in only when there is no address */
+export const packEstimateTitle = (e: {
+  project_address?: string | null;
+  calculation_name?: string | null;
+  client_name?: string | null;
+}) => e.project_address?.trim() || e.calculation_name?.trim() || e.client_name?.trim() || 'Packing Estimate';
+
 export const formatMoney = (val?: number | null) =>
   `$${(val || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
