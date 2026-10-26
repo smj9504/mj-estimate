@@ -4250,3 +4250,134 @@ a.cl-contact-line:hover {
     font-size: 16px;
   }
 }
+
+/* ============================================================
+   Bathroom estimate (detail). On a phone the page is the sheet:
+   the tab cards give their width back, the tab bar stays under
+   the app header while a long scope form scrolls, the sketch
+   fills the screen, and Save / Calculate sit at the thumb.
+   ============================================================ */
+
+.be-sketch-frame {
+  height: 700px;
+}
+
+/* Line items on a phone: one row per item, the figures under it */
+.be-li-rows .ui-row {
+  padding: 10px 4px 10px 12px;
+}
+.be-li-figures {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.be-li-total {
+  color: var(--color-neutral-900);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.be-li-subtotal {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Covers the bottom nav, like the estimate editor's bar */
+.be-action-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-action-bar);
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: saturate(180%) blur(8px);
+  -webkit-backdrop-filter: saturate(180%) blur(8px);
+  border-top: 1px solid var(--color-neutral-200);
+}
+.be-action-bar > .ant-btn {
+  flex: 1;
+  height: 40px;
+}
+
+@media (max-width: 767.98px) {
+  .be-page .be-tab-card.ant-card {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+  }
+  /* index.css pads every phone card body with !important */
+  .be-page .be-tab-card.ant-card > .ant-card-body,
+  .be-page .be-sketch-card.ant-card > .ant-card-body {
+    padding: 0 !important;
+  }
+
+  /* The tab bar stays under the 52px app header, edge to edge */
+  .be-page .be-tabs > .ant-tabs-nav {
+    position: sticky;
+    top: 52px;
+    z-index: 5;
+    margin: 0 -16px 12px;
+    padding: 0 16px;
+    background: var(--color-surface);
+  }
+  /* A tab opens just under the stuck tab bar (header + bar + gap) */
+  .be-page .be-tabs > .ant-tabs-content-holder {
+    scroll-margin-top: 110px;
+  }
+
+  /* Scope panels give their width back */
+  .be-page .be-tab-card .ant-collapse > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
+    padding: 12px;
+  }
+  /* Line item rows run edge to edge inside their phase */
+  .be-page .be-phases.ant-collapse > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
+    padding: 0;
+  }
+  /* A long phase name wraps beside the arrow, not under it (index.css wraps
+     every phone collapse header) */
+  .be-page .be-phases.ant-collapse > .ant-collapse-item > .ant-collapse-header {
+    flex-wrap: nowrap !important;
+  }
+
+  /* The canvas fills the screen between the tab bar and the action bar */
+  .be-sketch-frame {
+    height: max(360px, calc(100vh - 174px - env(safe-area-inset-bottom, 0px)));
+    height: max(360px, calc(100dvh - 174px - env(safe-area-inset-bottom, 0px)));
+  }
+}
+
+/* Phones and touch: small buttons grow to a thumb-sized target */
+@media (max-width: 767.98px), (pointer: coarse) {
+  .be-tab-card .ant-btn-sm,
+  .be-modal .ant-btn-sm {
+    height: 32px;
+  }
+  .be-tab-card .ant-btn-sm.ant-btn-icon-only,
+  .be-modal .ant-btn-sm.ant-btn-icon-only {
+    width: 32px;
+  }
+}
+
+/* iOS Safari zooms the page into any focused field under 16px */
+@media (max-width: 767.98px) and (pointer: coarse) {
+  .be-page .ant-input,
+  .be-page .ant-input-affix-wrapper,
+  .be-page .ant-input-number-input,
+  .be-page .ant-select-selector,
+  .be-modal .ant-input,
+  .be-modal .ant-input-number-input,
+  .be-modal .ant-select-selector {
+    font-size: 16px;
+  }
+}

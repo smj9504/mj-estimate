@@ -42,10 +42,12 @@ import {
   BookOutlined,
   AimOutlined,
   AuditOutlined,
+  MoreOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
+import { useSheetModal } from '../components/common/ui';
 import { resolveAddressParts } from '../utils/addressUtils';
 import { bathroomEstimateService } from '../services/bathroomEstimateService';
 import { clientService, claimService } from '../services/clientService';
@@ -103,6 +105,20 @@ const BathroomEstimateDetail: React.FC = () => {
   // Edits made on this page since the last save or calculate: typed into the
   // form or drawn on the sketch. Fields the page fills in itself don't count.
   const unsavedRef = useRef(false);
+  const { isPhone, sheetProps } = useSheetModal();
+
+  // Phones keep the tab bar stuck under the app header. A tab opens at its
+  // top rather than wherever the last one was scrolled to, and the sketch
+  // also scrolls up so its canvas fills the screen.
+  useEffect(() => {
+    if (!isPhone) return;
+    const nav = document.querySelector('.be-tabs > .ant-tabs-nav');
+    const content = document.querySelector('.be-tabs > .ant-tabs-content-holder');
+    if (!nav || !content) return;
+    if (activeTab === 'sketch' || content.getBoundingClientRect().top < nav.getBoundingClientRect().bottom) {
+      content.scrollIntoView({ block: 'start' });
+    }
+  }, [activeTab, isPhone]);
 
   // ── Queries ──
   const { data: estimate, isLoading } = useQuery({
@@ -594,6 +610,22 @@ const BathroomEstimateDetail: React.FC = () => {
     )},
   ];
 
+  // A phone has no room for the Cost Guide's "When Needed" column, so the
+  // condition sits under the item's name
+  const guidePhoneColumns = [
+    {
+      title: 'Item',
+      dataIndex: 'item',
+      render: (item: string, row: { when: string }) => (
+        <>
+          <div>{item}</div>
+          <Text type="secondary" style={{ fontSize: 12 }}>{row.when}</Text>
+        </>
+      ),
+    },
+    { title: 'Cost', dataIndex: 'cost', align: 'right' as const },
+  ];
+
   // Group line items by phase for summary
   const lineItems = estimate?.line_items || [];
   const phaseSummary = Object.entries(PHASE_LABELS).map(([phase, label]) => {
@@ -603,12 +635,12 @@ const BathroomEstimateDetail: React.FC = () => {
   }).filter(p => p.count > 0);
 
   return (
-    <div style={{ padding: '16px' }}>
+    <div className="be-page" style={{ padding: isPhone ? '0 0 16px' : '16px' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isPhone ? 12 : 16, flexWrap: 'wrap', gap: 8 }}>
         <Space wrap>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/bathroom-estimates')} />
-          <Title level={3} style={{ margin: 0 }}>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/bathroom-estimates')} aria-label="Back to bathroom estimates" />
+          <Title level={isPhone ? 4 : 3} style={{ margin: 0 }}>
             Bathroom Estimate
             {estimate?.status && (
               <Tag color={
@@ -623,7 +655,7 @@ const BathroomEstimateDetail: React.FC = () => {
         </Space>
         <Space wrap>
             {/* A supplement goes to the carrier: only the restoration may */}
-            {estimate?.kind !== 'option' && (
+            {!isPhone && estimate?.kind !== 'option' && (
               <Button
                 icon={<AuditOutlined />}
                 onClick={() => setRegisterBidItemOpen(true)}
@@ -633,14 +665,20 @@ const BathroomEstimateDetail: React.FC = () => {
                 Add to Supplement
               </Button>
             )}
-            <Button icon={<SaveOutlined />} onClick={handleSave} loading={saveMutation.isPending}>
-              Save
-            </Button>
-            <Button type="primary" icon={<CalculatorOutlined />} onClick={handleCalculate}
-              loading={calculateMutation.isPending}>
-              Calculate
-            </Button>
+            {/* Phones get Save and Calculate in the action bar at the bottom */}
+            {!isPhone && (
+              <Button icon={<SaveOutlined />} onClick={handleSave} loading={saveMutation.isPending}>
+                Save
+              </Button>
+            )}
+            {!isPhone && (
+              <Button type="primary" icon={<CalculatorOutlined />} onClick={handleCalculate}
+                loading={calculateMutation.isPending}>
+                Calculate
+              </Button>
+            )}
             <Dropdown
+              trigger={isPhone ? ['click'] : undefined}
               disabled={estimate?.status === 'draft'}
               menu={{
                 items: [
@@ -800,20 +838,54 @@ const BathroomEstimateDetail: React.FC = () => {
                 ],
               }}
             >
-              <Button icon={<FilePdfOutlined />}>
-                PDF <DownOutlined />
+              <Button icon={<FilePdfOutlined />} aria-label={isPhone ? 'PDF' : undefined}>
+                {!isPhone && <>PDF <DownOutlined /></>}
               </Button>
             </Dropdown>
-            <Button
-              icon={<CopyOutlined />}
-              onClick={() => cloneMutation.mutate()}
-              title="Copy this estimate into a new job, e.g. another bathroom"
-            >
-              Clone
-            </Button>
-            <Button icon={<BookOutlined />} onClick={() => setGuideOpen(true)}>
-              Guide
-            </Button>
+            {!isPhone && (
+              <Button
+                icon={<CopyOutlined />}
+                onClick={() => cloneMutation.mutate()}
+                title="Copy this estimate into a new job, e.g. another bathroom"
+              >
+                Clone
+              </Button>
+            )}
+            {!isPhone && (
+              <Button icon={<BookOutlined />} onClick={() => setGuideOpen(true)}>
+                Guide
+              </Button>
+            )}
+            {isPhone && (
+              <Dropdown
+                trigger={['click']}
+                menu={{
+                  items: [
+                    ...(estimate?.kind !== 'option' ? [{
+                      key: 'supplement',
+                      icon: <AuditOutlined />,
+                      label: 'Add to Supplement',
+                      disabled: !estimate || estimate.status === 'draft',
+                      onClick: () => setRegisterBidItemOpen(true),
+                    }] : []),
+                    {
+                      key: 'clone',
+                      icon: <CopyOutlined />,
+                      label: 'Clone',
+                      onClick: () => cloneMutation.mutate(),
+                    },
+                    {
+                      key: 'guide',
+                      icon: <BookOutlined />,
+                      label: 'Guide',
+                      onClick: () => setGuideOpen(true),
+                    },
+                  ],
+                }}
+              >
+                <Button icon={<MoreOutlined />} aria-label="More actions" />
+              </Dropdown>
+            )}
         </Space>
       </div>
 
@@ -843,14 +915,16 @@ const BathroomEstimateDetail: React.FC = () => {
         onCancel={() => setGuideOpen(false)}
         footer={null}
         width={720}
+        {...sheetProps}
       >
-        <div style={{ maxHeight: 500, overflowY: 'auto' }}>
+        {/* A phone sheet scrolls its own body */}
+        <div style={isPhone ? undefined : { maxHeight: 500, overflowY: 'auto' }}>
           <Title level={5}>Plumbing (Phase 2)</Title>
           <Table
             size="small"
             pagination={false}
             dataSource={costGuide.plumbing}
-            columns={[
+            columns={isPhone ? guidePhoneColumns : [
               { title: 'Item', dataIndex: 'item', width: 170 },
               { title: 'When Needed', dataIndex: 'when' },
               { title: 'Cost', dataIndex: 'cost', width: 90, align: 'right' as const },
@@ -862,7 +936,7 @@ const BathroomEstimateDetail: React.FC = () => {
             size="small"
             pagination={false}
             dataSource={costGuide.electrical}
-            columns={[
+            columns={isPhone ? guidePhoneColumns : [
               { title: 'Item', dataIndex: 'item', width: 140 },
               { title: 'When Needed', dataIndex: 'when' },
               { title: 'Cost', dataIndex: 'cost', width: 100, align: 'right' as const },
@@ -887,15 +961,17 @@ const BathroomEstimateDetail: React.FC = () => {
         </div>
       </Modal>
 
-      <Form form={form} layout="vertical" size="small" onValuesChange={() => { unsavedRef.current = true; }}>
-        <Tabs activeKey={activeTab} onChange={setActiveTab} destroyOnHidden={false} items={[
+      {/* Phones get thumb-sized fields; the size also reaches the tabs and panels */}
+      <Form form={form} layout="vertical" size={isPhone ? 'middle' : 'small'} onValuesChange={() => { unsavedRef.current = true; }}>
+        <Tabs className="be-tabs" activeKey={activeTab} onChange={setActiveTab} destroyOnHidden={false}
+          tabBarGutter={isPhone ? 20 : undefined} items={[
           // ════════ TAB 1: Project Info ════════
           {
             key: 'project',
             forceRender: true,
             label: 'Project Info',
             children: (
-              <Card>
+              <Card className="be-tab-card">
                 <Divider orientation="left">Company</Divider>
                 <Row gutter={16}>
                   <Col xs={24} sm={12} md={8}>
@@ -1087,7 +1163,7 @@ const BathroomEstimateDetail: React.FC = () => {
             forceRender: true,
             label: 'Demo Scope',
             children: (
-              <Card>
+              <Card className="be-tab-card">
                 <Divider orientation="left" plain>Demolition Areas</Divider>
                 <Form.Item noStyle shouldUpdate={(prev, cur) =>
                   prev.demo_ceiling !== cur.demo_ceiling ||
@@ -1200,7 +1276,6 @@ const BathroomEstimateDetail: React.FC = () => {
                               <Radio.Group
                                 value={getAction(key)}
                                 onChange={(e) => setAction(key, e.target.value)}
-                                size="small"
                               >
                                 <Radio.Button value="none">None</Radio.Button>
                                 <Radio.Button value="replace">Replace</Radio.Button>
@@ -1225,7 +1300,6 @@ const BathroomEstimateDetail: React.FC = () => {
                                       detach_reset_mirror: e.target.value === 'detach_reset',
                                     });
                                   }}
-                                  size="small"
                                 >
                                   <Radio.Button value="none">None</Radio.Button>
                                   <Radio.Button value="replace">New</Radio.Button>
@@ -1247,7 +1321,6 @@ const BathroomEstimateDetail: React.FC = () => {
                                       detach_reset_vanity_light: e.target.value === 'detach_reset',
                                     });
                                   }}
-                                  size="small"
                                 >
                                   <Radio.Button value="none">None</Radio.Button>
                                   <Radio.Button value="replace">New</Radio.Button>
@@ -1455,15 +1528,17 @@ const BathroomEstimateDetail: React.FC = () => {
             ),
             children: (
               <Card
-                title="Bathroom Floor Plan & Tile Estimation"
-                extra={
+                className="be-sketch-card"
+                title={isPhone ? undefined : 'Bathroom Floor Plan & Tile Estimation'}
+                extra={isPhone ? undefined : (
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     Draw walls, place fixtures (tub, shower, vanity, toilet), then use the Tile tool to estimate tile quantities
                   </Text>
-                }
+                )}
                 styles={{ body: { padding: 0 } }}
               >
-                <div style={{ height: 700 }}>
+                {/* 700px tall; on a phone, the screen under the tab bar */}
+                <div className="be-sketch-frame">
                   <BESketchTab
                     estimateId={id!}
                     estimateData={form.getFieldsValue()}
@@ -1483,7 +1558,7 @@ const BathroomEstimateDetail: React.FC = () => {
             forceRender: true,
             label: 'Shower & Tub',
             children: (
-              <Card>
+              <Card className="be-tab-card">
                 <Collapse defaultActiveKey={['shower', 'bathtub']}>
                   <Panel header="Shower" key="shower">
                     <Row gutter={16}>
@@ -1508,14 +1583,13 @@ const BathroomEstimateDetail: React.FC = () => {
                           const shAction = form.getFieldValue(['shower_spec', 'showerhead_action']) || 'replace';
                           return (
                             <>
-                              <Col xs={12} sm={12} md={6}>
+                              <Col xs={24} sm={12} md={6}>
                                 <Text style={{ display: 'block', marginBottom: 4 }}>Showerhead</Text>
                                 <Radio.Group
                                   value={shAction}
                                   onChange={(e) => form.setFieldsValue({
                                     shower_spec: { ...form.getFieldValue('shower_spec'), showerhead_action: e.target.value }
                                   })}
-                                  size="small"
                                 >
                                   <Radio.Button value="replace">Replace</Radio.Button>
                                   <Radio.Button value="detach_reset">D&R</Radio.Button>
@@ -1740,7 +1814,7 @@ const BathroomEstimateDetail: React.FC = () => {
             forceRender: true,
             label: 'Vanity/Sink & Toilet',
             children: (
-              <Card>
+              <Card className="be-tab-card">
                 <Collapse defaultActiveKey={['vanity', 'toilet']}>
                   <Panel header="Vanity / Sink" key="vanity">
                     <Form.List name={['vanity_spec', 'items']}>
@@ -1858,7 +1932,7 @@ const BathroomEstimateDetail: React.FC = () => {
             forceRender: true,
             label: 'Floor & Walls',
             children: (
-              <Card>
+              <Card className="be-tab-card">
                 <Collapse defaultActiveKey={['floor', 'walls', 'substrate']}>
                   <Panel header="Floor" key="floor">
                     <Row gutter={16}>
@@ -2146,7 +2220,7 @@ const BathroomEstimateDetail: React.FC = () => {
                               <Row gutter={16} style={{ marginBottom: 8 }}>
                                 <Col xs={12} sm={8} md={6}>
                                   <Form.Item label="Type" name={['walls_spec', 'insulation_type']} style={{ marginBottom: 4 }}>
-                                    <Select size="small" allowClear options={[
+                                    <Select allowClear options={[
                                       { label: 'Fiberglass Batt', value: 'fiberglass_batt' },
                                       { label: 'Blown-in', value: 'blown_in' },
                                       { label: 'Spray Foam', value: 'spray_foam' },
@@ -2156,7 +2230,7 @@ const BathroomEstimateDetail: React.FC = () => {
                                 </Col>
                                 <Col xs={8} sm={6} md={4}>
                                   <Form.Item label="R-Value" name={['walls_spec', 'insulation_r_value']} style={{ marginBottom: 4 }}>
-                                    <InputNumber size="small" style={{ width: '100%' }} min={1} max={60} />
+                                    <InputNumber style={{ width: '100%' }} min={1} max={60} />
                                   </Form.Item>
                                 </Col>
                               </Row>
@@ -2170,7 +2244,7 @@ const BathroomEstimateDetail: React.FC = () => {
                               </Col>
                               <Col xs={8} sm={6} md={4}>
                                 <Form.Item label="SF" name={['walls_spec', 'insulation_walls_sf']} style={{ marginBottom: 4 }}>
-                                  <InputNumber size="small" style={{ width: '100%' }} min={0} />
+                                  <InputNumber style={{ width: '100%' }} min={0} />
                                 </Form.Item>
                               </Col>
                               <Col xs={12} sm={8} md={6}>
@@ -2180,12 +2254,12 @@ const BathroomEstimateDetail: React.FC = () => {
                               </Col>
                               <Col xs={8} sm={6} md={4}>
                                 <Form.Item label="SF" name={['walls_spec', 'insulation_ceiling_sf']} style={{ marginBottom: 4 }}>
-                                  <InputNumber size="small" style={{ width: '100%' }} min={0} />
+                                  <InputNumber style={{ width: '100%' }} min={0} />
                                 </Form.Item>
                               </Col>
                               <Col xs={12} sm={8} md={6}>
                                 <Form.Item label="Type" name={['walls_spec', 'insulation_type']} style={{ marginBottom: 4 }}>
-                                  <Select size="small" allowClear options={[
+                                  <Select allowClear options={[
                                     { label: 'Fiberglass Batt', value: 'fiberglass_batt' },
                                     { label: 'Blown-in', value: 'blown_in' },
                                     { label: 'Spray Foam', value: 'spray_foam' },
@@ -2195,7 +2269,7 @@ const BathroomEstimateDetail: React.FC = () => {
                               </Col>
                               <Col xs={8} sm={6} md={4}>
                                 <Form.Item label="R-Value" name={['walls_spec', 'insulation_r_value']} style={{ marginBottom: 4 }}>
-                                  <InputNumber size="small" style={{ width: '100%' }} min={1} max={60} />
+                                  <InputNumber style={{ width: '100%' }} min={1} max={60} />
                                 </Form.Item>
                               </Col>
                             </Row>
@@ -2334,7 +2408,7 @@ const BathroomEstimateDetail: React.FC = () => {
             forceRender: true,
             label: 'Plumbing & Electrical',
             children: (
-              <Card>
+              <Card className="be-tab-card">
                 <Collapse defaultActiveKey={['plumbing', 'electrical']}>
                   <Panel header="Plumbing" key="plumbing">
                     <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
@@ -2527,7 +2601,7 @@ const BathroomEstimateDetail: React.FC = () => {
             forceRender: true,
             label: 'Accessories & Costs',
             children: (
-              <Card>
+              <Card className="be-tab-card">
                 <Collapse defaultActiveKey={['acc', 'hidden', 'overview']}>
                   <Panel header="Accessories" key="acc">
                     <Form.Item noStyle shouldUpdate={(prev: any, cur: any) =>
@@ -2545,7 +2619,6 @@ const BathroomEstimateDetail: React.FC = () => {
                                   onChange={(e) => form.setFieldsValue({
                                     accessories_spec: { ...form.getFieldValue('accessories_spec'), action: e.target.value }
                                   })}
-                                  size="small"
                                 >
                                   <Radio.Button value="replace">Replace (New)</Radio.Button>
                                   <Radio.Button value="detach_reset">D&R</Radio.Button>
@@ -2712,7 +2785,7 @@ const BathroomEstimateDetail: React.FC = () => {
             forceRender: true,
             label: `Result${estimate?.total ? ` ($${estimate.total.toLocaleString()})` : ''}`,
             children: (
-              <Card>
+              <Card className="be-tab-card">
                 {lineItems.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: 40 }}>
                     <Text type="secondary">No calculation yet. Click "Calculate" to generate line items.</Text>
@@ -2778,6 +2851,7 @@ const BathroomEstimateDetail: React.FC = () => {
 
                     {/* Detailed line items grouped by phase */}
                     <Collapse
+                      className="be-phases"
                       defaultActiveKey={phaseSummary.map(p => String(p.phase))}
                       style={{ background: 'transparent' }}
                     >
@@ -2787,7 +2861,7 @@ const BathroomEstimateDetail: React.FC = () => {
                           <Panel
                             header={
                               <Row justify="space-between" align="middle" style={{ width: '100%', paddingRight: 8 }}>
-                                <Col><Text strong>Phase {p.phase}: {p.label}</Text> <Tag>{p.count} items</Tag></Col>
+                                <Col><Text strong>Phase {p.phase}: {p.label}</Text> {!isPhone && <Tag>{p.count} items</Tag>}</Col>
                                 <Col>
                                   <Space>
                                     <Text strong>${p.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
@@ -2807,27 +2881,57 @@ const BathroomEstimateDetail: React.FC = () => {
                             }
                             key={String(p.phase)}
                           >
-                            <Table
-                              columns={lineItemColumns}
-                              dataSource={phaseItems}
-                              rowKey="id"
-                              size="small"
-                              pagination={false}
-                              scroll={{ x: 600 }}
-                              summary={() => (
-                                <Table.Summary.Row>
-                                  <Table.Summary.Cell index={0} colSpan={4}>
-                                    <Text strong>Phase {p.phase} Subtotal</Text>
-                                  </Table.Summary.Cell>
-                                  <Table.Summary.Cell index={4} align="right">
-                                    <Text strong>${p.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
-                                  </Table.Summary.Cell>
-                                  <Table.Summary.Cell index={5} />
-                                </Table.Summary.Row>
-                              )}
-                            />
+                            {isPhone ? (
+                              // One row per item: tap it to edit
+                              <div className="be-li-rows">
+                                {phaseItems.map(li => (
+                                  <div key={li.id} className="ui-row" onClick={() => setEditingItem({ ...li })}>
+                                    <div className="ui-row-body">
+                                      <span className="ui-row-title">{li.description}</span>
+                                      <div className="be-li-figures">
+                                        <span>{li.quantity?.toFixed(1)} {li.unit} × ${li.unit_price?.toFixed(2)}</span>
+                                        <span className="be-li-total">
+                                          ${li.total?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    {/* The confirm renders in a portal, but its clicks still bubble to the row */}
+                                    <span onClick={(e) => e.stopPropagation()}>
+                                      <Popconfirm title="Delete this item?" onConfirm={() => lineItemMutation.mutate({ action: 'delete', itemId: li.id })}
+                                        okButtonProps={{ loading: lineItemMutation.isPending }}>
+                                        <Button type="text" danger icon={<DeleteOutlined />} aria-label="Delete item" />
+                                      </Popconfirm>
+                                    </span>
+                                  </div>
+                                ))}
+                                <div className="be-li-subtotal">
+                                  <span>Phase {p.phase} Subtotal</span>
+                                  <span>${p.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <Table
+                                columns={lineItemColumns}
+                                dataSource={phaseItems}
+                                rowKey="id"
+                                size="small"
+                                pagination={false}
+                                scroll={{ x: 600 }}
+                                summary={() => (
+                                  <Table.Summary.Row>
+                                    <Table.Summary.Cell index={0} colSpan={4}>
+                                      <Text strong>Phase {p.phase} Subtotal</Text>
+                                    </Table.Summary.Cell>
+                                    <Table.Summary.Cell index={4} align="right">
+                                      <Text strong>${p.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
+                                    </Table.Summary.Cell>
+                                    <Table.Summary.Cell index={5} />
+                                  </Table.Summary.Row>
+                                )}
+                              />
+                            )}
                             <Button type="dashed" size="small" icon={<PlusOutlined />}
-                              style={{ marginTop: 8 }}
+                              style={isPhone ? { margin: 12 } : { marginTop: 8 }}
                               onClick={() => setAddingPhase(p.phase)}>
                               Add Item
                             </Button>
@@ -2849,6 +2953,8 @@ const BathroomEstimateDetail: React.FC = () => {
                       }}
                       confirmLoading={lineItemMutation.isPending}
                       destroyOnHidden
+                      className="be-modal"
+                      {...sheetProps}
                     >
                       {editingItem && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 8 }}>
@@ -2857,26 +2963,26 @@ const BathroomEstimateDetail: React.FC = () => {
                             <Input value={editingItem.description}
                               onChange={(e) => setEditingItem({ ...editingItem, description: e.target.value })} />
                           </div>
-                          <Row gutter={12}>
-                            <Col span={6}>
+                          <Row gutter={[12, 12]}>
+                            <Col xs={12} sm={6}>
                               <Text type="secondary" style={{ fontSize: 12 }}>Phase</Text>
                               <InputNumber style={{ width: '100%' }} min={1} max={10}
                                 value={editingItem.phase}
                                 onChange={(v) => setEditingItem({ ...editingItem, phase: v })} />
                             </Col>
-                            <Col span={6}>
+                            <Col xs={12} sm={6}>
                               <Text type="secondary" style={{ fontSize: 12 }}>Qty</Text>
                               <InputNumber style={{ width: '100%' }} min={0} step={0.1}
                                 value={editingItem.quantity}
                                 onChange={(v) => setEditingItem({ ...editingItem, quantity: v })} />
                             </Col>
-                            <Col span={6}>
+                            <Col xs={12} sm={6}>
                               <Text type="secondary" style={{ fontSize: 12 }}>Unit</Text>
                               <Select style={{ width: '100%' }} value={editingItem.unit}
                                 onChange={(v) => setEditingItem({ ...editingItem, unit: v })}
                                 options={['EA', 'SF', 'LF', 'HR', 'LS'].map(u => ({ label: u, value: u }))} />
                             </Col>
-                            <Col span={6}>
+                            <Col xs={12} sm={6}>
                               <Text type="secondary" style={{ fontSize: 12 }}>Rate</Text>
                               <InputNumber style={{ width: '100%' }} min={0} step={1} prefix="$"
                                 value={editingItem.unit_price}
@@ -2927,6 +3033,8 @@ const BathroomEstimateDetail: React.FC = () => {
                       }}
                       confirmLoading={lineItemMutation.isPending}
                       destroyOnHidden
+                      className="be-modal"
+                      {...sheetProps}
                     >
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 8 }}>
                         <div>
@@ -2964,7 +3072,7 @@ const BathroomEstimateDetail: React.FC = () => {
             key: 'history',
             label: 'History',
             children: (
-              <Card>
+              <Card className="be-tab-card">
                 {(history || []).length === 0 ? (
                   <Text type="secondary">No history yet.</Text>
                 ) : (
@@ -2990,6 +3098,18 @@ const BathroomEstimateDetail: React.FC = () => {
           },
         ]} />
       </Form>
+
+      {isPhone && (
+        <div className="be-action-bar">
+          <Button icon={<SaveOutlined />} onClick={handleSave} loading={saveMutation.isPending}>
+            Save
+          </Button>
+          <Button type="primary" icon={<CalculatorOutlined />} onClick={handleCalculate}
+            loading={calculateMutation.isPending}>
+            Calculate
+          </Button>
+        </div>
+      )}
 
       {estimate && registerBidItemOpen && (
         <React.Suspense fallback={null}>
