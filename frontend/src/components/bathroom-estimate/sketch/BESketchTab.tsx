@@ -22,7 +22,7 @@ import {
   PlusOutlined,
 } from '@ant-design/icons';
 import type { BESketchData, BESketchTool } from '../../../types/bathroomSketch';
-import { BATHTUB_SURROUND_DEFAULTS } from '../../../types/bathroomSketch';
+import { BATHTUB_SURROUND_DEFAULTS, MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN } from '../../../types/bathroomSketch';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { roomWallFinishTotals } from './utils/wallFinish';
 import { useBESketchState } from './hooks/useBESketchState';
@@ -167,6 +167,8 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
   const { fixtures, rooms, walls } = data;
   const ppf = data.settings.pixelsPerFoot;
   const sync: SketchFixtureSync = {};
+  // By tub or shower: the SF of its surround the walls' tile runs over, priced as wall tile
+  let surroundInTile: Record<string, number> = {};
 
   // ── Room dimensions (all rooms combined) ──
   const bathroom = rooms.find(r => r.roomType === 'bathroom') || rooms[0];
@@ -265,11 +267,13 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     if (roomWalls.length > 0) {
       // Walls exist: each wall's tile regions (part of a wall can be tile and
       // the rest drywall), less its doors and windows and the part behind
-      // a tub or shower surround, which is tiled with the fixture.
+      // a tub or shower surround, which is tiled with the fixture — unless
+      // the wall's tile runs over the whole surround, which is then wall tile.
       const totals = roomWallFinishTotals(roomWalls, fixtures, ppf);
       tileWallSF = totals.tileSF;
       paintWallSF = totals.paintSF;
       existingTileWallSF = totals.existingTileSF;
+      surroundInTile = totals.surroundInTile;
     } else {
       // No explicit walls: all paint by default
       paintWallSF = Math.round(availableWallSF * 10) / 10;
@@ -410,6 +414,7 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       tub_depth_in: Math.min(tubW, tubD),
       surround_height_in: surrHeight,
       surround_wall_count: surrWallCount,
+      tiled_with_wall_sf: surroundInTile[bathtub.id] ?? 0,
       deck_tile: deckW > 0 && deckSides > 0,
       deck_tile_sf: deckSF,
       deck_width_in: deckW,
@@ -426,7 +431,7 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       type: (p.showerWallCount ?? 3) > 0 ? 'custom_tile' : 'one_piece',
       width_in: shower.dimensions.width,
       depth_in: shower.dimensions.height,
-      tile_height_in: p.showerTileHeight ?? 84,
+      tile_height_in: p.showerTileHeight ?? 96,
       niches: p.nicheCount ?? 0,
       bench: !!p.hasBench,
       bench_position: p.benchPosition ?? 'left',
@@ -434,9 +439,11 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       curb_height: p.curbHeight ?? 4,
       door_type: p.showerDoorType ?? 'none',
       door_width_in: p.showerDoorWidth ?? Math.round(shower.dimensions.width * 0.5),
+      door_height_in: p.showerDoorHeight ?? SHOWER_DOOR_HEIGHT_IN,
       fixed_panel_config: p.fixedPanelConfig ?? 'none',
       layout: p.showerLayout ?? 'alcove',
       wall_material: p.showerWallMaterial ?? 'tile',
+      tiled_with_wall_sf: surroundInTile[shower.id] ?? 0,
     };
   }
 
@@ -450,6 +457,7 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
           width: v.dimensions.width,
           sinks: v.properties.sinkCount ?? 1,
           mirror_width: mirrorForVanity ? mirrorForVanity.dimensions.width : undefined,
+          mirror_height: mirrorForVanity ? (mirrorForVanity.properties.mirrorHeight ?? MIRROR_HEIGHT_IN) : undefined,
           has_mirror: !!mirrorForVanity,
         };
       }),
@@ -459,6 +467,7 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
     sync.vanity_spec = {
       items: mirrors.map(m => ({
         mirror_width: m.dimensions.width,
+        mirror_height: m.properties.mirrorHeight ?? MIRROR_HEIGHT_IN,
         has_mirror: true,
       })),
     };

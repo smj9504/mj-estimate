@@ -1,6 +1,7 @@
 /**
  * An option's picked products at their real size on the plan: the vanity,
- * tub, toilet and mirror drawn at the product's width and depth, keeping
+ * tub, toilet and mirror drawn at the product's width and depth (a mirror's
+ * height going up the wall, for the 3D view), keeping
  * to the walls they stood against, and a vanity with as many sinks as the
  * product has. A fixture remembers which pick it was sized to
  * (properties.productTakenAt), so it's sized once per pick and can still be
@@ -93,9 +94,16 @@ export function fitFixturesToProducts(
       ? resized(fix, size, sketch)
       : fix;
     const sinks = fix.type === 'vanity' ? vanitySinks(p) : null;
+    // A mirror's height is up the wall, not on the plan
+    const mirrorHeight = fix.type === 'mirror' && sane(p.height_in) ? p.height_in : null;
     return {
       ...sized,
-      properties: { ...sized.properties, ...(sinks ? { sinkCount: sinks } : {}), productTakenAt: p.taken_at },
+      properties: {
+        ...sized.properties,
+        ...(sinks ? { sinkCount: sinks } : {}),
+        ...(mirrorHeight ? { mirrorHeight } : {}),
+        productTakenAt: p.taken_at,
+      },
     };
   });
   return changed ? { ...sketch, fixtures } : sketch;

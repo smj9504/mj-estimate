@@ -89,6 +89,13 @@ describe('fitFixturesToProducts', () => {
     expect(unsaid.fixtures[0].properties.sinkCount).toBe(2);
   });
 
+  it('hangs a picked mirror at its width along the wall and its height up it', () => {
+    const mirror = fixture('m', 'mirror', 160, px(2), 30, 4);
+    const out = fitFixturesToProducts(sketch([mirror]), { mirror: pick({ category: 'mirror', width_in: 24, depth_in: 1, height_in: 36 }) });
+    expect(out.fixtures[0].dimensions).toEqual({ width: 24, height: 4 });
+    expect(out.fixtures[0].properties.mirrorHeight).toBe(36);
+  });
+
   it('leaves the drawing alone when a listing has no usable size', () => {
     const toilet = fixture('t', 'toilet', 100, 100, 20, 28);
     const out = fitFixturesToProducts(sketch([toilet]), { toilet: pick({ category: 'toilet', width_in: 2 }) });

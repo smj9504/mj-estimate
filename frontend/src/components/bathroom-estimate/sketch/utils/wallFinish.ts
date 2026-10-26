@@ -6,7 +6,9 @@
  * A wall's face is measured in inches: along the wall from its start point,
  * and up from the floor. Tile is a list of rectangles on that face. Door and
  * window openings, and the wall behind a tub or shower (its own surround,
- * priced with the fixture), are neither tile nor paint here.
+ * priced with the fixture), are neither tile nor paint here — unless the
+ * tile to install runs over the whole of a surround (a wall tiled floor to
+ * ceiling): then the wall is one tile, and that surround is its tile.
  */
 
 import type { BEFixture, BEPoint, BERoom, BEWall, BEWallTileRegion } from '../../../../types/bathroomSketch';
@@ -30,6 +32,10 @@ export interface WallFinishAreas {
   openingSF: number;
   /** Behind a tub or shower surround. */
   coveredSF: number;
+  /** Of that, the surround the tile to install runs over, counted in tileSF. */
+  surroundInTileSF: number;
+  /** The same, by the fixture whose surround it is. */
+  surroundInTile: Record<string, number>;
   /** Existing tile to take off. */
   existingTileSF: number;
   /** Tile to install. */
@@ -47,6 +53,8 @@ export const WINDOW_HEIGHT_IN = 48;
 const TUB_RIM_IN = 15;
 /** How close (px) a fixture corner must be to a wall to stand against it. */
 const AGAINST_WALL_PX = 18;
+/** How far (inches) tile may stop short of a surround's edge and still run over it: regions are kept to a tenth. */
+const RUNS_OVER_SLACK_IN = 0.5;
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -193,6 +201,8 @@ export const wallOpenings = (wall: BEWall, fixtures: BEFixture[], pixelsPerFoot:
 export interface WallCover {
   rect: FaceRect;
   fixture: BEFixture;
+  /** The part tiled with the fixture: a tub's surround above its rim, a tiled shower's wall. None for a prefab one. */
+  tiled: FaceRect | null;
 }
 
 /**
@@ -201,15 +211,21 @@ export interface WallCover {
  * of the fixture against the wall make the span.
  */
 export function wallFixtureCovers(wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): WallCover[] {
+  const lengthIn = wallLengthIn(wall, pixelsPerFoot);
   const covers: WallCover[] = [];
   for (const fix of fixtures) {
     let top: number;
+    // How far up the wall the fixture's own tile starts; null when it has none
+    let tiledFrom: number | null;
     if (fix.type === 'shower') {
       top = fix.properties.showerTileHeight ?? 96;
+      tiledFrom = (fix.properties.showerWallMaterial ?? 'tile') === 'tile' ? 0 : null;
     } else if (fix.type === 'bathtub') {
       if (fix.properties.bathtubSubType === 'freestanding') continue;
       const rim = fix.properties.deckHeight || TUB_RIM_IN;
-      top = rim + (fix.properties.hasSurround === false ? 0 : (fix.properties.surroundHeight ?? 60));
+      const surround = fix.properties.hasSurround === false ? 0 : (fix.properties.surroundHeight ?? 60);
+      top = rim + surround;
+      tiledFrom = surround > 0 ? rim : null;
     } else {
       continue;
     }
@@ -218,13 +234,47 @@ export function wallFixtureCovers(wall: BEWall, fixtures: BEFixture[], pixelsPer
       .filter((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX);
     if (near.length < 2) continue;
     const xs = near.map((a) => a.alongIn);
-    covers.push({ rect: { x0: Math.min(...xs), x1: Math.max(...xs), y0: 0, y1: Math.min(top, wall.heightInches) }, fixture: fix });
+    const rect = {
+      x0: Math.max(0, Math.min(...xs)), x1: Math.min(lengthIn, Math.max(...xs)), y0: 0, y1: Math.min(top, wall.heightInches),
+    };
+    if (rect.x1 - rect.x0 <= 0.01) continue;
+    const tiled = tiledFrom !== null && tiledFrom < rect.y1 ? { ...rect, y0: tiledFrom } : null;
+    covers.push({ rect, fixture: fix, tiled });
   }
   return covers;
 }
 
 export const wallFixtureCover = (wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): FaceRect[] =>
   wallFixtureCovers(wall, fixtures, pixelsPerFoot).map((c) => c.rect);
+
+export interface WallSurrounds {
+  /** What stays the fixtures' after the work: each surround the tile doesn't run over, and the wall behind a tub's body. */
+  kept: WallCover[];
+  /** Surrounds the wall's tile runs over, now that tile. */
+  inTile: WallCover[];
+}
+
+/**
+ * The wall's surrounds after the work, given its tile to install. Tile over
+ * the whole of a surround's tiled part makes the wall one tile there: that
+ * part is the wall's tile, not a patch of the fixture's own, and only the
+ * wall behind a tub below its rim is left to the fixture.
+ */
+export function surroundsAfterWork(covers: WallCover[], tile: FaceRect[]): WallSurrounds {
+  const s = RUNS_OVER_SLACK_IN;
+  const reach = tile.map((r) => ({ x0: r.x0 - s, x1: r.x1 + s, y0: r.y0 - s, y1: r.y1 + s }));
+  const kept: WallCover[] = [];
+  const inTile: WallCover[] = [];
+  for (const c of covers) {
+    if (!c.tiled || !reach.length || coveredArea([c.tiled], reach) > 0) {
+      kept.push(c);
+      continue;
+    }
+    inTile.push({ ...c, rect: c.tiled });
+    if (c.tiled.y0 > c.rect.y0) kept.push({ ...c, rect: { ...c.rect, y1: c.tiled.y0 }, tiled: null });
+  }
+  return { kept, inTile };
+}
 
 /**
  * `include` less `exclude`, as rectangles that don't overlap: the face is cut
@@ -274,11 +324,20 @@ export function wallFinishAreas(wall: BEWall, fixtures: BEFixture[], pixelsPerFo
     x0: Math.max(0, r.x0), x1: Math.min(lengthIn, r.x1), y0: Math.max(0, r.y0), y1: Math.min(heightIn, r.y1),
   });
   const openings = wallOpenings(wall, fixtures, pixelsPerFoot).map(clip);
-  const covered = wallFixtureCover(wall, fixtures, pixelsPerFoot).map(clip);
+  const covers = wallFixtureCovers(wall, fixtures, pixelsPerFoot);
+  const covered = covers.map((c) => clip(c.rect));
   const newTile = wallTileRegions(wall, 'new', pixelsPerFoot).map(regionRect);
   const existingTile = wallTileRegions(wall, 'existing', pixelsPerFoot).map(regionRect);
-  const holes = openings.concat(covered);
+  // Today every surround is the fixture's: its tile comes off with it
+  const holesToday = openings.concat(covered);
+  const after = surroundsAfterWork(covers, newTile);
+  const holesAfter = openings.concat(after.kept.map((c) => clip(c.rect)));
   const sf = (sqIn: number) => round1(sqIn / 144);
+
+  const surroundInTile: Record<string, number> = {};
+  for (const c of after.inTile) {
+    surroundInTile[c.fixture.id] = round1((surroundInTile[c.fixture.id] ?? 0) + sf(coveredArea([clip(c.rect)], openings)));
+  }
 
   return {
     lengthIn,
@@ -286,9 +345,11 @@ export function wallFinishAreas(wall: BEWall, fixtures: BEFixture[], pixelsPerFo
     grossSF: sf(lengthIn * heightIn),
     openingSF: sf(coveredArea(openings)),
     coveredSF: sf(coveredArea(covered, openings)),
-    existingTileSF: sf(coveredArea(existingTile, holes)),
-    tileSF: sf(coveredArea(newTile, holes)),
-    paintSF: sf(coveredArea([face], holes.concat(newTile))),
+    surroundInTileSF: sf(coveredArea(after.inTile.map((c) => clip(c.rect)), openings)),
+    surroundInTile,
+    existingTileSF: sf(coveredArea(existingTile, holesToday)),
+    tileSF: sf(coveredArea(newTile, holesAfter)),
+    paintSF: sf(coveredArea([face], holesAfter.concat(newTile))),
   };
 }
 
@@ -297,13 +358,17 @@ export function roomWallFinishTotals(walls: BEWall[], fixtures: BEFixture[], pix
   return walls.reduce(
     (sum, wall) => {
       const a = wallFinishAreas(wall, fixtures, pixelsPerFoot);
+      const surroundInTile = { ...sum.surroundInTile };
+      for (const [id, v] of Object.entries(a.surroundInTile)) surroundInTile[id] = round1((surroundInTile[id] ?? 0) + v);
       return {
         tileSF: round1(sum.tileSF + a.tileSF),
         paintSF: round1(sum.paintSF + a.paintSF),
         existingTileSF: round1(sum.existingTileSF + a.existingTileSF),
+        // By fixture: the SF of its surround the walls' tile runs over
+        surroundInTile,
       };
     },
-    { tileSF: 0, paintSF: 0, existingTileSF: 0 },
+    { tileSF: 0, paintSF: 0, existingTileSF: 0, surroundInTile: {} as Record<string, number> },
   );
 }
 

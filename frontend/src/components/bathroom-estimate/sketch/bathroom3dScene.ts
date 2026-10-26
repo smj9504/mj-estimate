@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import type { BathroomLooks, BathroomModel, FixtureSolid, Pt, TileLook, WallOpeningSolid, WallSolid } from './bathroom3dModel';
 import type { TileTextureCache } from './bathroom3dTextures';
+import { MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN } from '../../../types/bathroomSketch';
 import { getShowerUnitPolygon } from './utils/beGeometry';
 import { subtractRects, type FaceRect } from './utils/wallFinish';
 
@@ -26,8 +27,10 @@ const COLORS = {
   mirror: '#dfe7ea',
 };
 
-/** Glass and door heights, inches. */
+/** Where a tub's shower curtain hangs from, inches. */
 const GLASS_TOP_IN = 76;
+/** A mirror's bottom edge, inches: clear of a vanity and its backsplash. */
+const MIRROR_BOTTOM_IN = 42;
 const BASEBOARD_IN = 3.5;
 /** Doors stand open square to their wall, as the plan's swing arc ends, clear of the doorway. */
 const OPEN_DOOR_RAD = (88 * Math.PI) / 180;
@@ -544,7 +547,7 @@ function buildShower(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
   };
   const wallSides = layout === 'alcove' ? ['north', 'west', 'east']
     : layout === 'corner' || layout === 'neo_angle' ? ['north', 'west'] : ['north', 'east'];
-  const height = Math.min(f.ceilingIn, p.showerTileHeight ?? 84);
+  const height = Math.min(f.ceilingIn, p.showerTileHeight ?? 96);
   for (const s of wallSides) {
     if (f.against?.[s as 'north' | 'west' | 'east']) continue;
     const [a, b] = sides[s];
@@ -552,9 +555,9 @@ function buildShower(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
     g.add(panelAlong(a, b, 0, height, 3.5, mat(kit.looks.showerTile.color, { roughness: kit.looks.showerTile.roughness }), outward));
   }
 
-  // Glass: the open sides, with the door in the front
-  const glassTop = GLASS_TOP_IN;
+  // Glass: the open sides, with the door in the front, as tall as it's set apart from the tile
   const glassBottom = Math.max(curb, baseTop);
+  const glassTop = Math.min(f.ceilingIn, glassBottom + (p.showerDoorHeight ?? SHOWER_DOOR_HEIGHT_IN));
   const doorType = p.showerDoorType ?? 'none';
   let front: [Pt, Pt];
   const fixed: [Pt, Pt][] = [];
@@ -617,7 +620,9 @@ function buildShower(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
 }
 
 function buildMirror(f: FixtureSolid, g: THREE.Group) {
-  g.add(boxAt(f.widthIn, 30, 0.75, mat(COLORS.mirror, { metalness: 1, roughness: 0.04 }), 0, 57, 0));
+  const h = Math.min(f.fixture.properties.mirrorHeight ?? MIRROR_HEIGHT_IN, f.ceilingIn - 2);
+  const bottom = Math.max(0, Math.min(MIRROR_BOTTOM_IN, f.ceilingIn - 2 - h));
+  g.add(boxAt(f.widthIn, h, 0.75, mat(COLORS.mirror, { metalness: 1, roughness: 0.04 }), 0, bottom + h / 2, 0));
 }
 
 function buildLight(f: FixtureSolid, g: THREE.Group) {

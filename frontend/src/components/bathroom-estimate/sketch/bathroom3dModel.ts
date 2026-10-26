@@ -19,6 +19,7 @@ import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import {
   regionRect,
   subtractRects,
+  surroundsAfterWork,
   wallFixtureCovers,
   wallLengthIn,
   wallOpeningsOf,
@@ -88,7 +89,7 @@ export interface WallSolid {
   inward: Pt | null;
   /** The wall itself, as rectangles on its face (along from a, up from the floor), openings left out. */
   pieces: FaceRect[];
-  /** Tile on its room side, less openings and surrounds. */
+  /** Tile on its room side, less openings and surrounds — save those the tile runs over whole. */
   tile: FaceRect[];
   /** The part behind a tub or shower: tiled with the fixture, or its prefab surround. */
   surrounds: { rect: FaceRect; finish: 'tile' | 'prefab'; fixtureId: string }[];
@@ -380,11 +381,20 @@ function wallSolid(
   });
   const holes = openings.map((o) => o.rect);
 
-  const covers = wallFixtureCovers(wall, sketch.fixtures, ppf);
-  const surrounds = covers.flatMap(({ rect, fixture }) =>
+  // A prefab surround stays itself, whatever tile is around it
+  const covers = wallFixtureCovers(wall, sketch.fixtures, ppf)
+    .map((c) => (surroundFinish(c.fixture, estimate) === 'prefab' ? { ...c, tiled: null } : c));
+  const regions = wallTileRegions(wall, view === 'today' ? 'existing' : 'new', ppf).map(regionRect);
+  // After the work, tile over a whole surround makes the wall one tile there,
+  // down behind the tub too (out of sight, and not counted as tile)
+  let kept = covers;
+  if (view === 'after') {
+    const after = surroundsAfterWork(covers, regions);
+    kept = after.kept.filter((c) => !after.inTile.some((t) => t.fixture.id === c.fixture.id));
+  }
+  const surrounds = kept.flatMap(({ rect, fixture }) =>
     subtractRects([clip(rect)], holes).map((piece) => ({ rect: piece, finish: surroundFinish(fixture, estimate), fixtureId: fixture.id })));
 
-  const regions = wallTileRegions(wall, view === 'today' ? 'existing' : 'new', ppf).map(regionRect);
   return {
     id: wall.id,
     a,
@@ -394,7 +404,7 @@ function wallSolid(
     thicknessIn: Math.max(WALL_THICKNESS_IN, (wall.thickness / ppf) * 12),
     inward,
     pieces: subtractRects([{ x0: 0, x1: lengthIn, y0: 0, y1: heightIn }], holes),
-    tile: subtractRects(regions, holes.concat(covers.map((c) => clip(c.rect)))),
+    tile: subtractRects(regions, holes.concat(kept.map((c) => clip(c.rect)))),
     surrounds,
     openings,
   };

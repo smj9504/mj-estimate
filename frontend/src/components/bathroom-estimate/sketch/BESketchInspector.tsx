@@ -25,7 +25,12 @@ import type {
   ShowerWallMaterial,
   VanitySubType,
 } from '../../../types/bathroomSketch';
-import { BATHTUB_SURROUND_DEFAULTS, VANITY_SUBTYPE_DEFAULTS } from '../../../types/bathroomSketch';
+import {
+  BATHTUB_SURROUND_DEFAULTS,
+  MIRROR_HEIGHT_IN,
+  SHOWER_DOOR_HEIGHT_IN,
+  VANITY_SUBTYPE_DEFAULTS,
+} from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { resizeRoomEdge } from './utils/beGeometry';
@@ -396,6 +401,9 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
     const layout = p.showerLayout ?? 'alcove';
     const isCornerOrNeo = layout === 'neo_angle' || layout === 'neo_angle_right' || layout === 'corner' || layout === 'corner_right';
     const curb = p.curbHeight ?? 4;
+    const hasGlass = isCornerOrNeo
+      || (!!p.showerDoorType && p.showerDoorType !== 'none' && p.showerDoorType !== 'curtain')
+      || (p.fixedPanelConfig ?? 'none') !== 'none';
     return (
       <>
         <Field label="Enclosure">
@@ -532,6 +540,18 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
               ]}
             />
           </Field>
+          {hasGlass && (
+            <Field label="Height" hint="The glass, on the curb. The wall tile has its own height.">
+              <Num
+                label="Glass height, inches"
+                value={p.showerDoorHeight ?? SHOWER_DOOR_HEIGHT_IN}
+                min={48}
+                max={120}
+                unit="in"
+                onChange={(v) => v && setProps({ showerDoorHeight: v })}
+              />
+            </Field>
+          )}
         </Group>
       </>
     );
@@ -611,6 +631,35 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
           </Field>
         )}
         {size}
+      </>
+    );
+  }
+
+  if (fixture.type === 'mirror') {
+    // Its width runs along the wall; its height is up the wall, which the plan can't show
+    return (
+      <>
+        <Field label="Size">
+          <Num
+            pair
+            label="Width, inches"
+            value={fixture.dimensions.width}
+            min={6}
+            max={120}
+            onChange={(v) => v && updateFixture(fixture.id, { dimensions: { ...fixture.dimensions, width: v } })}
+          />
+          <span className="bes-times" aria-hidden="true">×</span>
+          <Num
+            pair
+            label="Height, inches"
+            value={p.mirrorHeight ?? MIRROR_HEIGHT_IN}
+            min={6}
+            max={96}
+            unit="in"
+            onChange={(v) => v && setProps({ mirrorHeight: v })}
+          />
+        </Field>
+        {rotation}
       </>
     );
   }

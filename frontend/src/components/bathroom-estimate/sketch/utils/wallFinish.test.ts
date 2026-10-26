@@ -91,7 +91,35 @@ describe('wallFinishAreas', () => {
 
   it('adds up a room', () => {
     const tiled = north({ tileRegions: [{ id: 't', startIn: 0, endIn: 96, bottomIn: 0, topIn: 48 }] });
-    expect(roomWallFinishTotals([tiled, southWall], [], PPF)).toEqual({ tileSF: 32, paintSF: 96, existingTileSF: 0 });
+    expect(roomWallFinishTotals([tiled, southWall], [], PPF))
+      .toEqual({ tileSF: 32, paintSF: 96, existingTileSF: 0, surroundInTile: {} });
+  });
+
+  // A 60" × 32" tub in the north-west corner and a 36" shower in the north-east one
+  const tub = fixture('bathtub', 100, 160 / 3, 60, 32, { properties: { hasSurround: true, surroundHeight: 60 } });
+  const shower = fixture('shower', 260, 60, 36, 36);
+  const wholeWall = (endIn = 96) => north({ tileRegions: [{ id: 'w', startIn: 0, endIn, bottomIn: 0, topIn: 96 }] });
+
+  it('makes a wall tiled floor to ceiling one tile, the tub surround and shower walls with it', () => {
+    const areas = wallFinishAreas(wholeWall(), [tub, shower], PPF);
+    // All of it but the wall behind the tub itself, below its 15" rim
+    expect(areas.tileSF).toBe(57.8);
+    expect(areas.surroundInTile).toEqual({ bathtub: 25, shower: 24 }); // 60" × 60", 36" × 96"
+    expect(areas.surroundInTileSF).toBe(49);
+    expect(areas.paintSF).toBe(0);
+    // Today's tile behind them still comes off with the tub and shower
+    expect(areas.coveredSF).toBe(55.3);
+
+    // Tile a tenth short of the end still runs over the shower
+    expect(wallFinishAreas(wholeWall(95.8), [shower], PPF).surroundInTile).toEqual({ shower: 24 });
+    expect(roomWallFinishTotals([wholeWall(), westWall], [tub, shower], PPF).surroundInTile).toEqual({ bathtub: 25, shower: 24 });
+  });
+
+  it('leaves a surround to its fixture when the tile stops short of it, or it is prefab', () => {
+    const wainscot = north({ tileRegions: [{ id: 'w', startIn: 0, endIn: 96, bottomIn: 0, topIn: 48 }] });
+    expect(wallFinishAreas(wainscot, [tub], PPF)).toMatchObject({ tileSF: 12, surroundInTileSF: 0, surroundInTile: {} });
+    const prefab = { ...shower, properties: { showerWallMaterial: 'prefab_acrylic' as const } };
+    expect(wallFinishAreas(wholeWall(), [prefab], PPF)).toMatchObject({ tileSF: 40, surroundInTile: {} });
   });
 });
 

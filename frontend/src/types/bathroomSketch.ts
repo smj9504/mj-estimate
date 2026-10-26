@@ -231,6 +231,8 @@ export interface BEFixtureProperties {
   showerDoorType?: ShowerDoorType;
   /** Shower door opening width in inches (auto-calculated if not set) */
   showerDoorWidth?: number;
+  /** Height of the glass door and panels in inches, standing on the curb; apart from the tile height (default 72) */
+  showerDoorHeight?: number;
   /** Fixed glass panel position: none, left of door, right, or both sides */
   fixedPanelConfig?: 'none' | 'left' | 'right' | 'both';
   /**
@@ -258,6 +260,10 @@ export interface BEFixtureProperties {
   /** Has backsplash tile */
   hasBacksplash?: boolean;
   backsplashHeight?: number;
+
+  // --- Mirror ---
+  /** Height on the wall in inches; its plan size is width × the thickness it stands out (default 30) */
+  mirrorHeight?: number;
 
   // --- Light ---
   /** Ceiling light type: standard, recessed, recessed_multi */
@@ -564,6 +570,10 @@ export const BE_FIXTURE_DEFAULTS: Record<BEFixtureType, BEDimensions> = {
   mirror: { width: 30, height: 4 },     // plan-view wall-mounted (thin strip)
   light: { width: 8, height: 8 },       // plan-view ceiling/wall light (small square)
 };
+
+/** Heights the plan can't show (inches): a shower's glass door and panels, and a mirror on the wall. */
+export const SHOWER_DOOR_HEIGHT_IN = 72;
+export const MIRROR_HEIGHT_IN = 30;
 
 // Vanity/sink defaults by subtype
 export const VANITY_SUBTYPE_DEFAULTS: Record<VanitySubType, {

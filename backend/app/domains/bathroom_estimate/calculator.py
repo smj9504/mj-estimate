@@ -945,6 +945,11 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                 else:
                     shower_wall_sf = (
                         (sw + 2 * sd) * sh / 144)
+        # Where the room's wall tile runs over the whole of a shower wall
+        # (a wall tiled floor to ceiling), that wall is one tile: priced
+        # with the wall tile below, not here
+        s_with_wall = min(shower_wall_sf, shower_spec.get("tiled_with_wall_sf", 0) or 0)
+        shower_wall_sf -= s_with_wall
         if shower_wall_sf > 0:
             stile_mat = picks.tile_material("shower_wall_tile", tile_spec.get("material", "porcelain"))
             spattern = tile_spec.get("pattern", "straight")
@@ -970,6 +975,8 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
             ]
             if st_sealer_cost:
                 st_parts.append(f"Sealer: ${st_sealer_cost:,.2f}")
+            if s_with_wall:
+                st_parts.append(f"Less {s_with_wall:.1f}SF tiled with the wall tile")
 
             _add(line_items, 4,
                  f"Shower wall tile complete - {st_name} ({stile_size}, {spattern})",
@@ -1099,6 +1106,10 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                 surround_sf = (tl + td) * sh / 144
             else:
                 surround_sf = tl * sh / 144
+        # The part the room's wall tile runs over is that wall tile
+        t_with_wall = min(surround_sf, tub_spec.get("tiled_with_wall_sf", 0) or 0)
+        surround_whole_sf = surround_sf
+        surround_sf -= t_with_wall
         if surround_sf > 0:
             sur_mat = picks.tile_material("shower_wall_tile", tub_spec.get("surround_tile_material", "porcelain"))
             sur_pattern = tub_spec.get("surround_tile_pattern", "straight")
@@ -1120,7 +1131,9 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
             bt_total = bt_mat_cost + bt_labor_cost + bt_sealer_cost
 
             # Build wall dimension note
-            wall_dim_note = f"{wall_count} walls: {tl:.0f}\"L × {td:.0f}\"D × {sh:.0f}\"H = {surround_sf:.1f}SF"
+            wall_dim_note = f"{wall_count} walls: {tl:.0f}\"L × {td:.0f}\"D × {sh:.0f}\"H = {surround_whole_sf:.1f}SF"
+            if t_with_wall:
+                wall_dim_note += f", less {t_with_wall:.1f}SF tiled with the wall tile = {surround_sf:.1f}SF"
 
             bt_parts = [
                 wall_dim_note,
@@ -1606,7 +1619,9 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
             if panel_cfg in ("right", "both"):
                 panel_width_in += panel_s_w * 0.25
                 panel_count += 1
-        panel_sf = round(panel_width_in * 72 / 144, 1) if panel_count > 0 and panel_width_in > 0 else 0
+        # The glass is as tall as the sketch sets it, apart from the wall tile
+        panel_h_in = shower_spec.get("door_height_in", 0) or 72
+        panel_sf = round(panel_width_in * panel_h_in / 144, 1) if panel_count > 0 and panel_width_in > 0 else 0
         panel_cost = round(25.00 * panel_sf * labor_mult, 2) if panel_sf > 0 else 0
         panel_merged = False
 
@@ -2300,13 +2315,19 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
     # Wall tile (when wall_finish is 'tile' or 'paint_and_tile')
     if do_tile_walls and wall_sf > 0:
         tile_wall_sf = walls.get("tile_wall_sf", 0) or 0
-        if wall_finish == "tile":
-            # Full tile: use paint_wall_sf (available after deductions) or wall_sf
-            tile_wall_sf = tile_wall_sf or paint_wall_sf if 'paint_wall_sf' in dir() else wall_sf
+        if wall_finish == "tile" and not tile_wall_sf:
+            # Full tile, no area given: use paint_wall_sf (available after deductions) or wall_sf
+            tile_wall_sf = paint_wall_sf if 'paint_wall_sf' in dir() else wall_sf
         if tile_wall_sf > 0:
             tile_mat = walls.get("tile_material", "porcelain")
             tile_pat = walls.get("tile_pattern", "straight")
             tile_sz = walls.get("tile_size", "12x12")
+            # Walls tiled over the tub surround or shower walls take those in
+            _with_wall_sf = (
+                ((estimate.shower_spec or {}).get("tiled_with_wall_sf", 0) or 0)
+                + ((estimate.bathtub_spec or {}).get("tiled_with_wall_sf", 0) or 0))
+            wt_area = (f"Bathroom wall tile, incl. {_with_wall_sf:.0f}SF over the tub/shower walls"
+                       if _with_wall_sf else "Bathroom wall tile (non-shower/tub areas)")
             # Material + labor per SF
             _pick = picks.per_sf("wall_tile")
             lab_rate = TILE_LABOR_RATES["wall_per_sf"]
@@ -2314,7 +2335,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                 mat_rate = apply_material_handling(TILE_MATERIAL_RATES.get(
                     tile_mat, TILE_MATERIAL_RATES["porcelain"]))
                 tile_cost = round((mat_rate + lab_rate) * labor_mult, 2)
-                wt_name, wt_note = tile_mat, "Bathroom wall tile (non-shower/tub areas)"
+                wt_name, wt_note = tile_mat, wt_area
             else:
                 # Retail tile, bought with its waste; only the labor is regional
                 tile_sz = picks.tile_size("wall_tile") or tile_sz
@@ -2322,7 +2343,7 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
                 mat_rate = apply_material_handling(_pick)
                 tile_cost = round(mat_rate * (1 + wt_waste) + lab_rate * labor_mult, 2)
                 wt_name = picks.name("wall_tile")
-                wt_note = (f"Bathroom wall tile (non-shower/tub areas) | Material: {wt_name} "
+                wt_note = (f"{wt_area} | Material: {wt_name} "
                            f"${mat_rate:.2f}/SF (incl {int(wt_waste*100)}% waste)")
             _add(line_items, 4,
                  f"Wall tile - {wt_name} ({tile_sz}, {tile_pat})",

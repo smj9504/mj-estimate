@@ -3,7 +3,8 @@
  * the work (to install) — on a drawing of the wall as you'd see it standing
  * in the room. Anything not tiled is drywall; on the "to install" side, it's
  * painted. Tile areas are rectangles: across the wall from its left end, and
- * up from the floor.
+ * up from the floor. Tile to install over the whole of a tub or shower
+ * surround makes it part of the wall's tile.
  */
 
 import React, { useState } from 'react';
@@ -13,9 +14,11 @@ import type { BEFixture, BERoom, BEWall, BEWallTileRegion } from '../../../types
 import {
   fullWallRegion,
   newRegionId,
+  regionRect,
+  surroundsAfterWork,
   wainscotRegion,
   wallFinishAreas,
-  wallFixtureCover,
+  wallFixtureCovers,
   wallLengthIn,
   wallOpenings,
   wallStartOnLeft,
@@ -50,8 +53,13 @@ const BEWallFinishEditor: React.FC<BEWallFinishEditorProps> = ({ wall, ppf, fixt
   const regions = wallTileRegions(wall, layer, ppf);
   const otherRegions = wallTileRegions(wall, layer === 'new' ? 'existing' : 'new', ppf);
   const openings = wallOpenings(wall, fixtures, ppf);
-  const covered = wallFixtureCover(wall, fixtures, ppf);
+  const covers = wallFixtureCovers(wall, fixtures, ppf);
+  // To install, tile over a whole surround takes it in
+  const surrounds = layer === 'new'
+    ? surroundsAfterWork(covers, regions.map(regionRect))
+    : { kept: covers, inTile: [] };
   const areas = wallFinishAreas(wall, fixtures, ppf);
+  const surroundSF = layer === 'new' ? round1(areas.coveredSF - areas.surroundInTileSF) : areas.coveredSF;
 
   // Across the wall as drawn: from its left end seen from inside the room
   const shownX = (x0: number, x1: number): [number, number] =>
@@ -138,7 +146,10 @@ const BEWallFinishEditor: React.FC<BEWallFinishEditorProps> = ({ wall, ppf, fixt
           fill: 'none', stroke: LAYER_STYLE[layer === 'new' ? 'existing' : 'new'].stroke, strokeDasharray: '3 3', ...hairline,
         }))}
         {regions.map((r) => rect(asRect(r), r.id, { fill: LAYER_STYLE[layer].fill, stroke: LAYER_STYLE[layer].stroke, ...hairline }, 'Tile'))}
-        {covered.map((r, i) => rect(r, `c-${i}`, { fill: '#dedad2', stroke: '#a8a49c', ...hairline }, 'Tub / shower surround'))}
+        {surrounds.kept.map((c, i) => rect(c.rect, `c-${i}`, { fill: '#dedad2', stroke: '#a8a49c', ...hairline }, 'Tub / shower surround'))}
+        {surrounds.inTile.map((c, i) => rect(c.rect, `ct-${i}`, {
+          fill: 'none', stroke: '#a8a49c', strokeDasharray: '2 2', ...hairline,
+        }, 'Tub / shower surround, tiled with the wall'))}
         {openings.map((r, i) => rect(r, `d-${i}`, { fill: '#fff', stroke: '#73726e', strokeDasharray: '4 2', ...hairline }, 'Door / window'))}
       </svg>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#73726e', marginTop: 2 }}>
@@ -222,13 +233,14 @@ const BEWallFinishEditor: React.FC<BEWallFinishEditorProps> = ({ wall, ppf, fixt
           <div>
             Tile <strong style={{ color: '#37352f' }}>{areas.tileSF} SF</strong>
             {' · '}Paint <strong style={{ color: '#37352f' }}>{areas.paintSF} SF</strong>
+            {areas.surroundInTileSF > 0 && <div>Includes the tub/shower surround, {areas.surroundInTileSF} SF</div>}
           </div>
         )}
-        {(areas.openingSF > 0 || areas.coveredSF > 0) && (
+        {(areas.openingSF > 0 || surroundSF > 0) && (
           <div>
             Not counted: {[
               areas.openingSF > 0 && `doors/windows ${areas.openingSF} SF`,
-              areas.coveredSF > 0 && `tub/shower surround ${areas.coveredSF} SF`,
+              surroundSF > 0 && `tub/shower surround ${surroundSF} SF`,
             ].filter(Boolean).join(', ')}
           </div>
         )}

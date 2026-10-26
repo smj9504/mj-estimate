@@ -69,6 +69,22 @@ describe('bathroomModel walls', () => {
     expect(today.tile).toEqual([{ x0: 0, x1: 60, y0: 75, y1: 96 }, { x0: 60, x1: 96, y0: 0, y1: 96 }]);
   });
 
+  it('tiles a wall floor to ceiling as one, over the tub surround, after the work only', () => {
+    const tiled = north({
+      tileRegions: [{ id: 'w', startIn: 0, endIn: 96, bottomIn: 0, topIn: 96 }],
+      existingTileRegions: [{ id: 'e', startIn: 0, endIn: 96, bottomIn: 0, topIn: 96 }],
+    });
+    const n = bathroomModel(sketch([tiled, west], [tub])).walls.find((w) => w.id === 'north')!;
+    expect(n.surrounds).toEqual([]);
+    expect(n.tile).toEqual([{ x0: 0, x1: 96, y0: 0, y1: 96 }]);
+    // The west wall isn't tiled: the tub keeps its own surround there
+    expect(bathroomModel(sketch([tiled, west], [tub])).walls.find((w) => w.id === 'west')!.surrounds)
+      .toMatchObject([{ finish: 'tile', fixtureId: 'tub' }]);
+
+    const today = bathroomModel(sketch([tiled, west], [tub]), null, 'today').walls.find((w) => w.id === 'north')!;
+    expect(today.surrounds).toEqual([{ rect: { x0: 0, x1: 60, y0: 0, y1: 75 }, finish: 'tile', fixtureId: 'tub' }]);
+  });
+
   it('gives a prefab shower its own surround, not tile', () => {
     const shower = fixture('sh', 'shower', 40, 40, 24, 24, { showerWallMaterial: 'prefab_acrylic' });
     const n = bathroomModel(sketch([north()], [shower])).walls[0];

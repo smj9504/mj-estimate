@@ -13,7 +13,7 @@ import type {
   TileZoneType,
   BEPoint,
 } from '../../../../types/bathroomSketch';
-import { DEFAULT_TILE_SPEC, TILE_ZONE_COLORS } from '../../../../types/bathroomSketch';
+import { DEFAULT_TILE_SPEC, SHOWER_DOOR_HEIGHT_IN, TILE_ZONE_COLORS } from '../../../../types/bathroomSketch';
 import { clipPolygon, getShowerUnitPolygon } from './beGeometry';
 
 let _zoneCounter = 0;
@@ -950,7 +950,6 @@ function generateShowerCurbZone(fix: BEFixture, ppf: number): BETileZone | null 
 function generateShowerGlassPanelZone(fix: BEFixture, ppf: number): BETileZone | null {
   const showerWidth = fix.dimensions.width;
   const showerDepth = fix.dimensions.height;
-  const tileHeight = fix.properties.showerTileHeight ?? 96;
   const layout = fix.properties.showerLayout ?? 'alcove';
   const panelCfg = fix.properties.fixedPanelConfig ?? 'none';
   const hasLeft = panelCfg === 'left' || panelCfg === 'both';
@@ -987,8 +986,8 @@ function generateShowerGlassPanelZone(fix: BEFixture, ppf: number): BETileZone |
 
   if (totalPanelWidthInches <= 0) return null;
 
-  // Glass panel height (same as tile height, typically 72-96")
-  const panelHeightInches = Math.min(tileHeight, 80); // glass panels typically max 80"
+  // The glass's own height, apart from the wall tile's
+  const panelHeightInches = fix.properties.showerDoorHeight ?? SHOWER_DOOR_HEIGHT_IN;
   // Glass panel area (for cost estimation, not tile - but use SF for consistency)
   const areaSF = Math.round((totalPanelWidthInches * panelHeightInches) / 144 * 100) / 100;
 
@@ -1085,7 +1084,7 @@ function generateShowerDoorZone(fix: BEFixture, ppf: number): BETileZone | null 
   } else {
     doorWidthInches = showerWidth * 0.5;
   }
-  const doorHeightInches = 72;
+  const doorHeightInches = fix.properties.showerDoorHeight ?? SHOWER_DOOR_HEIGHT_IN;
 
   const costMap: Record<string, { material: number; labor: number }> = {
     sliding: { material: 18.00, labor: 12.00 },
