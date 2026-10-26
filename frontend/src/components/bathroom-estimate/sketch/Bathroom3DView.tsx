@@ -19,16 +19,20 @@ import { Button, Segmented, Tooltip } from 'antd';
 import { AimOutlined, EyeOutlined } from '@ant-design/icons';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { BESketchData } from '../../../types/bathroomSketch';
-import { bathroomModel, type BathroomModel, type FinishView } from './bathroom3dModel';
+import { bathroomModel, type FinishView } from './bathroom3dModel';
 import { buildBathroomScene, disposeScene, sketchIdOf, updateCutaway, type BuiltScene } from './bathroom3dScene';
+import {
+  aimSun,
+  createLitScene,
+  eyeLevelPose,
+  OUTSIDE_FOV,
+  overviewPose,
+  setUpRenderer,
+  type CameraPose,
+} from './bathroom3dStage';
 import { TileTextureCache } from './bathroom3dTextures';
 
-const BACKGROUND = '#f7f7f5';
-const EYE_HEIGHT_IN = 62;
-const OUTSIDE_FOV = 45;
-const INSIDE_FOV = 68;
 /** How far (screen px) the pointer may move between press and release and still count as a click. */
 const CLICK_SLOP_PX = 4;
 
@@ -52,21 +56,6 @@ export interface Bathroom3DViewProps {
   onSelect?: (id: string | null) => void;
 }
 
-/** Light from above and to one side, its shadows covering the room. */
-function aimSun(sun: THREE.DirectionalLight, model: BathroomModel) {
-  if (!model.bounds) return;
-  const { minX, maxX, minZ, maxZ } = model.bounds;
-  const cx = (minX + maxX) / 2;
-  const cz = (minZ + maxZ) / 2;
-  const size = Math.max(maxX - minX, maxZ - minZ, 96);
-  sun.position.set(cx - size * 0.6, size * 2.2, cz + size * 0.9);
-  sun.target.position.set(cx, 0, cz);
-  sun.target.updateMatrixWorld();
-  const half = size * 0.9;
-  Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: 1, far: size * 6 });
-  sun.shadow.camera.updateProjectionMatrix();
-}
-
 const Bathroom3DView: React.FC<Bathroom3DViewProps> = ({ sketch, estimate, height, selectedId, onSelect }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
@@ -81,50 +70,17 @@ const Bathroom3DView: React.FC<Bathroom3DViewProps> = ({ sketch, estimate, heigh
   const modelRef = useRef(model);
   modelRef.current = model;
 
-  // Above the room from its front corner, far enough back to see all of it
-  const frameView = useCallback(() => {
+  const goTo = useCallback((pose: CameraPose | null) => {
     const stage = stageRef.current;
-    const b = modelRef.current.bounds;
-    if (!stage || !b) return;
-    const cx = (b.minX + b.maxX) / 2;
-    const cz = (b.minZ + b.maxZ) / 2;
-    const size = Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 72);
-    stage.camera.fov = OUTSIDE_FOV;
+    if (!stage || !pose) return;
+    stage.camera.fov = pose.fov;
     stage.camera.updateProjectionMatrix();
-    stage.camera.position.set(cx + size * 0.75, size * 1.15 + 40, cz + size * 1.05);
-    stage.controls.target.set(cx, 30, cz);
+    stage.camera.position.copy(pose.position);
+    stage.controls.target.copy(pose.target);
     stage.controls.update();
   }, []);
-
-  // Standing in the doorway (or at the front of the room), looking in
-  const eyeLevel = useCallback(() => {
-    const stage = stageRef.current;
-    const m = modelRef.current;
-    const b = m.bounds;
-    if (!stage || !b) return;
-    const cx = (b.minX + b.maxX) / 2;
-    const cz = (b.minZ + b.maxZ) / 2;
-    let from = new THREE.Vector3(cx, EYE_HEIGHT_IN, b.maxZ - 10);
-    for (const w of m.walls) {
-      const door = w.openings.find((o) => o.kind === 'door');
-      if (!door || !w.inward) continue;
-      const t = (door.rect.x0 + door.rect.x1) / 2 / (w.lengthIn || 1);
-      // Past the open door's reach, so it stands beside you, not in the way
-      const x = w.a[0] + (w.b[0] - w.a[0]) * t + w.inward[0] * 40;
-      const z = w.a[1] + (w.b[1] - w.a[1]) * t + w.inward[1] * 40;
-      from = new THREE.Vector3(x, EYE_HEIGHT_IN, z);
-      break;
-    }
-    // A wider lens inside a small room, as a phone camera would see it
-    stage.camera.fov = INSIDE_FOV;
-    stage.camera.updateProjectionMatrix();
-    stage.camera.position.copy(from);
-    const look = new THREE.Vector3(cx, 44, cz);
-    // Look past the middle of the room, toward the far wall
-    look.add(look.clone().sub(from).setY(0).multiplyScalar(0.5));
-    stage.controls.target.copy(look);
-    stage.controls.update();
-  }, []);
+  const frameView = useCallback(() => goTo(overviewPose(modelRef.current)), [goTo]);
+  const eyeLevel = useCallback(() => goTo(eyeLevelPose(modelRef.current)), [goTo]);
 
   // Renderer, camera, lights and controls: once.
   useEffect(() => {
@@ -139,27 +95,10 @@ const Bathroom3DView: React.FC<Bathroom3DViewProps> = ({ sketch, estimate, heigh
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(container.clientWidth || 900, height);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.9;
-    renderer.shadowMap.enabled = true;
-    // Soft since r180 (PCFSoftShadowMap is deprecated there)
-    renderer.shadowMap.type = THREE.PCFShadowMap;
+    setUpRenderer(renderer);
     container.appendChild(renderer.domElement);
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(BACKGROUND);
-    // A soft room around everything, for chrome, glass and glazed tile to reflect
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environment = environment;
-    scene.environmentIntensity = 0.4;
-    scene.add(new THREE.HemisphereLight('#ffffff', '#cfc8ba', 0.55));
-    const sun = new THREE.DirectionalLight('#fff6e8', 1.35);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.bias = -0.0004;
-    sun.shadow.normalBias = 0.6;
-    scene.add(sun, sun.target);
+    const { scene, sun, dispose: disposeLights } = createLitScene(renderer);
 
     const camera = new THREE.PerspectiveCamera(OUTSIDE_FOV, (container.clientWidth || 900) / height, 1, 6000);
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -230,8 +169,7 @@ const Bathroom3DView: React.FC<Bathroom3DViewProps> = ({ sketch, estimate, heigh
       controls.dispose();
       if (stage.built) disposeScene(stage.built.root);
       stage.textures.dispose();
-      environment.dispose();
-      pmrem.dispose();
+      disposeLights();
       renderer.dispose();
       renderer.domElement.remove();
       stageRef.current = null;

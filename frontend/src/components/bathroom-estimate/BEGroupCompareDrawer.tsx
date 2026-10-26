@@ -4,14 +4,15 @@
  * line items that differ between any two of them.
  */
 
-import React, { useMemo, useState } from 'react';
-import { Button, Drawer, Empty, Grid, Select, Spin, Table, Typography } from 'antd';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Button, Drawer, Empty, Grid, Segmented, Select, Spin, Table, Typography, message } from 'antd';
 import { FilePdfOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { bathroomEstimateService } from '../../services/bathroomEstimateService';
 import type { BathroomEstimate } from '../../types/bathroomEstimate';
 import { PHASE_LABELS, memberName } from '../../types/bathroomEstimate';
+import { exportProposalWith3D } from './bathroomPdf';
 import { lineItemChanges, phaseTotals } from './groupCompare';
+import { bathroomEstimateService } from '../../services/bathroomEstimateService';
 
 const { Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -32,6 +33,59 @@ const Section: React.FC<{ title: React.ReactNode; extra?: React.ReactNode; child
     {children}
   </section>
 );
+
+/** The two estimates in 3D side by side, from the same spot: still pictures, drawn when the pair changes. */
+const Compare3D: React.FC<{ base: BathroomEstimate; option: BathroomEstimate }> = ({ base, option }) => {
+  const [pose, setPose] = useState<'overview' | 'eye'>('overview');
+  const [pictures, setPictures] = useState<Record<string, string> | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    setPictures(null);
+    import('./sketch/bathroom3dSnapshot')
+      .then(({ renderBathroomSnapshots }) => renderBathroomSnapshots(
+        [base, option].map((e) => ({ key: e.id, sketch: e.sketch_data as any, estimate: e })),
+        { width: 640, height: 420, pose, type: 'image/png' },
+      ))
+      .then((p) => { if (live) setPictures(p); })
+      .catch(() => { if (live) setPictures({}); });
+    return () => { live = false; };
+  }, [base, option, pose]);
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <Segmented
+        size="small"
+        value={pose}
+        onChange={(v) => setPose(v as 'overview' | 'eye')}
+        options={[{ value: 'overview', label: 'From above' }, { value: 'eye', label: 'Eye level' }]}
+        style={{ marginBottom: 8 }}
+      />
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {[base, option].map((e) => (
+          <figure key={e.id} style={{ flex: '1 1 300px', margin: 0 }}>
+            {pictures === null ? (
+              <div style={{ aspectRatio: '64 / 42', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--color-neutral-50)' }}>
+                <Spin size="small" />
+              </div>
+            ) : pictures[e.id] ? (
+              <img
+                src={`data:image/png;base64,${pictures[e.id]}`}
+                alt={`${memberName(e)} in 3D`}
+                style={{ width: '100%', display: 'block', border: '1px solid var(--color-neutral-200)', borderRadius: 6 }}
+              />
+            ) : (
+              <div style={{ aspectRatio: '64 / 42', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--color-neutral-50)' }}>
+                <Text type="secondary">No sketch to show</Text>
+              </div>
+            )}
+            <figcaption style={{ fontSize: 12, marginTop: 4 }}>{memberName(e)}</figcaption>
+          </figure>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 interface BEGroupCompareDrawerProps {
   open: boolean;
@@ -91,7 +145,16 @@ const BEGroupCompareDrawer: React.FC<BEGroupCompareDrawerProps> = ({ open, onClo
         <Button
           icon={<FilePdfOutlined />}
           disabled={members.length < 2}
-          onClick={() => bathroomEstimateService.exportProposalPdf(estimate.id, { address: estimate.property_address })}
+          onClick={async () => {
+            const done = message.loading('Drawing each estimate in 3D for the proposal…', 0);
+            try {
+              await exportProposalWith3D(estimate.id, estimate.property_address);
+            } catch {
+              message.error('Could not make the proposal PDF');
+            } finally {
+              done();
+            }
+          }}
         >
           {screens.md ? 'Customer proposal PDF' : 'Proposal'}
         </Button>
@@ -201,6 +264,7 @@ const BEGroupCompareDrawer: React.FC<BEGroupCompareDrawerProps> = ({ open, onClo
               </span>
             }
           >
+            {base && option && base.id !== option.id && <Compare3D base={base} option={option} />}
             {!base || !option || base.id === option.id ? (
               <Text type="secondary">Pick two different estimates.</Text>
             ) : changes.length === 0 ? (

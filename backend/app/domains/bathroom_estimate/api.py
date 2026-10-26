@@ -498,6 +498,8 @@ def export_pdf_with_sketch(
         show_signature=show_signature,
         sketch_image_base64=sketch_image,
         show_breakdown_prices=show_breakdown_prices,
+        # The 3D view; an option's PDF only shows it
+        render_image_base64=body.get("render_image"),
     )
 
     return StreamingResponse(
@@ -520,6 +522,21 @@ def export_proposal_pdf(
 
     For the customer only: the carrier gets the restoration's own PDF.
     """
+    return _proposal_pdf(estimate_id, show_signature, None, session)
+
+
+@router.post("/{estimate_id}/export/proposal-pdf")
+def export_proposal_pdf_with_renders(
+    estimate_id: str,
+    body: Dict[str, Any] = Body(default={}),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """The customer's comparison, with each estimate's 3D view ({renders: {id: base64}})."""
+    return _proposal_pdf(estimate_id, body.get("show_signature", True), body.get("renders"), session)
+
+
+def _proposal_pdf(estimate_id: str, show_signature: bool, renders: Optional[Dict[str, str]], session: DatabaseSession):
     from .export_service import BathroomExportService
 
     service = BathroomEstimateService(session)
@@ -528,7 +545,7 @@ def export_proposal_pdf(
         raise HTTPException(status_code=404, detail="Estimate not found")
 
     pdf_bytes = BathroomExportService().generate_proposal_pdf(
-        group, show_signature=show_signature,
+        group, show_signature=show_signature, renders=renders,
     )
     return StreamingResponse(
         pdf_bytes,

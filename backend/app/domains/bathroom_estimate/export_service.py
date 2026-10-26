@@ -127,6 +127,26 @@ def _full_address(estimate: Dict[str, Any]) -> str:
     return ", ".join(filter(None, full_addr_parts))
 
 
+def _picture(image_base64: Optional[str], max_w: float, max_h: float):
+    """A base64 image (the 3D view, rendered in the browser) fitted in max_w × max_h, or None."""
+    if not image_base64:
+        return None
+    try:
+        import base64
+        from reportlab.platypus import Image
+        img = Image(io.BytesIO(base64.b64decode(image_base64)))
+        w, h = img.drawWidth, img.drawHeight
+        if w <= 0 or h <= 0:
+            return None
+        scale = min(max_w / w, max_h / h)
+        img.drawWidth, img.drawHeight = w * scale, h * scale
+        img.hAlign = "CENTER"
+        return img
+    except Exception as e:
+        logger.warning(f"Failed to embed 3D view in PDF: {e}")
+        return None
+
+
 def _member_name(member: Dict[str, Any]) -> str:
     if member.get("kind") == "restore":
         return "Restoration"
@@ -185,14 +205,19 @@ class BathroomExportService:
         show_signature: bool = True,
         sketch_image_base64: Optional[str] = None,
         show_breakdown_prices: bool = True,
+        render_image_base64: Optional[str] = None,
     ) -> io.BytesIO:
-        """Generate a professional PDF estimate."""
+        """Generate a professional PDF estimate.
+
+        render_image_base64: the 3D view, shown on an option's PDF. The
+        restoration's PDF (the carrier's) is left as it is.
+        """
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import letter
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import inch
         from reportlab.platypus import (
-            HRFlowable, KeepInFrame, Paragraph, SimpleDocTemplate, Spacer,
+            HRFlowable, KeepInFrame, KeepTogether, Paragraph, SimpleDocTemplate, Spacer,
             Table, TableStyle,
         )
 
@@ -466,6 +491,13 @@ class BathroomExportService:
             elements.append(Paragraph("Estimate Summary", section_title_style))
             elements.append(summary_table)
 
+        # ══════ 3D VIEW (an option only) ══════
+        render = _picture(render_image_base64, usable_w, 4.6 * inch) if estimate.get("kind") == "option" else None
+        if render is not None:
+            elements.append(Spacer(1, 12))
+            # The title moves to the next page with the picture rather than end this one alone
+            elements.append(KeepTogether([Paragraph("How It Will Look", section_title_style), render]))
+
         elements.append(Spacer(1, 28))
 
         # ══════ DETAILED LINE ITEMS ══════
@@ -647,6 +679,7 @@ class BathroomExportService:
 
     def generate_proposal_pdf(
         self, group: Dict[str, Any], show_signature: bool = True,
+        renders: Optional[Dict[str, str]] = None,
     ) -> io.BytesIO:
         """The customer's side-by-side of a bathroom job's estimates.
 
@@ -654,6 +687,8 @@ class BathroomExportService:
         over the restoration and the line items that make that difference.
         Remodel job: the options and their prices. This one is for the
         customer only; the carrier gets the restoration's own PDF.
+
+        renders: each estimate's 3D view by id, rendered in the browser.
         """
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import letter
@@ -798,6 +833,30 @@ class BathroomExportService:
         summary_table = Table(summary, colWidths=widths)
         summary_table.setStyle(table_style([("FONTSIZE", (0, 1), (-1, -1), 10)]))
         elements.append(summary_table)
+
+        # ══════ HOW EACH LOOKS: the 3D views, two to a row ══════
+        renders = renders or {}
+        cell_w = (usable_w - 12) / 2
+        pictured = [(m, _picture(renders.get(str(m.get("id"))), cell_w - 8, 2.6 * inch)) for m in members]
+        pictured = [(m, img) for m, img in pictured if img is not None]
+        if pictured:
+            caption_style = ParagraphStyle("Caption", fontSize=9, fontName="Helvetica", textColor=brand_dark, alignment=1, spaceBefore=4)
+            cells = []
+            for m, img in pictured:
+                caption = f"<b>{_member_name(m)}</b> &nbsp; {money(m.get('total') or 0)}"
+                if compare_to_restoration and m is not restoration:
+                    caption += f" ({signed((m.get('total') or 0) - (restoration.get('total') or 0))})"
+                cells.append([img, Paragraph(caption, caption_style)])
+            for i in range(0, len(cells), 2):
+                row = cells[i:i + 2] + [""] * (2 - len(cells[i:i + 2]))
+                grid = Table([row], colWidths=[cell_w + 6, cell_w + 6])
+                grid.setStyle(TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+                ]))
+                # The title stays with the first row of pictures
+                elements.append(KeepTogether([Paragraph("How Each Looks", section_title_style), grid]) if i == 0 else grid)
 
         # ══════ BY PHASE ══════
         phases = sorted({li.get("phase") for m in members for li in (m.get("line_items") or [])

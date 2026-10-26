@@ -65,6 +65,7 @@ import type { SketchFixtureSync } from '../components/bathroom-estimate/sketch/B
 import BEGroupBar from '../components/bathroom-estimate/BEGroupBar';
 import BEGroupCompareDrawer from '../components/bathroom-estimate/BEGroupCompareDrawer';
 import BELayoutChanges from '../components/bathroom-estimate/BELayoutChanges';
+import { exportProposalWith3D, optionRender } from '../components/bathroom-estimate/bathroomPdf';
 
 const RegisterBidItemModal = React.lazy(() => import('../components/supplement/RegisterBidItemModal'));
 
@@ -380,6 +381,35 @@ const BathroomEstimateDetail: React.FC = () => {
     const values = form.getFieldsValue(true);
     calculateMutation.mutate(values);
   }, [form, calculateMutation]);
+
+  // ── PDFs ──
+  // The plan as drawn, and on an option its 3D view too (drawn here, which takes a moment)
+  const exportEstimatePdf = useCallback(async (opts: { show_breakdown_prices: boolean; show_signature: boolean }) => {
+    const capture = (window as any).__beSketchCapture;
+    const sketchImage = typeof capture === 'function' ? capture() : undefined;
+    const done = estimate?.kind === 'option' ? message.loading('Drawing the 3D view for the PDF…', 0) : undefined;
+    try {
+      await bathroomEstimateService.exportPdf(id!, {
+        ...opts,
+        sketch_image: sketchImage,
+        render_image: await optionRender(estimate),
+        address: estimate?.property_address,
+      });
+    } finally {
+      done?.();
+    }
+  }, [estimate, id]);
+
+  const exportProposal = useCallback(async () => {
+    const done = message.loading('Drawing each estimate in 3D for the proposal…', 0);
+    try {
+      await exportProposalWith3D(id!, estimate?.property_address);
+    } catch {
+      message.error('Could not make the proposal PDF');
+    } finally {
+      done();
+    }
+  }, [estimate, id]);
 
   // ── The job's other estimates ──
   // Run `action` once this estimate's unsaved edits are saved or let go.
@@ -707,16 +737,7 @@ const BathroomEstimateDetail: React.FC = () => {
                     label: 'PDF - Detailed (with signature)',
                     icon: <FilePdfOutlined />,
                     onClick: async () => {
-                      const doExport = () => {
-                        const capture = (window as any).__beSketchCapture;
-                        const sketchImage = typeof capture === 'function' ? capture() : undefined;
-                        bathroomEstimateService.exportPdf(id!, {
-                          sketch_image: sketchImage,
-                          show_breakdown_prices: true,
-                          show_signature: true,
-                          address: estimate?.property_address,
-                        });
-                      };
+                      const doExport = () => exportEstimatePdf({ show_breakdown_prices: true, show_signature: true });
                       try {
                         const result = await bathroomEstimateService.validateForExport(id!);
                         if (result.warnings.length > 0) {
@@ -742,16 +763,7 @@ const BathroomEstimateDetail: React.FC = () => {
                     label: 'PDF - Detailed (no signature)',
                     icon: <FilePdfOutlined />,
                     onClick: async () => {
-                      const doExport = () => {
-                        const capture = (window as any).__beSketchCapture;
-                        const sketchImage = typeof capture === 'function' ? capture() : undefined;
-                        bathroomEstimateService.exportPdf(id!, {
-                          sketch_image: sketchImage,
-                          show_breakdown_prices: true,
-                          show_signature: false,
-                          address: estimate?.property_address,
-                        });
-                      };
+                      const doExport = () => exportEstimatePdf({ show_breakdown_prices: true, show_signature: false });
                       try {
                         const result = await bathroomEstimateService.validateForExport(id!);
                         if (result.warnings.length > 0) {
@@ -778,16 +790,7 @@ const BathroomEstimateDetail: React.FC = () => {
                     label: 'PDF - Clean (with signature)',
                     icon: <FilePdfOutlined />,
                     onClick: async () => {
-                      const doExport = () => {
-                        const capture = (window as any).__beSketchCapture;
-                        const sketchImage = typeof capture === 'function' ? capture() : undefined;
-                        bathroomEstimateService.exportPdf(id!, {
-                          sketch_image: sketchImage,
-                          show_breakdown_prices: false,
-                          show_signature: true,
-                          address: estimate?.property_address,
-                        });
-                      };
+                      const doExport = () => exportEstimatePdf({ show_breakdown_prices: false, show_signature: true });
                       try {
                         const result = await bathroomEstimateService.validateForExport(id!);
                         if (result.warnings.length > 0) {
@@ -813,16 +816,7 @@ const BathroomEstimateDetail: React.FC = () => {
                     label: 'PDF - Clean (no signature)',
                     icon: <FilePdfOutlined />,
                     onClick: async () => {
-                      const doExport = () => {
-                        const capture = (window as any).__beSketchCapture;
-                        const sketchImage = typeof capture === 'function' ? capture() : undefined;
-                        bathroomEstimateService.exportPdf(id!, {
-                          sketch_image: sketchImage,
-                          show_breakdown_prices: false,
-                          show_signature: false,
-                          address: estimate?.property_address,
-                        });
-                      };
+                      const doExport = () => exportEstimatePdf({ show_breakdown_prices: false, show_signature: false });
                       try {
                         const result = await bathroomEstimateService.validateForExport(id!);
                         if (result.warnings.length > 0) {
@@ -850,9 +844,7 @@ const BathroomEstimateDetail: React.FC = () => {
                       key: 'pdf-proposal',
                       label: 'Customer proposal (all estimates)',
                       icon: <FilePdfOutlined />,
-                      onClick: () => bathroomEstimateService.exportProposalPdf(id!, {
-                        address: estimate?.property_address,
-                      }),
+                      onClick: () => exportProposal(),
                     },
                   ] : []),
                 ],

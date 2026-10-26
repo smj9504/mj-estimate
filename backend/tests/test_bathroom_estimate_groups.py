@@ -272,6 +272,42 @@ def test_the_carriers_pdf_never_mentions_the_options(service):
     assert "+$600.00" in proposal
 
 
+def _jpeg_base64(color=(200, 190, 170)) -> str:
+    import base64
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (120, 80), color).save(buf, "JPEG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def _image_count(pdf: io.BytesIO) -> int:
+    from pypdf import PdfReader
+    return sum(len(page.images) for page in PdfReader(pdf).pages)
+
+
+def test_the_3d_view_goes_on_options_and_the_proposal_never_on_the_carriers_pdf(service):
+    restoration = new_job(service)
+    add_line(service, restoration["id"], "Floor tile 12x12 porcelain", 900)
+    option = service.add_option(restoration["id"])
+    render = _jpeg_base64()
+    exporter = BathroomExportService()
+
+    carrier = exporter.generate_pdf(service.get_estimate(restoration["id"]), render_image_base64=render)
+    assert _image_count(carrier) == 0
+    assert "How It Will Look" not in text_of(exporter.generate_pdf(service.get_estimate(restoration["id"]), render_image_base64=render))
+
+    with_view = exporter.generate_pdf(service.get_estimate(option["id"]), render_image_base64=render)
+    assert _image_count(with_view) == 1
+    assert "How It Will Look" in text_of(exporter.generate_pdf(service.get_estimate(option["id"]), render_image_base64=render))
+
+    group = service.get_group(option["id"])
+    # Two different pictures (the PDF keeps one copy of identical ones)
+    proposal = exporter.generate_proposal_pdf(group, renders={restoration["id"]: render, option["id"]: _jpeg_base64((90, 120, 150))})
+    assert _image_count(proposal) == 2
+    assert "How Each Looks" in text_of(exporter.generate_proposal_pdf(group, renders={option["id"]: render}))
+    assert "How Each Looks" not in text_of(exporter.generate_proposal_pdf(group))
+
+
 def test_a_remodel_proposal_lists_the_options_without_a_restoration(service):
     a = new_job(service, project_type="remodel")
     add_line(service, a["id"], "Vanity 36in", 1200, phase=5)

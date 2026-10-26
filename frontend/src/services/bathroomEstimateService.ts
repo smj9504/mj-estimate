@@ -102,11 +102,21 @@ export const bathroomEstimateService = {
   },
 
   /** The customer's side-by-side of every estimate of the job. Never for the carrier. */
-  async exportProposalPdf(id: string, options?: { show_signature?: boolean; address?: string }) {
-    const response = await api.get(`${BASE_URL}/${id}/export/proposal-pdf`, {
-      responseType: 'blob',
-      params: options?.show_signature === false ? { show_signature: false } : undefined,
-    });
+  async exportProposalPdf(id: string, options?: {
+    show_signature?: boolean;
+    address?: string;
+    /** Each estimate's 3D view, base64, by estimate id. */
+    renders?: Record<string, string>;
+  }) {
+    const response = options?.renders && Object.keys(options.renders).length
+      ? await api.post(`${BASE_URL}/${id}/export/proposal-pdf`, {
+        renders: options.renders,
+        show_signature: options.show_signature ?? true,
+      }, { responseType: 'blob', timeout: 60000 })
+      : await api.get(`${BASE_URL}/${id}/export/proposal-pdf`, {
+        responseType: 'blob',
+        params: options?.show_signature === false ? { show_signature: false } : undefined,
+      });
     const sanitized = (options?.address || '')
       .replace(/[^a-zA-Z0-9\s-]/g, '')
       .trim()
@@ -177,6 +187,8 @@ export const bathroomEstimateService = {
   async exportPdf(id: string, options?: {
     show_signature?: boolean;
     sketch_image?: string;
+    /** The 3D view, base64; an option's PDF shows it, the restoration's never does. */
+    render_image?: string;
     show_breakdown_prices?: boolean;
     address?: string;
   }) {
@@ -199,13 +211,15 @@ export const bathroomEstimateService = {
       window.URL.revokeObjectURL(url);
     };
 
-    if (options?.sketch_image) {
+    if (options?.sketch_image || options?.render_image) {
       const response = await api.post(`${BASE_URL}/${id}/export/pdf`, {
         sketch_image: options.sketch_image,
+        render_image: options.render_image,
         show_signature: options?.show_signature ?? true,
         show_breakdown_prices: options?.show_breakdown_prices ?? true,
       }, {
         responseType: 'blob',
+        timeout: 60000,
       });
       downloadBlob(response.data);
     } else {
