@@ -1,0 +1,264 @@
+/**
+ * Which parts of each wall are tile and which are drywall: today (the
+ * existing tile, which is demolished) and after the work (the tile to
+ * install; the rest of the wall is painted).
+ *
+ * A wall's face is measured in inches: along the wall from its start point,
+ * and up from the floor. Tile is a list of rectangles on that face. Door and
+ * window openings, and the wall behind a tub or shower (its own surround,
+ * priced with the fixture), are neither tile nor paint here.
+ */
+
+import type { BEFixture, BEPoint, BERoom, BEWall, BEWallTileRegion } from '../../../../types/bathroomSketch';
+
+export type WallFinishLayer = 'existing' | 'new';
+
+/** A rectangle on a wall face, inches: x along the wall, y up from the floor. */
+export interface FaceRect {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+}
+
+export interface WallFinishAreas {
+  lengthIn: number;
+  heightIn: number;
+  /** The whole face. */
+  grossSF: number;
+  /** Doors and windows. */
+  openingSF: number;
+  /** Behind a tub or shower surround. */
+  coveredSF: number;
+  /** Existing tile to take off. */
+  existingTileSF: number;
+  /** Tile to install. */
+  tileSF: number;
+  /** Drywall to paint: the face less openings, covered area and new tile. */
+  paintSF: number;
+}
+
+/** Door opening height when the door doesn't say. */
+export const DOOR_HEIGHT_IN = 80;
+/** Window sill and opening height when the window doesn't say. */
+export const WINDOW_SILL_IN = 36;
+export const WINDOW_HEIGHT_IN = 48;
+/** Tub rim height when the tub has no deck height. */
+const TUB_RIM_IN = 15;
+/** How close (px) a fixture corner must be to a wall to stand against it. */
+const AGAINST_WALL_PX = 18;
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+export const wallLengthIn = (wall: BEWall, pixelsPerFoot: number): number =>
+  (Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y) / pixelsPerFoot) * 12;
+
+let regionCounter = 0;
+export const newRegionId = (): string => {
+  regionCounter += 1;
+  return `wr_${Date.now().toString(36)}_${regionCounter}`;
+};
+
+/** A region over the whole face. */
+export const fullWallRegion = (lengthIn: number, heightIn: number): BEWallTileRegion => ({
+  id: newRegionId(), startIn: 0, endIn: round1(lengthIn), bottomIn: 0, topIn: heightIn,
+});
+
+/** Tile from the floor up to `topIn`, the whole length of the wall. */
+export const wainscotRegion = (lengthIn: number, topIn: number): BEWallTileRegion => ({
+  id: newRegionId(), startIn: 0, endIn: round1(lengthIn), bottomIn: 0, topIn,
+});
+
+/**
+ * The wall's tile on one layer, clipped to the wall as it is now (it may have
+ * been shortened since). Walls saved before regions existed are read from
+ * their older fields: `finish: 'tile'` is the whole wall, and an existing tile
+ * band runs the whole length between its two heights.
+ */
+export function wallTileRegions(wall: BEWall, layer: WallFinishLayer, pixelsPerFoot: number): BEWallTileRegion[] {
+  const lengthIn = wallLengthIn(wall, pixelsPerFoot);
+  const heightIn = wall.heightInches;
+  const stored = layer === 'existing' ? wall.existingTileRegions : wall.tileRegions;
+
+  let regions: BEWallTileRegion[];
+  if (stored) {
+    regions = stored;
+  } else if (layer === 'new') {
+    regions = wall.finish === 'tile' ? [{ id: 'legacy-new', startIn: 0, endIn: lengthIn, bottomIn: 0, topIn: heightIn }] : [];
+  } else if (wall.existingFinish === 'tile') {
+    const from = wall.existingTileFromInches ?? 0;
+    const to = wall.existingTileToInches;
+    // Neither height given (or both 0) means the full wall height
+    const top = to === undefined || (to === 0 && from === 0) ? heightIn : to;
+    regions = [{ id: 'legacy-existing', startIn: 0, endIn: lengthIn, bottomIn: from, topIn: top }];
+  } else {
+    regions = [];
+  }
+
+  return regions
+    .map((r) => ({
+      ...r,
+      startIn: Math.max(0, Math.min(r.startIn, r.endIn)),
+      endIn: Math.min(lengthIn, Math.max(r.startIn, r.endIn)),
+      bottomIn: Math.max(0, Math.min(r.bottomIn, r.topIn)),
+      topIn: Math.min(heightIn, Math.max(r.bottomIn, r.topIn)),
+    }))
+    .filter((r) => r.endIn - r.startIn > 0.01 && r.topIn - r.bottomIn > 0.01);
+}
+
+export const regionRect = (r: BEWallTileRegion): FaceRect => ({ x0: r.startIn, x1: r.endIn, y0: r.bottomIn, y1: r.topIn });
+
+/** Square inches covered by `include` and by none of `exclude`, overlaps counted once. */
+export function coveredArea(include: FaceRect[], exclude: FaceRect[] = []): number {
+  if (!include.length) return 0;
+  const all = include.concat(exclude);
+  const xs = Array.from(new Set(all.flatMap((r) => [r.x0, r.x1]))).sort((a, b) => a - b);
+  const ys = Array.from(new Set(all.flatMap((r) => [r.y0, r.y1]))).sort((a, b) => a - b);
+  const inside = (r: FaceRect, x: number, y: number) => x > r.x0 && x < r.x1 && y > r.y0 && y < r.y1;
+  let area = 0;
+  for (let i = 0; i < xs.length - 1; i++) {
+    const x = (xs[i] + xs[i + 1]) / 2;
+    for (let j = 0; j < ys.length - 1; j++) {
+      const y = (ys[j] + ys[j + 1]) / 2;
+      if (include.some((r) => inside(r, x, y)) && !exclude.some((r) => inside(r, x, y))) {
+        area += (xs[i + 1] - xs[i]) * (ys[j + 1] - ys[j]);
+      }
+    }
+  }
+  return area;
+}
+
+/** Where a plan point falls along the wall (inches from its start) and how far off it is (px). */
+function alongWall(wall: BEWall, p: BEPoint, pixelsPerFoot: number) {
+  const dx = wall.end.x - wall.start.x;
+  const dy = wall.end.y - wall.start.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const t = ((p.x - wall.start.x) * dx + (p.y - wall.start.y) * dy) / len;
+  const off = Math.abs((p.x - wall.start.x) * dy - (p.y - wall.start.y) * dx) / len;
+  // To a hundredth of an inch, so a corner on the wall's end reads as 0, not 2e-15
+  const alongIn = Math.round((t / pixelsPerFoot) * 1200) / 100;
+  return { alongIn, offPx: off, lenPx: len, tPx: t };
+}
+
+function fixtureCorners(fix: BEFixture, pixelsPerFoot: number): BEPoint[] {
+  const hw = ((fix.dimensions.width / 12) * pixelsPerFoot) / 2;
+  const hh = ((fix.dimensions.height / 12) * pixelsPerFoot) / 2;
+  const rad = ((fix.rotation || 0) * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([x, y]) => ({
+    x: fix.position.x + x * cos - y * sin,
+    y: fix.position.y + x * sin + y * cos,
+  }));
+}
+
+/** Door and window openings in this wall. */
+export function wallOpenings(wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): FaceRect[] {
+  const rects: FaceRect[] = [];
+  for (const fix of fixtures) {
+    if (fix.type !== 'door' && fix.type !== 'window') continue;
+    const at = alongWall(wall, fix.position, pixelsPerFoot);
+    const onWall = fix.wallId
+      ? fix.wallId === wall.id
+      : at.offPx <= AGAINST_WALL_PX / 2 && at.tPx >= 0 && at.tPx <= at.lenPx;
+    if (!onWall) continue;
+    const half = fix.dimensions.width / 2;
+    const p = fix.properties || {};
+    const y0 = fix.type === 'door' ? 0 : (p.sillHeightIn ?? WINDOW_SILL_IN);
+    const y1 = fix.type === 'door'
+      ? (p.openingHeightIn ?? DOOR_HEIGHT_IN)
+      : y0 + (p.openingHeightIn ?? WINDOW_HEIGHT_IN);
+    rects.push({ x0: at.alongIn - half, x1: at.alongIn + half, y0, y1 });
+  }
+  return rects;
+}
+
+/**
+ * The part of this wall behind a tub or shower that stands against it: up to
+ * the shower's tile height, or the tub's rim plus its surround. Two corners of
+ * the fixture against the wall make the span.
+ */
+export function wallFixtureCover(wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): FaceRect[] {
+  const rects: FaceRect[] = [];
+  for (const fix of fixtures) {
+    let top: number;
+    if (fix.type === 'shower') {
+      top = fix.properties.showerTileHeight ?? 96;
+    } else if (fix.type === 'bathtub') {
+      if (fix.properties.bathtubSubType === 'freestanding') continue;
+      const rim = fix.properties.deckHeight || TUB_RIM_IN;
+      top = rim + (fix.properties.hasSurround === false ? 0 : (fix.properties.surroundHeight ?? 60));
+    } else {
+      continue;
+    }
+    const near = fixtureCorners(fix, pixelsPerFoot)
+      .map((c) => alongWall(wall, c, pixelsPerFoot))
+      .filter((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX);
+    if (near.length < 2) continue;
+    const xs = near.map((a) => a.alongIn);
+    rects.push({ x0: Math.min(...xs), x1: Math.max(...xs), y0: 0, y1: Math.min(top, wall.heightInches) });
+  }
+  return rects;
+}
+
+export function wallFinishAreas(wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): WallFinishAreas {
+  const lengthIn = wallLengthIn(wall, pixelsPerFoot);
+  const heightIn = wall.heightInches;
+  const face: FaceRect = { x0: 0, x1: lengthIn, y0: 0, y1: heightIn };
+  const clip = (r: FaceRect): FaceRect => ({
+    x0: Math.max(0, r.x0), x1: Math.min(lengthIn, r.x1), y0: Math.max(0, r.y0), y1: Math.min(heightIn, r.y1),
+  });
+  const openings = wallOpenings(wall, fixtures, pixelsPerFoot).map(clip);
+  const covered = wallFixtureCover(wall, fixtures, pixelsPerFoot).map(clip);
+  const newTile = wallTileRegions(wall, 'new', pixelsPerFoot).map(regionRect);
+  const existingTile = wallTileRegions(wall, 'existing', pixelsPerFoot).map(regionRect);
+  const holes = openings.concat(covered);
+  const sf = (sqIn: number) => round1(sqIn / 144);
+
+  return {
+    lengthIn,
+    heightIn,
+    grossSF: sf(lengthIn * heightIn),
+    openingSF: sf(coveredArea(openings)),
+    coveredSF: sf(coveredArea(covered, openings)),
+    existingTileSF: sf(coveredArea(existingTile, holes)),
+    tileSF: sf(coveredArea(newTile, holes)),
+    paintSF: sf(coveredArea([face], holes.concat(newTile))),
+  };
+}
+
+/** The finish areas of a room's walls, added up. */
+export function roomWallFinishTotals(walls: BEWall[], fixtures: BEFixture[], pixelsPerFoot: number) {
+  return walls.reduce(
+    (sum, wall) => {
+      const a = wallFinishAreas(wall, fixtures, pixelsPerFoot);
+      return {
+        tileSF: round1(sum.tileSF + a.tileSF),
+        paintSF: round1(sum.paintSF + a.paintSF),
+        existingTileSF: round1(sum.existingTileSF + a.existingTileSF),
+      };
+    },
+    { tileSF: 0, paintSF: 0, existingTileSF: 0 },
+  );
+}
+
+/**
+ * Whether the wall's start is on your left when you stand in its room facing
+ * it, so its face can be drawn as you'd see it. A wall in no room is drawn
+ * start-left.
+ */
+export function wallStartOnLeft(wall: BEWall, rooms: BERoom[]): boolean {
+  const room = rooms.find((r) => r.wallIds.includes(wall.id) && r.boundary.length >= 3);
+  if (!room) return true;
+  const cx = room.boundary.reduce((s, p) => s + p.x, 0) / room.boundary.length;
+  const cy = room.boundary.reduce((s, p) => s + p.y, 0) / room.boundary.length;
+  const mx = (wall.start.x + wall.end.x) / 2;
+  const my = (wall.start.y + wall.end.y) / 2;
+  // Facing the wall from inside: from the room's middle toward the wall
+  const fx = mx - cx;
+  const fy = my - cy;
+  // Your right hand, on a plan whose y runs down the screen
+  const rx = -fy;
+  const ry = fx;
+  return rx * (wall.end.x - wall.start.x) + ry * (wall.end.y - wall.start.y) > 0;
+}

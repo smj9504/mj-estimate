@@ -23,6 +23,7 @@ import {
 import type { BESketchData } from '../../../types/bathroomSketch';
 import { EMPTY_BE_SKETCH, BATHTUB_SURROUND_DEFAULTS } from '../../../types/bathroomSketch';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
+import { roomWallFinishTotals } from './utils/wallFinish';
 import { useBESketchState } from './hooks/useBESketchState';
 import BESketchToolbar from './BESketchToolbar';
 import BESketchCanvas from './BESketchCanvas';
@@ -44,9 +45,9 @@ export interface SketchFixtureSync {
   wall_sf?: number;
   /** Paintable wall SF (total wall minus shower/tub/tile wall areas) */
   paint_wall_sf?: number;
-  /** Tile wall SF (walls marked as 'tile' finish in sketch) */
+  /** Tile wall SF: the walls' tile regions to install */
   tile_wall_sf?: number;
-  /** SF of wall marked as already tiled (existingFinish='tile') — needs demo */
+  /** SF of the walls' existing tile regions — needs demo */
   existing_tile_wall_sf?: number;
 
   // Walls spec sync
@@ -202,44 +203,24 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
     // Available wall SF (after shower/tub deduction)
     const availableWallSF = Math.max(0, grossWallSF - coveredWallSF);
 
-    // Split available area by per-wall finish settings
     let tileWallSF = 0;
     let paintWallSF = 0;
+    // Tile on the walls today: it comes off before any new finish goes on
+    let existingTileWallSF = 0;
     const roomWalls = walls.filter(w => bathroom.wallIds.includes(w.id));
 
-    // Walls marked as already tiled (existingFinish='tile') → demo SF,
-    // computed at full height regardless of finish ratio above (this tile
-    // has to come off before any new finish can go on).
-    let existingTileWallSF = 0;
-
     if (roomWalls.length > 0) {
-      // Walls exist: use per-wall finish
-      let totalWallLen = 0;
-      let tileWallLen = 0;
-      for (const w of roomWalls) {
-        const wDx = w.end.x - w.start.x;
-        const wDy = w.end.y - w.start.y;
-        const wLen = Math.sqrt(wDx * wDx + wDy * wDy) / ppf; // ft
-        totalWallLen += wLen;
-        if (w.finish === 'tile') tileWallLen += wLen;
-        if (w.existingFinish === 'tile') {
-          // Existing tile may only cover a vertical band of the wall (e.g. a
-          // 0-36" wainscot, or a 24-96" band above a chair rail) — use that
-          // band if given, else the full wall height.
-          const tileFrom = Math.max(0, w.existingTileFromInches ?? 0);
-          const tileTo = Math.min(w.heightInches, w.existingTileToInches ?? w.heightInches);
-          const tileHeightIn = Math.max(0, tileTo - tileFrom);
-          existingTileWallSF += wLen * (tileHeightIn / 12);
-        }
-      }
-      const tileRatio = totalWallLen > 0 ? tileWallLen / totalWallLen : 0;
-      tileWallSF = Math.round(availableWallSF * tileRatio * 10) / 10;
-      paintWallSF = Math.round((availableWallSF - tileWallSF) * 10) / 10;
+      // Walls exist: each wall's tile regions (part of a wall can be tile and
+      // the rest drywall), less its doors and windows and the part behind
+      // a tub or shower surround, which is tiled with the fixture.
+      const totals = roomWallFinishTotals(roomWalls, fixtures, ppf);
+      tileWallSF = totals.tileSF;
+      paintWallSF = totals.paintSF;
+      existingTileWallSF = totals.existingTileSF;
     } else {
       // No explicit walls: all paint by default
       paintWallSF = Math.round(availableWallSF * 10) / 10;
     }
-    existingTileWallSF = Math.round(existingTileWallSF * 10) / 10;
 
     sync.paint_wall_sf = paintWallSF;
     sync.tile_wall_sf = tileWallSF;
@@ -751,7 +732,8 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
       const sync = buildSketchSync(api.data);
       onFixtureSync(sync);
     }
-  }, [api.data.fixtures, api.data.rooms, api.isDirty, onFixtureSync]);
+    // Walls too: their tile regions set the tile, paint and demo areas
+  }, [api.data.fixtures, api.data.rooms, api.data.walls, api.isDirty, onFixtureSync]);
 
   // ── Save handler ──
   const handleSave = useCallback(async () => {

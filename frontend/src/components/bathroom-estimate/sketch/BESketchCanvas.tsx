@@ -26,6 +26,7 @@ import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { getFixtureShape } from './utils/beFixtureShapes';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { clipPolygon, getShowerUnitPolygon, type Pt2 } from './utils/beGeometry';
+import { wallTileRegions } from './utils/wallFinish';
 
 interface BESketchCanvasProps {
   api: BESketchStateAPI;
@@ -36,6 +37,32 @@ interface BESketchCanvasProps {
 }
 
 // ── Helpers ──
+
+/**
+ * Where a wall is tiled, as spans along its line: tile to install as a wide
+ * blue band, tile there today (to demo) as a red dashed line over it. Only the
+ * spans show, since part of a wall can be tile and the rest drywall.
+ */
+const WallTileSpans: React.FC<{ wall: BEWall; ppf: number }> = ({ wall, ppf }) => {
+  const dx = wall.end.x - wall.start.x;
+  const dy = wall.end.y - wall.start.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const at = (inches: number) => {
+    const t = (inches / 12) * ppf / len;
+    return [wall.start.x + dx * t, wall.start.y + dy * t];
+  };
+  const span = (startIn: number, endIn: number) => [...at(startIn), ...at(endIn)];
+  return (
+    <>
+      {wallTileRegions(wall, 'new', ppf).map((r) => (
+        <Line key={`n-${r.id}`} points={span(r.startIn, r.endIn)} stroke="#1976d2" strokeWidth={5} opacity={0.55} listening={false} />
+      ))}
+      {wallTileRegions(wall, 'existing', ppf).map((r) => (
+        <Line key={`e-${r.id}`} points={span(r.startIn, r.endIn)} stroke="#d4380d" strokeWidth={2} dash={[8, 4]} listening={false} />
+      ))}
+    </>
+  );
+};
 
 function fmtInches(totalInches: number): string {
   const ft = Math.floor(totalInches / 12);
@@ -1063,12 +1090,13 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                             && Math.abs(w.end.x - pt.x) < 4 && Math.abs(w.end.y - pt.y) < 4;
                     return m1 || m2;
                   });
-                  const isTile = matchWall?.finish === 'tile';
-                  const hasExistingTile = matchWall?.existingFinish === 'tile';
+                  const isTile = !!matchWall && wallTileRegions(matchWall, 'new', ppf).length > 0;
+                  const hasExistingTile = !!matchWall && wallTileRegions(matchWall, 'existing', ppf).length > 0;
                   const isThisWallSelected = matchWall && selectedId === matchWall.id;
+                  // Tile shows as spans along the wall (below), since only part of it may be tiled
                   const edgeColor = isThisWallSelected
                     ? '#1890ff'
-                    : hasExistingTile ? '#d4380d' : isTile ? '#1976d2' : (room.parentRoomId ? '#d48806' : '#555');
+                    : (room.parentRoomId ? '#d48806' : '#555');
                   const edgeWidth = isThisWallSelected ? 3.5 : (isRoomSelected ? 2.5 : 2);
                   return (
                     <React.Fragment key={`re-${room.id}-${idx}`}>
@@ -1076,7 +1104,6 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                         points={[pt.x, pt.y, npt.x, npt.y]}
                         stroke={edgeColor}
                         strokeWidth={edgeWidth}
-                        dash={hasExistingTile ? [8, 4] : undefined}
                         lineCap="round"
                         hitStrokeWidth={12}
                         listening={activeTool === 'select'}
@@ -1095,6 +1122,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                           }
                         }}
                       />
+                      {matchWall && <WallTileSpans wall={matchWall} ppf={ppf} />}
                       {/* Finish indicator tag on each edge */}
                       {isTile && !isThisWallSelected && (() => {
                         const mx = (pt.x + npt.x) / 2;
@@ -1841,16 +1869,14 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             const lenIn = (calcWallLengthPx(wall) / ppf) * 12;
             const mid = wallMidpoint(wall);
             const isWallSelected = selectedId === wall.id;
-            const isTileWall = wall.finish === 'tile';
-            const hasExistingTile = wall.existingFinish === 'tile';
-            const wallColor = isWallSelected ? '#1890ff' : hasExistingTile ? '#d4380d' : isTileWall ? '#1976d2' : '#555';
+            // Tile shows as spans along the wall (WallTileSpans), since only part of it may be tiled
+            const wallColor = isWallSelected ? '#1890ff' : '#555';
             return (
               <Group key={wall.id}>
                 <Line
                   points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
                   stroke={wallColor}
                   strokeWidth={isWallSelected ? 3 : 2}
-                  dash={hasExistingTile ? [8, 4] : undefined}
                   lineCap="round"
                   onMouseDown={(e) => { e.cancelBubble = true; }}
                   onClick={(e) => {
@@ -1864,6 +1890,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                   }}
                   hitStrokeWidth={14}
                 />
+                <WallTileSpans wall={wall} ppf={ppf} />
                 {/* Endpoints (static when not selected) */}
                 {!isWallSelected && (
                   <>

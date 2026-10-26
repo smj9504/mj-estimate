@@ -82,6 +82,18 @@ export type WallFinish = 'paint' | 'tile';
 /** Current/existing wall surface material (before any work) */
 export type ExistingWallFinish = 'drywall' | 'tile';
 
+/**
+ * A tiled rectangle on a wall's face, in inches: along the wall from its
+ * start point, and up from the floor. Whatever no region covers is drywall.
+ */
+export interface BEWallTileRegion {
+  id: string;
+  startIn: number;
+  endIn: number;
+  bottomIn: number;
+  topIn: number;
+}
+
 export interface BEWall {
   id: string;
   start: BEPoint;
@@ -92,21 +104,29 @@ export interface BEWall {
   heightInches: number;
   /** Label (e.g. "A", "B", "North") */
   label?: string;
-  /** Wall surface finish to install: paint or tile (default paint) */
+  /**
+   * Tile on the wall today, which comes off before the new finish goes on
+   * (drives the tile-demo line item); the rest is drywall. Once set it
+   * replaces existingFinish and its band.
+   */
+  existingTileRegions?: BEWallTileRegion[];
+  /**
+   * Tile to install; the rest is painted drywall. Once set it replaces
+   * `finish`.
+   */
+  tileRegions?: BEWallTileRegion[];
+  /**
+   * Older whole-wall form of tileRegions: paint or tile (default paint).
+   * Read through wallFinish.ts, which turns it into regions.
+   */
   finish?: WallFinish;
   /**
-   * Current/existing wall material, if not standard drywall (default drywall).
-   * When 'tile', the wall is already tiled and that tile must be demoed
-   * before any new finish can go on — drives an automatic tile-demo line item.
+   * Older whole-length form of existingTileRegions: 'tile' means the wall is
+   * tiled along its whole length, between existingTileFromInches and
+   * existingTileToInches up from the floor (both omitted = full height).
+   * Read through wallFinish.ts, which turns it into a region.
    */
   existingFinish?: ExistingWallFinish;
-  /**
-   * Vertical band (in inches, measured from the floor) covered by the
-   * existing tile. Only meaningful when existingFinish='tile'. Both omitted
-   * or 0 means the tile covers the full wall height (heightInches).
-   * Examples: {to: 36} = wainscot from the floor; {from: 24, to: 96} = a
-   * band starting 24" up (e.g. tile above a chair rail, drywall below).
-   */
   existingTileFromInches?: number;
   existingTileToInches?: number;
 }

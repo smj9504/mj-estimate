@@ -51,6 +51,7 @@ import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import BETileCalculationPanel from './BETileCalculationPanel';
 import BEDrywallRepairPanel from './BEDrywallRepairPanel';
 import BEInsulationPanel from './BEInsulationPanel';
+import BEWallFinishEditor from './BEWallFinishEditor';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -1177,65 +1178,13 @@ const WallPropertiesPanel: React.FC<{ wall: BEWall; ppf: number; api: BESketchSt
         </div>
       </div>
 
-      <div style={{ marginBottom: 8 }}>
-        <Text type="secondary">Finish (to install):</Text>
-        <Select
-          size="small"
-          value={wall.finish ?? 'paint'}
-          onChange={(v) => api.updateWall(wall.id, { finish: v })}
-          style={{ width: '100%', marginTop: 4 }}
-        >
-          <Option value="paint">🎨 Paint</Option>
-          <Option value="tile">🔲 Tile</Option>
-        </Select>
-      </div>
-
-      <div style={{ marginBottom: 8 }}>
-        <Text type="secondary">Existing Wall Material:</Text>
-        <Select
-          size="small"
-          value={wall.existingFinish ?? 'drywall'}
-          onChange={(v) => api.updateWall(wall.id, {
-            existingFinish: v === 'drywall' ? undefined : v,
-            existingTileFromInches: v === 'drywall' ? undefined : wall.existingTileFromInches,
-            existingTileToInches: v === 'drywall' ? undefined : wall.existingTileToInches,
-          })}
-          style={{ width: '100%', marginTop: 4 }}
-        >
-          <Option value="drywall">Drywall</Option>
-          <Option value="tile">🔲 Already tiled (needs demo)</Option>
-        </Select>
-      </div>
-
-      {wall.existingFinish === 'tile' && (
-        <div style={{ marginBottom: 8 }}>
-          <Text type="secondary">Existing tile band (in from floor):</Text>
-          <div style={{ display: 'flex', gap: 8, marginTop: 4, alignItems: 'center' }}>
-            <InputNumber
-              size="small"
-              placeholder="0"
-              value={wall.existingTileFromInches ?? undefined}
-              min={0}
-              max={wall.heightInches}
-              onChange={(v) => api.updateWall(wall.id, { existingTileFromInches: v ?? undefined })}
-              style={{ width: 70 }}
-            />
-            <Text type="secondary" style={{ fontSize: 11 }}>to</Text>
-            <InputNumber
-              size="small"
-              placeholder={`${wall.heightInches}`}
-              value={wall.existingTileToInches ?? undefined}
-              min={0}
-              max={wall.heightInches}
-              onChange={(v) => api.updateWall(wall.id, { existingTileToInches: v ?? undefined })}
-              style={{ width: 70 }}
-            />
-          </div>
-          <Text type="secondary" style={{ fontSize: 11 }}>
-            e.g. 0-36 for wainscot — blank both = full wall height
-          </Text>
-        </div>
-      )}
+      <BEWallFinishEditor
+        wall={wall}
+        ppf={ppf}
+        fixtures={api.data.fixtures}
+        rooms={api.data.rooms}
+        onChange={(patch) => api.updateWall(wall.id, patch)}
+      />
 
       <div style={{ marginBottom: 4 }}>
         <Text type="secondary">Label:</Text>
@@ -1251,19 +1200,6 @@ const WallPropertiesPanel: React.FC<{ wall: BEWall; ppf: number; api: BESketchSt
       <Divider style={{ margin: '6px 0' }} />
       <div style={{ fontSize: 11, color: '#8c8c8c' }}>
         Wall Area: <strong>{Math.round(lengthFt * (wall.heightInches / 12) * 10) / 10} SF</strong>
-        <Tag color={wall.finish === 'tile' ? 'blue' : 'default'} style={{ marginLeft: 6, fontSize: 10 }}>
-          {wall.finish === 'tile' ? 'Tile' : 'Paint'}
-        </Tag>
-        {wall.existingFinish === 'tile' && (() => {
-          const from = wall.existingTileFromInches ?? 0;
-          const to = wall.existingTileToInches ?? wall.heightInches;
-          const isFullHeight = from <= 0 && to >= wall.heightInches;
-          return (
-            <Tag color="volcano" style={{ marginLeft: 4, fontSize: 10 }}>
-              Existing tile {isFullHeight ? '(full ht)' : `(${from}-${to}in)`} — demo required
-            </Tag>
-          );
-        })()}
       </div>
     </div>
   );
