@@ -64,6 +64,15 @@ export type ProductUpdate = Partial<ProductFields> & {
   swatch_file_id?: string | null;
 };
 
+/** What an estimate keeps of a product it uses: a copy taken when it was chosen. */
+export type ProductSnapshot = Omit<ProductFields, 'specs' | 'description'> & {
+  product_id: string;
+  retailer: string;
+  image_file_ids: string[];
+  swatch_file_id?: string | null;
+  taken_at: string;
+};
+
 /** What was read off a listing, to check and save; nothing is stored yet. */
 export interface ProductDraft {
   fields: Partial<ProductFields>;

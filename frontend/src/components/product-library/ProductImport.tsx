@@ -14,7 +14,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Card, Col, Input, Modal, Row, Space, Typography, message } from 'antd';
+import { Alert, Button, Card, Col, Input, Modal, Row, Space, Spin, Typography, message } from 'antd';
 import { CameraOutlined, EditOutlined, LinkOutlined, ShoppingOutlined } from '@ant-design/icons';
 import { productLibraryService } from '../../services/productLibraryService';
 import type { ProductDraft } from '../../types/productLibrary';
@@ -22,16 +22,38 @@ import type { ProductDraft } from '../../types/productLibrary';
 /** What the library's page and the bookmarklet say to each other. */
 export const IMPORT_READY = 'mj-product-import-ready';
 export const IMPORT_PAGE = 'mj-product-import';
+/** First line of a product page copied to the clipboard by the bookmarklet; then its URL, then its HTML. */
+export const COPIED_PAGE_MARK = 'mj-product-page';
 
 /**
  * The bookmarklet: on a product page, opens the library (this app's origin)
  * and, once the library says it is ready, hands it the page's URL and HTML.
+ *
+ * A shop whose pages send Cross-Origin-Opener-Policy: same-origin cuts the
+ * two windows off from each other, and the library never says it's ready.
+ * Then a button on the shop's page copies the page to the clipboard, to
+ * paste into the library (readCopiedPage).
  */
 export function bookmarkletHref(appOrigin: string): string {
-  const code = `(()=>{var o=${JSON.stringify(appOrigin)},w=window.open(o+'/product-library?import=1','mj_product_import'),h=document.documentElement.outerHTML;if(h.length>5e6)h=h.slice(0,5e6);var f=function(e){if(e.source===w&&e.data===${JSON.stringify(
-    IMPORT_READY
-  )}){w.postMessage({type:${JSON.stringify(IMPORT_PAGE)},url:location.href,html:h},o);removeEventListener('message',f)}};addEventListener('message',f)})()`;
+  const q = JSON.stringify;
+  const code =
+    `(()=>{var o=${q(appOrigin)},h=document.documentElement.outerHTML,ok=0,b;if(h.length>5e6)h=h.slice(0,5e6);` +
+    `var w=window.open(o+'/product-library?import=1','mj_product_import');` +
+    `addEventListener('message',function f(e){if(e.source===w&&e.data===${q(IMPORT_READY)}){ok=1;if(b)b.remove();` +
+    `w.postMessage({type:${q(IMPORT_PAGE)},url:location.href,html:h},o);removeEventListener('message',f)}});` +
+    `setTimeout(function(){if(ok)return;b=document.createElement('button');` +
+    `b.textContent='MJ: copy this page, then paste it in MJ (Ctrl+V)';` +
+    `b.style.cssText='position:fixed;z-index:2147483647;top:16px;right:16px;padding:12px 16px;background:#1f74c9;color:#fff;border:0;border-radius:8px;font:600 14px sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.3);cursor:pointer';` +
+    `b.onclick=function(){navigator.clipboard.writeText(${q(COPIED_PAGE_MARK)}+'\\n'+location.href+'\\n'+h).then(function(){b.textContent='Copied. Paste it in MJ (Ctrl+V)';setTimeout(function(){b.remove()},5000)},function(){b.textContent='Could not copy. Use a screenshot instead'})};` +
+    `document.body.appendChild(b)},8000)})()`;
   return `javascript:${encodeURIComponent(code)}`;
+}
+
+/** A product page the bookmarklet copied to the clipboard, or null for anything else. */
+export function readCopiedPage(text: string): { url: string; html: string } | null {
+  // Windows' clipboard turns the line breaks into \r\n.
+  const head = /^mj-product-page\r?\n(https?:\/\/[^\r\n]+)\r?\n/.exec(text);
+  return head ? { url: head[1].trim(), html: text.slice(head[0].length) } : null;
 }
 
 export interface ProductImportProps {
@@ -45,7 +67,7 @@ const ProductImport: React.FC<ProductImportProps> = ({ open, onClose, onDraft })
   const [url, setUrl] = useState('');
   const [shot, setShot] = useState<{ blob: Blob; preview: string } | null>(null);
   const [shotUrl, setShotUrl] = useState('');
-  const [reading, setReading] = useState<'url' | 'shot' | null>(null);
+  const [reading, setReading] = useState<'url' | 'shot' | 'page' | null>(null);
   const [blockedNote, setBlockedNote] = useState<string | null>(null);
   const shotInput = useRef<HTMLInputElement>(null);
   const bookmarklet = useRef<HTMLAnchorElement>(null);
@@ -60,6 +82,18 @@ const ProductImport: React.FC<ProductImportProps> = ({ open, onClose, onDraft })
     if (!open) return;
     setBlockedNote(null);
     const onPaste = (e: ClipboardEvent) => {
+      // A shop's page the bookmarklet copied (when the shop cut the windows off)
+      const page = readCopiedPage(e.clipboardData?.getData('text/plain') ?? '');
+      if (page) {
+        e.preventDefault();
+        setReading('page');
+        productLibraryService
+          .readHtml(page.url, page.html)
+          .then(onDraft)
+          .catch((err: any) => message.error(err?.response?.data?.detail ?? 'The product page could not be read'))
+          .finally(() => setReading(null));
+        return;
+      }
       const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith('image/'));
       const blob = item?.getAsFile();
       if (blob) {
@@ -69,7 +103,7 @@ const ProductImport: React.FC<ProductImportProps> = ({ open, onClose, onDraft })
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [open]);
+  }, [open, onDraft]);
 
   const readUrl = async () => {
     if (!url.trim()) return;
@@ -148,6 +182,15 @@ const ProductImport: React.FC<ProductImportProps> = ({ open, onClose, onDraft })
               >
                 + MJ Product
               </a>
+              <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '10px 0 0' }}>
+                {reading === 'page' ? (
+                  <>
+                    <Spin size="small" /> Reading the pasted page…
+                  </>
+                ) : (
+                  <>Some shops keep the two windows apart: the bookmark then puts a “copy this page” button on the shop's page. Click it, come back here and paste (Ctrl+V).</>
+                )}
+              </Typography.Paragraph>
             </>,
             true
           )}
