@@ -108,6 +108,8 @@ export interface IngestionLog {
   file_name?: string;
   file_size?: number;
   file_content_type?: string;
+  /** What it was filed as on the claim; unset until confirmed. */
+  document_type?: string;
 }
 
 export type IngestionStatus =
@@ -123,6 +125,8 @@ export interface ManualAssignRequest {
   create_claim?: boolean;
   claim_number?: string;
   reviewed_by?: string;
+  /** A value from CLAIM_DOCUMENT_TYPES; only an insurance estimate makes a revision. */
+  document_type?: string;
 }
 
 export interface SkipRequest {

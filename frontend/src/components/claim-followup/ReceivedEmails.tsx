@@ -8,6 +8,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { emailIngestionService } from '../../services/emailIngestionService';
 import { fileService } from '../../services/fileService';
+import { getClaimDocumentType } from '../../constants/claimDocumentTypes';
 import type { IngestionLog, ReceivedEmail } from '../../types/emailIngestion';
 import type { ColumnsType } from 'antd/es/table';
 import ReceivedEmailBody from './ReceivedEmailBody';
@@ -63,6 +64,7 @@ const MATCH_LABELS: Record<string, string> = {
   address: 'Address',
   name: 'Name',
   manual: 'Manual',
+  same_email: 'Same email',
 };
 
 const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
@@ -208,21 +210,25 @@ const ReceivedEmails: React.FC<ReceivedEmailsProps> = ({ claimId }) => {
 
   const renderFiles = (files: IngestionLog[]) => files
     .filter((f) => f.file_id)
-    .map((f) => (
-      <Space key={f.id} size={6} style={{ display: 'flex', marginTop: 6 }}>
-        <PaperClipOutlined className="cl-meta" />
-        <span>{f.file_name || f.attachment_name}</span>
-        {f.file_size ? <span className="cl-meta">{formatSize(f.file_size)}</span> : null}
-        <Button
-          size="small"
-          type="text"
-          icon={<DownloadOutlined />}
-          onClick={() => window.open(fileService.getInlineUrl(f.file_id!), '_blank')}
-        >
-          Open
-        </Button>
-      </Space>
-    ));
+    .map((f) => {
+      const docType = getClaimDocumentType(f.document_type);
+      return (
+        <Space key={f.id} size={6} style={{ display: 'flex', marginTop: 6 }}>
+          <PaperClipOutlined className="cl-meta" />
+          {docType && <Pill tone={docType.tone}>{docType.label}</Pill>}
+          <span>{f.file_name || f.attachment_name}</span>
+          {f.file_size ? <span className="cl-meta">{formatSize(f.file_size)}</span> : null}
+          <Button
+            size="small"
+            type="text"
+            icon={<DownloadOutlined />}
+            onClick={() => window.open(fileService.getInlineUrl(f.file_id!), '_blank')}
+          >
+            Open
+          </Button>
+        </Space>
+      );
+    });
 
   return (
     <Table<Row>

@@ -3,7 +3,7 @@ Email Ingestion Pydantic schemas for API request/response.
 """
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -141,9 +141,31 @@ class IngestionLogResponse(BaseModel):
     file_name: Optional[str] = None
     file_size: Optional[int] = None
     file_content_type: Optional[str] = None
+    # What the reviewer filed the attachment as - the stored file's category
+    # once confirmed, None while it is still pending
+    document_type: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+# What a confirmed attachment is to its claim. Only the carrier's estimate
+# becomes a negotiation revision; the rest are filed on the claim as-is.
+# Mirrored by frontend/src/constants/claimDocumentTypes.ts.
+ClaimDocumentType = Literal[
+    "insurance-estimate",
+    "scope-of-loss",
+    "carrier-letter",
+    "proof-of-loss",
+    "photo-report",
+    "sketch",
+    "report",
+    "contract",
+    "invoice",
+    "other",
+]
+
+ESTIMATE_DOCUMENT_TYPE = "insurance-estimate"
 
 
 class ManualAssignRequest(BaseModel):
@@ -152,6 +174,7 @@ class ManualAssignRequest(BaseModel):
     create_claim: bool = False
     claim_number: Optional[str] = None
     reviewed_by: Optional[str] = None
+    document_type: ClaimDocumentType = ESTIMATE_DOCUMENT_TYPE
 
 
 class SkipRequest(BaseModel):

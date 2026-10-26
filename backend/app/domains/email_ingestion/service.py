@@ -11,12 +11,17 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from cryptography.fernet import Fernet
 
 from app.core.config import settings
+from app.domains.email_ingestion.schemas import ESTIMATE_DOCUMENT_TYPE
 
 logger = logging.getLogger(__name__)
 
 # Encryption key for email passwords
 # Generate once: Fernet.generate_key() and store in env
 _ENCRYPTION_KEY = getattr(settings, "EMAIL_ENCRYPTION_KEY", None)
+
+# Category of a stored attachment awaiting review; confirming it replaces
+# this with the document type the reviewer chose.
+PENDING_FILE_CATEGORY = "pending-estimate"
 
 
 _BOUNCE_SENDER_PATTERN = re.compile(
@@ -1264,7 +1269,7 @@ class EmailIngestionService:
                 content_type="application/pdf",
                 context="email-ingestion",
                 context_id=account_id,
-                category="pending-estimate",
+                category=PENDING_FILE_CATEGORY,
                 description=f"Email ingestion pending review: {fetched_email.subject}",
             )
             file_service.repository.session.commit()
@@ -1351,6 +1356,24 @@ class EmailIngestionService:
 
         return file_id, str(neg_result.get("id", ""))
 
+    def _file_claim_document(self, session, claim_id, file_id: str, document_type: str) -> str:
+        """Attach a stored PDF to a claim as `document_type`, with no revision.
+
+        Only the carrier's estimate is a negotiation revision. A photo report
+        or a denial letter that came in the same email belongs on the claim
+        too, but must not bump its revision number or move it to negotiating.
+        """
+        from app.domains.file.models import File
+
+        file_record = session.query(File).filter(File.id == file_id).first()
+        if not file_record:
+            raise ValueError(f"Expected file {file_id} not found")
+        file_record.context = "claim-document"
+        file_record.context_id = claim_id
+        file_record.category = document_type
+        session.flush()
+        return file_record.id
+
     # ============================================================
     # Log Management
     # ============================================================
@@ -1391,6 +1414,11 @@ class EmailIngestionService:
                         log["file_name"] = f.original_name
                         log["file_size"] = f.size
                         log["file_content_type"] = f.content_type
+                        # Confirming files the PDF under its document type
+                        if f.category and f.category != PENDING_FILE_CATEGORY:
+                            log["document_type"] = f.category
+
+            self._suggest_from_siblings(session, logs)
 
             # Enrich with client/claim names
             for log in logs:
@@ -1420,6 +1448,61 @@ class EmailIngestionService:
         finally:
             session.close()
 
+    def _suggest_from_siblings(self, session, logs: List[Dict[str, Any]]) -> None:
+        """Give a pending attachment the client/claim its email belongs to.
+
+        Each attachment is matched on its own text, so in a multi-file email
+        usually only one finds the client; a photo report or a sketch named
+        for the address comes back unmatched, and confirming it meant finding
+        the client all over again. It belongs where its sibling does - and,
+        once a sibling has been confirmed, where the reviewer put that one,
+        including a claim created on that confirm. Worked out at read time so
+        it follows confirmations as they happen. Only gaps are filled: an
+        attachment's own match to a different client is left alone.
+        """
+        from app.domains.email_ingestion.models import EmailIngestionLog
+
+        open_logs = [
+            log for log in logs
+            if log.get("status") == "pending" and log.get("message_id")
+        ]
+        if not open_logs:
+            return
+
+        siblings = session.query(EmailIngestionLog).filter(
+            EmailIngestionLog.message_id.in_({log["message_id"] for log in open_logs}),
+            EmailIngestionLog.matched_client_id.isnot(None),
+        ).all()
+
+        def rank(row):
+            return (
+                row.status == "uploaded",
+                row.matched_claim_id is not None,
+                row.match_confidence or 0,
+            )
+
+        # Same message in another mailbox may belong to another company
+        best: Dict[Tuple[str, str], Any] = {}
+        for row in siblings:
+            key = (str(row.email_account_id), row.message_id)
+            if key not in best or rank(row) > rank(best[key]):
+                best[key] = row
+
+        for log in open_logs:
+            row = best.get((str(log["email_account_id"]), log["message_id"]))
+            if row is None or str(row.id) == str(log["id"]):
+                continue
+            if not log.get("matched_client_id"):
+                log["matched_client_id"] = row.matched_client_id
+                log["matched_claim_id"] = row.matched_claim_id
+                log["match_method"] = "same_email"
+                log["match_confidence"] = row.match_confidence
+            elif (
+                not log.get("matched_claim_id")
+                and str(log["matched_client_id"]) == str(row.matched_client_id)
+            ):
+                log["matched_claim_id"] = row.matched_claim_id
+
     def get_pending_logs(self, scope=None) -> List[Dict[str, Any]]:
         """Get logs needing manual review"""
         return self.get_logs(status="pending", scope=scope)
@@ -1435,8 +1518,9 @@ class EmailIngestionService:
             session.close()
 
     def manual_assign(self, log_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Manually assign a pending log to a client/claim, then actually
-        upload the previously-stored PDF and create the ClaimNegotiation."""
+        """Manually assign a pending log to a client/claim and file the
+        previously-stored PDF on it as data["document_type"]. An insurance
+        estimate also creates the ClaimNegotiation revision."""
         from types import SimpleNamespace
 
         session = self._get_session()
@@ -1458,6 +1542,7 @@ class EmailIngestionService:
             client_id = str(data["client_id"])
             claim_id = data.get("claim_id")
             reviewed_by = data.get("reviewed_by")
+            document_type = data.get("document_type") or ESTIMATE_DOCUMENT_TYPE
 
             # Create claim if requested
             claim_created = False
@@ -1493,13 +1578,19 @@ class EmailIngestionService:
             )
 
             try:
-                file_id, negotiation_id = self._upload_and_create_negotiation(
-                    session,
-                    claim_id,
-                    attachment=None,
-                    fetched_email=fetched_email_stub,
-                    existing_file_id=log.file_id,
-                )
+                if document_type == ESTIMATE_DOCUMENT_TYPE:
+                    file_id, negotiation_id = self._upload_and_create_negotiation(
+                        session,
+                        claim_id,
+                        attachment=None,
+                        fetched_email=fetched_email_stub,
+                        existing_file_id=log.file_id,
+                    )
+                else:
+                    file_id = self._file_claim_document(
+                        session, claim_id, log.file_id, document_type
+                    )
+                    negotiation_id = None
             except Exception as e:
                 logger.error(f"manual_assign failed to finalize negotiation for log {log_id}: {e}")
                 log.status = "failed"
@@ -1521,7 +1612,9 @@ class EmailIngestionService:
 
             session.commit()
 
-            return log_repo._convert_to_dict(log)
+            result = log_repo._convert_to_dict(log)
+            result["document_type"] = document_type
+            return result
         except Exception as e:
             session.rollback()
             raise

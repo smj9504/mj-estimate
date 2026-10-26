@@ -39,6 +39,12 @@ import { emailIngestionService } from '../services/emailIngestionService';
 import { fileService } from '../services/fileService';
 import { clientService, claimService } from '../services/clientService';
 import ReceivedInbox from '../components/claim-followup/ReceivedInbox';
+import {
+  CLAIM_DOCUMENT_TYPES,
+  ESTIMATE_DOCUMENT_TYPE,
+  getClaimDocumentType,
+  guessClaimDocumentType,
+} from '../constants/claimDocumentTypes';
 import type { IngestionLog, IngestionStats, EmailAccount } from '../types/emailIngestion';
 import type { ClientListItem, Claim } from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
@@ -62,6 +68,15 @@ const STATUS_COLORS: Record<string, string> = {
   skipped: 'default',
   failed: 'red',
   duplicate: 'purple',
+};
+
+// same_email: unmatched on its own, suggested from another attachment on the email
+const matchLabel = (method: string) => (method === 'same_email' ? 'same email' : method);
+
+/** The filed document type as a tag, or nothing while it is pending. */
+const documentTypeTag = (log: IngestionLog) => {
+  const type = getClaimDocumentType(log.document_type);
+  return type ? <Tag>{type.label}</Tag> : null;
 };
 
 const EmailIngestionDashboard: React.FC = () => {
@@ -113,6 +128,22 @@ const EmailIngestionDashboard: React.FC = () => {
     queryFn: () => clientService.search(clientSearch, 20),
     enabled: clientSearch.length >= 2,
   });
+  // The suggested client, kept as an option of its own: a name search can
+  // return other clients first, and the Select then showed a bare uuid.
+  const [presetClient, setPresetClient] = useState<{ id: string; label: string } | null>(null);
+  const clientOptions = React.useMemo(() => {
+    const found: ClientListItem[] = (clientResults as any)?.clients ?? [];
+    const options = found.map((c) => ({
+      value: c.id,
+      label: `${c.display_name}${c.address ? ` - ${c.address}` : ''}`,
+    }));
+    if (presetClient && !options.some((o) => o.value === presetClient.id)) {
+      options.unshift({ value: presetClient.id, label: presetClient.label });
+    }
+    return options;
+  }, [clientResults, presetClient]);
+  const documentType: string | undefined = Form.useWatch('document_type', assignForm);
+  const isEstimate = documentType === ESTIMATE_DOCUMENT_TYPE;
 
   // Existing-claim lookup, once a client is chosen and "select existing claim" is toggled on
   const [assignClientId, setAssignClientId] = useState<string | undefined>(undefined);
@@ -125,22 +156,37 @@ const EmailIngestionDashboard: React.FC = () => {
   // Open the confirm dialog seeded with whatever the matcher already worked
   // out. Polling only ever suggests a client/claim now, so without this the
   // reviewer would have to re-find a client the backend had already located.
-  // Still a suggestion: every field stays editable.
+  // An attachment that matched nothing on its own arrives carrying its
+  // email's match (backend _suggest_from_siblings). Still a suggestion:
+  // every field stays editable.
   const openAssignModal = (log: IngestionLog) => {
     setSelectedLog(log);
     setAssignClientId(log.matched_client_id || undefined);
     if (log.matched_client_id && log.client_name) {
-      // Seed the search so the preselected client renders as a label rather
-      // than a bare uuid - the Select's options come from the search query.
+      // Seed the search too, so the other results are this client's namesakes
       setClientSearch(log.client_name);
+      setPresetClient({
+        id: log.matched_client_id,
+        label: `${log.client_name}${log.client_address ? ` - ${log.client_address}` : ''}`,
+      });
+    } else {
+      setPresetClient(null);
     }
     assignForm.setFieldsValue({
       client_id: log.matched_client_id || undefined,
       create_claim: !log.matched_claim_id,
       claim_id: log.matched_claim_id || undefined,
       claim_number: undefined,
+      document_type: guessClaimDocumentType(log.attachment_name, log.is_insurance_estimate),
     });
     setAssignModalOpen(true);
+  };
+
+  const closeAssignModal = () => {
+    setAssignModalOpen(false);
+    assignForm.resetFields();
+    setAssignClientId(undefined);
+    setPresetClient(null);
   };
 
   // Mutations
@@ -162,10 +208,13 @@ const EmailIngestionDashboard: React.FC = () => {
   const assignMutation = useMutation({
     mutationFn: ({ logId, payload }: { logId: string; payload: any }) =>
       emailIngestionService.assignLog(logId, payload),
-    onSuccess: () => {
-      message.success('Log assigned successfully');
-      setAssignModalOpen(false);
-      assignForm.resetFields();
+    onSuccess: (log) => {
+      message.success(
+        log.document_type === ESTIMATE_DOCUMENT_TYPE
+          ? 'Added to the claim as a new estimate revision'
+          : `Filed on the claim as ${getClaimDocumentType(log.document_type)?.label ?? 'a document'}`
+      );
+      closeAssignModal();
       queryClient.invalidateQueries({ queryKey: ['email-ingestion-logs'] });
       queryClient.invalidateQueries({ queryKey: ['email-ingestion-stats'] });
     },
@@ -243,6 +292,12 @@ const EmailIngestionDashboard: React.FC = () => {
       ),
     },
     {
+      title: 'Filed as',
+      key: 'document_type',
+      width: 170,
+      render: (_: any, r: IngestionLog) => documentTypeTag(r) ?? <Text type="secondary">-</Text>,
+    },
+    {
       title: 'Why',
       key: 'reason',
       ellipsis: true,
@@ -272,7 +327,7 @@ const EmailIngestionDashboard: React.FC = () => {
           )}
           {record.status === 'pending' && (
             <>
-              <Tooltip title="Confirm & create revision">
+              <Tooltip title="Confirm & file to claim">
                 <Button
                   size="small"
                   type="primary"
@@ -374,6 +429,8 @@ const EmailIngestionDashboard: React.FC = () => {
               {status.toUpperCase()}{n > 1 ? ` ×${n}` : ''}
             </Tag>
           ))}
+          {/* Multi-file emails show this per file once expanded */}
+          {r.attachments.length === 1 && documentTypeTag(r.attachments[0])}
         </Space>
       ),
     },
@@ -403,7 +460,7 @@ const EmailIngestionDashboard: React.FC = () => {
       width: 100,
       render: (_: any, r: EmailRow) => r.head.match_method ? (
         <Tooltip title={`Confidence: ${r.head.match_confidence}%`}>
-          <Tag>{r.head.match_method}</Tag>
+          <Tag>{matchLabel(r.head.match_method)}</Tag>
         </Tooltip>
       ) : null,
     },
@@ -432,7 +489,7 @@ const EmailIngestionDashboard: React.FC = () => {
                 />
               </Tooltip>
             )}
-            <Tooltip title="Confirm & create revision">
+            <Tooltip title="Confirm & file to claim">
               <Button
                 size="small"
                 type="primary"
@@ -632,8 +689,9 @@ const EmailIngestionDashboard: React.FC = () => {
       <Modal
         title="Assign to Client / Claim"
         open={assignModalOpen}
-        onCancel={() => { setAssignModalOpen(false); assignForm.resetFields(); setAssignClientId(undefined); }}
+        onCancel={closeAssignModal}
         onOk={() => assignForm.submit()}
+        okText={isEstimate ? 'Create revision' : 'File to claim'}
         confirmLoading={assignMutation.isPending}
       >
         <Form
@@ -667,28 +725,42 @@ const EmailIngestionDashboard: React.FC = () => {
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     Suggested match: {selectedLog.client_name || 'unknown client'}
                     {selectedLog.claim_number ? ` / ${selectedLog.claim_number}` : ''}
-                    {' '}({selectedLog.match_method}, {selectedLog.match_confidence}%)
+                    {selectedLog.match_method === 'same_email'
+                      ? ' (from another attachment on this email)'
+                      : ` (${selectedLog.match_method}, ${selectedLog.match_confidence}%)`}
                     {' — check the PDF before confirming.'}
                   </Text>
                 </>
               )}
             </div>
           )}
+          <Form.Item
+            name="document_type"
+            label="Document type"
+            rules={[{ required: true, message: 'Choose what this document is' }]}
+            extra={documentType && (isEstimate
+              ? 'Adds a new estimate revision to the claim.'
+              : 'Filed on the claim; no estimate revision is created.')}
+          >
+            <Select
+              placeholder="What is this document?"
+              options={CLAIM_DOCUMENT_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+            />
+          </Form.Item>
           <Form.Item name="client_id" label="Client" rules={[{ required: true }]}>
             <Select
               showSearch
               placeholder="Search client..."
               filterOption={false}
               onSearch={setClientSearch}
-              onChange={(value) => setAssignClientId(value)}
+              onChange={(value) => {
+                setAssignClientId(value);
+                // A claim picked for the previous client is not this one's
+                assignForm.setFieldValue('claim_id', undefined);
+              }}
               notFoundContent={clientSearch.length < 2 ? 'Type to search...' : 'No clients found'}
-            >
-              {(clientResults as any)?.clients?.map((c: ClientListItem) => (
-                <Select.Option key={c.id} value={c.id}>
-                  {c.display_name} {c.address ? `- ${c.address}` : ''}
-                </Select.Option>
-              ))}
-            </Select>
+              options={clientOptions}
+            />
           </Form.Item>
           <Form.Item name="create_claim" label="Claim Action" valuePropName="checked" initialValue={true}>
             <Switch checkedChildren="Create new claim" unCheckedChildren="Select existing claim" />
