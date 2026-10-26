@@ -12,6 +12,7 @@ from app.core.database_factory import get_db
 from app.domains.auth.company_scope import (
     company_ids,
     document_condition,
+    home_company_ids,
     require_document,
 )
 from app.domains.auth.dependencies import get_current_user, require_admin
@@ -62,7 +63,8 @@ def _issuing_company(db, staff) -> Optional[str]:
     primary = getattr(staff, "company_id", None)
     if primary and str(primary) in ids:
         return str(primary)
-    return ids[0] if len(ids) == 1 else None
+    home = home_company_ids(db, staff)
+    return home[0] if len(home) == 1 else None
 
 
 @router.post("/calculate", response_model=PackCalculationResult)

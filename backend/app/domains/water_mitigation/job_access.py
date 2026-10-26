@@ -16,6 +16,7 @@ from app.core.database_factory import get_db_session
 from app.domains.auth.company_scope import (
     company_ids,
     document_condition,
+    home_company_ids,
     require_document,
     sees_everything,
 )
@@ -125,8 +126,9 @@ def company_for_new_job(db: Any, staff: Any, company_id: Any):
                 detail="You can only create jobs for your own company.",
             )
         return company_id
-    if len(ids) == 1:
-        return UUID(ids[0])
+    home = home_company_ids(db, staff)
+    if len(home) == 1:
+        return UUID(home[0])
     if not ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

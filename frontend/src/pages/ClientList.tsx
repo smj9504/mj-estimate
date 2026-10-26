@@ -361,7 +361,8 @@ const ClientList: React.FC = () => {
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const { user } = useAuth();
   // Outside admin roles a person sees only their companies' clients
-  const noCompany = !!user && !['admin', 'super_admin'].includes(user.role) && !(user.company_ids?.length);
+  const noCompany = !!user && !['admin', 'super_admin'].includes(user.role)
+    && !user.all_companies && !(user.company_ids?.length);
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();

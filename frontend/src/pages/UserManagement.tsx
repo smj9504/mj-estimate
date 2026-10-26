@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Table, Button, Card, Typography, Space, Modal, Form, Input, Select,
-  Tag, message, Popconfirm, Switch, Tooltip, Tabs, Radio, Divider, Alert
+  Tag, message, Popconfirm, Switch, Tooltip, Tabs, Radio, Divider, Alert, Checkbox
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, LockOutlined, UserOutlined,
@@ -53,6 +53,7 @@ interface User {
   screen_access: string[] | null;
   must_change_password?: boolean;
   company_ids?: string[];
+  all_companies?: boolean;
 }
 
 const UserManagement: React.FC = () => {
@@ -64,6 +65,7 @@ const UserManagement: React.FC = () => {
   const [resettingUser, setResettingUser] = useState<User | null>(null);
   const [form] = Form.useForm();
   const formRole: string | undefined = Form.useWatch('role', form);
+  const formAllCompanies: boolean | undefined = Form.useWatch('all_companies', form);
 
   const [screenSettings, setScreenSettings] = useState<ScreenSettings | null>(null);
   const [screenMode, setScreenMode] = useState<'role' | 'custom'>('role');
@@ -148,6 +150,7 @@ const UserManagement: React.FC = () => {
       staff_number: user.staff_number,
       role: user.role,
       company_ids: user.company_ids ?? [],
+      all_companies: !!user.all_companies,
       is_active: user.is_active,
       can_login: user.can_login
     });
@@ -174,10 +177,11 @@ const UserManagement: React.FC = () => {
           ...values,
           hire_date: new Date().toISOString()
         });
-        if (screen_access || values.company_ids?.length) {
+        if (screen_access || values.company_ids?.length || values.all_companies) {
           await authService.updateUser(created.id, {
             ...(screen_access ? { screen_access } : {}),
             company_ids: values.company_ids ?? [],
+            all_companies: !!values.all_companies,
           });
         }
         message.success('User created successfully');
@@ -275,6 +279,13 @@ const UserManagement: React.FC = () => {
       key: 'companies',
       render: (_: any, record: User) => {
         const ids = record.company_ids ?? [];
+        if (record.all_companies && !ADMIN_ROLES.includes(record.role)) {
+          return (
+            <Tooltip title="Sees every company's claims and cash jobs, including companies added later">
+              <Tag color="blue">All companies</Tag>
+            </Tooltip>
+          );
+        }
         if (ids.length === 0) {
           return ADMIN_ROLES.includes(record.role)
             ? <Text type="secondary">None</Text>
@@ -554,13 +565,24 @@ const UserManagement: React.FC = () => {
           </Form.Item>
 
           <Form.Item
-            name="company_ids"
             label="Companies"
             extra={formRole && ADMIN_ROLES.includes(formRole)
               ? 'Admins see every claim and cash job whatever their companies.'
-              : 'They see only the claims and cash jobs these companies work, and the documents on them.'}
+              : formAllCompanies
+                ? 'They see every company\'s claims and cash jobs, including companies added later. New claims and jobs they create start with the companies picked here.'
+                : 'They see only the claims and cash jobs these companies work, and the documents on them.'}
           >
-            <CompanyMultiSelect placeholder="No company" aria-label="Companies" />
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Form.Item name="all_companies" valuePropName="checked" initialValue={false} noStyle>
+                <Checkbox>All companies, including ones added later</Checkbox>
+              </Form.Item>
+              <Form.Item name="company_ids" noStyle>
+                <CompanyMultiSelect
+                  placeholder={formAllCompanies ? 'Companies new work starts with' : 'No company'}
+                  aria-label="Companies"
+                />
+              </Form.Item>
+            </Space>
           </Form.Item>
 
           <Divider orientation="left" plain>Screens</Divider>

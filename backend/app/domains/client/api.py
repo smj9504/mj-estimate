@@ -178,7 +178,8 @@ def create_client(
                 detail="You don't belong to a company yet. Ask an admin to add you to one.",
             )
         if not data.company_id or str(data.company_id) not in own_companies:
-            data.company_id = own_companies[0]
+            home = company_scope.home_company_ids(db, current_staff)
+            data.company_id = (home or own_companies)[0]
     try:
         client_dict = data.dict()
         # Convert owners to list of dicts
@@ -428,13 +429,15 @@ def get_latest_date_of_loss(
 def _checked_company_ids(db, staff, company_ids, creating: bool) -> List[str]:
     """The companies to put on a claim. Someone who isn't an admin has to keep
     one of their own on it, or they would lose the claim; a new claim with
-    none picked gets all of theirs."""
+    none picked gets the ones picked for them (never every company)."""
     ids = [str(c) for c in company_ids or []]
     own = company_scope.company_ids(db, staff)
     if own is None:
         return ids
     if not ids and creating:
-        ids = list(own)
+        ids = company_scope.home_company_ids(db, staff)
+        if not ids and own:
+            raise HTTPException(status_code=400, detail="Pick the companies working it")
     if not set(ids) & set(own):
         raise HTTPException(
             status_code=400,

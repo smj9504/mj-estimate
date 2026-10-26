@@ -260,3 +260,61 @@ def test_a_wm_company_lands_on_its_claim_once(env):
     names = [c['name'] for c in companies_by_claim(raw, [ids['sam_build']])[ids['sam_build']]]
     assert names == ['Rebuild Inc', 'Dry Out LLC']
     session.close()
+
+
+def test_a_person_in_every_company_sees_them_all_including_new_ones(env):
+    as_, ids, database = env
+    admin = as_('admin')
+    response = admin.put(f"/api/auth/staff/{ids['nobody']}", json={'all_companies': True})
+    assert response.status_code == 200, response.text
+    assert response.json()['all_companies'] is True
+    assert response.json()['company_ids'] == []
+    staff = {s['username']: s for s in admin.get('/api/auth/staff').json()}
+    assert staff['nobody']['all_companies'] is True and staff['alice']['all_companies'] is False
+    # Kim is on no company, so only admins see her
+    assert client_names(as_('nobody').get('/api/clients/')) == ['Lee New', 'Pat Shared', 'Sam Rebuild']
+
+    session = database.get_session()
+    roof_co = Company(name='Roof Co', company_type='roofing')
+    ines = Client(display_name='Ines Roof', owners=[])
+    session.add(roof_co)
+    session.add(ines)
+    session.flush()
+    roof_job = Claim(client_id=ines.id, claim_number='RF-1', status='open')
+    session.add(roof_job)
+    session.flush()
+    session.add(ClaimCompany(claim_id=roof_job.id, company_id=roof_co.id, role='reconstruction'))
+    session.commit()
+    session.close()
+    assert client_names(as_('nobody').get('/api/clients/')) == [
+        'Ines Roof', 'Lee New', 'Pat Shared', 'Sam Rebuild']
+    assert client_names(as_('alice').get('/api/clients/')) == ['Lee New', 'Pat Shared']
+
+    off = as_('admin').put(f"/api/auth/staff/{ids['nobody']}", json={'all_companies': None})
+    assert off.status_code == 200, off.text
+    assert off.json()['all_companies'] is False
+    assert client_names(as_('nobody').get('/api/clients/')) == []
+
+
+def test_new_work_of_someone_in_every_company_goes_to_their_picked_ones(env):
+    as_, ids, _ = env
+    as_('admin').put(f"/api/auth/staff/{ids['nobody']}", json={'all_companies': True})
+    path = f"/api/clients/{ids['pat']}/claims"
+    # Not onto every company at once
+    refused = as_('nobody').post(path, json={'client_id': ids['pat'], 'status': 'open'})
+    assert refused.status_code == 400
+
+    as_('admin').put(f"/api/auth/staff/{ids['nobody']}", json={'company_ids': [ids['build_co']]})
+    created = as_('nobody').post(path, json={'client_id': ids['pat'], 'status': 'open'})
+    assert created.status_code == 200, created.text
+    assert [c['id'] for c in created.json()['companies']] == [ids['build_co']]
+    client = as_('nobody').post('/api/clients/', json={'display_name': 'New Person', 'owners': []})
+    assert client.status_code == 200, client.text
+    assert client.json()['company_id'] == ids['build_co']
+
+
+def test_nobody_turns_on_every_company_for_themselves(env):
+    as_, ids, _ = env
+    as_('alice').put('/api/auth/me', json={'all_companies': True})
+    assert client_names(as_('alice').get('/api/clients/')) == ['Lee New', 'Pat Shared']
+    assert as_('alice').put(f"/api/auth/staff/{ids['alice']}", json={'all_companies': True}).status_code == 403

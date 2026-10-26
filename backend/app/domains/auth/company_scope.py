@@ -2,7 +2,8 @@
 Which claims, cash jobs, clients and documents a staff member may see.
 
 Admins see everything. Everyone else belongs to one or more companies
-(staff_companies) and sees:
+(staff_companies), or to every company including ones added later
+(staff.all_companies), and sees:
 - the claims and cash jobs one of their companies is assigned to
   (claim_companies), with everything on them;
 - the clients of those, and clients their company manages (clients.company_id)
@@ -56,8 +57,29 @@ def staff_company_ids(db: Any, staff_id: Any) -> List[str]:
     return [str(r[0]) for r in rows]
 
 
+def _in_all_companies(db: Any, staff_id: Any) -> bool:
+    # Read from the row, not the staff object: the auth cache doesn't carry it
+    from app.domains.staff.models import Staff
+
+    return bool(_session(db).query(Staff.all_companies).filter(
+        Staff.id == str(staff_id)
+    ).scalar())
+
+
 def company_ids(db: Any, staff: Any) -> Optional[List[str]]:
     """The staff member's companies, or None for an admin (no limit)"""
+    from app.domains.company.models import Company
+
+    if sees_everything(staff):
+        return None
+    if _in_all_companies(db, staff.id):
+        return [str(r[0]) for r in _session(db).query(Company.id).all()]
+    return staff_company_ids(db, staff.id)
+
+
+def home_company_ids(db: Any, staff: Any) -> Optional[List[str]]:
+    """The companies new work of theirs goes to when none is chosen: the ones
+    picked for them, even when they belong to every company. None for an admin."""
     if sees_everything(staff):
         return None
     return staff_company_ids(db, staff.id)

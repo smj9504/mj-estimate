@@ -14,6 +14,7 @@ from app.core.interfaces import DatabaseSession
 from app.domains.auth.company_scope import (
     company_ids,
     document_condition,
+    home_company_ids,
     require_document,
 )
 from app.domains.auth.dependencies import get_current_user
@@ -48,7 +49,8 @@ def _issuing_company(session, staff) -> Optional[str]:
     primary = getattr(staff, "company_id", None)
     if primary and str(primary) in ids:
         return str(primary)
-    return ids[0] if len(ids) == 1 else None
+    home = home_company_ids(session, staff)
+    return home[0] if len(home) == 1 else None
 
 
 @router.get("/material-orders/brands")

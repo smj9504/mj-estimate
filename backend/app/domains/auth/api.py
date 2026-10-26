@@ -174,6 +174,7 @@ def login(
         "screen_access": staff.screen_access,
         "screens": screen_access.effective_screens(db, staff),
         "company_ids": staff.company_ids,
+        "all_companies": bool(staff.all_companies),
         "must_change_password": bool(staff.must_change_password),
     }
 
@@ -219,7 +220,8 @@ def update_current_staff(
     # change codes go to it, so changing it here would let a signed-in
     # session send the code to any mailbox.
     update_data = staff_update.dict(exclude_unset=True)
-    restricted_fields = ['role', 'username', 'staff_number', 'screen_access', 'email', 'company_ids']
+    restricted_fields = ['role', 'username', 'staff_number', 'screen_access', 'email', 'company_ids',
+                         'all_companies']
     for field in restricted_fields:
         if field in update_data:
             del update_data[field]

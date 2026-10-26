@@ -41,6 +41,8 @@ class StaffUpdate(BaseModel):
     screen_access: Optional[List[str]] = None
     # Only admin can update: the companies whose claims and cash jobs they see
     company_ids: Optional[List[UUID]] = None
+    # Only admin can update: every company, including ones added later
+    all_companies: Optional[bool] = None
 
     @field_validator("screen_access")
     @classmethod
@@ -48,6 +50,11 @@ class StaffUpdate(BaseModel):
         if value is None:
             return value
         return validate_screen_keys(value)
+
+    @field_validator("all_companies")
+    @classmethod
+    def _null_means_off(cls, value):
+        return bool(value)
 
 
 class StaffInDB(StaffBase):
@@ -86,6 +93,9 @@ class StaffResponse(BaseModel):
     # Companies they belong to; outside admin roles they see only these
     # companies' claims and cash jobs
     company_ids: List[str] = []
+    # They belong to every company, including ones added later; company_ids
+    # are then where new work of theirs goes by default
+    all_companies: bool = False
     # An admin reset the password; the app asks for a new one before going on
     must_change_password: Optional[bool] = False
 

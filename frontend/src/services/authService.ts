@@ -124,6 +124,8 @@ class AuthService {
     screen_access?: string[] | null;
     // The companies whose claims and cash jobs they see
     company_ids?: string[];
+    // Every company, including ones added later
+    all_companies?: boolean;
   }) {
     const response = await api.put(`${API_BASE_URL}/staff/${userId}`, data);
     return response.data;

@@ -3,6 +3,7 @@ Staff user database models
 """
 
 from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, Enum, JSON, UniqueConstraint
+from sqlalchemy import false as sa_false
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -100,6 +101,9 @@ class Staff(Base):
     is_admin = Column(Boolean, default=False)
     can_login = Column(Boolean, default=True)
     email_verified = Column(Boolean, default=False)
+
+    # Belongs to every company, including ones added later (see auth/company_scope.py)
+    all_companies = Column(Boolean, default=False, nullable=False, server_default=sa_false())
 
     # Screens this person may open, as screen keys (see auth/screen_access.py).
     # NULL = follow the role's defaults in role_screen_access.

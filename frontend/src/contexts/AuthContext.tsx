@@ -27,6 +27,8 @@ export interface User {
   screens?: string[];
   // Companies they belong to; outside admin roles they see only these companies' claims and cash jobs
   company_ids?: string[];
+  // They belong to every company, including ones added later; company_ids are their defaults
+  all_companies?: boolean;
   // An admin reset the password; they choose their own before going on
   must_change_password?: boolean;
 }
