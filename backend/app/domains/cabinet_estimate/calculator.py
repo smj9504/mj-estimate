@@ -9,6 +9,20 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from .appliance_labor import appliance_pricing_dict
+from .selections import (
+    COUNTERTOP_DEPTH_IN,
+    COUNTERTOP_OVERAGE,
+    TILE_OVERAGE,
+    backsplash_install_type,
+    cabinet_kind,
+    clean_selections,
+    each_price,
+    lf_price,
+    product_name,
+    product_note,
+    sf_price,
+    with_handling,
+)
 from .rate_meta import Basis, resolve_basis
 from .pricing import (
     ANGLED_JOINT_PRICING,
@@ -127,6 +141,7 @@ def _calc_location_cabinets(
     include_toe_kick: bool,
     warnings: List[str],
     spec_mult: float = 1.0,
+    hardware_product: Optional[dict] = None,
 ) -> tuple[List[LineItem], float, float, int]:
     """Calculate cabinet supply/install items for a location.
 
@@ -134,6 +149,8 @@ def _calc_location_cabinets(
     multiplier plus the box material, finish and door style factors.
     `spec_mult` scales specialty premiums by tier; see
     SPECIALTY_PREMIUM_TIER_SCALE.
+    `hardware_product`, an option's chosen pull or knob, prices the hardware
+    supply at its own price instead of the mid-grade allowance.
     """
     line_items: List[LineItem] = []
     loc_label = "Island" if loc == "island" else ""
@@ -672,14 +689,30 @@ def _calc_location_cabinets(
             hw_install_unit = SCOPE_ITEMS[
                 "hardware_install_per_opening"
             ]
+            hw_description = f"{prefix}Cabinet Hardware (Knobs/Pulls)"
+            hw_notes = "Mid-grade brushed nickel"
+            if hardware_product:
+                hw_each = each_price(hardware_product)
+                if hw_each is not None:
+                    hw_supply_unit = with_handling(hw_each)
+                    hw_description = (
+                        f"{prefix}Cabinet Hardware - "
+                        f"{product_name(hardware_product)}"
+                    )
+                    hw_notes = product_note(
+                        hardware_product, "one per door and drawer front",
+                    )
+                elif loc == "perimeter":
+                    warnings.append(
+                        f"Hardware: {product_name(hardware_product)} isn't "
+                        f"priced per piece, so the hardware is quoted at the "
+                        f"mid-grade allowance."
+                    )
             hw_supply_total = round(
                 total_openings * hw_supply_unit, 2,
             )
             line_items.append(LineItem(
-                description=(
-                    f"{prefix}Cabinet Hardware "
-                    f"(Knobs/Pulls)"
-                ),
+                description=hw_description,
                 quantity=total_openings,
                 unit="EA",
                 unit_price=hw_supply_unit,
@@ -687,7 +720,7 @@ def _calc_location_cabinets(
                 material_share=MATERIAL_SHARE["cabinet_supply"],
                 category="supply",
                 location=loc,
-                notes="Mid-grade brushed nickel",
+                notes=hw_notes,
             ))
             hw_install_total = round(
                 total_openings * hw_install_unit, 2,
@@ -860,6 +893,11 @@ def calculate_estimate(
     overhead_pct: float = DEFAULT_OVERHEAD_PCT,
     profit_pct: float = DEFAULT_PROFIT_PCT,
     target_total: Optional[float] = None,
+    # An upgrade option's products from the library, by slot
+    # (selections.SLOTS). Each prices its material at the product's own
+    # price; our labor stays on the rate tables. Never passed for a
+    # restoration.
+    products: Optional[dict] = None,
 ) -> CalculationResult:
     """
     Main calculation: Box inputs -> LF-based estimate.
@@ -916,6 +954,44 @@ def calculate_estimate(
 
     spec_mult = SPECIALTY_PREMIUM_TIER_SCALE.get(tier, 1.0)
 
+    products = clean_selections(products)
+    product_lines: List[str] = []
+    cabinet_product = products.get("cabinets")
+    if cabinet_product:
+        # A cabinet line is sold box by box, so its price sets the level the
+        # whole cabinet supply is priced at: the product's price per foot
+        # over our tier's rate for the same kind of cabinet. It stands in
+        # for the region, material, finish and door multipliers, which the
+        # retail price already reflects.
+        kind = cabinet_kind(cabinet_product)
+        price_each = each_price(cabinet_product)
+        if kind == "tall" and price_each is not None:
+            product_rate = with_handling(price_each)
+            table_rate = rates["tall_each"]
+            rate_label = f"${product_rate:,.0f}/EA tall vs our ${table_rate:,.0f}"
+        else:
+            per_lf = lf_price(cabinet_product)
+            product_rate = with_handling(per_lf) if per_lf is not None else None
+            table_rate = rates["wall_lf" if kind == "wall" else "base_lf"]
+            rate_label = (
+                f"${product_rate:,.0f}/LF {kind} vs our ${table_rate:,.0f}"
+                if product_rate is not None else ""
+            )
+        if product_rate:
+            total_mult = round(product_rate / table_rate, 4)
+            product_lines.append(
+                f"Cabinets: {product_name(cabinet_product)} - supply priced "
+                f"at its level, {rate_label} {tier} rate "
+                f"(supply multiplier {total_mult:.2f})"
+            )
+        else:
+            warnings.append(
+                f"Cabinets: {product_name(cabinet_product)} has no price "
+                f"per cabinet with a width, or per linear foot, so cabinet "
+                f"supply stays at the {tier} rate."
+            )
+    hardware_product = products.get("cabinet_hardware")
+
     # ── 2. Split by location ──
     perimeter_boxes = [
         b for b in boxes if b.location != "island"
@@ -931,6 +1007,7 @@ def calculate_estimate(
             total_mult, include_install,
             include_hardware, include_crown_molding,
             include_toe_kick, warnings, spec_mult,
+            hardware_product,
         )
     )
     line_items.extend(p_items)
@@ -1002,6 +1079,7 @@ def calculate_estimate(
                 include_hardware,
                 False,  # no crown molding on island
                 include_toe_kick, warnings, spec_mult,
+                hardware_product,
             )
         )
         line_items.extend(i_items)
@@ -1234,6 +1312,35 @@ def calculate_estimate(
                 ),
             ))
 
+        # An option's chosen sink, at its own price, in every sink base.
+        sink_product = products.get("kitchen_sink")
+        if sink_product:
+            sink_each = each_price(sink_product)
+            if sink_each is None:
+                warnings.append(
+                    f"Sink: {product_name(sink_product)} isn't priced per "
+                    f"sink, so the stock sink allowance stays."
+                )
+            else:
+                sink_lines = []
+                product_w = sink_product.get("width_in") or 0
+                for base_w in sorted(sink_bases):
+                    sink_w, _, _ = sink_for_base(base_w)
+                    if product_w and product_w > sink_w + 0.5:
+                        warnings.append(
+                            f"Sink: {product_name(sink_product)} is "
+                            f"{product_w:g}\"W; a {base_w}\"W sink base takes "
+                            f"about {sink_w}\" - check it fits."
+                        )
+                    sink_lines.append((
+                        f"{product_name(sink_product)} - supply only",
+                        with_handling(sink_each),
+                        sink_bases[base_w],
+                        1.0,
+                        product_note(sink_product, f"in the {base_w}\"W sink base"),
+                    ))
+                product_lines.append(f"Sink: {product_name(sink_product)}")
+
         # Under-sink components, per sink: 1 P-trap, 2 supply lines,
         # 2 angle stops. Material share is the part's share of
         # part + marginal labor.
@@ -1247,13 +1354,29 @@ def calculate_estimate(
                 sink_count - 1, 0.0,
                 "Second and later sinks; trip already charged above",
             ))
+        faucet_line = (
+            "Pull-Down Kitchen Faucet "
+            "(Moen/Delta mid-range) - supply only",
+            SCOPE_ITEMS["faucet_supply"], 1 * sink_count, 1.0,
+            "One faucet per sink",
+        )
+        faucet_product = products.get("kitchen_faucet")
+        if faucet_product:
+            faucet_each = each_price(faucet_product)
+            if faucet_each is None:
+                warnings.append(
+                    f"Faucet: {product_name(faucet_product)} isn't priced "
+                    f"per faucet, so the mid-range faucet allowance stays."
+                )
+            else:
+                faucet_line = (
+                    f"{product_name(faucet_product)} - supply only",
+                    with_handling(faucet_each), 1 * sink_count, 1.0,
+                    product_note(faucet_product, "one per sink"),
+                )
+                product_lines.append(f"Faucet: {product_name(faucet_product)}")
         under_sink += [
-            (
-                "Pull-Down Kitchen Faucet "
-                "(Moen/Delta mid-range) - supply only",
-                SCOPE_ITEMS["faucet_supply"], 1 * sink_count, 1.0,
-                "One faucet per sink",
-            ),
+            faucet_line,
             (
                 "P-Trap Assembly (sink drain)",
                 SCOPE_ITEMS["p_trap_assembly"], 1 * sink_count, 0.56,
@@ -1403,7 +1526,55 @@ def calculate_estimate(
     ))
 
     # ── 7. Backsplash ──
+    backsplash_product = products.get("backsplash")
+    bs_product_sf = (
+        sf_price(backsplash_product) if backsplash_product else None
+    )
+    if backsplash_product and bs_product_sf is None:
+        warnings.append(
+            f"Backsplash: {product_name(backsplash_product)} has no price "
+            f"per sq ft, per box with its coverage, or per tile with its "
+            f"size, so the backsplash stays at the table rate."
+        )
     if (
+        include_backsplash
+        and backsplash_sqft
+        and backsplash_product
+        and bs_product_sf is not None
+    ):
+        # The chosen tile at its own price with overage, set at our rate
+        # for that kind of tile.
+        bs_type = backsplash_install_type(backsplash_product, backsplash_type)
+        bs_info = BACKSPLASH_TYPES.get(bs_type) or BACKSPLASH_TYPES["ceramic_tile"]
+        bs_sqft = round(backsplash_sqft, 2)
+        misc_per_sf = SCOPE_ITEMS["backsplash_misc_per_sf"]
+        bs_material = round(
+            with_handling(bs_product_sf) * TILE_OVERAGE + misc_per_sf, 2,
+        )
+        bs_combined_unit = round(bs_material + bs_info["install_per_sf"], 2)
+        line_items.append(LineItem(
+            description=(
+                f"Backsplash - {product_name(backsplash_product)} "
+                f"(supply + install)"
+            ),
+            quantity=bs_sqft,
+            unit="SF",
+            unit_price=bs_combined_unit,
+            total=round(bs_sqft * bs_combined_unit, 2),
+            material_share=round(bs_material / bs_combined_unit, 4),
+            category="backsplash",
+            location="perimeter",
+            notes=product_note(
+                backsplash_product,
+                f"{(TILE_OVERAGE - 1) * 100:.0f}% overage; set as "
+                f"{bs_info['label'].lower()}; grout, thinset, tape",
+            ),
+        ))
+        product_lines.append(
+            f"Backsplash: {product_name(backsplash_product)} "
+            f"({bs_sqft:g} SF)"
+        )
+    elif (
         include_backsplash
         and backsplash_type
         and backsplash_sqft
@@ -1446,7 +1617,55 @@ def calculate_estimate(
             ))
 
     # ── 8. Countertop (perimeter) ──
-    if include_countertop and countertop_sqft:
+    # An option's chosen top: its own price per SF (with overage) as the
+    # material, our fabrication, template and install as the labor - the
+    # labor share of the table rate for its material.
+    countertop_product = products.get("countertop")
+    ct_product_sf = (
+        sf_price(countertop_product, COUNTERTOP_DEPTH_IN)
+        if countertop_product else None
+    )
+    if countertop_product and ct_product_sf is None:
+        warnings.append(
+            f"Countertop: {product_name(countertop_product)} has no price "
+            f"per sq ft, per linear foot, or per piece with its size, so "
+            f"the countertop stays at the table rate."
+        )
+
+    def _product_countertop_line(sqft: float, table_material: Optional[str], loc: str) -> LineItem:
+        mat = table_material or "Quartz"
+        table_rate = COUNTERTOP_MATERIALS.get(mat, {"rate": 90})["rate"]
+        labor = round(table_rate * (1 - MATERIAL_SHARE["countertop"]), 2)
+        material = round(with_handling(ct_product_sf) * COUNTERTOP_OVERAGE, 2)
+        unit = round(material + labor, 2)
+        return LineItem(
+            description=(
+                f"{'Island ' if loc == 'island' else ''}Countertop - "
+                f"{product_name(countertop_product)} (supply + install)"
+            ),
+            quantity=round(sqft, 2),
+            unit="SF",
+            unit_price=unit,
+            total=round(round(sqft, 2) * unit, 2),
+            material_share=round(material / unit, 4),
+            category="countertop",
+            location=loc,
+            notes=product_note(
+                countertop_product,
+                f"{(COUNTERTOP_OVERAGE - 1) * 100:.0f}% overage; our "
+                f"fabrication, template and install at ${labor:,.2f}/SF",
+            ),
+        )
+
+    if include_countertop and countertop_sqft and ct_product_sf is not None:
+        line_items.append(_product_countertop_line(
+            countertop_sqft, countertop_material, "perimeter",
+        ))
+        product_lines.append(
+            f"Countertop: {product_name(countertop_product)} "
+            f"({countertop_sqft:g} SF)"
+        )
+    elif include_countertop and countertop_sqft:
         ct_mat = countertop_material or "Laminate"
         ct_info = COUNTERTOP_MATERIALS.get(
             ct_mat, {"rate": 35, "label": ct_mat},
@@ -1470,7 +1689,13 @@ def calculate_estimate(
         ))
 
     # ── 8b. Countertop (island, custom build only) ──
-    if include_countertop and island_countertop_sqft and not is_prefab:
+    if (include_countertop and island_countertop_sqft and not is_prefab
+            and ct_product_sf is not None):
+        line_items.append(_product_countertop_line(
+            island_countertop_sqft,
+            island_countertop_material or countertop_material, "island",
+        ))
+    elif include_countertop and island_countertop_sqft and not is_prefab:
         ict_mat = island_countertop_material or "Laminate"
         ict_info = COUNTERTOP_MATERIALS.get(
             ict_mat, {"rate": 35, "label": ict_mat},
@@ -2101,6 +2326,29 @@ def calculate_estimate(
             f"Target total: ${target_total:,.2f} "
             f"(adjusted)"
         )
+    # Products chosen for scope that isn't on: nothing to price them in
+    for slot, on, label in (
+        ("cabinet_hardware", include_hardware, "the hardware"),
+        ("countertop", include_countertop and bool(countertop_sqft), "the countertop (with its sq ft)"),
+        ("backsplash", include_backsplash and bool(backsplash_sqft), "the backsplash (with its sq ft)"),
+        ("kitchen_sink", include_plumbing, "the plumbing"),
+        ("kitchen_faucet", include_plumbing, "the plumbing"),
+    ):
+        if products.get(slot) and not on:
+            warnings.append(
+                f"{product_name(products[slot])} is chosen, but "
+                f"{label} isn't in the scope, so it isn't priced."
+            )
+    if products.get("cabinet_hardware") and include_hardware:
+        product_lines.append(
+            f"Hardware: {product_name(products['cabinet_hardware'])}"
+        )
+    if product_lines:
+        methodology_lines.append(
+            "Products (retail price + "
+            f"{(with_handling(100) - 100):.0f}% handling; our labor):"
+        )
+        methodology_lines.extend(f"  {line}" for line in product_lines)
     methodology = "\n".join(methodology_lines)
 
     return CalculationResult(

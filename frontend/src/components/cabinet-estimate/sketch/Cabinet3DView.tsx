@@ -57,6 +57,7 @@ import {
 import { WALL_HEIGHT_IN, buildCabinetScene, cabinetIdOf, cutAwayWalls, disposeScene } from './cabinet3dScene';
 import { RAY_SAMPLES, RAY_SHOW_SAMPLES, disposeRayTracer, hasWebGPU, loadRayTracer } from './rayTracer';
 import type { RayTracer } from './rayTracer';
+import type { ProductSurfaces } from './productLook';
 
 const BACKGROUND = '#f7f7f5';
 const REALISTIC_BACKGROUND = '#e7e4de';
@@ -260,6 +261,8 @@ export interface Cabinet3DViewProps {
   islandSeatingIn?: number;
   /** Draw the realistic look, in this finish; absent for the drawing look. */
   finish?: CabinetSketchFinish | null;
+  /** An option's chosen products over the finish, in the realistic look (productLook.ts). */
+  surfaces?: ProductSurfaces | null;
   /** On show. Kept mounted while hidden, so the ray tracer needn't start over; it rests meanwhile. */
   active?: boolean;
   selectedIds: Set<string>;
@@ -312,6 +315,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
     height,
     islandSeatingIn = 0,
     finish = null,
+    surfaces = null,
     active = true,
     selectedIds,
     onSelect,
@@ -589,7 +593,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
       disposeScene(stage.content);
     }
     setLook(stage, !!finish);
-    stage.content = buildCabinetScene(solids, wallModels, selectedIds, { ...extras, finish });
+    stage.content = buildCabinetScene(solids, wallModels, selectedIds, { ...extras, finish, surfaces });
     stage.scene.add(stage.content);
     stage.traceStale = true;
 
@@ -618,7 +622,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
     } else {
       stage.render();
     }
-  }, [solids, wallModels, extras, selectedIds, finish, frameView, stageVersion]);
+  }, [solids, wallModels, extras, selectedIds, finish, surfaces, frameView, stageVersion]);
 
   // Ray tracing: loaded the first time the realistic look wants it, then
   // switched on and off with the look, the toggle and the view's showing.

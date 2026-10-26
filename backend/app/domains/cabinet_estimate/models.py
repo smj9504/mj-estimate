@@ -30,8 +30,23 @@ class CabinetEstimate(Base, BaseModel):
         Index("ix_cabinet_estimates_claim_id", "claim_id"),
         Index("ix_cabinet_estimates_company_id", "company_id"),
         Index("ix_cabinet_estimates_status", "status"),
+        Index("ix_cabinet_estimates_group_id", "group_id"),
         {"extend_existing": True},
     )
+
+    # ── Estimate group ──
+    # One kitchen job is one group. An insurance job holds one restoration
+    # (the estimate the carrier sees) plus any upgrade options; a remodel job
+    # holds options only. Every member is a full estimate of its own.
+    group_id = Column(UUIDType(), nullable=True)  # set on create; old rows = id
+    project_type = Column(String(20), default="insurance", nullable=False)  # insurance / remodel
+    kind = Column(String(20), default="restore", nullable=False)  # restore / option
+    option_label = Column(String(100), nullable=True)  # "Option A"; none on the restoration
+    option_order = Column(Integer, default=0, nullable=False)  # restoration 0, options after
+    # An option's products from the library, by slot (selections.SLOTS):
+    # {"countertop": {ProductSnapshot}, ...}. Copies, so the estimate stays
+    # as it was priced. A restoration never has any.
+    selections = Column(JSON, nullable=True)
 
     # Relationships to client system
     claim_id = Column(

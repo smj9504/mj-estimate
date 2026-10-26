@@ -260,3 +260,21 @@ def test_the_list_filters_and_archived_products_drop_out(session, stored):
 def test_an_unknown_category_is_refused():
     with pytest.raises(ValueError):
         ProductCreate(category="spaceship", title="x")
+
+
+def test_a_stored_picture_is_read_back_for_a_pdf(tmp_path, monkeypatch):
+    from app.domains.file.models import File
+
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'files.db'}")
+    File.__table__.create(engine)
+    db = sessionmaker(bind=engine)()
+    picture = tmp_path / "swatch.png"
+    picture.write_bytes(b"\x89PNG picture")
+    # files.id is text: looked up as a UUID object it never matched
+    db.add(File(id="4fb89b60-baa3-40b5-8889-5f682c1c976d", filename="swatch.png", original_name="swatch.png",
+                content_type="image/png", size=12, url=str(picture), storage_provider="local",
+                context="product", context_id="p1", category="swatch", is_active=True))
+    db.commit()
+    assert service_module.image_bytes(db, "4fb89b60-baa3-40b5-8889-5f682c1c976d") == b"\x89PNG picture"
+    assert service_module.image_bytes(db, "00000000-0000-0000-0000-000000000000") is None
+    assert service_module.image_bytes(db, None) is None

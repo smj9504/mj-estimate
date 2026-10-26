@@ -232,8 +232,19 @@ class CabinetExportService:
         self,
         estimate: Dict[str, Any],
         show_signature: bool = True,
+        image_loader=None,
+        render: Optional[str] = None,
     ) -> io.BytesIO:
-        """Generate a professional PDF estimate."""
+        """Generate a professional PDF estimate.
+
+        An upgrade option's PDF names the option and shows its products
+        (pictures read with image_loader(file_id) -> bytes) and, when the
+        browser sent one, its 3D view (render, base64). The restoration's PDF
+        - the one the carrier gets - never has either.
+        """
+        from .proposal_pdf import render_picture, selected_products
+
+        is_option = estimate.get("kind") == "option"
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import letter
         from reportlab.lib.styles import (
@@ -416,8 +427,12 @@ class CabinetExportService:
         est_date = datetime.now()
         valid_until = est_date + timedelta(days=30)
 
+        option_line = (
+            f"<br/><font size=11>{estimate.get('option_label') or 'Option'}</font>"
+            if is_option else ""
+        )
         right_text = (
-            f"<font size=20><b>QUOTE</b></font>"
+            f"<font size=20><b>QUOTE</b></font>{option_line}"
             f"<br/><br/>"
             f"<font size=8>"
             f"<b>Quote #:</b> {est_id_short}<br/>"
@@ -551,6 +566,24 @@ class CabinetExportService:
                     ),
                 )
             )
+
+        # ══════════════════════════════════════
+        # AN OPTION: how it will look, and its products
+        # ══════════════════════════════════════
+
+        if is_option:
+            picture = render_picture(render, usable_w, 3.4 * inch)
+            if picture is not None:
+                elements.append(Paragraph("<b>How It Will Look</b>", section_title_style))
+                elements.append(picture)
+                elements.append(Spacer(1, 8))
+            elements.extend(selected_products(
+                estimate, usable_w, image_loader, section_title_style,
+                ParagraphStyle("ProductCell", fontSize=8.5, fontName="Helvetica",
+                               textColor=brand_dark, leading=11),
+                ParagraphStyle("ProductNote", fontSize=7, fontName="Helvetica",
+                               textColor=text_grey, leading=9, spaceBefore=4, spaceAfter=10),
+            ))
 
         # ══════════════════════════════════════
         # LINE ITEMS: Grouped by section
@@ -1020,6 +1053,17 @@ class CabinetExportService:
         )
         buffer.seek(0)
         return buffer
+
+    def generate_proposal_pdf(
+        self,
+        group: Dict[str, Any],
+        show_signature: bool = True,
+        renders: Optional[Dict[str, str]] = None,
+        image_loader=None,
+    ) -> io.BytesIO:
+        """The customer's side-by-side of a kitchen job (proposal_pdf.py)."""
+        from .proposal_pdf import generate_proposal_pdf
+        return generate_proposal_pdf(group, show_signature, renders, image_loader)
 
     # ── Excel Export (for supplier purchase order) ──
 

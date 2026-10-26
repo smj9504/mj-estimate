@@ -11,6 +11,7 @@ import {
   Input,
   InputNumber,
   message,
+  Modal,
   Radio,
   Row,
   Select,
@@ -30,7 +31,7 @@ import {
   FilePdfOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { useHeaderSlot } from '../contexts/HeaderSlotContext';
@@ -42,8 +43,12 @@ import CabinetEstimateResult from '../components/cabinet-estimate/CabinetEstimat
 import CabinetPurchaseOrder from '../components/cabinet-estimate/CabinetPurchaseOrder';
 import CabinetEstimateHistory from '../components/cabinet-estimate/CabinetEstimateHistory';
 import CabinetSketchEditor from '../components/cabinet-estimate/sketch/CabinetSketchEditor';
+import KitchenGroupBar from '../components/cabinet-estimate/KitchenGroupBar';
+import KitchenGroupCompareDrawer from '../components/cabinet-estimate/KitchenGroupCompareDrawer';
+import KitchenSelections from '../components/cabinet-estimate/KitchenSelections';
 import { boxKey } from '../components/cabinet-estimate/sketch/cabinetSketchLayout';
 import type { CabinetBoxCreate, CabinetEstimate, CabinetEstimateUpdate } from '../types/cabinetEstimate';
+import { memberName } from '../types/cabinetEstimate';
 import type { CabType } from '../types/cabinetEstimate';
 import type { Claim } from '../types/client';
 
@@ -149,6 +154,7 @@ const ISLAND_PANEL_HEIGHTS: { label: string; value: number }[] = [
 const CabinetEstimateDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const headerSlot = useHeaderSlot();
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
@@ -175,8 +181,15 @@ const CabinetEstimateDetail: React.FC = () => {
     () => (includeApplianceRr ? applianceList ?? [] : []),
     [includeApplianceRr, applianceList]
   );
-  const [activeTab, setActiveTab] = useState('edit');
+  // Opening another estimate of the job keeps the tab you were on
+  const [activeTab, setActiveTab] = useState<string>(
+    (location.state as { tab?: string } | null)?.tab || 'edit'
+  );
+  // Edits made on this page since the last save or calculate: typed into the
+  // form or made to the box lists. Fields the page fills in itself don't count.
+  const unsavedRef = useRef(false);
   const [registerBidItemOpen, setRegisterBidItemOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
   const [clientSearch, setClientSearch] = useState('');
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [claims, setClaims] = useState<Claim[]>([]);
@@ -406,8 +419,11 @@ const CabinetEstimateDetail: React.FC = () => {
     mutationFn: (payload: CabinetEstimateUpdate) =>
       cabinetEstimateService.update(id!, payload),
     onSuccess: () => {
+      unsavedRef.current = false;
       message.success('Saved');
       queryClient.invalidateQueries({ queryKey: ['cabinet-estimate', id] });
+      // Job facts are shared, so the job's other estimates may have changed
+      queryClient.invalidateQueries({ queryKey: ['cabinet-estimate-group'] });
     },
     onError: () => message.error('Failed to save'),
   });
@@ -416,8 +432,10 @@ const CabinetEstimateDetail: React.FC = () => {
     mutationFn: (payload?: CabinetEstimateUpdate) =>
       cabinetEstimateService.calculate(id!, payload),
     onSuccess: () => {
+      unsavedRef.current = false;
       message.success('Calculation complete');
       queryClient.invalidateQueries({ queryKey: ['cabinet-estimate', id] });
+      queryClient.invalidateQueries({ queryKey: ['cabinet-estimate-group'] });
       queryClient.invalidateQueries({ queryKey: ['cabinet-estimate-history', id] });
       setActiveTab('result');
     },
@@ -433,6 +451,15 @@ const CabinetEstimateDetail: React.FC = () => {
       navigate(`/cabinet-estimates/${result.id}`);
     },
   });
+
+  const editPerimeterBoxes = useCallback((boxes: CabinetBoxCreate[]) => {
+    unsavedRef.current = true;
+    setPerimeterBoxes(boxes);
+  }, []);
+  const editIslandBoxes = useCallback((boxes: CabinetBoxCreate[]) => {
+    unsavedRef.current = true;
+    setIslandBoxes(boxes);
+  }, []);
 
   // What the Sketch tab draws: every box, perimeter then island.
   const sketchBoxes = useMemo(() => [...perimeterBoxes, ...islandBoxes], [perimeterBoxes, islandBoxes]);
@@ -571,6 +598,59 @@ const CabinetEstimateDetail: React.FC = () => {
     }
   }, [form, buildPayload, calculateMutation]);
 
+  // ── The job's other estimates ──
+  // Run `action` once this estimate's unsaved edits are saved or let go.
+  const guardUnsaved = useCallback((action: () => void) => {
+    if (!unsavedRef.current) {
+      action();
+      return;
+    }
+    const modal = Modal.confirm({
+      title: 'Save your changes first?',
+      content: `${estimate ? memberName(estimate) : 'This estimate'} has changes that aren't saved yet.`,
+      okText: 'Save',
+      cancelText: 'Stay here',
+      footer: (_, { OkBtn, CancelBtn }) => (
+        <>
+          <CancelBtn />
+          <Button
+            danger
+            onClick={() => {
+              unsavedRef.current = false;
+              modal.destroy();
+              action();
+            }}
+          >
+            Discard changes
+          </Button>
+          <OkBtn />
+        </>
+      ),
+      onOk: async () => {
+        await saveMutation.mutateAsync(buildPayload());
+        action();
+      },
+    });
+  }, [estimate, buildPayload, saveMutation]);
+
+  const openMember = useCallback((memberId: string, options?: { discard?: boolean }) => {
+    const go = () => navigate(`/cabinet-estimates/${memberId}`, { state: { tab: activeTab } });
+    if (options?.discard) {
+      unsavedRef.current = false;
+      go();
+    } else {
+      guardUnsaved(go);
+    }
+  }, [activeTab, guardUnsaved, navigate]);
+
+  // An option's product changed: the server repriced it from what's saved
+  const handleSelectionsChanged = useCallback((updated: CabinetEstimate) => {
+    queryClient.setQueryData(['cabinet-estimate', id], updated);
+    queryClient.invalidateQueries({ queryKey: ['cabinet-estimate-history', id] });
+    queryClient.invalidateQueries({ queryKey: ['cabinet-estimate-group'] });
+    queryClient.invalidateQueries({ queryKey: ['cabinet-estimates'] });
+  }, [id, queryClient]);
+
   if (isLoading) {
     return (
       <div style={{ textAlign: 'center', padding: 100 }}>
@@ -592,6 +672,9 @@ const CabinetEstimateDetail: React.FC = () => {
       <Title level={4} style={{ margin: 0 }}>
         Cabinet Estimate
       </Title>
+      {(estimate.group_members?.length ?? 0) > 1 || estimate.kind === 'option' ? (
+        <Tag color={estimate.kind === 'option' ? 'green' : 'blue'}>{memberName(estimate)}</Tag>
+      ) : null}
       <Tag color={STATUS_COLORS[estimate.status]}>{estimate.status.toUpperCase()}</Tag>
       {estimate.claim_number && <Tag>Claim: {estimate.claim_number}</Tag>}
       {estimate.client_name && <Text type="secondary">{estimate.client_name}</Text>}
@@ -605,14 +688,17 @@ const CabinetEstimateDetail: React.FC = () => {
         {headerSlot ? createPortal(titleBar, headerSlot) : <Col xs={24} md="auto">{titleBar}</Col>}
         <Col xs={24} md="auto">
           <Space wrap size="small">
-            <Button
-              icon={<AuditOutlined />}
-              onClick={() => setRegisterBidItemOpen(true)}
-              disabled={estimate.status === 'draft'}
-              title="Register as Bid Item in Supplement"
-            >
-              Add to Supplement
-            </Button>
+            {/* A supplement goes to the carrier: only the restoration may */}
+            {estimate.kind !== 'option' && (
+              <Button
+                icon={<AuditOutlined />}
+                onClick={() => setRegisterBidItemOpen(true)}
+                disabled={estimate.status === 'draft'}
+                title="Register as Bid Item in Supplement"
+              >
+                Add to Supplement
+              </Button>
+            )}
             <Button icon={<SaveOutlined />} onClick={handleSave} loading={saveMutation.isPending}>
               Save
             </Button>
@@ -624,7 +710,11 @@ const CabinetEstimateDetail: React.FC = () => {
             >
               Save & Calculate
             </Button>
-            <Button icon={<CopyOutlined />} onClick={() => cloneMutation.mutate()}>
+            <Button
+              icon={<CopyOutlined />}
+              onClick={() => cloneMutation.mutate()}
+              title="Copy this estimate into a new job, e.g. another kitchen"
+            >
               Clone
             </Button>
             <Dropdown
@@ -633,12 +723,23 @@ const CabinetEstimateDetail: React.FC = () => {
                 items: [
                   { key: 'with-sig', label: 'PDF (with signature)' },
                   { key: 'no-sig', label: 'PDF (without signature)' },
+                  // The customer's side-by-side of the whole job; never for the carrier
+                  ...((estimate.group_members?.length ?? 0) > 1
+                    ? [
+                        { type: 'divider' as const },
+                        { key: 'proposal', label: 'Customer proposal (all estimates)' },
+                      ]
+                    : []),
                 ],
                 onClick: ({ key }) => {
-                  cabinetEstimateService.exportPdf(id!, {
-                    show_signature: key === 'with-sig',
-                    address: estimate.property_address,
-                  });
+                  const run =
+                    key === 'proposal'
+                      ? cabinetEstimateService.exportProposalPdf(id!)
+                      : cabinetEstimateService.exportPdf(id!, {
+                          show_signature: key === 'with-sig',
+                          address: estimate.property_address,
+                        });
+                  run.catch(() => message.error('The PDF could not be made'));
                 },
               }}
             >
@@ -657,10 +758,32 @@ const CabinetEstimateDetail: React.FC = () => {
         </Col>
       </Row>
 
+      <KitchenGroupBar
+        estimate={estimate}
+        onOpen={openMember}
+        guardUnsaved={guardUnsaved}
+        onCompare={() => setCompareOpen(true)}
+      />
+      <KitchenGroupCompareDrawer
+        open={compareOpen}
+        onClose={() => setCompareOpen(false)}
+        estimate={estimate}
+        onOpen={(memberId) => {
+          setCompareOpen(false);
+          if (memberId !== estimate.id) openMember(memberId);
+        }}
+      />
+
       {/* Tabs */}
       <Tabs activeKey={activeTab} onChange={setActiveTab}>
         <Tabs.TabPane tab="Edit" key="edit">
-          <Form form={form} layout="vertical" size="middle">
+          <KitchenSelections
+            estimate={estimate}
+            slots={pricingInfo?.selection_slots}
+            onChanged={handleSelectionsChanged}
+            guardUnsaved={guardUnsaved}
+          />
+          <Form form={form} layout="vertical" size="middle" onValuesChange={() => { unsavedRef.current = true; }}>
             <Row gutter={24}>
               {/* Left column: Project Info + Kitchen + Scope */}
               <Col xs={24} lg={16}>
@@ -893,7 +1016,7 @@ const CabinetEstimateDetail: React.FC = () => {
                 <Card size="small" title="Perimeter Cabinets" style={{ marginBottom: 16 }}>
                   <CabinetBoxEditor
                     boxes={perimeterBoxes}
-                    onChange={setPerimeterBoxes}
+                    onChange={editPerimeterBoxes}
                     location="perimeter"
                     wallHeight={wallHeight}
                     onWallHeightChange={setWallHeight}
@@ -985,7 +1108,7 @@ const CabinetEstimateDetail: React.FC = () => {
                       return (
                         <>
                           <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Island Cabinets</Text>
-                          <CabinetBoxEditor boxes={islandBoxes} onChange={setIslandBoxes} location="island" />
+                          <CabinetBoxEditor boxes={islandBoxes} onChange={editIslandBoxes} location="island" />
                         </>
                       );
                     }}
@@ -1856,6 +1979,7 @@ const CabinetEstimateDetail: React.FC = () => {
             islandSeatingIn={islandSeatingIn}
             applianceList={sketchAppliances}
             sinkBowls={sinkType === 'double' ? 2 : 1}
+            products={estimate.kind === 'option' ? estimate.selections : null}
             onApplyIslandTopSf={(sf) => {
               form.setFieldsValue({ island_countertop_sqft: sf });
               message.success(`Island countertop set to ${sf} SF on the Edit tab — Save or Save & Calculate to price it`);
@@ -1912,4 +2036,13 @@ const CabinetEstimateDetail: React.FC = () => {
   );
 };
 
-export default CabinetEstimateDetail;
+/**
+ * Each estimate of a job opens at its own URL. Switching between them starts
+ * the page fresh, so no form field, sketch or tab state carries across.
+ */
+const CabinetEstimateDetailRoute: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  return <CabinetEstimateDetail key={id} />;
+};
+
+export default CabinetEstimateDetailRoute;

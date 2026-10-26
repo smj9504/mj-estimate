@@ -211,11 +211,20 @@ class SupplementService:
                 str(data['bathroom_estimate_id'])
             )
 
+    def _ensure_cabinet_restoration(self, session, data: Dict[str, Any]):
+        """Likewise, only a kitchen (cabinet) restoration may back a bid item."""
+        if data.get('cabinet_estimate_id'):
+            from app.domains.cabinet_estimate.service import CabinetEstimateService
+            CabinetEstimateService(session).ensure_submittable_to_carrier(
+                str(data['cabinet_estimate_id'])
+            )
+
     def create_bid_item(self, data: Dict[str, Any]) -> Dict[str, Any]:
         session = self._get_session()
         try:
             from app.domains.supplement.repository import get_bid_item_estimate_repository
             self._ensure_bathroom_restoration(session, data)
+            self._ensure_cabinet_restoration(session, data)
             repo = get_bid_item_estimate_repository(session)
             result = repo.create(data)
             self._recalculate_supplement_amount(session, str(data['supplement_id']))
@@ -234,6 +243,7 @@ class SupplementService:
         try:
             from app.domains.supplement.repository import get_bid_item_estimate_repository
             self._ensure_bathroom_restoration(session, data)
+            self._ensure_cabinet_restoration(session, data)
             repo = get_bid_item_estimate_repository(session)
             result = repo.update(item_id, data)
             if result:
@@ -350,6 +360,13 @@ class SupplementService:
                 from app.domains.cabinet_estimate.export_service import CabinetExportService
                 svc = CabinetEstimateService(session)
                 estimate = svc.get_estimate(str(item.cabinet_estimate_id))
+                if estimate and estimate.get("kind", "restore") != "restore":
+                    # An upgrade option never goes to the carrier.
+                    logger.warning(
+                        f"Bid item {item.id} links cabinet option "
+                        f"{item.cabinet_estimate_id}; not attaching it"
+                    )
+                    return None
                 if estimate:
                     pdf_buf = CabinetExportService().generate_pdf(
                         estimate, show_signature=False

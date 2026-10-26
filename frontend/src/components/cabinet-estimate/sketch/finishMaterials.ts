@@ -11,11 +11,16 @@
  * Textures are laid out in inches: the scene's geometry has its UVs in
  * inches, and each texture repeats once per the inches it was painted to
  * cover.
+ *
+ * An option's chosen products (productLook.ts) override surfaces: their own
+ * colour, painted in the surface's kind of texture, or their swatch picture
+ * laid across it.
  */
 
 import * as THREE from 'three';
 import type { CabinetSketchFinish } from '../../../types/cabinetSketch';
 import { BACKSPLASHES, CABINET_COLORS, COUNTERTOPS, FAUCETS, HARDWARE, SINKS, choiceOf } from './kitchenFinish';
+import type { ProductSurfaces, SurfaceLook } from './productLook';
 
 /** A seeded random, so a texture comes out the same every time it is painted. */
 function seeded(seed: number): () => number {
@@ -204,27 +209,27 @@ function paintMarble(size: number, seed: number): HTMLCanvasElement {
   return canvas;
 }
 
-/** Large square tiles with a slight tone from tile to tile and grout between. */
-function paintTile(size: number, tiles: number, seed: number): HTMLCanvasElement {
+/** Large square tiles with a slight tone from tile to tile and grout between; `base` is the tile's colour. */
+function paintTile(size: number, tiles: number, seed: number, base = '#b8b6b1'): HTMLCanvasElement {
   const [canvas, ctx] = newCanvas(size, size);
   if (!ctx) return canvas;
   const rand = seeded(seed);
   const step = size / tiles;
   for (let i = 0; i < tiles; i++) {
     for (let j = 0; j < tiles; j++) {
-      ctx.fillStyle = mix('#b8b6b1', rand() < 0.5 ? '#a9a7a2' : '#c6c4bf', rand() * 0.6);
+      ctx.fillStyle = mix(base, rand() < 0.5 ? mix(base, '#000000', 0.08) : mix(base, '#ffffff', 0.08), rand() * 0.6);
       ctx.fillRect(i * step, j * step, step, step);
     }
   }
   for (let k = 0; k < size * size * 0.02; k++) {
     ctx.globalAlpha = 0.08 + rand() * 0.1;
-    ctx.fillStyle = rand() < 0.5 ? '#8f8d88' : '#dad8d3';
+    ctx.fillStyle = rand() < 0.5 ? mix(base, '#000000', 0.22) : mix(base, '#ffffff', 0.4);
     ctx.fillRect(rand() * size, rand() * size, 1.5, 1.5);
   }
   ctx.globalAlpha = 1;
   // Half the grout on each side of every edge, so the two halves meet when it wraps.
   const grout = 2;
-  ctx.fillStyle = '#9b9994';
+  ctx.fillStyle = mix(base, '#7f7d78', 0.5);
   for (let i = 0; i <= tiles; i++) {
     ctx.fillRect(i * step - grout, 0, grout * 2, size);
     ctx.fillRect(0, i * step - grout, size, grout * 2);
@@ -349,6 +354,57 @@ function texture(key: string): THREE.Texture | null {
   return tex;
 }
 
+/** A product's swatch picture, laid across a surface every `inches`; kept per picture. */
+function pictureTexture(look: SurfaceLook, upright = false): THREE.Texture | null {
+  if (!look.image || !look.imageFileId) return null;
+  const key = `picture_${look.imageFileId}`;
+  let tex = painted.get(key);
+  if (!tex) {
+    tex = new THREE.Texture(look.image);
+    tex.needsUpdate = true;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 8;
+    const inches = look.inches || 24;
+    tex.repeat.set(1 / inches, 1 / inches);
+    if (upright) tex.rotation = Math.PI / 2;
+    tex.userData.keep = true;
+    painted.set(key, tex);
+  }
+  return tex;
+}
+
+/** A texture painted in a product's colour, like the finish's own of that kind; kept per kind and colour. */
+function tintedTexture(kind: string, color: string): THREE.Texture | null {
+  const key = `tinted_${kind}_${color}`;
+  if (!TEXTURES[key]) {
+    const dark = mix(color, '#000000', 0.3);
+    const light = mix(color, '#ffffff', 0.3);
+    const seed = parseInt(color.slice(1), 16) % 997;
+    TEXTURES[key] =
+      kind === 'wood'
+        ? { paint: () => paintBoards({ size: 1024, rows: 32, minLen: 0.25, maxLen: 0.75, base: color, dark, light, tint: 0.35, seam: 'rgba(60,40,25,0.3)', seamPx: 1, seed }), inches: 48 }
+        : kind === 'subway'
+          ? { paint: () => paintSubway(512, color, mix(color, '#d9d7d2', 0.6), seed), inches: 12 }
+          : kind === 'tile'
+            ? { paint: () => paintTile(512, 2, seed, color), inches: 12 }
+            : {
+                paint: () =>
+                  paintStone({
+                    size: 512,
+                    base: color,
+                    flecks: [mix(color, '#000000', 0.12), mix(color, '#ffffff', 0.15), mix(color, '#000000', 0.25), mix(color, '#ffffff', 0.3)],
+                    count: kind === 'laminate' ? 6000 : 10000,
+                    maxPx: kind === 'laminate' ? 1.6 : 2.2,
+                    seed,
+                  }),
+                inches: 24,
+              };
+  }
+  return texture(key);
+}
+
 export interface FinishMaterials {
   cabinet: THREE.Material;
   toe: THREE.Material;
@@ -369,26 +425,36 @@ export interface FinishMaterials {
   faucet: THREE.Material;
 }
 
-/** The materials of one realistic scene, shared by all its meshes. */
-export function finishMaterials(finish: CabinetSketchFinish): FinishMaterials {
+/**
+ * The materials of one realistic scene, shared by all its meshes; `surfaces`
+ * are an option's products over the finish (productLook.ts).
+ */
+export function finishMaterials(finish: CabinetSketchFinish, surfaces: ProductSurfaces = {}): FinishMaterials {
   const color = choiceOf(CABINET_COLORS, finish.cabinet_color);
-  const woodMap = color.wood ? texture(`cabinet_${color.key}`) : null;
+  const cabinetLook = surfaces.cabinet ?? {};
+  const woodMap = pictureTexture(cabinetLook, true) ?? (color.wood ? texture(`cabinet_${color.key}`) : null);
+  const paint = cabinetLook.color ?? color.swatch;
   const cabinet = new THREE.MeshStandardMaterial(
-    woodMap ? { map: woodMap, roughness: 0.5 } : { color: color.swatch, roughness: 0.42 }
+    woodMap ? { map: woodMap, roughness: 0.5 } : { color: paint, roughness: 0.42 }
   );
   const toe = new THREE.MeshStandardMaterial(
     woodMap
       ? { map: woodMap, color: '#9a9a9a', roughness: 0.6 }
-      : { color: new THREE.Color(color.swatch).multiplyScalar(0.72), roughness: 0.6 }
+      : { color: new THREE.Color(paint).multiplyScalar(0.72), roughness: 0.6 }
   );
 
   const top = choiceOf(COUNTERTOPS, finish.countertop).key;
+  const topLook = surfaces.counter ?? {};
+  const topKind = topLook.kind ?? (top === 'butcher_block' ? 'wood' : top === 'laminate' ? 'laminate' : top === 'marble' ? 'marble' : 'stone');
+  const topMap =
+    pictureTexture(topLook) ??
+    (topLook.color && topKind !== 'marble' ? tintedTexture(topKind, topLook.color) : texture(`counter_${top}`));
   const counter =
-    top === 'butcher_block' || top === 'laminate'
-      ? new THREE.MeshStandardMaterial({ map: texture(`counter_${top}`), roughness: top === 'laminate' ? 0.6 : 0.55 })
+    topKind === 'wood' || topKind === 'laminate'
+      ? new THREE.MeshStandardMaterial({ map: topMap, roughness: topKind === 'laminate' ? 0.6 : 0.55 })
       : new THREE.MeshPhysicalMaterial({
-          map: texture(`counter_${top}`),
-          roughness: top === 'marble' ? 0.18 : 0.26,
+          map: topMap,
+          roughness: topKind === 'marble' ? 0.18 : 0.26,
           clearcoat: 0.5,
           clearcoatRoughness: 0.12,
         });
@@ -398,29 +464,40 @@ export function finishMaterials(finish: CabinetSketchFinish): FinishMaterials {
     black: { color: '#1d1d1d', metalness: 0.3, roughness: 0.5 },
     brass: { color: '#c9a35a', metalness: 1, roughness: 0.3 },
   }[choiceOf(HARDWARE, finish.hardware).key as 'nickel' | 'black' | 'brass'];
+  if (surfaces.hardware?.color) metal.color = surfaces.hardware.color;
 
   const splash = choiceOf(BACKSPLASHES, finish.backsplash).key;
+  const splashLook = surfaces.backsplash ?? {};
+  const splashMap =
+    pictureTexture(splashLook) ??
+    (splashLook.color && splashLook.kind && splashLook.kind !== 'marble'
+      ? tintedTexture(splashLook.kind, splashLook.color)
+      : texture(splash === 'marble_slab' ? 'counter_marble' : `backsplash_${splash}`));
   const backsplash =
-    splash === 'none'
+    splash === 'none' && !surfaces.backsplash
       ? null
       : new THREE.MeshPhysicalMaterial({
-          map: texture(splash === 'marble_slab' ? 'counter_marble' : `backsplash_${splash}`),
+          map: splashMap,
           roughness: splash === 'marble_slab' ? 0.18 : 0.1,
           clearcoat: splash === 'marble_slab' ? 0.5 : 0.8,
           clearcoatRoughness: 0.08,
         });
   const ceramic = new THREE.MeshPhysicalMaterial({ color: '#f4f3ef', roughness: 0.2, clearcoat: 0.6, clearcoatRoughness: 0.1 });
   const sinkSteel = new THREE.MeshStandardMaterial({ color: '#b9bfc4', metalness: 1, roughness: 0.42 });
+  const sinkColor = surfaces.sink?.color;
   const sink = {
     stainless: sinkSteel,
-    white_fireclay: ceramic,
-    black_composite: new THREE.MeshStandardMaterial({ color: '#2b2b2d', roughness: 0.5 }),
+    white_fireclay: sinkColor
+      ? new THREE.MeshPhysicalMaterial({ color: sinkColor, roughness: 0.2, clearcoat: 0.6, clearcoatRoughness: 0.1 })
+      : ceramic,
+    black_composite: new THREE.MeshStandardMaterial({ color: sinkColor ?? '#2b2b2d', roughness: 0.5 }),
   }[choiceOf(SINKS, finish.sink).key as 'stainless' | 'white_fireclay' | 'black_composite'];
   const faucet = {
     stainless: { color: '#d0d4d7', metalness: 1, roughness: 0.22 },
     black: { color: '#1b1b1b', metalness: 0.3, roughness: 0.45 },
     brass: { color: '#c9a35a', metalness: 1, roughness: 0.28 },
   }[choiceOf(FAUCETS, finish.faucet).key as 'stainless' | 'black' | 'brass'];
+  if (surfaces.faucet?.color) faucet.color = surfaces.faucet.color;
 
   const floorMap = texture(`floor_${finish.floor}`);
   return {

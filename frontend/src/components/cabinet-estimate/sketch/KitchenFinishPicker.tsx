@@ -5,6 +5,9 @@
  * button: cabinet colour and door style, countertop, backsplash, sink,
  * faucet, hardware and floor. The button shows the cabinet and countertop
  * swatches, so the current finish reads at a glance.
+ *
+ * On an upgrade option, what its chosen products set (productLook.ts) is
+ * named instead of offered: change the product to change it.
  */
 
 import React from 'react';
@@ -54,30 +57,43 @@ const ROWS: { field: keyof CabinetSketchFinish; label: string; choices: FinishCh
 export interface KitchenFinishPickerProps {
   finish: CabinetSketchFinish;
   onChange: (finish: CabinetSketchFinish) => void;
+  /** Finishes an option's chosen product sets, with the product's name. */
+  setBy?: Partial<Record<keyof CabinetSketchFinish, string>>;
+  /** The finish as drawn, products and all, for the button's swatches. */
+  drawn?: CabinetSketchFinish;
 }
 
-const KitchenFinishPicker: React.FC<KitchenFinishPickerProps> = ({ finish, onChange }) => {
+const KitchenFinishPicker: React.FC<KitchenFinishPickerProps> = ({ finish, onChange, setBy = {}, drawn }) => {
   const content = (
     <div style={{ display: 'grid', gridTemplateColumns: 'auto 200px', gap: '8px 12px', alignItems: 'center' }}>
       {ROWS.map(({ field, label, choices, swatches }) => (
         <React.Fragment key={field}>
           <span style={{ color: '#5f5e5b', fontSize: 13 }}>{label}</span>
-          <Select
-            size="small"
-            value={finish[field]}
-            onChange={(value: string) => onChange({ ...finish, [field]: value })}
-            options={choices.map((c) => ({
-              value: c.key,
-              label: swatches ? (
-                <Space size={6}>
-                  <Swatch color={c.swatch} />
-                  {c.label}
-                </Space>
-              ) : (
-                c.label
-              ),
-            }))}
-          />
+          {setBy[field] ? (
+            <span
+              title="Set by the product chosen for this option. Change the product in the Edit tab."
+              style={{ fontSize: 12, color: '#1f74c9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {setBy[field]}
+            </span>
+          ) : (
+            <Select
+              size="small"
+              value={finish[field]}
+              onChange={(value: string) => onChange({ ...finish, [field]: value })}
+              options={choices.map((c) => ({
+                value: c.key,
+                label: swatches ? (
+                  <Space size={6}>
+                    <Swatch color={c.swatch} />
+                    {c.label}
+                  </Space>
+                ) : (
+                  c.label
+                ),
+              }))}
+            />
+          )}
         </React.Fragment>
       ))}
     </div>
@@ -87,8 +103,8 @@ const KitchenFinishPicker: React.FC<KitchenFinishPickerProps> = ({ finish, onCha
     <Popover trigger="click" placement="bottomLeft" title="Finishes" content={content}>
       <Button icon={<BgColorsOutlined />}>
         <Space size={4}>
-          <Swatch color={choiceOf(CABINET_COLORS, finish.cabinet_color).swatch} />
-          <Swatch color={choiceOf(COUNTERTOPS, finish.countertop).swatch} />
+          <Swatch color={choiceOf(CABINET_COLORS, (drawn ?? finish).cabinet_color).swatch} />
+          <Swatch color={choiceOf(COUNTERTOPS, (drawn ?? finish).countertop).swatch} />
           Finishes
         </Space>
       </Button>

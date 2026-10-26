@@ -64,7 +64,10 @@ import { ApplianceShape, DR_TAG_COLOR, SinkShape } from './CabinetApplianceRende
 import CabinetElevationView from './CabinetElevationView';
 import KitchenFinishPicker from './KitchenFinishPicker';
 import AiPhotoModal from './AiPhotoModal';
-import { finishOf, finishWords } from './kitchenFinish';
+import { finishOf } from './kitchenFinish';
+import { productWords } from './productLook';
+import { useProductLook } from './useProductLook';
+import type { ProductSnapshot } from '../../../types/productLibrary';
 import type { Cabinet3DViewHandle } from './Cabinet3DView';
 import { pixelsToFeet, generateOverlayId, snapToWallEndpoint, constrainToAxis } from './cabinetSketchUtils';
 import {
@@ -195,6 +198,11 @@ export interface CabinetSketchEditorProps {
   applianceList?: { type: string; qty: number }[];
   /** Bowls of the sink drawn on each sink base: the Edit tab's sink type. */
   sinkBowls?: 1 | 2;
+  /**
+   * An upgrade option's chosen products, by slot: the realistic 3D view
+   * draws them over the finish, and the chosen sink's bowls everywhere.
+   */
+  products?: Record<string, ProductSnapshot> | null;
 }
 
 const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
@@ -209,7 +217,8 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   islandSeatingIn = 0,
   onApplyIslandTopSf,
   applianceList = NO_LIST,
-  sinkBowls = 1,
+  sinkBowls: scopeSinkBowls = 1,
+  products = null,
 }) => {
   const queryClient = useQueryClient();
   const stageRef = useRef<Konva.Stage>(null);
@@ -278,6 +287,9 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   const scalePixelsPerFoot = sketch?.scale_pixels_per_foot ?? 20;
   const { cabinets, walls } = state.overlayData;
   const finish = useMemo(() => finishOf(state.overlayData.finish), [state.overlayData.finish]);
+  // An option's products over the finish; a chosen sink's own bowls over the Edit tab's sink type
+  const look = useProductLook(finish, products);
+  const sinkBowls = look.sinkBowls ?? scopeSinkBowls;
   // The 3D view's look: the outlined drawing, or the kitchen in its finish.
   const [realistic, setRealistic] = useState(false);
   const view3dRef = useRef<Cabinet3DViewHandle>(null);
@@ -1078,7 +1090,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                 { label: <Tooltip title="In the kitchen's finishes, with light and shadow">Realistic</Tooltip>, value: 'realistic' },
               ]}
             />
-            {realistic && <KitchenFinishPicker finish={finish} onChange={setFinish} />}
+            {realistic && <KitchenFinishPicker finish={finish} onChange={setFinish} setBy={look.setBy} drawn={look.finish} />}
             {realistic && (
               <Tooltip title="A photo-like picture of the finished kitchen, drawn by AI from the view as framed now">
                 <Button
@@ -1276,7 +1288,8 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
               scalePixelsPerFoot={scalePixelsPerFoot}
               height={CANVAS_HEIGHT}
               islandSeatingIn={islandSeatingIn}
-              finish={realistic ? finish : null}
+              finish={realistic ? look.finish : null}
+              surfaces={realistic ? look.surfaces : null}
               active={view === '3d'}
               selectedIds={selectedIds}
               onSelect={handleSelect('cabinet')}
@@ -1286,7 +1299,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
           <AiPhotoModal
             estimateId={estimateId}
             render={aiPhotoRender}
-            finish={finishWords(finish)}
+            finish={productWords(look.finish, products)}
             onClose={() => setAiPhotoRender(null)}
           />
         </div>

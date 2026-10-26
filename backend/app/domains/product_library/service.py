@@ -230,3 +230,42 @@ def snapshot(product: Product) -> ProductSnapshot:
         look=dict(product.look or {}),
         taken_at=datetime.now(timezone.utc),
     )
+
+
+def image_bytes(db: Session, file_id: Optional[str]) -> Optional[bytes]:
+    """A stored product picture's bytes (thumbnail when there is one), for a PDF.
+
+    None when it's gone or can't be read: a picture is never worth failing
+    the document over.
+    """
+    from pathlib import Path
+
+    from app.domains.file.models import File
+    from app.domains.storage.factory import StorageFactory
+
+    if not file_id:
+        return None
+    try:
+        # files.id is text, not a UUID column
+        record = db.query(File).filter(File.id == str(file_id)).first()
+        if record is None or record.is_active is False:
+            return None
+        provider = record.storage_provider
+        url = record.thumbnail_url or record.url
+        is_cloud = bool(provider) and provider != "local"
+        if not provider:
+            is_cloud = url.startswith(("gs://", "b2://", "https://", "http://"))
+        if is_cloud:
+            try:
+                return StorageFactory.get_instance(provider).download(url)
+            except Exception:
+                if url == record.url:
+                    raise
+                return StorageFactory.get_instance(provider).download(record.url)
+        path = Path(url)
+        if not path.exists():
+            path = Path(record.url)
+        return path.read_bytes() if path.exists() else None
+    except Exception as e:
+        logger.warning("Product picture %s not read: %s", file_id, e)
+        return None

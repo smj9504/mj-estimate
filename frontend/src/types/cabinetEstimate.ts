@@ -2,6 +2,8 @@
  * Cabinet Estimate types
  */
 
+import type { ProductSnapshot } from './productLibrary';
+
 // ── Enums ──
 
 export type CabinetTier = 'Stock' | 'Semi-Custom' | 'Custom';
@@ -177,6 +179,19 @@ export interface CabinetEstimate {
   notes?: string;
   boxes: CabinetBox[];
   line_items: EstimateLineItem[];
+
+  // Estimate group: one kitchen job. An insurance job is its restoration
+  // (the estimate the carrier sees) plus any upgrade options; a remodel job
+  // is options only.
+  group_id?: string;
+  project_type?: KitchenProjectType;
+  kind?: KitchenEstimateKind;
+  option_label?: string | null;
+  option_order?: number;
+  group_members?: KitchenGroupMember[];
+  /** An option's products from the library, by slot (PricingInfo.selection_slots). Copies. */
+  selections?: Record<string, ProductSnapshot> | null;
+
   // Enriched from claim
   claim_number?: string;
   client_name?: string;
@@ -184,7 +199,41 @@ export interface CabinetEstimate {
   updated_at?: string;
 }
 
+export type KitchenProjectType = 'insurance' | 'remodel';
+export type KitchenEstimateKind = 'restore' | 'option';
+
+/** One estimate of a kitchen job, as the switcher shows it. */
+export interface KitchenGroupMember {
+  id: string;
+  kind: KitchenEstimateKind;
+  option_label?: string | null;
+  option_order: number;
+  status: string;
+  total: number;
+  updated_at?: string | null;
+}
+
+export interface KitchenEstimateGroup {
+  group_id: string;
+  project_type: KitchenProjectType;
+  members: CabinetEstimate[];
+}
+
+/** What a job member is called on screen and on the customer's proposal. */
+export const memberName = (m: { kind?: string; option_label?: string | null }): string =>
+  m.kind === 'restore' ? 'Restoration' : m.option_label || 'Option';
+
+/** A product slot of an option: which library category it takes and what it prices. */
+export interface SelectionSlot {
+  key: string;
+  label: string;
+  category: string;
+  prices: string;
+}
+
 export interface CabinetEstimateCreate {
+  /** insurance → the new estimate is the restoration; remodel → Option A. */
+  project_type?: KitchenProjectType;
   claim_id?: string | null;
   company_id?: string | null;
   property_address?: string;
@@ -410,4 +459,6 @@ export interface PricingInfo {
     spacing_in: number;
     end_inset_in: number;
   };
+  /** An option's product slots, in order. */
+  selection_slots?: SelectionSlot[];
 }

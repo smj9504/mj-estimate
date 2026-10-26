@@ -3,7 +3,8 @@ Cabinet Estimate Pydantic schemas
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -228,6 +229,8 @@ class CabinetEstimateBase(BaseModel):
 
 class CabinetEstimateCreate(CabinetEstimateBase):
     boxes: List[CabinetBoxCreate] = []
+    # insurance → the new estimate is the restoration; remodel → Option A
+    project_type: Literal["insurance", "remodel"] = "insurance"
 
 
 class CabinetEstimateUpdate(BaseModel):
@@ -302,12 +305,48 @@ class CabinetEstimateUpdate(BaseModel):
     boxes: Optional[List[CabinetBoxCreate]] = None
 
 
+# ── Estimate group schemas ──
+
+class GroupMemberSummary(BaseModel):
+    """One estimate of a kitchen job, as the group switcher shows it."""
+    id: str
+    kind: str
+    option_label: Optional[str] = None
+    option_order: int = 0
+    status: str
+    total: float = 0
+    updated_at: Optional[datetime] = None
+
+
+class OptionLabelUpdate(BaseModel):
+    option_label: str = Field(..., min_length=1, max_length=100)
+
+
+class ProjectTypeUpdate(BaseModel):
+    project_type: Literal["insurance", "remodel"]
+
+
+class SelectionUpdate(BaseModel):
+    """The library product to put in an option's slot."""
+    product_id: UUID
+
+
 class CabinetEstimateResponse(BaseModel):
     id: str
     claim_id: Optional[str] = None
     company_id: Optional[str] = None
     created_by_id: Optional[str] = None
     status: str
+
+    # Estimate group
+    group_id: Optional[str] = None
+    project_type: str = "insurance"
+    kind: str = "restore"
+    option_label: Optional[str] = None
+    option_order: int = 0
+    group_members: List[GroupMemberSummary] = []
+    # An option's products by slot (selections.SLOTS), each a ProductSnapshot
+    selections: Optional[Dict[str, Dict[str, Any]]] = None
     property_address: Optional[str] = None
     zip_code: Optional[str] = None
     layout_type: Optional[str] = None
@@ -400,6 +439,13 @@ class CabinetEstimateListResponse(BaseModel):
     page_size: int
 
 
+class CabinetEstimateGroupResponse(BaseModel):
+    """Every estimate of a kitchen job with its line items, for comparing them."""
+    group_id: str
+    project_type: str
+    members: List[CabinetEstimateResponse]
+
+
 # ── History schemas ──
 
 class HistoryResponse(BaseModel):
@@ -467,3 +513,5 @@ class PricingInfoResponse(BaseModel):
     # When an island top's seating overhang needs brackets, and how many:
     # {max_unsupported_in: {material: in}, spacing_in, end_inset_in}
     countertop_support_rule: Dict[str, Any] = Field(default_factory=dict)
+    # An option's product slots: [{key, label, category, prices}]
+    selection_slots: List[Dict[str, str]] = Field(default_factory=list)

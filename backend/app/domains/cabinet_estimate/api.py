@@ -3,10 +3,10 @@ Cabinet Estimate API endpoints
 """
 
 import logging
-from typing import Optional
+from typing import Any, Dict, Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.core.database_factory import get_db, get_db_session
@@ -39,6 +39,7 @@ from .pricing import (
 from .rate_meta import Basis
 from .schemas import (
     CabinetEstimateCreate,
+    CabinetEstimateGroupResponse,
     CabinetEstimateListResponse,
     CabinetEstimateResponse,
     CabinetEstimateUpdate,
@@ -48,9 +49,13 @@ from .schemas import (
     EstimateStatus,
     FinishType,
     HistoryResponse,
+    OptionLabelUpdate,
     PricingInfoResponse,
+    ProjectTypeUpdate,
     PurchaseOrderResponse,
+    SelectionUpdate,
 )
+from .selections import SLOTS
 from .service import CabinetEstimateService
 from .sketch_schemas import (
     CabinetSketchAiPhotoRequest,
@@ -115,6 +120,7 @@ def get_pricing_info():
         "countertop_materials": COUNTERTOP_MATERIALS,
         "countertop_backsplash_per_lf": COUNTERTOP_BACKSPLASH_PER_LF,
         "countertop_support_rule": COUNTERTOP_SUPPORT_RULE,
+        "selection_slots": SLOTS,
     }
 
 
@@ -138,6 +144,8 @@ def list_estimates(
     company_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    kind: Optional[Literal["restore", "option"]] = Query(None),
+    grouped: bool = Query(False, description="One row per kitchen job"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     session: DatabaseSession = Depends(get_db_session),
@@ -150,6 +158,8 @@ def list_estimates(
         company_id=company_id,
         status=status,
         search=search,
+        kind=kind,
+        grouped=grouped,
         page=page,
         page_size=page_size,
     )
@@ -190,14 +200,121 @@ def update_estimate(
 @router.delete("/{estimate_id}")
 def delete_estimate(
     estimate_id: str,
+    whole_group: bool = Query(False, description="Delete every estimate of the job"),
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
     """Delete a cabinet estimate."""
     service = CabinetEstimateService(session)
-    if not service.delete_estimate(estimate_id):
+    try:
+        deleted = service.delete_estimate(estimate_id, whole_group=whole_group)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    if not deleted:
         raise HTTPException(status_code=404, detail="Estimate not found")
     return {"message": "Estimate deleted"}
+
+
+# ── Estimate group (restoration + options) ──
+
+@router.get("/{estimate_id}/group", response_model=CabinetEstimateGroupResponse)
+def get_estimate_group(
+    estimate_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Every estimate of this one's job, with line items, for comparing them."""
+    service = CabinetEstimateService(session)
+    result = service.get_group(estimate_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+@router.post("/{estimate_id}/options", response_model=CabinetEstimateResponse)
+def add_option(
+    estimate_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Add an option to the job, starting as a copy of this estimate."""
+    service = CabinetEstimateService(session)
+    result = service.add_option(estimate_id, created_by_id=current_user.id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+@router.put("/{estimate_id}/option-label", response_model=CabinetEstimateResponse)
+def rename_option(
+    estimate_id: str,
+    data: OptionLabelUpdate,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Rename an option."""
+    service = CabinetEstimateService(session)
+    try:
+        result = service.rename_option(estimate_id, data.option_label)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+@router.put("/{estimate_id}/project-type", response_model=CabinetEstimateResponse)
+def set_project_type(
+    estimate_id: str,
+    data: ProjectTypeUpdate,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Switch the whole job between an insurance claim and a remodel."""
+    service = CabinetEstimateService(session)
+    result = service.set_project_type(estimate_id, data.project_type)
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+# ── Products (an option's selections from the product library) ──
+
+def _set_selection(service, estimate_id, slot, product_id, user_id):
+    try:
+        result = service.set_selection(estimate_id, slot, product_id, changed_by_id=user_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+@router.put("/{estimate_id}/selections/{slot}", response_model=CabinetEstimateResponse)
+def set_selection(
+    estimate_id: str,
+    slot: str,
+    data: SelectionUpdate,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Put a library product in an option's slot (a copy of it as it is now)."""
+    service = CabinetEstimateService(session)
+    return _set_selection(service, estimate_id, slot, str(data.product_id), current_user.id)
+
+
+@router.delete("/{estimate_id}/selections/{slot}", response_model=CabinetEstimateResponse)
+def clear_selection(
+    estimate_id: str,
+    slot: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Empty an option's slot: that part goes back to the rate-table price."""
+    service = CabinetEstimateService(session)
+    return _set_selection(service, estimate_id, slot, None, current_user.id)
 
 
 # ── Calculation ──
@@ -349,14 +466,13 @@ def get_purchase_order(
 
 # ── Export (PDF / Excel) ──
 
-@router.get("/{estimate_id}/export/pdf")
-def export_pdf(
-    estimate_id: str,
-    show_signature: bool = Query(True),
-    session: DatabaseSession = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user),
-):
-    """Export estimate as PDF for insurance/customer."""
+def _image_loader(session):
+    """Product pictures for a PDF, read from file storage."""
+    from app.domains.product_library.service import image_bytes
+    return lambda file_id: image_bytes(session, file_id)
+
+
+def _estimate_pdf(estimate_id: str, show_signature: bool, render: Optional[str], session):
     from .export_service import CabinetExportService
 
     service = CabinetEstimateService(session)
@@ -364,15 +480,21 @@ def export_pdf(
     if not estimate:
         raise HTTPException(status_code=404, detail="Estimate not found")
 
-    export_svc = CabinetExportService()
-    pdf_bytes = export_svc.generate_pdf(
+    pdf_bytes = CabinetExportService().generate_pdf(
         estimate, show_signature=show_signature,
+        image_loader=_image_loader(session), render=render,
     )
 
     import re
     addr = estimate.get("property_address") or ""
     addr_slug = re.sub(r'[^a-zA-Z0-9]+', '_', addr).strip('_')[:60]
-    filename = f"cabinet_estimate_{addr_slug}.pdf" if addr_slug else f"cabinet_estimate_{estimate_id[:8]}.pdf"
+    option = ""
+    if estimate.get("kind") == "option":
+        option = "_" + re.sub(r'[^a-zA-Z0-9]+', '_', estimate.get("option_label") or "option").strip('_')
+    filename = (
+        f"cabinet_estimate_{addr_slug}{option}.pdf" if addr_slug
+        else f"cabinet_estimate_{estimate_id[:8]}{option}.pdf"
+    )
 
     return StreamingResponse(
         pdf_bytes,
@@ -381,6 +503,79 @@ def export_pdf(
             "Content-Disposition": f'attachment; filename="{filename}"'
         },
     )
+
+
+@router.get("/{estimate_id}/export/pdf")
+def export_pdf(
+    estimate_id: str,
+    show_signature: bool = Query(True),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Export estimate as PDF for insurance/customer."""
+    return _estimate_pdf(estimate_id, show_signature, None, session)
+
+
+@router.post("/{estimate_id}/export/pdf")
+def export_pdf_with_render(
+    estimate_id: str,
+    body: Dict[str, Any] = Body(...),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """An option's PDF with its 3D view ({render: base64, show_signature}).
+
+    The restoration's PDF ignores a render: it goes to the carrier as it is.
+    """
+    return _estimate_pdf(estimate_id, body.get("show_signature", True), body.get("render"), session)
+
+
+def _proposal_pdf(estimate_id: str, show_signature: bool, renders: Optional[Dict[str, str]], session):
+    from .export_service import CabinetExportService
+
+    service = CabinetEstimateService(session)
+    group = service.get_group(estimate_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    try:
+        pdf_bytes = CabinetExportService().generate_proposal_pdf(
+            group, show_signature=show_signature, renders=renders,
+            image_loader=_image_loader(session),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return StreamingResponse(
+        pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="kitchen_options_{estimate_id[:8]}.pdf"'
+        },
+    )
+
+
+@router.get("/{estimate_id}/export/proposal-pdf")
+def export_proposal_pdf(
+    estimate_id: str,
+    show_signature: bool = Query(True),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """The customer's comparison of every estimate of this one's job.
+
+    For the customer only: the carrier gets the restoration's own PDF.
+    """
+    return _proposal_pdf(estimate_id, show_signature, None, session)
+
+
+@router.post("/{estimate_id}/export/proposal-pdf")
+def export_proposal_pdf_with_renders(
+    estimate_id: str,
+    body: Dict[str, Any] = Body(...),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """The customer's comparison, with each estimate's 3D view ({renders: {id: base64}})."""
+    return _proposal_pdf(estimate_id, body.get("show_signature", True), body.get("renders"), session)
 
 
 @router.get("/{estimate_id}/export/excel")

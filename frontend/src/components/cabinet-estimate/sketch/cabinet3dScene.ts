@@ -22,6 +22,7 @@ import { applianceExtent, inPolygon, modelBounds, toPlan } from './cabinet3dMode
 import type { ApplianceSolid, CabinetSolid, CounterSlab, FillerSolid, FrontRun, Pt2, WallSolid } from './cabinet3dModel';
 import { finishMaterials } from './finishMaterials';
 import type { FinishMaterials } from './finishMaterials';
+import type { ProductSurfaces } from './productLook';
 import type { LocalRect } from './sketchAppliances';
 
 /** Walls are drawn to the 8 ft ceiling the Front view uses. */
@@ -149,8 +150,8 @@ const DRAWING: Paint = {
   outline: withEdges,
 };
 
-function realisticPaint(finish: CabinetSketchFinish): Paint {
-  const materials = finishMaterials(finish);
+function realisticPaint(finish: CabinetSketchFinish, surfaces?: ProductSurfaces | null): Paint {
+  const materials = finishMaterials(finish, surfaces ?? {});
   return {
     realistic: true,
     doors: finish.door_style,
@@ -744,15 +745,18 @@ export function buildCabinetScene(
     fillers = [],
     appliances = [],
     finish = null,
+    surfaces = null,
   }: {
     counters?: CounterSlab[];
     fillers?: FillerSolid[];
     appliances?: ApplianceSolid[];
     /** Draw the realistic look, in this finish; absent for the drawing look. */
     finish?: CabinetSketchFinish | null;
+    /** An option's chosen products over the finish (productLook.ts). */
+    surfaces?: ProductSurfaces | null;
   } = {}
 ): THREE.Group {
-  const paint = finish ? realisticPaint(finish) : DRAWING;
+  const paint = finish ? realisticPaint(finish, surfaces) : DRAWING;
   const root = new THREE.Group();
   const bounds = modelBounds(solids, walls, applianceExtent(appliances));
   const center = bounds ? { x: (bounds.minX + bounds.maxX) / 2, z: (bounds.minZ + bounds.maxZ) / 2 } : { x: 0, z: 0 };

@@ -22,13 +22,25 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+def _group_key():
+    """The job an estimate belongs to. One saved without a group (before
+    groups existed) is a job of its own."""
+    return func.coalesce(CabinetEstimate.group_id, CabinetEstimate.id)
+
+
 class CabinetEstimateRepository(SQLAlchemyRepository[CabinetEstimate, UUID]):
     def __init__(self, session: DatabaseSession):
         super().__init__(session, CabinetEstimate)
 
     def find_by_id_with_relations(self, estimate_id: str) -> Optional[CabinetEstimate]:
-        """Find estimate with boxes and line_items eagerly loaded."""
-        return (
+        """Find estimate with its current boxes and line items.
+
+        Boxes and line items are replaced through their own repositories
+        (bulk deletes and new rows), which don't touch an estimate already in
+        the session, so its lists would still be the ones from when it was
+        first loaded - calculate() handed back no line items at all.
+        """
+        estimate = (
             self.db_session.query(CabinetEstimate)
             .options(
                 selectinload(CabinetEstimate.boxes),
@@ -37,6 +49,43 @@ class CabinetEstimateRepository(SQLAlchemyRepository[CabinetEstimate, UUID]):
             .filter(CabinetEstimate.id == estimate_id)
             .first()
         )
+        if estimate is not None:
+            # Read afresh from the database the next time they're used
+            self.db_session.expire(estimate, ["boxes", "line_items"])
+        return estimate
+
+    def find_group_members(self, group_id: str) -> List[CabinetEstimate]:
+        """Every estimate of a kitchen job, restoration first, then options in order."""
+        return (
+            self.db_session.query(CabinetEstimate)
+            .options(
+                selectinload(CabinetEstimate.boxes),
+                selectinload(CabinetEstimate.line_items),
+            )
+            .filter(_group_key() == group_id)
+            .order_by(CabinetEstimate.option_order, CabinetEstimate.created_at)
+            .all()
+        )
+
+    def find_member_summaries(self, group_ids: List[str]) -> list:
+        """The switcher's view of these jobs' estimates, without loading their line items."""
+        if not group_ids:
+            return []
+        return (
+            self.db_session.query(
+                _group_key().label("group_id"),
+                CabinetEstimate.id,
+                CabinetEstimate.kind,
+                CabinetEstimate.option_label,
+                CabinetEstimate.option_order,
+                CabinetEstimate.status,
+                CabinetEstimate.total,
+                CabinetEstimate.updated_at,
+            )
+            .filter(_group_key().in_(group_ids))
+            .order_by(CabinetEstimate.option_order, CabinetEstimate.created_at)
+            .all()
+        )
 
     def find_by_filters(
         self,
@@ -44,11 +93,33 @@ class CabinetEstimateRepository(SQLAlchemyRepository[CabinetEstimate, UUID]):
         company_id: Optional[str] = None,
         status: Optional[str] = None,
         search: Optional[str] = None,
+        kind: Optional[str] = None,
+        grouped: bool = False,
         page: int = 1,
         page_size: int = 50,
     ) -> tuple[List[CabinetEstimate], int]:
-        """Find estimates with filters and pagination."""
+        """Find estimates with filters and pagination.
+
+        grouped: one row per kitchen job - its first member (the
+        restoration, or the first option of a remodel).
+        """
         query = self.db_session.query(CabinetEstimate)
+
+        if grouped:
+            first = (
+                self.db_session.query(
+                    _group_key().label("group_id"),
+                    func.min(CabinetEstimate.option_order).label("option_order"),
+                )
+                .group_by(_group_key())
+                .subquery()
+            )
+            query = query.join(first, and_(
+                _group_key() == first.c.group_id,
+                CabinetEstimate.option_order == first.c.option_order,
+            ))
+        if kind:
+            query = query.filter(CabinetEstimate.kind == kind)
 
         if claim_id:
             query = query.filter(CabinetEstimate.claim_id == claim_id)
