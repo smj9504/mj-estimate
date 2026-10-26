@@ -61,8 +61,9 @@ import { CompanyTag } from '../components/water-mitigation/paymentBoardShared';
 import { WMStatusPill, WM_STATUS_TONES } from '../components/water-mitigation/wmStatus';
 import { tagTones } from '../styles/tokens';
 import { useWaterMitigationAccess } from '../hooks/useWaterMitigationAccess';
+import { lazyWithRetry } from '../utils/lazyWithRetry';
 
-const WMSketchTab = React.lazy(() => import('../components/water-mitigation/sketch/WMSketchTab'));
+const WMSketchTab = lazyWithRetry(() => import('../components/water-mitigation/sketch/WMSketchTab'));
 
 const { useBreakpoint } = Grid;
 

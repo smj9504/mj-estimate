@@ -96,9 +96,10 @@ import {
   placeDroppedAppliance,
   reconcileAppliances,
 } from './sketchAppliances';
+import { lazyWithRetry } from '../../../utils/lazyWithRetry';
 
 // three.js is big; it's only fetched once the 3D view is opened.
-const Cabinet3DView = React.lazy(() => import('./Cabinet3DView'));
+const Cabinet3DView = lazyWithRetry(() => import('./Cabinet3DView'));
 
 const CANVAS_HEIGHT = 560;
 /** Quiet period after the last change before the sketch saves itself. */

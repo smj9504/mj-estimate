@@ -51,8 +51,9 @@ import type { CabinetBoxCreate, CabinetEstimate, CabinetEstimateUpdate } from '.
 import { memberName } from '../types/cabinetEstimate';
 import type { CabType } from '../types/cabinetEstimate';
 import type { Claim } from '../types/client';
+import { lazyWithRetry } from '../utils/lazyWithRetry';
 
-const RegisterBidItemModal = React.lazy(() => import('../components/supplement/RegisterBidItemModal'));
+const RegisterBidItemModal = lazyWithRetry(() => import('../components/supplement/RegisterBidItemModal'));
 
 const { Title, Text } = Typography;
 

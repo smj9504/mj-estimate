@@ -33,9 +33,10 @@ import BELayoutPicker from './BELayoutPicker';
 import { findSelection, selectionTitle } from './BESketchInspector';
 import { bathroomEstimateService } from '../../../services/bathroomEstimateService';
 import './sketch.css';
+import { lazyWithRetry } from '../../../utils/lazyWithRetry';
 
 // three.js comes with it, so it's only downloaded when the 3D view is opened
-const Bathroom3DView = React.lazy(() => import('./Bathroom3DView'));
+const Bathroom3DView = lazyWithRetry(() => import('./Bathroom3DView'));
 
 const { useBreakpoint } = Grid;
 

@@ -68,8 +68,9 @@ import BEGroupBar from '../components/bathroom-estimate/BEGroupBar';
 import BEGroupCompareDrawer from '../components/bathroom-estimate/BEGroupCompareDrawer';
 import BELayoutChanges from '../components/bathroom-estimate/BELayoutChanges';
 import { exportProposalWith3D, optionRender } from '../components/bathroom-estimate/bathroomPdf';
+import { lazyWithRetry } from '../utils/lazyWithRetry';
 
-const RegisterBidItemModal = React.lazy(() => import('../components/supplement/RegisterBidItemModal'));
+const RegisterBidItemModal = lazyWithRetry(() => import('../components/supplement/RegisterBidItemModal'));
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;

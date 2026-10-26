@@ -40,8 +40,9 @@ import {
 import { contractTemplateService } from '../services/contractService';
 import { companyService } from '../services/companyService';
 import type { ContractTemplate, DocumentType } from '../types/contract';
+import { lazyWithRetry } from '../utils/lazyWithRetry';
 
-const FieldMappingEditor = React.lazy(() => import('../components/contract/FieldMappingEditor'));
+const FieldMappingEditor = lazyWithRetry(() => import('../components/contract/FieldMappingEditor'));
 
 const { Title, Text } = Typography;
 const { Option } = Select;

@@ -35,8 +35,9 @@ import {
 } from '@ant-design/icons';
 import { contractTemplateService } from '../../services/contractService';
 import type { ContractTemplate, DocumentType } from '../../types/contract';
+import { lazyWithRetry } from '../../utils/lazyWithRetry';
 
-const FieldMappingEditor = React.lazy(() => import('../contract/FieldMappingEditor'));
+const FieldMappingEditor = lazyWithRetry(() => import('../contract/FieldMappingEditor'));
 
 const { Text } = Typography;
 const { Option } = Select;
