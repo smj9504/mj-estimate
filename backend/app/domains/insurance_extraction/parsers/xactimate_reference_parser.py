@@ -714,6 +714,13 @@ def _extract_text_lines(
     all_lines: List[str] = []
     page_texts: List[str] = []
 
+    try:
+        import fitz  # type: ignore
+
+        text_layer = fitz.open(pdf_path)
+    except Exception:
+        text_layer = None
+
     with pdfplumber.open(pdf_path) as pdf:
         for i, page in enumerate(pdf.pages):
             if i >= max_pages:
@@ -722,6 +729,16 @@ def _extract_text_lines(
                     max_pages, len(pdf.pages),
                 )
                 break
+            # A page printed as vector glyph outlines has no text, yet
+            # pdfplumber spends 15-25s laying out its thousands of curves to
+            # find that out; PyMuPDF knows in milliseconds
+            if (
+                text_layer is not None
+                and i < text_layer.page_count
+                and not text_layer[i].get_text().strip()
+            ):
+                page_texts.append("")
+                continue
             t = page.extract_text() or ""
             if _is_cid_encoded(t):
                 t = _ocr_page(pdf_path, page.page_number - 1)
@@ -729,6 +746,8 @@ def _extract_text_lines(
             if t:
                 all_lines.extend(t.split("\n"))
 
+    if text_layer is not None:
+        text_layer.close()
     return all_lines, page_texts
 
 

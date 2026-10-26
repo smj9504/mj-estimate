@@ -2627,7 +2627,9 @@ const SupplementDetail: React.FC = () => {
                         } else {
                           message.info('Could not auto-parse. Please fill in manually.');
                         }
-                      } catch { /* non-critical */ } finally { setUploadEstimateParsing(false); }
+                      } catch {
+                        message.info('Could not auto-parse. Please fill in manually.');
+                      } finally { setUploadEstimateParsing(false); }
                     }
                   } catch { message.error('Upload failed'); }
                   return false;

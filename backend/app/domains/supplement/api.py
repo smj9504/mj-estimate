@@ -622,7 +622,7 @@ def extract_insurance_estimate_pdf(file_id: str, current_staff=Depends(get_curre
             # Resolve PDF path using the extraction service helper
             from app.domains.insurance_extraction.service import InsuranceExtractionService
             ext_svc = InsuranceExtractionService(session)
-            pdf_path, tmp_path = ext_svc._resolve_pdf_path(file_rec.url)
+            pdf_path, tmp_path = ext_svc._resolve_pdf_path(file_rec.url, file_rec.storage_provider)
 
             try:
                 from app.domains.insurance_extraction.parsers.xactimate_reference_parser import (
@@ -637,7 +637,6 @@ def extract_insurance_estimate_pdf(file_id: str, current_staff=Depends(get_curre
                     except OSError:
                         pass
 
-            summary = result.get("summary", {})
             header = {
                 k: result.get(k)
                 for k in ("carrier", "claim_number", "insured", "date_of_loss",
@@ -645,108 +644,24 @@ def extract_insurance_estimate_pdf(file_id: str, current_staff=Depends(get_curre
                 if result.get(k) is not None
             }
 
-            # Extract "Summary for <Section>" blocks directly from PDF text
-            # These are the authoritative per-category totals (Dwelling, Water Mitigation, etc.)
-            import re
-            sections = []
-            page_texts = result.get("_page_texts", [])
-            full_text = "\n".join(page_texts) if page_texts else ""
-
-            summary_pattern = re.compile(
-                r"Summary\s+for\s+(.+?)\s*\n"
-                r"(?:.*?\n)*?"
-                r"Line\s+Item\s+Total\s+([\d,]+\.\d+)\s*\n"
-                r"Material\s+Sales\s+Tax\s+([\d,]+\.\d+)\s*\n"
-                r"(?:.*?\n)*?"
-                r"(?:Subtotal\s+([\d,]+\.\d+)\s*\n)?"
-                r"(?:.*?Overhead\s+([\d,]+\.\d+)\s*\n)?"
-                r"(?:.*?Profit\s+([\d,]+\.\d+)\s*\n)?"
-                r"(?:.*?\n)*?"
-                r"Replacement\s+Cost\s+Value\s+\$?([\d,]+\.\d+)",
-                re.IGNORECASE,
+            # The carrier's own summary per coverage, never sums of line items
+            from app.domains.insurance_extraction.parsers.estimate_summary import (
+                parse_estimate_summary,
             )
-            dep_pattern = re.compile(
-                r"Less\s+Depreciation\s+\(?([\d,]+\.\d+)\)?",
-                re.IGNORECASE,
-            )
-            acv_pattern = re.compile(
-                r"Actual\s+Cash\s+Value\s+\$?([\d,]+\.\d+)",
-                re.IGNORECASE,
-            )
-
-            def _parse_money(s):
-                return float(s.replace(",", "")) if s else 0.0
-
-            for m in summary_pattern.finditer(full_text):
-                sec_name = m.group(1).strip()
-                rcv_val = _parse_money(m.group(7))
-
-                # Search for depreciation and ACV after this match
-                after = full_text[m.end():m.end() + 500]
-                dep_m = dep_pattern.search(after)
-                acv_m = acv_pattern.search(after)
-                dep_val = _parse_money(dep_m.group(1)) if dep_m else 0.0
-                acv_val = _parse_money(acv_m.group(1)) if acv_m else rcv_val - dep_val
-
-                sections.append({
-                    "section_name": sec_name,
-                    "line_item_total": _parse_money(m.group(2)),
-                    "material_sales_tax": _parse_money(m.group(3)),
-                    "subtotal": _parse_money(m.group(4)) if m.group(4) else 0,
-                    "overhead_amount": _parse_money(m.group(5)) if m.group(5) else 0,
-                    "profit_amount": _parse_money(m.group(6)) if m.group(6) else 0,
-                    "rcv": rcv_val,
-                    "depreciation": dep_val,
-                    "deductible": 0,
-                    "net_acv": acv_val,
-                })
-
-            # Fallback: if no "Summary for" blocks found, aggregate from parser levels
-            if not sections:
-                for sec in result.get("standalone_sections", []):
-                    t = sec.get("totals") or {}
-                    if t:
-                        rcv = float(t.get("rcv") or t.get("grand_total_rcv") or 0)
-                        dep = abs(float(t.get("depreciation") or 0))
-                        acv = float(t.get("acv") or 0)
-                        sections.append({
-                            "section_name": sec.get("name", "Unknown"),
-                            "rcv": rcv, "depreciation": dep, "net_acv": acv,
-                            "line_item_total": 0, "material_sales_tax": 0,
-                            "subtotal": 0, "overhead_amount": 0, "profit_amount": 0, "deductible": 0,
-                        })
-                for lv in result.get("levels", []):
-                    sum_rcv = sum_dep = sum_acv = 0.0
-                    for rm in lv.get("rooms", []):
-                        t = rm.get("totals") or {}
-                        sum_rcv += float(t.get("rcv") or 0)
-                        sum_dep += abs(float(t.get("depreciation") or 0))
-                        sum_acv += float(t.get("acv") or 0)
-                    if sum_rcv or sum_acv:
-                        sections.append({
-                            "section_name": lv.get("name", "Dwelling"),
-                            "rcv": sum_rcv, "depreciation": sum_dep, "net_acv": sum_acv,
-                            "line_item_total": 0, "material_sales_tax": 0,
-                            "subtotal": 0, "overhead_amount": 0, "profit_amount": 0, "deductible": 0,
-                        })
-
-            # Build totals from summary
-            rcv_amount = summary.get("grand_total_rcv") or summary.get("rcv") or 0
-            depreciation_raw = summary.get("depreciation") or 0
-            depreciation_amount = abs(depreciation_raw)
-            acv_amount = summary.get("acv") or 0
-            deductible = summary.get("deductible") or 0
+            parsed = parse_estimate_summary(result.get("_page_texts", []))
+            if not parsed["sections"]:
+                return {
+                    "success": False,
+                    "totals": None,
+                    "sections": [],
+                    "header": header,
+                    "error": "No estimate summary found in the PDF",
+                }
 
             return {
                 "success": True,
-                "totals": {
-                    "rcv_amount": rcv_amount,
-                    "acv_amount": acv_amount,
-                    "depreciation_amount": depreciation_amount,
-                    "deductible": deductible,
-                    "net_claim": summary.get("net_claim") or 0,
-                },
-                "sections": sections,
+                "totals": parsed["totals"],
+                "sections": parsed["sections"],
                 "header": header,
             }
         finally:

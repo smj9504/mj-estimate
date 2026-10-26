@@ -144,7 +144,8 @@ export const supplementService = {
     header?: Record<string, any>;
     error?: string;
   }> {
-    const { data } = await api.post(`${BASE_URL}/insurance-estimates/extract-pdf/${fileId}`);
+    // Same allowance as the other estimate PDF parsers: a long estimate takes a while to read
+    const { data } = await api.post(`${BASE_URL}/insurance-estimates/extract-pdf/${fileId}`, undefined, { timeout: 120000 });
     return data;
   },
 

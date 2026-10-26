@@ -8,6 +8,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.common.utils.storage_helpers import download_from_storage, is_cloud_ref
 from app.core.config import settings
 from app.domains.file.models import File
 from app.domains.file.service import get_storage_provider
@@ -37,21 +38,25 @@ class InsuranceExtractionService:
         self.normalizer = InsuranceItemNormalizer()
         self.mapper = InsuranceExtractionMapper()
 
-    def _resolve_pdf_path(self, stored_url: str) -> Tuple[str, Optional[str]]:
+    def _resolve_pdf_path(
+        self, stored_url: str, storage_provider: Optional[str] = None
+    ) -> Tuple[str, Optional[str]]:
         """
         Return (absolute_path_for_pdf_reader, temp_path_to_delete_or_none).
 
         Local storage persists URLs relative to the storage base_dir (e.g.
         insurance_extraction/context/file.pdf), not CWD — PdfReader must get an
         absolute path under that base.
+
+        Cloud URLs (b2://, gs://, http) go through download_from_storage, which
+        also reads gs:// rows left over from before the move to B2.
         """
         if not stored_url or not str(stored_url).strip():
             raise ValueError("File has no storage URL")
 
         url = str(stored_url).strip()
-        if url.startswith(("http://", "https://", "gs://")):
-            storage = get_storage_provider()
-            data = storage.download(url)
+        if is_cloud_ref(url):
+            data = download_from_storage(url, storage_provider)
             fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
             try:
                 with os.fdopen(fd, "wb") as tmp_f:
@@ -101,7 +106,7 @@ class InsuranceExtractionService:
 
         tmp_path: Optional[str] = None
         try:
-            pdf_path, tmp_path = self._resolve_pdf_path(file_row.url)
+            pdf_path, tmp_path = self._resolve_pdf_path(file_row.url, file_row.storage_provider)
             pipeline_result = self.orchestrator.run(pdf_path)
         finally:
             if tmp_path and os.path.isfile(tmp_path):
