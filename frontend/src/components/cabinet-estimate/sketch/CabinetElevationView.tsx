@@ -6,7 +6,8 @@
  * moved in the plan and sized in the Edit tab; this view only shows how
  * the run reads from the front — door/drawer layout (glass doors from the
  * Edit tab's Glass box drawn as panes), upper mounting
- * height, countertop line and widths.
+ * height, countertop line and widths, and crown molding over the uppers and
+ * talls when the estimate has it.
  *
  * Plain SVG rather than Konva: nothing here is interactive, and SVG scales
  * crisply and prints/exports as-is.
@@ -14,7 +15,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { ElevationItem, ElevationRun, PresetCatalog } from './cabinetSketchLayout';
-import { COUNTER_TOP_IN, GLASS_STILE_IN, TOE_KICK_IN, facesFor } from './cabinetFronts';
+import { COUNTER_TOP_IN, CROWN_BANDS, CROWN_HEIGHT_IN, CROWN_MIN_TOP_IN, GLASS_STILE_IN, TOE_KICK_IN, facesFor } from './cabinetFronts';
 import type { Face } from './cabinetFronts';
 
 /** Reference ceiling drawn behind the run (8 ft). */
@@ -51,9 +52,49 @@ export interface CabinetElevationViewProps {
   presets: PresetCatalog;
   height: number;
   selectedIds?: Set<string>;
+  /** Draw crown molding over the uppers and talls (the Edit tab's Crown Molding scope). */
+  crownMolding?: boolean;
 }
 
-const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, presets, height, selectedIds }) => {
+/** A stretch of crown: over cabinets side by side with the same top, and how far it returns at each end. */
+interface CrownRun {
+  key: string;
+  left: number;
+  right: number;
+  top: number;
+  outLeft: boolean;
+  outRight: boolean;
+}
+
+/**
+ * Crown over the uppers and talls of a run: one stretch per row of cabinets
+ * butted side by side at the same top. An end returns past the cabinet
+ * unless it meets the wall or a taller cabinet beside it.
+ */
+function crownRuns(items: ElevationItem[], wall?: { left_in: number; right_in: number }): CrownRun[] {
+  const tops = items
+    .filter((i) => i.bottom_in + i.height_in >= CROWN_MIN_TOP_IN)
+    .sort((a, b) => a.left_in - b.left_in);
+  const topOf = (i: ElevationItem) => i.bottom_in + i.height_in;
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.5;
+  const runs: CrownRun[] = [];
+  for (const i of tops) {
+    const last = runs[runs.length - 1];
+    if (last && near(last.right, i.left_in) && near(last.top, topOf(i))) {
+      last.right = i.left_in + i.width_in;
+      continue;
+    }
+    runs.push({ key: i.cabinet.id, left: i.left_in, right: i.left_in + i.width_in, top: topOf(i), outLeft: true, outRight: true });
+  }
+  const tallerAt = (x: number, top: number) => tops.some((i) => topOf(i) > top + 0.5 && x > i.left_in - 0.5 && x < i.left_in + i.width_in + 0.5);
+  for (const r of runs) {
+    r.outLeft = !(wall && near(r.left, wall.left_in)) && !tallerAt(r.left, r.top);
+    r.outRight = !(wall && near(r.right, wall.right_in)) && !tallerAt(r.right, r.top);
+  }
+  return runs;
+}
+
+const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, presets, height, selectedIds, crownMolding = false }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(900);
 
@@ -228,6 +269,27 @@ const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, preset
           />
         ))}
         {uppers.map(renderItem)}
+        {crownMolding &&
+          crownRuns(run.items, run.wall).map((r) => (
+            <g key={`crown-${r.key}`}>
+              {CROWN_BANDS.map(([from, to, out]) => {
+                const left = r.left - (r.outLeft ? out : 0);
+                const right = r.right + (r.outRight ? out : 0);
+                return (
+                  <rect
+                    key={from}
+                    x={x(left)}
+                    y={y(r.top + to)}
+                    width={(right - left) * ppi}
+                    height={(to - from) * ppi}
+                    fill={BOX_FILL}
+                    stroke={BOX_STROKE}
+                    strokeWidth={0.75}
+                  />
+                );
+              })}
+            </g>
+          ))}
 
         {/* Floor */}
         <line x1={MARGIN_X / 2} x2={width - MARGIN_X / 2} y1={floorY} y2={floorY} stroke={INK} strokeWidth={2} />
@@ -249,7 +311,7 @@ const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, preset
           <text
             key={`du-${i.cabinet.id}`}
             x={x(i.left_in + i.width_in / 2)}
-            y={y(i.bottom_in + i.height_in) - 5}
+            y={y(i.bottom_in + i.height_in + (crownMolding && i.bottom_in + i.height_in >= CROWN_MIN_TOP_IN ? CROWN_HEIGHT_IN : 0)) - 5}
             textAnchor="middle"
             fontSize={10}
             fill={INK_SECONDARY}

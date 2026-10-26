@@ -82,6 +82,8 @@ export const HARDWARE_STYLES: FinishChoice[] = [
   { key: 'bar', label: 'Bar pulls', swatch: '#c6c6c1', words: 'bar pulls' },
   { key: 'knob', label: 'Knobs', swatch: '#c6c6c1', words: 'round knobs' },
   { key: 'cup', label: 'Knobs + cup pulls', swatch: '#c6c6c1', words: 'round knobs on the doors and cup pulls on the drawers' },
+  // Push-to-open or finger-pull fronts: nothing on the doors and drawers
+  { key: 'none', label: 'None (no knobs)', swatch: '#c6c6c1', words: 'no visible hardware (push-to-open)' },
 ];
 
 export const FLOORS: FinishChoice[] = [
@@ -124,11 +126,17 @@ export function finishOf(saved?: Partial<CabinetSketchFinish> | null): CabinetSk
 export const choiceOf = <T extends FinishChoice>(choices: T[], key: string): T =>
   choices.find((c) => c.key === key) ?? choices[0];
 
+/** The hardware in words: its metal and shape, or that there is none. */
+export function hardwareWords(finish: CabinetSketchFinish): string {
+  const style = choiceOf(HARDWARE_STYLES, finish.hardware_style);
+  return style.key === 'none' ? style.words : `${choiceOf(HARDWARE, finish.hardware).words} ${style.words}`;
+}
+
 /** The finish in words, for the AI photo's prompt. */
 export function finishWords(finish: CabinetSketchFinish): string {
   return [
     `${choiceOf(CABINET_COLORS, finish.cabinet_color).words} ${choiceOf(DOOR_STYLES, finish.door_style).words} cabinet doors and drawer fronts`,
-    `${choiceOf(HARDWARE, finish.hardware).words} ${choiceOf(HARDWARE_STYLES, finish.hardware_style).words}`,
+    hardwareWords(finish),
     choiceOf(COUNTERTOPS, finish.countertop).words,
     choiceOf(BACKSPLASHES, finish.backsplash).words,
     choiceOf(SINKS, finish.sink).words,

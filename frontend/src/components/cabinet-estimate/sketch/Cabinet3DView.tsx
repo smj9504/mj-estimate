@@ -263,6 +263,8 @@ export interface Cabinet3DViewProps {
   finish?: CabinetSketchFinish | null;
   /** An option's chosen products over the finish, in the realistic look (productLook.ts). */
   surfaces?: ProductSurfaces | null;
+  /** Top the uppers and talls with crown molding (the Edit tab's Crown Molding scope). */
+  crownMolding?: boolean;
   /** On show. Kept mounted while hidden, so the ray tracer needn't start over; it rests meanwhile. */
   active?: boolean;
   selectedIds: Set<string>;
@@ -316,6 +318,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
     islandSeatingIn = 0,
     finish = null,
     surfaces = null,
+    crownMolding = false,
     active = true,
     selectedIds,
     onSelect,
@@ -593,7 +596,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
       disposeScene(stage.content);
     }
     setLook(stage, !!finish);
-    stage.content = buildCabinetScene(solids, wallModels, selectedIds, { ...extras, finish, surfaces });
+    stage.content = buildCabinetScene(solids, wallModels, selectedIds, { ...extras, finish, surfaces, crown: crownMolding });
     stage.scene.add(stage.content);
     stage.traceStale = true;
 
@@ -622,7 +625,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
     } else {
       stage.render();
     }
-  }, [solids, wallModels, extras, selectedIds, finish, surfaces, frameView, stageVersion]);
+  }, [solids, wallModels, extras, selectedIds, finish, surfaces, crownMolding, frameView, stageVersion]);
 
   // Ray tracing: loaded the first time the realistic look wants it, then
   // switched on and off with the look, the toggle and the view's showing.

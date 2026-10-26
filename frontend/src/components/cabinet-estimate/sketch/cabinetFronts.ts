@@ -16,6 +16,20 @@ export const TOE_KICK_IN = 4;
 export const REVEAL_IN = 0.75;
 /** Width of the door frame around a glass insert, inches. */
 export const GLASS_STILE_IN = 2.25;
+/** Cabinets whose top is at least this high (uppers, talls, bridges) take crown molding. */
+export const CROWN_MIN_TOP_IN = 72;
+/**
+ * Crown molding as stepped bands over a cabinet's top, each [from, to, out]:
+ * inches above the top, and how far it stands out past the cabinet's exposed
+ * sides. 3¾" tall, 2¾" out — a common stock crown. The 3D and Front views both draw it.
+ */
+export const CROWN_BANDS: [number, number, number][] = [
+  [0, 0.75, 0.5],
+  [0.75, 2.25, 1.5],
+  [2.25, 3.25, 2.5],
+  [3.25, 3.75, 2.75],
+];
+export const CROWN_HEIGHT_IN = CROWN_BANDS[CROWN_BANDS.length - 1][1];
 
 export type FaceKind = 'door' | 'drawer' | 'panel' | 'opening';
 

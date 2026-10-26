@@ -69,7 +69,7 @@ class CabinetSketchFinish(BaseModel):
     backsplash: str = "white_subway"
     sink: str = "stainless"
     faucet: str = "stainless"
-    # The hardware's metal; hardware_style its shape (bar / knob / cup).
+    # The hardware's metal; hardware_style its shape (bar / knob / cup / none).
     hardware: str = "nickel"
     hardware_style: str = "bar"
     floor: str = "light_oak"

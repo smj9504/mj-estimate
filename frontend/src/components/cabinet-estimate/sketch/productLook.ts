@@ -14,7 +14,7 @@
 
 import type { CabinetSketchFinish } from '../../../types/cabinetSketch';
 import type { ProductSnapshot } from '../../../types/productLibrary';
-import { BACKSPLASHES, CABINET_COLORS, COUNTERTOPS, DOOR_STYLES, FAUCETS, FLOORS, HARDWARE, HARDWARE_STYLES, SINKS, choiceOf } from './kitchenFinish';
+import { BACKSPLASHES, CABINET_COLORS, COUNTERTOPS, DOOR_STYLES, FAUCETS, FLOORS, SINKS, choiceOf, hardwareWords } from './kitchenFinish';
 
 /** What a product puts on one surface of the kitchen. */
 export interface SurfaceLook {
@@ -196,11 +196,7 @@ export function productWords(finish: CabinetSketchFinish, products?: Record<stri
       `${choiceOf(CABINET_COLORS, finish.cabinet_color).words} ${choiceOf(DOOR_STYLES, finish.door_style).words} cabinet doors and drawer fronts`,
       'cabinets'
     ),
-    describe(
-      p.cabinet_hardware,
-      `${choiceOf(HARDWARE, finish.hardware).words} ${choiceOf(HARDWARE_STYLES, finish.hardware_style).words}`,
-      'cabinet hardware'
-    ),
+    describe(p.cabinet_hardware, hardwareWords(finish), 'cabinet hardware'),
     describe(p.countertop, choiceOf(COUNTERTOPS, finish.countertop).words, 'countertops'),
     describe(p.backsplash, choiceOf(BACKSPLASHES, finish.backsplash).words, 'backsplash'),
     describe(p.kitchen_sink, choiceOf(SINKS, finish.sink).words, 'sink'),

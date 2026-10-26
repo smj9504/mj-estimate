@@ -8,15 +8,17 @@
  * outlined, over a 1 ft grid with see-through walls, so the two read as the
  * same drawing. The realistic look draws the sketch's finish
  * (kitchenFinish.ts) under real light: textured materials (finishMaterials.ts),
- * shaker, raised-panel or slab doors with pulls or knobs, a backsplash, sinks
- * sunk into the counter under a gooseneck faucet, solid walls that open
- * toward the camera (cutAwayWalls) — what the AI photo starts from.
+ * shaker, raised-panel or slab doors with pulls or knobs (or none), a
+ * backsplash on every wall a counter or range backs onto, sinks sunk into the
+ * counter under a gooseneck faucet, solid walls that open toward the camera
+ * (cutAwayWalls) — what the AI photo starts from. Either look can top the
+ * uppers and talls with crown molding.
  */
 
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import type { CabinetSketchFinish } from '../../../types/cabinetSketch';
-import { COUNTER_TOP_IN, GLASS_STILE_IN } from './cabinetFronts';
+import { COUNTER_TOP_IN, CROWN_BANDS, CROWN_MIN_TOP_IN, GLASS_STILE_IN } from './cabinetFronts';
 import type { Face } from './cabinetFronts';
 import { applianceExtent, inPolygon, modelBounds, toPlan } from './cabinet3dModel';
 import type { ApplianceSolid, CabinetSolid, CounterSlab, FillerSolid, FrontRun, Pt2, WallSolid } from './cabinet3dModel';
@@ -50,6 +52,8 @@ const BOWL_DEPTH_IN = 8;
 /** The backsplash: how high it goes above the counter, and how thick it is. */
 const BACKSPLASH_IN = 18;
 const BACKSPLASH_THICK_IN = 0.375;
+/** A side within this of a wall's face lies against it (the plan snaps backs to the face). */
+const WALL_TOUCH_IN = 2;
 
 const COLORS = {
   box: '#EADCC6',
@@ -295,6 +299,8 @@ function realisticFront(f: Face, faces: Face[], glass: boolean, bottom: number, 
     at(new THREE.Mesh(inchBox(f.w, f.h, FACE_THICK_IN), paint.mat(surface)), f.w / 2, f.h / 2, FACE_THICK_IN / 2);
   }
 
+  // Push-to-open fronts: nothing to put on them
+  if (paint.hardware === 'none') return out;
   const metal = paint.mat('pull');
   if (f.kind === 'drawer') {
     // Centred — on the recessed panel of a framed front — and a pair across a wide drawer for knobs and cups.
@@ -501,25 +507,128 @@ function splashPanel(a: Pt2, b: Pt2, inside: Pt2, toWorld: (p: Pt2) => Pt2, bott
   return panel;
 }
 
-/** A base's backsplash on each side that backs onto a wall: its back, and a corner unit's side leg too. */
-function backsplashes(solid: CabinetSolid, material: THREE.Material): THREE.Mesh[] {
+/** Whether the side pa→pb (plan inches) lies against a wall's face, along it and within its length. */
+function againstWall(pa: Pt2, pb: Pt2, walls: WallSolid[]): boolean {
+  return walls.some((w) => {
+    const len = Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]);
+    if (len < 1) return false;
+    const ux = (w.b[0] - w.a[0]) / len;
+    const uz = (w.b[1] - w.a[1]) / len;
+    const off = (p: Pt2) => Math.abs((p[0] - w.a[0]) * -uz + (p[1] - w.a[1]) * ux) - w.thickness / 2;
+    const along = (p: Pt2) => (p[0] - w.a[0]) * ux + (p[1] - w.a[1]) * uz;
+    if (Math.abs(off(pa)) > WALL_TOUCH_IN || Math.abs(off(pb)) > WALL_TOUCH_IN) return false;
+    return Math.max(along(pa), along(pb)) > WALL_TOUCH_IN && Math.min(along(pa), along(pb)) < len - WALL_TOUCH_IN;
+  });
+}
+
+/** The middle of a footprint, to tell its inside from its outside. */
+const middle = (pts: Pt2[]): Pt2 => [pts.reduce((sum, [x]) => sum + x, 0) / pts.length, pts.reduce((sum, [, z]) => sum + z, 0) / pts.length];
+
+/**
+ * A base's backsplash on each side that backs onto a wall: its back, a
+ * corner unit's side leg, and any other side against a wall — the end of a
+ * blind corner base along the side wall, where the run turns.
+ */
+function backsplashes(solid: CabinetSolid, material: THREE.Material, walls: WallSolid[]): THREE.Mesh[] {
   const pts = solid.outline;
   const xs = pts.map(([x]) => x);
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
   const legX = solid.cabinet.corner_side === 'right' ? maxX : minX;
   const near = (a: number, b: number) => Math.abs(a - b) < 0.01;
-  const inside: Pt2 = [pts.reduce((sum, [x]) => sum + x, 0) / pts.length, pts.reduce((sum, [, z]) => sum + z, 0) / pts.length];
+  const inside = middle(pts);
   const out: THREE.Mesh[] = [];
   pts.forEach((a, i) => {
     const b = pts[(i + 1) % pts.length];
     const back = near(a[1], 0) && near(b[1], 0);
     const leg = pts.length > 4 && near(a[0], legX) && near(b[0], legX);
-    if (!back && !leg) return;
+    if (!back && !leg && !againstWall(toPlan(solid, a), toPlan(solid, b), walls)) return;
     const panel = splashPanel(a, b, inside, (p) => toPlan(solid, p), solid.bottom, material);
     if (panel) out.push(panel);
   });
   return out;
+}
+
+/**
+ * A footprint grown outward side by side: side i (from point i to the next)
+ * moves out by grow[i], 0 leaving it where it is, the corners meeting where
+ * the moved sides cross.
+ */
+function grownOutline(pts: Pt2[], grow: number[]): Pt2[] {
+  const n = pts.length;
+  let area = 0;
+  for (let i = 0; i < n; i++) {
+    const [x0, z0] = pts[i];
+    const [x1, z1] = pts[(i + 1) % n];
+    area += x0 * z1 - x1 * z0;
+  }
+  // Outward is to the right of a side when the outline runs counter-clockwise (in x, z)
+  const sides = pts.map((a, i) => {
+    const b = pts[(i + 1) % n];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const u: Pt2 = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+    const out: Pt2 = area > 0 ? [u[1], -u[0]] : [-u[1], u[0]];
+    return { p: [a[0] + out[0] * grow[i], a[1] + out[1] * grow[i]] as Pt2, u, out };
+  });
+  return pts.map((corner, i) => {
+    const prev = sides[(i - 1 + n) % n];
+    const next = sides[i];
+    const cross = prev.u[0] * next.u[1] - prev.u[1] * next.u[0];
+    if (Math.abs(cross) < 1e-6) return [corner[0] + next.out[0] * grow[i], corner[1] + next.out[1] * grow[i]] as Pt2;
+    const dx = next.p[0] - prev.p[0];
+    const dz = next.p[1] - prev.p[1];
+    const t = (dx * next.u[1] - dz * next.u[0]) / cross;
+    return [prev.p[0] + prev.u[0] * t, prev.p[1] + prev.u[1] * t] as Pt2;
+  });
+}
+
+/**
+ * Which sides of each upper and tall show crown molding: all but its back,
+ * a side against a wall, and a side butted to the next cabinet's (the crown
+ * runs on across the joint there).
+ */
+function crownSides(solids: CabinetSolid[], walls: WallSolid[]): Map<string, boolean[]> {
+  const tops = solids.filter((s) => s.bottom + s.height >= CROWN_MIN_TOP_IN);
+  const planSides = tops.map((s) => s.outline.map((a, i) => [toPlan(s, a), toPlan(s, s.outline[(i + 1) % s.outline.length])] as [Pt2, Pt2]));
+  const butted = (pa: Pt2, pb: Pt2, self: number) => {
+    const len = Math.hypot(pb[0] - pa[0], pb[1] - pa[1]);
+    if (len < 1) return true;
+    const ux = (pb[0] - pa[0]) / len;
+    const uz = (pb[1] - pa[1]) / len;
+    const off = (q: Pt2) => Math.abs((q[0] - pa[0]) * -uz + (q[1] - pa[1]) * ux);
+    const along = (q: Pt2) => (q[0] - pa[0]) * ux + (q[1] - pa[1]) * uz;
+    // Butted along most of it: a corner upper's front only partly behind the next run's end still shows crown
+    return planSides.some((sides, j) =>
+      j !== self &&
+      sides.some(
+        ([qa, qb]) =>
+          off(qa) < 1 &&
+          off(qb) < 1 &&
+          Math.min(Math.max(along(qa), along(qb)), len) - Math.max(Math.min(along(qa), along(qb)), 0) > len * 0.8
+      )
+    );
+  };
+  const out = new Map<string, boolean[]>();
+  tops.forEach((s, si) => {
+    out.set(
+      s.cabinet.id,
+      s.outline.map((a, i) => {
+        const b = s.outline[(i + 1) % s.outline.length];
+        if (Math.abs(a[1]) < 0.01 && Math.abs(b[1]) < 0.01) return false;
+        const [pa, pb] = planSides[si][i];
+        return !againstWall(pa, pb, walls) && !butted(pa, pb, si);
+      })
+    );
+  });
+  return out;
+}
+
+/** Crown molding over a cabinet's top, standing out past its `shown` sides (local frame). */
+function crownMolding(solid: CabinetSolid, shown: boolean[], edge: string, paint: Paint): THREE.Mesh[] {
+  return CROWN_BANDS.map(([from, to, outBy]) => {
+    const band = grownOutline(solid.outline, shown.map((show) => (show ? outBy : 0)));
+    return paint.outline(new THREE.Mesh(prism(band, solid.height + from, solid.height + to), paint.mat('box')), edge);
+  });
 }
 
 /** In the realistic look a selected cabinet glows faintly, having no outline to colour. */
@@ -533,7 +642,13 @@ function glow(obj: THREE.Object3D) {
   });
 }
 
-function cabinetObject(solid: CabinetSolid, selected: boolean, paint: Paint): THREE.Group {
+function cabinetObject(
+  solid: CabinetSolid,
+  selected: boolean,
+  paint: Paint,
+  walls: WallSolid[],
+  crown: boolean[] | undefined
+): THREE.Group {
   const group = new THREE.Group();
   group.userData.cabinetId = solid.cabinet.id;
   group.position.set(solid.x, solid.bottom, solid.z);
@@ -561,13 +676,14 @@ function cabinetObject(solid: CabinetSolid, selected: boolean, paint: Paint): TH
   for (const run of solid.fronts) group.add(...frontMeshes(run, solid.glass, faceEdge, solid.bottom, paint));
   if (solid.sink) group.add(materials ? realisticSink(solid.sink, materials) : sinkObject(solid.sink, paint));
   const isBase = solid.bottom < 1 && solid.height < COUNTER_TOP_IN + 1 && solid.cabinet.location !== 'island';
-  if (materials?.backsplash && isBase) group.add(...backsplashes(solid, materials.backsplash));
+  if (materials?.backsplash && isBase) group.add(...backsplashes(solid, materials.backsplash, walls));
+  if (crown) group.add(...crownMolding(solid, crown, boxEdge, paint));
   if (selected && paint.realistic) glow(group);
   return group;
 }
 
 /** One detach & reset appliance, built from boxes in its own frame: x along it, z from its back to its front, y up from its bottom. */
-function applianceObject(a: ApplianceSolid, selected: boolean, paint: Paint): THREE.Group {
+function applianceObject(a: ApplianceSolid, selected: boolean, paint: Paint, walls: WallSolid[]): THREE.Group {
   const group = new THREE.Group();
   // In a cabinet, picking it picks the cabinet.
   if (a.hostId) group.userData.cabinetId = a.hostId;
@@ -639,11 +755,15 @@ function applianceObject(a: ApplianceSolid, selected: boolean, paint: Paint): TH
       group.add(barAcross(3, w - 3, h - 3));
     }
   }
+  const splash = paint.materials?.backsplash;
   if (a.counter) {
     group.add(block([0, b, w, front + 1], h, COUNTER_TOP_IN, 'counter', '#6f6d68', paint));
     // In line with the backsplash of the cabinets beside it, whose backs are at the wall.
-    const splash = paint.materials?.backsplash;
     const panel = splash && splashPanel([0, 0], [w, 0], [w / 2, front], (p) => toPlan(a, p), a.bottom, splash);
+    if (panel) group.add(panel);
+  } else if (splash && a.spec.model === 'range' && (!walls.length || againstWall(toPlan(a, [0, 0]), toPlan(a, [w, 0]), walls))) {
+    // The tile runs on behind a range, up under the microwave or hood over it
+    const panel = splashPanel([0, 0], [w, 0], [w / 2, front], (p) => toPlan(a, p), a.bottom, splash);
     if (panel) group.add(panel);
   }
   if (selected && paint.realistic) glow(group);
@@ -746,6 +866,7 @@ export function buildCabinetScene(
     appliances = [],
     finish = null,
     surfaces = null,
+    crown = false,
   }: {
     counters?: CounterSlab[];
     fillers?: FillerSolid[];
@@ -754,6 +875,8 @@ export function buildCabinetScene(
     finish?: CabinetSketchFinish | null;
     /** An option's chosen products over the finish (productLook.ts). */
     surfaces?: ProductSurfaces | null;
+    /** Top the uppers and talls with crown molding (the estimate's Crown Molding scope). */
+    crown?: boolean;
   } = {}
 ): THREE.Group {
   const paint = finish ? realisticPaint(finish, surfaces) : DRAWING;
@@ -782,8 +905,11 @@ export function buildCabinetScene(
   for (const wall of walls) root.add(wallObject(wall, center, paint));
   // A range in its range base is drawn in place of the base's own appliance box.
   const replaced = new Set(appliances.filter((a) => a.replacesHost).map((a) => a.hostId));
+  const crowns = crown ? crownSides(solids, walls) : new Map<string, boolean[]>();
   for (const solid of solids) {
-    if (!replaced.has(solid.cabinet.id)) root.add(cabinetObject(solid, selectedIds.has(solid.cabinet.id), paint));
+    if (!replaced.has(solid.cabinet.id)) {
+      root.add(cabinetObject(solid, selectedIds.has(solid.cabinet.id), paint, walls, crowns.get(solid.cabinet.id)));
+    }
   }
   // In the realistic look an island sink's bowls sink through the island top too.
   const islandBowls = paint.materials
@@ -797,7 +923,7 @@ export function buildCabinetScene(
   }
   for (const filler of fillers) root.add(fillerObject(filler, paint));
   for (const a of appliances) {
-    root.add(applianceObject(a, !!a.hostId && selectedIds.has(a.hostId), paint));
+    root.add(applianceObject(a, !!a.hostId && selectedIds.has(a.hostId), paint, walls));
     root.add(applianceTag(a));
   }
   if (paint.realistic) {
