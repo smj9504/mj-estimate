@@ -5,12 +5,13 @@
  * CabinetShapeRenderer: (x, y) the back-left corner, front toward local +y.
  */
 
-import React, { useCallback } from 'react';
-import { Circle, Group, Rect, Text } from 'react-konva';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { Circle, Group, Line, Rect, Text, Transformer } from 'react-konva';
 import type Konva from 'konva';
 import type { CabinetSketchAppliance, CabinetSketchCabinet } from '../../../types/cabinetSketch';
 import { applianceSpec, sinkLayout } from './sketchAppliances';
 import type { LocalRect } from './sketchAppliances';
+import { ANCHOR_SIZE, ROTATE_ANCHOR_OFFSET, ROTATION_SNAP_ANGLES } from './CabinetShapeRenderer';
 
 /** The detach & reset accent, as on the 3D view's tags. */
 export const DR_TAG_COLOR = '#B45309';
@@ -24,18 +25,66 @@ interface ApplianceShapeProps {
   zoom: number;
   onSelect: (id: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
+  /** Turned with its handle: the new back-left corner and rotation. */
+  onTransformEnd?: (id: string, x: number, y: number, rotation: number) => void;
 }
 
 /**
  * One detach & reset appliance: its footprint (dashed when it hangs over
- * the counter, a circle for a disposal), burners on a range or cooktop,
- * and its code with a D&R tag. One in a cabinet goes with the cabinet, so
- * it lets clicks and drags through to it; the rest are dragged themselves.
+ * the counter, a circle for a disposal) with its front marked, burners on
+ * a range or cooktop, and its code with a D&R tag. One in a cabinet goes
+ * — and turns — with the cabinet, so it lets clicks and drags through to
+ * it; the rest are dragged themselves, and turned by the handle on them
+ * once selected.
  */
-export const ApplianceShape: React.FC<ApplianceShapeProps> = ({ appliance, isSelected, zoom, onSelect, onDragEnd }) => {
+export const ApplianceShape: React.FC<ApplianceShapeProps> = ({
+  appliance,
+  isSelected,
+  zoom,
+  onSelect,
+  onDragEnd,
+  onTransformEnd,
+}) => {
   const spec = applianceSpec(appliance.type);
   const { width: w, height: h } = appliance;
   const hosted = !!appliance.host_id;
+  const groupRef = useRef<Konva.Group>(null);
+  const bodyRef = useRef<Konva.Group>(null);
+  const transformerRef = useRef<Konva.Transformer>(null);
+
+  // The turning handle, on a selected free-standing appliance.
+  useEffect(() => {
+    const tr = transformerRef.current;
+    if (!tr || !bodyRef.current) return;
+    tr.nodes(isSelected && !hosted ? [bodyRef.current] : []);
+    tr.getLayer()?.batchDraw();
+  }, [isSelected, hosted]);
+
+  // Shift snaps the turn to 15° steps, as for cabinets.
+  const handleTransform = useCallback((e: Konva.KonvaEventObject<Event>) => {
+    const tr = transformerRef.current;
+    if (!tr) return;
+    const shift = !!(e.evt as MouseEvent)?.shiftKey;
+    if (shift !== (tr.rotationSnaps().length > 0)) tr.rotationSnaps(shift ? ROTATION_SNAP_ANGLES : []);
+  }, []);
+
+  // The handle turns the body about its middle; fold that turn into the
+  // appliance's own pose (its back-left corner and rotation).
+  const handleTransformEnd = useCallback(() => {
+    const body = bodyRef.current;
+    const group = groupRef.current;
+    if (!body || !group) return;
+    transformerRef.current?.rotationSnaps([]);
+    const g = (group.rotation() * Math.PI) / 180;
+    const x = group.x() + body.x() * Math.cos(g) - body.y() * Math.sin(g);
+    const y = group.y() + body.x() * Math.sin(g) + body.y() * Math.cos(g);
+    const rotation = Math.round(((((group.rotation() + body.rotation()) % 360) + 360) % 360) * 100) / 100;
+    body.position({ x: 0, y: 0 });
+    body.rotation(0);
+    group.position({ x, y });
+    group.rotation(rotation);
+    onTransformEnd?.(appliance.id, x, y, rotation);
+  }, [appliance.id, onTransformEnd]);
   const px = 1 / zoom;
   const hung = spec.mount === 'hung';
   const round = spec.mount === 'under_sink';
@@ -85,65 +134,97 @@ export const ApplianceShape: React.FC<ApplianceShapeProps> = ({ appliance, isSel
   );
 
   return (
-    <Group
-      x={appliance.x}
-      y={appliance.y}
-      rotation={appliance.rotation}
-      draggable={!hosted}
-      listening={!hosted}
-      onClick={handleClick}
-      onTap={handleClick}
-      onDragEnd={handleDragEnd}
-    >
-      {round ? (
-        // Under the counter, so dashed, as hidden things are on a plan.
-        <Circle
-          x={w / 2}
-          y={h / 2}
-          radius={Math.min(w, h) / 2}
-          fill="#FCE9D2"
-          opacity={0.9}
-          dash={[3 * px, 2 * px]}
-          {...outline}
-          stroke={isSelected ? '#1890ff' : DR_TAG_COLOR}
-        />
-      ) : (
-        <Rect
-          width={w}
-          height={h}
-          fill={BODY_FILL}
-          opacity={hung ? 0.4 : 0.95}
-          dash={hung ? [5 * px, 3 * px] : undefined}
-          cornerRadius={2}
-          {...outline}
-        />
-      )}
-      {(spec.model === 'range' || spec.model === 'cooktop') &&
-        [0.28, 0.72].flatMap((fx) =>
-          [0.3, 0.7].map((fy) => (
+    <>
+      <Group
+        ref={groupRef}
+        x={appliance.x}
+        y={appliance.y}
+        rotation={appliance.rotation}
+        draggable={!hosted}
+        listening={!hosted}
+        onClick={handleClick}
+        onTap={handleClick}
+        onDragEnd={handleDragEnd}
+      >
+        <Group ref={bodyRef}>
+          {round ? (
+            // Under the counter, so dashed, as hidden things are on a plan.
             <Circle
-              key={`${fx}-${fy}`}
-              x={w * fx}
-              y={h * fy}
-              radius={burner}
-              stroke={BODY_STROKE}
-              strokeWidth={1}
+              x={w / 2}
+              y={h / 2}
+              radius={Math.min(w, h) / 2}
+              fill="#FCE9D2"
+              opacity={0.9}
+              dash={[3 * px, 2 * px]}
+              {...outline}
+              stroke={isSelected ? '#1890ff' : DR_TAG_COLOR}
+            />
+          ) : (
+            <Rect
+              width={w}
+              height={h}
+              fill={BODY_FILL}
+              opacity={hung ? 0.4 : 0.95}
+              dash={hung ? [5 * px, 3 * px] : undefined}
+              cornerRadius={2}
+              {...outline}
+            />
+          )}
+          {(spec.model === 'range' || spec.model === 'cooktop') &&
+            [0.28, 0.72].flatMap((fx) =>
+              [0.3, 0.7].map((fy) => (
+                <Circle
+                  key={`${fx}-${fy}`}
+                  x={w * fx}
+                  y={h * fy}
+                  radius={burner}
+                  stroke={BODY_STROKE}
+                  strokeWidth={1}
+                  strokeScaleEnabled={false}
+                  listening={false}
+                />
+              ))
+            )}
+          {/* Its front (doors, controls), as a cabinet's door side is marked — dashed when it hangs overhead. */}
+          {!round && (
+            <Line
+              points={[0, h, w, h]}
+              stroke="#2F3A43"
+              strokeWidth={hung ? 1.5 : 2.5}
+              dash={hung ? [5 * px, 3 * px] : undefined}
               strokeScaleEnabled={false}
               listening={false}
             />
-          ))
-        )}
-      <Group x={w / 2} y={labelY} rotation={upsideDown ? 180 : 0} listening={false}>
-        {roomy ? (
-          <>
-            {text(spec.code, -11 * px, 11, '#2F3A43')}
-            {text('D&R', 1 * px, 9, DR_TAG_COLOR)}
-          </>
-        ) : (
-          text(`${spec.code} D&R`, -5 * px, 9, DR_TAG_COLOR)
-        )}
+          )}
+        </Group>
+        <Group x={w / 2} y={labelY} rotation={upsideDown ? 180 : 0} listening={false}>
+          {roomy ? (
+            <>
+              {text(spec.code, -11 * px, 11, '#2F3A43')}
+              {text('D&R', 1 * px, 9, DR_TAG_COLOR)}
+            </>
+          ) : (
+            text(`${spec.code} D&R`, -5 * px, 9, DR_TAG_COLOR)
+          )}
+        </Group>
       </Group>
-    </Group>
+      {!hosted && (
+        <Transformer
+          ref={transformerRef}
+          rotateEnabled
+          resizeEnabled={false}
+          rotateAnchorOffset={ROTATE_ANCHOR_OFFSET}
+          borderStroke="#1890ff"
+          borderDash={[3, 3]}
+          anchorSize={ANCHOR_SIZE}
+          anchorCornerRadius={2}
+          anchorStroke="#1890ff"
+          anchorFill="#ffffff"
+          onTransform={handleTransform}
+          onTransformEnd={handleTransformEnd}
+        />
+      )}
+    </>
   );
 };
 

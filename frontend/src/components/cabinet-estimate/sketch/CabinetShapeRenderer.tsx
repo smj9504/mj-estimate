@@ -23,7 +23,7 @@ import type { CabinetSketchCabinet } from '../../../types/cabinetSketch';
 import type { CornerKind } from './cabinetSketchLayout';
 
 /** 15° snap angles for Shift+Rotate (0, 15, 30, …, 345) */
-const ROTATION_SNAP_ANGLES = Array.from({ length: 24 }, (_, i) => i * 15);
+export const ROTATION_SNAP_ANGLES = Array.from({ length: 24 }, (_, i) => i * 15);
 
 const FILL_BY_TYPE: Record<string, { fill: string; opacity: number }> = {
   base: { fill: '#D2B48C', opacity: 0.85 },
@@ -35,8 +35,8 @@ const FILL_BY_TYPE: Record<string, { fill: string; opacity: number }> = {
 const GLASS_STROKE = '#6E9CC0';
 
 /** Konva hit-target sizing — fixed desktop sizes (no touch-device variant needed here) */
-const ANCHOR_SIZE = 8;
-const ROTATE_ANCHOR_OFFSET = 20;
+export const ANCHOR_SIZE = 8;
+export const ROTATE_ANCHOR_OFFSET = 20;
 
 /** A corner unit's footprint, in canvas pixels (see cornerFootprint). */
 export interface CornerShape {

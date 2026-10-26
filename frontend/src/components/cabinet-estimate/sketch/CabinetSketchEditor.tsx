@@ -505,14 +505,17 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     [cabinets, appliances, selectedIds, updateCabinets, updateAppliances]
   );
   // The selection's angle, -180..180 (0 = backed to the top of the screen),
-  // or null when the selected cabinets are turned different ways.
+  // or null when the selected cabinets and free-standing appliances are turned different ways.
   const selectedAngle = useMemo(() => {
-    const picked = cabinets.filter((c) => selectedIds.has(c.id));
+    const picked = [
+      ...cabinets.filter((c) => selectedIds.has(c.id)),
+      ...appliances.filter((a) => selectedIds.has(a.id) && !a.host_id),
+    ];
     if (picked.length === 0) return null;
     const first = picked[0].rotation;
     if (picked.some((c) => Math.abs(((((c.rotation - first) % 360) + 540) % 360) - 180) > 0.5)) return null;
     return Math.round((((((first % 360) + 540) % 360) - 180) * 10)) / 10;
-  }, [cabinets, selectedIds]);
+  }, [cabinets, appliances, selectedIds]);
   // What is being typed into the angle box, applied on Enter / leaving it.
   const [angleDraft, setAngleDraft] = useState<number | null>(null);
   const applyAngle = useCallback(
@@ -600,6 +603,11 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       updateAppliances([{ id, ...placed }]);
     },
     [appliances, cabinets, walls, scalePixelsPerFoot, updateAppliances]
+  );
+
+  const handleApplianceTransformEnd = useCallback(
+    (id: string, x: number, y: number, rotation: number) => updateAppliances([{ id, x, y, rotation }]),
+    [updateAppliances]
   );
 
   // Show a lone dragged cabinet lined up with the neighbour it will snap
@@ -782,6 +790,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
       zoom={viewport.zoom}
       onSelect={handleSelect('appliance')}
       onDragEnd={handleApplianceDragEnd}
+      onTransformEnd={handleApplianceTransformEnd}
     />
   );
 
@@ -951,7 +960,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                   −15°
                 </Button>
               </Tooltip>
-              <Tooltip title="Angle of the selected cabinets (0° = backed to the top of the screen). Type an angle such as 45 and press Enter to set one side of an angled island; several selected turn together.">
+              <Tooltip title="Angle of the selected cabinets or appliances (0° = backed to the top of the screen). Type an angle such as 45 and press Enter to set one side of an angled island; several selected turn together. An appliance in a cabinet turns with the cabinet.">
                 <InputNumber
                   style={{ width: 76 }}
                   min={-180}
@@ -1227,7 +1236,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         {cabinets.length === 0
           ? 'Cabinets you add in the Edit tab appear here. You can also draw the walls first, then pick a cabinet from the dropdown and click the canvas to place it.'
           : view === 'plan'
-            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. For an angled island, select the cabinets of one side, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors. Detach & reset appliances (D&R) come from the Edit tab: one that goes in a cabinet sits in it, the rest start in a row below the drawing — drag them into place (onto a range base, oven cabinet or sink base to put them in it). Sizes and glass come from the Edit tab; a selected cabinet shows in its list above, where picking another changes it (Esc or a click on empty canvas to add new ones instead).'
+            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. For an angled island, select the cabinets of one side, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors. Detach & reset appliances (D&R) come from the Edit tab: one that goes in a cabinet sits in it, the rest start in a row below the drawing — drag them into place (onto a range base, oven cabinet or sink base to put them in it), and turn a selected one by its handle, the angle box or R; the dark edge is its front. Sizes and glass come from the Edit tab; a selected cabinet shows in its list above, where picking another changes it (Esc or a click on empty canvas to add new ones instead).'
             : view === '3d'
               ? 'The plan in 3D, at real sizes, with each detach & reset appliance tagged. Drag to look around, scroll to zoom, right-drag to pan. Click a cabinet to select it and change it from its list above; move cabinets and appliances in Top.'
               : 'Each run is drawn from the front, as laid out in the plan. Uppers hang at 54" above the floor; shorter ones line up with their tops.'}
