@@ -43,6 +43,7 @@ import MessagesButton from '../messaging/MessagesButton';
 import AppBreadcrumbs from './AppBreadcrumbs';
 import TodoQuickAdd from '../todo/TodoQuickAdd';
 import { BreadcrumbProvider } from '../../contexts/BreadcrumbContext';
+import { HeaderSlotContext } from '../../contexts/HeaderSlotContext';
 import './Layout.css';
 
 const { Header, Sider, Content } = AntLayout;
@@ -76,6 +77,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isMobile, setIsMobile] = useState(isMobileViewport);
   const [openKeys, setOpenKeys] = useState<string[]>([]);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [headerSlot, setHeaderSlot] = useState<HTMLDivElement | null>(null);
   const siderRef = useRef<HTMLDivElement>(null);
 
   // Close mobile sidebar on Escape key
@@ -568,6 +570,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   return (
     <BreadcrumbProvider>
+    <HeaderSlotContext.Provider value={isMobile ? null : headerSlot}>
     <AntLayout style={rootLayoutStyle}>
       {/* Skip to main content link for keyboard users */}
       <a
@@ -645,9 +648,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               aria-label="Expand sidebar"
             />
           )}
-          <div style={{ flex: 1, paddingLeft: collapsed ? '4px' : '0', minWidth: 0, overflow: 'hidden', fontSize: 14 }}>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', paddingLeft: collapsed ? '4px' : '0', minWidth: 0, overflow: 'hidden', fontSize: 14 }}>
+            {!isMobile && <div ref={setHeaderSlot} className="header-page-slot" />}
             {selectedCompany && (
-              <Space size={4}>
+              <Space size={4} className="header-company">
                 {!isMobile && <span style={{ color: colors.neutral600 }}>Company</span>}
                 <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedCompany.name}</span>
               </Space>
@@ -724,6 +728,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       )}
       {isMobile && <TodoQuickAdd open={quickAddOpen} onClose={() => setQuickAddOpen(false)} />}
     </AntLayout>
+    </HeaderSlotContext.Provider>
     </BreadcrumbProvider>
   );
 }

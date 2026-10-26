@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Alert,
   Button,
@@ -32,6 +33,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
+import { useHeaderSlot } from '../contexts/HeaderSlotContext';
 import { cabinetEstimateService } from '../services/cabinetEstimateService';
 import { clientService, claimService } from '../services/clientService';
 import { companyService } from '../services/companyService';
@@ -147,6 +149,7 @@ const ISLAND_PANEL_HEIGHTS: { label: string; value: number }[] = [
 const CabinetEstimateDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const headerSlot = useHeaderSlot();
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const [perimeterBoxes, setPerimeterBoxes] = useState<CabinetBoxCreate[]>([]);
@@ -580,23 +583,26 @@ const CabinetEstimateDetail: React.FC = () => {
     return <Alert type="error" message="Estimate not found" />;
   }
 
+  // Sits in the app header beside Search; inline above the actions on phones
+  const titleBar = (
+    <Space wrap={!headerSlot} size="small">
+      <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/cabinet-estimates')}>
+        Back
+      </Button>
+      <Title level={4} style={{ margin: 0 }}>
+        Cabinet Estimate
+      </Title>
+      <Tag color={STATUS_COLORS[estimate.status]}>{estimate.status.toUpperCase()}</Tag>
+      {estimate.claim_number && <Tag>Claim: {estimate.claim_number}</Tag>}
+      {estimate.client_name && <Text type="secondary">{estimate.client_name}</Text>}
+    </Space>
+  );
+
   return (
     <div style={{ padding: '12px 8px' }}>
       {/* Header */}
       <Row justify="space-between" align="middle" style={{ marginBottom: 16 }} gutter={[8, 8]}>
-        <Col xs={24} md="auto">
-          <Space wrap size="small">
-            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/cabinet-estimates')}>
-              Back
-            </Button>
-            <Title level={4} style={{ margin: 0 }}>
-              Cabinet Estimate
-            </Title>
-            <Tag color={STATUS_COLORS[estimate.status]}>{estimate.status.toUpperCase()}</Tag>
-            {estimate.claim_number && <Tag>Claim: {estimate.claim_number}</Tag>}
-            {estimate.client_name && <Text type="secondary">{estimate.client_name}</Text>}
-          </Space>
-        </Col>
+        {headerSlot ? createPortal(titleBar, headerSlot) : <Col xs={24} md="auto">{titleBar}</Col>}
         <Col xs={24} md="auto">
           <Space wrap size="small">
             <Button

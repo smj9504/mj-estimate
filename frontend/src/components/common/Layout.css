@@ -133,6 +133,23 @@
   background: var(--color-ink-hover);
 }
 
+/* A page's title bar, portaled into the header row (see HeaderSlotContext).
+   It takes the company label's place while it is there. */
+.header-page-slot {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  line-height: normal;
+}
+
+.header-page-slot:empty {
+  display: none;
+}
+
+.header-page-slot:not(:empty) ~ .header-company {
+  display: none;
+}
+
 /* Account button in the header */
 .header-user {
   display: inline-flex;
