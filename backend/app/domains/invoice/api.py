@@ -6,7 +6,8 @@ import logging
 import os
 import re
 import tempfile
-from datetime import datetime, timedelta
+from copy import deepcopy
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 
@@ -30,7 +31,8 @@ from app.core.database_factory import get_db_session as get_db
 from app.domains.auth.company_scope import document_condition, require_client, require_document
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.auth.document_access import owner_names, owner_to_list, require_document_access
-from app.domains.invoice.models import Invoice
+from app.domains.invoice.models import Invoice, InvoiceRevision
+from app.domains.invoice.pdf_data import invoice_pdf_data
 from app.domains.invoice.schemas import (
     ClientInfo,
     CompanyInfo,
@@ -40,7 +42,9 @@ from app.domains.invoice.schemas import (
     InvoiceNumberResponse,
     InvoicePDFRequest,
     InvoiceResponse,
+    InvoiceReviseRequest,
     InvoiceUpdate,
+    InvoiceVersionResponse,
     PaymentRecord,
 )
 from app.domains.invoice.service import InvoiceService
@@ -609,6 +613,11 @@ def update_invoice(
     if hasattr(invoice_data, 'company_id') and invoice_data.company_id is not None:
         update_dict['company_id'] = invoice_data.company_id
     
+    # Only a revised invoice has a revised date, and it keeps one; an
+    # invoice becomes revised through /revise, which keeps its old version
+    if not existing.get('revised_date') or not update_dict.get('revised_date'):
+        update_dict.pop('revised_date', None)
+
     logger.info(f"Update dict keys: {list(update_dict.keys())}")
     logger.info(f"Company ID in update: {update_dict.get('company_id')}")
     logger.info(f"Company ID type: {type(update_dict.get('company_id'))}")
@@ -1002,6 +1011,8 @@ def update_invoice(
         date=date_str,
         due_date=due_date_str,
         status=updated_invoice.get('status', 'draft'),
+        version=updated_invoice.get('version') or 1,
+        revised_date=updated_invoice.get('revised_date'),
         company_id=updated_invoice.get('company_id'),
         company_name=company_name,
         company_address=company_address,
@@ -1086,327 +1097,24 @@ def delete_invoice(invoice_id: str, db=Depends(get_db), _staff=Depends(require_i
     return {"message": "Invoice deleted successfully"}
 
 
-@router.get("/{invoice_id}/html")
-def generate_invoice_html(invoice_id: str, db=Depends(get_db), _staff=Depends(require_invoice_access)):
-    """Generate HTML for an invoice"""
-    from app.core.database_factory import get_database
-    database = get_database()
-    service = InvoiceService(database)
+def _saved_invoice_pdf_data(db, invoice_id: str) -> dict:
+    """The PDF request for the invoice as it is saved now"""
+    from app.domains.invoice.repository import get_invoice_repository
 
-    # Get invoice from database with items and company info
-    # Use get_with_items to ensure we get the latest company info
-    invoice = service.get_with_items(invoice_id)
+    invoice = get_invoice_repository(db).get_with_items(invoice_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
-
-    logger.info(f"HTML generation - invoice company_id: {invoice.get('company_id')}")
-    logger.info(f"HTML generation - invoice company_name: {invoice.get('company_name')}")
-
-    # Company info is already included by get_with_items, but ensure it's present
-    # If company_id exists but company info is missing, fetch it
-    if invoice.get('company_id') and not invoice.get('company_name'):
-        try:
-            from app.domains.company.repository import get_company_repository
-            company_repo = get_company_repository(db)
-            company_info = company_repo.get_by_id(str(invoice['company_id']))
-            if company_info:
-                # Merge company info
-                invoice['company_name'] = company_info.get('name')
-                invoice['company_address'] = company_info.get('address')
-                invoice['company_city'] = company_info.get('city')
-                invoice['company_state'] = company_info.get('state')
-                invoice['company_zip'] = company_info.get('zipcode')
-                invoice['company_phone'] = company_info.get('phone')
-                invoice['company_email'] = company_info.get('email')
-                invoice['company_logo'] = company_info.get('logo')
-        except Exception as e:
-            logger.error(f"Error fetching company info: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-
-    # Prepare data for HTML generation
-    # Group items by section (primary_group) while preserving order via sort_order
-    from collections import defaultdict, OrderedDict
-    all_items_html = invoice.get('items', [])
-
-    logger.info(f"Processing {len(all_items_html)} items for HTML generation")
-
-    # Sort items by sort_order to preserve section ordering
-    sorted_items_html = sorted(all_items_html, key=lambda x: x.get('sort_order', 0) or 0)
-
-    # Use OrderedDict to maintain section order based on first item appearance
-    items_by_section_html = OrderedDict()
-    for item in sorted_items_html:
-        section_name = item.get('primary_group') or 'Items'
-        if section_name not in items_by_section_html:
-            items_by_section_html[section_name] = []
-        logger.info(f"Item: {item.get('name')} -> Section: {section_name}, sort_order: {item.get('sort_order')}")
-        items_by_section_html[section_name].append({
-            "name": item.get('name', ''),
-            "description": item.get('description'),
-            "note": item.get('note'),
-            "quantity": item.get('quantity', 0),
-            "unit": item.get('unit', ''),
-            "rate": item.get('rate', 0),
-            "amount": item.get('quantity', 0) * item.get('rate', 0)
-        })
-
-    # Lump-sum sections use their manually-entered amount as the subtotal
-    # instead of the sum of their (still-displayed) items.
-    lump_sum_by_title_html = {
-        s.get('title'): s
-        for s in (invoice.get('sections_data') or [])
-        if s.get('isLumpSum')
-    }
-
-    # Create sections with subtotals (order is preserved from OrderedDict)
-    sections_html = []
-    for section_name, section_items in items_by_section_html.items():
-        lump_section = lump_sum_by_title_html.get(section_name)
-        if lump_section:
-            section_subtotal = float(lump_section.get('lumpSumAmount', 0) or 0)
-        else:
-            section_subtotal = sum(item['amount'] for item in section_items)
-        sections_html.append({
-            "title": section_name,
-            "items": section_items,
-            "subtotal": section_subtotal,
-            "isLumpSum": bool(lump_section),
-        })
-        logger.info(f"Section '{section_name}': {len(section_items)} items, subtotal: {section_subtotal}")
-
-    logger.info(f"Created {len(sections_html)} sections for HTML (ordered by sort_order)")
-    
-    html_data = {
-        "invoice_number": invoice.get('invoice_number', ''),
-        "date": invoice.get('date', invoice.get('invoice_date', invoice.get('created_at', ''))),
-        "due_date": invoice.get('due_date', ''),
-        "company": {
-            "name": invoice.get('company_name', ''),
-            "address": invoice.get('company_address'),
-            "city": invoice.get('company_city'),
-            "state": invoice.get('company_state'),
-            "zip": invoice.get('company_zip', invoice.get('company_zipcode')),
-            "phone": invoice.get('company_phone'),
-            "email": invoice.get('company_email'),
-            "logo": invoice.get('company_logo')
-        },
-        "client": {
-            "name": invoice.get('client_name', ''),
-            "address": invoice.get('client_address'),
-            "city": invoice.get('client_city'),
-            "state": invoice.get('client_state'),
-            "zip": invoice.get('client_zip', invoice.get('client_zipcode')),
-            "phone": invoice.get('client_phone'),
-            "email": invoice.get('client_email')
-        },
-        "items": all_items_html,  # Keep original items for backward compatibility
-        "sections": sections_html,  # New: grouped by section with subtotals
-        "subtotal": invoice.get('subtotal', 0),
-        "adjustments": invoice.get('adjustments', []),  # New: adjustments list
-        "op_percent": invoice.get('op_percent', 0),  # For backward compatibility
-        "tax_rate": invoice.get('tax_rate', 0),
-        "tax_amount": invoice.get('tax_amount', 0),
-        "discount": invoice.get('discount_amount', invoice.get('discount', 0)),  # For backward compatibility
-        "shipping": invoice.get('shipping', 0),
-        "total": invoice.get('total_amount', invoice.get('total', 0)),
-        "payments": invoice.get('payments', []),
-        "paid_amount": invoice.get('paid_amount', 0),
-        "payment_terms": invoice.get('payment_terms'),
-        "notes": invoice.get('notes')
-    }
-
-    # Add insurance info if present
-    if invoice.get('insurance_company'):
-        html_data["insurance"] = {
-            "company": invoice.get('insurance_company'),
-            "policy_number": invoice.get('insurance_policy_number'),
-            "claim_number": invoice.get('insurance_claim_number'),
-            "deductible": invoice.get('insurance_deductible')
-        }
-
-    # Generate HTML
-    if not get_pdf_service():
-        raise HTTPException(status_code=500, detail="PDF service not available")
-
-    try:
-        # Generate HTML
-        html_content = get_pdf_service().generate_invoice_html(html_data)
-
-        # Return HTML as response
-        return Response(
-            content=html_content,
-            media_type="text/html",
-            headers={
-                "Content-Disposition": f"inline; filename=invoice_{invoice.get('invoice_number', 'unknown')}.html"
-            }
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return invoice_pdf_data(invoice)
 
 
-@router.post("/{invoice_id}/pdf")
-def generate_invoice_pdf(
-    invoice_id: str,
-    template_variant: str = Query("a", description="Template variant: a (default), b (formal), c (modern)"),
-    db=Depends(get_db),
-    _staff=Depends(require_invoice_access),
-):
-    """Generate PDF for an invoice"""
-    from app.core.database_factory import get_database
-    database = get_database()
-    service = InvoiceService(database)
-
-    # Get invoice from database with items and company info
-    # Use get_with_items to ensure we get the latest company info
-    invoice = service.get_with_items(invoice_id)
-    if not invoice:
-        raise HTTPException(status_code=404, detail="Invoice not found")
-
-    logger.info(f"PDF generation - invoice company_id: {invoice.get('company_id')}")
-    logger.info(f"PDF generation - invoice company_name: {invoice.get('company_name')}")
-    logger.info(f"PDF generation - invoice company_address: {invoice.get('company_address')}")
-    logger.info(f"PDF generation - invoice company_city: {invoice.get('company_city')}")
-    logger.info(f"PDF generation - invoice company_state: {invoice.get('company_state')}")
-
-    # Company info is already included by get_with_items, but ensure it's present
-    # If company_id exists but company info is missing, fetch it
-    if invoice.get('company_id') and not invoice.get('company_name'):
-        try:
-            from app.domains.company.repository import get_company_repository
-            company_repo = get_company_repository(db)
-            company_info = company_repo.get_by_id(str(invoice['company_id']))
-            if company_info:
-                # Merge company info
-                invoice['company_name'] = company_info.get('name')
-                invoice['company_address'] = company_info.get('address')
-                invoice['company_city'] = company_info.get('city')
-                invoice['company_state'] = company_info.get('state')
-                invoice['company_zip'] = company_info.get('zipcode')
-                invoice['company_phone'] = company_info.get('phone')
-                invoice['company_email'] = company_info.get('email')
-                invoice['company_logo'] = company_info.get('logo')
-        except Exception as e:
-            logger.error(f"Error fetching company info: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-
-    # Prepare data for PDF generation
-    # Group items by section (primary_group) while preserving order via sort_order
-    from collections import defaultdict, OrderedDict
-    all_items = invoice.get('items', [])
-
-    logger.info(f"Processing {len(all_items)} items for PDF generation")
-
-    # Sort items by sort_order to preserve section ordering
-    sorted_items = sorted(all_items, key=lambda x: x.get('sort_order', 0) or 0)
-
-    # Use OrderedDict to maintain section order based on first item appearance
-    items_by_section = OrderedDict()
-    for item in sorted_items:
-        section_name = item.get('primary_group') or 'Items'
-        if section_name not in items_by_section:
-            items_by_section[section_name] = []
-        logger.info(f"Item: {item.get('name')} -> Section: {section_name}, sort_order: {item.get('sort_order')}")
-        items_by_section[section_name].append({
-            "name": item.get('name', ''),
-            "description": item.get('description'),
-            "note": item.get('note'),
-            "quantity": item.get('quantity', 0),
-            "unit": item.get('unit', ''),
-            "rate": item.get('rate', 0),
-            "amount": item.get('quantity', 0) * item.get('rate', 0)
-        })
-
-    # Lump-sum sections use their manually-entered amount as the subtotal
-    # instead of the sum of their (still-displayed) items.
-    lump_sum_by_title = {
-        s.get('title'): s
-        for s in (invoice.get('sections_data') or [])
-        if s.get('isLumpSum')
-    }
-
-    # Create sections with subtotals (order is preserved from OrderedDict)
-    sections = []
-    for section_name, section_items in items_by_section.items():
-        lump_section = lump_sum_by_title.get(section_name)
-        if lump_section:
-            section_subtotal = float(lump_section.get('lumpSumAmount', 0) or 0)
-        else:
-            section_subtotal = sum(item['amount'] for item in section_items)
-        sections.append({
-            "title": section_name,
-            "items": section_items,
-            "subtotal": section_subtotal,
-            "isLumpSum": bool(lump_section),
-        })
-        logger.info(f"Section '{section_name}': {len(section_items)} items, subtotal: {section_subtotal}")
-
-    logger.info(f"Created {len(sections)} sections for PDF (ordered by sort_order)")
-    
-    # Log company info before creating pdf_data
-    company_name = invoice.get('company_name', '')
-    company_address = invoice.get('company_address')
-    logger.info(f"PDF data - company_name: {company_name}")
-    logger.info(f"PDF data - company_address: {company_address}")
-    
-    pdf_data = {
-        "invoice_number": invoice.get('invoice_number', ''),
-        "date": invoice.get('date', invoice.get('invoice_date', invoice.get('created_at', ''))),
-        "due_date": invoice.get('due_date', ''),
-        "company": {
-            "name": company_name,
-            "address": company_address,
-            "city": invoice.get('company_city'),
-            "state": invoice.get('company_state'),
-            "zip": invoice.get('company_zip', invoice.get('company_zipcode')),
-            "phone": invoice.get('company_phone'),
-            "email": invoice.get('company_email'),
-            "logo": invoice.get('company_logo')
-        },
-        "client": {
-            "name": invoice.get('client_name', ''),
-            "address": invoice.get('client_address'),
-            "city": invoice.get('client_city'),
-            "state": invoice.get('client_state'),
-            "zip": invoice.get('client_zip', invoice.get('client_zipcode')),
-            "phone": invoice.get('client_phone'),
-            "email": invoice.get('client_email')
-        },
-        "items": all_items,  # Keep original items for backward compatibility
-        "sections": sections,  # New: grouped by section with subtotals
-        "is_lump_sum_document": invoice.get('is_lump_sum_document', False),
-        "lump_sum_document_amount": invoice.get('lump_sum_document_amount', 0),
-        "subtotal": invoice.get('subtotal', 0),
-        "adjustments": invoice.get('adjustments', []),  # New: adjustments list
-        "op_percent": invoice.get('op_percent', 0),  # For backward compatibility
-        "tax_rate": invoice.get('tax_rate', 0),
-        "tax_amount": invoice.get('tax_amount', 0),
-        "discount": invoice.get('discount_amount', invoice.get('discount', 0)),  # For backward compatibility
-        "total": invoice.get('total_amount', invoice.get('total', 0)),
-        "paid_amount": invoice.get('paid_amount', 0),
-        "payments": invoice.get('payments', []),
-        "payment_terms": invoice.get('payment_terms'),
-        "notes": invoice.get('notes')
-    }
-
-    # Add insurance info if present
-    if invoice.get('insurance_company'):
-        pdf_data["insurance"] = {
-            "company": invoice.get('insurance_company'),
-            "policy_number": invoice.get('insurance_policy_number'),
-            "claim_number": invoice.get('insurance_claim_number'),
-            "deductible": invoice.get('insurance_deductible')
-        }
-
-    # Generate PDF
+def _invoice_pdf_response(pdf_data: dict, template_variant: str, filename: str) -> Response:
+    """A PDF request rendered as a PDF download"""
     if not get_pdf_service():
         raise HTTPException(status_code=500, detail="PDF service not available")
 
     # Use temp_file_handler for automatic cleanup
     with temp_file_handler(suffix=".pdf", prefix="invoice_") as temp_path:
         try:
-            # Generate PDF
             pdf_path = get_pdf_service().generate_invoice_pdf(pdf_data, str(temp_path), template_variant=template_variant)
 
             # Validate the PDF path to prevent path traversal attacks
@@ -1427,13 +1135,150 @@ def generate_invoice_pdf(
                 content=pdf_content,
                 media_type="application/pdf",
                 headers={
-                    "Content-Disposition": f"attachment; filename=invoice_{invoice.get('invoice_number', 'unknown')}.pdf"
+                    "Content-Disposition": f"attachment; filename={filename}"
                 }
             )
         except HTTPException:
             raise  # Re-raise HTTP exceptions
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
+
+
+def _invoice_versions(db, invoice_id: str) -> List[InvoiceVersionResponse]:
+    """Every version of an invoice, oldest first; the last is the invoice itself"""
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    revisions = (
+        db.query(InvoiceRevision)
+        .filter(InvoiceRevision.invoice_id == invoice_id)
+        .order_by(InvoiceRevision.version)
+        .all()
+    )
+    return [
+        InvoiceVersionResponse(
+            version=revision.version,
+            revised_date=revision.revised_date,
+            total=float(revision.total_amount or 0),
+            frozen_at=revision.created_at,
+        )
+        for revision in revisions
+    ] + [
+        InvoiceVersionResponse(
+            version=invoice.version or 1,
+            revised_date=invoice.revised_date,
+            total=float(invoice.total_amount or 0),
+            is_current=True,
+        )
+    ]
+
+
+@router.get("/{invoice_id}/html")
+def generate_invoice_html(invoice_id: str, db=Depends(get_db), _staff=Depends(require_invoice_access)):
+    """Generate HTML for an invoice"""
+    html_data = _saved_invoice_pdf_data(db, invoice_id)
+
+    # Generate HTML
+    if not get_pdf_service():
+        raise HTTPException(status_code=500, detail="PDF service not available")
+
+    try:
+        # Generate HTML
+        html_content = get_pdf_service().generate_invoice_html(html_data)
+
+        # Return HTML as response
+        return Response(
+            content=html_content,
+            media_type="text/html",
+            headers={
+                "Content-Disposition": f"inline; filename=invoice_{html_data['invoice_number'] or 'unknown'}.html"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{invoice_id}/pdf")
+def generate_invoice_pdf(
+    invoice_id: str,
+    template_variant: str = Query("a", description="Template variant: a (default), b (formal), c (modern)"),
+    db=Depends(get_db),
+    _staff=Depends(require_invoice_access),
+):
+    """Generate PDF for an invoice (its current version)"""
+    pdf_data = _saved_invoice_pdf_data(db, invoice_id)
+    return _invoice_pdf_response(
+        pdf_data, template_variant, f"invoice_{pdf_data['invoice_number'] or 'unknown'}.pdf"
+    )
+
+
+@router.post("/{invoice_id}/revise", response_model=List[InvoiceVersionResponse])
+def revise_invoice(
+    invoice_id: str,
+    body: InvoiceReviseRequest,
+    db=Depends(get_db),
+    current_staff=Depends(require_invoice_access),
+):
+    """Revise an invoice: keep the version it is now, as saved, and make the
+    invoice its next version. A revised invoice prints "Revised: <date>"
+    under its date of issue and is due upon receipt. Returns every version."""
+    from app.domains.invoice.repository import get_invoice_repository
+
+    # Locked, so two revisions at once can't both take the same number
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).with_for_update().first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    saved = get_invoice_repository(db).get_with_items(invoice_id)
+
+    version = invoice.version or 1
+    db.add(InvoiceRevision(
+        invoice_id=invoice.id,
+        version=version,
+        revised_date=invoice.revised_date,
+        total_amount=invoice.total_amount,
+        pdf_data=invoice_pdf_data(saved),
+        created_by_id=current_staff.id,
+    ))
+    invoice.version = version + 1
+    invoice.revised_date = body.revised_date or date.today()
+    db.commit()
+
+    logger.info(f"Invoice {invoice_id} revised: version {version} kept, now version {version + 1}")
+    return _invoice_versions(db, invoice_id)
+
+
+@router.get("/{invoice_id}/versions", response_model=List[InvoiceVersionResponse])
+def list_invoice_versions(invoice_id: str, db=Depends(get_db), _staff=Depends(require_invoice_access)):
+    """Every version of an invoice, oldest first; the last is the current one"""
+    return _invoice_versions(db, invoice_id)
+
+
+@router.post("/{invoice_id}/versions/{version}/pdf")
+def generate_invoice_version_pdf(
+    invoice_id: str,
+    version: int,
+    template_variant: str = Query("a", description="Template variant: a (default), b (formal), c (modern)"),
+    db=Depends(get_db),
+    _staff=Depends(require_invoice_access),
+):
+    """The PDF of one version of an invoice: an earlier one exactly as it was
+    when it was revised, or the current one as it is saved now"""
+    revision = (
+        db.query(InvoiceRevision)
+        .filter(InvoiceRevision.invoice_id == invoice_id, InvoiceRevision.version == version)
+        .first()
+    )
+    if revision:
+        # A copy: rendering fills in defaults, which must not touch the kept version
+        pdf_data = deepcopy(revision.pdf_data)
+    else:
+        invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+        if not invoice or (invoice.version or 1) != version:
+            raise HTTPException(status_code=404, detail="Invoice version not found")
+        pdf_data = _saved_invoice_pdf_data(db, invoice_id)
+    return _invoice_pdf_response(
+        pdf_data, template_variant, f"invoice_{pdf_data['invoice_number'] or 'unknown'}_v{version}.pdf"
+    )
 
 
 @router.post("/preview-html")
@@ -1819,6 +1664,8 @@ def get_invoice(
             invoice_date=invoice.get('invoice_date', invoice.get('date', invoice.get('created_at', ''))),
             due_date=invoice.get('due_date', ''),
             status=invoice.get('status', 'draft'),
+            version=invoice.get('version') or 1,
+            revised_date=invoice.get('revised_date'),
             company_id=invoice.get('company_id'),
             company_name=invoice.get('company_name', ''),
             company_address=invoice.get('company_address'),

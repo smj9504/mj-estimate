@@ -11,6 +11,8 @@ export const invoiceKeys = {
   list: (filters: Record<string, any>) => [...invoiceKeys.lists(), filters] as const,
   details: () => [...invoiceKeys.all, 'detail'] as const,
   detail: (id: string) => [...invoiceKeys.details(), id] as const,
+  // Under the detail key, so saving the invoice refreshes its versions too
+  versions: (id: string) => [...invoiceKeys.detail(id), 'versions'] as const,
 };
 
 /**
@@ -73,6 +75,35 @@ export function useUpdateInvoice(id: string) {
       // Invalidate the cached invoice data to force refetch with latest data
       queryClient.invalidateQueries({ queryKey: invoiceKeys.detail(id) });
       // Invalidate lists to reflect changes
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.lists() });
+    },
+  });
+}
+
+/**
+ * Hook to fetch every version of an invoice (oldest first, the last is current)
+ */
+export function useInvoiceVersions(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: invoiceKeys.versions(id || ''),
+    queryFn: () => invoiceService.getVersions(id!),
+    enabled: enabled && !!id,
+  });
+}
+
+/**
+ * Hook to revise an invoice: keep its version as last saved, start the next
+ */
+export function useReviseInvoice(id: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (revisedDate: string) => invoiceService.reviseInvoice(id, revisedDate),
+    onSuccess: (versions) => {
+      // Mark the invoice stale without refetching it now: a refetch reloads
+      // the edit page's form, which would drop changes not yet saved
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.detail(id), refetchType: 'none' });
+      queryClient.setQueryData(invoiceKeys.versions(id), versions);
       queryClient.invalidateQueries({ queryKey: invoiceKeys.lists() });
     },
   });

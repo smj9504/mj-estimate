@@ -287,6 +287,9 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
             invoice_data['has_receipt'] = False
             invoice_data['receipt_number'] = None
             invoice_data['receipt_generated_at'] = None
+            # A new invoice, not a revision of the old one
+            invoice_data['version'] = 1
+            invoice_data['revised_date'] = None
             if owner_id:
                 invoice_data['owner_id'] = owner_id
 

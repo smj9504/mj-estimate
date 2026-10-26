@@ -3,6 +3,9 @@ Invoice domain Pydantic schemas
 """
 
 from datetime import date, datetime
+
+# Models below have a field named `date`, which hides the type in their bodies
+CalendarDate = date
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -279,6 +282,7 @@ class InvoiceUpdate(BaseModel):
     invoice_number: Optional[str] = None
     date: Optional[str] = None  # Changed to string
     due_date: Optional[str] = None  # Changed to string
+    revised_date: Optional[CalendarDate] = None  # Only a revised invoice has one (see /revise)
     status: Optional[str] = None
     company_id: Optional[UUID] = None  # Add company_id field
 
@@ -380,7 +384,11 @@ class InvoiceResponse(BaseModel):
     invoice_date: Optional[str] = None  # Added for compatibility
     due_date: Optional[str] = None  # Changed to Optional string
     status: str
-    
+
+    # Revisions: version 1 is the invoice as first made; each revision adds one
+    version: Optional[int] = 1
+    revised_date: Optional[CalendarDate] = None
+
     # Company info
     company_id: Optional[UUID] = None  # Added company_id
     company_name: str
@@ -459,7 +467,9 @@ class InvoicePDFRequest(BaseModel):
     invoice_number: str = Field(default_factory=lambda: f"INV-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
     date: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
     due_date: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
-    
+    # A revised invoice prints "Revised: <date>" and is due upon receipt
+    revised_date: Optional[str] = None
+
     company: CompanyInfo
     client: ClientInfo
     insurance: Optional[InsuranceInfo] = None
@@ -489,6 +499,20 @@ class InvoicePDFRequest(BaseModel):
 
     payment_terms: Optional[str] = None
     notes: Optional[str] = None
+
+
+class InvoiceReviseRequest(BaseModel):
+    """Start the invoice's next version"""
+    revised_date: Optional[CalendarDate] = Field(None, description="Printed as 'Revised: <date>' (default: today)")
+
+
+class InvoiceVersionResponse(BaseModel):
+    """One version of an invoice; the current one is the invoice itself"""
+    version: int
+    revised_date: Optional[CalendarDate] = None  # None for the original
+    total: float = 0
+    is_current: bool = False
+    frozen_at: Optional[datetime] = None  # When it was revised and so stopped changing
 
 
 class InvoiceNumberResponse(BaseModel):

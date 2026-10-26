@@ -281,7 +281,8 @@
         <h1>Invoice</h1>
         <p><strong>Invoice number</strong> {{ invoice_number }}</p>
         <p>Date of issue: {{ date|format_date }}</p>
-        <p>Date due: {{ due_date|format_date }}</p>
+        {% if revised_date %}<p>Revised: {{ revised_date|format_date }}</p>{% endif %}
+        <p>Date due: {% if revised_date %}Due upon receipt{% else %}{{ due_date|format_date }}{% endif %}</p>
     </div>
 
     <div class="company-logo">
@@ -337,10 +338,10 @@
   {% if balance_due is defined and balance_due <= 0.01 %}
   <h3 style="color: #28a745;">&#10003; PAID IN FULL</h3>
   {% elif total_paid is defined and total_paid > 0 %}
-  <h3>${{ balance_due|format_number_smart }} USD due {{ due_date|format_date }}</h3>
-  <p style="font-size: 12px; color: #666; margin-top: 5px;">Original: ${{ total|format_number_smart }} | Paid: ${{ total_paid|format_number_smart }}</p>
+  <h3>${{ balance_due|format_amount }} USD due {% if revised_date %}upon receipt{% else %}{{ due_date|format_date }}{% endif %}</h3>
+  <p style="font-size: 12px; color: #666; margin-top: 5px;">Original: ${{ total|format_amount }} | Paid: ${{ total_paid|format_amount }}</p>
   {% else %}
-  <h3>${{ total|format_number_smart }} USD due {{ due_date|format_date }}</h3>
+  <h3>${{ total|format_amount }} USD due {% if revised_date %}upon receipt{% else %}{{ due_date|format_date }}{% endif %}</h3>
   {% endif %}
 </div>
 
@@ -472,7 +473,7 @@
     {% if not is_lump_sum_document %}
     <div class="total-row">
       <span class="total-label">Items Subtotal</span>
-      <span class="total-value">${{ items_subtotal|format_number_smart }}</span>
+      <span class="total-value">${{ items_subtotal|format_amount }}</span>
     </div>
     {% endif %}
 
@@ -487,9 +488,9 @@
         </span>
         <span class="total-value">
           {% if adjustment.type == 'subtract' or adjustment.percentage < 0 %}
-            -${{ adjustment.amount|format_number_smart }}
+            -${{ adjustment.amount|format_amount }}
           {% else %}
-            ${{ adjustment.amount|format_number_smart }}
+            ${{ adjustment.amount|format_amount }}
           {% endif %}
         </span>
       </div>
@@ -505,14 +506,14 @@
       {% if op_percent and op_percent > 0 %}
       <div class="total-row">
         <span class="total-label">O&P ({{ op_percent }}%)</span>
-        <span class="total-value">${{ op_amount|format_number_smart }}</span>
+        <span class="total-value">${{ op_amount|format_amount }}</span>
       </div>
       {% endif %}
 
       {% if discount and discount > 0 %}
       <div class="total-row">
         <span class="total-label">Discount</span>
-        <span class="total-value">-${{ discount|format_number_smart }}</span>
+        <span class="total-value">-${{ discount|format_amount }}</span>
       </div>
       {% endif %}
     {% endif %}
@@ -524,44 +525,44 @@
       {% else %}
         <span class="total-label">Tax</span>
       {% endif %}
-      <span class="total-value">${{ tax_amount|format_number_smart }}</span>
+      <span class="total-value">${{ tax_amount|format_amount }}</span>
     </div>
     {% endif %}
 
     {% if shipping and shipping > 0 %}
     <div class="total-row">
       <span class="total-label">Shipping</span>
-      <span class="total-value">${{ shipping|format_number_smart }}</span>
+      <span class="total-value">${{ shipping|format_amount }}</span>
     </div>
     {% endif %}
 
     <div class="total-row grand-total">
       <span class="total-label">Total</span>
-      <span class="total-value">${{ total|format_number_smart }}</span>
+      <span class="total-value">${{ total|format_amount }}</span>
     </div>
 
     {% if payments and payments|length > 0 %}
       {% for payment in payments %}
       <div class="total-row">
         <span class="total-label">Payment{% if payment.date %} ({{ payment.date|format_date }}){% endif %}</span>
-        <span class="total-value">-${{ payment.amount|format_number_smart }}</span>
+        <span class="total-value">-${{ payment.amount|format_amount }}</span>
       </div>
       {% endfor %}
 
       {% set total_paid = payments | sum(attribute='amount') %}
       <div class="total-row">
         <span class="total-label">Total Paid</span>
-        <span class="total-value">${{ total_paid|format_number_smart }}</span>
+        <span class="total-value">${{ total_paid|format_amount }}</span>
       </div>
 
       <div class="total-row grand-total balance-due">
         <span class="total-label">Balance Due</span>
-        <span class="total-value">${{ (total - total_paid)|format_number_smart }}</span>
+        <span class="total-value">${{ (total - total_paid)|format_amount }}</span>
       </div>
     {% else %}
       <div class="total-row grand-total balance-due">
         <span class="total-label">Amount Due</span>
-        <span class="total-value">${{ total|format_number_smart }}</span>
+        <span class="total-value">${{ total|format_amount }}</span>
       </div>
     {% endif %}
   </div>

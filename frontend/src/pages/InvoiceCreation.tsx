@@ -42,6 +42,7 @@ import {
   UploadOutlined,
   CopyOutlined,
   InfoCircleOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import {
   DndContext,
@@ -68,7 +69,7 @@ import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import DraggableTable from '../components/common/DraggableTable';
 import dayjs from 'dayjs';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { invoiceService, InvoiceSection, LineItemImage } from '../services/invoiceService';
+import { invoiceService, InvoiceSection, InvoiceVersion, LineItemImage } from '../services/invoiceService';
 import { companyService } from '../services/companyService';
 import { Company } from '../types';
 import RichTextEditor from '../components/editor/RichTextEditor';
@@ -102,7 +103,7 @@ import type { ReceiptTemplate } from '../types/receipt';
 import { useCompanies } from '../hooks/useCompanyQueries';
 import { clientService } from '../services/clientService';
 import type { Client, ClientListItem } from '../types/client';
-import { useInvoice, useCreateInvoice, useUpdateInvoice } from '../hooks/useInvoiceQueries';
+import { useInvoice, useCreateInvoice, useUpdateInvoice, useInvoiceVersions, useReviseInvoice } from '../hooks/useInvoiceQueries';
 import { useReceiptTemplates, useReceiptByNumber } from '../hooks/useReceiptQueries';
 
 const { Title } = Typography;
@@ -809,6 +810,16 @@ const InvoiceCreation: React.FC = () => {
   const createInvoiceMutation = useCreateInvoice();
   const updateInvoiceMutation = useUpdateInvoice(id || '');
 
+  // Revisions: the version being edited, and its revised date once revised
+  // (the PDF then prints "Revised: <date>" and "Due upon receipt")
+  const [invoiceVersion, setInvoiceVersion] = useState(1);
+  const [revisedDate, setRevisedDate] = useState<dayjs.Dayjs | null>(null);
+  const [reviseModalVisible, setReviseModalVisible] = useState(false);
+  const [reviseDate, setReviseDate] = useState<dayjs.Dayjs>(dayjs());
+  const [downloadingVersion, setDownloadingVersion] = useState<number | null>(null);
+  const reviseInvoiceMutation = useReviseInvoice(id || '');
+  const { data: invoiceVersions = [] } = useInvoiceVersions(id, isEditMode);
+
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [itemModalVisible, setItemModalVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<InvoiceItem | null>(null);
@@ -1408,6 +1419,8 @@ const InvoiceCreation: React.FC = () => {
     console.log('Processing fetched invoice:', fetchedInvoice);
     const data = fetchedInvoice as any;
     setInvoiceData(data);
+    setInvoiceVersion(data.version || 1);
+    setRevisedDate(data.revised_date ? dayjs(data.revised_date) : null);
 
     // Convert items to sections or use existing sections.
     // data.sections carries section metadata only (title/order/lump-sum) -
@@ -1611,6 +1624,8 @@ const InvoiceCreation: React.FC = () => {
     if (!isEditMode) {
       // Reset all state for create mode
       setInvoiceData(null);
+      setInvoiceVersion(1);
+      setRevisedDate(null);
       setItems([]);
       setSections([]);
       setActiveKeys([]);
@@ -2314,6 +2329,9 @@ const InvoiceCreation: React.FC = () => {
         status,
         company_id: companyId, // Use company_id from form or selectedCompany
       };
+      if (isEditMode && revisedDate) {
+        invoiceData.revised_date = revisedDate.format('YYYY-MM-DD');
+      }
 
       // Add client info based on input mode
       if (clientInputMode === 'client' && selectedClientRecord) {
@@ -2463,6 +2481,7 @@ const InvoiceCreation: React.FC = () => {
         invoice_number: values.invoice_number || `INV-${dayjs().format('YYYYMMDDHHmmss')}`,
         date: values.date ? values.date.format('MM-DD-YYYY') : dayjs().format('MM-DD-YYYY'),
         due_date: values.due_date ? values.due_date.format('MM-DD-YYYY') : dayjs().add(30, 'days').format('MM-DD-YYYY'),
+        revised_date: revisedDate ? revisedDate.format('YYYY-MM-DD') : null,
         company: {
           name: selectedCompany.name,
           address: selectedCompany.address || '',
@@ -2582,6 +2601,43 @@ const InvoiceCreation: React.FC = () => {
       console.error(error);
     } finally {
       setIsDownloadingPdf(false);
+    }
+  };
+
+  // Keep the invoice's version as last saved and edit the next one. Only the
+  // revision state changes here, so changes not yet saved stay on the page
+  // and go into the new version on Update.
+  const handleRevise = async () => {
+    try {
+      const versions = await reviseInvoiceMutation.mutateAsync(reviseDate.format('YYYY-MM-DD'));
+      const current = versions[versions.length - 1];
+      setInvoiceVersion(current.version);
+      setRevisedDate(reviseDate);
+      setReviseModalVisible(false);
+      message.success(`Version ${current.version - 1} is kept. You are now editing version ${current.version}.`);
+    } catch (error) {
+      message.error('Failed to revise invoice');
+      console.error(error);
+    }
+  };
+
+  const handleDownloadVersionPDF = async (version: InvoiceVersion) => {
+    // The current version prints from this page, like Download PDF
+    if (version.is_current) {
+      await handleDownloadInvoicePDF();
+      return;
+    }
+    if (!id) return;
+    try {
+      setDownloadingVersion(version.version);
+      const blob = await invoiceService.generateVersionPDF(id, version.version);
+      const filename = generatePdfFilename('invoice').replace(/\.pdf$/, `_v${version.version}.pdf`);
+      invoiceService.downloadPDF(blob, filename);
+    } catch (error) {
+      message.error(`Failed to download version ${version.version} PDF`);
+      console.error(error);
+    } finally {
+      setDownloadingVersion(null);
     }
   };
 
@@ -3298,7 +3354,24 @@ const InvoiceCreation: React.FC = () => {
         <Row gutter={24}>
           {/* Invoice Details */}
           <Col xs={24}>
-            <Card title="Invoice Details" style={{ marginBottom: 24 }}>
+            <Card
+              title={
+                <Space size={8}>
+                  <span>Invoice Details</span>
+                  {invoiceVersion > 1 && <Tag color="blue">Version {invoiceVersion}</Tag>}
+                </Space>
+              }
+              extra={isEditMode && (
+                <Button
+                  icon={<HistoryOutlined />}
+                  onClick={() => { setReviseDate(dayjs()); setReviseModalVisible(true); }}
+                  data-testid="revise-invoice-button"
+                >
+                  Revise
+                </Button>
+              )}
+              style={{ marginBottom: 24 }}
+            >
               <Form.Item
                 label="Select Company"
                 style={{ marginBottom: 16 }}
@@ -3323,7 +3396,7 @@ const InvoiceCreation: React.FC = () => {
               </Form.Item>
               
               <Row gutter={16}>
-                <Col xs={24} md={8}>
+                <Col xs={24} md={revisedDate ? 6 : 8}>
                   <Form.Item
                     name="invoice_number"
                     label="Invoice Number"
@@ -3336,7 +3409,7 @@ const InvoiceCreation: React.FC = () => {
                     />
                   </Form.Item>
                 </Col>
-                <Col xs={24} md={8}>
+                <Col xs={24} md={revisedDate ? 6 : 8}>
                   <Form.Item
                     name="date"
                     label="Invoice Date"
@@ -3345,16 +3418,75 @@ const InvoiceCreation: React.FC = () => {
                     <DatePicker style={{ width: '100%' }} />
                   </Form.Item>
                 </Col>
-                <Col xs={24} md={8}>
+                {revisedDate && (
+                  <Col xs={24} md={6}>
+                    <Form.Item label="Revised Date" required>
+                      <DatePicker
+                        value={revisedDate}
+                        onChange={(value) => value && setRevisedDate(value)}
+                        allowClear={false}
+                        style={{ width: '100%' }}
+                        data-testid="revised-date-picker"
+                      />
+                    </Form.Item>
+                  </Col>
+                )}
+                <Col xs={24} md={revisedDate ? 6 : 8}>
+                  {/* A revised invoice is due upon receipt; its saved due date stays as it was */}
                   <Form.Item
                     name="due_date"
                     label="Due Date"
                     rules={[{ required: true }]}
+                    hidden={!!revisedDate}
                   >
                     <DatePicker style={{ width: '100%' }} />
                   </Form.Item>
+                  {revisedDate && (
+                    <Form.Item label="Due Date">
+                      <Input value="Due upon receipt" disabled />
+                    </Form.Item>
+                  )}
                 </Col>
               </Row>
+
+              {invoiceVersions.length > 1 && (
+                <div data-testid="invoice-versions">
+                  <Typography.Text strong>Versions</Typography.Text>
+                  {invoiceVersions.map((version) => (
+                    <Row
+                      key={version.version}
+                      justify="space-between"
+                      align="middle"
+                      gutter={8}
+                      wrap={false}
+                      style={{ padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}
+                    >
+                      <Col flex="auto">
+                        <Space size={8} wrap>
+                          <span>Version {version.version}</span>
+                          <Typography.Text type="secondary">
+                            {version.revised_date
+                              ? `Revised ${dayjs(version.revised_date).format('MMM D, YYYY')}`
+                              : 'Original'}
+                          </Typography.Text>
+                          <Typography.Text type="secondary">${formatCurrency(version.total)}</Typography.Text>
+                          {version.is_current && <Tag color="blue">Current</Tag>}
+                        </Space>
+                      </Col>
+                      <Col>
+                        <Button
+                          size="small"
+                          icon={<DownloadOutlined />}
+                          loading={version.is_current ? isDownloadingPdf : downloadingVersion === version.version}
+                          onClick={() => handleDownloadVersionPDF(version)}
+                        >
+                          PDF
+                        </Button>
+                      </Col>
+                    </Row>
+                  ))}
+                </div>
+              )}
             </Card>
           </Col>
 
@@ -4336,6 +4468,34 @@ const InvoiceCreation: React.FC = () => {
           </Button>
         </div>
       )}
+
+      {/* Revise Modal */}
+      <Modal
+        title="Revise Invoice"
+        open={reviseModalVisible}
+        onOk={handleRevise}
+        okText={`Start Version ${invoiceVersion + 1}`}
+        confirmLoading={reviseInvoiceMutation.isPending}
+        onCancel={() => setReviseModalVisible(false)}
+      >
+        <p>
+          Version {invoiceVersion} is kept as last saved, so its PDF can still be downloaded.
+        </p>
+        <p>
+          Version {invoiceVersion + 1} prints &ldquo;Revised: {reviseDate.format('MMMM DD, YYYY')}&rdquo; under
+          the date of issue, and its due date reads &ldquo;Due upon receipt&rdquo;. Make your changes,
+          then click Update.
+        </p>
+        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+          <span>Revised date</span>
+          <DatePicker
+            value={reviseDate}
+            onChange={(value) => value && setReviseDate(value)}
+            allowClear={false}
+            style={{ width: '100%' }}
+          />
+        </Space>
+      </Modal>
 
       {/* Item Modal */}
       <Modal

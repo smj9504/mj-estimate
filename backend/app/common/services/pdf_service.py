@@ -248,6 +248,7 @@ class PDFService:
         self.env.filters['format_currency'] = self._format_currency
         self.env.filters['format_number'] = self._format_number
         self.env.filters['format_number_smart'] = self._format_number_smart
+        self.env.filters['format_amount'] = self._format_amount
         self.env.filters['format_quantity'] = self._format_quantity
         self.env.filters['format_date'] = self._format_date
         self.env.filters['markdown_to_html'] = self._markdown_to_html
@@ -344,7 +345,18 @@ class PDFService:
         Examples: 94.24 -> 94.24, 20.10 -> 20.10, 78.0 -> 78, 10.0 -> 10
         """
         return PDFService._format_number(value, decimal_places=2)
-    
+
+    @staticmethod
+    def _format_amount(value: float) -> str:
+        """Format a money amount with commas and always two decimals, for
+        an invoice's totals (use with a $ prefix in templates).
+        Examples: 94.24 -> 94.24, 78.0 -> 78.00, 1234 -> 1,234.00
+        """
+        try:
+            return f"{to_cents(value):,.2f}"
+        except (ValueError, TypeError, ArithmeticError):
+            return "0.00"
+
     @staticmethod
     def _format_quantity(value: float) -> str:
         """Format quantity: shows decimal places if decimal part exists, otherwise shows integer only.
@@ -380,7 +392,7 @@ class PDFService:
         if not value:
             return ""
 
-        if isinstance(value, datetime):
+        if isinstance(value, date):  # a datetime is a date too
             return safe_strftime(value, output_format)
 
         if isinstance(value, str):

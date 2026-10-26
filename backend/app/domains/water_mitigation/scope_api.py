@@ -1258,6 +1258,7 @@ def download_invoice_pdf_with_document(
             invoice.get('invoice_date', invoice.get('date', ''))
         ),
         "due_date": str(invoice.get('due_date', '')),
+        "revised_date": invoice.get('revised_date'),
         "company": {
             "name": invoice.get('company_name', ''),
             "address": invoice.get('company_address', ''),

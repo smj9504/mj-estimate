@@ -336,6 +336,7 @@ const DocumentList: React.FC = () => {
           invoice_number: invoice.invoice_number,
           date: invoice.date,
           due_date: invoice.due_date,
+          revised_date: invoice.revised_date,
           company: {
             name: invoice.company_name,
             address: invoice.company_address,

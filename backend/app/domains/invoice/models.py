@@ -7,14 +7,16 @@ from sqlalchemy import (
     JSON,
     Boolean,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     Index,
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import deferred, relationship
 from sqlalchemy.sql import func
 
 from app.core.base_models import BaseModel
@@ -52,6 +54,10 @@ class Invoice(Base, BaseModel):
     
     invoice_date = Column(DateTime(timezone=True), default=func.now())
     due_date = Column(DateTime(timezone=True))
+    # Set once the invoice is revised: the PDF prints "Revised: <date>" under
+    # the date of issue and "Due upon receipt" in place of the due date.
+    # `version` counts the revisions; earlier versions live in InvoiceRevision.
+    revised_date = Column(Date, nullable=True)
     status = Column(String(50), default="pending")  # pending, paid, overdue, cancelled
     
     subtotal = Column(DECIMAL(15, 2), default=0)
@@ -102,6 +108,39 @@ class Invoice(Base, BaseModel):
     claim_ref = relationship("Claim", foreign_keys=[claim_id], lazy='select')
     items = relationship("InvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
     receipts = relationship("Receipt", back_populates="invoice", cascade="all, delete-orphan")
+    revisions = relationship(
+        "InvoiceRevision",
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+        order_by="InvoiceRevision.version",
+    )
+
+
+class InvoiceRevision(Base, BaseModel):
+    """An earlier version of an invoice, frozen when the invoice was revised.
+
+    pdf_data is what that version printed (the preview-pdf request body), so
+    its PDF can be made again exactly as it was sent, whatever the invoice,
+    its company or its client look like now.
+    """
+    __tablename__ = "invoice_revisions"
+    __table_args__ = (
+        UniqueConstraint("invoice_id", "version", name="uq_invoice_revisions_invoice_version"),
+        {'extend_existing': True},
+    )
+
+    invoice_id = Column(
+        UUIDType(), ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    version = Column(Integer, nullable=False)
+    # That version's own revised date (None for the original)
+    revised_date = Column(Date, nullable=True)
+    total_amount = Column(DECIMAL(15, 2))
+    # Deferred: listing versions must not pull every frozen logo and photo
+    pdf_data = deferred(Column(JSON, nullable=False))
+    created_by_id = Column(UUIDType(), ForeignKey("staff.id", ondelete="SET NULL"), nullable=True)
+
+    invoice = relationship("Invoice", back_populates="revisions")
 
 
 class InvoiceItem(Base, BaseModel):

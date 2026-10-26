@@ -92,6 +92,9 @@ export interface InvoiceData {
   invoice_number?: string;
   date?: string;
   due_date?: string;
+  // Set on a revised invoice (YYYY-MM-DD): the PDF prints "Revised: <date>"
+  // under the date of issue and "Due upon receipt" for the due date
+  revised_date?: string | null;
   status?: string;
   company_id?: string;
   company?: CompanyInfo;
@@ -155,6 +158,10 @@ export interface InvoiceResponse {
   receipt_number?: string;
   receipt_generated_at?: string;
 
+  // Revisions: version 1 is the invoice as first made; each revision adds one
+  version?: number;
+  revised_date?: string | null;
+
   created_at: string;
   updated_at: string;
 
@@ -201,6 +208,15 @@ export interface InvoiceDetailResponse extends InvoiceResponse {
 
   items: InvoiceItem[];
   sections?: InvoiceSection[];  // Section-based data
+}
+
+/** One version of an invoice; the current one is the invoice itself */
+export interface InvoiceVersion {
+  version: number;
+  revised_date: string | null;  // null for the original
+  total: number;
+  is_current: boolean;
+  frozen_at: string | null;  // when it was revised, and so stopped changing
 }
 
 class InvoiceService {
@@ -271,6 +287,29 @@ class InvoiceService {
 
   async duplicateInvoice(id: string): Promise<InvoiceDetailResponse> {
     const response = await apiClient.post(`/api/invoices/${id}/duplicate`);
+    return response.data;
+  }
+
+  /** Keep the invoice's version as last saved and start the next one */
+  async reviseInvoice(id: string, revisedDate: string): Promise<InvoiceVersion[]> {
+    const response = await apiClient.post(`/api/invoices/${id}/revise`, { revised_date: revisedDate });
+    return response.data;
+  }
+
+  async getVersions(id: string): Promise<InvoiceVersion[]> {
+    const response = await apiClient.get(`/api/invoices/${id}/versions`);
+    return response.data;
+  }
+
+  async generateVersionPDF(id: string, version: number, templateVariant: string = 'a'): Promise<Blob> {
+    const response = await apiClient.post(
+      `/api/invoices/${id}/versions/${version}/pdf`,
+      {},
+      {
+        responseType: 'blob',
+        params: { template_variant: templateVariant },
+      }
+    );
     return response.data;
   }
 
