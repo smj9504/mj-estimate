@@ -13,6 +13,7 @@ import {
   DiffOutlined,
   DownOutlined,
   EditOutlined,
+  HomeOutlined,
   MoreOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
@@ -47,8 +48,11 @@ const BEGroupBar: React.FC<BEGroupBarProps> = ({ estimate, onOpen, guardUnsaved,
 
   const projectType: BathroomProjectType = estimate.project_type || 'insurance';
   const insurance = projectType === 'insurance';
+  // A remodel's current layout reads first, as the restoration does on an insurance job
+  const byCurrentFirst = (a: BathroomGroupMember, b: BathroomGroupMember) =>
+    Number(b.kind === 'existing') - Number(a.kind === 'existing');
   const members: BathroomGroupMember[] = estimate.group_members?.length
-    ? estimate.group_members
+    ? estimate.group_members.slice().sort(byCurrentFirst)
     : [{
       id: estimate.id,
       kind: estimate.kind || 'restore',
@@ -58,7 +62,9 @@ const BEGroupBar: React.FC<BEGroupBarProps> = ({ estimate, onOpen, guardUnsaved,
       total: estimate.total || 0,
     }];
   const restoration = members.find((m) => m.kind === 'restore');
+  const hasCurrentLayout = members.some((m) => m.kind === 'existing');
   const isOption = estimate.kind === 'option';
+  const isCurrentLayout = estimate.kind === 'existing';
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['bathroom-estimate'] });
@@ -74,6 +80,16 @@ const BEGroupBar: React.FC<BEGroupBarProps> = ({ estimate, onOpen, guardUnsaved,
       onOpen(created.id);
     },
     onError: () => message.error('Could not add an option'),
+  });
+
+  const addCurrentLayout = useMutation({
+    mutationFn: () => bathroomEstimateService.addCurrentLayout(estimate.id),
+    onSuccess: (created) => {
+      message.success('Current layout added — draw the bathroom as it is today in the Sketch tab');
+      refresh();
+      onOpen(created.id);
+    },
+    onError: (err: any) => message.error(err?.response?.data?.detail || 'Could not add the current layout'),
   });
 
   const rename = useMutation({
@@ -138,7 +154,7 @@ const BEGroupBar: React.FC<BEGroupBarProps> = ({ estimate, onOpen, guardUnsaved,
         <div style={{ padding: '2px 4px', lineHeight: 1.3, textAlign: 'left' }}>
           <div style={{ fontWeight: 600 }}>{memberName(m)}</div>
           <div style={{ fontSize: 12, opacity: 0.65, whiteSpace: 'nowrap' }}>
-            {m.total ? money(m.total) : 'Not calculated'}
+            {m.kind === 'existing' ? 'Not priced' : m.total ? money(m.total) : 'Not calculated'}
             {overRestoration && ` · ${overRestoration}`}
           </div>
         </div>
@@ -188,21 +204,32 @@ const BEGroupBar: React.FC<BEGroupBarProps> = ({ estimate, onOpen, guardUnsaved,
             {insurance ? 'Upgrade option' : 'Option'}
           </Button>
         </Tooltip>
-        {members.length > 1 && (
+        {!insurance && !hasCurrentLayout && (
+          <Tooltip title="Draw the bathroom as it is today. It isn't priced; options price their moved plumbing and walls against it.">
+            <Button
+              icon={<HomeOutlined />}
+              loading={addCurrentLayout.isPending}
+              onClick={() => guardUnsaved(() => addCurrentLayout.mutate())}
+            >
+              Current layout
+            </Button>
+          </Tooltip>
+        )}
+        {members.filter((m) => m.kind !== 'existing').length > 1 && (
           <Button icon={<DiffOutlined />} onClick={onCompare}>
             Compare
           </Button>
         )}
-        {isOption && (
+        {(isOption || isCurrentLayout) && (
           <Dropdown
             trigger={['click']}
             menu={{
               items: [
-                { key: 'rename', icon: <EditOutlined />, label: 'Rename option' },
+                ...(isOption ? [{ key: 'rename', icon: <EditOutlined />, label: 'Rename option' }] : []),
                 {
                   key: 'delete',
                   icon: <DeleteOutlined />,
-                  label: 'Delete option',
+                  label: isCurrentLayout ? 'Delete current layout' : 'Delete option',
                   danger: true,
                   // A remodel's last option is the job; it goes from the list
                   disabled: members.length < 2,
@@ -214,7 +241,7 @@ const BEGroupBar: React.FC<BEGroupBarProps> = ({ estimate, onOpen, guardUnsaved,
               },
             }}
           >
-            <Button icon={<MoreOutlined />} aria-label="Option actions" />
+            <Button icon={<MoreOutlined />} aria-label={isCurrentLayout ? 'Current layout actions' : 'Option actions'} />
           </Dropdown>
         )}
       </Space>

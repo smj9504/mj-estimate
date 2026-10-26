@@ -222,6 +222,37 @@ def add_option(
     return result
 
 
+@router.post("/{estimate_id}/current-layout", response_model=BathroomEstimateResponse)
+def add_current_layout(
+    estimate_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Add a remodel's bathroom as it is today (unpriced), starting as a copy of this estimate."""
+    service = BathroomEstimateService(session)
+    try:
+        result = service.add_current_layout(estimate_id, created_by_id=current_user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+@router.get("/{estimate_id}/layout-changes")
+def get_layout_changes(
+    estimate_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """How this option's saved sketch differs from the bathroom as it is, and which changes are left out."""
+    service = BathroomEstimateService(session)
+    result = service.get_layout_changes(estimate_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
 @router.put("/{estimate_id}/option-label", response_model=BathroomEstimateResponse)
 def rename_option(
     estimate_id: str,

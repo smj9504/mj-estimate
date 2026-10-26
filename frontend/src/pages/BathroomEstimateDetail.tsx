@@ -64,6 +64,7 @@ import BESketchTab from '../components/bathroom-estimate/sketch/BESketchTab';
 import type { SketchFixtureSync } from '../components/bathroom-estimate/sketch/BESketchTab';
 import BEGroupBar from '../components/bathroom-estimate/BEGroupBar';
 import BEGroupCompareDrawer from '../components/bathroom-estimate/BEGroupCompareDrawer';
+import BELayoutChanges from '../components/bathroom-estimate/BELayoutChanges';
 
 const RegisterBidItemModal = React.lazy(() => import('../components/supplement/RegisterBidItemModal'));
 
@@ -120,11 +121,27 @@ const BathroomEstimateDetail: React.FC = () => {
     }
   }, [activeTab, isPhone]);
 
+  // The changes an option's layout makes that are left out of its price
+  const layoutSkips: string[] = Form.useWatch(['plumbing_spec', 'layout_change_skips'], { form, preserve: true }) ?? [];
+
   // ── Queries ──
   const { data: estimate, isLoading } = useQuery({
     queryKey: ['bathroom-estimate', id],
     queryFn: () => bathroomEstimateService.getById(id!),
     enabled: !!id,
+  });
+
+  // A remodel's current layout: the bathroom as it is, drawn but not priced
+  const isCurrentLayout = estimate?.kind === 'existing';
+  // What an option's layout is compared with: the restoration, or a remodel's current layout
+  const baselineId = estimate?.kind === 'option'
+    ? (estimate.group_members?.find((m) => m.kind === 'restore')
+      ?? estimate.group_members?.find((m) => m.kind === 'existing'))?.id
+    : undefined;
+  const { data: baseline } = useQuery({
+    queryKey: ['bathroom-estimate', baselineId],
+    queryFn: () => bathroomEstimateService.getById(baselineId!),
+    enabled: !!baselineId,
   });
 
   const { data: pricingInfo } = useQuery({
@@ -244,6 +261,7 @@ const BathroomEstimateDetail: React.FC = () => {
       unsavedRef.current = false;
       message.success('Saved');
       queryClient.invalidateQueries({ queryKey: ['bathroom-estimate', id] });
+      queryClient.invalidateQueries({ queryKey: ['bathroom-layout-changes', id] });
     },
     onError: () => message.error('Save failed'),
   });
@@ -257,6 +275,7 @@ const BathroomEstimateDetail: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['bathroom-estimate', id] });
       // Job facts are shared, so the job's other estimates may have changed
       queryClient.invalidateQueries({ queryKey: ['bathroom-estimate-group'] });
+      queryClient.invalidateQueries({ queryKey: ['bathroom-layout-changes', id] });
       setActiveTab('result');
     },
     onError: (err: any) => message.error(err?.response?.data?.detail || 'Calculation failed'),
@@ -655,7 +674,7 @@ const BathroomEstimateDetail: React.FC = () => {
         </Space>
         <Space wrap>
             {/* A supplement goes to the carrier: only the restoration may */}
-            {!isPhone && estimate?.kind !== 'option' && (
+            {!isPhone && estimate?.kind === 'restore' && (
               <Button
                 icon={<AuditOutlined />}
                 onClick={() => setRegisterBidItemOpen(true)}
@@ -671,7 +690,8 @@ const BathroomEstimateDetail: React.FC = () => {
                 Save
               </Button>
             )}
-            {!isPhone && (
+            {/* The current layout isn't priced */}
+            {!isPhone && !isCurrentLayout && (
               <Button type="primary" icon={<CalculatorOutlined />} onClick={handleCalculate}
                 loading={calculateMutation.isPending}>
                 Calculate
@@ -861,7 +881,7 @@ const BathroomEstimateDetail: React.FC = () => {
                 trigger={['click']}
                 menu={{
                   items: [
-                    ...(estimate?.kind !== 'option' ? [{
+                    ...(estimate?.kind === 'restore' ? [{
                       key: 'supplement',
                       icon: <AuditOutlined />,
                       label: 'Add to Supplement',
@@ -906,6 +926,15 @@ const BathroomEstimateDetail: React.FC = () => {
               if (memberId !== estimate.id) openMember(memberId);
             }}
           />
+          {isCurrentLayout && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="The bathroom as it is today"
+              description="Draw the room as it is now in the Sketch tab. It isn't priced; each option prices the plumbing, walls and doors it moves against it."
+            />
+          )}
         </>
       )}
 
@@ -1543,6 +1572,8 @@ const BathroomEstimateDetail: React.FC = () => {
                     estimateId={id!}
                     estimateData={form.getFieldsValue()}
                     initialSketchData={estimate?.sketch_data as any}
+                    baselineSketch={baseline?.sketch_data as any}
+                    baselineName={baseline ? memberName(baseline) : undefined}
                     isActive={activeTab === 'sketch'}
                     onSketchChange={handleSketchChange}
                     onFixtureSync={handleFixtureSync}
@@ -2786,9 +2817,24 @@ const BathroomEstimateDetail: React.FC = () => {
             label: `Result${estimate?.total ? ` ($${estimate.total.toLocaleString()})` : ''}`,
             children: (
               <Card className="be-tab-card">
+                {estimate?.kind === 'option' && (
+                  <BELayoutChanges
+                    estimateId={estimate.id}
+                    isRemodel={estimate.project_type === 'remodel'}
+                    skips={layoutSkips}
+                    onSkipsChange={(next) => {
+                      form.setFieldValue(['plumbing_spec', 'layout_change_skips'], next);
+                      unsavedRef.current = true;
+                    }}
+                  />
+                )}
                 {lineItems.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: 40 }}>
-                    <Text type="secondary">No calculation yet. Click "Calculate" to generate line items.</Text>
+                    <Text type="secondary">
+                      {isCurrentLayout
+                        ? 'The current layout isn’t priced.'
+                        : 'No calculation yet. Click "Calculate" to generate line items.'}
+                    </Text>
                   </div>
                 ) : (
                   <>
@@ -3104,10 +3150,12 @@ const BathroomEstimateDetail: React.FC = () => {
           <Button icon={<SaveOutlined />} onClick={handleSave} loading={saveMutation.isPending}>
             Save
           </Button>
-          <Button type="primary" icon={<CalculatorOutlined />} onClick={handleCalculate}
-            loading={calculateMutation.isPending}>
-            Calculate
-          </Button>
+          {!isCurrentLayout && (
+            <Button type="primary" icon={<CalculatorOutlined />} onClick={handleCalculate}
+              loading={calculateMutation.isPending}>
+              Calculate
+            </Button>
+          )}
         </div>
       )}
 

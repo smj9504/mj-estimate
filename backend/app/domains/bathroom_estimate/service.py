@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from app.core.interfaces import DatabaseSession
 
 from .calculator import calculate_estimate
+from .layout_changes import layout_changes
 from .models import (
     BathroomEstimate,
     BathroomEstimateHistory,
@@ -53,10 +54,14 @@ def _next_option_label(members: List[BathroomEstimate]) -> str:
 
 
 def _renumber(members: List[BathroomEstimate]):
-    """The restoration first, then the options in the order they had."""
-    ordered = sorted(members, key=lambda m: (m.kind != "restore", m.option_order))
+    """The restoration first, then the options in the order they had, and a
+    remodel's current layout last (so the job's list row is an option)."""
+    ordered = sorted(members, key=lambda m: (m.kind == "existing", m.kind != "restore", m.option_order))
     for i, m in enumerate(ordered):
         m.option_order = i
+
+# What an existing (current-layout) member is called
+CURRENT_LAYOUT_LABEL = "Current layout"
 
 
 class BathroomEstimateService:
@@ -227,6 +232,11 @@ class BathroomEstimateService:
         estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
         if not estimate:
             return None
+        if estimate.kind == "existing":
+            raise ValueError(
+                "The current layout is the bathroom as it is today; it isn't "
+                "priced. Calculate its options instead."
+            )
 
         # Save history before updating
         if save_history:
@@ -235,7 +245,12 @@ class BathroomEstimateService:
         # Auto-detect water damage from claim if not explicitly set
         self._auto_detect_water_damage(estimate)
 
-        result = calculate_estimate(estimate)
+        baseline = self._layout_baseline(estimate)
+        changes = (
+            layout_changes(baseline.sketch_data, estimate.sketch_data)
+            if baseline is not None else None
+        )
+        result = calculate_estimate(estimate, layout_changes=changes)
 
         # Clear existing line items and create new ones
         self.line_item_repo.delete_by_estimate_id(estimate_id)
@@ -394,8 +409,12 @@ class BathroomEstimateService:
                     member.kind = "option"
                     member.option_label = _next_option_label(members)
         elif not any(m.kind == "restore" for m in members):
-            estimate.kind = "restore"
-            estimate.option_label = None
+            # The bathroom as it is today is what a restoration puts back;
+            # without one drawn, the estimate this is asked from becomes it
+            current = next((m for m in members if m.kind == "existing"), None)
+            restore = current or estimate
+            restore.kind = "restore"
+            restore.option_label = None
         for member in members:
             member.project_type = project_type
         _renumber(members)
@@ -414,6 +433,70 @@ class BathroomEstimateService:
             "members": members,
         }
 
+    def _layout_baseline(self, estimate: BathroomEstimate) -> Optional[BathroomEstimate]:
+        """The bathroom as it is, for an option to price its layout changes
+        against: the restoration of an insurance job, the current layout of a
+        remodel. None for anything but an option, or a remodel without one."""
+        if estimate.kind != "option":
+            return None
+        members = self._group_members(estimate)
+        for kind in ("restore", "existing"):
+            found = next((m for m in members if m.kind == kind and str(m.id) != str(estimate.id)), None)
+            if found is not None:
+                return found
+        return None
+
+    def get_layout_changes(self, estimate_id: str) -> Optional[Dict[str, Any]]:
+        """How this option's saved sketch differs from its baseline's, and which changes are left out."""
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not estimate:
+            return None
+        baseline = self._layout_baseline(estimate)
+        if baseline is None:
+            return {"baseline": None, "changes": [], "skips": []}
+        return {
+            "baseline": {
+                "id": str(baseline.id),
+                "kind": baseline.kind,
+                "name": "Restoration" if baseline.kind == "restore" else CURRENT_LAYOUT_LABEL,
+            },
+            "changes": [c.to_dict() for c in layout_changes(baseline.sketch_data, estimate.sketch_data)],
+            "skips": list((estimate.plumbing_spec or {}).get("layout_change_skips") or []),
+        }
+
+    def add_current_layout(
+        self, estimate_id: str, created_by_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """A remodel's bathroom as it is today, unpriced, for its options to
+        price moved plumbing and walls against. It starts as a copy of this
+        estimate, to be drawn back to how the room is now."""
+        source = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not source:
+            return None
+        if source.project_type != "remodel":
+            raise ValueError("An insurance job's restoration is already the bathroom as it is.")
+        members = self._group_members(source)
+        if any(m.kind == "existing" for m in members):
+            raise ValueError("This job already has its current layout.")
+        new_id = self._copy_estimate(source, {
+            "group_id": str(source.group_id or source.id),
+            "project_type": "remodel",
+            "kind": "existing",
+            "option_label": CURRENT_LAYOUT_LABEL,
+            "option_order": max((m.option_order for m in members), default=0) + 1,
+            "created_by_id": created_by_id,
+            "status": "draft",
+            "target_total": None,
+        })
+        # It isn't priced: no line items, no totals
+        self.line_item_repo.delete_by_estimate_id(new_id)
+        self.estimate_repo.update(new_id, {
+            "subtotal": 0, "overhead_amount": 0, "profit_amount": 0, "tax_amount": 0, "total": 0,
+            "adjustment_factor": None, "methodology_notes": None, "warning_flags": [],
+        })
+        self.session.flush()
+        return self._get_full_estimate(new_id)
+
     def ensure_submittable_to_carrier(self, estimate_id: str):
         """Only a restoration goes to the insurance company.
 
@@ -421,6 +504,8 @@ class BathroomEstimateService:
         carrier would put the upgrade on the claim.
         """
         estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if estimate and estimate.kind == "existing":
+            raise ValueError("The current layout isn't priced. Only the restoration estimate can go to the insurance company.")
         if estimate and estimate.kind != "restore":
             raise ValueError(
                 f"{estimate.option_label or 'This option'} is an upgrade option. "

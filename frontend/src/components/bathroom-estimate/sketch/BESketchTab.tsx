@@ -108,6 +108,9 @@ export interface BESketchTabProps {
   initialSketchData?: BESketchData;
   /** Whether this tab is currently active */
   isActive?: boolean;
+  /** For an option: the bathroom as it is (restoration or current layout), drawn faintly under the plan */
+  baselineSketch?: BESketchData | null;
+  baselineName?: string;
 }
 
 // ── Component ──
@@ -547,6 +550,8 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
   onFixtureSync,
   initialSketchData,
   isActive = false,
+  baselineSketch,
+  baselineName,
 }) => {
   const api = useBESketchState();
   const lastLoadedRef = useRef<string | null>(null);
@@ -818,7 +823,10 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
       >
         {/* The plan stays mounted under the 3D view, so its zoom and the PDF's capture of it carry on */}
         <div style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: view === 'plan' ? 'block' : 'none' }}>
-          <BESketchCanvas api={api} width={canvasSize.width} height={canvasSize.height} stageRef={stageRef} onZoomChange={setZoomLevel} />
+          <BESketchCanvas
+            api={api} width={canvasSize.width} height={canvasSize.height} stageRef={stageRef} onZoomChange={setZoomLevel}
+            baseline={baselineSketch} baselineName={baselineName}
+          />
         </div>
         {view === '3d' && (
           <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>

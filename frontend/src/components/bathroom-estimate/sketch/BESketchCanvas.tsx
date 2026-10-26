@@ -12,7 +12,7 @@ import React, {
   useCallback,
   useMemo,
 } from 'react';
-import { Stage, Layer, Rect, Line, Circle, Text, Group, Path, Transformer } from 'react-konva';
+import { Stage, Layer, Rect, Line, Circle, Text, Group, Path, Transformer, Arrow } from 'react-konva';
 import type Konva from 'konva';
 import type {
   BEPoint,
@@ -21,6 +21,7 @@ import type {
   BEFixture,
   BEFixtureType,
   BathtubSubType,
+  BESketchData,
 } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { getFixtureShape } from './utils/beFixtureShapes';
@@ -34,9 +35,63 @@ interface BESketchCanvasProps {
   height: number;
   stageRef?: React.MutableRefObject<any>;
   onZoomChange?: (level: number) => void;
+  /** For an option: the bathroom as it is (the restoration, or a remodel's current layout), drawn faintly under it. */
+  baseline?: BESketchData | null;
+  baselineName?: string;
 }
 
 // ── Helpers ──
+
+const GHOST = '#9a968f';
+/** Fixtures whose old spot is worth showing: they carry plumbing, or a door or light. */
+const GHOST_TYPES: BEFixtureType[] = ['toilet', 'vanity', 'bathtub', 'shower', 'door', 'light'];
+
+/**
+ * The bathroom as it is, under an option's plan: its walls dashed (hidden
+ * where the option kept them), and each fixture that moved or went, dashed
+ * where it was with an arrow to where it is now — the changes the option is
+ * priced for.
+ */
+const BaselineGhost: React.FC<{ baseline: BESketchData; current: BESketchData; name?: string }> = ({ baseline, current, name }) => {
+  const ppf = current.settings.pixelsPerFoot;
+  // The same plan scale, whatever each was drawn at
+  const k = ppf / (baseline.settings?.pixelsPerFoot || ppf);
+  const p = (pt: BEPoint) => ({ x: pt.x * k, y: pt.y * k });
+  const now = new Map(current.fixtures.map((f) => [f.id, f]));
+  const movedPx = (6 / 12) * ppf;
+  const was = (name || 'current layout').toLowerCase();
+
+  return (
+    <Group listening={false}>
+      {baseline.walls.map((w) => {
+        const a = p(w.start);
+        const b = p(w.end);
+        return <Line key={`gw-${w.id}`} points={[a.x, a.y, b.x, b.y]} stroke={GHOST} strokeWidth={2} dash={[6, 5]} />;
+      })}
+      {baseline.fixtures.filter((f) => GHOST_TYPES.includes(f.type)).map((f) => {
+        const c = p(f.position);
+        const moved = now.get(f.id);
+        const to = moved ? moved.position : null;
+        if (to && Math.hypot(to.x - c.x, to.y - c.y) <= movedPx) return null;
+        const w = (f.dimensions.width / 12) * ppf;
+        const h = (f.dimensions.height / 12) * ppf;
+        return (
+          <Group key={`gf-${f.id}`}>
+            <Rect
+              x={c.x} y={c.y} width={w} height={h} offsetX={w / 2} offsetY={h / 2} rotation={f.rotation || 0}
+              stroke={GHOST} strokeWidth={1.5} dash={[5, 4]} fill="rgba(154,150,143,0.06)"
+            />
+            <Text x={c.x - 40} y={c.y - 6} width={80} align="center" text={`${f.type} (${to ? 'was here' : 'taken out'})`} fontSize={9} fill={GHOST} />
+            {to && (
+              <Arrow points={[c.x, c.y, to.x, to.y]} stroke={GHOST} fill={GHOST} strokeWidth={1.5} dash={[4, 4]} pointerLength={7} pointerWidth={6} />
+            )}
+          </Group>
+        );
+      })}
+      <Text x={8} y={8} text={`Dashed: the ${was}`} fontSize={11} fill={GHOST} />
+    </Group>
+  );
+};
 
 /**
  * Where a wall is tiled, as spans along its line: tile to install as a wide
@@ -244,7 +299,7 @@ function constrainAxis(start: BEPoint, current: BEPoint): BEPoint {
 
 // ── Component ──
 
-const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, stageRef: externalStageRef, onZoomChange }) => {
+const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, stageRef: externalStageRef, onZoomChange, baseline, baselineName }) => {
   const internalStageRef = useRef<Konva.Stage>(null);
   const stageRef = externalStageRef ?? internalStageRef;
   const {
@@ -1042,6 +1097,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             <Text x={10 + ppf * 0.25 - 4} y={height - 36} text='3"' fontSize={8} fill="#bbb" />
             <Text x={10 + ppf * 0.5 - 4} y={height - 36} text='6"' fontSize={8} fill="#bbb" />
             <Text x={10 + ppf * 0.75 - 4} y={height - 36} text='9"' fontSize={8} fill="#bbb" />
+            {/* In the grid's layer, so the PDF's capture of the plan leaves it out */}
+            {baseline && <BaselineGhost baseline={baseline} current={data} name={baselineName} />}
           </Layer>
           );
         })()}

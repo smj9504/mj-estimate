@@ -9,6 +9,7 @@ import type {
   BathroomEstimateGroup,
   BathroomEstimateKind,
   BathroomEstimateListResponse,
+  BathroomLayoutChangeReport,
   BathroomEstimateUpdate,
   BathroomEstimateHistory,
   BathroomPricingInfo,
@@ -76,6 +77,18 @@ export const bathroomEstimateService = {
   async addOption(id: string) {
     const { data } = await api.post(`${BASE_URL}/${id}/options`);
     return data as BathroomEstimate;
+  },
+
+  /** A remodel's bathroom as it is today (unpriced), starting as a copy of this estimate. */
+  async addCurrentLayout(id: string) {
+    const { data } = await api.post(`${BASE_URL}/${id}/current-layout`);
+    return data as BathroomEstimate;
+  },
+
+  /** How an option's saved sketch differs from the bathroom as it is. */
+  async getLayoutChanges(id: string) {
+    const { data } = await api.get(`${BASE_URL}/${id}/layout-changes`);
+    return data as BathroomLayoutChangeReport;
   },
 
   async renameOption(id: string, optionLabel: string) {

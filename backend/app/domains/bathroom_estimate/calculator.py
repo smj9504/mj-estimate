@@ -7,6 +7,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
+from .layout_changes import layout_change_line_items
 from .pricing import (
     get_permit_info,
     ACCESSORY_FINISH_MULTIPLIER,
@@ -99,11 +100,14 @@ _LEGACY_ENCLOSURE_MAP = {
 }
 
 
-def calculate_estimate(estimate) -> Dict[str, Any]:
+def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
     """Calculate all line items for a bathroom estimate.
 
     Args:
         estimate: BathroomEstimate ORM object
+        layout_changes: for an option, how its sketch differs from its job's
+            baseline (layout_changes.layout_changes); priced as rough-in,
+            framing and demo work
 
     Returns:
         Dict with line_items, subtotal, overhead, profit, total, etc.
@@ -617,6 +621,18 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     if plumb.get("rough_inspection"):
         _add(line_items, 2, "Plumbing rough inspection fee", 1, "EA",
              PLUMBING_RATES["rough_inspection_fee"], "plumbing")
+
+    # Layout changes (an option only): fixtures moved, added or taken out,
+    # a tub converted to a shower, walls and doors moved. The estimator can
+    # leave a change out; its key is then in plumbing_spec.layout_change_skips.
+    _layout_rough = False
+    if layout_changes:
+        _layout_items, _layout_rough, _layout_warnings = layout_change_line_items(
+            layout_changes, labor_mult,
+            set(plumb.get("layout_change_skips") or []),
+        )
+        line_items.extend(_layout_items)
+        warnings.extend(_layout_warnings)
 
     # ────────────────────────────────────────
     # Phase 3: Substrate
@@ -2774,6 +2790,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         or hc.get("new_plumbing_line")
         or hc.get("new_electrical_circuit")
         or hc.get("valve_body_replace")
+        or _layout_rough
     )
     est_state = estimate.state or ""
     permit_info = get_permit_info(est_state, has_rough_change)

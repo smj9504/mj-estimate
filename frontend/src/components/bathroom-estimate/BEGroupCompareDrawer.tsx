@@ -48,7 +48,8 @@ const BEGroupCompareDrawer: React.FC<BEGroupCompareDrawerProps> = ({ open, onClo
     queryFn: () => bathroomEstimateService.getGroup(estimate.id),
     enabled: open,
   });
-  const members = useMemo(() => group?.members ?? [], [group]);
+  // A remodel's current layout isn't priced, so it has nothing to compare
+  const members = useMemo(() => (group?.members ?? []).filter((m) => m.kind !== 'existing'), [group]);
   const restoration = members.find((m) => m.kind === 'restore');
   const insurance = group?.project_type === 'insurance';
 

@@ -378,7 +378,27 @@ export interface BathroomEstimate {
 }
 
 export type BathroomProjectType = 'insurance' | 'remodel';
-export type BathroomEstimateKind = 'restore' | 'option';
+/** existing: a remodel's bathroom as it is today — unpriced, what its options' layout changes are priced against. */
+export type BathroomEstimateKind = 'restore' | 'option' | 'existing';
+
+/** One way an option's sketch differs from the bathroom as it is (layout_changes.py). */
+export interface BathroomLayoutChange {
+  key: string;
+  kind: 'moved' | 'added' | 'removed' | 'converted' | 'sinks_added' | 'wall_added' | 'wall_removed';
+  item: string;
+  label: string;
+  distance_in: number;
+  length_ft: number;
+  count: number;
+}
+
+export interface BathroomLayoutChangeReport {
+  /** What the option is compared with: the restoration, or a remodel's current layout; null if there's none. */
+  baseline: { id: string; kind: BathroomEstimateKind; name: string } | null;
+  changes: BathroomLayoutChange[];
+  /** Keys of the changes left out of the price. */
+  skips: string[];
+}
 
 /** One estimate of a bathroom job, as the switcher shows it. */
 export interface BathroomGroupMember {
@@ -399,7 +419,7 @@ export interface BathroomEstimateGroup {
 
 /** What a job member is called on screen and on the customer's proposal. */
 export const memberName = (m: { kind?: string; option_label?: string | null }): string =>
-  m.kind === 'restore' ? 'Restoration' : m.option_label || 'Option';
+  m.kind === 'restore' ? 'Restoration' : m.kind === 'existing' ? 'Current layout' : m.option_label || 'Option';
 
 // ── Request types ──
 

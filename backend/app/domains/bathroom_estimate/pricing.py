@@ -107,6 +107,45 @@ PLUMBING_RATES = {
 # Phase 3: Electrical
 # ──────────────────────────────────────────────
 # Sources: Angi GFCI $130-$300 avg $210, Exhaust fan $250-$950
+# Layout changes: what an option's sketch moves, adds or takes out compared
+# with the bathroom as it is (layout_changes.py). Wood-framed floors and
+# non-load-bearing walls; a slab or a bearing wall costs more and is flagged.
+# Researched 2026-10-26, national figures before the zip labor multiplier:
+LAYOUT_CHANGE_RATES = {
+    # Toilet drain, vent tie-in and flange moved, supply extended: a 6"-5' move
+    # runs $860-$3,190, typically $1,000-$1,800 (HomeWyse; 2026 cost guides)
+    "toilet_relocation": 1100,
+    # Per sink: supply pair and drain moved along the same wall, $500-$1,200
+    # (Block Renovation); the move alone $240-$600 per Fixr
+    "sink_relocation": 650,
+    # A sink added where there was none: new supply pair, drain and vent tie-in
+    "sink_new_rough_in": 850,
+    # Shower or tub drain ($300-$1,000 on wood) plus valve and supply ($700-$1,200)
+    "shower_relocation": 1400,
+    "tub_relocation": 1400,
+    # Tub out, shower in at the same spot: drain rework and the valve swap
+    "tub_to_shower": 1250,
+    # Shower out, tub in: tub drain with overflow, spout supply
+    "shower_to_tub": 1350,
+    # A fixture where there was none
+    "toilet_new_rough_in": 1300,
+    "shower_new_rough_in": 1600,
+    "tub_new_rough_in": 1500,
+    # Supply capped and drain plugged where a fixture is taken out
+    "cap_abandoned": 225,
+    # New 2x4 partition, drywall both sides taped and finished (paint is priced with the walls)
+    "partition_wall_per_lf": 90,
+    # Non-load-bearing partition taken out, floor/ceiling/abutting walls patched
+    "wall_removal_per_lf": 45,
+    # Doors: moving one $600-$2,000+ (HomeAdvisor); cutting a new opening $250-$400 plus trim and patch
+    "door_relocation": 1200,
+    "door_new_opening": 650,
+    "door_infill": 550,
+    # Ceiling light box moved nearby $150-$250; a new box with its wiring run
+    "light_relocation": 225,
+    "light_new_box": 180,
+}
+
 ELECTRICAL_RATES = {
     # 2026-08-26 follow-up: install-LABOR items (Tier A +16-18%, structurally
     # same underpriced gap as vanity install labor); fixture/material items
