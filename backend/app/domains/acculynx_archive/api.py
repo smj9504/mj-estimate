@@ -10,9 +10,13 @@ from collections import Counter
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database_factory import get_database
+from app.domains.auth.company_scope import client_condition, require_client, scoped
+from app.domains.auth.dependencies import get_current_staff
+from app.domains.staff.models import Staff
 
 from .models import AccuLynxArchivedDocument, AccuLynxArchivedJob, AccuLynxArchivedMessage
 
@@ -80,7 +84,12 @@ def _job_summary(job: AccuLynxArchivedJob) -> dict:
 
 
 @router.get("/clients/{client_id}/jobs", summary="Archived AccuLynx jobs for a client")
-def list_client_jobs(client_id: str, db: Session = Depends(get_db)):
+def list_client_jobs(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff),
+):
+    require_client(db, current_staff, client_id)
     jobs = (
         db.query(AccuLynxArchivedJob)
         .filter(AccuLynxArchivedJob.client_id == client_id,
@@ -92,10 +101,15 @@ def list_client_jobs(client_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/jobs/{job_id}", summary="Archived AccuLynx job with documents, messages and payments")
-def get_job(job_id: str, db: Session = Depends(get_db)):
+def get_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff),
+):
     job = db.get(AccuLynxArchivedJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Archived job not found")
+    require_client(db, current_staff, job.client_id, "Archived job")
 
     raw = job.raw or {}
     received = ((raw.get("payments") or {}).get("receivedPayments") or {}).get("payments") or []
@@ -161,10 +175,20 @@ def get_job(job_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/summary", summary="Archive totals, to check an import")
-def get_summary(db: Session = Depends(get_db)):
-    jobs = db.query(AccuLynxArchivedJob.import_status).all()
+def get_summary(
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff),
+):
+    scope = client_condition(db, current_staff, AccuLynxArchivedJob.client_id)
+    jobs = scoped(db.query(AccuLynxArchivedJob.import_status), scope).all()
+    documents = db.query(AccuLynxArchivedDocument)
+    messages = db.query(AccuLynxArchivedMessage)
+    if scope is not None:
+        visible_jobs = select(AccuLynxArchivedJob.id).where(scope)
+        documents = documents.filter(AccuLynxArchivedDocument.archived_job_id.in_(visible_jobs))
+        messages = messages.filter(AccuLynxArchivedMessage.archived_job_id.in_(visible_jobs))
     return {
         "jobs": dict(Counter(status for (status,) in jobs)),
-        "documents": db.query(AccuLynxArchivedDocument).count(),
-        "messages": db.query(AccuLynxArchivedMessage).count(),
+        "documents": documents.count(),
+        "messages": messages.count(),
     }

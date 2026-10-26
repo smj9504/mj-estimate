@@ -48,7 +48,9 @@ export const useInfiniteWaterMitigationPhotos = ({
         sort_order: sortOrder
       });
 
-      const response = await fetch(`/api/water-mitigation/jobs/${jobId}/photos?${params}`);
+      const response = await fetch(`/api/water-mitigation/jobs/${jobId}/photos?${params}`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
+      });
       if (!response.ok) {
         throw new Error(`Failed to load photos: ${response.status}`);
       }

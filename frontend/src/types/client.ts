@@ -194,10 +194,22 @@ export const CONTRACTOR_ESTIMATE_STAGE_COLORS: Record<ContractorEstimateStage, s
   approved_initial_received: 'green',
 };
 
+/** insurance = a claim; cash = a cash job, the same without insurance details */
+export type ClaimType = 'insurance' | 'cash';
+
+/** A company working a claim or cash job; its people see it */
+export interface ClaimCompanyRef {
+  id: string;
+  name: string;
+  role?: string;
+}
+
 export interface Claim {
   id: string;
   client_id: string;
   company_id?: string;
+  claim_type?: ClaimType;
+  companies?: ClaimCompanyRef[];
   claim_number: string;
   insurance_company?: string;
   insurance_policy_number?: string;
@@ -443,6 +455,9 @@ export const TODO_PRIORITY_COLORS: Record<TodoPriority, string> = {
 export interface ClaimCreate {
   client_id: string;
   claim_number: string;
+  claim_type?: ClaimType;
+  /** Replaces the companies working it */
+  company_ids?: string[];
   company_id?: string;
   insurance_company?: string;
   insurance_policy_number?: string;

@@ -10,8 +10,15 @@ from fastapi.responses import StreamingResponse
 
 from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import (
+    document_condition,
+    require_claim,
+    require_document,
+    sees_everything,
+)
 from app.domains.auth.dependencies import get_current_user
 
+from .models import BathroomEstimate
 from .pricing import (
     ACCESSORY_FINISHES,
     ACCESSORY_GRADES,
@@ -109,6 +116,25 @@ def get_selection_slots(current_user: dict = Depends(get_current_user)):
     return slots_meta()
 
 
+# ── Company scope ──
+
+def _require_estimate(session, staff, estimate_id: str) -> None:
+    """404 unless the staff member may see this estimate (its job's
+    estimates share one claim and company, so this covers the group)."""
+    require_document(session, staff, BathroomEstimate, estimate_id, "Estimate")
+
+
+def _require_moved_claim(session, staff, estimate_id: str, claim_id: Optional[str]) -> None:
+    """Moving an estimate onto another claim needs that claim to be visible"""
+    if not claim_id or sees_everything(staff):
+        return
+    current = session.query(BathroomEstimate.claim_id).filter(
+        BathroomEstimate.id == estimate_id
+    ).scalar()
+    if str(current or "") != str(claim_id):
+        require_claim(session, staff, claim_id)
+
+
 # ── CRUD ──
 
 @router.post("", response_model=BathroomEstimateResponse)
@@ -118,6 +144,8 @@ def create_estimate(
     current_user: dict = Depends(get_current_user),
 ):
     """Create a new bathroom estimate."""
+    if data.claim_id:
+        require_claim(session, current_user, data.claim_id)
     service = BathroomEstimateService(session)
     result = service.create_estimate(data, created_by_id=current_user.id)
     return result
@@ -147,6 +175,9 @@ def list_estimates(
         grouped=grouped,
         page=page,
         page_size=page_size,
+        scope=document_condition(
+            session, current_user, BathroomEstimate.claim_id, BathroomEstimate.company_id
+        ),
     )
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
@@ -158,6 +189,7 @@ def get_estimate(
     current_user: dict = Depends(get_current_user),
 ):
     """Get a bathroom estimate by ID."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     result = service.get_estimate(estimate_id)
     if not result:
@@ -173,6 +205,8 @@ def update_estimate(
     current_user: dict = Depends(get_current_user),
 ):
     """Update a bathroom estimate."""
+    _require_estimate(session, current_user, estimate_id)
+    _require_moved_claim(session, current_user, estimate_id, data.claim_id)
     service = BathroomEstimateService(session)
     result = service.update_estimate(
         estimate_id, data, updated_by_id=current_user.id
@@ -190,6 +224,7 @@ def delete_estimate(
     current_user: dict = Depends(get_current_user),
 ):
     """Delete a bathroom estimate."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     try:
         deleted = service.delete_estimate(estimate_id, whole_group=whole_group)
@@ -209,6 +244,7 @@ def get_estimate_group(
     current_user: dict = Depends(get_current_user),
 ):
     """Every estimate of this one's job, with line items, for comparing them."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     result = service.get_group(estimate_id)
     if not result:
@@ -223,6 +259,7 @@ def add_option(
     current_user: dict = Depends(get_current_user),
 ):
     """Add an option to the job, starting as a copy of this estimate."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     result = service.add_option(estimate_id, created_by_id=current_user.id)
     if not result:
@@ -237,6 +274,7 @@ def add_current_layout(
     current_user: dict = Depends(get_current_user),
 ):
     """Add a remodel's bathroom as it is today (unpriced), starting as a copy of this estimate."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     try:
         result = service.add_current_layout(estimate_id, created_by_id=current_user.id)
@@ -254,6 +292,7 @@ def get_layout_changes(
     current_user: dict = Depends(get_current_user),
 ):
     """How this option's saved sketch differs from the bathroom as it is, and which changes are left out."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     result = service.get_layout_changes(estimate_id)
     if result is None:
@@ -269,6 +308,7 @@ def rename_option(
     current_user: dict = Depends(get_current_user),
 ):
     """Rename an option."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     try:
         result = service.rename_option(estimate_id, data.option_label)
@@ -288,6 +328,7 @@ def set_selection(
     current_user: dict = Depends(get_current_user),
 ):
     """Build an option's slot (vanity, floor tile…) from a library product; its price becomes the material cost."""
+    _require_estimate(session, current_user, estimate_id)
     from app.domains.product_library.service import ProductError
 
     service = BathroomEstimateService(session)
@@ -310,6 +351,7 @@ def clear_selection(
     current_user: dict = Depends(get_current_user),
 ):
     """Take a slot's product off an option; it goes back to the rate table's allowance."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     result = service.clear_selection(estimate_id, slot)
     if not result:
@@ -325,6 +367,7 @@ def set_project_type(
     current_user: dict = Depends(get_current_user),
 ):
     """Switch the whole job between an insurance claim and a remodel."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     result = service.set_project_type(estimate_id, data.project_type)
     if not result:
@@ -342,8 +385,10 @@ def calculate_estimate(
     current_user: dict = Depends(get_current_user),
 ):
     """Save (if body provided) then calculate in one round-trip."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     if data is not None:
+        _require_moved_claim(session, current_user, estimate_id, data.claim_id)
         service.update_estimate(
             estimate_id, data,
             updated_by_id=current_user.id,
@@ -369,6 +414,7 @@ def clone_estimate(
     current_user: dict = Depends(get_current_user),
 ):
     """Clone an existing estimate into a new draft."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     result = service.clone_estimate(estimate_id, created_by_id=current_user.id)
     if not result:
@@ -385,6 +431,7 @@ def get_history(
     current_user: dict = Depends(get_current_user),
 ):
     """Get version history for an estimate."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     return service.get_history(estimate_id)
 
@@ -398,6 +445,7 @@ def generate_overview(
     current_user: dict = Depends(get_current_user),
 ):
     """Generate AI-powered overview note based on estimate specs."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     overview = service.generate_overview(estimate_id)
     if overview is None:
@@ -474,6 +522,7 @@ def validate_for_export(
 
     Returns warnings for missing allowance/brand/model specs.
     """
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     estimate = service.get_estimate(estimate_id)
     if not estimate:
@@ -497,6 +546,7 @@ def export_pdf(
     current_user: dict = Depends(get_current_user),
 ):
     """Export estimate as PDF for customer (no sketch image)."""
+    _require_estimate(session, current_user, estimate_id)
     from .export_service import BathroomExportService
 
     service = BathroomEstimateService(session)
@@ -528,6 +578,7 @@ def export_pdf_with_sketch(
     current_user: dict = Depends(get_current_user),
 ):
     """Export estimate as PDF with optional sketch image."""
+    _require_estimate(session, current_user, estimate_id)
     from .export_service import BathroomExportService
 
     service = BathroomEstimateService(session)
@@ -570,6 +621,7 @@ def export_proposal_pdf(
 
     For the customer only: the carrier gets the restoration's own PDF.
     """
+    _require_estimate(session, current_user, estimate_id)
     return _proposal_pdf(estimate_id, show_signature, None, session)
 
 
@@ -581,6 +633,7 @@ def export_proposal_pdf_with_renders(
     current_user: dict = Depends(get_current_user),
 ):
     """The customer's comparison, with each estimate's 3D view ({renders: {id: base64}})."""
+    _require_estimate(session, current_user, estimate_id)
     return _proposal_pdf(estimate_id, body.get("show_signature", True), body.get("renders"), session)
 
 
@@ -615,6 +668,7 @@ def add_line_item(
     current_user: dict = Depends(get_current_user),
 ):
     """Add a new line item to an estimate."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     result = service.add_line_item(estimate_id, data.dict())
     if not result:
@@ -631,6 +685,7 @@ def update_line_item(
     current_user: dict = Depends(get_current_user),
 ):
     """Update a line item."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     result = service.update_line_item(estimate_id, item_id, data.dict(exclude_unset=True))
     if not result:
@@ -646,6 +701,7 @@ def delete_line_item(
     current_user: dict = Depends(get_current_user),
 ):
     """Delete a line item."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     result = service.delete_line_item(estimate_id, item_id)
     if not result:
@@ -661,6 +717,7 @@ def delete_phase(
     current_user: dict = Depends(get_current_user),
 ):
     """Delete all items in a phase and renumber remaining phases."""
+    _require_estimate(session, current_user, estimate_id)
     service = BathroomEstimateService(session)
     result = service.delete_phase(estimate_id, phase)
     if not result:

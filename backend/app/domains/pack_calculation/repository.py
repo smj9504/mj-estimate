@@ -9,6 +9,7 @@ from uuid import UUID
 from datetime import datetime, timedelta
 
 from app.common.base_repository import SQLAlchemyRepository
+from app.domains.auth.company_scope import scoped
 from .models import (
     PackCalculation,
     PackRoom,
@@ -35,6 +36,18 @@ class PackCalculationRepository(SQLAlchemyRepository):
             )
         )
         return result.scalar_one_or_none()
+
+    def get_recent(self, offset: int = 0, limit: int = 50, scope=None) -> List[dict]:
+        """Newest calculations first, as dicts like get_all(), within the
+        staff member's company scope (None = all)"""
+        query = scoped(self.db_session.query(PackCalculation), scope)
+        query = self._eager_load_convert_relationships(query)
+        query = query.order_by(PackCalculation.created_at.desc())
+        if offset:
+            query = query.offset(offset)
+        if limit:
+            query = query.limit(limit)
+        return [self._convert_to_dict(calc) for calc in query.all()]
 
     def get_all_completed(self, limit: int = 1000) -> List[PackCalculation]:
         """Get all completed calculations for ML training"""

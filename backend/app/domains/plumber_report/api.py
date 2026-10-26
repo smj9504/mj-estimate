@@ -23,7 +23,8 @@ from app.domains.plumber_report.schemas import (
     PlumberReportPDFRequest,
     PlumberReportNumberResponse
 )
-from app.domains.plumber_report.service import PlumberReportService
+from app.domains.plumber_report.service import PlumberReportService, report_scope
+from app.domains.auth.company_scope import company_ids, require_claim
 from app.domains.plumber_report.ai_service import (
     generate_plumber_report,
     VALID_STATES,
@@ -35,6 +36,21 @@ from pydantic import BaseModel, field_validator
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def require_report(db, staff, report_id) -> None:
+    """404 unless the staff member may see this report"""
+    from app.domains.plumber_report.models import PlumberReport
+
+    scope = report_scope(db, staff)
+    if scope is None:
+        return
+    try:
+        report_uuid = UUID(str(report_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if db.query(PlumberReport.id).filter(PlumberReport.id == report_uuid, scope).first() is None:
+        raise HTTPException(status_code=404, detail="Report not found")
 
 
 def _report_pdf_filename(property_address: Optional[str]) -> str:
@@ -125,6 +141,8 @@ def create_plumber_report(
     current_staff: Staff = Depends(get_current_staff)
 ):
     """Create a new plumber report"""
+    if report.claim_id:
+        require_claim(db, current_staff, report.claim_id)
     try:
         db_report = PlumberReportService.create_report(
             db=db,
@@ -165,21 +183,25 @@ def get_plumber_reports(
     limit: int = Query(100, ge=1, le=500),
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff)
 ):
     """Get list of plumber reports"""
+    scope = report_scope(db, current_staff)
     reports = PlumberReportService.get_reports(
         db=db,
         skip=skip,
         limit=limit,
         status=status,
-        search=search
+        search=search,
+        scope=scope
     )
-    
+
     total = PlumberReportService.get_report_count(
         db=db,
         status=status,
-        search=search
+        search=search,
+        scope=scope
     )
     
     return PlumberReportListResponse(
@@ -193,9 +215,11 @@ def get_plumber_reports(
 @router.get("/{report_id}", response_model=PlumberReportResponse)
 def get_plumber_report(
     report_id: UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff)
 ):
     """Get a single plumber report"""
+    require_report(db, current_staff, report_id)
     report = PlumberReportService.get_report(db, report_id)
 
     if not report:
@@ -213,6 +237,9 @@ def update_plumber_report(
     current_staff: Staff = Depends(get_current_staff)
 ):
     """Update a plumber report"""
+    require_report(db, current_staff, report_id)
+    if report_update.claim_id:
+        require_claim(db, current_staff, report_update.claim_id)
     updated_report = PlumberReportService.update_report(
         db=db,
         report_id=report_id,
@@ -229,9 +256,11 @@ def update_plumber_report(
 @router.delete("/{report_id}")
 def delete_plumber_report(
     report_id: UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff)
 ):
     """Delete a plumber report"""
+    require_report(db, current_staff, report_id)
     success = PlumberReportService.delete_report(db, report_id)
     
     if not success:
@@ -246,9 +275,11 @@ def upload_report_photo(
     file: UploadFile = File(...),
     category: str = Form(...),
     caption: Optional[str] = Form(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff)
 ):
     """Upload a photo for a plumber report"""
+    require_report(db, current_staff, report_id)
     # TODO: Implement file upload to storage service
     # For now, return mock response
     return {
@@ -262,9 +293,11 @@ def upload_report_photo(
 @router.post("/{report_id}/generate-pdf")
 def generate_pdf(
     report_id: UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff)
 ):
     """Generate PDF for a plumber report"""
+    require_report(db, current_staff, report_id)
     report = PlumberReportService.get_report(db, report_id)
     
     if not report:
@@ -346,6 +379,7 @@ def duplicate_report(
     current_staff: Staff = Depends(get_current_staff)
 ):
     """Duplicate an existing plumber report"""
+    require_report(db, current_staff, report_id)
     original_report = PlumberReportService.get_report(db, report_id)
     
     if not original_report:
@@ -378,7 +412,8 @@ def duplicate_report(
 @router.get("/{report_id}/pa-email-info")
 def get_pa_email_info(
     report_id: UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff)
 ):
     """
     Get PA contact info for sending plumber report.
@@ -391,6 +426,7 @@ def get_pa_email_info(
         WaterMitigationJob, WMSheetPAMapping,
     )
 
+    require_report(db, current_staff, report_id)
     report = PlumberReportService.get_report(db, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -473,9 +509,16 @@ def get_pa_email_info(
     try:
         from app.domains.email_ingestion.models import EmailAccount
         company_id = wm_job.company_id if wm_job else None
-        accounts = db.query(EmailAccount).filter(
+        accounts_query = db.query(EmailAccount).filter(
             EmailAccount.is_active == True,
-        ).all()
+        )
+        own_companies = company_ids(db, current_staff)
+        if own_companies is not None:
+            # Someone who isn't an admin sends from their companies' accounts
+            accounts_query = accounts_query.filter(
+                EmailAccount.company_id.in_(own_companies)
+            )
+        accounts = accounts_query.all()
         for a in accounts:
             email_accounts.append({
                 "id": str(a.id),
@@ -546,6 +589,7 @@ async def send_plumber_report_to_pa(
     current_staff: Staff = Depends(get_current_staff),
 ):
     """Send plumber report PDF to PA via email."""
+    require_report(db, current_staff, report_id)
     report = PlumberReportService.get_report(db, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")

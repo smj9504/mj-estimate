@@ -94,6 +94,8 @@ export interface ClaimSearchResult {
   id: string;
   client_id: string;
   claim_number: string;
+  /** cash = a cash job */
+  claim_type?: 'insurance' | 'cash';
   insurance_company?: string | null;
   date_of_loss?: string | null;
   client_name: string;

@@ -27,12 +27,19 @@ class DashboardService:
     to avoid N+1 query problems from lazy-loading relationships.
     """
 
-    def __init__(self):
+    def __init__(self, work_order_scope: Any = None, invoice_scope: Any = None,
+                 estimate_scope: Any = None):
+        """The scopes are extra SQL conditions limiting the work orders,
+        invoices and estimates counted to those the viewer may see
+        (None counts all of them)."""
         self.database = get_database()
         self.work_order_service = WorkOrderService(self.database)
         self.invoice_service = InvoiceService(self.database)
         self.estimate_service = EstimateService(self.database)
         self.staff_service = StaffService(self.database)
+        self.work_order_scope = work_order_scope
+        self.invoice_scope = invoice_scope
+        self.estimate_scope = estimate_scope
 
         # Cache for frequently accessed data within a single request
         self._work_orders_cache = None
@@ -43,19 +50,19 @@ class DashboardService:
     def _get_work_orders_cached(self) -> List[Dict[str, Any]]:
         """Get work orders with caching to avoid duplicate DB calls"""
         if self._work_orders_cache is None:
-            self._work_orders_cache = self.work_order_service.get_all()
+            self._work_orders_cache = self.work_order_service.get_all(scope=self.work_order_scope)
         return self._work_orders_cache
 
     def _get_invoices_cached(self) -> List[Dict[str, Any]]:
         """Get invoices with caching to avoid duplicate DB calls"""
         if self._invoices_cache is None:
-            self._invoices_cache = self.invoice_service.get_all()
+            self._invoices_cache = self.invoice_service.get_all(scope=self.invoice_scope)
         return self._invoices_cache
 
     def _get_estimates_cached(self) -> List[Dict[str, Any]]:
         """Get estimates with caching to avoid duplicate DB calls"""
         if self._estimates_cache is None:
-            self._estimates_cache = self.estimate_service.get_all()
+            self._estimates_cache = self.estimate_service.get_all(scope=self.estimate_scope)
         return self._estimates_cache
 
     def _get_staff_cached(self) -> List[Dict[str, Any]]:

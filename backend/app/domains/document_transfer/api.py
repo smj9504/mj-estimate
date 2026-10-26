@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.core.database_factory import get_db_session as get_db
+from app.domains.auth.company_scope import require_document
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.auth.document_access import require_document_access
 from app.domains.document_transfer.service import (
@@ -34,6 +35,7 @@ def send_document(request: SendDocumentRequest, current_staff=Depends(get_curren
     """Offer a document to one or more people; each gets a message to accept it"""
     model, _, label, _ = document_type_info(request.document_type)
     require_document_access(db, model, request.document_id, current_staff, label)
+    require_document(db, current_staff, model, request.document_id, label)
 
     service = DocumentTransferService(db)
     try:

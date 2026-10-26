@@ -75,7 +75,8 @@ class PackCalculationService:
     def calculate(
         self,
         request: PackCalculationRequest,
-        user_id: UUID
+        user_id: UUID,
+        company_id: Optional[str] = None,
     ) -> PackCalculationResult:
         """
         Main calculation flow
@@ -135,6 +136,9 @@ class PackCalculationService:
                 "debris": "material_based",
             },
         }
+        if company_id:
+            # The issuing company, so its staff can see it (company scope)
+            calculation_data["company_id"] = company_id
 
         # Save calculation first to get ID
         calculation = self.calc_repo.create(calculation_data)

@@ -278,10 +278,16 @@ class ContractorPortalService:
 
     # ── Auth-based methods (for logged-in contractors) ──
 
-    def get_claims_for_company(self, company_id: str = None) -> List[Dict[str, Any]]:
+    def get_claims_for_company(
+        self, company_id: str = None, company_ids: Optional[List[str]] = None,
+        claim_scope=None,
+    ) -> List[Dict[str, Any]]:
         """Get claims from ClaimCompany + WaterMitigationJob.
-        If company_id is set, filter to that company only.
+        If company_id is set, filter to that company only. company_ids
+        (a staff member's companies; None = all) and claim_scope (claims
+        they may see) narrow it further.
         """
+        from app.domains.auth.company_scope import scoped
         from app.domains.client.models import Claim, ClaimPayment, Client
         from app.domains.company.models import Company
         from app.domains.contract.models import ClaimCompany
@@ -302,6 +308,11 @@ class ContractorPortalService:
                 cc_query = cc_query.filter(
                     ClaimCompany.company_id == company_id
                 )
+            if company_ids is not None:
+                cc_query = cc_query.filter(
+                    ClaimCompany.company_id.in_(company_ids)
+                )
+            cc_query = scoped(cc_query, claim_scope)
             for cc, claim, client, company in cc_query.all():
                 cid = str(claim.id)
                 if cid in seen_claims:
@@ -331,6 +342,11 @@ class ContractorPortalService:
                 wm_query = wm_query.filter(
                     WaterMitigationJob.company_id == company_id
                 )
+            if company_ids is not None:
+                wm_query = wm_query.filter(
+                    WaterMitigationJob.company_id.in_(company_ids)
+                )
+            wm_query = scoped(wm_query, claim_scope)
             for wm, claim, client, company in wm_query.all():
                 cid = str(claim.id)
                 if cid in seen_claims:

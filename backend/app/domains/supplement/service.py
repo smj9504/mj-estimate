@@ -184,12 +184,13 @@ class SupplementService:
         finally:
             session.close()
 
-    def get_requests(self, params: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], int]:
+    def get_requests(self, params: Dict[str, Any], scope: Any = None) -> Tuple[List[Dict[str, Any]], int]:
+        """scope: company condition from auth.company_scope (None = all)"""
         session = self._get_readonly_session()
         try:
             from app.domains.supplement.repository import get_supplement_request_repository
             repo = get_supplement_request_repository(session)
-            items, total = repo.get_with_filters(**params)
+            items, total = repo.get_with_filters(**params, scope=scope)
 
             # Enrich each with claim info
             for item in items:
@@ -232,12 +233,12 @@ class SupplementService:
         finally:
             session.close()
 
-    def get_dashboard_stats(self) -> Dict[str, Any]:
+    def get_dashboard_stats(self, scope: Any = None) -> Dict[str, Any]:
         session = self._get_readonly_session()
         try:
             from app.domains.supplement.repository import get_supplement_request_repository
             repo = get_supplement_request_repository(session)
-            return repo.get_dashboard_stats()
+            return repo.get_dashboard_stats(scope)
         finally:
             session.close()
 

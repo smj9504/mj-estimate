@@ -501,12 +501,15 @@ class WaterMitigationService:
         hide_received: bool = False,
         has_supplement: bool = False,
         page: int = 1,
-        page_size: int = 50
+        page_size: int = 50,
+        scope: Any = None
     ) -> tuple[List[WaterMitigationJob], int]:
         """List jobs with filters
 
         Note: photo_count is already attached to each job object by repository
         using optimized subquery JOIN to avoid N+1 queries.
+
+        scope limits the list to the jobs a staff member may see (None = all).
         """
         jobs, total = self.job_repo.find_by_filters(
             client_id=client_id,
@@ -516,7 +519,8 @@ class WaterMitigationService:
             hide_received=hide_received,
             has_supplement=has_supplement,
             page=page,
-            page_size=page_size
+            page_size=page_size,
+            scope=scope
         )
 
         # photo_count already attached by repository - no need for additional queries
@@ -1316,19 +1320,25 @@ class WaterMitigationService:
         logger.info(f"Restored photo {photo_id} from trash")
         return True
 
-    def list_trashed_photos(self, job_id: Optional[UUID] = None) -> List[Dict[str, Any]]:
-        """List all trashed photos (optionally filtered by job)"""
+    def list_trashed_photos(
+        self, job_id: Optional[UUID] = None, scope: Any = None
+    ) -> List[Dict[str, Any]]:
+        """List all trashed photos (optionally filtered by job).
+        scope limits it to photos on jobs a staff member may see (None = all)."""
         query = self.photo_repo.session.query(WMPhoto).filter(WMPhoto.is_trashed == True)
 
         if job_id:
             query = query.filter(WMPhoto.job_id == job_id)
+        if scope is not None:
+            query = query.filter(scope)
 
         photos = query.order_by(WMPhoto.trashed_at.desc()).all()
         return [self._photo_to_dict(photo) for photo in photos]
 
-    def cleanup_expired_trash(self, retention_days: int = 30) -> Dict[str, Any]:
+    def cleanup_expired_trash(self, retention_days: int = 30, scope: Any = None) -> Dict[str, Any]:
         """Permanently delete photos that have been in trash for more than retention_days.
         Deletes from cloud storage first, then from database.
+        scope limits it to photos on jobs a staff member may see (None = all).
 
         Returns:
             Dict with deleted_count, failed_count, and details
@@ -1337,15 +1347,17 @@ class WaterMitigationService:
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
 
         # Find expired trashed photos
-        expired_photos = (
+        query = (
             self.photo_repo.session.query(WMPhoto)
             .filter(
                 WMPhoto.is_trashed == True,
                 WMPhoto.trashed_at != None,
                 WMPhoto.trashed_at < cutoff_date
             )
-            .all()
         )
+        if scope is not None:
+            query = query.filter(scope)
+        expired_photos = query.all()
 
         if not expired_photos:
             logger.info("No expired trashed photos to clean up")
@@ -1387,11 +1399,13 @@ class WaterMitigationService:
             "failed_ids": failed_ids
         }
 
-    def get_trash_stats(self, job_id: Optional[UUID] = None) -> Dict[str, Any]:
+    def get_trash_stats(self, job_id: Optional[UUID] = None, scope: Any = None) -> Dict[str, Any]:
         """Get trash statistics including counts and auto-delete info"""
         query = self.photo_repo.session.query(WMPhoto).filter(WMPhoto.is_trashed == True)
         if job_id:
             query = query.filter(WMPhoto.job_id == job_id)
+        if scope is not None:
+            query = query.filter(scope)
 
         photos = query.all()
         total = len(photos)

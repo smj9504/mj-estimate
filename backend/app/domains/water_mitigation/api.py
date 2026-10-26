@@ -29,8 +29,19 @@ from pydantic import BaseModel, Field
 
 from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
-from app.domains.auth.dependencies import get_current_user, require_screen
+from app.domains.auth.dependencies import get_current_staff, get_current_user, require_screen
 
+from .job_access import (
+    company_for_new_job,
+    document_access,
+    job_access,
+    job_child_condition,
+    job_condition,
+    photo_access,
+    require_job,
+    require_job_row,
+    require_photos,
+)
 from .models import WMPhoto
 from .schemas import (
     BulkUpdateDateRequest,
@@ -70,6 +81,12 @@ router.include_router(adjuster_inbox_router)
 
 # The View grant (water_mitigation_view) leaves out the AI photo tools
 _full_wm_access = Depends(require_screen("water_mitigation"))
+
+# 404 unless the job / photo / document in the path is one the staff member
+# may see (its claim is one of their companies', or the job is their company's)
+_job_access = Depends(job_access)
+_photo_access = Depends(photo_access)
+_document_access = Depends(document_access)
 
 
 def get_wm_service(db: DatabaseSession = Depends(get_db_session)) -> WaterMitigationService:
@@ -116,9 +133,11 @@ def _attach_signature_fields(db: DatabaseSession, documents: list) -> list:
 def create_job(
     job: JobCreate,
     service: WaterMitigationService = Depends(get_wm_service),
-    db: DatabaseSession = Depends(get_db_session)
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff)
 ):
     """Create new water mitigation job"""
+    job.company_id = company_for_new_job(db, current_staff, job.company_id)
     try:
         created_job = service.create_job(job)
 
@@ -158,7 +177,8 @@ def list_jobs(
     has_supplement: bool = False,  # Only jobs whose claim has a supplement request
     page: int = 1,
     page_size: int = 50,
-    service: WaterMitigationService = Depends(get_wm_service)
+    service: WaterMitigationService = Depends(get_wm_service),
+    current_staff=Depends(get_current_staff)
 ):
     """List water mitigation jobs with filters (active jobs only by default)"""
     try:
@@ -171,7 +191,8 @@ def list_jobs(
             hide_received=hide_received,
             has_supplement=has_supplement,
             page=page,
-            page_size=page_size
+            page_size=page_size,
+            scope=job_condition(service.session, current_staff)
         )
 
         insurance_amounts = {}
@@ -205,7 +226,7 @@ def list_jobs(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/jobs/{job_id}", response_model=JobResponse)
+@router.get("/jobs/{job_id}", response_model=JobResponse, dependencies=[_job_access])
 def get_job(
     job_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service)
@@ -222,7 +243,7 @@ def get_job(
     return job_dict
 
 
-@router.put("/jobs/{job_id}", response_model=JobResponse)
+@router.put("/jobs/{job_id}", response_model=JobResponse, dependencies=[_job_access])
 def update_job(
     job_id: UUID,
     job_update: JobUpdate,
@@ -251,7 +272,7 @@ def update_job(
     return job_dict
 
 
-@router.patch("/jobs/{job_id}/status", response_model=JobResponse)
+@router.patch("/jobs/{job_id}/status", response_model=JobResponse, dependencies=[_job_access])
 def update_job_status(
     job_id: UUID,
     status_update: JobStatusUpdate,
@@ -278,7 +299,7 @@ class ToggleActiveRequest(BaseModel):
     active: bool
 
 
-@router.patch("/jobs/{job_id}/active")
+@router.patch("/jobs/{job_id}/active", dependencies=[_job_access])
 def toggle_job_active(
     job_id: UUID,
     request: ToggleActiveRequest,
@@ -296,7 +317,7 @@ def toggle_job_active(
     return {"id": str(job_id), "active": request.active}
 
 
-@router.delete("/jobs/{job_id}")
+@router.delete("/jobs/{job_id}", dependencies=[_job_access])
 def delete_job(
     job_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service),
@@ -404,7 +425,7 @@ def delete_category(
 
 
 # Status history endpoint
-@router.get("/jobs/{job_id}/status-history", response_model=List[StatusHistoryResponse])
+@router.get("/jobs/{job_id}/status-history", response_model=List[StatusHistoryResponse], dependencies=[_job_access])
 def get_status_history(
     job_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service)
@@ -415,7 +436,7 @@ def get_status_history(
 
 
 # Photo endpoints
-@router.post("/jobs/{job_id}/photos")
+@router.post("/jobs/{job_id}/photos", dependencies=[_job_access])
 async def upload_photo(
     job_id: UUID,
     file: UploadFile = File(...),
@@ -441,7 +462,7 @@ async def upload_photo(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/jobs/{job_id}/photos", response_model=PhotoListResponse)
+@router.get("/jobs/{job_id}/photos", response_model=PhotoListResponse, dependencies=[_job_access])
 async def list_photos(
     job_id: UUID,
     category_filter: Optional[str] = None,
@@ -741,7 +762,8 @@ class BatchPreviewRequest(BaseModel):
 @router.post("/photos/batch-preview")
 async def batch_preview_photos(
     request: BatchPreviewRequest,
-    service: WaterMitigationService = Depends(get_wm_service)
+    service: WaterMitigationService = Depends(get_wm_service),
+    current_staff=Depends(get_current_staff)
 ):
     """Get photo preview URLs in batch - optimized for CompanyCam photos
 
@@ -770,6 +792,8 @@ async def batch_preview_photos(
 
     if not photo_uuid_ids:
         return result
+
+    require_photos(service.session, current_staff, photo_uuid_ids)
 
     # Get all photos from database in a single query (optimized - no N+1 problem)
     photos = service.photo_repo.find_by_ids(photo_uuid_ids)
@@ -1410,7 +1434,7 @@ async def download_photo(
     )
 
 
-@router.post("/photos/{photo_id}/perspective-crop")
+@router.post("/photos/{photo_id}/perspective-crop", dependencies=[_photo_access])
 def perspective_crop_photo(
     photo_id: UUID,
     request: PerspectiveCropRequest,
@@ -1516,7 +1540,7 @@ def perspective_crop_photo(
     return new_photo_dict
 
 
-@router.patch("/photos/{photo_id}/category")
+@router.patch("/photos/{photo_id}/category", dependencies=[_photo_access])
 def update_photo_category(
     photo_id: UUID,
     category: str = Query(None),
@@ -1566,7 +1590,8 @@ class BulkUpdateCategoryRequest(BaseModel):
 def bulk_update_category(
     request: BulkUpdateCategoryRequest,
     service: WaterMitigationService = Depends(get_wm_service),
-    db: DatabaseSession = Depends(get_db_session)
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff)
 ):
     """Bulk update photo categories (optimized single query)
 
@@ -1576,6 +1601,7 @@ def bulk_update_category(
     """
     photo_ids = request.photo_ids
     category = request.category
+    require_photos(db, current_staff, photo_ids)
     try:
         # If category is None or empty, set to empty string to clear category
         category_value = category if category else ''
@@ -1612,7 +1638,8 @@ class BulkSetCategoriesRequest(BaseModel):
 def bulk_set_categories(
     request: BulkSetCategoriesRequest,
     service: WaterMitigationService = Depends(get_wm_service),
-    db: DatabaseSession = Depends(get_db_session)
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff)
 ):
     """
     Set individual categories for multiple photos in a single request.
@@ -1622,6 +1649,7 @@ def bulk_set_categories(
 
     from .models import WMPhoto
 
+    require_photos(db, current_staff, [item.get("photo_id") for item in request.updates])
     try:
         # Group photo IDs by category for batch updates
         by_category: dict = defaultdict(list)
@@ -1662,7 +1690,7 @@ def bulk_set_categories(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.patch("/photos/{photo_id}/location")
+@router.patch("/photos/{photo_id}/location", dependencies=[_photo_access])
 def update_photo_location(
     photo_id: UUID,
     body: PhotoLocationUpdate,
@@ -1718,12 +1746,14 @@ class BulkSetLocationsRequest(BaseModel):
 def bulk_set_locations(
     request: BulkSetLocationsRequest,
     service: WaterMitigationService = Depends(get_wm_service),
-    db: DatabaseSession = Depends(get_db_session)
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff)
 ):
     """
     Set individual location tags for multiple photos in a single request.
     Each item has its own photo_id and level/room (either may be omitted).
     """
+    require_photos(db, current_staff, [item.photo_id for item in request.updates])
     try:
         applied = 0
         failed = 0
@@ -1758,7 +1788,7 @@ def bulk_set_locations(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/jobs/{job_id}/photos/location-suggestions")
+@router.get("/jobs/{job_id}/photos/location-suggestions", dependencies=[_job_access])
 def get_photo_location_suggestions(
     job_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service)
@@ -1775,11 +1805,15 @@ def get_photo_location_suggestions(
 @router.get("/photos/duplicates")
 def find_duplicate_photos(
     job_id: Optional[UUID] = Query(None, description="Job ID to check"),
-    service: WaterMitigationService = Depends(get_wm_service)
+    service: WaterMitigationService = Depends(get_wm_service),
+    current_staff=Depends(get_current_staff)
 ):
     """Find duplicate photos by external_id"""
+    if job_id:
+        require_job(service.session, current_staff, job_id)
+    scope = job_child_condition(service.session, current_staff, WMPhoto.job_id)
     try:
-        duplicates = service.photo_repo.find_duplicates_by_external_id(job_id)
+        duplicates = service.photo_repo.find_duplicates_by_external_id(job_id, scope=scope)
         return {
             "duplicate_count": len(duplicates),
             "duplicates": duplicates
@@ -1794,11 +1828,15 @@ def delete_duplicate_photos(
     job_id: Optional[UUID] = Query(None, description="Job ID to clean"),
     dry_run: bool = Query(True, description="If true, only report"),
     service: WaterMitigationService = Depends(get_wm_service),
-    db: DatabaseSession = Depends(get_db_session)
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff)
 ):
     """Delete duplicate photos, keeping the oldest one per external_id"""
+    if job_id:
+        require_job(db, current_staff, job_id)
+    scope = job_child_condition(db, current_staff, WMPhoto.job_id)
     try:
-        result = service.photo_repo.delete_duplicate_photos(job_id, dry_run)
+        result = service.photo_repo.delete_duplicate_photos(job_id, dry_run, scope=scope)
         if not dry_run:
             db.commit()
         return result
@@ -1812,7 +1850,8 @@ def delete_duplicate_photos(
 def bulk_update_date(
     request: BulkUpdateDateRequest,
     service: WaterMitigationService = Depends(get_wm_service),
-    db: DatabaseSession = Depends(get_db_session)
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff)
 ):
     """Bulk update photo captured dates
 
@@ -1823,6 +1862,7 @@ def bulk_update_date(
         request.photo_ids: List of photo IDs to update
         request.new_date: New date to set (time will be preserved from existing data)
     """
+    require_photos(db, current_staff, request.photo_ids)
     try:
         from app.domains.water_mitigation.models import WMPhoto
 
@@ -1857,7 +1897,8 @@ def bulk_update_date(
 
 @router.put(
     "/jobs/{job_id}/photos/bulk-update-dates-by-category",
-    response_model=BulkUpdatePhotoDatesByCategoryResponse
+    response_model=BulkUpdatePhotoDatesByCategoryResponse,
+    dependencies=[_job_access]
 )
 def bulk_update_photo_dates_by_category(
     job_id: UUID,
@@ -1903,7 +1944,7 @@ def bulk_update_photo_dates_by_category(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/photos/{photo_id}")
+@router.delete("/photos/{photo_id}", dependencies=[_photo_access])
 def delete_photo(
     photo_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service),
@@ -1929,7 +1970,7 @@ def _invalidate_photo_list_cache():
         list_photos._cache_ts.clear()
 
 
-@router.post("/photos/{photo_id}/trash")
+@router.post("/photos/{photo_id}/trash", dependencies=[_photo_access])
 def trash_photo(
     photo_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service),
@@ -1960,6 +2001,7 @@ def bulk_trash_photos(
     photo_ids = request.get("photo_ids", [])
     if not photo_ids:
         raise HTTPException(status_code=400, detail="photo_ids is required")
+    require_photos(db, current_user, photo_ids)
 
     trashed = 0
     not_found = 0
@@ -1981,7 +2023,7 @@ def bulk_trash_photos(
     return {"trashed": trashed, "not_found": not_found, "total": len(photo_ids)}
 
 
-@router.post("/photos/{photo_id}/restore")
+@router.post("/photos/{photo_id}/restore", dependencies=[_photo_access])
 def restore_photo(
     photo_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service),
@@ -2003,21 +2045,31 @@ def restore_photo(
 @router.get("/photos/trash")
 def list_trashed_photos(
     job_id: Optional[UUID] = None,
-    service: WaterMitigationService = Depends(get_wm_service)
+    service: WaterMitigationService = Depends(get_wm_service),
+    current_staff=Depends(get_current_staff)
 ):
     """List all trashed photos (optionally filtered by job)"""
-    photos = service.list_trashed_photos(job_id=job_id)
+    if job_id:
+        require_job(service.session, current_staff, job_id)
+    photos = service.list_trashed_photos(
+        job_id=job_id,
+        scope=job_child_condition(service.session, current_staff, WMPhoto.job_id)
+    )
     return {"items": photos, "total": len(photos)}
 
 
 @router.get("/photos/trash/stats")
 def get_trash_stats(
     job_id: Optional[UUID] = None,
-    service: WaterMitigationService = Depends(get_wm_service)
+    service: WaterMitigationService = Depends(get_wm_service),
+    current_staff=Depends(get_current_staff)
 ):
     """Get trash statistics (total count, expiring soon, retention policy)"""
+    if job_id:
+        require_job(service.session, current_staff, job_id)
+    scope = job_child_condition(service.session, current_staff, WMPhoto.job_id)
     try:
-        return service.get_trash_stats(job_id=job_id)
+        return service.get_trash_stats(job_id=job_id, scope=scope)
     except Exception as e:
         logger.error(f"Failed to get trash stats: {e}")
         import traceback
@@ -2029,17 +2081,21 @@ def get_trash_stats(
 def cleanup_trash(
     retention_days: int = 30,
     service: WaterMitigationService = Depends(get_wm_service),
-    db: DatabaseSession = Depends(get_db_session)
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff)
 ):
     """Manually trigger cleanup of photos in trash for more than retention_days.
     Permanently deletes from cloud storage and database."""
-    result = service.cleanup_expired_trash(retention_days=retention_days)
+    result = service.cleanup_expired_trash(
+        retention_days=retention_days,
+        scope=job_child_condition(db, current_staff, WMPhoto.job_id)
+    )
     db.commit()
     return result
 
 
 # CompanyCam project search endpoint
-@router.get("/jobs/{job_id}/search-companycam-projects")
+@router.get("/jobs/{job_id}/search-companycam-projects", dependencies=[_job_access])
 async def search_companycam_projects(
     job_id: UUID,
     query: Optional[str] = Query(None, description="Search query (if not provided, uses job address)"),
@@ -2238,7 +2294,7 @@ async def search_companycam_projects(
 
 
 # CompanyCam photo date summary (for the "pick dates to import" step)
-@router.get("/jobs/{job_id}/companycam-photo-dates")
+@router.get("/jobs/{job_id}/companycam-photo-dates", dependencies=[_job_access])
 async def get_companycam_photo_dates(
     job_id: UUID,
     companycam_project_id: Optional[str] = Query(None, description="CompanyCam project ID override. Falls back to the job's linked project ID."),
@@ -2267,7 +2323,7 @@ async def get_companycam_photo_dates(
 
 
 # CompanyCam sync endpoint
-@router.post("/jobs/{job_id}/sync-companycam-photos")
+@router.post("/jobs/{job_id}/sync-companycam-photos", dependencies=[_job_access])
 async def sync_companycam_photos(
     job_id: UUID,
     background_tasks: BackgroundTasks,
@@ -2431,7 +2487,7 @@ async def _run_sync_async(job_id: UUID, selected_dates: Optional[List[str]] = No
         db_session.close()
 
 
-@router.get("/jobs/{job_id}/sync-companycam-photos/status")
+@router.get("/jobs/{job_id}/sync-companycam-photos/status", dependencies=[_job_access])
 async def get_sync_status(job_id: UUID):
     """
     Get current status of CompanyCam photo sync.
@@ -2463,7 +2519,7 @@ async def get_sync_status(job_id: UUID):
         }
 
 
-@router.post("/jobs/{job_id}/sync-companycam-photos/cancel")
+@router.post("/jobs/{job_id}/sync-companycam-photos/cancel", dependencies=[_job_access])
 async def cancel_sync(job_id: UUID):
     """
     Cancel an ongoing CompanyCam photo sync.
@@ -2515,12 +2571,13 @@ async def cancel_sync(job_id: UUID):
 
 
 # Document generation endpoints
-@router.post("/jobs/{job_id}/documents/generate-pdf", response_model=WMDocumentResponse)
+@router.post("/jobs/{job_id}/documents/generate-pdf", response_model=WMDocumentResponse, dependencies=[_job_access])
 async def generate_document_pdf(
     job_id: UUID,
     request: GenerateDocumentRequest,
     service: WaterMitigationService = Depends(get_wm_service),
-    db: DatabaseSession = Depends(get_db_session)
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff)
 ):
     """Generate PDF document from photos
 
@@ -2538,6 +2595,7 @@ async def generate_document_pdf(
     """
     import asyncio
     import tempfile
+    require_photos(db, current_staff, request.photo_ids)
     temp_files = []  # Track temp files for cleanup
 
     try:
@@ -2807,7 +2865,7 @@ async def generate_document_pdf(
                 logger.warning(f"Failed to cleanup temp file {temp_path}: {e}")
 
 
-@router.get("/jobs/{job_id}/documents", response_model=List[WMDocumentResponse])
+@router.get("/jobs/{job_id}/documents", response_model=List[WMDocumentResponse], dependencies=[_job_access])
 def list_documents(
     job_id: UUID,
     document_type: Optional[str] = None,
@@ -2944,7 +3002,7 @@ def preview_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/documents/{document_id}/source-pdf")
+@router.get("/documents/{document_id}/source-pdf", dependencies=[_document_access])
 def get_source_pdf(
     document_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service)
@@ -3011,7 +3069,7 @@ def get_source_pdf(
 
 
 
-@router.delete("/documents/{document_id}")
+@router.delete("/documents/{document_id}", dependencies=[_document_access])
 def delete_document(
     document_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service),
@@ -3033,7 +3091,7 @@ def delete_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.patch("/documents/{document_id}/document-type", response_model=WMDocumentResponse)
+@router.patch("/documents/{document_id}/document-type", response_model=WMDocumentResponse, dependencies=[_document_access])
 def update_document_type(
     document_id: UUID,
     payload: dict,
@@ -3091,7 +3149,7 @@ def update_document_type(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.patch("/documents/{document_id}/invoice-amount", response_model=WMDocumentResponse)
+@router.patch("/documents/{document_id}/invoice-amount", response_model=WMDocumentResponse, dependencies=[_document_access])
 def update_document_invoice_amount(
     document_id: UUID,
     payload: dict,
@@ -3139,7 +3197,7 @@ def update_document_invoice_amount(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/jobs/{job_id}/documents/upload", response_model=WMDocumentResponse)
+@router.post("/jobs/{job_id}/documents/upload", response_model=WMDocumentResponse, dependencies=[_job_access])
 async def upload_document(
     job_id: UUID,
     file: UploadFile = File(...),
@@ -3193,7 +3251,7 @@ async def upload_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/jobs/{job_id}/documents/bulk-upload", response_model=List[WMDocumentResponse])
+@router.post("/jobs/{job_id}/documents/bulk-upload", response_model=List[WMDocumentResponse], dependencies=[_job_access])
 async def bulk_upload_documents(
     job_id: UUID,
     files: List[UploadFile] = File(...),
@@ -3252,7 +3310,7 @@ async def bulk_upload_documents(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/jobs/{job_id}/documents/generate-from-template")
+@router.post("/jobs/{job_id}/documents/generate-from-template", dependencies=[_job_access])
 def generate_document_from_template(
     job_id: UUID,
     request: dict,
@@ -3415,7 +3473,7 @@ def generate_document_from_template(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/jobs/{job_id}/documents/upload-annotated-pdf", response_model=WMDocumentResponse)
+@router.post("/jobs/{job_id}/documents/upload-annotated-pdf", response_model=WMDocumentResponse, dependencies=[_job_access])
 async def upload_annotated_pdf(
     job_id: UUID,
     pdf_file: UploadFile = File(...),
@@ -3426,7 +3484,8 @@ async def upload_annotated_pdf(
     template_id: str = Form(None),
     source_pdf_file: Optional[UploadFile] = File(None),
     service: WaterMitigationService = Depends(get_wm_service),
-    db: DatabaseSession = Depends(get_db_session)
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff)
 ):
     """Upload an annotated PDF with annotation data for re-editing.
 
@@ -3440,6 +3499,11 @@ async def upload_annotated_pdf(
     """
     import json
     import os
+
+    from .models import WMDocument
+
+    if document_id:
+        require_job_row(db, current_staff, WMDocument, document_id, "Document")
 
     try:
         # Validate file type
@@ -3541,7 +3605,7 @@ async def upload_annotated_pdf(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/jobs/{job_id}/documents/upload-source-pdf")
+@router.post("/jobs/{job_id}/documents/upload-source-pdf", dependencies=[_job_access])
 async def upload_source_pdf(
     job_id: UUID,
     pdf_file: UploadFile = File(...)
@@ -3581,7 +3645,7 @@ async def upload_source_pdf(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/jobs/{job_id}/documents/source-pdf/{file_id_or_name}")
+@router.get("/jobs/{job_id}/documents/source-pdf/{file_id_or_name}", dependencies=[_job_access])
 def serve_source_pdf(
     job_id: UUID,
     file_id_or_name: str
@@ -3610,7 +3674,7 @@ def serve_source_pdf(
 
 
 # Report config endpoints
-@router.get("/jobs/{job_id}/report-config", response_model=ReportConfigResponse)
+@router.get("/jobs/{job_id}/report-config", response_model=ReportConfigResponse, dependencies=[_job_access])
 def get_report_config(
     job_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service)
@@ -3622,7 +3686,7 @@ def get_report_config(
     return config
 
 
-@router.post("/jobs/{job_id}/report-config", response_model=ReportConfigResponse)
+@router.post("/jobs/{job_id}/report-config", response_model=ReportConfigResponse, dependencies=[_job_access])
 def create_report_config(
     job_id: UUID,
     config: ReportConfigCreate,
@@ -3645,7 +3709,7 @@ def create_report_config(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/jobs/{job_id}/report-config", response_model=ReportConfigResponse)
+@router.put("/jobs/{job_id}/report-config", response_model=ReportConfigResponse, dependencies=[_job_access])
 def update_report_config(
     job_id: UUID,
     config_update: ReportConfigUpdate,
@@ -3668,7 +3732,7 @@ def update_report_config(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/jobs/{job_id}/report-config")
+@router.delete("/jobs/{job_id}/report-config", dependencies=[_job_access])
 def delete_report_config(
     job_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service),
@@ -3690,7 +3754,7 @@ def delete_report_config(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/jobs/{job_id}/generate-report", response_class=FileResponse)
+@router.post("/jobs/{job_id}/generate-report", response_class=FileResponse, dependencies=[_job_access])
 async def generate_photo_report(
     job_id: UUID,
     request: GenerateReportRequest,
@@ -3792,7 +3856,7 @@ async def generate_photo_report(
 
 
 # Debug endpoint to check photo counts for a job
-@router.get("/jobs/{job_id}/photos/debug-count")
+@router.get("/jobs/{job_id}/photos/debug-count", dependencies=[_job_access])
 def debug_photo_count(
     job_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service),
@@ -4018,7 +4082,7 @@ class AIClassifyResponse(BaseModel):
     results: List[dict]
 
 
-@router.get("/jobs/{job_id}/ai-results", dependencies=[_full_wm_access])
+@router.get("/jobs/{job_id}/ai-results", dependencies=[_full_wm_access, _job_access])
 def get_ai_results_for_job(
     job_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service),
@@ -4064,7 +4128,8 @@ async def ai_classify_photos(
     request: AIClassifyRequest,
     background_tasks: BackgroundTasks,
     service: WaterMitigationService = Depends(get_wm_service),
-    db: DatabaseSession = Depends(get_db_session)
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff)
 ):
     """
     Classify photos using AI (Claude Vision, Gemini fallback).
@@ -4084,6 +4149,8 @@ async def ai_classify_photos(
     """
     from app.core.config import settings
     from .ai_classification_service import ai_classification_service
+
+    require_photos(db, current_staff, request.photo_ids)
 
     if not settings.ENABLE_AI_PHOTO_CLASSIFICATION:
         raise HTTPException(
@@ -4280,12 +4347,13 @@ async def ai_classify_photos(
     )
 
 
-@router.post("/photos/{photo_id}/ai-classify", dependencies=[_full_wm_access])
+@router.post("/photos/{photo_id}/ai-classify", dependencies=[_full_wm_access, _photo_access])
 async def ai_classify_single_photo(
     photo_id: UUID,
     force_refresh: bool = Query(False, description="Force re-classification even if cached"),
     service: WaterMitigationService = Depends(get_wm_service),
-    db: DatabaseSession = Depends(get_db_session)
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff)
 ):
     """
     Classify a single photo using AI.
@@ -4301,7 +4369,8 @@ async def ai_classify_single_photo(
         request=request,
         background_tasks=BackgroundTasks(),
         service=service,
-        db=db
+        db=db,
+        current_staff=current_staff
     )
 
     if response.results:
@@ -4310,11 +4379,12 @@ async def ai_classify_single_photo(
         raise HTTPException(status_code=500, detail="Classification failed")
 
 
-@router.post("/photos/{photo_id}/ai-apply", dependencies=[_full_wm_access])
+@router.post("/photos/{photo_id}/ai-apply", dependencies=[_full_wm_access, _photo_access])
 async def apply_ai_classification(
     photo_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service),
-    db: DatabaseSession = Depends(get_db_session)
+    db: DatabaseSession = Depends(get_db_session),
+    current_staff=Depends(get_current_staff)
 ):
     """
     Apply AI classification result to a photo.
@@ -4336,7 +4406,8 @@ async def apply_ai_classification(
             photo_id=photo_id,
             force_refresh=False,
             service=service,
-            db=db
+            db=db,
+            current_staff=current_staff
         )
         if "error" in classify_response:
             raise HTTPException(
@@ -4373,7 +4444,7 @@ async def apply_ai_classification(
     }
 
 
-@router.patch("/photos/{photo_id}/category-correction")
+@router.patch("/photos/{photo_id}/category-correction", dependencies=[_photo_access])
 def correct_photo_category(
     photo_id: UUID,
     category: str = Form(..., description="User-corrected category"),
@@ -4423,7 +4494,7 @@ def correct_photo_category(
 # Google Drive Export Endpoints
 # =============================================================================
 
-@router.post("/jobs/{job_id}/export-to-gdrive")
+@router.post("/jobs/{job_id}/export-to-gdrive", dependencies=[_job_access])
 async def export_photos_to_gdrive(
     job_id: UUID,
     background_tasks: BackgroundTasks,
@@ -4707,7 +4778,7 @@ async def _run_gdrive_export_async(
         db_session.close()
 
 
-@router.get("/jobs/{job_id}/export-to-gdrive/status")
+@router.get("/jobs/{job_id}/export-to-gdrive/status", dependencies=[_job_access])
 async def get_gdrive_export_status(job_id: UUID):
     """
     Get current status of Google Drive photo export.
@@ -4736,7 +4807,7 @@ async def get_gdrive_export_status(job_id: UUID):
     return status
 
 
-@router.post("/jobs/{job_id}/export-to-gdrive/cancel")
+@router.post("/jobs/{job_id}/export-to-gdrive/cancel", dependencies=[_job_access])
 async def cancel_gdrive_export(job_id: UUID):
     """
     Cancel an ongoing Google Drive photo export.
@@ -4868,7 +4939,7 @@ async def _load_photo_image_data(photo_dict: dict) -> bytes | None:
     return image_data
 
 
-@router.post("/jobs/{job_id}/photos/detect-duplicates")
+@router.post("/jobs/{job_id}/photos/detect-duplicates", dependencies=[_job_access])
 async def detect_duplicate_photos(
     job_id: UUID,
     threshold: int = Query(10, description="Hamming distance threshold (0=exact, 10=similar, max 64)"),
@@ -5001,7 +5072,7 @@ def _read_cached_preview(photo_id) -> bytes | None:
     return None
 
 
-@router.post("/jobs/{job_id}/photos/visual-signatures", dependencies=[_full_wm_access])
+@router.post("/jobs/{job_id}/photos/visual-signatures", dependencies=[_full_wm_access, _job_access])
 async def compute_photo_visual_signatures(
     job_id: UUID,
     limit: int = Query(30, ge=1, le=100, description="Max photos to fingerprint in this call"),
@@ -5232,7 +5303,7 @@ def apply_sheet_pa_mappings(
 # Financial Comparison Endpoint
 # ============================================================
 
-@router.get("/jobs/{job_id}/financial-comparison")
+@router.get("/jobs/{job_id}/financial-comparison", dependencies=[_job_access])
 def get_financial_comparison(
     job_id: UUID,
     db: DatabaseSession = Depends(get_db_session),
@@ -5446,7 +5517,7 @@ def _pick_wm_section(sections: List[Dict[str, Any]]) -> Optional[int]:
     return best_idx
 
 
-@router.post("/jobs/{job_id}/insurance-estimate/parse")
+@router.post("/jobs/{job_id}/insurance-estimate/parse", dependencies=[_job_access])
 async def parse_wm_insurance_estimate(
     job_id: UUID,
     file: UploadFile = File(...),
@@ -5505,7 +5576,7 @@ async def parse_wm_insurance_estimate(
                 pass
 
 
-@router.post("/jobs/{job_id}/insurance-estimate")
+@router.post("/jobs/{job_id}/insurance-estimate", dependencies=[_job_access])
 async def save_wm_insurance_estimate(
     job_id: UUID,
     file: UploadFile = File(...),
@@ -5676,7 +5747,7 @@ class WMManualEstimateRequest(BaseModel):
     notes: Optional[str] = None
 
 
-@router.post("/jobs/{job_id}/insurance-estimate/manual")
+@router.post("/jobs/{job_id}/insurance-estimate/manual", dependencies=[_job_access])
 def save_wm_insurance_estimate_manual(
     job_id: UUID,
     payload: WMManualEstimateRequest,
@@ -5783,7 +5854,7 @@ class WMPaidPerInvoiceRequest(BaseModel):
     notes: Optional[str] = None
 
 
-@router.post("/jobs/{job_id}/insurance-estimate/paid-per-invoice")
+@router.post("/jobs/{job_id}/insurance-estimate/paid-per-invoice", dependencies=[_job_access])
 def set_wm_paid_per_invoice(
     job_id: UUID,
     payload: WMPaidPerInvoiceRequest,
@@ -5843,7 +5914,7 @@ def get_adjuster_email_service():
     return AdjusterEmailService()
 
 
-@router.get("/jobs/{job_id}/adjuster-email-info")
+@router.get("/jobs/{job_id}/adjuster-email-info", dependencies=[_job_access])
 def get_adjuster_email_info(job_id: UUID):
     """Get adjuster/PA info, document readiness, and email accounts for sending."""
     service = get_adjuster_email_service()
@@ -5862,7 +5933,7 @@ class DocumentSlotOverrideRequest(BaseModel):
     document_id: Optional[str] = None  # None/null clears the override
 
 
-@router.get("/jobs/{job_id}/document-slot-overrides")
+@router.get("/jobs/{job_id}/document-slot-overrides", dependencies=[_job_access])
 def get_document_slot_overrides(job_id: UUID):
     """List the job's manual slot -> document mappings."""
     service = get_adjuster_email_service()
@@ -5873,7 +5944,7 @@ def get_document_slot_overrides(job_id: UUID):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/jobs/{job_id}/document-slot-overrides/{slot_key}")
+@router.put("/jobs/{job_id}/document-slot-overrides/{slot_key}", dependencies=[_job_access])
 def set_document_slot_override(
     job_id: UUID,
     slot_key: str,
@@ -5896,7 +5967,7 @@ def set_document_slot_override(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/jobs/{job_id}/generate-adjuster-email")
+@router.post("/jobs/{job_id}/generate-adjuster-email", dependencies=[_job_access])
 def generate_adjuster_email(
     job_id: UUID,
     custom_notes: str = Query("", description="Additional notes to include"),
@@ -5920,7 +5991,7 @@ class SendToAdjusterRequest(BaseModel):
     selected_documents: Optional[List[str]] = None
 
 
-@router.post("/jobs/{job_id}/send-to-adjuster")
+@router.post("/jobs/{job_id}/send-to-adjuster", dependencies=[_job_access])
 async def send_to_adjuster(job_id: UUID, data: SendToAdjusterRequest):
     """Send water mitigation documents to insurance adjuster via email.
 
@@ -5956,7 +6027,7 @@ async def send_to_adjuster(job_id: UUID, data: SendToAdjusterRequest):
 # Follow-Up Email Endpoints
 # ============================================================
 
-@router.post("/jobs/{job_id}/generate-followup-email")
+@router.post("/jobs/{job_id}/generate-followup-email", dependencies=[_job_access])
 def generate_followup_email(
     job_id: UUID,
     custom_notes: str = Query("", description="Additional notes to include"),
@@ -5972,7 +6043,7 @@ def generate_followup_email(
     return result
 
 
-@router.get("/jobs/{job_id}/followup-task")
+@router.get("/jobs/{job_id}/followup-task", dependencies=[_job_access])
 def get_open_followup_task(job_id: UUID):
     """The claim's unresolved WM docs follow-up for this job, if any."""
     service = get_adjuster_email_service()
@@ -5990,7 +6061,7 @@ class FollowUpEmailRequest(BaseModel):
     selected_documents: Optional[List[str]] = []
 
 
-@router.post("/jobs/{job_id}/send-followup")
+@router.post("/jobs/{job_id}/send-followup", dependencies=[_job_access])
 async def send_followup_email(job_id: UUID, data: FollowUpEmailRequest):
     """Send follow-up email to adjuster. Does NOT update documents_sent_date.
     Optionally re-attach selected documents.
@@ -6033,7 +6104,7 @@ class SendDocumentsEmailRequest(BaseModel):
     document_ids: List[UUID] = []
 
 
-@router.post("/jobs/{job_id}/send-documents")
+@router.post("/jobs/{job_id}/send-documents", dependencies=[_job_access])
 async def send_documents_email(job_id: UUID, data: SendDocumentsEmailRequest):
     """Email the documents selected in the Documents tab, as saved.
 

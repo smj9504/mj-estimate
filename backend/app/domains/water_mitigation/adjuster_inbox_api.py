@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.domains.auth.dependencies import require_screen
 
 from .adjuster_inbox import AdjusterInboxService
+from .job_access import job_access
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +20,11 @@ logger = logging.getLogger(__name__)
 # adjuster; the View grant doesn't see it
 router = APIRouter(dependencies=[Depends(require_screen("water_mitigation"))])
 
+# 404 unless the job is one the staff member may see
+_job_access = Depends(job_access)
 
-@router.get("/jobs/{job_id}/adjuster-emails")
+
+@router.get("/jobs/{job_id}/adjuster-emails", dependencies=[_job_access])
 def list_adjuster_emails(job_id: UUID):
     """Inbound mail about the job already found by the inbox polls."""
     try:
@@ -29,7 +33,7 @@ def list_adjuster_emails(job_id: UUID):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.post("/jobs/{job_id}/adjuster-emails/check")
+@router.post("/jobs/{job_id}/adjuster-emails/check", dependencies=[_job_access])
 async def check_adjuster_emails(job_id: UUID):
     """Search the connected inboxes for the job's adjuster mail now, then
     list everything on the job."""

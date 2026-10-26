@@ -12,8 +12,17 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 from app.core.database_factory import get_db
+from app.domains.auth.company_scope import require_document, sees_everything
 from app.domains.auth.dependencies import get_current_user
 from app.domains.staff.models import Staff
+from app.domains.water_mitigation.job_access import (
+    job_access,
+    require_job,
+    require_job_row,
+    require_scope_item,
+    require_scope_location,
+)
+from app.domains.water_mitigation.models import WMInvoiceItemConfig, WMScopeInvoice
 from app.domains.water_mitigation.scope_service import ScopeService
 from app.domains.water_mitigation.schemas import (
     # Location schemas
@@ -48,12 +57,56 @@ from app.domains.water_mitigation.schemas import (
 router = APIRouter(prefix="/scope", tags=["Water Mitigation - Scope of Work"])
 
 
+# 404 unless the row in the path is on a job the staff member may see
+def _require_location(
+    location_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user)
+):
+    require_scope_location(db, current_user, location_id)
+
+
+def _require_item(
+    item_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user)
+):
+    require_scope_item(db, current_user, item_id)
+
+
+def _require_invoice_config(
+    config_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user)
+):
+    require_job_row(db, current_user, WMInvoiceItemConfig, config_id, "Invoice item config")
+
+
+def _require_invoice(
+    invoice_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user)
+):
+    # invoice_id is the Invoice; its WM scope invoice row carries the job
+    require_job_row(
+        db, current_user, WMScopeInvoice, invoice_id, "Invoice", id_attr='invoice_id'
+    )
+
+
+_job_access = Depends(job_access)
+_location_access = Depends(_require_location)
+_item_access = Depends(_require_item)
+_invoice_config_access = Depends(_require_invoice_config)
+_invoice_access = Depends(_require_invoice)
+
+
 # =============================================================================
 # Scope Location Endpoints
 # =============================================================================
 
 @router.get(
     "/jobs/{job_id}/locations",
+    dependencies=[_job_access],
     response_model=ScopeLocationListResponse,
     summary="Get all scope locations for a job"
 )
@@ -75,6 +128,7 @@ def get_locations_for_job(
 
 @router.get(
     "/locations/{location_id}",
+    dependencies=[_location_access],
     response_model=ScopeLocationResponse,
     summary="Get a scope location by ID"
 )
@@ -116,6 +170,7 @@ def create_location(
     added to the location. Set auto_add_standard_items=false to create
     an empty location.
     """
+    require_job(db, current_user, data.job_id)
     service = ScopeService(db)
     location = service.create_location(data)
     db.commit()
@@ -126,6 +181,7 @@ def create_location(
 
 @router.put(
     "/locations/{location_id}",
+    dependencies=[_location_access],
     response_model=ScopeLocationResponse,
     summary="Update a scope location"
 )
@@ -151,6 +207,7 @@ def update_location(
 
 @router.delete(
     "/jobs/{job_id}/all",
+    dependencies=[_job_access],
     status_code=status.HTTP_200_OK,
     summary="Delete all scope locations and items for a job"
 )
@@ -171,6 +228,7 @@ def delete_all_scope(
 
 @router.delete(
     "/locations/{location_id}",
+    dependencies=[_location_access],
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a scope location"
 )
@@ -197,6 +255,7 @@ def delete_location(
 
 @router.get(
     "/locations/{location_id}/items",
+    dependencies=[_location_access],
     response_model=List[ScopeItemResponse],
     summary="Get all scope items for a location"
 )
@@ -213,6 +272,7 @@ def get_items_for_location(
 
 @router.get(
     "/items/{item_id}",
+    dependencies=[_item_access],
     response_model=ScopeItemResponse,
     summary="Get a scope item by ID"
 )
@@ -246,6 +306,7 @@ def create_item(
     current_user: Staff = Depends(get_current_user)
 ):
     """Create a new scope item"""
+    require_scope_location(db, current_user, data.location_id)
     service = ScopeService(db)
     try:
         item = service.create_item(data)
@@ -262,6 +323,7 @@ def create_item(
 
 @router.put(
     "/items/{item_id}",
+    dependencies=[_item_access],
     response_model=ScopeItemResponse,
     summary="Update a scope item"
 )
@@ -288,6 +350,7 @@ def update_item(
 
 @router.delete(
     "/items/{item_id}",
+    dependencies=[_item_access],
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a scope item"
 )
@@ -310,6 +373,7 @@ def delete_item(
 
 @router.post(
     "/locations/{location_id}/add-standard-items",
+    dependencies=[_location_access],
     response_model=List[ScopeItemResponse],
     summary="Add standard scope items to a location"
 )
@@ -349,6 +413,7 @@ def get_standard_items():
 
 @router.post(
     "/jobs/{job_id}/calculate-debris",
+    dependencies=[_job_access],
     response_model=CalculateDebrisResponse,
     summary="Calculate debris weight for a job"
 )
@@ -419,6 +484,7 @@ def calculate_debris(
 
 @router.get(
     "/jobs/{job_id}/debris-calculation",
+    dependencies=[_job_access],
     response_model=Optional[WMDebrisCalculationResponse],
     summary="Get saved debris calculation for a job"
 )
@@ -500,6 +566,7 @@ def calculate_formula(
 
 @router.post(
     "/jobs/{job_id}/generate-invoice",
+    dependencies=[_job_access],
     response_model=GenerateInvoiceResponse,
     summary="Generate an invoice from scope items"
 )
@@ -564,6 +631,7 @@ def generate_invoice(
 
 @router.get(
     "/jobs/{job_id}/invoice-history",
+    dependencies=[_job_access],
     response_model=JobInvoiceHistoryResponse,
     summary="Get invoice history for a job"
 )
@@ -587,6 +655,7 @@ def get_invoice_history(
 
 @router.get(
     "/jobs/{job_id}/scope-items/invoice-status",
+    dependencies=[_job_access],
     response_model=List[ScopeItemInvoiceStatusResponse],
     summary="Get invoice status for all scope items"
 )
@@ -606,6 +675,7 @@ def get_scope_items_invoice_status(
 
 @router.get(
     "/jobs/{job_id}/uninvoiced-count",
+    dependencies=[_job_access],
     summary="Get count of uninvoiced scope items"
 )
 def get_uninvoiced_count(
@@ -628,6 +698,7 @@ def get_uninvoiced_count(
 
 @router.get(
     "/jobs/{job_id}/invoice-configs",
+    dependencies=[_job_access],
     summary="Get all invoice item configurations for a job"
 )
 def get_invoice_item_configs(
@@ -653,6 +724,7 @@ def get_invoice_item_configs(
 
 @router.post(
     "/jobs/{job_id}/invoice-configs",
+    dependencies=[_job_access],
     status_code=status.HTTP_201_CREATED,
     summary="Create invoice item configuration"
 )
@@ -678,6 +750,7 @@ def create_invoice_item_config(
 
 @router.post(
     "/jobs/{job_id}/invoice-configs/bulk",
+    dependencies=[_job_access],
     status_code=status.HTTP_201_CREATED,
     summary="Bulk create invoice item configurations"
 )
@@ -708,6 +781,7 @@ def bulk_create_invoice_item_configs(
 
 @router.put(
     "/invoice-configs/{config_id}",
+    dependencies=[_invoice_config_access],
     summary="Update invoice item configuration"
 )
 def update_invoice_item_config(
@@ -736,6 +810,7 @@ def update_invoice_item_config(
 
 @router.delete(
     "/invoice-configs/{config_id}",
+    dependencies=[_invoice_config_access],
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete invoice item configuration"
 )
@@ -759,6 +834,7 @@ def delete_invoice_item_config(
 
 @router.post(
     "/jobs/{job_id}/invoice-configs/auto-generate",
+    dependencies=[_job_access],
     summary="Auto-generate invoice item configurations from scope items"
 )
 def auto_generate_invoice_configs(
@@ -791,6 +867,7 @@ def auto_generate_invoice_configs(
 
 @router.post(
     "/jobs/{job_id}/preview-invoice",
+    dependencies=[_job_access],
     summary="Preview invoice generation"
 )
 def preview_invoice(
@@ -819,6 +896,7 @@ def preview_invoice(
 
 @router.post(
     "/jobs/{job_id}/reset-invoice-status",
+    dependencies=[_job_access],
     summary="Reset scope items invoiced status"
 )
 def reset_scope_items_invoice_status(
@@ -846,6 +924,7 @@ def reset_scope_items_invoice_status(
 
 @router.delete(
     "/invoices/{invoice_id}",
+    dependencies=[_invoice_access],
     summary="Delete WM invoice and reset scope items"
 )
 def delete_wm_invoice(
@@ -964,6 +1043,7 @@ def update_standard_scope_item_mapping(
 
 @router.post(
     "/jobs/{job_id}/preview-invoice-from-mappings",
+    dependencies=[_job_access],
     summary="Preview invoice using standard scope item mappings"
 )
 def preview_invoice_from_standard_mappings(
@@ -1062,6 +1142,7 @@ def seed_general_conditions_template(
 
 @router.post(
     "/jobs/{job_id}/invoice-pdf/{invoice_id}",
+    dependencies=[_job_access],
     summary="Download invoice PDF and save as WMDocument"
 )
 def download_invoice_pdf_with_document(
@@ -1092,6 +1173,16 @@ def download_invoice_pdf_with_document(
     )
 
     _logger = logging.getLogger(__name__)
+
+    # The invoice must be this job's, or one the staff member may see anyway
+    if not sees_everything(current_user):
+        from app.domains.invoice.models import Invoice
+        linked = db.query(WMScopeInvoice.id).filter(
+            WMScopeInvoice.invoice_id == str(invoice_id),
+            WMScopeInvoice.job_id == str(job_id),
+        ).first()
+        if linked is None:
+            require_document(db, current_user, Invoice, invoice_id, "Invoice")
 
     # Validate job exists
     job = db.query(WaterMitigationJob).filter(

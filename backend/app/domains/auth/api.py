@@ -173,6 +173,7 @@ def login(
         "company_id": str(staff.company_id) if staff.company_id else None,
         "screen_access": staff.screen_access,
         "screens": screen_access.effective_screens(db, staff),
+        "company_ids": staff.company_ids,
         "must_change_password": bool(staff.must_change_password),
     }
 
@@ -218,7 +219,7 @@ def update_current_staff(
     # change codes go to it, so changing it here would let a signed-in
     # session send the code to any mailbox.
     update_data = staff_update.dict(exclude_unset=True)
-    restricted_fields = ['role', 'username', 'staff_number', 'screen_access', 'email']
+    restricted_fields = ['role', 'username', 'staff_number', 'screen_access', 'email', 'company_ids']
     for field in restricted_fields:
         if field in update_data:
             del update_data[field]
@@ -411,6 +412,18 @@ def update_staff_member(
     cache: CacheService = Depends(get_cache)
 ):
     """Update a staff member (admin only)"""
+    if staff_update.company_ids:
+        from app.domains.company.models import Company
+
+        session = db._session if hasattr(db, '_session') else db
+        wanted = {str(c) for c in staff_update.company_ids}
+        found = {str(r[0]) for r in session.query(Company.id).filter(Company.id.in_(wanted)).all()}
+        if wanted - found:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="One of the chosen companies no longer exists"
+            )
+
     updated_staff = auth_service.update_staff(
         db, staff_id, staff_update
     )

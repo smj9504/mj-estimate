@@ -75,6 +75,11 @@ class ClientSyncService:
                     job.claim_id = claim.id
                     self.db.flush()
 
+            # The WM company works the claim, so its people see it
+            if job.claim_id and job.company_id:
+                from app.domains.client.claim_companies import add_claim_company
+                add_claim_company(self.db, job.claim_id, job.company_id, role='water_mitigation')
+
             self.db.commit()
             logger.info(
                 f"WM Job {job.id} → Client {result['client_action']} ({result['client_id']}), "

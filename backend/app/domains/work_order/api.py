@@ -13,14 +13,31 @@ from .schemas import (
     WorkOrdersResponse, WorkOrderFilter, CompletionReportRequest
 )
 from .service import WorkOrderService
-from .models import WorkOrderStatus
-from app.core.database_factory import get_database
+from .models import WorkOrder as WorkOrderModel, WorkOrderStatus
+from app.core.database_factory import get_database, get_db_session as get_db
+from app.domains.auth.company_scope import document_condition, require_document
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.staff.models import Staff
 from app.domains.staff.service import StaffService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def require_work_order_access(
+    work_order_id: UUID,
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
+):
+    """The signed-in person, if the work order is on a claim or from a
+    company of theirs (404 otherwise)"""
+    require_document(db, current_staff, WorkOrderModel, work_order_id, "Work order")
+    return current_staff
+
+
+def visible_work_orders(db, current_staff):
+    """SQL condition for the work orders this person's companies may see (None: all)"""
+    return document_condition(db, current_staff, WorkOrderModel.claim_id, WorkOrderModel.company_id)
 
 
 def get_work_order_service():
@@ -94,10 +111,13 @@ def get_work_orders(
     date_from: Optional[datetime] = Query(None, description="Filter from date"),
     date_to: Optional[datetime] = Query(None, description="Filter to date"),
     service: WorkOrderService = Depends(get_work_order_service),
-    staff_service: StaffService = Depends(get_staff_service)
+    staff_service: StaffService = Depends(get_staff_service),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
-    """Get all work orders with optional filters"""
+    """Get the work orders the signed-in person may see, with optional filters"""
     try:
+        scope = visible_work_orders(db, current_staff)
         # Build filter dictionary from query parameters
         filters = {}
         
@@ -125,7 +145,7 @@ def get_work_orders(
         # Get work orders from service with pagination
         if search:
             # Use search method if search term provided
-            work_orders = service.search_work_orders(search)
+            work_orders = service.search_work_orders(search, scope=scope)
             total = len(work_orders)
             # Apply pagination to search results
             work_orders = work_orders[offset:offset + page_size]
@@ -135,11 +155,12 @@ def get_work_orders(
                 filters=filters,
                 order_by='-created_at',
                 limit=page_size,
-                offset=offset
+                offset=offset,
+                scope=scope,
             )
             
             # Get total count without pagination
-            all_work_orders = service.get_all(filters=filters)
+            all_work_orders = service.get_all(filters=filters, scope=scope)
             total = len(all_work_orders)
         
         # Populate staff names
@@ -170,7 +191,8 @@ def get_work_orders(
 def get_work_order(
     work_order_id: UUID, 
     service: WorkOrderService = Depends(get_work_order_service),
-    staff_service: StaffService = Depends(get_staff_service)
+    staff_service: StaffService = Depends(get_staff_service),
+    _staff: Staff = Depends(require_work_order_access),
 ):
     """Get single work order by ID"""
     try:
@@ -269,7 +291,7 @@ def update_work_order(
     work_order_id: UUID, 
     work_order: WorkOrderUpdate, 
     service: WorkOrderService = Depends(get_work_order_service),
-    current_staff: Staff = Depends(get_current_staff),
+    current_staff: Staff = Depends(require_work_order_access),
     staff_service: StaffService = Depends(get_staff_service)
 ):
     """Update work order"""
@@ -321,7 +343,7 @@ def update_work_order(
 def delete_work_order(
     work_order_id: UUID, 
     service: WorkOrderService = Depends(get_work_order_service),
-    current_staff: Staff = Depends(get_current_staff)
+    current_staff: Staff = Depends(require_work_order_access)
 ):
     """Delete work order"""
     try:
@@ -342,7 +364,7 @@ def update_work_order_status(
     status: WorkOrderStatus = Body(..., description="New status for the work order"),
     notes: Optional[str] = Query(None, description="Optional notes about the status change"),
     service: WorkOrderService = Depends(get_work_order_service),
-    current_staff: Staff = Depends(get_current_staff)
+    current_staff: Staff = Depends(require_work_order_access)
 ):
     """Update work order status with timestamp tracking"""
     try:
@@ -368,11 +390,15 @@ def update_work_order_status(
 def get_work_orders_by_company(
     company_id: UUID,
     status: Optional[WorkOrderStatus] = Query(None, description="Filter by status"),
-    service: WorkOrderService = Depends(get_work_order_service)
+    service: WorkOrderService = Depends(get_work_order_service),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
-    """Get all work orders for a specific company"""
+    """Get the work orders of a specific company that the signed-in person may see"""
     try:
-        work_orders = service.get_work_orders_by_company(company_id, status)
+        work_orders = service.get_work_orders_by_company(
+            company_id, status, scope=visible_work_orders(db, current_staff)
+        )
         return WorkOrdersResponse(data=work_orders, total=len(work_orders))
         
     except Exception as e:
@@ -383,11 +409,15 @@ def get_work_orders_by_company(
 def get_work_orders_by_staff(
     staff_id: UUID,
     assigned_only: bool = Query(False, description="Only return assigned work orders"),
-    service: WorkOrderService = Depends(get_work_order_service)
+    service: WorkOrderService = Depends(get_work_order_service),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
-    """Get work orders associated with a staff member"""
+    """Get work orders associated with a staff member, of those the signed-in person may see"""
     try:
-        work_orders = service.get_work_orders_by_staff(staff_id, assigned_only)
+        work_orders = service.get_work_orders_by_staff(
+            staff_id, assigned_only, scope=visible_work_orders(db, current_staff)
+        )
         return WorkOrdersResponse(data=work_orders, total=len(work_orders))
         
     except Exception as e:
@@ -397,11 +427,13 @@ def get_work_orders_by_staff(
 @router.get("/dashboard/stats")
 def get_dashboard_stats(
     company_id: Optional[UUID] = Query(None, description="Filter by company ID"),
-    service: WorkOrderService = Depends(get_work_order_service)
+    service: WorkOrderService = Depends(get_work_order_service),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
-    """Get dashboard statistics for work orders"""
+    """Get statistics for the work orders the signed-in person may see"""
     try:
-        stats = service.get_dashboard_stats(company_id)
+        stats = service.get_dashboard_stats(company_id, scope=visible_work_orders(db, current_staff))
         return stats
         
     except Exception as e:
@@ -470,7 +502,8 @@ def get_priority_levels():
 @router.get("/{work_order_id}/activities")
 def get_work_order_activities(
     work_order_id: UUID,
-    service: WorkOrderService = Depends(get_work_order_service)
+    service: WorkOrderService = Depends(get_work_order_service),
+    _staff: Staff = Depends(require_work_order_access),
 ):
     """Get activities/history for a work order (placeholder for now)"""
     # For now, return empty activities
@@ -507,7 +540,8 @@ def calculate_work_order_cost(
 @router.get("/{work_order_id}/files/count")
 def get_work_order_file_count(
     work_order_id: UUID,
-    file_type: Optional[str] = Query(None, description="Filter by file type (image/document)")
+    file_type: Optional[str] = Query(None, description="Filter by file type (image/document)"),
+    _staff: Staff = Depends(require_work_order_access),
 ):
     """Get file count for work order"""
     try:
@@ -538,7 +572,8 @@ def get_work_order_file_count(
 @router.get("/{work_order_id}/debug")
 def debug_work_order(
     work_order_id: UUID,
-    service: WorkOrderService = Depends(get_work_order_service)
+    service: WorkOrderService = Depends(get_work_order_service),
+    _staff: Staff = Depends(require_work_order_access),
 ):
     """Debug endpoint to check work order data and cost calculation"""
     try:
@@ -598,6 +633,7 @@ def generate_completion_report(
     work_order_id: UUID,
     request: CompletionReportRequest,
     service: WorkOrderService = Depends(get_work_order_service),
+    _staff: Staff = Depends(require_work_order_access),
 ):
     """Generate Completion Photo Report PDF from claim photos.
 

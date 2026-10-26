@@ -679,9 +679,15 @@ class EmailIngestionService:
         since_date: Optional[datetime] = None,
         limit: int = 50,
         unseen_only: bool = False,
+        company_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Poll all active email accounts"""
+        """Poll all active email accounts (only these companies' when given)"""
         accounts = self.get_accounts()
+        if company_ids is not None:
+            accounts = [
+                a for a in accounts
+                if a.get("company_id") and str(a["company_id"]) in company_ids
+            ]
         results = []
         total_processed = 0
         total_uploaded = 0
@@ -914,16 +920,18 @@ class EmailIngestionService:
         search: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        scope=None,
     ) -> Dict[str, Any]:
         """List stored inbound mail, newest first. Bodies are left out."""
         from sqlalchemy import or_
 
+        from app.domains.auth.company_scope import scoped
         from app.domains.client.models import Claim, Client
         from app.domains.email_ingestion.models import EmailAccount, ReceivedEmail
 
         session = self._get_readonly_session()
         try:
-            query = session.query(ReceivedEmail)
+            query = scoped(session.query(ReceivedEmail), scope)
             if claim_id:
                 query = query.filter(ReceivedEmail.matched_claim_id == claim_id)
             if account_id:
@@ -1356,6 +1364,7 @@ class EmailIngestionService:
         claim_id: Optional[str] = None,
         has_attachment: bool = False,
         search: Optional[str] = None,
+        scope=None,
     ) -> List[Dict[str, Any]]:
         """Get ingestion logs with filters"""
         session = self._get_readonly_session()
@@ -1365,6 +1374,7 @@ class EmailIngestionService:
             logs = repo.get_logs_with_filters(
                 status, account_id, limit, offset,
                 claim_id=claim_id, has_attachment=has_attachment, search=search,
+                scope=scope,
             )
 
             # Attach stored-file metadata. `file_id` is a plain String column,
@@ -1410,17 +1420,17 @@ class EmailIngestionService:
         finally:
             session.close()
 
-    def get_pending_logs(self) -> List[Dict[str, Any]]:
+    def get_pending_logs(self, scope=None) -> List[Dict[str, Any]]:
         """Get logs needing manual review"""
-        return self.get_logs(status="pending")
+        return self.get_logs(status="pending", scope=scope)
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self, scope=None) -> Dict[str, int]:
         """Get ingestion statistics"""
         session = self._get_readonly_session()
         try:
             from app.domains.email_ingestion.repository import get_email_ingestion_log_repository
             repo = get_email_ingestion_log_repository(session)
-            return repo.get_stats()
+            return repo.get_stats(scope=scope)
         finally:
             session.close()
 
@@ -1464,6 +1474,11 @@ class EmailIngestionService:
                 session.flush()
                 claim_id = str(claim.id)
                 claim_created = True
+                # The company whose mailbox got the email works the claim,
+                # so its staff can see the claim they just made
+                if log.email_account and log.email_account.company_id:
+                    from app.domains.client.claim_companies import add_claim_company
+                    add_claim_company(session, claim_id, log.email_account.company_id)
 
             if claim_id:
                 claim_id = str(claim_id)

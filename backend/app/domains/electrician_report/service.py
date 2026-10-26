@@ -6,13 +6,14 @@ from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, false, or_, select
 
 import base64
 import io
 import logging
 import uuid as _uuid
 
+from app.domains.auth.company_scope import claim_condition, company_ids, scoped
 from app.domains.electrician_report.models import ElectricianReport
 from app.domains.company.models import Company
 from app.domains.electrician_report.schemas import (
@@ -23,6 +24,23 @@ from app.domains.electrician_report.schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def report_scope(db, staff):
+    """Reports the staff member may see: their company's, or one a claim they
+    may see links to (None = no limit)"""
+    from app.domains.client.models import Claim
+
+    ids = company_ids(db, staff)
+    if ids is None:
+        return None
+    if not ids:
+        return false()
+    linked = select(Claim.electrician_report_id).where(claim_condition(db, staff, Claim.id))
+    return or_(
+        ElectricianReport.company_id.in_([UUID(i) for i in ids]),
+        ElectricianReport.id.in_(linked),
+    )
 
 
 class ElectricianReportService:
@@ -345,10 +363,11 @@ class ElectricianReportService:
         skip: int = 0,
         limit: int = 100,
         status: Optional[str] = None,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        scope=None
     ) -> List[ElectricianReport]:
         """Get list of electrician reports with filters"""
-        query = db.query(ElectricianReport)
+        query = scoped(db.query(ElectricianReport), scope)
 
         if status:
             query = query.filter(ElectricianReport.status == status)
@@ -447,10 +466,11 @@ class ElectricianReportService:
     def get_report_count(
         db: Session,
         status: Optional[str] = None,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        scope=None
     ) -> int:
         """Get count of electrician reports"""
-        query = db.query(ElectricianReport)
+        query = scoped(db.query(ElectricianReport), scope)
         if status:
             query = query.filter(ElectricianReport.status == status)
         if search:

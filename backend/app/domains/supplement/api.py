@@ -4,10 +4,19 @@ Supplement domain API endpoints.
 
 import asyncio
 import logging
+import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
+from app.domains.auth.company_scope import (
+    claim_condition,
+    require_claim,
+    require_document,
+    sees_everything,
+)
+from app.domains.auth.dependencies import get_current_staff
+from app.domains.supplement.models import BidItemEstimate, SupplementFollowUp, SupplementRequest
 from app.domains.supplement.schemas import (
     BidItemEstimateCreate,
     BidItemEstimateResponse,
@@ -21,6 +30,7 @@ from app.domains.supplement.schemas import (
     SupplementRequestUpdate,
 )
 from app.core.database_factory import get_database
+from app.core.database_factory import get_db_session as get_db
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +40,30 @@ router = APIRouter()
 def _get_service():
     from app.domains.supplement.service import SupplementService
     return SupplementService()
+
+
+def _require_supplement(db, staff, supplement_id, label: str = "Supplement request") -> None:
+    """404 unless the supplement is on a claim the staff member may see"""
+    require_document(db, staff, SupplementRequest, supplement_id, label, company_attr=None)
+
+
+def _require_on_supplement(db, staff, model, row_id, label: str) -> None:
+    """404 unless a bid item / follow-up belongs to a supplement the staff
+    member may see. Its own supplement decides, not the one in the URL."""
+    if sees_everything(staff):
+        return
+    try:
+        row_id = str(uuid.UUID(str(row_id)))
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"{label} not found")
+    row = db.query(model.supplement_id).filter(model.id == row_id).first()
+    _require_supplement(db, staff, row[0] if row else None, label)
+
+
+def _require_negotiation(db, staff, negotiation_id) -> None:
+    """404 unless the insurance estimate is on a claim the staff member may see"""
+    from app.domains.client.models import ClaimNegotiation
+    require_document(db, staff, ClaimNegotiation, negotiation_id, "Negotiation", company_attr=None)
 
 
 # ============================================================
@@ -44,6 +78,8 @@ def list_supplements(
     request_type: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
 ):
     service = _get_service()
     items, total = service.get_requests({
@@ -53,37 +89,48 @@ def list_supplements(
         "request_type": request_type,
         "page": page,
         "page_size": page_size,
-    })
+    }, scope=claim_condition(db, current_staff, SupplementRequest.claim_id))
     return items
 
 
 @router.get("/supplements/stats", response_model=SupplementDashboardStats)
-def get_supplement_stats():
+def get_supplement_stats(db=Depends(get_db), current_staff=Depends(get_current_staff)):
     service = _get_service()
-    return service.get_dashboard_stats()
+    return service.get_dashboard_stats(
+        claim_condition(db, current_staff, SupplementRequest.claim_id)
+    )
 
 
 @router.get("/supplements/pending-review")
-def get_pending_review_supplements():
+def get_pending_review_supplements(db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Get supplements that need review (status=identified)"""
     service = _get_service()
-    items = service.get_requests({'status': 'identified', 'page_size': 50})
+    items = service.get_requests(
+        {'status': 'identified', 'page_size': 50},
+        scope=claim_condition(db, current_staff, SupplementRequest.claim_id),
+    )
     if isinstance(items, tuple):
         return items[0]
     return items
 
 
 @router.get("/supplements/by-claim/{claim_id}", response_model=List[SupplementRequestResponse])
-def get_supplements_by_claim(claim_id: str):
+def get_supplements_by_claim(claim_id: str, db=Depends(get_db), current_staff=Depends(get_current_staff)):
+    require_claim(db, current_staff, claim_id)
     service = _get_service()
     return service.get_by_claim(claim_id)
 
 
 @router.get("/supplements/insurance-estimate/{claim_id}")
-def get_latest_insurance_estimate(claim_id: str):
+def get_latest_insurance_estimate(
+    claim_id: str,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Get the latest insurance company estimate (ClaimNegotiation) for a claim.
     Also resolves a valid file_download_id for the PDF document.
     """
+    require_claim(db, current_staff, claim_id)
     try:
         from app.domains.client.models import ClaimNegotiation
         from app.domains.file.models import File
@@ -149,8 +196,13 @@ def get_latest_insurance_estimate(claim_id: str):
 
 
 @router.get("/supplements/insurance-estimates/{claim_id}")
-def list_insurance_estimates(claim_id: str):
+def list_insurance_estimates(
+    claim_id: str,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Get ALL insurance estimate versions (ClaimNegotiation) for a claim, ordered by revision_number desc."""
+    require_claim(db, current_staff, claim_id)
     try:
         from app.domains.client.models import Claim, ClaimNegotiation
         from app.domains.file.models import File
@@ -259,7 +311,12 @@ def list_insurance_estimates(claim_id: str):
 
 
 @router.post("/supplements/insurance-estimates/{claim_id}")
-def upload_insurance_estimate(claim_id: str, data: dict):
+def upload_insurance_estimate(
+    claim_id: str,
+    data: dict,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Upload a new insurance estimate version for a claim.
 
     Request body:
@@ -273,6 +330,7 @@ def upload_insurance_estimate(claim_id: str, data: dict):
     - notes: str (optional)
     - file_id: str (optional, pre-uploaded file ID)
     """
+    require_claim(db, current_staff, claim_id)
     try:
         from app.domains.client.service import ClaimNegotiationService
         service = ClaimNegotiationService()
@@ -413,7 +471,13 @@ def upload_insurance_estimate(claim_id: str, data: dict):
 
 
 @router.patch("/supplements/insurance-estimates/{claim_id}/{negotiation_id}")
-def update_insurance_estimate(claim_id: str, negotiation_id: str, data: dict):
+def update_insurance_estimate(
+    claim_id: str,
+    negotiation_id: str,
+    data: dict,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Update an existing insurance estimate negotiation.
 
     Request body (all optional):
@@ -422,6 +486,7 @@ def update_insurance_estimate(claim_id: str, negotiation_id: str, data: dict):
     - date_received, received_from, notes: str
     - sections_data: list of section objects
     """
+    _require_negotiation(db, current_staff, negotiation_id)
     try:
         from app.domains.client.models import ClaimNegotiation
         database = get_database()
@@ -485,12 +550,19 @@ def update_insurance_estimate(claim_id: str, negotiation_id: str, data: dict):
 
 
 @router.patch("/supplements/insurance-estimates/{claim_id}/{negotiation_id}/replace-pdf")
-def replace_insurance_estimate_pdf(claim_id: str, negotiation_id: str, data: dict):
+def replace_insurance_estimate_pdf(
+    claim_id: str,
+    negotiation_id: str,
+    data: dict,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Replace PDF for an existing insurance estimate negotiation.
 
     Request body:
     - file_id: str (pre-uploaded file ID)
     """
+    _require_negotiation(db, current_staff, negotiation_id)
     try:
         file_id = data.get('file_id')
         if not file_id:
@@ -531,7 +603,7 @@ def replace_insurance_estimate_pdf(claim_id: str, negotiation_id: str, data: dic
 
 
 @router.post("/supplements/insurance-estimates/extract-pdf/{file_id}")
-def extract_insurance_estimate_pdf(file_id: str):
+def extract_insurance_estimate_pdf(file_id: str, current_staff=Depends(get_current_staff)):
     """Extract summary amounts (RCV, ACV, depreciation, deductible) from an uploaded PDF.
 
     Returns parsed totals and per-section breakdown for auto-filling the upload form.
@@ -693,8 +765,14 @@ def extract_insurance_estimate_pdf(file_id: str):
 
 
 @router.delete("/supplements/insurance-estimates/{claim_id}/{negotiation_id}")
-def delete_insurance_estimate(claim_id: str, negotiation_id: str):
+def delete_insurance_estimate(
+    claim_id: str,
+    negotiation_id: str,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Delete an insurance estimate negotiation record."""
+    _require_negotiation(db, current_staff, negotiation_id)
     try:
         from app.domains.client.models import ClaimNegotiation
         database = get_database()
@@ -722,7 +800,8 @@ def delete_insurance_estimate(claim_id: str, negotiation_id: str):
 
 
 @router.get("/supplements/{supplement_id}", response_model=SupplementRequestResponse)
-def get_supplement(supplement_id: str):
+def get_supplement(supplement_id: str, db=Depends(get_db), current_staff=Depends(get_current_staff)):
+    _require_supplement(db, current_staff, supplement_id)
     service = _get_service()
     result = service.get_request(supplement_id)
     if not result:
@@ -731,7 +810,12 @@ def get_supplement(supplement_id: str):
 
 
 @router.post("/supplements", response_model=SupplementRequestResponse)
-def create_supplement(data: SupplementRequestCreate):
+def create_supplement(
+    data: SupplementRequestCreate,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    require_claim(db, current_staff, data.claim_id)
     service = _get_service()
     try:
         return service.create_request(data.dict())
@@ -741,7 +825,13 @@ def create_supplement(data: SupplementRequestCreate):
 
 
 @router.patch("/supplements/{supplement_id}", response_model=SupplementRequestResponse)
-def update_supplement(supplement_id: str, data: SupplementRequestUpdate):
+def update_supplement(
+    supplement_id: str,
+    data: SupplementRequestUpdate,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    _require_supplement(db, current_staff, supplement_id)
     service = _get_service()
     update_data = data.dict(exclude_unset=True)
     result = service.update_request(supplement_id, update_data)
@@ -751,7 +841,8 @@ def update_supplement(supplement_id: str, data: SupplementRequestUpdate):
 
 
 @router.delete("/supplements/{supplement_id}")
-def delete_supplement(supplement_id: str):
+def delete_supplement(supplement_id: str, db=Depends(get_db), current_staff=Depends(get_current_staff)):
+    _require_supplement(db, current_staff, supplement_id)
     service = _get_service()
     if not service.delete_request(supplement_id):
         raise HTTPException(status_code=404, detail="Supplement request not found")
@@ -763,13 +854,20 @@ def delete_supplement(supplement_id: str):
 # ============================================================
 
 @router.get("/supplements/{supplement_id}/bid-items", response_model=List[BidItemEstimateResponse])
-def list_bid_items(supplement_id: str):
+def list_bid_items(supplement_id: str, db=Depends(get_db), current_staff=Depends(get_current_staff)):
+    _require_supplement(db, current_staff, supplement_id)
     service = _get_service()
     return service.get_bid_items_by_supplement(supplement_id)
 
 
 @router.post("/supplements/{supplement_id}/bid-items", response_model=BidItemEstimateResponse)
-def create_bid_item(supplement_id: str, data: BidItemEstimateCreate):
+def create_bid_item(
+    supplement_id: str,
+    data: BidItemEstimateCreate,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    _require_supplement(db, current_staff, supplement_id)
     service = _get_service()
     item_data = data.dict()
     item_data['supplement_id'] = supplement_id
@@ -781,7 +879,14 @@ def create_bid_item(supplement_id: str, data: BidItemEstimateCreate):
 
 
 @router.patch("/supplements/{supplement_id}/bid-items/{item_id}", response_model=BidItemEstimateResponse)
-def update_bid_item(supplement_id: str, item_id: str, data: BidItemEstimateUpdate):
+def update_bid_item(
+    supplement_id: str,
+    item_id: str,
+    data: BidItemEstimateUpdate,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    _require_on_supplement(db, current_staff, BidItemEstimate, item_id, "Bid item")
     service = _get_service()
     update_data = data.dict(exclude_unset=True)
     try:
@@ -794,7 +899,13 @@ def update_bid_item(supplement_id: str, item_id: str, data: BidItemEstimateUpdat
 
 
 @router.delete("/supplements/{supplement_id}/bid-items/{item_id}")
-def delete_bid_item(supplement_id: str, item_id: str):
+def delete_bid_item(
+    supplement_id: str,
+    item_id: str,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    _require_on_supplement(db, current_staff, BidItemEstimate, item_id, "Bid item")
     service = _get_service()
     if not service.delete_bid_item(item_id):
         raise HTTPException(status_code=404, detail="Bid item not found")
@@ -806,13 +917,20 @@ def delete_bid_item(supplement_id: str, item_id: str):
 # ============================================================
 
 @router.get("/supplements/{supplement_id}/followups", response_model=List[SupplementFollowUpResponse])
-def list_followups(supplement_id: str):
+def list_followups(supplement_id: str, db=Depends(get_db), current_staff=Depends(get_current_staff)):
+    _require_supplement(db, current_staff, supplement_id)
     service = _get_service()
     return service.get_followups(supplement_id)
 
 
 @router.post("/supplements/{supplement_id}/followups", response_model=SupplementFollowUpResponse)
-def create_followup(supplement_id: str, data: SupplementFollowUpCreate):
+def create_followup(
+    supplement_id: str,
+    data: SupplementFollowUpCreate,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    _require_supplement(db, current_staff, supplement_id)
     service = _get_service()
     followup_data = data.dict()
     followup_data['supplement_id'] = supplement_id
@@ -824,7 +942,14 @@ def create_followup(supplement_id: str, data: SupplementFollowUpCreate):
 
 
 @router.patch("/supplements/{supplement_id}/followups/{followup_id}", response_model=SupplementFollowUpResponse)
-def update_followup(supplement_id: str, followup_id: str, data: SupplementFollowUpUpdate):
+def update_followup(
+    supplement_id: str,
+    followup_id: str,
+    data: SupplementFollowUpUpdate,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    _require_on_supplement(db, current_staff, SupplementFollowUp, followup_id, "Follow-up")
     service = _get_service()
     update_data = data.dict(exclude_unset=True)
     result = service.update_followup(followup_id, update_data)
@@ -834,7 +959,12 @@ def update_followup(supplement_id: str, followup_id: str, data: SupplementFollow
 
 
 @router.post("/supplements/{supplement_id}/send-info-request")
-def send_info_request(supplement_id: str, data: dict):
+def send_info_request(
+    supplement_id: str,
+    data: dict,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Send an info request email to PA or contractor and create a followup record.
 
     Request body:
@@ -846,6 +976,7 @@ def send_info_request(supplement_id: str, data: dict):
     - body_html: str (optional, auto-generated if not provided)
     - email_account_id: str (optional)
     """
+    _require_supplement(db, current_staff, supplement_id)
     service = _get_service()
     try:
         result = service.send_info_request(supplement_id, data)
@@ -858,13 +989,20 @@ def send_info_request(supplement_id: str, data: dict):
 
 
 @router.post("/supplements/{supplement_id}/followups/{followup_id}/resend")
-def resend_info_request(supplement_id: str, followup_id: str, data: dict = {}):
+def resend_info_request(
+    supplement_id: str,
+    followup_id: str,
+    data: dict = {},
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Resend/follow-up on an existing info request.
 
     Request body (optional):
     - additional_message: str
     - email_account_id: str
     """
+    _require_on_supplement(db, current_staff, SupplementFollowUp, followup_id, "Info request")
     service = _get_service()
     try:
         result = service.resend_info_request(supplement_id, followup_id, data)
@@ -881,12 +1019,18 @@ def resend_info_request(supplement_id: str, followup_id: str, data: dict = {}):
 # ============================================================
 
 @router.put("/supplements/claim/{claim_id}/rebuild-company")
-def assign_rebuild_company(claim_id: str, data: dict):
+def assign_rebuild_company(
+    claim_id: str,
+    data: dict,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Assign or update the reconstruction company for a claim.
 
     Request body:
     - company_id: str (UUID of the company)
     """
+    require_claim(db, current_staff, claim_id)
     service = _get_service()
     company_id = data.get("company_id")
     if not company_id:
@@ -905,16 +1049,18 @@ def assign_rebuild_company(claim_id: str, data: dict):
 # ============================================================
 
 @router.get("/supplements/claim-pa/{claim_id}")
-def get_claim_pa_info(claim_id: str):
+def get_claim_pa_info(claim_id: str, db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Get PA contact info for a claim (used when creating a supplement)."""
+    require_claim(db, current_staff, claim_id)
     service = _get_service()
     result = service.get_claim_pa_info(claim_id)
     return result or {}
 
 
 @router.get("/supplements/{supplement_id}/pa-info")
-def get_pa_info(supplement_id: str):
+def get_pa_info(supplement_id: str, db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Get PA contact info + CC candidates for a supplement."""
+    _require_supplement(db, current_staff, supplement_id, "Supplement")
     service = _get_service()
     result = service.get_pa_info(supplement_id)
     if not result:
@@ -926,8 +1072,11 @@ def get_pa_info(supplement_id: str):
 def generate_pa_email(
     supplement_id: str,
     custom_notes: str = Query("", description="Additional notes to include"),
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
 ):
     """Generate preset email content for sending supplement to PA."""
+    _require_supplement(db, current_staff, supplement_id, "Supplement")
     service = _get_service()
     result = service.generate_pa_email_content(supplement_id, custom_notes)
     if not result.get("subject"):
@@ -936,7 +1085,12 @@ def generate_pa_email(
 
 
 @router.post("/supplements/{supplement_id}/send-to-pa")
-def send_to_pa(supplement_id: str, data: dict):
+def send_to_pa(
+    supplement_id: str,
+    data: dict,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Send supplement bid items to PA via email with PDF attachments.
 
     Request body:
@@ -947,6 +1101,7 @@ def send_to_pa(supplement_id: str, data: dict):
     - pa_name: PA name (for tracking)
     - email_account_id: optional sending account
     """
+    _require_supplement(db, current_staff, supplement_id, "Supplement")
     service = _get_service()
     try:
         result = service.send_to_pa(supplement_id, data)
@@ -962,19 +1117,25 @@ def send_to_pa(supplement_id: str, data: dict):
 
 
 @router.post("/supplements/{supplement_id}/followups/{followup_id}/reply")
-def reply_to_info_request(supplement_id: str, followup_id: str, data: dict):
+def reply_to_info_request(
+    supplement_id: str,
+    followup_id: str,
+    data: dict,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Send a reply email in an existing info request conversation thread.
 
     Request body:
     - body_html: str (reply message HTML)
     - email_account_id: str (optional)
     """
+    _require_on_supplement(db, current_staff, SupplementFollowUp, followup_id, "Followup")
     body_html = (data.get("body_html") or "").strip()
     if not body_html:
         raise HTTPException(status_code=400, detail="body_html is required")
 
     try:
-        from app.domains.supplement.models import SupplementFollowUp
         from app.domains.claim_followup.service import ClaimFollowUpService
         database = get_database()
         session = database.get_session()
@@ -1051,7 +1212,7 @@ def reply_to_info_request(supplement_id: str, followup_id: str, data: dict):
 
 
 @router.post("/supplements/polish-scope-notes")
-def polish_scope_notes(data: dict):
+def polish_scope_notes(data: dict, current_staff=Depends(get_current_staff)):
     """Use AI to polish rough scope notes into professional language for PA communication.
 
     Request body:
@@ -1100,7 +1261,7 @@ def polish_scope_notes(data: dict):
 
 
 @router.post("/supplements/polish-description-for-email")
-def polish_description_for_email(data: dict):
+def polish_description_for_email(data: dict, current_staff=Depends(get_current_staff)):
     """Use AI to organize rough bid item descriptions into professional HTML
     suitable for embedding in a PA email body.
 
@@ -1225,7 +1386,10 @@ def _extract_total_ai(text: str) -> float | None:
 
 
 @router.post("/supplements/bid-items/extract-total")
-async def extract_bid_item_total(file: UploadFile = File(...)):
+async def extract_bid_item_total(
+    file: UploadFile = File(...),
+    current_staff=Depends(get_current_staff),
+):
     """Extract total amount from any estimate/quote PDF.
 
     Uses regex first, falls back to Claude AI if regex fails.

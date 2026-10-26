@@ -13,10 +13,25 @@ from app.domains.dashboard.schemas import (
     DashboardFilterParams, TimePeriod
 )
 from app.domains.dashboard.service import DashboardService
-from app.domains.auth.dependencies import get_current_staff
+from app.core.database_factory import get_db_session as get_db
+from app.domains.auth.company_scope import document_condition, require_document
+from app.domains.auth.dependencies import get_current_staff, require_admin
+from app.domains.estimate.models import Estimate
+from app.domains.invoice.models import Invoice
 from app.domains.staff.models import Staff, StaffRole
+from app.domains.work_order.models import WorkOrder
 
 router = APIRouter()
+
+
+def scoped_dashboard_service(db, current_staff: Staff) -> DashboardService:
+    """A dashboard service that counts only the work orders, invoices and
+    estimates this person's companies may see"""
+    return DashboardService(
+        work_order_scope=document_condition(db, current_staff, WorkOrder.claim_id, WorkOrder.company_id),
+        invoice_scope=document_condition(db, current_staff, Invoice.claim_id, Invoice.company_id),
+        estimate_scope=document_condition(db, current_staff, Estimate.claim_id, Estimate.company_id),
+    )
 
 
 @router.get("/test")
@@ -32,8 +47,8 @@ def debug_simple():
 
 
 @router.get("/debug-admin-basic")
-def debug_admin_basic():
-    """Test admin dashboard without authentication - basic version"""
+def debug_admin_basic(_admin: Staff = Depends(require_admin)):
+    """Test the admin dashboard - basic version (admins only)"""
     try:
         from app.domains.dashboard.service import DashboardService
         from app.domains.dashboard.schemas import DashboardFilterParams, TimePeriod
@@ -74,10 +89,11 @@ def get_user_dashboard(
     time_period: TimePeriod = Query(TimePeriod.WEEK),
     include_completed: bool = Query(True),
     include_draft: bool = Query(False),
-    current_staff: Staff = Depends(get_current_staff)
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Get dashboard data for the current user"""
-    service = DashboardService()
+    service = scoped_dashboard_service(db, current_staff)
     
     filters = DashboardFilterParams(
         time_period=time_period,
@@ -97,14 +113,15 @@ def get_manager_dashboard(
     time_period: TimePeriod = Query(TimePeriod.WEEK),
     include_completed: bool = Query(True),
     include_draft: bool = Query(False),
-    current_staff: Staff = Depends(get_current_staff)
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Get dashboard data for a manager (includes team data)"""
     # Check if user has manager role
     if current_staff.role not in [StaffRole.manager, StaffRole.admin, StaffRole.super_admin, StaffRole.supervisor]:
         raise HTTPException(status_code=403, detail="Access denied. Manager role required.")
     
-    service = DashboardService()
+    service = scoped_dashboard_service(db, current_staff)
     
     filters = DashboardFilterParams(
         time_period=time_period,
@@ -184,10 +201,11 @@ def get_my_work_orders(
     include_overdue: bool = Query(True),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    current_staff: Staff = Depends(get_current_staff)
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Get work orders assigned to the current user with filtering and pagination"""
-    service = DashboardService()
+    service = scoped_dashboard_service(db, current_staff)
     
     try:
         # Get all work orders for the user
@@ -246,10 +264,11 @@ def get_my_work_orders(
 @router.get("/document-completions")
 def get_document_completions(
     time_period: TimePeriod = Query(TimePeriod.WEEK),
-    current_staff: Staff = Depends(get_current_staff)
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Get document completion statistics for the specified time period"""
-    service = DashboardService()
+    service = scoped_dashboard_service(db, current_staff)
     
     try:
         completions = service.get_document_completions(str(current_staff.id), time_period)
@@ -260,10 +279,11 @@ def get_document_completions(
 
 @router.get("/revision-required")
 def get_revision_required_documents(
-    current_staff: Staff = Depends(get_current_staff)
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Get documents requiring revision for the current user"""
-    service = DashboardService()
+    service = scoped_dashboard_service(db, current_staff)
     
     try:
         revision_docs = service.get_documents_requiring_revision(str(current_staff.id))
@@ -277,12 +297,15 @@ def update_revision_status(
     work_order_id: str,
     revision_requested: bool,
     revision_notes: Optional[str] = None,
-    current_staff: Staff = Depends(get_current_staff)
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Update the revision status of a work order"""
     from app.domains.work_order.service import WorkOrderService
     from app.core.database_factory import get_database
     from datetime import datetime
+
+    require_document(db, current_staff, WorkOrder, work_order_id, "Work order")
     
     database = get_database()
     wo_service = WorkOrderService(database)

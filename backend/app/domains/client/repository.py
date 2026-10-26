@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import case, func, or_
+from sqlalchemy import and_, case, func, or_
 
 from app.common.base_repository import SQLAlchemyRepository, SupabaseRepository
 from app.core.interfaces import DatabaseSession
@@ -25,8 +25,11 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
     def __init__(self, session: DatabaseSession):
         super().__init__(session, Client)
 
-    def get_by_id_with_claims(self, client_id: str) -> Optional[Dict[str, Any]]:
-        """Get client with all claims and their negotiations"""
+    def get_by_id_with_claims(self, client_id: str, staff: Any = None) -> Optional[Dict[str, Any]]:
+        """Get client with its claims and their negotiations. With staff, only
+        the claims and documents that person may see."""
+        from app.domains.auth.company_scope import claim_condition, company_ids, document_condition, scoped
+
         try:
             client = self.db_session.query(Client).filter(
                 Client.id == client_id
@@ -36,10 +39,16 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
 
             client_dict = self._convert_to_dict(client)
 
+            def doc_scope(model):
+                if staff is None:
+                    return None
+                return document_condition(self.db_session, staff, model.claim_id, model.company_id)
+
             # Get claims
-            claims = self.db_session.query(Claim).filter(
-                Claim.client_id == client_id
-            ).order_by(Claim.created_at.desc()).all()
+            claims_query = self.db_session.query(Claim).filter(Claim.client_id == client_id)
+            if staff is not None:
+                claims_query = scoped(claims_query, claim_condition(self.db_session, staff, Claim.id))
+            claims = claims_query.order_by(Claim.created_at.desc()).all()
 
             claim_ids = [str(claim.id) for claim in claims]
 
@@ -48,6 +57,9 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
             from app.domains.water_mitigation.models import WaterMitigationJob
             from app.domains.work_order.models import WorkOrder
             from app.domains.cabinet_estimate.models import CabinetEstimate
+            from app.domains.client.claim_companies import companies_by_claim
+
+            companies = companies_by_claim(self.db_session, claim_ids)
 
             # Batch-fetch negotiations for all claims in one query instead
             # of one query per claim
@@ -85,6 +97,7 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                 cid = str(claim.id)
 
                 claim_dict['negotiations'] = negotiations_by_claim.get(cid, [])
+                claim_dict['companies'] = companies.get(cid, [])
                 claim_dict['invoice_count'] = invoice_counts.get(cid, 0)
                 claim_dict['estimate_count'] = estimate_counts.get(cid, 0)
                 claim_dict['wm_job_count'] = wm_job_counts.get(cid, 0)
@@ -99,22 +112,22 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
             client_dict['claims'] = claims_list
 
             # Count standalone documents (linked to client but no claim)
-            client_dict['standalone_invoice_count'] = self.db_session.query(Invoice).filter(
+            client_dict['standalone_invoice_count'] = scoped(self.db_session.query(Invoice).filter(
                 Invoice.client_id == client_id,
                 Invoice.claim_id.is_(None)
-            ).count()
-            client_dict['standalone_estimate_count'] = self.db_session.query(Estimate).filter(
+            ), doc_scope(Invoice)).count()
+            client_dict['standalone_estimate_count'] = scoped(self.db_session.query(Estimate).filter(
                 Estimate.client_id == client_id,
                 Estimate.claim_id.is_(None)
-            ).count()
-            client_dict['standalone_wm_job_count'] = self.db_session.query(WaterMitigationJob).filter(
+            ), doc_scope(Estimate)).count()
+            client_dict['standalone_wm_job_count'] = scoped(self.db_session.query(WaterMitigationJob).filter(
                 WaterMitigationJob.client_id == client_id,
                 WaterMitigationJob.claim_id.is_(None)
-            ).count()
-            client_dict['standalone_work_order_count'] = self.db_session.query(WorkOrder).filter(
+            ), doc_scope(WaterMitigationJob)).count()
+            client_dict['standalone_work_order_count'] = scoped(self.db_session.query(WorkOrder).filter(
                 WorkOrder.client_id == client_id,
                 WorkOrder.claim_id.is_(None)
-            ).count()
+            ), doc_scope(WorkOrder)).count()
 
             # Collect cabinet estimates: via claim OR matching property_address
             claim_ids = [c['id'] for c in claims_list]
@@ -128,9 +141,9 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                 cab_filters.append(CabinetEstimate.property_address.ilike(f"%{client_address.strip()}%"))
 
             if cab_filters:
-                cab_estimates = self.db_session.query(CabinetEstimate).filter(
+                cab_estimates = scoped(self.db_session.query(CabinetEstimate).filter(
                     or_(*cab_filters)
-                ).order_by(CabinetEstimate.created_at.desc()).all()
+                ), doc_scope(CabinetEstimate)).order_by(CabinetEstimate.created_at.desc()).all()
             else:
                 cab_estimates = []
 
@@ -154,16 +167,29 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                 if c.get('plumber_report_id')
             ]
 
-            pr_filters = []
-            if plumber_report_ids:
-                pr_filters.append(PlumberReport.id.in_(plumber_report_ids))
+            match_filters = []
             # Match by client_name = display_name
             display_name = client_dict.get('display_name')
             if display_name and display_name.strip():
-                pr_filters.append(PlumberReport.client_name == display_name.strip())
+                match_filters.append(PlumberReport.client_name == display_name.strip())
             # Also match by client_address
             if client_address and client_address.strip():
-                pr_filters.append(PlumberReport.client_address.ilike(f"%{client_address.strip()}%"))
+                match_filters.append(PlumberReport.client_address.ilike(f"%{client_address.strip()}%"))
+
+            # A report matched by name or address only shows to its own
+            # company's people; one linked to a visible claim always does
+            own_companies = company_ids(self.db_session, staff) if staff is not None else None
+            if match_filters and own_companies is not None:
+                import uuid
+                match_filters = (
+                    [and_(or_(*match_filters),
+                          PlumberReport.company_id.in_([uuid.UUID(c) for c in own_companies]))]
+                    if own_companies else []
+                )
+
+            pr_filters = match_filters
+            if plumber_report_ids:
+                pr_filters = [PlumberReport.id.in_(plumber_report_ids)] + match_filters
 
             if pr_filters:
                 plumber_reports = self.db_session.query(PlumberReport).filter(
@@ -200,32 +226,50 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
             return query.filter(or_(Client.source.is_(None), Client.source != 'acculynx'))
         return query
 
-    def count_by_source(self) -> Dict[str, int]:
-        imported = self.db_session.query(func.count(Client.id)).filter(
+    def _client_scope(self, staff: Any):
+        from app.domains.auth.company_scope import client_condition
+        return None if staff is None else client_condition(self.db_session, staff)
+
+    def _claim_scope(self, staff: Any):
+        from app.domains.auth.company_scope import claim_condition
+        return None if staff is None else claim_condition(self.db_session, staff, Claim.id)
+
+    def count_by_source(self, staff: Any = None) -> Dict[str, int]:
+        from app.domains.auth.company_scope import scoped
+
+        scope = self._client_scope(staff)
+        imported = scoped(self.db_session.query(func.count(Client.id)).filter(
             Client.source == 'acculynx'
-        ).scalar() or 0
-        total = self.db_session.query(func.count(Client.id)).scalar() or 0
+        ), scope).scalar() or 0
+        total = scoped(self.db_session.query(func.count(Client.id)), scope).scalar() or 0
         return {'manual': total - imported, 'acculynx': imported}
 
     def get_all_with_counts(self, filters=None, order_by=None, limit=None, offset=None,
-                            source: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Get all clients with claim counts, ordered by latest claim activity"""
+                            source: Optional[str] = None, staff: Any = None) -> List[Dict[str, Any]]:
+        """Get all clients with claim counts, ordered by latest claim activity.
+        With staff, only the clients and claims that person may see."""
+        from app.domains.auth.company_scope import scoped
+
         try:
+            claim_scope = self._claim_scope(staff)
+
             # Subquery: latest claim activity per client
-            latest_claim_activity = (
+            latest_claim_activity = scoped(
                 self.db_session.query(
                     Claim.client_id,
                     func.max(
                         func.coalesce(Claim.updated_at, Claim.created_at)
                     ).label('latest_activity')
-                )
-                .group_by(Claim.client_id)
-                .subquery()
-            )
+                ),
+                claim_scope,
+            ).group_by(Claim.client_id).subquery()
 
+            claim_join = Client.id == Claim.client_id
+            if claim_scope is not None:
+                claim_join = and_(claim_join, claim_scope)
             query = (
                 self.db_session.query(Client, func.count(Claim.id).label('claim_count'))
-                .outerjoin(Claim, Client.id == Claim.client_id)
+                .outerjoin(Claim, claim_join)
                 .outerjoin(
                     latest_claim_activity,
                     Client.id == latest_claim_activity.c.client_id
@@ -238,6 +282,7 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                     if hasattr(Client, key):
                         query = query.filter(getattr(Client, key) == value)
             query = self._filter_source(query, source)
+            query = scoped(query, self._client_scope(staff))
 
             query = query.group_by(
                 Client.id,
@@ -273,11 +318,14 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
             raise
 
     def search_by_name(self, query: str, limit: int = 20,
-                       source: Optional[str] = None) -> List[Dict[str, Any]]:
+                       source: Optional[str] = None, staff: Any = None) -> List[Dict[str, Any]]:
         """Search clients by display_name, address, phone, or email"""
+        from app.domains.auth.company_scope import scoped
+
         try:
             search_term = f"%{query}%"
-            clients = self._filter_source(self.db_session.query(Client), source).filter(
+            base = scoped(self.db_session.query(Client), self._client_scope(staff))
+            clients = self._filter_source(base, source).filter(
                 or_(
                     Client.display_name.ilike(search_term),
                     Client.address.ilike(search_term),
@@ -370,6 +418,9 @@ class ClaimSQLAlchemyRepository(SQLAlchemyRepository):
 
             claim_dict['plumber_report_id'] = str(claim.plumber_report_id) if claim.plumber_report_id else None
 
+            from app.domains.client.claim_companies import companies_by_claim
+            claim_dict['companies'] = companies_by_claim(self.db_session, [claim_id]).get(str(claim_id), [])
+
             from app.domains.client.claim_paths import company_names, wm_company_ids
             claim_dict['wm_company_ids'] = sorted(wm_company_ids(self.db_session, claim_id))
             claim_dict['rebuild_estimate_company_name'] = company_names(
@@ -381,9 +432,15 @@ class ClaimSQLAlchemyRepository(SQLAlchemyRepository):
             logger.error(f"Error getting claim with details: {e}")
             raise
 
-    def get_claims_by_client(self, client_id: str) -> List[Dict[str, Any]]:
-        """Get all claims for a client, including assigned WM/rebuild company history"""
+    def get_claims_by_client(self, client_id: str, staff: Any = None) -> List[Dict[str, Any]]:
+        """Get a client's claims, including assigned WM/rebuild company history.
+        With staff, only the claims that person may see."""
         claims = self.get_all(filters={'client_id': client_id}, order_by='-created_at')
+        if staff is not None:
+            from app.domains.auth.company_scope import visible_claim_id_set
+            visible = visible_claim_id_set(self.db_session, staff, [c['id'] for c in claims])
+            if visible is not None:
+                claims = [c for c in claims if str(c['id']) in visible]
         if not claims:
             return claims
 
@@ -424,12 +481,15 @@ class ClaimSQLAlchemyRepository(SQLAlchemyRepository):
             })
 
         from app.domains.client.claim_paths import company_names, wm_company_ids_by_claim
+        from app.domains.client.claim_companies import companies_by_claim
         wm_companies = wm_company_ids_by_claim(self.db_session, claim_ids)
         names = company_names(
             self.db_session, [c.get('rebuild_estimate_company_id') for c in claims]
         )
+        companies = companies_by_claim(self.db_session, claim_ids)
 
         for claim in claims:
+            claim['companies'] = companies.get(str(claim['id']), [])
             claim['wm_jobs'] = wm_jobs_by_claim.get(claim['id'], [])
             claim['wm_job_count'] = len(claim['wm_jobs'])
             claim['rebuild_jobs'] = rebuild_jobs_by_claim.get(claim['id'], [])

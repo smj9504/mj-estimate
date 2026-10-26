@@ -6,8 +6,12 @@ Admin endpoints: require authentication.
 
 import logging
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
+from app.core.database_factory import get_db_session as get_db
+from app.domains.auth.company_scope import claim_condition, company_ids, require_claim
+from app.domains.auth.dependencies import get_current_staff, require_admin
+from app.domains.staff.models import Staff
 from app.domains.contractor_portal.schemas import (
     ContractorPaymentCreate,
     TokenCreateRequest,
@@ -27,26 +31,43 @@ def _get_service():
 # ── Auth-based endpoints MUST come before /{token}/ routes ──
 
 @public_router.get("/auth/claims")
-def list_claims_by_company(company_id: str = Query(None)):
-    """List claims for a company, or all claims if no company_id."""
+def list_claims_by_company(
+    company_id: str = Query(None),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
+):
+    """List claims for a company, or all claims if no company_id.
+    Someone who isn't an admin only gets their companies' claims."""
+    from app.domains.client.models import Claim
+
     service = _get_service()
-    return service.get_claims_for_company(company_id)
+    return service.get_claims_for_company(
+        company_id,
+        company_ids=company_ids(db, current_staff),
+        claim_scope=claim_condition(db, current_staff, Claim.id),
+    )
 
 
 @public_router.get("/auth/claims/{claim_id}/payments")
 def get_payments_by_company(
-    claim_id: str, company_id: str = Query(None)
+    claim_id: str, company_id: str = Query(None),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Get payments for a claim (used by logged-in contractors)."""
+    require_claim(db, current_staff, claim_id)
     service = _get_service()
     return service.get_payments_by_claim(claim_id)
 
 
 @public_router.post("/auth/claims/{claim_id}/payments")
 def create_payment_by_company(
-    claim_id: str, data: ContractorPaymentCreate
+    claim_id: str, data: ContractorPaymentCreate,
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Create payment (used by logged-in contractors)."""
+    require_claim(db, current_staff, claim_id)
     service = _get_service()
     result = service.create_payment_direct(claim_id, data.dict())
     if not result:
@@ -55,7 +76,10 @@ def create_payment_by_company(
 
 
 @public_router.post("/auth/upload-check-photo")
-async def upload_check_photo_auth(file: UploadFile = File(...)):
+async def upload_check_photo_auth(
+    file: UploadFile = File(...),
+    current_staff: Staff = Depends(get_current_staff),
+):
     """Upload check photo (used by logged-in contractors)."""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
@@ -224,7 +248,7 @@ admin_router = APIRouter()
 
 
 @admin_router.post("/tokens")
-def create_token(data: TokenCreateRequest):
+def create_token(data: TokenCreateRequest, current_staff: Staff = Depends(require_admin)):
     """Generate a portal token for a company contact."""
     service = _get_service()
     result = service.create_token(data.company_contact_id)
@@ -234,14 +258,14 @@ def create_token(data: TokenCreateRequest):
 
 
 @admin_router.get("/tokens")
-def list_tokens(company_id: str = Query(None)):
+def list_tokens(company_id: str = Query(None), current_staff: Staff = Depends(require_admin)):
     """List all active portal tokens."""
     service = _get_service()
     return service.list_tokens(company_id)
 
 
 @admin_router.delete("/tokens/{token_id}")
-def deactivate_token(token_id: str):
+def deactivate_token(token_id: str, current_staff: Staff = Depends(require_admin)):
     """Deactivate a portal token."""
     service = _get_service()
     if not service.deactivate_token(token_id):

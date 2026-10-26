@@ -23,13 +23,20 @@ class DocumentService:
         self.estimate_service = EstimateService(self.database)
         self.invoice_service = InvoiceService(self.database)
     
-    def get_documents(self, filter_params: DocumentFilter, page: int, page_size: int) -> PaginatedDocuments:
-        """Get documents with filters and pagination"""
+    def get_documents(self, filter_params: DocumentFilter, page: int, page_size: int,
+                      owner_id: Optional[str] = None, estimate_scope: Any = None,
+                      invoice_scope: Any = None) -> PaginatedDocuments:
+        """Get documents with filters and pagination.
+
+        owner_id limits the list to one person's documents; estimate_scope and
+        invoice_scope are extra SQL conditions (which ones the caller may see).
+        """
         documents = []
+        owner_filter = {'owner_id': owner_id} if owner_id else None
         
         # Get estimates if included in filter
         if not filter_params.type or filter_params.type in ['all', 'estimate']:
-            estimates = self.estimate_service.get_all()
+            estimates = self.estimate_service.get_all(filters=owner_filter, scope=estimate_scope)
             for estimate in estimates:
                 # Apply filters
                 if filter_params.status and estimate.get('status') != filter_params.status:
@@ -56,7 +63,7 @@ class DocumentService:
         
         # Get invoices if included in filter
         if not filter_params.type or filter_params.type in ['all', 'invoice']:
-            invoices = self.invoice_service.get_all()
+            invoices = self.invoice_service.get_all(filters=owner_filter, scope=invoice_scope)
             for invoice in invoices:
                 # Apply filters
                 if filter_params.status and invoice.get('status') != filter_params.status:
@@ -213,10 +220,14 @@ class DocumentService:
         # Email functionality not yet implemented - placeholder returns success
         return True
     
-    def export_to_excel(self, filter_params: DocumentFilter) -> bytes:
+    def export_to_excel(self, filter_params: DocumentFilter, owner_id: Optional[str] = None,
+                        estimate_scope: Any = None, invoice_scope: Any = None) -> bytes:
         """Export documents to Excel format"""
         # Get all documents with the filter
-        documents = self.get_documents(filter_params, 1, 10000)  # Get all documents
+        documents = self.get_documents(  # Get all documents
+            filter_params, 1, 10000, owner_id=owner_id,
+            estimate_scope=estimate_scope, invoice_scope=invoice_scope,
+        )
         
         # Excel export not yet implemented - placeholder returns empty bytes
         return b''

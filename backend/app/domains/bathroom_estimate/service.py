@@ -113,11 +113,13 @@ class BathroomEstimateService:
         grouped: bool = False,
         page: int = 1,
         page_size: int = 50,
+        scope: Any = None,
     ) -> tuple:
         """List estimates with filters.
 
         grouped: one row per bathroom job (its first estimate), each with
         the summaries of all its estimates.
+        scope: the company-scope condition of the staff member listing them.
         """
         estimates, total = self.estimate_repo.find_by_filters(
             claim_id=claim_id,
@@ -128,6 +130,7 @@ class BathroomEstimateService:
             grouped=grouped,
             page=page,
             page_size=page_size,
+            scope=scope,
         )
         members_by_group: Dict[str, List[Dict[str, Any]]] = {}
         for row in self.estimate_repo.find_member_summaries(

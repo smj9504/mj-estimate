@@ -65,7 +65,8 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
         hide_received: bool = False,
         has_supplement: bool = False,
         page: int = 1,
-        page_size: int = 50
+        page_size: int = 50,
+        scope: Any = None
     ) -> tuple[List[WaterMitigationJob], int]:
         """Find jobs with filters and pagination
 
@@ -78,6 +79,9 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
 
         has_supplement keeps jobs whose claim has a supplement request in
         any status.
+
+        scope is the staff member's visible-jobs condition (None = all); it
+        applies to the total too.
         """
         from sqlalchemy.orm import aliased, joinedload
 
@@ -136,6 +140,9 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
             conditions.append(
                 exists().where(SupplementRequest.claim_id == WaterMitigationJob.claim_id)
             )
+
+        if scope is not None:
+            conditions.append(scope)
 
         if conditions:
             query = query.filter(and_(*conditions))
@@ -631,10 +638,12 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         return result
 
     def find_duplicates_by_external_id(
-        self, job_id: Optional[UUID] = None
+        self, job_id: Optional[UUID] = None, scope: Any = None
     ) -> List[Dict[str, Any]]:
         """
         Find duplicate photos by external_id.
+
+        scope limits it to photos on jobs a staff member may see (None = all).
 
         Returns list of dicts with external_id, count, and photo_ids.
         """
@@ -652,6 +661,9 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
 
         if job_id:
             query = query.filter(WMPhoto.job_id == job_id)
+
+        if scope is not None:
+            query = query.filter(scope)
 
         query = query.group_by(
             WMPhoto.external_id, WMPhoto.job_id
@@ -671,7 +683,7 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         ]
 
     def delete_duplicate_photos(
-        self, job_id: Optional[UUID] = None, dry_run: bool = True
+        self, job_id: Optional[UUID] = None, dry_run: bool = True, scope: Any = None
     ) -> Dict[str, Any]:
         """
         Delete duplicate photos, keeping the oldest one.
@@ -679,11 +691,12 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         Args:
             job_id: Optional job ID to limit scope
             dry_run: If True, only report what would be deleted
+            scope: The staff member's visible-photos condition (None = all)
 
         Returns:
             Dict with deleted_count and details
         """
-        duplicates = self.find_duplicates_by_external_id(job_id)
+        duplicates = self.find_duplicates_by_external_id(job_id, scope=scope)
 
         if not duplicates:
             return {'deleted_count': 0, 'duplicates': []}

@@ -9,6 +9,7 @@ import logging
 
 from app.common.base_repository import SQLAlchemyRepository, SupabaseRepository
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import scoped
 from .models import WorkOrder, WorkOrderStatus
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,26 @@ class WorkOrderSQLAlchemyRepository(SQLAlchemyRepository, WorkOrderRepositoryMix
     def __init__(self, session: DatabaseSession):
         super().__init__(session, WorkOrder)
     
+    def get_all(self, filters=None, order_by=None, limit=None, offset=None, scope=None):
+        """get_all, plus scope: an extra SQL condition (which work orders the
+        caller may see), applied before paging"""
+        if scope is None:
+            return super().get_all(filters, order_by, limit, offset)
+        query = scoped(self._eager_load_convert_relationships(self.db_session.query(WorkOrder)), scope)
+        for key, value in (filters or {}).items():
+            column = getattr(WorkOrder, key, None)
+            if column is not None:
+                query = query.filter(column.in_(value) if isinstance(value, list) else column == value)
+        if order_by:
+            column = getattr(WorkOrder, order_by.lstrip('-'), None)
+            if column is not None:
+                query = query.order_by(column.desc() if order_by.startswith('-') else column)
+        if offset:
+            query = query.offset(offset)
+        if limit:
+            query = query.limit(limit)
+        return [self._convert_to_dict(entity) for entity in query.all()]
+
     def get_active_orders(self) -> List[Dict[str, Any]]:
         """Get all active work orders"""
         try:
@@ -69,12 +90,13 @@ class WorkOrderSQLAlchemyRepository(SQLAlchemyRepository, WorkOrderRepositoryMix
             logger.error(f"Error getting active orders: {e}")
             return []
     
-    def search_orders(self, search_term: str) -> List[Dict[str, Any]]:
-        """Search work orders using SQL LIKE queries (case-insensitive)"""
+    def search_orders(self, search_term: str, scope=None) -> List[Dict[str, Any]]:
+        """Search work orders using SQL LIKE queries (case-insensitive);
+        scope is an extra SQL condition"""
         try:
             search_pattern = f"%{search_term.lower()}%"
             
-            entities = self.db_session.query(WorkOrder).filter(
+            entities = scoped(self.db_session.query(WorkOrder), scope).filter(
                 (WorkOrder.work_order_number.ilike(search_pattern)) |
                 (WorkOrder.client_address.ilike(search_pattern)) |
                 (WorkOrder.client_city.ilike(search_pattern)) |
@@ -116,12 +138,13 @@ class WorkOrderSQLAlchemyRepository(SQLAlchemyRepository, WorkOrderRepositoryMix
             logger.error(f"Error checking work order number existence: {e}")
             return False
     
-    def get_work_orders_by_staff(self, staff_id: UUID) -> List[Dict[str, Any]]:
-        """Get work orders created by or assigned to a staff member"""
+    def get_work_orders_by_staff(self, staff_id: UUID, scope=None) -> List[Dict[str, Any]]:
+        """Get work orders created by or assigned to a staff member;
+        scope is an extra SQL condition"""
         try:
             from sqlalchemy import or_
             
-            entities = self.db_session.query(WorkOrder).filter(
+            entities = scoped(self.db_session.query(WorkOrder), scope).filter(
                 or_(
                     WorkOrder.created_by_staff_id == staff_id,
                     WorkOrder.assigned_to_staff_id == staff_id
@@ -133,12 +156,12 @@ class WorkOrderSQLAlchemyRepository(SQLAlchemyRepository, WorkOrderRepositoryMix
             logger.error(f"Error getting work orders by staff: {e}")
             return []
     
-    def get_dashboard_stats(self, company_id: Optional[UUID] = None) -> Dict[str, Any]:
-        """Get dashboard statistics for work orders"""
+    def get_dashboard_stats(self, company_id: Optional[UUID] = None, scope=None) -> Dict[str, Any]:
+        """Get dashboard statistics for work orders; scope is an extra SQL condition"""
         try:
             from sqlalchemy import func
             
-            query = self.db_session.query(WorkOrder)
+            query = scoped(self.db_session.query(WorkOrder), scope)
             
             if company_id:
                 query = query.filter(WorkOrder.company_id == company_id)

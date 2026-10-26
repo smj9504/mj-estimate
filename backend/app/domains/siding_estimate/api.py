@@ -3,15 +3,23 @@ Siding Estimate API endpoints
 """
 
 import logging
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import (
+    document_condition,
+    require_claim,
+    require_document,
+    sees_everything,
+)
 from app.domains.auth.dependencies import get_current_user
 
 from .eagleview_parser import parse_eagleview_xml
+from .models import SidingEstimate, SidingEstimateLineItem
 from .schemas import (
     EagleViewParseResponse,
     SidingEstimateCreate,
@@ -31,6 +39,38 @@ router = APIRouter(prefix="/siding-estimates", tags=["Siding Estimates"])
 
 def _get_service(session: DatabaseSession = Depends(get_db_session)) -> SidingEstimateService:
     return SidingEstimateService(session)
+
+
+# ── Company scope ──
+
+
+def _require_estimate(service: SidingEstimateService, staff, estimate_id: str) -> None:
+    require_document(service.session, staff, SidingEstimate, estimate_id, "Estimate")
+
+
+def _require_line_item(service: SidingEstimateService, staff, item_id: str) -> None:
+    """404 unless the line item's own estimate is visible (not the one in the URL)"""
+    if sees_everything(staff):
+        return
+    try:
+        uuid.UUID(str(item_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Line item not found")
+    estimate_id = service.session.query(SidingEstimateLineItem.estimate_id).filter(
+        SidingEstimateLineItem.id == item_id
+    ).scalar()
+    require_document(service.session, staff, SidingEstimate, estimate_id, "Line item")
+
+
+def _require_moved_claim(service: SidingEstimateService, staff, estimate_id: str, claim_id) -> None:
+    """Moving an estimate onto another claim needs that claim to be visible"""
+    if not claim_id or sees_everything(staff):
+        return
+    current = service.session.query(SidingEstimate.claim_id).filter(
+        SidingEstimate.id == estimate_id
+    ).scalar()
+    if str(current or "") != str(claim_id):
+        require_claim(service.session, staff, claim_id)
 
 
 # ── EagleView Upload ──
@@ -131,6 +171,9 @@ def list_estimates(
         search=search,
         page=page,
         page_size=page_size,
+        scope=document_condition(
+            service.session, current_user, SidingEstimate.claim_id, SidingEstimate.company_id
+        ),
     )
     return SidingEstimateListResponse(
         items=items, total=total, page=page, page_size=page_size
@@ -149,6 +192,7 @@ def get_estimate(
     service: SidingEstimateService = Depends(_get_service),
     current_user=Depends(get_current_user),
 ):
+    _require_estimate(service, current_user, estimate_id)
     estimate = service.get_by_id(estimate_id)
     if not estimate:
         raise HTTPException(status_code=404, detail="Estimate not found")
@@ -161,6 +205,8 @@ def create_estimate(
     service: SidingEstimateService = Depends(_get_service),
     current_user=Depends(get_current_user),
 ):
+    if data.claim_id:
+        require_claim(service.session, current_user, data.claim_id)
     estimate = service.create(
         data.model_dump(exclude_none=True),
         created_by_id=str(current_user.id) if current_user else None,
@@ -175,6 +221,8 @@ def update_estimate(
     service: SidingEstimateService = Depends(_get_service),
     current_user=Depends(get_current_user),
 ):
+    _require_estimate(service, current_user, estimate_id)
+    _require_moved_claim(service, current_user, estimate_id, data.claim_id)
     estimate = service.update(estimate_id, data.model_dump(exclude_none=True))
     if not estimate:
         raise HTTPException(status_code=404, detail="Estimate not found")
@@ -187,6 +235,7 @@ def delete_estimate(
     service: SidingEstimateService = Depends(_get_service),
     current_user=Depends(get_current_user),
 ):
+    _require_estimate(service, current_user, estimate_id)
     if not service.delete(estimate_id):
         raise HTTPException(status_code=404, detail="Estimate not found")
     return {"success": True}
@@ -202,6 +251,7 @@ def add_line_item(
     service: SidingEstimateService = Depends(_get_service),
     current_user=Depends(get_current_user),
 ):
+    _require_estimate(service, current_user, estimate_id)
     item = service.add_line_item(estimate_id, data.model_dump())
     if not item:
         raise HTTPException(status_code=404, detail="Estimate not found")
@@ -216,6 +266,7 @@ def update_line_item(
     service: SidingEstimateService = Depends(_get_service),
     current_user=Depends(get_current_user),
 ):
+    _require_line_item(service, current_user, item_id)
     item = service.update_line_item(item_id, data.model_dump(exclude_none=True))
     if not item:
         raise HTTPException(status_code=404, detail="Line item not found")
@@ -229,6 +280,7 @@ def delete_line_item(
     service: SidingEstimateService = Depends(_get_service),
     current_user=Depends(get_current_user),
 ):
+    _require_line_item(service, current_user, item_id)
     if not service.delete_line_item(item_id):
         raise HTTPException(status_code=404, detail="Line item not found")
     return {"success": True}
@@ -241,6 +293,7 @@ def delete_phase(
     service: SidingEstimateService = Depends(_get_service),
     current_user=Depends(get_current_user),
 ):
+    _require_estimate(service, current_user, estimate_id)
     count = service.delete_phase(estimate_id, phase)
     return {"success": True, "deleted_count": count}
 
@@ -255,6 +308,7 @@ def generate_line_items(
     current_user=Depends(get_current_user),
 ):
     """Auto-generate line items from measurements and specs."""
+    _require_estimate(service, current_user, estimate_id)
     estimate = service.generate_line_items(estimate_id)
     if not estimate:
         raise HTTPException(status_code=404, detail="Estimate not found")
@@ -268,6 +322,7 @@ def recalculate_totals(
     current_user=Depends(get_current_user),
 ):
     """Recalculate subtotal, O&P, and total."""
+    _require_estimate(service, current_user, estimate_id)
     estimate = service.recalculate(estimate_id)
     if not estimate:
         raise HTTPException(status_code=404, detail="Estimate not found")

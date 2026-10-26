@@ -125,13 +125,13 @@ class ClaimFollowUpService:
         finally:
             session.close()
 
-    def get_tasks(self, params: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], int]:
-        """Get tasks with filtering and pagination"""
+    def get_tasks(self, params: Dict[str, Any], scope: Any = None) -> Tuple[List[Dict[str, Any]], int]:
+        """Get tasks with filtering and pagination (scope: see auth.company_scope)"""
         session = self._get_readonly_session()
         try:
             from app.domains.claim_followup.repository import get_followup_task_repository
             repo = get_followup_task_repository(session)
-            return repo.get_tasks_with_filters(**params)
+            return repo.get_tasks_with_filters(**params, scope=scope)
         finally:
             session.close()
 
@@ -145,13 +145,13 @@ class ClaimFollowUpService:
         finally:
             session.close()
 
-    def get_dashboard_stats(self) -> Dict[str, Any]:
-        """Get dashboard statistics"""
+    def get_dashboard_stats(self, scope: Any = None) -> Dict[str, Any]:
+        """Get dashboard statistics (scope: see auth.company_scope)"""
         session = self._get_readonly_session()
         try:
             from app.domains.claim_followup.repository import get_followup_task_repository
             repo = get_followup_task_repository(session)
-            return repo.get_dashboard_stats()
+            return repo.get_dashboard_stats(scope)
         finally:
             session.close()
 

@@ -3641,6 +3641,12 @@ a.cl-contact-line:hover {
   gap: 6px;
   min-width: 0;
 }
+/* The companies working a claim, one per line when they don't fit */
+.cl-company-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
 
 /* Document counts on the claim: zero stays quiet */
 .cl-counts {

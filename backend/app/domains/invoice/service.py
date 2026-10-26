@@ -47,7 +47,8 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
                 limit: Optional[int] = None,
                 offset: Optional[int] = None,
                 filters: Optional[Dict[str, Any]] = None,
-                order_by: Optional[str] = None) -> List[Dict[str, Any]]:
+                order_by: Optional[str] = None,
+                scope: Any = None) -> List[Dict[str, Any]]:
         """
         Get all invoices with optional filtering, ordering, and pagination.
 
@@ -57,6 +58,7 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
             offset: Number of results to skip
             filters: Additional dictionary of field-value pairs to filter by
             order_by: Field to order by (prefix with '-' for descending)
+            scope: Extra SQL condition (which invoices the caller may see)
 
         Returns:
             List of invoice dictionaries
@@ -75,6 +77,14 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
             repository = self.get_readonly_repository()
 
             with repository.session:
+                if scope is not None:
+                    return repository.get_all(
+                        filters=all_filters,
+                        order_by=order_by,
+                        limit=limit,
+                        offset=offset,
+                        scope=scope,
+                    )
                 return repository.get_all(
                     filters=all_filters,
                     order_by=order_by,

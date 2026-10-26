@@ -27,7 +27,8 @@ from app.domains.invoice import api as invoice_api
 from app.domains.invoice.models import Invoice, InvoiceItem
 from app.domains.messaging import api as messaging_api
 from app.domains.messaging.models import Conversation, ConversationParticipant, Message
-from app.domains.staff.models import Staff, StaffRole
+from app.domains.contract.models import ClaimCompany
+from app.domains.staff.models import Staff, StaffCompany, StaffRole
 # SQLAlchemy configures every loaded model on first use, and models other test
 # files load name classes by string, so register them all as the app does
 import app.main  # noqa: E402,F401
@@ -35,6 +36,7 @@ import app.main  # noqa: E402,F401
 TABLES = [
     Staff, Company, Estimate, EstimateItem, Invoice, InvoiceItem,
     DocumentTransfer, Conversation, ConversationParticipant, Message,
+    StaffCompany, ClaimCompany,
 ]
 
 
@@ -91,6 +93,10 @@ def env(tmp_path, monkeypatch):
         people[username] = staff
     company = Company(name='Jane Roofing', company_type='contractor')
     setup.add(company)
+    setup.flush()
+    # Everyone works for the company the documents come from, so only ownership decides
+    for name in ('jane', 'sam', 'kim'):
+        setup.add(StaffCompany(staff_id=people[name].id, company_id=company.id))
     setup.commit()
     ids = {name: str(s.id) for name, s in people.items()}
     company_id = str(company.id)

@@ -25,6 +25,7 @@ from .schemas import (
     TemplateSectionResponse,
     TemplateSectionUpdate,
 )
+from .job_access import job_access
 from .template_service import WMReportTemplateService
 
 logger = logging.getLogger(__name__)
@@ -221,7 +222,12 @@ def clone_template(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{template_id}/create-config", response_model=ReportConfigResponse)
+# job_access reads the job_id query param: 404 unless the job is visible
+@router.post(
+    "/{template_id}/create-config",
+    response_model=ReportConfigResponse,
+    dependencies=[Depends(job_access)]
+)
 def create_config_from_template(
     template_id: UUID,
     job_id: UUID = Query(..., description="Job ID to create config for"),

@@ -11,6 +11,15 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Form
 from pathlib import Path
 
 from app.core.database_factory import get_db_session as get_db
+from app.domains.auth.company_scope import (
+    company_ids,
+    require_claim,
+    require_client,
+    require_document,
+)
+from app.domains.auth.dependencies import get_current_staff
+from app.domains.contract.models import ClaimCompany, ContractInstance
+from app.domains.staff.models import Staff
 from app.domains.contract.schemas import (
     ContractTemplateCreate,
     ContractTemplateUpdate,
@@ -55,6 +64,7 @@ def _get_claim_company_service():
 def list_templates(
     company_id: Optional[str] = None,
     service: ContractTemplateService = Depends(_get_template_service),
+    current_staff: Staff = Depends(get_current_staff),
 ):
     """List all contract templates, optionally filtered by company"""
     try:
@@ -78,6 +88,7 @@ async def create_template(
     signature_roles: str = Form('["homeowner"]'),
     file: UploadFile = File(...),
     service: ContractTemplateService = Depends(_get_template_service),
+    current_staff: Staff = Depends(get_current_staff),
 ):
     """Create a contract template with PDF upload"""
     try:
@@ -126,6 +137,7 @@ async def create_template(
 def get_template(
     template_id: str,
     service: ContractTemplateService = Depends(_get_template_service),
+    current_staff: Staff = Depends(get_current_staff),
 ):
     try:
         template = service.get_by_id(template_id)
@@ -143,6 +155,7 @@ def update_template(
     template_id: str,
     data: ContractTemplateUpdate,
     service: ContractTemplateService = Depends(_get_template_service),
+    current_staff: Staff = Depends(get_current_staff),
 ):
     try:
         result = service.update(template_id, data.dict(exclude_unset=True))
@@ -160,6 +173,7 @@ async def replace_template_pdf(
     template_id: str,
     file: UploadFile = File(...),
     service: ContractTemplateService = Depends(_get_template_service),
+    current_staff: Staff = Depends(get_current_staff),
 ):
     """Replace the PDF file of an existing template"""
     try:
@@ -198,6 +212,7 @@ async def replace_template_pdf(
 def delete_template(
     template_id: str,
     service: ContractTemplateService = Depends(_get_template_service),
+    current_staff: Staff = Depends(get_current_staff),
 ):
     try:
         success = service.delete(template_id)
@@ -218,7 +233,10 @@ def delete_template(
 def list_contracts(
     claim_id: str,
     service: ContractInstanceService = Depends(_get_instance_service),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
+    require_claim(db, current_staff, claim_id)
     try:
         contracts = service.get_by_claim(claim_id)
         return {"contracts": contracts, "total": len(contracts)}
@@ -231,8 +249,13 @@ def create_contract(
     claim_id: str,
     data: ContractInstanceCreate,
     service: ContractInstanceService = Depends(_get_instance_service),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Generate a contract from a template for this claim"""
+    require_claim(db, current_staff, claim_id)
+    if data.client_id:
+        require_client(db, current_staff, data.client_id)
     try:
         contract_data = data.dict()
         contract_data['claim_id'] = claim_id
@@ -248,7 +271,10 @@ def get_contract(
     claim_id: str,
     contract_id: str,
     service: ContractInstanceService = Depends(_get_instance_service),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
+    require_document(db, current_staff, ContractInstance, contract_id, "Contract")
     try:
         contract = service.get_by_id(contract_id)
         if not contract:
@@ -265,8 +291,11 @@ def send_contract(
     claim_id: str,
     contract_id: str,
     service: ContractInstanceService = Depends(_get_instance_service),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Mark contract as sent and return signing info"""
+    require_document(db, current_staff, ContractInstance, contract_id, "Contract")
     try:
         result = service.send_for_signing(contract_id)
         if not result:
@@ -571,10 +600,13 @@ def send_contract_email(
     service: ContractInstanceService = Depends(
         _get_instance_service
     ),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Send signing link via email to multiple recipients.
     Body: { emails: string[], message?: string }
     """
+    require_document(db, current_staff, ContractInstance, contract_id, "Contract")
     try:
         emails = data.get('emails', [])
         if not emails:
@@ -770,7 +802,10 @@ def void_contract(
     service: ContractInstanceService = Depends(
         _get_instance_service
     ),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
+    require_document(db, current_staff, ContractInstance, contract_id, "Contract")
     try:
         result = service.void_contract(contract_id)
         if not result:
@@ -793,8 +828,11 @@ def delete_contract(
     service: ContractInstanceService = Depends(
         _get_instance_service
     ),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Delete a contract instance"""
+    require_document(db, current_staff, ContractInstance, contract_id, "Contract")
     try:
         success = service.delete(contract_id)
         if not success:
@@ -823,10 +861,13 @@ def send_reminder(
     service: ContractInstanceService = Depends(
         _get_instance_service
     ),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Resend signing link as a reminder email.
     Body: { emails: string[], message?: string }
     """
+    require_document(db, current_staff, ContractInstance, contract_id, "Contract")
     try:
         emails = data.get('emails', [])
         if not emails:
@@ -1016,7 +1057,10 @@ def send_reminder(
 def list_claim_companies(
     claim_id: str,
     service: ClaimCompanyService = Depends(_get_claim_company_service),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
+    require_claim(db, current_staff, claim_id)
     try:
         companies = service.get_by_claim(claim_id)
         return {"companies": companies, "total": len(companies)}
@@ -1029,7 +1073,10 @@ def assign_company(
     claim_id: str,
     data: ClaimCompanyCreate,
     service: ClaimCompanyService = Depends(_get_claim_company_service),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
+    require_claim(db, current_staff, claim_id)
     try:
         company_data = data.dict()
         company_data['claim_id'] = claim_id
@@ -1045,7 +1092,29 @@ def remove_company(
     claim_id: str,
     assignment_id: str,
     service: ClaimCompanyService = Depends(_get_claim_company_service),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
+    require_document(
+        db, current_staff, ClaimCompany, assignment_id, "Assignment", company_attr=None
+    )
+    ids = company_ids(db, current_staff)
+    if ids is not None:
+        # The claim would drop out of their view with its last company of theirs
+        row = db.query(ClaimCompany.claim_id, ClaimCompany.company_id).filter(
+            ClaimCompany.id == assignment_id
+        ).first()
+        if str(row.company_id) in ids:
+            others = db.query(ClaimCompany.id).filter(
+                ClaimCompany.claim_id == row.claim_id,
+                ClaimCompany.company_id.in_(ids),
+                ClaimCompany.id != assignment_id,
+            ).first()
+            if others is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="You can't remove the last of your companies from this claim.",
+                )
     try:
         success = service.delete(assignment_id)
         if not success:
@@ -1069,6 +1138,7 @@ def remove_company(
 def get_field_mappings(
     template_id: str,
     service: ContractTemplateService = Depends(_get_template_service),
+    current_staff: Staff = Depends(get_current_staff),
 ):
     """Get field mappings and available fields for a template"""
     try:
@@ -1084,6 +1154,7 @@ def update_field_mappings(
     template_id: str,
     data: FieldMappingUpdate,
     service: ContractTemplateService = Depends(_get_template_service),
+    current_staff: Staff = Depends(get_current_staff),
 ):
     """Save field mappings for a template"""
     try:
@@ -1115,8 +1186,13 @@ def get_prefill_preview(
     service: ContractInstanceService = Depends(
         _get_instance_service
     ),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Preview prefill data before generating a contract"""
+    require_claim(db, current_staff, claim_id)
+    if client_id:
+        require_client(db, current_staff, client_id)
     try:
         return service.get_prefill_preview(
             claim_id, template_id, client_id, company_id
@@ -1131,8 +1207,11 @@ def get_claim_dashboard(
     service: ContractInstanceService = Depends(
         _get_instance_service
     ),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Get contracts grouped by company for a claim"""
+    require_claim(db, current_staff, claim_id)
     try:
         return service.get_dashboard(claim_id)
     except Exception as e:
@@ -1148,8 +1227,14 @@ def link_plumber_report(
     claim_id: str,
     plumber_report_id: Optional[str] = None,
     db=Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff),
 ):
     """Link or unlink a plumber report to/from a claim"""
+    require_claim(db, current_staff, claim_id)
+    if plumber_report_id:
+        # Linking would make the report visible through the claim
+        from app.domains.plumber_report.api import require_report
+        require_report(db, current_staff, plumber_report_id)
     try:
         from app.domains.client.models import Claim
         claim = db.query(Claim).filter(Claim.id == claim_id).first()

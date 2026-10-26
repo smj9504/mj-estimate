@@ -2,7 +2,7 @@
 Staff user database models
 """
 
-from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, Enum, JSON
+from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, Enum, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -128,7 +128,28 @@ class Staff(Base):
     
     # Relationships
     # supervisor = relationship("Staff", remote_side=[id])
-    
+
+    # The companies this person belongs to (see auth/company_scope.py)
+    company_links = relationship(
+        "StaffCompany", cascade="all, delete-orphan", lazy="select",
+        order_by="StaffCompany.created_at",
+    )
+
+    @property
+    def company_ids(self):
+        return [str(link.company_id) for link in self.company_links]
+
+    @company_ids.setter
+    def company_ids(self, ids):
+        wanted = []
+        for cid in ids or []:
+            cid = str(cid)
+            if cid not in wanted:
+                wanted.append(cid)
+        keep = [link for link in self.company_links if str(link.company_id) in wanted]
+        have = {str(link.company_id) for link in keep}
+        self.company_links = keep + [StaffCompany(company_id=cid) for cid in wanted if cid not in have]
+
     def __str__(self):
         return f"{self.first_name} {self.last_name} ({self.role.value})"
     
@@ -207,6 +228,24 @@ class StaffPermission(Base):
     
     def __repr__(self):
         return f"<StaffPermission(id={self.id}, staff_id={self.staff_id})>"
+
+
+class StaffCompany(Base):
+    """A company a staff member belongs to; one person can belong to several.
+
+    Someone who isn't an admin sees only the claims and cash jobs one of
+    their companies is assigned to (see auth/company_scope.py).
+    """
+    __tablename__ = "staff_companies"
+    __table_args__ = (
+        UniqueConstraint('staff_id', 'company_id', name='uq_staff_companies_staff_company'),
+        {'extend_existing': True}
+    )
+
+    id = Column(UUIDType(), primary_key=True, default=generate_uuid)
+    staff_id = Column(UUIDType(), ForeignKey("staff.id", ondelete="CASCADE"), nullable=False, index=True)
+    company_id = Column(UUIDType(), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class RoleScreenAccess(Base):

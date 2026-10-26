@@ -11,9 +11,16 @@ from fastapi.responses import StreamingResponse
 
 from app.core.database_factory import get_db, get_db_session
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import (
+    document_condition,
+    require_claim,
+    require_document,
+    sees_everything,
+)
 from app.domains.auth.dependencies import get_current_user
 from sqlalchemy.orm import Session
 
+from .models import CabinetEstimate
 from .pricing import (
     APPLIANCE_RR_PRICING,
     BACKSPLASH_TYPES,
@@ -124,6 +131,25 @@ def get_pricing_info():
     }
 
 
+# ── Company scope ──
+
+def _require_estimate(session, staff, estimate_id: str) -> None:
+    """404 unless the staff member may see this estimate (its job's
+    estimates share one claim and company, so this covers the group)."""
+    require_document(session, staff, CabinetEstimate, estimate_id, "Estimate")
+
+
+def _require_moved_claim(session, staff, estimate_id: str, claim_id: Optional[str]) -> None:
+    """Moving an estimate onto another claim needs that claim to be visible"""
+    if not claim_id or sees_everything(staff):
+        return
+    current = session.query(CabinetEstimate.claim_id).filter(
+        CabinetEstimate.id == estimate_id
+    ).scalar()
+    if str(current or "") != str(claim_id):
+        require_claim(session, staff, claim_id)
+
+
 # ── CRUD ──
 
 @router.post("", response_model=CabinetEstimateResponse)
@@ -133,6 +159,8 @@ def create_estimate(
     current_user: dict = Depends(get_current_user),
 ):
     """Create a new cabinet estimate."""
+    if data.claim_id:
+        require_claim(session, current_user, data.claim_id)
     service = CabinetEstimateService(session)
     result = service.create_estimate(data, created_by_id=current_user.id)
     return result
@@ -162,6 +190,9 @@ def list_estimates(
         grouped=grouped,
         page=page,
         page_size=page_size,
+        scope=document_condition(
+            session, current_user, CabinetEstimate.claim_id, CabinetEstimate.company_id
+        ),
     )
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
@@ -173,6 +204,7 @@ def get_estimate(
     current_user: dict = Depends(get_current_user),
 ):
     """Get a cabinet estimate by ID."""
+    _require_estimate(session, current_user, estimate_id)
     service = CabinetEstimateService(session)
     result = service.get_estimate(estimate_id)
     if not result:
@@ -188,6 +220,8 @@ def update_estimate(
     current_user: dict = Depends(get_current_user),
 ):
     """Update a cabinet estimate."""
+    _require_estimate(session, current_user, estimate_id)
+    _require_moved_claim(session, current_user, estimate_id, data.claim_id)
     service = CabinetEstimateService(session)
     result = service.update_estimate(
         estimate_id, data, updated_by_id=current_user.id
@@ -205,6 +239,7 @@ def delete_estimate(
     current_user: dict = Depends(get_current_user),
 ):
     """Delete a cabinet estimate."""
+    _require_estimate(session, current_user, estimate_id)
     service = CabinetEstimateService(session)
     try:
         deleted = service.delete_estimate(estimate_id, whole_group=whole_group)
@@ -224,6 +259,7 @@ def get_estimate_group(
     current_user: dict = Depends(get_current_user),
 ):
     """Every estimate of this one's job, with line items, for comparing them."""
+    _require_estimate(session, current_user, estimate_id)
     service = CabinetEstimateService(session)
     result = service.get_group(estimate_id)
     if not result:
@@ -238,6 +274,7 @@ def add_option(
     current_user: dict = Depends(get_current_user),
 ):
     """Add an option to the job, starting as a copy of this estimate."""
+    _require_estimate(session, current_user, estimate_id)
     service = CabinetEstimateService(session)
     result = service.add_option(estimate_id, created_by_id=current_user.id)
     if not result:
@@ -253,6 +290,7 @@ def rename_option(
     current_user: dict = Depends(get_current_user),
 ):
     """Rename an option."""
+    _require_estimate(session, current_user, estimate_id)
     service = CabinetEstimateService(session)
     try:
         result = service.rename_option(estimate_id, data.option_label)
@@ -271,6 +309,7 @@ def set_project_type(
     current_user: dict = Depends(get_current_user),
 ):
     """Switch the whole job between an insurance claim and a remodel."""
+    _require_estimate(session, current_user, estimate_id)
     service = CabinetEstimateService(session)
     result = service.set_project_type(estimate_id, data.project_type)
     if not result:
@@ -301,6 +340,7 @@ def set_selection(
     current_user: dict = Depends(get_current_user),
 ):
     """Put a library product in an option's slot (a copy of it as it is now)."""
+    _require_estimate(session, current_user, estimate_id)
     service = CabinetEstimateService(session)
     return _set_selection(service, estimate_id, slot, str(data.product_id), current_user.id)
 
@@ -313,6 +353,7 @@ def clear_selection(
     current_user: dict = Depends(get_current_user),
 ):
     """Empty an option's slot: that part goes back to the rate-table price."""
+    _require_estimate(session, current_user, estimate_id)
     service = CabinetEstimateService(session)
     return _set_selection(service, estimate_id, slot, None, current_user.id)
 
@@ -327,8 +368,10 @@ def calculate_estimate(
     current_user: dict = Depends(get_current_user),
 ):
     """Save (if body provided) then calculate in one round-trip."""
+    _require_estimate(session, current_user, estimate_id)
     service = CabinetEstimateService(session)
     if data is not None:
+        _require_moved_claim(session, current_user, estimate_id, data.claim_id)
         service.update_estimate(
             estimate_id, data,
             updated_by_id=current_user.id,
@@ -354,6 +397,7 @@ def clone_estimate(
     current_user: dict = Depends(get_current_user),
 ):
     """Clone an existing estimate into a new draft."""
+    _require_estimate(session, current_user, estimate_id)
     service = CabinetEstimateService(session)
     result = service.clone_estimate(estimate_id, created_by_id=current_user.id)
     if not result:
@@ -363,10 +407,11 @@ def clone_estimate(
 
 # ── Sketch ──
 
-def _ensure_estimate_exists(estimate_id: str, session: DatabaseSession) -> None:
+def _ensure_estimate_exists(estimate_id: str, session: DatabaseSession, staff) -> None:
     """Reuse the existing estimate lookup so sketch endpoints 404 on a
     bogus/deleted estimate_id instead of silently creating an orphan
     CabinetSketch row for it."""
+    _require_estimate(session, staff, estimate_id)
     service = CabinetEstimateService(session)
     if not service.get_estimate(estimate_id):
         raise HTTPException(status_code=404, detail="Estimate not found")
@@ -380,7 +425,7 @@ def get_sketch(
     current_user: dict = Depends(get_current_user),
 ):
     """Get (or lazily create) the layout sketch for an estimate."""
-    _ensure_estimate_exists(estimate_id, session)
+    _ensure_estimate_exists(estimate_id, session, current_user)
     return CabinetSketchService(db).get_or_create(UUID(estimate_id))
 
 
@@ -393,7 +438,7 @@ def update_sketch_meta(
     current_user: dict = Depends(get_current_user),
 ):
     """Update sketch canvas metadata (size/scale) only."""
-    _ensure_estimate_exists(estimate_id, session)
+    _ensure_estimate_exists(estimate_id, session, current_user)
     return CabinetSketchService(db).update_meta(UUID(estimate_id), data)
 
 
@@ -410,7 +455,7 @@ def save_sketch_overlay(
     Full replace, not a diff — mirrors the water mitigation sketch's
     saveOverlayData semantics.
     """
-    _ensure_estimate_exists(estimate_id, session)
+    _ensure_estimate_exists(estimate_id, session, current_user)
     return CabinetSketchService(db).save_overlay(UUID(estimate_id), payload)
 
 
@@ -426,7 +471,7 @@ def make_sketch_ai_photo(
     A concept picture from a Gemini image model (sketch_ai_photo.py): it is
     not stored, and may differ from the sketch in small ways.
     """
-    _ensure_estimate_exists(estimate_id, session)
+    _ensure_estimate_exists(estimate_id, session, current_user)
     try:
         image, model = make_photo(payload.image, payload.finish, payload.notes)
     except AiPhotoError as e:
@@ -444,6 +489,7 @@ def get_history(
     current_user: dict = Depends(get_current_user),
 ):
     """Get version history for an estimate."""
+    _require_estimate(session, current_user, estimate_id)
     service = CabinetEstimateService(session)
     return service.get_history(estimate_id)
 
@@ -457,6 +503,7 @@ def get_purchase_order(
     current_user: dict = Depends(get_current_user),
 ):
     """Get grouped purchase order data for supplier."""
+    _require_estimate(session, current_user, estimate_id)
     service = CabinetEstimateService(session)
     result = service.get_purchase_order(estimate_id)
     if not result:
@@ -513,6 +560,7 @@ def export_pdf(
     current_user: dict = Depends(get_current_user),
 ):
     """Export estimate as PDF for insurance/customer."""
+    _require_estimate(session, current_user, estimate_id)
     return _estimate_pdf(estimate_id, show_signature, None, session)
 
 
@@ -527,6 +575,7 @@ def export_pdf_with_render(
 
     The restoration's PDF ignores a render: it goes to the carrier as it is.
     """
+    _require_estimate(session, current_user, estimate_id)
     return _estimate_pdf(estimate_id, body.get("show_signature", True), body.get("render"), session)
 
 
@@ -564,6 +613,7 @@ def export_proposal_pdf(
 
     For the customer only: the carrier gets the restoration's own PDF.
     """
+    _require_estimate(session, current_user, estimate_id)
     return _proposal_pdf(estimate_id, show_signature, None, session)
 
 
@@ -575,6 +625,7 @@ def export_proposal_pdf_with_renders(
     current_user: dict = Depends(get_current_user),
 ):
     """The customer's comparison, with each estimate's 3D view ({renders: {id: base64}})."""
+    _require_estimate(session, current_user, estimate_id)
     return _proposal_pdf(estimate_id, body.get("show_signature", True), body.get("renders"), session)
 
 
@@ -587,6 +638,7 @@ def export_excel(
     """Export purchase order as Excel for supplier."""
     from .export_service import CabinetExportService
 
+    _require_estimate(session, current_user, estimate_id)
     service = CabinetEstimateService(session)
     result = service.get_purchase_order(estimate_id)
     if not result:

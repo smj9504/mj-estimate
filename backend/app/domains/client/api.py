@@ -6,11 +6,13 @@ import asyncio
 import logging
 import os
 import tempfile
+import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
 from app.core.database_factory import get_db_session as get_db
+from app.domains.auth import company_scope
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.auth.document_access import can_access_document
 from app.domains.client.claim_paths import SameCompanyAsWMError
@@ -50,8 +52,39 @@ from app.domains.client.service import (
 
 logger = logging.getLogger(__name__)
 
-# Client and claim data is staff-only: every endpoint here needs a signed-in staff member
-router = APIRouter(dependencies=[Depends(get_current_staff)])
+
+def _claim_row_models():
+    from app.domains.client.models import (
+        ClaimExpense, ClaimNegotiation, ClaimNote, ClaimPayment, ClaimTodo,
+    )
+    return {
+        'negotiation_id': (ClaimNegotiation, 'Negotiation'),
+        'payment_id': (ClaimPayment, 'Payment'),
+        'expense_id': (ClaimExpense, 'Expense'),
+        'note_id': (ClaimNote, 'Note'),
+        'todo_id': (ClaimTodo, 'Todo'),
+    }
+
+
+def _guard_path(request: Request, staff=Depends(get_current_staff), db=Depends(get_db)):
+    """Every route here with a client, claim or claim row in its path answers
+    404 unless the signed-in person may see it (auth/company_scope.py). The
+    row's own claim decides, not the ids before it in the path."""
+    if company_scope.sees_everything(staff):
+        return
+    params = request.path_params
+    for key, (model, label) in _claim_row_models().items():
+        if key in params:
+            company_scope.require_document(db, staff, model, params[key], label, company_attr=None)
+    if 'claim_id' in params:
+        company_scope.require_claim(db, staff, params['claim_id'])
+    elif 'client_id' in params:
+        company_scope.require_client(db, staff, params['client_id'])
+
+
+# Client and claim data is staff-only: every endpoint here needs a signed-in
+# staff member, and only reaches the clients and claims they may see
+router = APIRouter(dependencies=[Depends(get_current_staff), Depends(_guard_path)])
 
 
 def _get_client_service():
@@ -100,13 +133,14 @@ def list_clients(
     search: Optional[str] = None,
     is_active: Optional[bool] = None,
     source: Optional[str] = None,  # 'acculynx' | 'manual'
+    current_staff=Depends(get_current_staff),
     service: ClientService = Depends(_get_client_service),
 ):
-    """List all clients with claim counts"""
+    """List the clients the signed-in person may see, with claim counts"""
     try:
-        counts = service.count_by_source()
+        counts = service.count_by_source(staff=current_staff)
         if search:
-            clients = service.search(search, limit=limit, source=source)
+            clients = service.search(search, limit=limit, source=source, staff=current_staff)
             return {"clients": clients, "total": len(clients), "counts": counts}
 
         filters = {}
@@ -118,6 +152,7 @@ def list_clients(
             limit=limit,
             offset=skip,
             source=source,
+            staff=current_staff,
         )
         return {"clients": clients, "total": len(clients), "skip": skip, "limit": limit,
                 "counts": counts}
@@ -130,9 +165,20 @@ def list_clients(
 def create_client(
     data: ClientCreate,
     db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
     service: ClientService = Depends(_get_client_service),
 ):
     """Create a new client"""
+    own_companies = company_scope.company_ids(db, current_staff)
+    if own_companies is not None:
+        # Until it has a claim, the client shows to the people of the company managing it
+        if not own_companies:
+            raise HTTPException(
+                status_code=400,
+                detail="You don't belong to a company yet. Ask an admin to add you to one.",
+            )
+        if not data.company_id or str(data.company_id) not in own_companies:
+            data.company_id = own_companies[0]
     try:
         client_dict = data.dict()
         # Convert owners to list of dicts
@@ -152,11 +198,12 @@ def create_client(
 def search_clients(
     q: str,
     limit: int = 20,
+    current_staff=Depends(get_current_staff),
     service: ClientService = Depends(_get_client_service),
 ):
     """Search clients by name"""
     try:
-        results = service.search(q, limit=limit)
+        results = service.search(q, limit=limit, staff=current_staff)
         return {"clients": results, "total": len(results)}
     except Exception as e:
         logger.error(f"Error searching clients: {e}")
@@ -169,9 +216,11 @@ def search_claims(
     claim_id: Optional[str] = None,
     limit: int = 20,
     db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
 ):
-    """Search claims across all clients by client name, property address, or claim number.
-    Pass claim_id instead of q to resolve a single known claim (e.g. a preset form value)."""
+    """Search the claims and cash jobs the signed-in person may see by client
+    name, property address, or claim number. Pass claim_id instead of q to
+    resolve a single known claim (e.g. a preset form value)."""
     from sqlalchemy import or_
     from app.domains.client.models import Client, Claim
 
@@ -180,6 +229,7 @@ def search_claims(
 
     try:
         query = db.query(Claim, Client).join(Client, Client.id == Claim.client_id)
+        query = company_scope.scoped(query, company_scope.claim_condition(db, current_staff, Claim.id))
         if claim_id:
             query = query.filter(Claim.id == claim_id)
         else:
@@ -203,6 +253,7 @@ def search_claims(
                 'id': str(claim.id),
                 'client_id': str(client.id),
                 'claim_number': claim.claim_number,
+                'claim_type': claim.claim_type or 'insurance',
                 'insurance_company': claim.insurance_company,
                 'date_of_loss': claim.date_of_loss.isoformat() if claim.date_of_loss else None,
                 'client_name': client.display_name,
@@ -217,11 +268,12 @@ def search_claims(
 @router.get("/{client_id}", response_model=None)
 def get_client(
     client_id: str,
+    current_staff=Depends(get_current_staff),
     service: ClientService = Depends(_get_client_service),
 ):
-    """Get client detail with all claims and documents"""
+    """Get client detail with the claims and documents the signed-in person may see"""
     try:
-        client = service.get_with_claims(client_id)
+        client = service.get_with_claims(client_id, staff=current_staff)
         if not client:
             raise HTTPException(status_code=404, detail="Client not found")
         return client
@@ -255,9 +307,21 @@ def update_client(
 @router.delete("/{client_id}")
 def delete_client(
     client_id: str,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
     service: ClientService = Depends(_get_client_service),
 ):
     """Delete a client"""
+    from app.domains.client.models import Claim
+
+    # Deleting a client deletes its claims, so other companies' claims block it
+    claim_ids = [str(r[0]) for r in db.query(Claim.id).filter(Claim.client_id == client_id).all()]
+    visible = company_scope.visible_claim_id_set(db, current_staff, claim_ids)
+    if visible is not None and len(visible) < len(claim_ids):
+        raise HTTPException(
+            status_code=403,
+            detail="This client has claims of other companies, so only an admin can delete it",
+        )
     try:
         success = service.delete(client_id)
         if not success:
@@ -277,12 +341,13 @@ def delete_client(
 @router.get("/{client_id}/claims", response_model=None)
 def list_claims(
     client_id: str,
+    current_staff=Depends(get_current_staff),
     service: ClaimService = Depends(_get_claim_service),
     db=Depends(get_db),
 ):
-    """List all claims for a client"""
+    """List a client's claims and cash jobs that the signed-in person may see"""
     try:
-        claims = service.get_by_client(client_id)
+        claims = service.get_by_client(client_id, staff=current_staff)
 
         # Resolve pa_contact_id -> CompanyContact for claims where the PA was
         # linked via a company contact rather than typed into the freetext
@@ -314,6 +379,7 @@ def list_claims(
 def get_latest_date_of_loss(
     client_id: str,
     db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
 ):
     """Get the latest date_of_loss from WM jobs linked to this client's claims"""
     try:
@@ -322,11 +388,15 @@ def get_latest_date_of_loss(
         from sqlalchemy import desc
 
         # Find WM jobs linked via claims belonging to this client
+        claim_scope = company_scope.claim_condition(db, current_staff, Claim.id)
         latest_wm = (
-            db.query(WaterMitigationJob.date_of_loss)
-            .join(Claim, WaterMitigationJob.claim_id == Claim.id)
-            .filter(Claim.client_id == client_id)
-            .filter(WaterMitigationJob.date_of_loss.isnot(None))
+            company_scope.scoped(
+                db.query(WaterMitigationJob.date_of_loss)
+                .join(Claim, WaterMitigationJob.claim_id == Claim.id)
+                .filter(Claim.client_id == client_id)
+                .filter(WaterMitigationJob.date_of_loss.isnot(None)),
+                claim_scope,
+            )
             .order_by(desc(WaterMitigationJob.date_of_loss))
             .first()
         )
@@ -336,9 +406,12 @@ def get_latest_date_of_loss(
 
         # Fallback: check claim's own date_of_loss
         latest_claim = (
-            db.query(Claim.date_of_loss)
-            .filter(Claim.client_id == client_id)
-            .filter(Claim.date_of_loss.isnot(None))
+            company_scope.scoped(
+                db.query(Claim.date_of_loss)
+                .filter(Claim.client_id == client_id)
+                .filter(Claim.date_of_loss.isnot(None)),
+                claim_scope,
+            )
             .order_by(desc(Claim.date_of_loss))
             .first()
         )
@@ -352,18 +425,41 @@ def get_latest_date_of_loss(
         return {"date_of_loss": None}
 
 
+def _checked_company_ids(db, staff, company_ids, creating: bool) -> List[str]:
+    """The companies to put on a claim. Someone who isn't an admin has to keep
+    one of their own on it, or they would lose the claim; a new claim with
+    none picked gets all of theirs."""
+    ids = [str(c) for c in company_ids or []]
+    own = company_scope.company_ids(db, staff)
+    if own is None:
+        return ids
+    if not ids and creating:
+        ids = list(own)
+    if not set(ids) & set(own):
+        raise HTTPException(
+            status_code=400,
+            detail="Keep at least one of your companies on it, or you won't be able to see it",
+        )
+    return ids
+
+
 @router.post("/{client_id}/claims", response_model=None)
 def create_claim(
     client_id: str,
     data: ClaimCreate,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
     service: ClaimService = Depends(_get_claim_service),
 ):
-    """Create a new claim for a client"""
+    """Create a new claim or cash job for a client"""
+    claim_dict = data.dict()
+    company_ids = _checked_company_ids(db, current_staff, claim_dict.pop('company_ids', None), creating=True)
     try:
-        claim_dict = data.dict()
         claim_dict['client_id'] = client_id
-        result = service.create_with_initial_negotiation(claim_dict)
+        result = service.create_with_initial_negotiation(claim_dict, company_ids=company_ids)
         return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error creating claim: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -436,11 +532,16 @@ def update_claim(
     client_id: str,
     claim_id: str,
     data: ClaimUpdate,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
     service: ClaimService = Depends(_get_claim_service),
 ):
-    """Update a claim"""
+    """Update a claim or cash job; company_ids replaces the companies working it"""
+    update_dict = data.dict(exclude_unset=True)
+    company_ids = update_dict.pop('company_ids', None)
+    if company_ids is not None:
+        company_ids = _checked_company_ids(db, current_staff, company_ids, creating=False)
     try:
-        update_dict = data.dict(exclude_unset=True)
 
         # Linking a PA contact is the source of truth for who the public
         # adjuster is, so keep the denormalized pa_* columns and the
@@ -451,13 +552,17 @@ def update_claim(
             update_dict['pa_contact_id'] = contact_id or None
             _sync_claim_pa_fields(update_dict, contact_id)
 
-        result = service.update(claim_id, update_dict)
+        result = service.update(claim_id, update_dict) if update_dict else service.get_by_id(claim_id)
         if not result:
             raise HTTPException(status_code=404, detail="Claim not found")
+        if company_ids is not None:
+            service.set_companies(claim_id, company_ids)
         return result
     except HTTPException:
         raise
     except SameCompanyAsWMError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error updating claim: {e}")
@@ -912,10 +1017,22 @@ def get_all_documents(
         if not client:
             raise HTTPException(status_code=404, detail="Client not found")
 
-        # Get all claim IDs for this client
-        claims = session.query(Claim).filter(Claim.client_id == client_id).all()
+        # Get the client's claim IDs this person may see
+        claims = company_scope.scoped(
+            session.query(Claim).filter(Claim.client_id == client_id),
+            company_scope.claim_condition(session, current_staff, Claim.id),
+        ).all()
         claim_map = {str(c.id): c.claim_number or "N/A" for c in claims}
         claim_ids = list(claim_map.keys())
+        own_companies = company_scope.company_ids(session, current_staff)
+
+        def _visible(row) -> bool:
+            """A client-level document: on a visible claim, or issued by their company"""
+            if own_companies is None:
+                return True
+            if row.claim_id and str(row.claim_id) in claim_map:
+                return True
+            return bool(row.company_id) and str(row.company_id) in own_companies
 
         # Apply claim filter if specified
         if claim_id:
@@ -960,7 +1077,7 @@ def get_all_documents(
             ).order_by(Invoice.created_at.desc()).all()
             if claim_id:
                 invoices = [i for i in invoices if str(i.claim_id) == claim_id]
-            invoices = [i for i in invoices if can_access_document(i.owner_id, current_staff)]
+            invoices = [i for i in invoices if can_access_document(i.owner_id, current_staff) and _visible(i)]
             for inv in invoices:
                 docs.append({
                     "id": str(inv.id),
@@ -983,7 +1100,7 @@ def get_all_documents(
             ).order_by(Estimate.created_at.desc()).all()
             if claim_id:
                 estimates = [e for e in estimates if str(e.claim_id) == claim_id]
-            estimates = [e for e in estimates if can_access_document(e.owner_id, current_staff)]
+            estimates = [e for e in estimates if can_access_document(e.owner_id, current_staff) and _visible(e)]
             for est in estimates:
                 total = float(est.rcv_amount or est.total_amount or 0)
                 docs.append({
@@ -1008,6 +1125,7 @@ def get_all_documents(
             ).order_by(ContractInstance.created_at.desc()).all()
             if claim_id:
                 contracts = [c for c in contracts if str(c.claim_id) == claim_id]
+            contracts = [c for c in contracts if _visible(c)]
             for ct in contracts:
                 docs.append({
                     "id": str(ct.id),
@@ -1055,6 +1173,7 @@ def get_all_documents(
             ).order_by(WorkOrder.created_at.desc()).all()
             if claim_id:
                 wos = [w for w in wos if str(w.claim_id) == claim_id]
+            wos = [w for w in wos if _visible(w)]
             for wo in wos:
                 docs.append({
                     "id": str(wo.id),
@@ -1241,10 +1360,11 @@ todo_dashboard_router = APIRouter(dependencies=[Depends(get_current_staff)])
 @todo_dashboard_router.get("/active", response_model=None)
 def get_active_todos(
     include_completed: bool = False,
+    current_staff=Depends(get_current_staff),
     service: ClaimTodoService = Depends(_get_todo_service),
 ):
-    """Get all active (uncompleted) todos across all claims for the dashboard"""
-    return service.get_active_todos(include_completed=include_completed)
+    """Active (uncompleted) todos across the claims the signed-in person may see, for the dashboard"""
+    return service.get_active_todos(include_completed=include_completed, staff=current_staff)
 
 
 # ============================================================
@@ -1252,6 +1372,37 @@ def get_active_todos(
 # ============================================================
 
 todo_router = APIRouter()
+
+
+def _check_todo_links(db, staff, client_id=None, claim_id=None) -> None:
+    """A todo can only be tied to a client or claim the person may see"""
+    if claim_id:
+        company_scope.require_claim(db, staff, claim_id)
+    if client_id:
+        company_scope.require_client(db, staff, client_id)
+
+
+def _require_board_todo(db, staff, todo_id: str) -> None:
+    """Your own todo, or one on a claim (or claimless client) you may see"""
+    from app.domains.client.models import ClaimTodo
+
+    if company_scope.sees_everything(staff):
+        return
+    try:
+        uuid.UUID(str(todo_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    todo = db.query(ClaimTodo).filter(ClaimTodo.id == todo_id).first()
+    if todo is None:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    if todo.owner_id and str(todo.owner_id) == str(staff.id):
+        return
+    if todo.claim_id:
+        visible = company_scope.can_see_claim(db, staff, todo.claim_id)
+    else:
+        visible = bool(todo.client_id) and company_scope.can_see_client(db, staff, todo.client_id)
+    if not visible:
+        raise HTTPException(status_code=404, detail="Todo not found")
 
 
 @todo_router.get("/", response_model=None)
@@ -1263,7 +1414,15 @@ def list_board_todos(
 ):
     """Your board; or one client's todos, whoever owns them (with claim_id: that claim's and the client's general ones)"""
     if client_id or claim_id:
-        return service.list_todos(client_id=client_id, claim_id=claim_id)
+        db = service.database.get_readonly_session()
+        try:
+            if claim_id:
+                company_scope.require_claim(db, staff, claim_id)
+            if client_id:
+                company_scope.require_client(db, staff, client_id)
+        finally:
+            db.close()
+        return service.list_todos(client_id=client_id, claim_id=claim_id, staff=staff)
     return service.list_todos(owner_id=str(staff.id))
 
 
@@ -1271,9 +1430,11 @@ def list_board_todos(
 def create_board_todo(
     data: TodoCreate,
     staff=Depends(get_current_staff),
+    db=Depends(get_db),
     service: ClaimTodoService = Depends(_get_todo_service),
 ):
     """Add a todo at the top of its column on your board"""
+    _check_todo_links(db, staff, data.client_id, data.claim_id)
     todo_data = data.dict()
     todo_data['owner_id'] = staff.id
     try:
@@ -1298,9 +1459,12 @@ def update_board_todo(
     todo_id: str,
     data: TodoUpdate,
     staff=Depends(get_current_staff),
+    db=Depends(get_db),
     service: ClaimTodoService = Depends(_get_todo_service),
 ):
     """Edit a todo; a new status moves it to the top of that column"""
+    _require_board_todo(db, staff, todo_id)
+    _check_todo_links(db, staff, data.client_id, data.claim_id)
     result = service.update_todo(todo_id, data.dict(exclude_unset=True))
     if not result:
         raise HTTPException(status_code=404, detail="Todo not found")
@@ -1311,8 +1475,10 @@ def update_board_todo(
 def delete_board_todo(
     todo_id: str,
     staff=Depends(get_current_staff),
+    db=Depends(get_db),
     service: ClaimTodoService = Depends(_get_todo_service),
 ):
+    _require_board_todo(db, staff, todo_id)
     if not service.delete_todo(todo_id):
         raise HTTPException(status_code=404, detail="Todo not found")
     return {"message": "Todo deleted"}

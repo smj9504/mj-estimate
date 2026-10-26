@@ -21,6 +21,7 @@ import {
   Grid,
   List,
   Dropdown,
+  Alert,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -36,6 +37,7 @@ import { useNavigate } from 'react-router-dom';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { PageHeader, Pill, useSheetModal } from '../components/common/ui';
 import { clientService } from '../services/clientService';
+import { useAuth } from '../contexts/AuthContext';
 import type { Client, ClientCreate, ClientListItem, ClientSourceFilter, OwnerInfo } from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -357,6 +359,9 @@ const ClientList: React.FC = () => {
   const [source, setSource] = useState<ClientSourceFilter>('manual');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const { user } = useAuth();
+  // Outside admin roles a person sees only their companies' clients
+  const noCompany = !!user && !['admin', 'super_admin'].includes(user.role) && !(user.company_ids?.length);
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -639,13 +644,23 @@ const ClientList: React.FC = () => {
     <div className="cl-page">
       <PageHeader
         title="Clients"
-        meta="Manage client profiles and insurance claims"
+        meta="Manage client profiles, insurance claims and cash jobs"
         actions={
           <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
             Add Client
           </Button>
         }
       />
+
+      {noCompany && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="You don't belong to a company yet"
+          description="You see the clients, claims and cash jobs of your companies. Ask an admin to add you to one."
+        />
+      )}
 
       {isPhone ? (
         <>

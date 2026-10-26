@@ -10,6 +10,7 @@ from sqlalchemy import and_, func, or_
 
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import scoped
 from app.domains.claim_followup.models import (
     ACTIONABLE_STATUSES,
     CommunicationLog,
@@ -57,14 +58,17 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
         page_size: int = 20,
         sort_by: str = "due_date",
         sort_order: str = "asc",
+        scope: Any = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
-        """Get tasks with filtering, pagination, and sorting (enriched with claim data)"""
+        """Get tasks with filtering, pagination, and sorting (enriched with claim data).
+        scope: company condition from auth.company_scope (None = every task)"""
         from sqlalchemy.orm import selectinload
         from app.domains.client.models import Claim
 
         query = self.db_session.query(FollowUpTask).options(
             selectinload(FollowUpTask.claim).selectinload(Claim.client)
         )
+        query = scoped(query, scope)
 
         if status:
             query = query.filter(FollowUpTask.status == status)
@@ -455,53 +459,48 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
             results.append(d)
         return results
 
-    def get_dashboard_stats(self) -> Dict[str, Any]:
-        """Get summary statistics for the dashboard"""
+    def get_dashboard_stats(self, scope: Any = None) -> Dict[str, Any]:
+        """Get summary statistics for the dashboard.
+        scope: company condition from auth.company_scope (None = every task)"""
         now = datetime.now(timezone.utc)
 
-        total = self.db_session.query(func.count(FollowUpTask.id)).filter(
-            FollowUpTask.status != 'cancelled'
-        ).scalar() or 0
+        def count(*criteria):
+            query = self.db_session.query(func.count(FollowUpTask.id)).filter(*criteria)
+            return scoped(query, scope).scalar() or 0
 
-        pending = self.db_session.query(func.count(FollowUpTask.id)).filter(
-            FollowUpTask.status == 'pending'
-        ).scalar() or 0
+        total = count(FollowUpTask.status != 'cancelled')
 
-        awaiting = self.db_session.query(func.count(FollowUpTask.id)).filter(
-            FollowUpTask.status == 'awaiting_response'
-        ).scalar() or 0
+        pending = count(FollowUpTask.status == 'pending')
+
+        awaiting = count(FollowUpTask.status == 'awaiting_response')
 
         # Blocked on someone else's confirmation — surfaced separately so it
         # is visible without being counted as our pending workload.
-        awaiting_confirmation = self.db_session.query(
-            func.count(FollowUpTask.id)
-        ).filter(
-            FollowUpTask.status == 'awaiting_confirmation'
-        ).scalar() or 0
+        awaiting_confirmation = count(FollowUpTask.status == 'awaiting_confirmation')
 
-        overdue = self.db_session.query(func.count(FollowUpTask.id)).filter(
+        overdue = count(
             and_(
                 FollowUpTask.next_followup_date < now,
                 FollowUpTask.status.in_(ACTIONABLE_STATUSES)
             )
-        ).scalar() or 0
+        )
 
         # By type / priority describe open workload, so they include
         # confirmation-blocked tasks (the stage is still open).
-        type_counts = self.db_session.query(
+        type_counts = scoped(self.db_session.query(
             FollowUpTask.task_type,
             func.count(FollowUpTask.id)
         ).filter(
             FollowUpTask.status.in_(OPEN_STATUSES)
-        ).group_by(FollowUpTask.task_type).all()
+        ), scope).group_by(FollowUpTask.task_type).all()
 
         # By priority
-        priority_counts = self.db_session.query(
+        priority_counts = scoped(self.db_session.query(
             FollowUpTask.priority,
             func.count(FollowUpTask.id)
         ).filter(
             FollowUpTask.status.in_(OPEN_STATUSES)
-        ).group_by(FollowUpTask.priority).all()
+        ), scope).group_by(FollowUpTask.priority).all()
 
         return {
             "total_tasks": total,

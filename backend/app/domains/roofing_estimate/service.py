@@ -89,6 +89,7 @@ class RoofingEstimateService:
         search: Optional[str] = None,
         page: int = 1,
         page_size: int = 50,
+        scope: Any = None,
     ) -> tuple:
         estimates, total = self.estimate_repo.find_by_filters(
             claim_id=claim_id,
@@ -97,6 +98,7 @@ class RoofingEstimateService:
             search=search,
             page=page,
             page_size=page_size,
+            scope=scope,
         )
         items = []
         for est in estimates:

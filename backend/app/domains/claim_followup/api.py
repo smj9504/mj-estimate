@@ -6,8 +6,11 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 
+from app.core.database_factory import get_db_session as get_db
+from app.domains.auth.company_scope import claim_condition, require_claim, require_document
+from app.domains.auth.dependencies import get_current_staff
 from app.domains.claim_followup.schemas import (
     ClaimPaymentSummary,
     CommunicationLogCreate,
@@ -151,6 +154,22 @@ def _get_service():
     return ClaimFollowUpService()
 
 
+def _require_task(db, staff, task_id) -> None:
+    """404 unless the task is on a claim the staff member may see"""
+    from app.domains.claim_followup.models import FollowUpTask
+    require_document(db, staff, FollowUpTask, task_id, "Task", company_attr=None)
+
+
+def _require_links(db, staff, claim_id, followup_task_id=None, wm_job_id=None) -> None:
+    """Checks for a create that names a claim, and optionally a task and a WM job"""
+    require_claim(db, staff, claim_id)
+    if followup_task_id:
+        _require_task(db, staff, followup_task_id)
+    if wm_job_id:
+        from app.domains.water_mitigation.models import WaterMitigationJob
+        require_document(db, staff, WaterMitigationJob, wm_job_id, "Water mitigation job")
+
+
 # ============================================================
 # Follow-Up Tasks
 # ============================================================
@@ -168,8 +187,12 @@ def list_tasks(
     page_size: int = Query(20, ge=1, le=1000),
     sort_by: str = Query("due_date"),
     sort_order: str = Query("asc"),
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
 ):
     """List follow-up tasks with filtering and pagination"""
+    from app.domains.claim_followup.models import FollowUpTask
+    scope = claim_condition(db, current_staff, FollowUpTask.claim_id)
     service = _get_service()
     tasks, total = service.get_tasks({
         "status": status,
@@ -183,27 +206,30 @@ def list_tasks(
         "page_size": page_size,
         "sort_by": sort_by,
         "sort_order": sort_order,
-    })
+    }, scope=scope)
     return tasks
 
 
 @router.get("/tasks/stats", response_model=FollowUpDashboardStats)
-def get_dashboard_stats():
+def get_dashboard_stats(db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Get dashboard statistics"""
+    from app.domains.claim_followup.models import FollowUpTask
     service = _get_service()
-    return service.get_dashboard_stats()
+    return service.get_dashboard_stats(claim_condition(db, current_staff, FollowUpTask.claim_id))
 
 
 @router.get("/tasks/by-claim/{claim_id}", response_model=List[FollowUpTaskResponse])
-def get_tasks_by_claim(claim_id: str):
+def get_tasks_by_claim(claim_id: str, db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Get all follow-up tasks for a specific claim"""
+    require_claim(db, current_staff, claim_id)
     service = _get_service()
     return service.get_tasks_by_claim(claim_id)
 
 
 @router.get("/tasks/{task_id}", response_model=FollowUpTaskResponse)
-def get_task(task_id: str):
+def get_task(task_id: str, db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Get a single follow-up task"""
+    _require_task(db, current_staff, task_id)
     service = _get_service()
     task = service.get_task(task_id)
     if not task:
@@ -212,8 +238,9 @@ def get_task(task_id: str):
 
 
 @router.post("/tasks", response_model=FollowUpTaskResponse)
-def create_task(data: FollowUpTaskCreate):
+def create_task(data: FollowUpTaskCreate, db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Create a new follow-up task"""
+    _require_links(db, current_staff, data.claim_id, wm_job_id=data.wm_job_id)
     service = _get_service()
     try:
         return service.create_task(data.dict())
@@ -223,8 +250,14 @@ def create_task(data: FollowUpTaskCreate):
 
 
 @router.patch("/tasks/{task_id}", response_model=FollowUpTaskResponse)
-def update_task(task_id: str, data: FollowUpTaskUpdate):
+def update_task(
+    task_id: str,
+    data: FollowUpTaskUpdate,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Update a follow-up task"""
+    _require_task(db, current_staff, task_id)
     service = _get_service()
     update_data = data.dict(exclude_unset=True)
     result = service.update_task(task_id, update_data)
@@ -342,6 +375,8 @@ async def resolve_task(
     wm_approved_amount: Optional[float] = Form(None),
     file: Optional[UploadFile] = File(None),
     wm_estimate_file: Optional[UploadFile] = File(None),
+    request_db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
 ):
     """Mark a follow-up task as resolved with optional outcome, amounts, and files.
 
@@ -352,6 +387,7 @@ async def resolve_task(
     - wm_approved_amount: what the carrier approved on our WM invoice (outcome
       'wm_invoice_accepted'); defaults to the invoice amount
     """
+    _require_task(request_db, current_staff, task_id)
     service = _get_service()
 
     # Verify task exists before doing any work (e.g. file upload)
@@ -517,8 +553,11 @@ async def save_task_estimate(
     sections_data: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
     wm_estimate_file: Optional[UploadFile] = File(None),
+    request_db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
 ):
     """Save/update estimate data on a task without resolving it."""
+    _require_task(request_db, current_staff, task_id)
     service = _get_service()
 
     existing_task = service.get_task(task_id)
@@ -650,7 +689,10 @@ async def save_task_estimate(
 
 
 @router.post("/tasks/parse-estimate")
-async def parse_estimate_pdf(file: UploadFile = File(...)):
+async def parse_estimate_pdf(
+    file: UploadFile = File(...),
+    current_staff=Depends(get_current_staff),
+):
     """Parse insurance estimate PDF and return extracted sections + totals"""
     import os
     import tempfile
@@ -739,8 +781,9 @@ async def parse_estimate_pdf(file: UploadFile = File(...)):
 
 
 @router.post("/tasks/{task_id}/reopen")
-def reopen_task(task_id: str):
+def reopen_task(task_id: str, db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Reopen a resolved follow-up task"""
+    _require_task(db, current_staff, task_id)
     service = _get_service()
     result = service.reopen_task(task_id)
     if not result:
@@ -754,8 +797,11 @@ def advance_depreciation_phase(
     new_phase: str = Form(...),
     sent_to: Optional[str] = Form(None),
     notes: Optional[str] = Form(None),
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
 ):
     """Advance a depreciation_recovery task to the next phase."""
+    _require_task(db, current_staff, task_id)
     service = _get_service()
     try:
         result = service.advance_depreciation_phase(
@@ -772,8 +818,9 @@ def advance_depreciation_phase(
 
 
 @router.delete("/tasks/{task_id}")
-def delete_task(task_id: str):
+def delete_task(task_id: str, db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Delete a follow-up task"""
+    _require_task(db, current_staff, task_id)
     service = _get_service()
     success = service.delete_task(task_id)
     if not success:
@@ -786,8 +833,9 @@ def delete_task(task_id: str):
 # ============================================================
 
 @router.get("/claims/{claim_id}/payments", response_model=ClaimPaymentSummary)
-def get_claim_payments(claim_id: str):
+def get_claim_payments(claim_id: str, db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Running payment picture for a claim, with every recorded receipt."""
+    require_claim(db, current_staff, claim_id)
     service = _get_service()
     try:
         return service.get_payment_summary(claim_id)
@@ -797,12 +845,18 @@ def get_claim_payments(claim_id: str):
 
 
 @router.post("/claims/{claim_id}/payments", response_model=PaymentReceiptResponse)
-def record_claim_payment(claim_id: str, payload: PaymentReceiptCreate):
+def record_claim_payment(
+    claim_id: str,
+    payload: PaymentReceiptCreate,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Record one payment received.
 
     Does not close the payment stage: more can arrive in later
     installments or through an approved supplement.
     """
+    require_claim(db, current_staff, claim_id)
     service = _get_service()
     try:
         return service.record_payment(
@@ -814,8 +868,16 @@ def record_claim_payment(claim_id: str, payload: PaymentReceiptCreate):
 
 
 @router.delete("/claims/{claim_id}/payments/{payment_id}")
-def delete_claim_payment(claim_id: str, payment_id: str):
+def delete_claim_payment(
+    claim_id: str,
+    payment_id: str,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Remove a mis-entered payment record."""
+    from app.domains.client.models import ClaimPayment
+    # The payment's own claim decides, not the one in the URL
+    require_document(db, current_staff, ClaimPayment, payment_id, "Payment", company_attr=None)
     service = _get_service()
     success = service.delete_payment(payment_id)
     if not success:
@@ -831,6 +893,7 @@ def delete_claim_payment(claim_id: str, payment_id: str):
 def list_templates(
     template_type: Optional[str] = Query(None),
     company_id: Optional[str] = Query(None),
+    current_staff=Depends(get_current_staff),
 ):
     """List active email templates"""
     service = _get_service()
@@ -838,7 +901,7 @@ def list_templates(
 
 
 @router.get("/templates/{template_id}", response_model=EmailTemplateResponse)
-def get_template(template_id: str):
+def get_template(template_id: str, current_staff=Depends(get_current_staff)):
     """Get a single email template"""
     service = _get_service()
     template = service.get_template(template_id)
@@ -848,7 +911,7 @@ def get_template(template_id: str):
 
 
 @router.post("/templates", response_model=EmailTemplateResponse)
-def create_template(data: EmailTemplateCreate):
+def create_template(data: EmailTemplateCreate, current_staff=Depends(get_current_staff)):
     """Create a new email template"""
     service = _get_service()
     try:
@@ -859,7 +922,11 @@ def create_template(data: EmailTemplateCreate):
 
 
 @router.patch("/templates/{template_id}", response_model=EmailTemplateResponse)
-def update_template(template_id: str, data: EmailTemplateUpdate):
+def update_template(
+    template_id: str,
+    data: EmailTemplateUpdate,
+    current_staff=Depends(get_current_staff),
+):
     """Update an email template"""
     service = _get_service()
     update_data = data.dict(exclude_unset=True)
@@ -870,7 +937,7 @@ def update_template(template_id: str, data: EmailTemplateUpdate):
 
 
 @router.delete("/templates/{template_id}")
-def delete_template(template_id: str):
+def delete_template(template_id: str, current_staff=Depends(get_current_staff)):
     """Delete (deactivate) an email template"""
     service = _get_service()
     success = service.delete_template(template_id)
@@ -880,7 +947,7 @@ def delete_template(template_id: str):
 
 
 @router.post("/templates/{template_id}/render")
-def render_template(template_id: str, variables: dict):
+def render_template(template_id: str, variables: dict, current_staff=Depends(get_current_staff)):
     """Preview template with variable substitution"""
     service = _get_service()
     try:
@@ -894,22 +961,37 @@ def render_template(template_id: str, variables: dict):
 # ============================================================
 
 @router.get("/communications/by-claim/{claim_id}", response_model=List[CommunicationLogResponse])
-def get_communications_by_claim(claim_id: str):
+def get_communications_by_claim(
+    claim_id: str,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Get all communications for a claim"""
+    require_claim(db, current_staff, claim_id)
     service = _get_service()
     return service.get_communications_by_claim(claim_id)
 
 
 @router.get("/communications/by-task/{task_id}", response_model=List[CommunicationLogResponse])
-def get_communications_by_task(task_id: str):
+def get_communications_by_task(
+    task_id: str,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Get all communications for a task"""
+    _require_task(db, current_staff, task_id)
     service = _get_service()
     return service.get_communications_by_task(task_id)
 
 
 @router.post("/communications", response_model=CommunicationLogResponse)
-def log_communication(data: CommunicationLogCreate):
+def log_communication(
+    data: CommunicationLogCreate,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Log a communication event (phone call, email, etc.)"""
+    _require_links(db, current_staff, data.claim_id, data.followup_task_id)
     service = _get_service()
     try:
         return service.log_communication(data.dict())
@@ -919,8 +1001,15 @@ def log_communication(data: CommunicationLogCreate):
 
 
 @router.patch("/communications/{log_id}", response_model=CommunicationLogResponse)
-def update_communication(log_id: str, data: CommunicationLogUpdate):
+def update_communication(
+    log_id: str,
+    data: CommunicationLogUpdate,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Update a communication log (e.g., mark response received)"""
+    from app.domains.claim_followup.models import CommunicationLog
+    require_document(db, current_staff, CommunicationLog, log_id, "Communication log", company_attr=None)
     service = _get_service()
     update_data = data.dict(exclude_unset=True)
     result = service.update_communication(log_id, update_data)
@@ -934,22 +1023,37 @@ def update_communication(log_id: str, data: CommunicationLogUpdate):
 # ============================================================
 
 @router.get("/emails/by-claim/{claim_id}", response_model=List[SentEmailResponse])
-def get_sent_emails_by_claim(claim_id: str):
+def get_sent_emails_by_claim(
+    claim_id: str,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Get all sent emails for a claim"""
+    require_claim(db, current_staff, claim_id)
     service = _get_service()
     return service.get_sent_emails_by_claim(claim_id)
 
 
 @router.get("/emails/by-task/{task_id}", response_model=List[SentEmailResponse])
-def get_sent_emails_by_task(task_id: str):
+def get_sent_emails_by_task(
+    task_id: str,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Get all sent emails for a task"""
+    _require_task(db, current_staff, task_id)
     service = _get_service()
     return service.get_sent_emails_by_task(task_id)
 
 
 @router.post("/emails/send", response_model=SentEmailResponse)
-def send_email(data: SendEmailRequest):
+def send_email(
+    data: SendEmailRequest,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Send an email directly"""
+    _require_links(db, current_staff, data.claim_id, data.followup_task_id, data.wm_job_id)
     service = _get_service()
     try:
         return service.send_email(data.dict())
@@ -961,8 +1065,13 @@ def send_email(data: SendEmailRequest):
 
 
 @router.post("/emails/send-from-template", response_model=SentEmailResponse)
-def send_from_template(data: SendFromTemplateRequest):
+def send_from_template(
+    data: SendFromTemplateRequest,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Send an email using a template"""
+    _require_links(db, current_staff, data.claim_id, data.followup_task_id)
     service = _get_service()
     try:
         return service.send_from_template(data.dict())
@@ -974,8 +1083,14 @@ def send_from_template(data: SendFromTemplateRequest):
 
 
 @router.post("/emails/generate-ai", response_model=GenerateAIEmailResponse)
-def generate_ai_email(data: GenerateAIEmailRequest):
+def generate_ai_email(
+    data: GenerateAIEmailRequest,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Generate email content using AI"""
+    # The draft is written from the claim's (and task's) details
+    _require_links(db, current_staff, data.claim_id, data.followup_task_id)
     service = _get_service()
     try:
         return service.generate_ai_email(data.dict())
@@ -985,7 +1100,7 @@ def generate_ai_email(data: GenerateAIEmailRequest):
 
 
 @router.post("/emails/polish", response_model=PolishEmailResponse)
-def polish_email(data: PolishEmailRequest):
+def polish_email(data: PolishEmailRequest, current_staff=Depends(get_current_staff)):
     """Polish/rewrite an already-drafted email (shorten/lengthen/tone/proofread)"""
     service = _get_service()
     try:
@@ -998,8 +1113,15 @@ def polish_email(data: PolishEmailRequest):
 
 
 @router.post("/emails/{email_id}/mark-reply", response_model=SentEmailResponse)
-def mark_reply_received(email_id: str, data: MarkReplyRequest):
+def mark_reply_received(
+    email_id: str,
+    data: MarkReplyRequest,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Mark a sent email as having received a reply"""
+    from app.domains.claim_followup.models import SentEmail
+    require_document(db, current_staff, SentEmail, email_id, "Email", company_attr=None)
     service = _get_service()
     result = service.mark_reply(email_id, data.reply_summary)
     if not result:
@@ -1036,7 +1158,7 @@ def track_email_open(email_id: str):
 
 
 @router.post("/emails/test-smtp")
-def test_smtp(account_id: Optional[str] = None):
+def test_smtp(account_id: Optional[str] = None, current_staff=Depends(get_current_staff)):
     """Test SMTP connection"""
     from app.domains.claim_followup.smtp_service import test_smtp_connection
     result = test_smtp_connection(account_id)
@@ -1050,7 +1172,10 @@ def test_smtp(account_id: Optional[str] = None):
 # ============================================================
 
 @router.post("/emails/check-replies")
-def check_replies(account_id: Optional[str] = Query(None)):
+def check_replies(
+    account_id: Optional[str] = Query(None),
+    current_staff=Depends(get_current_staff),
+):
     """Check IMAP inboxes for replies to sent follow-up emails.
 
     Automatically updates SentEmail, FollowUpTask status,
@@ -1075,11 +1200,16 @@ def check_replies(account_id: Optional[str] = Query(None)):
 # ============================================================
 
 @router.get("/claim-companies/{claim_id}")
-def get_claim_companies(claim_id: str):
+def get_claim_companies(
+    claim_id: str,
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Get company assignments for a claim.
     Returns WM company and rebuild company IDs so the frontend
     can auto-select the correct email account.
     """
+    require_claim(db, current_staff, claim_id)
     from app.core.database_factory import get_database
     database = get_database()
     session = database.get_readonly_session()

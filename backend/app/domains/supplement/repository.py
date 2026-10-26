@@ -9,6 +9,7 @@ from sqlalchemy import and_, func
 
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import scoped
 from app.domains.supplement.models import (
     BidItemEstimate,
     SupplementFollowUp,
@@ -30,8 +31,10 @@ class SupplementRequestRepository(SQLAlchemyRepository):
         request_type: Optional[str] = None,
         page: int = 1,
         page_size: int = 20,
+        scope: Any = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
-        query = self.db_session.query(SupplementRequest)
+        # scope: company condition from auth.company_scope (None = all)
+        query = scoped(self.db_session.query(SupplementRequest), scope)
 
         if status:
             query = query.filter(SupplementRequest.status == status)
@@ -61,23 +64,25 @@ class SupplementRequestRepository(SQLAlchemyRepository):
         ).order_by(SupplementRequest.created_at.desc()).all()
         return [self._convert_to_dict(s) for s in items]
 
-    def get_dashboard_stats(self) -> Dict[str, Any]:
+    def get_dashboard_stats(self, scope: Any = None) -> Dict[str, Any]:
         active_statuses = ['identified', 'in_progress', 'submitted', 'under_review']
 
-        total = self.db_session.query(func.count(SupplementRequest.id)).scalar() or 0
+        total = scoped(
+            self.db_session.query(func.count(SupplementRequest.id)), scope
+        ).scalar() or 0
 
-        status_counts = self.db_session.query(
+        status_counts = scoped(self.db_session.query(
             SupplementRequest.status,
             func.count(SupplementRequest.id)
-        ).group_by(SupplementRequest.status).all()
+        ), scope).group_by(SupplementRequest.status).all()
 
-        total_supplement = self.db_session.query(
+        total_supplement = scoped(self.db_session.query(
             func.sum(SupplementRequest.supplement_amount)
-        ).filter(SupplementRequest.status.in_(active_statuses)).scalar() or 0
+        ).filter(SupplementRequest.status.in_(active_statuses)), scope).scalar() or 0
 
-        total_diff = self.db_session.query(
+        total_diff = scoped(self.db_session.query(
             func.sum(SupplementRequest.difference)
-        ).filter(SupplementRequest.status.in_(active_statuses)).scalar() or 0
+        ).filter(SupplementRequest.status.in_(active_statuses)), scope).scalar() or 0
 
         counts = {s: c for s, c in status_counts}
         return {

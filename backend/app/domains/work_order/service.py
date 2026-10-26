@@ -276,13 +276,15 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
             raise
     
     def get_work_orders_by_company(self, company_id: UUID, 
-                                  status: Optional[WorkOrderStatus] = None) -> List[Dict[str, Any]]:
+                                  status: Optional[WorkOrderStatus] = None,
+                                  scope: Any = None) -> List[Dict[str, Any]]:
         """
         Get all work orders for a specific company
         
         Args:
             company_id: Company UUID
             status: Optional status filter
+            scope: Extra SQL condition (which work orders the caller may see)
             
         Returns:
             List of work order dictionaries
@@ -292,20 +294,22 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
             if status:
                 filters['status'] = status
             
-            return self.get_all(filters=filters, order_by='-created_at')
+            return self.get_all(filters=filters, order_by='-created_at', scope=scope)
             
         except Exception as e:
             logger.error(f"Error getting work orders by company: {e}")
             raise
     
     def get_work_orders_by_staff(self, staff_id: UUID, 
-                                assigned_only: bool = False) -> List[Dict[str, Any]]:
+                                assigned_only: bool = False,
+                                scope: Any = None) -> List[Dict[str, Any]]:
         """
         Get work orders associated with a staff member
         
         Args:
             staff_id: Staff member UUID
             assigned_only: If True, only return assigned work orders
+            scope: Extra SQL condition (which work orders the caller may see)
             
         Returns:
             List of work order dictionaries
@@ -318,11 +322,13 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
                 session = self.database.get_session()
                 try:
                     repository = self._get_repository_instance(session)
-                    return repository.get_work_orders_by_staff(staff_id)
+                    if scope is None:
+                        return repository.get_work_orders_by_staff(staff_id)
+                    return repository.get_work_orders_by_staff(staff_id, scope=scope)
                 finally:
                     session.close()
             
-            return self.get_all(filters=filters, order_by='-created_at')
+            return self.get_all(filters=filters, order_by='-created_at', scope=scope)
             
         except Exception as e:
             logger.error(f"Error getting work orders by staff: {e}")
@@ -477,12 +483,13 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
                 'currency': 'USD'
             }
     
-    def search_work_orders(self, search_term: str) -> List[Dict[str, Any]]:
+    def search_work_orders(self, search_term: str, scope: Any = None) -> List[Dict[str, Any]]:
         """
         Search work orders by work order number or address fields
         
         Args:
             search_term: Search term to match against work order number and address fields
+            scope: Extra SQL condition (which work orders the caller may see)
             
         Returns:
             List of matching work order dictionaries
@@ -491,7 +498,9 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
             session = self.database.get_session()
             try:
                 repository = self._get_repository_instance(session)
-                return repository.search_orders(search_term)
+                if scope is None:
+                    return repository.search_orders(search_term)
+                return repository.search_orders(search_term, scope=scope)
             finally:
                 session.close()
                 
@@ -499,12 +508,13 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
             logger.error(f"Error searching work orders: {e}")
             raise
     
-    def get_dashboard_stats(self, company_id: Optional[UUID] = None) -> Dict[str, Any]:
+    def get_dashboard_stats(self, company_id: Optional[UUID] = None, scope: Any = None) -> Dict[str, Any]:
         """
         Get dashboard statistics for work orders
         
         Args:
             company_id: Optional company filter
+            scope: Extra SQL condition (which work orders the caller may see)
             
         Returns:
             Dictionary with various statistics
@@ -513,7 +523,9 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
             session = self.database.get_session()
             try:
                 repository = self._get_repository_instance(session)
-                return repository.get_dashboard_stats(company_id)
+                if scope is None:
+                    return repository.get_dashboard_stats(company_id)
+                return repository.get_dashboard_stats(company_id, scope=scope)
             finally:
                 session.close()
                 
@@ -524,7 +536,8 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
     def get_all(self, filters: Optional[Dict[str, Any]] = None, 
                 order_by: Optional[str] = None, 
                 limit: Optional[int] = None, 
-                offset: Optional[int] = None) -> List[Dict[str, Any]]:
+                offset: Optional[int] = None,
+                scope: Any = None) -> List[Dict[str, Any]]:
         """
         Get all work orders with document type names enriched
         
@@ -533,13 +546,24 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
             order_by: Optional ordering
             limit: Optional result limit
             offset: Optional result offset
+            scope: Extra SQL condition (which work orders the caller may see)
             
         Returns:
             List of work order dictionaries with document_type_name field
         """
         try:
-            # Get work orders from parent class
-            work_orders = super().get_all(filters=filters, order_by=order_by, limit=limit, offset=offset)
+            if scope is None:
+                # Get work orders from parent class
+                work_orders = super().get_all(filters=filters, order_by=order_by, limit=limit, offset=offset)
+            else:
+                session = self.database.get_readonly_session()
+                try:
+                    repository = self._get_repository_instance(session)
+                    work_orders = repository.get_all(
+                        filters=filters, order_by=order_by, limit=limit, offset=offset, scope=scope
+                    )
+                finally:
+                    session.close()
 
             # Fetch document types once for the whole page instead of once per row
             doc_type_map = self._build_document_type_map()

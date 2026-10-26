@@ -7,6 +7,10 @@ import { claimService, type ClaimSearchResult } from '../../services/clientServi
 
 const { Text } = Typography;
 
+const claimLabel = (c: ClaimSearchResult) => c.claim_type === 'cash'
+  ? `Cash job${c.claim_number ? ` #${c.claim_number}` : ''}`
+  : `#${c.claim_number}`;
+
 interface ClaimSearchSelectProps
   extends Omit<SelectProps, 'value' | 'onChange' | 'options' | 'showSearch' | 'filterOption' | 'onSearch'> {
   value?: string;
@@ -14,7 +18,8 @@ interface ClaimSearchSelectProps
 }
 
 /**
- * Pick a claim by typing the homeowner's name, property address, or claim #.
+ * Pick a claim or cash job by typing the homeowner's name, property address,
+ * or claim #. Only the ones the signed-in person may see come back.
  * Drop-in for a Form.Item whose field holds the claim UUID.
  */
 const ClaimSearchSelect: React.FC<ClaimSearchSelectProps> = ({ value, onChange, loading, ...rest }) => {
@@ -54,12 +59,12 @@ const ClaimSearchSelect: React.FC<ClaimSearchSelectProps> = ({ value, onChange, 
       loading={isFetching || loading}
       notFoundContent={
         term.length < 2 ? 'Type at least 2 characters...'
-          : isFetching ? <LoadingOutlined /> : 'No claims found'
+          : isFetching ? <LoadingOutlined /> : 'No claims or cash jobs found'
       }
       optionLabelProp="label"
       options={claims.map(c => ({
         value: c.id,
-        label: `${c.client_name} — ${c.claim_number}`,
+        label: `${c.client_name} — ${c.claim_type === 'cash' ? claimLabel(c) : c.claim_number}`,
         claim: c,
       }))}
       optionRender={opt => {
@@ -68,7 +73,7 @@ const ClaimSearchSelect: React.FC<ClaimSearchSelectProps> = ({ value, onChange, 
           <div style={{ lineHeight: 1.3, padding: '2px 0' }}>
             <div>
               <Text strong>{c.client_name}</Text>
-              <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>#{c.claim_number}</Text>
+              <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>{claimLabel(c)}</Text>
             </div>
             <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'normal' }}>
               {c.address || 'No address'}

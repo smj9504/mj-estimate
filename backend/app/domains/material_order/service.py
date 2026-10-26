@@ -126,6 +126,7 @@ class MaterialOrderService:
         search: Optional[str] = None,
         page: int = 1,
         page_size: int = 50,
+        scope: Any = None,
     ) -> tuple:
         orders, total = self.order_repo.find_by_filters(
             scope_type=scope_type,
@@ -133,6 +134,7 @@ class MaterialOrderService:
             search=search,
             page=page,
             page_size=page_size,
+            scope=scope,
         )
         items = [self._to_dict(o) for o in orders]
         return items, total

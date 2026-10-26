@@ -39,6 +39,8 @@ class StaffUpdate(BaseModel):
     mobile_phone: Optional[str] = None
     # Only admin can update. None resets the person to their role's screens.
     screen_access: Optional[List[str]] = None
+    # Only admin can update: the companies whose claims and cash jobs they see
+    company_ids: Optional[List[UUID]] = None
 
     @field_validator("screen_access")
     @classmethod
@@ -81,6 +83,9 @@ class StaffResponse(BaseModel):
     screen_access: Optional[List[str]] = None
     # Screens they may open after applying role defaults (login and /me only).
     screens: Optional[List[str]] = None
+    # Companies they belong to; outside admin roles they see only these
+    # companies' claims and cash jobs
+    company_ids: List[str] = []
     # An admin reset the password; the app asks for a new one before going on
     must_change_password: Optional[bool] = False
 

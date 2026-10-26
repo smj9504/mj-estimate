@@ -3,7 +3,7 @@ Siding Estimate service - business logic
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from app.core.interfaces import DatabaseSession
@@ -35,6 +35,7 @@ class SidingEstimateService:
         search: Optional[str] = None,
         page: int = 1,
         page_size: int = 50,
+        scope: Any = None,
     ) -> Tuple[List[SidingEstimate], int]:
         return self.repo.find_by_filters(
             claim_id=claim_id,
@@ -43,6 +44,7 @@ class SidingEstimateService:
             search=search,
             page=page,
             page_size=page_size,
+            scope=scope,
         )
 
     def create(self, data: dict, created_by_id: Optional[str] = None) -> SidingEstimate:

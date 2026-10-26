@@ -12,6 +12,7 @@ from app.common.base_repository import SQLAlchemyRepository, SupabaseRepository
 from app.common.utils.money import line_amount
 from app.core.config import settings
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import scoped
 from app.domains.estimate.models import Estimate, EstimateItem
 
 logger = logging.getLogger(__name__)
@@ -139,10 +140,34 @@ class EstimateSQLAlchemyRepository(SQLAlchemyRepository, EstimateRepositoryMixin
         result = super().get_by_id(entity_id)
         return self._normalize_estimate_data(result)
     
-    def get_all(self, filters=None, order_by=None, limit=None, offset=None):
-        """Get all estimates with data normalization"""
-        results = super().get_all(filters, order_by, limit, offset)
+    def get_all(self, filters=None, order_by=None, limit=None, offset=None, scope=None):
+        """Get all estimates with data normalization.
+
+        scope is an extra SQL condition (which estimates the caller may see),
+        applied before paging.
+        """
+        if scope is None:
+            results = super().get_all(filters, order_by, limit, offset)
+        else:
+            results = self._get_all_scoped(scope, filters, order_by, limit, offset)
         return [self._normalize_estimate_data(item) for item in results]
+
+    def _get_all_scoped(self, scope, filters=None, order_by=None, limit=None, offset=None):
+        """get_all with an extra SQL condition"""
+        query = scoped(self._eager_load_convert_relationships(self.db_session.query(Estimate)), scope)
+        for key, value in (filters or {}).items():
+            column = getattr(Estimate, key, None)
+            if column is not None:
+                query = query.filter(column.in_(value) if isinstance(value, list) else column == value)
+        if order_by:
+            column = getattr(Estimate, order_by.lstrip('-'), None)
+            if column is not None:
+                query = query.order_by(column.desc() if order_by.startswith('-') else column)
+        if offset:
+            query = query.offset(offset)
+        if limit:
+            query = query.limit(limit)
+        return [self._convert_to_dict(entity) for entity in query.all()]
     
     def get_estimates_by_date_range(self, 
                                    start_date: date, 
@@ -559,13 +584,14 @@ class EstimateSQLAlchemyRepository(SQLAlchemyRepository, EstimateRepositoryMixin
             self.db_session.rollback()
             raise Exception(f"Failed to create estimate with items: {e}")
     
-    def get_insurance_estimates(self) -> List[Dict[str, Any]]:
-        """Get estimates that have insurance-specific data"""
+    def get_insurance_estimates(self, scope=None) -> List[Dict[str, Any]]:
+        """Get estimates that have insurance-specific data (scope: an extra SQL condition)"""
         try:
-            entities = self.db_session.query(Estimate).filter(
+            query = self.db_session.query(Estimate).filter(
                 (Estimate.claim_number.isnot(None)) |
                 (Estimate.policy_number.isnot(None))
-            ).order_by(Estimate.updated_at.desc()).all()
+            )
+            entities = scoped(query, scope).order_by(Estimate.updated_at.desc()).all()
             
             return [self._convert_to_dict(entity) for entity in entities]
             

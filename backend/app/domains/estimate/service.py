@@ -37,6 +37,22 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
         """Get estimate repository instance with the given session"""
         return get_estimate_repository(session)
     
+    def get_all(self,
+                filters: Optional[Dict[str, Any]] = None,
+                order_by: Optional[str] = None,
+                limit: Optional[int] = None,
+                offset: Optional[int] = None,
+                scope: Any = None) -> List[Dict[str, Any]]:
+        """Get estimates; scope is an extra SQL condition (which ones the caller may see)"""
+        if scope is None:
+            return super().get_all(filters=filters, order_by=order_by, limit=limit, offset=offset)
+        session = self.database.get_readonly_session()
+        try:
+            repository = self._get_repository_instance(session)
+            return repository.get_all(filters=filters, order_by=order_by, limit=limit, offset=offset, scope=scope)
+        finally:
+            session.close()
+    
     def get_by_estimate_number(self, estimate_number: str) -> Optional[Dict[str, Any]]:
         """
         Get estimate by estimate number.
@@ -163,17 +179,22 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
             logger.error(f"Error getting estimate with items: {e}")
             raise
     
-    def get_insurance_estimates(self) -> List[Dict[str, Any]]:
+    def get_insurance_estimates(self, scope: Any = None) -> List[Dict[str, Any]]:
         """
         Get estimates that have insurance-specific data.
         
+        Args:
+            scope: Extra SQL condition (which estimates the caller may see)
+
         Returns:
             List of insurance estimate dictionaries
         """
         try:
             with self.database.get_session() as session:
                 repository = self._get_repository_instance(session)
-                return repository.get_insurance_estimates()
+                if scope is None:
+                    return repository.get_insurance_estimates()
+                return repository.get_insurance_estimates(scope=scope)
         except Exception as e:
             logger.error(f"Error getting insurance estimates: {e}")
             raise

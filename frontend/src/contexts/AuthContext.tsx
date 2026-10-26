@@ -25,6 +25,8 @@ export interface User {
   screen_access?: string[] | null;
   // Screens they may open (role defaults applied); sent with login and /me
   screens?: string[];
+  // Companies they belong to; outside admin roles they see only these companies' claims and cash jobs
+  company_ids?: string[];
   // An admin reset the password; they choose their own before going on
   must_change_password?: boolean;
 }

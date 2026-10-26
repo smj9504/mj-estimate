@@ -11,9 +11,15 @@ from fastapi.responses import Response
 
 from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import (
+    company_ids,
+    document_condition,
+    require_document,
+)
 from app.domains.auth.dependencies import get_current_user
 
 from .export_service import generate_pdf
+from .models import MaterialOrder
 from .schemas import (
     MaterialOrderExportRequest,
     MaterialOrderRequest,
@@ -27,6 +33,22 @@ from .calculator import BRAND_SPECS
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _require_order(session, staff, order_id: str) -> None:
+    require_document(session, staff, MaterialOrder, order_id, "Material order")
+
+
+def _issuing_company(session, staff) -> Optional[str]:
+    """The company a new order is issued by, so its staff keep seeing it
+    (an order has no claim). None for an admin, or when it's ambiguous."""
+    ids = company_ids(session, staff)
+    if not ids:
+        return None
+    primary = getattr(staff, "company_id", None)
+    if primary and str(primary) in ids:
+        return str(primary)
+    return ids[0] if len(ids) == 1 else None
 
 
 @router.get("/material-orders/brands")
@@ -96,6 +118,9 @@ def save_material_order(
     """Create a new material order in DB."""
     service = MaterialOrderService(session)
     payload = data.model_dump()
+    issuer = _issuing_company(session, current_user)
+    if issuer:
+        payload["company_id"] = issuer
     user_id = current_user.get("id") if isinstance(current_user, dict) else getattr(current_user, "id", None)
     return service.create(payload, created_by_id=str(user_id) if user_id else None)
 
@@ -118,6 +143,9 @@ def list_material_orders(
         search=search,
         page=page,
         page_size=page_size,
+        scope=document_condition(
+            session, current_user, MaterialOrder.claim_id, MaterialOrder.company_id
+        ),
     )
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
@@ -129,6 +157,7 @@ def get_material_order(
     current_user: dict = Depends(get_current_user),
 ):
     """Get a single material order by ID."""
+    _require_order(session, current_user, order_id)
     service = MaterialOrderService(session)
     result = service.get(order_id)
     if not result:
@@ -144,6 +173,7 @@ def update_material_order(
     current_user: dict = Depends(get_current_user),
 ):
     """Update an existing material order."""
+    _require_order(session, current_user, order_id)
     service = MaterialOrderService(session)
     result = service.update(order_id, data.model_dump())
     if not result:
@@ -158,6 +188,7 @@ def delete_material_order(
     current_user: dict = Depends(get_current_user),
 ):
     """Delete a material order."""
+    _require_order(session, current_user, order_id)
     service = MaterialOrderService(session)
     if not service.delete(order_id):
         raise HTTPException(status_code=404, detail="Material order not found")

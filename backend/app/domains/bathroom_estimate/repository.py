@@ -3,13 +3,14 @@ Bathroom Estimate repository
 """
 
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from sqlalchemy import and_, desc, func, or_
 from sqlalchemy.orm import selectinload
 
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import scoped
 
 from .models import (
     BathroomEstimate,
@@ -91,13 +92,14 @@ class BathroomEstimateRepository(SQLAlchemyRepository):
         grouped: bool = False,
         page: int = 1,
         page_size: int = 50,
+        scope: Any = None,
     ) -> tuple:
         """Find estimates with filters and pagination.
 
         grouped: one row per bathroom job — its first member (the
         restoration, or the first option of a remodel).
         """
-        query = self.db_session.query(BathroomEstimate)
+        query = scoped(self.db_session.query(BathroomEstimate), scope)
 
         if grouped:
             first = (

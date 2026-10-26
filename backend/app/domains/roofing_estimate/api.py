@@ -15,6 +15,12 @@ from fastapi.responses import StreamingResponse
 
 from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import (
+    document_condition,
+    require_claim,
+    require_document,
+    sees_everything,
+)
 from app.domains.auth.dependencies import get_current_user
 
 from .formula import FUNCTION_NAMES
@@ -63,11 +69,29 @@ from .schemas import (
     RoofingEstimateUpdate,
 )
 from .image_service import ImageError, RoofingImageService
+from .models import RoofingEstimate
 from .service import RoofingEstimateService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/roofing-estimates", tags=["Roofing Estimates"])
+
+
+# ── Company scope ──
+
+def _require_estimate(session, staff, estimate_id: str) -> None:
+    require_document(session, staff, RoofingEstimate, estimate_id, "Estimate")
+
+
+def _require_moved_claim(session, staff, estimate_id: str, claim_id: Optional[str]) -> None:
+    """Moving an estimate onto another claim needs that claim to be visible"""
+    if not claim_id or sees_everything(staff):
+        return
+    current = session.query(RoofingEstimate.claim_id).filter(
+        RoofingEstimate.id == estimate_id
+    ).scalar()
+    if str(current or "") != str(claim_id):
+        require_claim(session, staff, claim_id)
 
 
 # ── Pricing info (for frontend dropdowns) ──
@@ -246,6 +270,8 @@ def create_estimate(
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
+    if data.claim_id:
+        require_claim(session, current_user, data.claim_id)
     service = RoofingEstimateService(session)
     result = service.create_estimate(data, created_by_id=current_user.id)
     return result
@@ -270,6 +296,9 @@ def list_estimates(
         search=search,
         page=page,
         page_size=page_size,
+        scope=document_condition(
+            session, current_user, RoofingEstimate.claim_id, RoofingEstimate.company_id
+        ),
     )
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
@@ -280,6 +309,7 @@ def get_estimate(
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
+    _require_estimate(session, current_user, estimate_id)
     service = RoofingEstimateService(session)
     result = service.get_estimate(estimate_id)
     if not result:
@@ -294,6 +324,8 @@ def update_estimate(
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
+    _require_estimate(session, current_user, estimate_id)
+    _require_moved_claim(session, current_user, estimate_id, data.claim_id)
     service = RoofingEstimateService(session)
     result = service.update_estimate(
         estimate_id, data, updated_by_id=current_user.id
@@ -309,6 +341,7 @@ def delete_estimate(
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
+    _require_estimate(session, current_user, estimate_id)
     service = RoofingEstimateService(session)
     if not service.delete_estimate(estimate_id):
         raise HTTPException(status_code=404, detail="Estimate not found")
@@ -371,6 +404,7 @@ def apply_eagleview_measurement(
     current_user: dict = Depends(get_current_user),
 ):
     """Upload EagleView file and apply measurements to estimate."""
+    _require_estimate(session, current_user, estimate_id)
     try:
         content = file.file.read()
         raw_data = json.loads(content)
@@ -415,8 +449,10 @@ def calculate_estimate(
     current_user: dict = Depends(get_current_user),
 ):
     """Save (if body provided) then calculate in one round-trip."""
+    _require_estimate(session, current_user, estimate_id)
     service = RoofingEstimateService(session)
     if data is not None:
+        _require_moved_claim(session, current_user, estimate_id, data.claim_id)
         service.update_estimate(
             estimate_id, data,
             updated_by_id=current_user.id,
@@ -445,6 +481,7 @@ def update_line_items(
     Rows not in the list are deleted. Calculate regenerates the items
     from the inputs and discards these edits.
     """
+    _require_estimate(session, current_user, estimate_id)
     service = RoofingEstimateService(session)
     result = service.update_line_items(
         estimate_id,
@@ -473,6 +510,7 @@ def get_material_costs(
     Quantities are derived from the roof measurements, so this stays in
     sync with the estimate without anything being entered by hand.
     """
+    _require_estimate(session, current_user, estimate_id)
     service = RoofingEstimateService(session)
     result = service.get_material_costs(estimate_id)
     if result is None:
@@ -490,6 +528,7 @@ def update_material_costs(
     current_user: dict = Depends(get_current_user),
 ):
     """Record actual supplier costs that differ from the defaults."""
+    _require_estimate(session, current_user, estimate_id)
     service = RoofingEstimateService(session)
     overrides = None
     if data.overrides is not None:
@@ -511,6 +550,7 @@ def clone_estimate(
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
+    _require_estimate(session, current_user, estimate_id)
     service = RoofingEstimateService(session)
     result = service.clone_estimate(estimate_id, created_by_id=current_user.id)
     if not result:
@@ -526,6 +566,7 @@ def get_history(
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
+    _require_estimate(session, current_user, estimate_id)
     service = RoofingEstimateService(session)
     return service.get_history(estimate_id)
 
@@ -543,6 +584,7 @@ def list_images(
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
+    _require_estimate(session, current_user, estimate_id)
     return RoofingImageService(session).list_images(estimate_id)
 
 
@@ -554,6 +596,7 @@ def upload_image(
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
+    _require_estimate(session, current_user, estimate_id)
     try:
         result = RoofingImageService(session).add_image(
             estimate_id, file.file.read(), file.filename, caption,
@@ -573,6 +616,7 @@ def update_image(
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
+    _require_estimate(session, current_user, estimate_id)
     result = RoofingImageService(session).update_image(
         estimate_id, image_id,
         caption=data.caption, display_order=data.display_order,
@@ -589,6 +633,7 @@ def delete_image(
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
+    _require_estimate(session, current_user, estimate_id)
     if not RoofingImageService(session).delete_image(estimate_id, image_id):
         raise HTTPException(status_code=404, detail="Image not found")
     return {"message": "Image deleted"}
@@ -601,6 +646,7 @@ def get_image_content(
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
+    _require_estimate(session, current_user, estimate_id)
     content = RoofingImageService(session).get_content(estimate_id, image_id)
     if content is None:
         raise HTTPException(status_code=404, detail="Image not found")
@@ -623,6 +669,7 @@ def export_pdf(
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
+    _require_estimate(session, current_user, estimate_id)
     from .export_service import RoofingExportService
 
     service = RoofingEstimateService(session)
@@ -663,6 +710,7 @@ def export_invoice(
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
+    _require_estimate(session, current_user, estimate_id)
     from .export_service import RoofingExportService
 
     service = RoofingEstimateService(session)
@@ -702,6 +750,7 @@ def export_warranty_cert(
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
+    _require_estimate(session, current_user, estimate_id)
     from .export_service import RoofingExportService
 
     service = RoofingEstimateService(session)

@@ -122,6 +122,8 @@ class AuthService {
     can_login?: boolean;
     // null puts the person back on their role's screens
     screen_access?: string[] | null;
+    // The companies whose claims and cash jobs they see
+    company_ids?: string[];
   }) {
     const response = await api.put(`${API_BASE_URL}/staff/${userId}`, data);
     return response.data;

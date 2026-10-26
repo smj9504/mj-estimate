@@ -140,8 +140,19 @@ class ClaimNegotiationResponse(ClaimNegotiationBase):
 # Claim schemas
 # ============================================================
 
+CLAIM_TYPES = ('insurance', 'cash')
+
+
+def _check_claim_type(v):
+    if v and v not in CLAIM_TYPES:
+        raise ValueError(f"claim_type must be one of {list(CLAIM_TYPES)}")
+    return v
+
+
 class ClaimBase(BaseModel):
     claim_number: Optional[str] = None
+    # insurance = a claim; cash = a cash job (no insurance details)
+    claim_type: Optional[str] = "insurance"
     company_id: Optional[UUID] = None
     insurance_company: Optional[str] = None
     insurance_policy_number: Optional[str] = None
@@ -167,6 +178,8 @@ class ClaimBase(BaseModel):
             raise ValueError(f"status must be one of {allowed}")
         return v
 
+    _claim_type = validator('claim_type', allow_reuse=True)(_check_claim_type)
+
     @validator('estimate_origin')
     def validate_estimate_origin(cls, v):
         allowed = ['carrier_provided', 'contractor_prepared']
@@ -190,10 +203,15 @@ class ClaimCreate(ClaimBase):
     # Optionally create initial negotiation inline
     initial_acv: Optional[float] = None
     initial_rcv: Optional[float] = None
+    # The companies working it; their people see it
+    company_ids: Optional[List[UUID]] = None
 
 
 class ClaimUpdate(BaseModel):
     claim_number: Optional[str] = None
+    claim_type: Optional[str] = None
+    # Replaces the claim's companies when given
+    company_ids: Optional[List[UUID]] = None
     company_id: Optional[UUID] = None
     insurance_company: Optional[str] = None
     insurance_policy_number: Optional[str] = None
@@ -236,6 +254,8 @@ class ClaimUpdate(BaseModel):
     # Must not be a company that did this claim's water mitigation. '' clears it.
     rebuild_estimate_company_id: Optional[str] = None
     notes: Optional[str] = None
+
+    _claim_type = validator('claim_type', allow_reuse=True)(_check_claim_type)
 
     @validator('wm_cost_status')
     def validate_wm_cost_status(cls, v):

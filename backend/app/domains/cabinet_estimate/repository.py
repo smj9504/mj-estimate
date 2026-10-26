@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import scoped
 
 from .models import (
     CabinetBox,
@@ -97,13 +98,14 @@ class CabinetEstimateRepository(SQLAlchemyRepository[CabinetEstimate, UUID]):
         grouped: bool = False,
         page: int = 1,
         page_size: int = 50,
+        scope: Any = None,
     ) -> tuple[List[CabinetEstimate], int]:
         """Find estimates with filters and pagination.
 
         grouped: one row per kitchen job - its first member (the
         restoration, or the first option of a remodel).
         """
-        query = self.db_session.query(CabinetEstimate)
+        query = scoped(self.db_session.query(CabinetEstimate), scope)
 
         if grouped:
             first = (

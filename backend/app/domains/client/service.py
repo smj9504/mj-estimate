@@ -11,6 +11,14 @@ from app.core.interfaces import DatabaseProvider
 
 logger = logging.getLogger(__name__)
 
+# Insurance details a cash job doesn't take
+CASH_JOB_CLEARED_FIELDS = (
+    'insurance_company', 'insurance_policy_number', 'insurance_deductible',
+    'deductible_discount', 'adjuster_name', 'adjuster_phone', 'adjuster_email',
+    'pa_contact_id', 'estimate_origin', 'contractor_estimate_stage',
+    'rebuild_estimate_company_id', 'appraisal_date',
+)
+
 
 class ClientService(BaseService[Dict[str, Any], str]):
     """Service for client operations"""
@@ -27,13 +35,14 @@ class ClientService(BaseService[Dict[str, Any], str]):
         from app.domains.client.repository import get_client_repository
         return get_client_repository(session)
 
-    def get_with_claims(self, client_id: str) -> Optional[Dict[str, Any]]:
-        """Get client with all claims, negotiations, and document counts"""
+    def get_with_claims(self, client_id: str, staff: Any = None) -> Optional[Dict[str, Any]]:
+        """Get client with its claims, negotiations, and document counts
+        (with staff, only what that person may see)"""
         try:
             session = self.database.get_readonly_session()
             try:
                 repo = self._get_repository_instance(session)
-                return repo.get_by_id_with_claims(client_id)
+                return repo.get_by_id_with_claims(client_id, staff=staff)
             finally:
                 session.close()
         except Exception as e:
@@ -41,7 +50,7 @@ class ClientService(BaseService[Dict[str, Any], str]):
             raise
 
     def get_all_with_counts(self, filters=None, order_by=None, limit=None, offset=None,
-                            source: Optional[str] = None) -> List[Dict[str, Any]]:
+                            source: Optional[str] = None, staff: Any = None) -> List[Dict[str, Any]]:
         """Get all clients with claim counts"""
         try:
             session = self.database.get_readonly_session()
@@ -49,7 +58,7 @@ class ClientService(BaseService[Dict[str, Any], str]):
                 repo = self._get_repository_instance(session)
                 return repo.get_all_with_counts(
                     filters=filters, order_by=order_by, limit=limit, offset=offset,
-                    source=source,
+                    source=source, staff=staff,
                 )
             finally:
                 session.close()
@@ -57,25 +66,26 @@ class ClientService(BaseService[Dict[str, Any], str]):
             logger.error(f"Error getting clients with counts: {e}")
             raise
 
-    def search(self, query: str, limit: int = 20, source: Optional[str] = None) -> List[Dict[str, Any]]:
+    def search(self, query: str, limit: int = 20, source: Optional[str] = None,
+               staff: Any = None) -> List[Dict[str, Any]]:
         """Search clients by name"""
         try:
             session = self.database.get_readonly_session()
             try:
                 repo = self._get_repository_instance(session)
-                return repo.search_by_name(query, limit, source=source)
+                return repo.search_by_name(query, limit, source=source, staff=staff)
             finally:
                 session.close()
         except Exception as e:
             logger.error(f"Error searching clients: {e}")
             raise
 
-    def count_by_source(self) -> Dict[str, int]:
+    def count_by_source(self, staff: Any = None) -> Dict[str, int]:
         """Client totals for the list's 'entered here' / 'AccuLynx' tabs"""
         try:
             session = self.database.get_readonly_session()
             try:
-                return self._get_repository_instance(session).count_by_source()
+                return self._get_repository_instance(session).count_by_source(staff=staff)
             finally:
                 session.close()
         except Exception as e:
@@ -114,9 +124,31 @@ class ClaimService(BaseService[Dict[str, Any], str]):
         from app.domains.client.repository import get_claim_repository
         return get_claim_repository(session)
 
+    def set_companies(self, claim_id: str, company_ids: List[str]) -> None:
+        """Replace the companies working a claim"""
+        from app.domains.client.claim_companies import set_claim_companies
+        from app.domains.client.models import Claim
+
+        session = self.database.get_session()
+        try:
+            repo = self._get_repository_instance(session)
+            set_claim_companies(repo.db_session, claim_id, [str(c) for c in company_ids])
+            claim = repo.db_session.query(Claim).filter(Claim.id == claim_id).first()
+            if claim is not None and company_ids and str(claim.company_id or '') not in {str(c) for c in company_ids}:
+                claim.company_id = str(company_ids[0])
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def update(self, entity_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Stamp appraisal_date when a claim moves to appraisal without one,
         so its history always says when it left negotiation."""
+        if update_data.get('claim_type') == 'cash':
+            for field in CASH_JOB_CLEARED_FIELDS:
+                update_data.pop(field, None)
         if update_data.get('status') == 'appraisal' and not update_data.get('appraisal_date'):
             existing = self.get_by_id(entity_id)
             if existing and not existing.get('appraisal_date'):
@@ -147,24 +179,36 @@ class ClaimService(BaseService[Dict[str, Any], str]):
             logger.error(f"Error getting claim with details: {e}")
             raise
 
-    def get_by_client(self, client_id: str) -> List[Dict[str, Any]]:
-        """Get all claims for a client"""
+    def get_by_client(self, client_id: str, staff: Any = None) -> List[Dict[str, Any]]:
+        """Get a client's claims (with staff, the ones that person may see)"""
         try:
             session = self.database.get_readonly_session()
             try:
                 repo = self._get_repository_instance(session)
-                return repo.get_claims_by_client(client_id)
+                return repo.get_claims_by_client(client_id, staff=staff)
             finally:
                 session.close()
         except Exception as e:
             logger.error(f"Error getting claims by client: {e}")
             raise
 
-    def create_with_initial_negotiation(self, claim_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create claim and optionally create initial negotiation"""
+    def create_with_initial_negotiation(self, claim_data: Dict[str, Any],
+                                        company_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Create a claim or cash job, put its companies on it, and optionally
+        create the initial negotiation"""
         try:
             initial_acv = claim_data.pop('initial_acv', None)
             initial_rcv = claim_data.pop('initial_rcv', None)
+            claim_data['claim_type'] = claim_data.get('claim_type') or 'insurance'
+            if claim_data['claim_type'] == 'cash':
+                # A cash job carries no insurance details
+                for field in CASH_JOB_CLEARED_FIELDS:
+                    claim_data.pop(field, None)
+                initial_acv = initial_rcv = None
+            claim_data['claim_number'] = (claim_data.get('claim_number') or '').strip()
+            company_ids = [str(c) for c in company_ids or []]
+            if company_ids and not claim_data.get('company_id'):
+                claim_data['company_id'] = company_ids[0]
 
             # Create claim
             session = self.database.get_session()
@@ -172,6 +216,9 @@ class ClaimService(BaseService[Dict[str, Any], str]):
                 repo = self._get_repository_instance(session)
                 claim = repo.create(claim_data)
                 claim_id = claim['id']
+                if company_ids:
+                    from app.domains.client.claim_companies import set_claim_companies
+                    set_claim_companies(repo.db_session, claim_id, company_ids)
 
                 # Create initial negotiation if amounts provided
                 if initial_acv is not None or initial_rcv is not None:
@@ -791,12 +838,14 @@ class ClaimTodoService:
         owner_id: Optional[str] = None,
         client_id: Optional[str] = None,
         claim_id: Optional[str] = None,
+        staff: Any = None,
     ) -> List[Dict[str, Any]]:
         """Todos in board order: To do, In progress, Done, each in its drag order.
 
         With an owner: that person's board. With a claim: that claim's todos and
         the client's todos that are not tied to a claim, whoever owns them. With
-        only a client: all of the client's todos.
+        only a client: all of the client's todos. With staff, todos on claims
+        that person may not see are left out.
         """
         session = self.database.get_readonly_session()
         try:
@@ -825,6 +874,11 @@ class ClaimTodoService:
                 query = query.filter(condition)
             elif client_id:
                 query = query.filter(ClaimTodo.client_id == client_id)
+            if staff is not None:
+                from app.domains.auth.company_scope import claim_condition
+                scope = claim_condition(session, staff, ClaimTodo.claim_id)
+                if scope is not None:
+                    query = query.filter(or_(ClaimTodo.claim_id.is_(None), scope))
 
             column_rank = case(
                 (ClaimTodo.status == 'in_progress', 1),
@@ -868,10 +922,12 @@ class ClaimTodoService:
         finally:
             session.close()
 
-    def get_active_todos(self, include_completed: bool = False) -> List[Dict[str, Any]]:
-        """Get all todos across all claims, with client/claim context for dashboard"""
+    def get_active_todos(self, include_completed: bool = False, staff: Any = None) -> List[Dict[str, Any]]:
+        """Get all todos across all claims (with staff, the claims that person
+        may see), with client/claim context for dashboard"""
         session = self.database.get_readonly_session()
         try:
+            from app.domains.auth.company_scope import claim_condition, scoped
             from app.domains.client.models import ClaimTodo, Claim, Client
 
             query = session.query(ClaimTodo, Claim, Client).join(
@@ -879,6 +935,8 @@ class ClaimTodoService:
             ).join(
                 Client, Claim.client_id == Client.id
             )
+            if staff is not None:
+                query = scoped(query, claim_condition(session, staff, ClaimTodo.claim_id))
 
             if not include_completed:
                 query = query.filter(ClaimTodo.is_completed == False)

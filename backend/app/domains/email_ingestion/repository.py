@@ -9,6 +9,7 @@ from sqlalchemy import func, or_
 
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import scoped
 from app.domains.email_ingestion.models import EmailAccount, EmailIngestionLog, ReceivedEmail
 
 logger = logging.getLogger(__name__)
@@ -80,9 +81,10 @@ class EmailIngestionLogRepository(SQLAlchemyRepository):
         claim_id: Optional[str] = None,
         has_attachment: bool = False,
         search: Optional[str] = None,
+        scope=None,
     ) -> List[Dict[str, Any]]:
         """Get logs with optional filters"""
-        query = self.db_session.query(EmailIngestionLog)
+        query = scoped(self.db_session.query(EmailIngestionLog), scope)
 
         if search and search.strip():
             query = query.filter(
@@ -167,22 +169,25 @@ class EmailIngestionLogRepository(SQLAlchemyRepository):
             EmailIngestionLog.message_id.in_(body_message_ids),
         ))
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self, scope=None) -> Dict[str, int]:
         """Get aggregated stats"""
-        total = self.db_session.query(func.count(EmailIngestionLog.id)).scalar() or 0
-        uploaded = self.db_session.query(func.count(EmailIngestionLog.id)).filter(
+        def count():
+            return scoped(self.db_session.query(func.count(EmailIngestionLog.id)), scope)
+
+        total = count().scalar() or 0
+        uploaded = count().filter(
             EmailIngestionLog.status == "uploaded"
         ).scalar() or 0
-        pending = self.db_session.query(func.count(EmailIngestionLog.id)).filter(
+        pending = count().filter(
             EmailIngestionLog.status == "pending"
         ).scalar() or 0
-        skipped = self.db_session.query(func.count(EmailIngestionLog.id)).filter(
+        skipped = count().filter(
             EmailIngestionLog.status == "skipped"
         ).scalar() or 0
-        failed = self.db_session.query(func.count(EmailIngestionLog.id)).filter(
+        failed = count().filter(
             EmailIngestionLog.status == "failed"
         ).scalar() or 0
-        duplicates = self.db_session.query(func.count(EmailIngestionLog.id)).filter(
+        duplicates = count().filter(
             EmailIngestionLog.status == "duplicate"
         ).scalar() or 0
 

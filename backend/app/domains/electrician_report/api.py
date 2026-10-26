@@ -21,7 +21,8 @@ from app.domains.electrician_report.schemas import (
     ElectricianReportPDFRequest,
     ElectricianReportNumberResponse
 )
-from app.domains.electrician_report.service import ElectricianReportService
+from app.domains.electrician_report.service import ElectricianReportService, report_scope
+from app.domains.auth.company_scope import company_ids, require_claim
 from app.domains.electrician_report.ai_service import generate_electrician_report
 from app.common.services.pdf_service import PDFService
 from sqlalchemy.orm import Session
@@ -29,6 +30,21 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def require_report(db, staff, report_id) -> None:
+    """404 unless the staff member may see this report"""
+    from app.domains.electrician_report.models import ElectricianReport
+
+    scope = report_scope(db, staff)
+    if scope is None:
+        return
+    try:
+        report_uuid = UUID(str(report_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if db.query(ElectricianReport.id).filter(ElectricianReport.id == report_uuid, scope).first() is None:
+        raise HTTPException(status_code=404, detail="Report not found")
 
 
 class AIGenerateRequest(PydanticBaseModel):
@@ -84,6 +100,8 @@ def create_electrician_report(
     current_staff: Staff = Depends(get_current_staff)
 ):
     """Create a new electrician report"""
+    if report.claim_id:
+        require_claim(db, current_staff, report.claim_id)
     try:
         db_report = ElectricianReportService.create_report(
             db=db, report_data=report, created_by=str(current_staff.id)
@@ -106,11 +124,15 @@ def get_electrician_reports(
     limit: int = Query(100, ge=1, le=500),
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff)
 ):
     """Get list of electrician reports"""
-    reports = ElectricianReportService.get_reports(db=db, skip=skip, limit=limit, status=status, search=search)
-    total = ElectricianReportService.get_report_count(db=db, status=status, search=search)
+    scope = report_scope(db, current_staff)
+    reports = ElectricianReportService.get_reports(
+        db=db, skip=skip, limit=limit, status=status, search=search, scope=scope
+    )
+    total = ElectricianReportService.get_report_count(db=db, status=status, search=search, scope=scope)
 
     return ElectricianReportListResponse(
         reports=[ElectricianReportResponse.model_validate(r.to_dict()) for r in reports],
@@ -123,9 +145,11 @@ def get_electrician_reports(
 @router.get("/{report_id}", response_model=ElectricianReportResponse)
 def get_electrician_report(
     report_id: UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff)
 ):
     """Get a single electrician report"""
+    require_report(db, current_staff, report_id)
     report = ElectricianReportService.get_report(db, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -142,6 +166,9 @@ def update_electrician_report(
     current_staff: Staff = Depends(get_current_staff)
 ):
     """Update an electrician report"""
+    require_report(db, current_staff, report_id)
+    if report_update.claim_id:
+        require_claim(db, current_staff, report_update.claim_id)
     updated_report = ElectricianReportService.update_report(
         db=db, report_id=report_id, report_update=report_update, updated_by=str(current_staff.id)
     )
@@ -154,9 +181,11 @@ def update_electrician_report(
 @router.delete("/{report_id}")
 def delete_electrician_report(
     report_id: UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff)
 ):
     """Delete an electrician report"""
+    require_report(db, current_staff, report_id)
     success = ElectricianReportService.delete_report(db, report_id)
     if not success:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -169,10 +198,14 @@ async def upload_report_photo(
     category: str = Form("damage"),
     caption: Optional[str] = Form(None),
     report_id: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff),
 ):
     """Upload a photo to GCS storage and return URL.
     Works before or after report is saved (report_id is optional).
     """
+    if report_id:
+        require_report(db, current_staff, report_id)
     import io
     import uuid
     from app.domains.storage.factory import StorageFactory
@@ -215,9 +248,11 @@ async def upload_report_photo(
 @router.post("/{report_id}/generate-pdf")
 def generate_pdf(
     report_id: UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff)
 ):
     """Generate PDF for an electrician report"""
+    require_report(db, current_staff, report_id)
     report = ElectricianReportService.get_report(db, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -276,6 +311,7 @@ def duplicate_report(
     current_staff: Staff = Depends(get_current_staff)
 ):
     """Duplicate an existing electrician report"""
+    require_report(db, current_staff, report_id)
     original = ElectricianReportService.get_report(db, report_id)
     if not original:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -311,13 +347,15 @@ class SendElectricianReportRequest(PydanticBaseModel):
 @router.get("/{report_id}/pa-email-info")
 def get_pa_email_info(
     report_id: UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff)
 ):
     """Get PA contact info for sending electrician report."""
     from app.domains.client.models import Claim
     from app.domains.company.models import CompanyContact, Company
     from app.domains.water_mitigation.models import WaterMitigationJob, WMSheetPAMapping
 
+    require_report(db, current_staff, report_id)
     report = ElectricianReportService.get_report(db, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -366,7 +404,12 @@ def get_pa_email_info(
     email_accounts = []
     try:
         from app.domains.email_ingestion.models import EmailAccount
-        accounts = db.query(EmailAccount).filter(EmailAccount.is_active == True).all()
+        accounts_query = db.query(EmailAccount).filter(EmailAccount.is_active == True)
+        own_companies = company_ids(db, current_staff)
+        if own_companies is not None:
+            # Someone who isn't an admin sends from their companies' accounts
+            accounts_query = accounts_query.filter(EmailAccount.company_id.in_(own_companies))
+        accounts = accounts_query.all()
         for a in accounts:
             email_accounts.append({
                 "id": str(a.id), "email_address": a.email_address,
@@ -408,6 +451,7 @@ def send_electrician_report_to_pa(
     current_staff: Staff = Depends(get_current_staff),
 ):
     """Send electrician report PDF to PA via email."""
+    require_report(db, current_staff, report_id)
     report = ElectricianReportService.get_report(db, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")

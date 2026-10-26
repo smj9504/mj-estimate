@@ -11,6 +11,7 @@ from app.common.base_repository import SQLAlchemyRepository, SupabaseRepository
 from app.common.utils.money import line_amount
 from app.core.config import settings
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import scoped
 from app.domains.invoice.models import Invoice, InvoiceItem
 
 logger = logging.getLogger(__name__)
@@ -265,6 +266,26 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
     def get_by_id(self, entity_id: str) -> Optional[Dict[str, Any]]:
         """Override to include items when getting invoice by ID"""
         return self.get_with_items(entity_id)
+    
+    def get_all(self, filters=None, order_by=None, limit=None, offset=None, scope=None):
+        """get_all, plus scope: an extra SQL condition (which invoices the
+        caller may see), applied before paging"""
+        if scope is None:
+            return super().get_all(filters, order_by, limit, offset)
+        query = scoped(self._eager_load_convert_relationships(self.db_session.query(Invoice)), scope)
+        for key, value in (filters or {}).items():
+            column = getattr(Invoice, key, None)
+            if column is not None:
+                query = query.filter(column.in_(value) if isinstance(value, list) else column == value)
+        if order_by:
+            column = getattr(Invoice, order_by.lstrip('-'), None)
+            if column is not None:
+                query = query.order_by(column.desc() if order_by.startswith('-') else column)
+        if offset:
+            query = query.offset(offset)
+        if limit:
+            query = query.limit(limit)
+        return [self._convert_to_dict(entity) for entity in query.all()]
     
     def get_invoices_by_date_range(self, 
                                    start_date: date, 

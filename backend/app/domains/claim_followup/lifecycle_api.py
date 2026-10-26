@@ -6,23 +6,39 @@ Aggregates data from follow-up, payment, supplement, and rebuild domains.
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+
+from app.core.database_factory import get_db_session as get_db
+from app.domains.auth.company_scope import claim_condition, document_condition, scoped
+from app.domains.auth.dependencies import get_current_staff
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Every list and count here is limited to the claims (and WM jobs) the staff
+# member's companies may see; admins see all of them.
+
 
 @router.get("/lifecycle/stats")
-def get_lifecycle_stats():
+def get_lifecycle_stats(db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Get unified stats across all claim lifecycle domains"""
+    from app.domains.claim_followup.models import FollowUpTask
     from app.domains.claim_followup.service import ClaimFollowUpService
+    from app.domains.rebuild.models import RebuildProject
+    from app.domains.supplement.models import SupplementRequest
     from app.domains.supplement.service import SupplementService
     from app.domains.rebuild.service import RebuildService
 
-    followup_stats = ClaimFollowUpService().get_dashboard_stats()
-    supplement_stats = SupplementService().get_dashboard_stats()
-    rebuild_stats = RebuildService().get_dashboard_stats()
+    followup_stats = ClaimFollowUpService().get_dashboard_stats(
+        claim_condition(db, current_staff, FollowUpTask.claim_id)
+    )
+    supplement_stats = SupplementService().get_dashboard_stats(
+        claim_condition(db, current_staff, SupplementRequest.claim_id)
+    )
+    rebuild_stats = RebuildService().get_dashboard_stats(
+        claim_condition(db, current_staff, RebuildProject.claim_id)
+    )
 
     return {
         "followup": followup_stats,
@@ -32,8 +48,9 @@ def get_lifecycle_stats():
 
 
 @router.get("/lifecycle/overdue")
-def get_overdue_items():
+def get_overdue_items(db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Get all overdue follow-up tasks"""
+    from app.domains.claim_followup.models import FollowUpTask
     from app.domains.claim_followup.service import ClaimFollowUpService
     service = ClaimFollowUpService()
     tasks, _ = service.get_tasks({
@@ -42,24 +59,31 @@ def get_overdue_items():
         "page_size": 50,
         "sort_by": "due_date",
         "sort_order": "asc",
-    })
+    }, scope=claim_condition(db, current_staff, FollowUpTask.claim_id))
     return tasks
 
 
 @router.get("/lifecycle/payment-gaps")
-def get_payment_gaps(min_difference: float = Query(0, ge=0)):
+def get_payment_gaps(
+    min_difference: float = Query(0, ge=0),
+    db=Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
     """Get claims where insurance estimate was received but payment not fully collected"""
     from app.core.database_factory import get_database
     from app.domains.client.models import Claim, Client
     from sqlalchemy import and_, or_
 
+    scope = claim_condition(db, current_staff, Claim.id)
     database = get_database()
     session = database.get_readonly_session()
     try:
         # Find claims that have received insurance estimate but payment is not complete
-        claims = session.query(Claim).filter(
+        query = session.query(Claim).filter(
             Claim.status.in_(['open', 'negotiating', 'appraisal', 'settled']),
             Claim.payment_status.in_(['unpaid', 'partial']),
+            # A cash job has no carrier to collect from
+            Claim.claim_type != 'cash',
             # Must have some estimated amount (insurance gave us numbers)
             or_(
                 Claim.current_acv > 0,
@@ -67,7 +91,8 @@ def get_payment_gaps(min_difference: float = Query(0, ge=0)):
                 Claim.final_invoice_amount > 0,
                 Claim.our_estimate_amount > 0,
             ),
-        ).all()
+        )
+        claims = scoped(query, scope).all()
 
         gaps = []
         for claim in claims:
@@ -107,18 +132,21 @@ def get_payment_gaps(min_difference: float = Query(0, ge=0)):
 
 
 @router.get("/lifecycle/pending-estimates")
-def get_pending_estimates():
+def get_pending_estimates(db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Get WM jobs with 'Sent to adjuster' status - awaiting insurance estimate"""
     from app.core.database_factory import get_database
     from app.domains.water_mitigation.models import WaterMitigationJob
 
+    scope = document_condition(
+        db, current_staff, WaterMitigationJob.claim_id, WaterMitigationJob.company_id
+    )
     database = get_database()
     session = database.get_readonly_session()
     try:
-        jobs = session.query(WaterMitigationJob).filter(
+        jobs = scoped(session.query(WaterMitigationJob).filter(
             WaterMitigationJob.active == True,
             WaterMitigationJob.status == 'Sent to adjuster',
-        ).order_by(WaterMitigationJob.documents_sent_date.asc().nullsfirst()).all()
+        ), scope).order_by(WaterMitigationJob.documents_sent_date.asc().nullsfirst()).all()
 
         results = []
         for job in jobs:
@@ -144,7 +172,7 @@ DEPRECIATION_PREP_PHASES = ['construction_done', 'preparing_docs']
 
 
 @router.get("/lifecycle/doc-prep")
-def get_doc_prep():
+def get_doc_prep(db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Documents we still have to prepare, of three kinds:
     - wm_docs: WM jobs in 'Lead' or 'Doc prepping' (invoice, COS, EWA, photo
       report, W9 and sketch not yet sent to the adjuster)
@@ -165,15 +193,19 @@ def get_doc_prep():
     def iso(value):
         return value.isoformat() if value else None
 
+    job_scope = document_condition(
+        db, current_staff, WaterMitigationJob.claim_id, WaterMitigationJob.company_id
+    )
+    task_scope = claim_condition(db, current_staff, FollowUpTask.claim_id)
     database = get_database()
     session = database.get_readonly_session()
     try:
         results: List[Dict[str, Any]] = []
 
-        jobs = session.query(WaterMitigationJob).filter(
+        jobs = scoped(session.query(WaterMitigationJob).filter(
             WaterMitigationJob.active == True,
             WaterMitigationJob.status.in_(['Lead', 'Doc prepping']),
-        ).all()
+        ), job_scope).all()
         for job in jobs:
             results.append({
                 "id": f"wm:{job.id}",
@@ -188,7 +220,7 @@ def get_doc_prep():
                 "since": iso(job.created_at),
             })
 
-        tasks = session.query(FollowUpTask).options(
+        tasks = scoped(session.query(FollowUpTask).options(
             selectinload(FollowUpTask.claim).selectinload(Claim.client)
         ).filter(
             FollowUpTask.status.notin_(['resolved', 'cancelled']),
@@ -196,7 +228,7 @@ def get_doc_prep():
                 (FollowUpTask.task_type == 'depreciation_recovery')
                 & FollowUpTask.depreciation_phase.in_(DEPRECIATION_PREP_PHASES)
             ),
-        ).all()
+        ), task_scope).all()
 
         # When each depreciation task last changed phase
         dep_ids = [t.id for t in tasks if t.task_type == 'depreciation_recovery']
@@ -239,18 +271,19 @@ def get_doc_prep():
 
 
 @router.get("/lifecycle/supplement-work")
-def get_supplement_work():
+def get_supplement_work(db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Get supplements with 'identified' or 'in_progress' status - need estimate work"""
     from app.core.database_factory import get_database
     from app.domains.supplement.models import SupplementRequest
     from app.domains.client.models import Claim, Client
 
+    scope = claim_condition(db, current_staff, SupplementRequest.claim_id)
     database = get_database()
     session = database.get_readonly_session()
     try:
-        supplements = session.query(SupplementRequest).filter(
+        supplements = scoped(session.query(SupplementRequest).filter(
             SupplementRequest.status.in_(['identified', 'in_progress']),
-        ).order_by(SupplementRequest.created_at.asc()).all()
+        ), scope).order_by(SupplementRequest.created_at.asc()).all()
 
         results = []
         for sup in supplements:
@@ -277,13 +310,14 @@ def get_supplement_work():
 
 
 @router.get("/lifecycle/active-rebuilds")
-def get_active_rebuilds():
+def get_active_rebuilds(db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Get rebuild projects currently in progress"""
+    from app.domains.rebuild.models import RebuildProject
     from app.domains.rebuild.service import RebuildService
     service = RebuildService()
     items, _ = service.get_projects({
         "status": "in_progress",
         "page": 1,
         "page_size": 50,
-    })
+    }, scope=claim_condition(db, current_staff, RebuildProject.claim_id))
     return items

@@ -11,6 +11,7 @@ import authService from '../services/authService';
 import { useAuth } from '../contexts/AuthContext';
 import ScreenChecklist from '../components/admin/ScreenChecklist';
 import ResetPasswordModal from '../components/admin/ResetPasswordModal';
+import CompanyMultiSelect, { useCompanyOptions } from '../components/company/CompanyMultiSelect';
 import { ALL_SCREEN_KEYS } from '../constants/screens';
 
 const { Title, Text } = Typography;
@@ -51,6 +52,7 @@ interface User {
   created_at: string;
   screen_access: string[] | null;
   must_change_password?: boolean;
+  company_ids?: string[];
 }
 
 const UserManagement: React.FC = () => {
@@ -66,6 +68,9 @@ const UserManagement: React.FC = () => {
   const [screenSettings, setScreenSettings] = useState<ScreenSettings | null>(null);
   const [screenMode, setScreenMode] = useState<'role' | 'custom'>('role');
   const [customScreens, setCustomScreens] = useState<string[]>([]);
+
+  const { data: companyOptions = [] } = useCompanyOptions();
+  const companyName = (id: string) => companyOptions.find(c => c.id === id)?.name;
 
   const [defaultsRole, setDefaultsRole] = useState('technician');
   const [defaultsDraft, setDefaultsDraft] = useState<string[]>([]);
@@ -142,6 +147,7 @@ const UserManagement: React.FC = () => {
       last_name: user.last_name,
       staff_number: user.staff_number,
       role: user.role,
+      company_ids: user.company_ids ?? [],
       is_active: user.is_active,
       can_login: user.can_login
     });
@@ -168,8 +174,11 @@ const UserManagement: React.FC = () => {
           ...values,
           hire_date: new Date().toISOString()
         });
-        if (screen_access) {
-          await authService.updateUser(created.id, { screen_access });
+        if (screen_access || values.company_ids?.length) {
+          await authService.updateUser(created.id, {
+            ...(screen_access ? { screen_access } : {}),
+            company_ids: values.company_ids ?? [],
+          });
         }
         message.success('User created successfully');
       }
@@ -259,6 +268,27 @@ const UserManagement: React.FC = () => {
           contractor: 'orange',
         };
         return <Tag color={colors[role] || 'default'}>{role.toUpperCase()}</Tag>;
+      },
+    },
+    {
+      title: 'Companies',
+      key: 'companies',
+      render: (_: any, record: User) => {
+        const ids = record.company_ids ?? [];
+        if (ids.length === 0) {
+          return ADMIN_ROLES.includes(record.role)
+            ? <Text type="secondary">None</Text>
+            : (
+              <Tooltip title="Sees no claims, cash jobs or their documents until you add a company">
+                <Tag color="orange">No company</Tag>
+              </Tooltip>
+            );
+        }
+        return (
+          <Space size={[0, 4]} wrap>
+            {ids.map(id => <Tag key={id}>{companyName(id) ?? 'Removed company'}</Tag>)}
+          </Space>
+        );
       },
     },
     {
@@ -521,6 +551,16 @@ const UserManagement: React.FC = () => {
               <Option value="customer_service">Customer Service</Option>
               <Option value="contractor">Contractor</Option>
             </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="company_ids"
+            label="Companies"
+            extra={formRole && ADMIN_ROLES.includes(formRole)
+              ? 'Admins see every claim and cash job whatever their companies.'
+              : 'They see only the claims and cash jobs these companies work, and the documents on them.'}
+          >
+            <CompanyMultiSelect placeholder="No company" aria-label="Companies" />
           </Form.Item>
 
           <Divider orientation="left" plain>Screens</Divider>

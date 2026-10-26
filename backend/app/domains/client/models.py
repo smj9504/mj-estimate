@@ -77,7 +77,7 @@ class Client(Base, BaseModel):
 
 
 class Claim(Base, BaseModel):
-    """Insurance claim - one client can have multiple claims"""
+    """Insurance claim or cash job - one client can have several of each"""
     __tablename__ = "claims"
     __table_args__ = (
         Index('ix_claims_claim_number', 'claim_number'),
@@ -88,6 +88,10 @@ class Claim(Base, BaseModel):
 
     client_id = Column(UUIDType(), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     company_id = Column(UUIDType(), ForeignKey("companies.id"), nullable=True)  # 담당 회사 (claim마다 다를 수 있음)
+
+    # insurance = an insurance claim. cash = a cash job the homeowner pays
+    # for: the same as a claim, without the insurance details.
+    claim_type = Column(String(20), nullable=False, default="insurance", server_default="insurance")
 
     # Optional plumber report link
     plumber_report_id = Column(

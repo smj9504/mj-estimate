@@ -40,6 +40,22 @@ class ReceiptService(TransactionalService[Dict[str, Any], str]):
         """Get receipt repository instance with the given session"""
         return get_receipt_repository(session)
 
+    def get_all(self,
+                filters: Optional[Dict[str, Any]] = None,
+                order_by: Optional[str] = None,
+                limit: Optional[int] = None,
+                offset: Optional[int] = None,
+                scope: Any = None) -> List[Dict[str, Any]]:
+        """Get receipts; scope is an extra SQL condition (which ones the caller may see)"""
+        if scope is None:
+            return super().get_all(filters=filters, order_by=order_by, limit=limit, offset=offset)
+        session = self.database.get_readonly_session()
+        try:
+            repository = self._get_repository_instance(session)
+            return repository.get_all(filters=filters, order_by=order_by, limit=limit, offset=offset, scope=scope)
+        finally:
+            session.close()
+
     def get_by_receipt_number(self, receipt_number: str) -> Optional[Dict[str, Any]]:
         """
         Get receipt by receipt number.
@@ -254,15 +270,18 @@ class ReceiptService(TransactionalService[Dict[str, Any], str]):
             'voided_at': datetime.utcnow()
         })
 
-    def get_receipt_summary(self) -> Dict[str, Any]:
+    def get_receipt_summary(self, scope: Any = None) -> Dict[str, Any]:
         """
         Get comprehensive receipt summary statistics.
+
+        Args:
+            scope: Extra SQL condition (which receipts the caller may see)
 
         Returns:
             Dictionary with receipt statistics
         """
         try:
-            all_receipts = self.get_all()
+            all_receipts = self.get_all(scope=scope)
 
             # Group by status
             status_counts = {}

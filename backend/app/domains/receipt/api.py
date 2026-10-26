@@ -9,9 +9,17 @@ import tempfile
 import os
 import logging
 import threading
+import uuid
 from functools import lru_cache
 
+from sqlalchemy import select
+
 from app.core.database_factory import get_db_session as get_db
+from app.domains.auth.company_scope import document_condition, require_document
+from app.domains.auth.dependencies import get_current_staff
+from app.domains.auth.document_access import require_document_access, sees_all_documents
+from app.domains.invoice.models import Invoice
+from app.domains.receipt.models import Receipt
 from app.domains.receipt.schemas import (
     ReceiptCreate,
     ReceiptUpdate,
@@ -68,6 +76,48 @@ def get_receipt_template_service():
 
 
 router = APIRouter()
+
+
+# A receipt is visible to whoever may open its invoice: the invoice's owner
+# (or a super admin), when it's on a claim or from a company of theirs.
+
+def _require_invoice(db, staff, invoice_id, label: str = "Invoice") -> None:
+    """404 unless this person may open the invoice"""
+    require_document_access(db, Invoice, invoice_id, staff, label)
+    require_document(db, staff, Invoice, invoice_id, label)
+
+
+def require_invoice_access(invoice_id: str, current_staff=Depends(get_current_staff), db=Depends(get_db)):
+    """The signed-in person, if they may open this invoice (404 otherwise)"""
+    _require_invoice(db, current_staff, invoice_id)
+    return current_staff
+
+
+def require_receipt_access(receipt_id: str, current_staff=Depends(get_current_staff), db=Depends(get_db)):
+    """The signed-in person, if they may open this receipt's invoice (404 otherwise)"""
+    not_found = HTTPException(status_code=404, detail="Receipt not found")
+    try:
+        uuid.UUID(str(receipt_id))
+    except ValueError:
+        raise not_found
+    row = db.query(Receipt.invoice_id).filter(Receipt.id == str(receipt_id)).first()
+    if row is None:
+        raise not_found
+    _require_invoice(db, current_staff, row[0], "Receipt")
+    return current_staff
+
+
+def visible_receipts(db, staff):
+    """SQL condition for the receipts whose invoice this person may open (None: all)"""
+    conditions = []
+    if not sees_all_documents(staff):
+        conditions.append(Invoice.owner_id == str(staff.id))
+    company = document_condition(db, staff, Invoice.claim_id, Invoice.company_id)
+    if company is not None:
+        conditions.append(company)
+    if not conditions:
+        return None
+    return Receipt.invoice_id.in_(select(Invoice.id).where(*conditions))
 
 
 def _get_payment_method_mapping():
@@ -199,9 +249,11 @@ def list_receipts(
     limit: int = 100,
     status: Optional[str] = None,
     invoice_id: Optional[str] = None,
-    service: ReceiptService = Depends(get_receipt_service)
+    service: ReceiptService = Depends(get_receipt_service),
+    current_staff=Depends(get_current_staff),
+    db=Depends(get_db),
 ):
-    """List all receipts with optional filtering"""
+    """List the receipts of invoices the signed-in person may open, with optional filtering"""
 
     try:
         logger.info("Starting list_receipts endpoint")
@@ -219,7 +271,8 @@ def list_receipts(
             filters=filters if filters else None,
             limit=limit,
             offset=skip,
-            order_by='-created_at'
+            order_by='-created_at',
+            scope=visible_receipts(db, current_staff),
         )
 
         # Convert to response format
@@ -257,9 +310,12 @@ def list_receipts(
 @router.post("/generate", response_model=ReceiptResponse)
 def generate_receipt(
     request: ReceiptGenerateRequest,
-    service: ReceiptService = Depends(get_receipt_service)
+    service: ReceiptService = Depends(get_receipt_service),
+    current_staff=Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Generate a receipt from an invoice"""
+    _require_invoice(db, current_staff, request.invoice_id)
 
     try:
         logger.info(f"Generating receipt for invoice: {request.invoice_id}")
@@ -295,7 +351,8 @@ def generate_receipt(
 @router.get("/by-invoice/{invoice_id}", response_model=List[ReceiptResponse])
 def get_receipts_by_invoice(
     invoice_id: str,
-    service: ReceiptService = Depends(get_receipt_service)
+    service: ReceiptService = Depends(get_receipt_service),
+    _staff=Depends(require_invoice_access),
 ):
     """Get all receipts for a specific invoice"""
 
@@ -321,7 +378,8 @@ def get_receipts_by_invoice(
 def get_receipt_by_number(
     invoice_id: str,
     receipt_number: str,
-    service: ReceiptService = Depends(get_receipt_service)
+    service: ReceiptService = Depends(get_receipt_service),
+    _staff=Depends(require_invoice_access),
 ):
     """
     Get a specific receipt by invoice ID and receipt number.
@@ -362,7 +420,8 @@ def get_receipt_by_number(
 @router.get("/{receipt_id}", response_model=ReceiptResponse)
 def get_receipt(
     receipt_id: str,
-    service: ReceiptService = Depends(get_receipt_service)
+    service: ReceiptService = Depends(get_receipt_service),
+    _staff=Depends(require_receipt_access),
 ):
     """Get a specific receipt by ID"""
 
@@ -383,7 +442,8 @@ def get_receipt(
 def update_receipt(
     receipt_id: str,
     receipt_data: ReceiptUpdate,
-    service: ReceiptService = Depends(get_receipt_service)
+    service: ReceiptService = Depends(get_receipt_service),
+    _staff=Depends(require_receipt_access),
 ):
     """Update an existing receipt"""
 
@@ -418,7 +478,8 @@ def update_receipt(
 def void_receipt(
     receipt_id: str,
     reason: str,
-    service: ReceiptService = Depends(get_receipt_service)
+    service: ReceiptService = Depends(get_receipt_service),
+    _staff=Depends(require_receipt_access),
 ):
     """Void a receipt"""
 
@@ -468,7 +529,8 @@ def void_receipt(
 @router.delete("/{receipt_id}")
 def delete_receipt(
     receipt_id: str,
-    service: ReceiptService = Depends(get_receipt_service)
+    service: ReceiptService = Depends(get_receipt_service),
+    _staff=Depends(require_receipt_access),
 ):
     """Delete a receipt"""
 
@@ -494,7 +556,8 @@ def delete_receipt(
 @router.get("/{receipt_id}/html")
 def generate_receipt_html(
     receipt_id: str,
-    service: ReceiptService = Depends(get_receipt_service)
+    service: ReceiptService = Depends(get_receipt_service),
+    _staff=Depends(require_receipt_access),
 ):
     """Generate HTML for a receipt"""
 
@@ -661,6 +724,8 @@ def generate_receipt_html(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# The invoice screen opens this in a new tab, which sends no sign-in token,
+# so it has no access check
 @router.get("/{receipt_id}/pdf")
 def generate_receipt_pdf(
     receipt_id: str,
@@ -854,12 +919,17 @@ def generate_receipt_pdf(
 @router.post("/preview-html")
 def preview_receipt_html(
     data: dict,
-    service: ReceiptService = Depends(get_receipt_service)
+    service: ReceiptService = Depends(get_receipt_service),
+    current_staff=Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """
     Preview receipt HTML without saving to database
     Used for previewing receipt before generation
     """
+    if data.get('invoice_id'):
+        _require_invoice(db, current_staff, data['invoice_id'])
+
     try:
         logger.info("Starting receipt HTML preview generation")
         logger.info(f"Preview data keys: {list(data.keys())}")
@@ -1007,9 +1077,14 @@ def preview_receipt_html(
 @router.post("/preview-pdf")
 def preview_receipt_pdf(
     data: dict,
-    service: ReceiptService = Depends(get_receipt_service)
+    service: ReceiptService = Depends(get_receipt_service),
+    current_staff=Depends(get_current_staff),
+    db=Depends(get_db),
 ):
     """Preview receipt PDF without saving to database - returns PDF blob"""
+    if data.get('invoice_id'):
+        _require_invoice(db, current_staff, data['invoice_id'])
+
     try:
         logger.info("Starting receipt PDF preview generation")
 
@@ -1371,12 +1446,14 @@ def delete_template(
 
 @router.get("/summary/stats")
 def get_receipt_summary(
-    service: ReceiptService = Depends(get_receipt_service)
+    service: ReceiptService = Depends(get_receipt_service),
+    current_staff=Depends(get_current_staff),
+    db=Depends(get_db),
 ):
-    """Get receipt summary statistics"""
+    """Get summary statistics for the receipts the signed-in person may see"""
 
     try:
-        summary = service.get_receipt_summary()
+        summary = service.get_receipt_summary(scope=visible_receipts(db, current_staff))
         return summary
 
     except Exception as e:

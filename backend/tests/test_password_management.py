@@ -29,7 +29,7 @@ from app.domains.auth import password_change
 from app.domains.auth.password_reset_models import PasswordResetToken
 from app.domains.auth.schemas import MIN_PASSWORD_LENGTH
 from app.domains.auth.service import TEMP_PASSWORD_CHARS, AuthService
-from app.domains.staff.models import RoleScreenAccess, Staff, StaffRole
+from app.domains.staff.models import RoleScreenAccess, Staff, StaffCompany, StaffRole
 # SQLAlchemy configures every loaded model on first use, and models other test
 # files load name classes by string, so register them all as the app does
 import app.main  # noqa: E402,F401
@@ -96,6 +96,7 @@ def env(monkeypatch):
     Staff.__table__.create(engine)
     PasswordResetToken.__table__.create(engine)
     RoleScreenAccess.__table__.create(engine)  # login and /me read it
+    StaffCompany.__table__.create(engine)  # so does each person's companies
     session = sessionmaker(bind=engine)()
     admin = make_staff(session, 'boss', StaffRole.admin)
     jane = make_staff(session, 'jane', StaffRole.technician)

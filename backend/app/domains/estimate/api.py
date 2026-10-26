@@ -17,6 +17,7 @@ from app.common.services.pdf_service import get_pdf_service
 from app.common.utils.security import validate_file_path, PathTraversalError
 from app.common.utils.temp_file import temp_file_handler, get_temp_dir
 from app.core.database_factory import get_db_session as get_db
+from app.domains.auth.company_scope import document_condition, require_document
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.auth.document_access import (
     can_access_document,
@@ -45,9 +46,16 @@ def require_estimate_access(
     current_staff=Depends(get_current_staff),
     db=Depends(get_db),
 ):
-    """The signed-in person, if they may open this estimate (404 otherwise)"""
+    """The signed-in person, if they may open this estimate (404 otherwise):
+    they own it, and it's on a claim or from a company of theirs"""
     require_document_access(db, Estimate, estimate_id, current_staff, "Estimate")
+    require_document(db, current_staff, Estimate, estimate_id, "Estimate")
     return current_staff
+
+
+def visible_estimates(db, current_staff):
+    """SQL condition for the estimates this person's companies may see (None: all)"""
+    return document_condition(db, current_staff, Estimate.claim_id, Estimate.company_id)
 
 
 @router.get("/generate-number", response_model=EstimateNumberResponse)
@@ -122,6 +130,7 @@ def list_estimates(
         filters={'owner_id': owner_id} if owner_id else None,
         limit=limit,
         offset=skip,
+        scope=visible_estimates(db, current_staff),
     )
     names = owner_names(db, (est.get('owner_id') for est in estimates))
     
@@ -174,7 +183,7 @@ def list_insurance_estimates(
     service = EstimateService(database)
 
     insurance_estimates = [
-        est for est in service.get_insurance_estimates()
+        est for est in service.get_insurance_estimates(scope=visible_estimates(db, current_staff))
         if can_access_document(est.get('owner_id'), current_staff)
     ]
     

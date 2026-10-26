@@ -4,6 +4,7 @@ together, on a throwaway SQLite database."""
 
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 import sys
 
 import pytest
@@ -15,12 +16,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core import database_factory
 from app.core.database_factory import Base, SQLiteDatabase
 from app.domains.claim_followup.lifecycle_api import get_doc_prep
+from app.domains.staff.models import StaffRole
 from app.domains.claim_followup.models import FollowUpTask
 from app.domains.client.models import Claim, ClaimActivity, Client
 from app.domains.water_mitigation.models import WaterMitigationJob
 # SQLAlchemy configures every loaded model on first use, and models other test
 # files load name classes by string, so register them all as the app does
 import app.main  # noqa: E402,F401
+
+# The routes take the signed-in person; an admin sees every claim
+ADMIN = SimpleNamespace(id='00000000-0000-0000-0000-0000000000ad', role=StaffRole.admin)
 
 TABLES = [Client, Claim, ClaimActivity, FollowUpTask, WaterMitigationJob]
 
@@ -96,7 +101,7 @@ def test_doc_prep_lists_three_kinds_oldest_first(database):
     }
     session.close()
 
-    items = get_doc_prep()
+    items = get_doc_prep(db=None, current_staff=ADMIN)
 
     assert [i['id'] for i in items] == [
         ids['prepping'], ids['supp'], ids['undated_dep'], ids['lead'], ids['dep'],

@@ -9,10 +9,12 @@ the sender keeps the original either way.
 from typing import Any, Dict, Iterable, List, Optional
 
 from app.core import database_factory
+from app.domains.auth.company_scope import can_see_document
 from app.domains.document_transfer.models import DocumentTransfer
 from app.domains.estimate.models import Estimate
 from app.domains.invoice.models import Invoice
 from app.domains.messaging.service import MessagingService, iso, utcnow
+from app.domains.staff.models import Staff
 
 # document_type -> (model, number column, label, page that opens it)
 DOCUMENT_TYPES = {
@@ -72,6 +74,7 @@ class DocumentTransferService:
         recipients = self.messaging.require_active_staff(set(map(str, recipient_ids)) - {me})
         if not recipients:
             raise ValueError("Pick someone other than yourself")
+        self._require_recipients_see(document, label, recipients)
         note = (note or '').strip() or None
 
         transfers = []
@@ -109,6 +112,22 @@ class DocumentTransferService:
             )
             transfers.append(transfer)
         return transfers
+
+    def _require_recipients_see(self, document: Any, label: str, recipient_ids: List[str]) -> None:
+        """The copy keeps the original's claim and company, so a recipient
+        whose companies can't see the original couldn't see their copy either"""
+        rows = self.db.query(Staff.id, Staff.role).filter(Staff.id.in_(recipient_ids)).all()
+        blocked = [
+            str(row.id) for row in rows
+            if not can_see_document(self.db, row, document.claim_id, document.company_id)
+        ]
+        if blocked:
+            names = self.messaging.names(blocked)
+            who = ', '.join(sorted(names.get(i) or 'Someone' for i in blocked))
+            raise ValueError(
+                f"Can't send to {who}: this {label.lower()} is on a claim or from a company "
+                f"they can't see, so they couldn't open the copy"
+            )
 
     def _for_recipient(self, transfer_id: str, staff: Any) -> DocumentTransfer:
         transfer = self._get(transfer_id)

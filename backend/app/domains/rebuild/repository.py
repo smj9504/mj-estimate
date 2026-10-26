@@ -9,6 +9,7 @@ from sqlalchemy import func
 
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import scoped
 from app.domains.rebuild.models import (
     RebuildCompletionDoc,
     RebuildContractor,
@@ -47,8 +48,10 @@ class RebuildProjectRepository(SQLAlchemyRepository):
         claim_id: Optional[str] = None,
         page: int = 1,
         page_size: int = 20,
+        scope: Any = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
-        query = self.db_session.query(RebuildProject)
+        # scope: company condition from auth.company_scope (None = all)
+        query = scoped(self.db_session.query(RebuildProject), scope)
 
         if status:
             query = query.filter(RebuildProject.status == status)
@@ -70,18 +73,21 @@ class RebuildProjectRepository(SQLAlchemyRepository):
         ).order_by(RebuildProject.created_at.desc()).all()
         return [self._convert_to_dict(p) for p in items]
 
-    def get_dashboard_stats(self) -> Dict[str, Any]:
-        total = self.db_session.query(func.count(RebuildProject.id)).scalar() or 0
+    def get_dashboard_stats(self, scope: Any = None) -> Dict[str, Any]:
+        total = scoped(
+            self.db_session.query(func.count(RebuildProject.id)), scope
+        ).scalar() or 0
 
-        status_counts = self.db_session.query(
+        status_counts = scoped(self.db_session.query(
             RebuildProject.status, func.count(RebuildProject.id)
-        ).group_by(RebuildProject.status).all()
+        ), scope).group_by(RebuildProject.status).all()
         counts = {s: c for s, c in status_counts}
 
-        total_contract = self.db_session.query(
+        total_contract = scoped(self.db_session.query(
             func.sum(RebuildProject.contract_amount)
-        ).filter(RebuildProject.status.in_(['in_progress', 'completed', 'invoiced'])).scalar() or 0
+        ).filter(RebuildProject.status.in_(['in_progress', 'completed', 'invoiced'])), scope).scalar() or 0
 
+        # The contractor directory isn't per claim, so this count isn't scoped
         total_contractors = self.db_session.query(func.count(RebuildContractor.id)).filter(
             RebuildContractor.is_active == True
         ).scalar() or 0

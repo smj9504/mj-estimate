@@ -3,13 +3,14 @@ Material Order repository.
 """
 
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from sqlalchemy import desc, or_
 from sqlalchemy.orm import selectinload
 
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import scoped
 
 from .models import MaterialOrder, MaterialOrderItem
 
@@ -35,8 +36,9 @@ class MaterialOrderRepository(SQLAlchemyRepository):
         search: Optional[str] = None,
         page: int = 1,
         page_size: int = 50,
+        scope: Any = None,
     ) -> tuple:
-        query = self.db_session.query(MaterialOrder)
+        query = scoped(self.db_session.query(MaterialOrder), scope)
 
         if scope_type:
             query = query.filter(MaterialOrder.scope_type == scope_type)

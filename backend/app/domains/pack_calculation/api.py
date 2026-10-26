@@ -5,11 +5,16 @@ Pack Calculation API endpoints
 from fastapi import APIRouter, Depends, HTTPException
 import logging
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from app.core.database_factory import get_db
-from app.domains.auth.dependencies import get_current_user
+from app.domains.auth.company_scope import (
+    company_ids,
+    document_condition,
+    require_document,
+)
+from app.domains.auth.dependencies import get_current_user, require_admin
 from app.domains.staff.models import Staff
 
 from .schemas import (
@@ -37,10 +42,27 @@ from .repository import (
     ItemMaterialMappingRepository,
     MLTrainingMetadataRepository,
 )
+from .models import PackCalculation
 from .service import PackCalculationService
 
 router = APIRouter(prefix="/pack-calculation", tags=["pack_calculation"])
 logger = logging.getLogger(__name__)
+
+
+def _require_calculation(db, staff, calculation_id) -> None:
+    require_document(db, staff, PackCalculation, calculation_id, "Calculation")
+
+
+def _issuing_company(db, staff) -> Optional[str]:
+    """The company a new calculation is issued by, so its staff keep seeing
+    it (it has no claim). None for an admin, or when it's ambiguous."""
+    ids = company_ids(db, staff)
+    if not ids:
+        return None
+    primary = getattr(staff, "company_id", None)
+    if primary and str(primary) in ids:
+        return str(primary)
+    return ids[0] if len(ids) == 1 else None
 
 
 @router.post("/calculate", response_model=PackCalculationResult)
@@ -55,7 +77,10 @@ def calculate_pack(
     Auto-selects optimal calculation strategies
     """
     service = PackCalculationService(db)
-    result = service.calculate(request, current_user.id)
+    result = service.calculate(
+        request, current_user.id,
+        company_id=_issuing_company(db, current_user),
+    )
     return result
 
 
@@ -431,7 +456,12 @@ def list_calculations(
     logger = logging.getLogger(__name__)
 
     repo = PackCalculationRepository(db)
-    calculations = repo.get_all(offset=skip, limit=limit, order_by="-created_at")
+    calculations = repo.get_recent(
+        offset=skip, limit=limit,
+        scope=document_condition(
+            db, current_user, PackCalculation.claim_id, PackCalculation.company_id
+        ),
+    )
 
     logger.info(f"Found {len(calculations)} pack calculations")
 
@@ -459,6 +489,7 @@ def get_calculation(
     current_user: Staff = Depends(get_current_user),
 ):
     """Get pack calculation by ID with full details including rooms and items"""
+    _require_calculation(db, current_user, calculation_id)
     logger.info(
         f"[PackCalc] GET detail for calculation_id={calculation_id}"
     )
@@ -486,6 +517,7 @@ def save_correction(
     Save human corrections to improve ML model
     Triggers retraining when enough corrections accumulated
     """
+    _require_calculation(db, current_user, calculation_id)
     service = PackCalculationService(db)
     result = service.save_correction(
         calculation_id,
@@ -503,6 +535,7 @@ def update_calculation(
     current_user: Staff = Depends(get_current_user),
 ):
     """Update pack calculation - recalculate with new inputs while preserving ID"""
+    _require_calculation(db, current_user, calculation_id)
     service = PackCalculationService(db)
 
     try:
@@ -529,6 +562,7 @@ def delete_calculation(
     current_user: Staff = Depends(get_current_user),
 ):
     """Delete pack calculation"""
+    _require_calculation(db, current_user, calculation_id)
     repo = PackCalculationRepository(db)
     calculation = repo.get_by_id(calculation_id)
 
@@ -542,6 +576,7 @@ def delete_calculation(
 @router.post("/admin/patch-materials")
 def patch_missing_materials(
     db: Session = Depends(get_db),
+    current_user: Staff = Depends(require_admin),
 ):
     """
     Admin endpoint to patch pack_items that have NULL xactimate_materials.
@@ -639,6 +674,7 @@ def patch_missing_materials(
 @router.post("/admin/patch-labor")
 def patch_missing_labor(
     db: Session = Depends(get_db),
+    current_user: Staff = Depends(require_admin),
 ):
     """
     Admin endpoint to patch pack_items that have NULL cached_packing_hours or cached_moving_hours.

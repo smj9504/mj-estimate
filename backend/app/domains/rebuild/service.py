@@ -139,11 +139,12 @@ class RebuildService:
         finally:
             session.close()
 
-    def get_projects(self, params: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], int]:
+    def get_projects(self, params: Dict[str, Any], scope: Any = None) -> Tuple[List[Dict[str, Any]], int]:
+        """scope: company condition from auth.company_scope (None = all)"""
         session = self._rs()
         try:
             from app.domains.rebuild.repository import get_project_repository
-            items, total = get_project_repository(session).get_with_filters(**params)
+            items, total = get_project_repository(session).get_with_filters(**params, scope=scope)
             for item in items:
                 self._enrich_project(session, item)
             return items, total
@@ -174,11 +175,11 @@ class RebuildService:
         finally:
             session.close()
 
-    def get_dashboard_stats(self) -> Dict[str, Any]:
+    def get_dashboard_stats(self, scope: Any = None) -> Dict[str, Any]:
         session = self._rs()
         try:
             from app.domains.rebuild.repository import get_project_repository
-            return get_project_repository(session).get_dashboard_stats()
+            return get_project_repository(session).get_dashboard_stats(scope)
         finally:
             session.close()
 

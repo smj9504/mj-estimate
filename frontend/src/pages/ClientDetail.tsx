@@ -69,6 +69,8 @@ import { useBreadcrumbTitle } from '../contexts/BreadcrumbContext';
 import { clientService, claimService, negotiationService, claimActivityService } from '../services/clientService';
 import { fileService } from '../services/fileService';
 import { companyService } from '../services/companyService';
+import { useAuth } from '../contexts/AuthContext';
+import CompanyMultiSelect from '../components/company/CompanyMultiSelect';
 import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
 import ClientDocumentHub from '../components/client/ClientDocumentHub';
 import ClaimNotes from '../components/client/ClaimNotes';
@@ -86,6 +88,7 @@ import type {
   Claim,
   ClaimCreate,
   ClaimStatus,
+  ClaimType,
   ClaimNegotiation,
   ClaimNegotiationCreate,
   NegotiationSection,
@@ -405,15 +408,21 @@ interface ClaimModalProps {
   open: boolean;
   clientId: string;
   editingClaim?: Claim | null;
+  /** What a new one is; an existing one keeps its own */
+  claimType?: ClaimType;
   onCancel: () => void;
   onSubmit: (values: ClaimCreate) => Promise<void>;
   loading: boolean;
 }
 
+// A cash job has no carrier, so it only opens and closes
+const CASH_JOB_STATUSES: ClaimStatus[] = ['open', 'closed'];
+
 const ClaimModal: React.FC<ClaimModalProps> = ({
   open,
   clientId,
   editingClaim,
+  claimType = 'insurance',
   onCancel,
   onSubmit,
   loading,
@@ -421,6 +430,9 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
   const [form] = Form.useForm<ClaimCreate>();
   const { sheetProps } = useSheetModal('tall');
   const { sheetProps: paSheetProps } = useSheetModal();
+  const { user } = useAuth();
+  const isCash = (editingClaim ? editingClaim.claim_type : claimType) === 'cash';
+  const noun = isCash ? 'Cash Job' : 'Claim';
 
   // PA contacts for the claim's Public Adjuster link. Loaded once the modal
   // opens rather than on page load, since most visits never edit a claim.
@@ -496,6 +508,7 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
       if (editingClaim) {
         form.setFieldsValue({
           pa_contact_id: editingClaim.pa_contact_id || undefined,
+          company_ids: (editingClaim.companies ?? []).map(c => c.id),
           claim_number: editingClaim.claim_number,
           insurance_company: editingClaim.insurance_company,
           insurance_policy_number: editingClaim.insurance_policy_number,
@@ -517,13 +530,16 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
         });
       } else {
         form.resetFields();
+        // The people creating it keep seeing it
+        form.setFieldsValue({ company_ids: user?.company_ids ?? [] });
       }
     }
-  }, [open, editingClaim, form]);
+  }, [open, editingClaim, form, user?.company_ids]);
 
   const handleFinish = async (values: any) => {
     const payload: ClaimCreate = {
       ...values,
+      ...(editingClaim ? {} : { claim_type: isCash ? 'cash' : 'insurance' }),
       client_id: clientId,
       date_of_loss: values.date_of_loss ? dayjs(values.date_of_loss).format('YYYY-MM-DD') : undefined,
       // null clears it; the field only renders for appraisal claims
@@ -533,7 +549,7 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
         ? (values.rebuild_estimate_company_id || (editingClaim ? '' : undefined))
         : undefined,
     };
-    if (!values.claim_number) {
+    if (!values.claim_number && !isCash) {
       Modal.confirm({
         title: 'Claim Number is empty',
         content: 'Claim number is not entered. You can add it later when you receive it from the insurance company. Continue without claim number?',
@@ -553,7 +569,7 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
       title={
         <Space>
           <SafetyOutlined />
-          {editingClaim ? 'Edit Claim' : 'Add New Claim'}
+          {editingClaim ? `Edit ${noun}` : `Add New ${noun}`}
         </Space>
       }
       open={open}
@@ -568,10 +584,17 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
       <Form form={form} layout="vertical" className="cl-form" onFinish={handleFinish} scrollToFirstError>
         <Row gutter={12}>
           <Col xs={24} sm={12}>
-            <Form.Item name="claim_number" label="Claim Number"
-              tooltip="Insurance claim number (can be added later)">
-              <Input placeholder="e.g. CLM-2024-001" />
-            </Form.Item>
+            {isCash ? (
+              <Form.Item name="claim_number" label="Job Number"
+                tooltip="Your own reference for the job (optional)">
+                <Input placeholder="e.g. 2026-014" />
+              </Form.Item>
+            ) : (
+              <Form.Item name="claim_number" label="Claim Number"
+                tooltip="Insurance claim number (can be added later)">
+                <Input placeholder="e.g. CLM-2024-001" />
+              </Form.Item>
+            )}
           </Col>
           <Col xs={24} sm={12}>
             <Form.Item name="status" label="Status" initialValue="open">
@@ -582,14 +605,26 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
                   }
                 }}
               >
-                {Object.entries(CLAIM_STATUS_CONFIG).map(([val, cfg]) => (
-                  <Option key={val} value={val}>{cfg.label}</Option>
-                ))}
+                {Object.entries(CLAIM_STATUS_CONFIG)
+                  .filter(([val]) => !isCash || CASH_JOB_STATUSES.includes(val as ClaimStatus))
+                  .map(([val, cfg]) => (
+                    <Option key={val} value={val}>{cfg.label}</Option>
+                  ))}
               </Select>
             </Form.Item>
           </Col>
         </Row>
 
+        <Form.Item
+          name="company_ids"
+          label="Companies"
+          tooltip={`The companies working this ${noun.toLowerCase()}. Their people see it and its documents; nobody else does, except admins.`}
+          rules={[{ required: true, type: 'array', min: 1, message: 'Pick at least one company' }]}
+        >
+          <CompanyMultiSelect placeholder="Pick the companies working it" />
+        </Form.Item>
+
+        {!isCash && (<>
         {/* Shown while in appraisal, and afterwards so a settled claim keeps the date */}
         <Form.Item
           noStyle
@@ -761,10 +796,17 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
             </Form.Item>
           </Col>
         </Row>
+        </>)}
 
-        <Form.Item name="loss_description" label="Loss Description">
-          <Input.TextArea rows={2} placeholder="Brief description of the loss event..." />
-        </Form.Item>
+        {isCash ? (
+          <Form.Item name="loss_description" label="Job Description">
+            <Input.TextArea rows={2} placeholder="What the job is, e.g. kitchen remodel, fence repair..." />
+          </Form.Item>
+        ) : (
+          <Form.Item name="loss_description" label="Loss Description">
+            <Input.TextArea rows={2} placeholder="Brief description of the loss event..." />
+          </Form.Item>
+        )}
         <Form.Item name="notes" label="Notes">
           <Input.TextArea rows={2} />
         </Form.Item>
@@ -773,7 +815,7 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           <Space>
             <Button onClick={onCancel}>Cancel</Button>
             <Button type="primary" htmlType="submit" loading={loading}>
-              {editingClaim ? 'Save Changes' : 'Create Claim'}
+              {editingClaim ? 'Save Changes' : `Create ${noun}`}
             </Button>
           </Space>
         </Form.Item>
@@ -2073,10 +2115,18 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
 // Claim row (Claims and Financials tabs)
 // ─────────────────────────────────────────────
 
+const isCashJob = (claim?: Pick<Claim, 'claim_type'> | null) => claim?.claim_type === 'cash';
+
 const ClaimRowHead: React.FC<{ claim: Claim; showAmounts?: 'rcv' | 'both' }> = ({ claim, showAmounts = 'rcv' }) => {
   const statusCfg = CLAIM_STATUS_CONFIG[claim.status];
   const hasAmounts = claim.current_acv > 0 || claim.current_rcv > 0;
-  const meta = [
+  const cash = isCashJob(claim);
+  // A cash job without a number goes by what the job is
+  const cashTitle = claim.claim_number || claim.loss_description || 'Cash job';
+  const meta = cash ? [
+    claim.claim_number && claim.loss_description,
+    claim.created_at && `Started ${formatDate(claim.created_at)}`,
+  ].filter(Boolean) : [
     claim.insurance_company,
     claim.date_of_loss && `Loss ${formatDate(claim.date_of_loss)}`,
     hasAmounts && (showAmounts === 'both'
@@ -2086,7 +2136,10 @@ const ClaimRowHead: React.FC<{ claim: Claim; showAmounts?: 'rcv' | 'both' }> = (
   return (
     <div className="cl-claim-head">
       <div className="cl-claim-title">
-        <span className="cl-claim-num">{claim.claim_number || 'No claim #'}</span>
+        {cash && <Pill tone="purple">Cash Job</Pill>}
+        <span className="cl-claim-num">
+          {cash ? cashTitle : (claim.claim_number || 'No claim #')}
+        </span>
         {statusCfg && <Pill tone={statusCfg.tone}>{statusCfg.label}</Pill>}
       </div>
       {meta.length > 0 && <div className="cl-meta">{meta.join(' · ')}</div>}
@@ -2121,8 +2174,44 @@ const useInAppLink = () => {
   });
 };
 
+// The companies working a claim; their people are the ones who see it
+const ClaimCompanies: React.FC<{ claim: Claim }> = ({ claim }) => {
+  const companies = claim.companies ?? [];
+  if (companies.length === 0) {
+    return (
+      <Tooltip title="Only admins see it until a company is added">
+        <span className="cl-meta">None</span>
+      </Tooltip>
+    );
+  }
+  return (
+    <span className="cl-company-list">
+      {companies.map(c => <CompanyMark key={c.id} id={c.id} name={c.name} />)}
+    </span>
+  );
+};
+
 // The claim's facts: adjuster, deductible, estimate, loss description
-const ClaimFacts: React.FC<{ claim: Claim; onEdit: () => void; onEmail: () => void }> = ({ claim, onEdit, onEmail }) => (
+const ClaimFacts: React.FC<{ claim: Claim; onEdit: () => void; onEmail: () => void }> = ({ claim, onEdit, onEmail }) => isCashJob(claim) ? (
+  <ClaimSection
+    title="Cash job"
+    actions={(
+      <Button size="small" type="text" icon={<EditOutlined />} onClick={onEdit}>
+        Edit
+      </Button>
+    )}
+  >
+    <PropertyList
+      labelWidth={104}
+      items={[
+        { key: 'num', label: 'Job #', value: claim.claim_number || null },
+        { key: 'companies', label: 'Companies', value: <ClaimCompanies claim={claim} /> },
+        { key: 'started', label: 'Started', value: claim.created_at ? formatDate(claim.created_at) : null },
+        { key: 'desc', label: 'Job', hideEmpty: true, value: claim.loss_description || null },
+      ]}
+    />
+  </ClaimSection>
+) : (
   <ClaimSection
     title="Claim"
     actions={(
@@ -2135,6 +2224,7 @@ const ClaimFacts: React.FC<{ claim: Claim; onEdit: () => void; onEmail: () => vo
       labelWidth={104}
       items={[
         { key: 'num', label: 'Claim #', value: claim.claim_number },
+        { key: 'companies', label: 'Companies', value: <ClaimCompanies claim={claim} /> },
         { key: 'dol', label: 'Date of loss', value: claim.date_of_loss ? formatDate(claim.date_of_loss) : null },
         {
           key: 'ded',
@@ -2326,7 +2416,8 @@ const ClaimPanel: React.FC<{
       <ClaimLinks claim={claim} />
     </div>
     <div className="cl-claim-main">
-      <NegotiationHistory clientId={client.id} claim={claim} />
+      {/* Carrier estimate revisions; a cash job has no carrier */}
+      {!isCashJob(claim) && <NegotiationHistory clientId={client.id} claim={claim} />}
       <ClaimContractDashboard
         claimId={claim.id}
         clientId={client.id}
@@ -2401,6 +2492,7 @@ function buildClaimContacts(claim: Claim, client: Client): ClaimContact[] {
 const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
   const [claimModalOpen, setClaimModalOpen] = useState(false);
   const [editingClaim, setEditingClaim] = useState<Claim | null>(null);
+  const [newClaimType, setNewClaimType] = useState<ClaimType>('insurance');
   const [emailDrawerClaim, setEmailDrawerClaim] = useState<Claim | null>(null);
   const queryClient = useQueryClient();
 
@@ -2411,11 +2503,19 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
   });
 
   const claims = data?.claims ?? [];
+  const cashJobCount = claims.filter(isCashJob).length;
+  const insuranceCount = claims.length - cashJobCount;
+
+  const openNew = (type: ClaimType) => {
+    setEditingClaim(null);
+    setNewClaimType(type);
+    setClaimModalOpen(true);
+  };
 
   const createClaimMutation = useMutation({
     mutationFn: (payload: ClaimCreate) => claimService.create(client.id, payload),
-    onSuccess: () => {
-      message.success('Claim created.');
+    onSuccess: (_, payload) => {
+      message.success(payload.claim_type === 'cash' ? 'Cash job created.' : 'Claim created.');
       queryClient.invalidateQueries({ queryKey: ['claims', client.id] });
       queryClient.invalidateQueries({ queryKey: ['client', client.id] });
       setClaimModalOpen(false);
@@ -2429,7 +2529,7 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
     mutationFn: ({ claimId, payload }: { claimId: string; payload: Partial<ClaimCreate> }) =>
       claimService.update(client.id, claimId, payload),
     onSuccess: () => {
-      message.success('Claim updated.');
+      message.success(isCashJob(editingClaim) ? 'Cash job updated.' : 'Claim updated.');
       queryClient.invalidateQueries({ queryKey: ['claims', client.id] });
       setClaimModalOpen(false);
       setEditingClaim(null);
@@ -2451,22 +2551,28 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
     <div>
       <div className="cl-tab-toolbar">
         <span className="cl-meta">
-          {isLoading ? '' : `${claims.length} claim${claims.length === 1 ? '' : 's'}`}
+          {isLoading ? '' : [
+            `${insuranceCount} claim${insuranceCount === 1 ? '' : 's'}`,
+            cashJobCount > 0 && `${cashJobCount} cash job${cashJobCount === 1 ? '' : 's'}`,
+          ].filter(Boolean).join(' · ')}
         </span>
-        <Button
-          icon={<PlusOutlined />}
-          onClick={() => {
-            setEditingClaim(null);
-            setClaimModalOpen(true);
-          }}
-        >
-          Add Claim
-        </Button>
+        <Space wrap>
+          <Button icon={<PlusOutlined />} onClick={() => openNew('insurance')}>
+            Add Claim
+          </Button>
+          <Tooltip title="Work the homeowner pays for directly, with no insurance claim">
+            <Button icon={<PlusOutlined />} onClick={() => openNew('cash')}>
+              Add Cash Job
+            </Button>
+          </Tooltip>
+        </Space>
       </div>
 
       {claims.length === 0 && !isLoading ? (
         <>
-          <div className="cl-empty cl-empty--tab">No claims yet. Click "Add Claim" to get started.</div>
+          <div className="cl-empty cl-empty--tab">
+            No claims or cash jobs yet. Add a claim for insurance work, or a cash job for work the homeowner pays for.
+          </div>
           {/* Todos tied to the client show here until it has a claim, then on each claim */}
           <div className="cl-client-todos">
             <ClaimTodos clientId={client.id} />
@@ -2521,6 +2627,7 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
         open={claimModalOpen}
         clientId={client.id}
         editingClaim={editingClaim}
+        claimType={newClaimType}
         onCancel={() => {
           setClaimModalOpen(false);
           setEditingClaim(null);
@@ -2535,7 +2642,9 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
           <Space>
             <SendOutlined />
             <span>
-              Send Email - Claim #{emailDrawerClaim?.claim_number}
+              Send Email - {isCashJob(emailDrawerClaim)
+                ? `Cash Job${emailDrawerClaim?.claim_number ? ` #${emailDrawerClaim.claim_number}` : ''}`
+                : `Claim #${emailDrawerClaim?.claim_number}`}
             </span>
           </Space>
         }
@@ -2558,7 +2667,9 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
               insurance_company: emailDrawerClaim.insurance_company,
             }}
             defaultTo={emailDrawerClaim.adjuster_email ? [emailDrawerClaim.adjuster_email] : []}
-            defaultSubject={`Claim #${emailDrawerClaim.claim_number} - ${emailDrawerClaim.insurance_company || ''}`}
+            defaultSubject={isCashJob(emailDrawerClaim)
+              ? `${client.display_name} - ${client.address || 'Job'}`
+              : `Claim #${emailDrawerClaim.claim_number} - ${emailDrawerClaim.insurance_company || ''}`}
             onSent={() => {
               setEmailDrawerClaim(null);
               queryClient.invalidateQueries({ queryKey: ['sent-emails-claim', emailDrawerClaim.id] });

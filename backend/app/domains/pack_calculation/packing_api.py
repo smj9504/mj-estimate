@@ -13,6 +13,12 @@ from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 
 from app.core.database_factory import get_db
+from app.domains.auth.company_scope import (
+    document_condition,
+    require_claim,
+    require_document,
+    scoped,
+)
 from app.domains.auth.dependencies import get_current_user
 from app.domains.staff.models import Staff
 
@@ -43,6 +49,10 @@ router = APIRouter(
 logger = logging.getLogger(__name__)
 
 
+def _require_estimate(db, staff, calc_id: str) -> None:
+    require_document(db, staff, PackCalculation, calc_id, "Estimate")
+
+
 # ── Estimate Calculation ──────────────────────
 
 @router.post(
@@ -56,6 +66,8 @@ def quick_estimate(
 ):
     """Calculate packing estimate from room presets."""
     from .packing_service import EstimateCalculator
+    if request.claim_id:
+        require_claim(db, current_user, request.claim_id)
     calc = EstimateCalculator(
         db, company_id=request.company_id
     )
@@ -83,6 +95,8 @@ def content_estimate(
     """Calculate packing estimate from detected items
     (Photo AI mode)."""
     from .packing_service import EstimateCalculator
+    if request.claim_id:
+        require_claim(db, current_user, request.claim_id)
     calc = EstimateCalculator(
         db, company_id=request.company_id
     )
@@ -316,7 +330,10 @@ def list_estimates(
     current_user: Staff = Depends(get_current_user),
 ):
     """List packing estimates with optional filters."""
-    query = db.query(PackCalculation).options(
+    scope = document_condition(
+        db, current_user, PackCalculation.claim_id, PackCalculation.company_id
+    )
+    query = scoped(db.query(PackCalculation), scope).options(
         joinedload(PackCalculation.client),
         joinedload(PackCalculation.company),
     ).order_by(
@@ -336,7 +353,7 @@ def list_estimates(
         )
 
     # Count without joinedload for efficiency
-    count_query = db.query(PackCalculation.id)
+    count_query = scoped(db.query(PackCalculation.id), scope)
     if client_id:
         count_query = count_query.filter(
             PackCalculation.client_id == client_id
@@ -367,6 +384,7 @@ def get_estimate(
     current_user: Staff = Depends(get_current_user),
 ):
     """Get a packing estimate by ID."""
+    _require_estimate(db, current_user, calc_id)
     calc = db.query(PackCalculation).options(
         joinedload(PackCalculation.client),
         joinedload(PackCalculation.company),
@@ -386,11 +404,15 @@ def update_estimate(
     current_user: Staff = Depends(get_current_user),
 ):
     """Update a packing estimate (status, sections, etc.)."""
+    _require_estimate(db, current_user, calc_id)
     calc = db.query(PackCalculation).filter(
         PackCalculation.id == calc_id
     ).first()
     if not calc:
         raise HTTPException(404, "Estimate not found")
+    # Moving it onto another claim needs that claim to be visible
+    if update.get("claim_id") and str(update["claim_id"]) != str(calc.claim_id or ""):
+        require_claim(db, current_user, update["claim_id"])
 
     updatable = [
         "calculation_name", "status", "notes",
@@ -415,6 +437,7 @@ def delete_estimate(
     current_user: Staff = Depends(get_current_user),
 ):
     """Delete a packing estimate."""
+    _require_estimate(db, current_user, calc_id)
     calc = db.query(PackCalculation).filter(
         PackCalculation.id == calc_id
     ).first()
@@ -433,6 +456,7 @@ def export_estimate_pdf(
     current_user: Staff = Depends(get_current_user),
 ):
     """Export a packing estimate as PDF."""
+    _require_estimate(db, current_user, calc_id)
     import io
     from .export import generate_estimate_pdf, build_company_info
 

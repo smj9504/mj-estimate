@@ -6,9 +6,10 @@ from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, false, or_, select
 import json
 
+from app.domains.auth.company_scope import claim_condition, company_ids, scoped
 from app.domains.plumber_report.models import PlumberReport
 from app.domains.company.models import Company
 from app.domains.plumber_report.schemas import (
@@ -17,6 +18,23 @@ from app.domains.plumber_report.schemas import (
     PlumberReportResponse,
     FinancialSummary
 )
+
+
+def report_scope(db, staff):
+    """Reports the staff member may see: their company's, or one a claim they
+    may see links to (None = no limit)"""
+    from app.domains.client.models import Claim
+
+    ids = company_ids(db, staff)
+    if ids is None:
+        return None
+    if not ids:
+        return false()
+    linked = select(Claim.plumber_report_id).where(claim_condition(db, staff, Claim.id))
+    return or_(
+        PlumberReport.company_id.in_([UUID(i) for i in ids]),
+        PlumberReport.id.in_(linked),
+    )
 
 
 class PlumberReportService:
@@ -277,10 +295,11 @@ class PlumberReportService:
         skip: int = 0,
         limit: int = 100,
         status: Optional[str] = None,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        scope=None
     ) -> List[PlumberReport]:
         """Get list of plumber reports with filters"""
-        query = db.query(PlumberReport)
+        query = scoped(db.query(PlumberReport), scope)
         
         if status:
             query = query.filter(PlumberReport.status == status)
@@ -399,10 +418,11 @@ class PlumberReportService:
     def get_report_count(
         db: Session,
         status: Optional[str] = None,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        scope=None
     ) -> int:
         """Get count of plumber reports"""
-        query = db.query(PlumberReport)
+        query = scoped(db.query(PlumberReport), scope)
         
         if status:
             query = query.filter(PlumberReport.status == status)

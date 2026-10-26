@@ -3,13 +3,14 @@ Siding Estimate repository
 """
 
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from sqlalchemy import desc, or_
 from sqlalchemy.orm import selectinload
 
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.company_scope import scoped
 
 from .models import SidingEstimate, SidingEstimateLineItem
 
@@ -37,9 +38,10 @@ class SidingEstimateRepository(SQLAlchemyRepository):
         search: Optional[str] = None,
         page: int = 1,
         page_size: int = 50,
+        scope: Any = None,
     ) -> tuple:
         """Find estimates with filters and pagination."""
-        query = self.db_session.query(SidingEstimate)
+        query = scoped(self.db_session.query(SidingEstimate), scope)
 
         if claim_id:
             query = query.filter(SidingEstimate.claim_id == claim_id)

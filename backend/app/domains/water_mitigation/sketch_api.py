@@ -21,6 +21,7 @@ from app.core.database_factory import get_db
 from app.domains.auth.dependencies import get_current_user
 from app.domains.staff.models import Staff
 from app.domains.storage.factory import StorageFactory
+from app.domains.water_mitigation.job_access import job_access, require_job_row
 from app.domains.water_mitigation.sketch_models import (
     WMContainmentZone,
     WMDemolitionZone,
@@ -48,6 +49,21 @@ from app.domains.water_mitigation.sketch_service import SketchService
 from app.domains.water_mitigation.sketch_pdf_service import SketchPdfService
 
 router = APIRouter(tags=["WM Sketches"])
+
+
+def _require_floor_sketch(
+    floor_sketch_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    require_job_row(db, current_user, WMFloorSketch, floor_sketch_id, "Floor sketch")
+
+
+# 404 unless the job / floor sketch in the path is on a job the staff member
+# may see. The background image preview is loaded raw by an <img>, so it
+# carries no token and stays open.
+_job_access = Depends(job_access)
+_floor_access = Depends(_require_floor_sketch)
 
 # Converted background images keyed by (provider, file_id). A re-upload
 # produces a new file_id, so entries never go stale. Bounded so a handful
@@ -167,6 +183,7 @@ def _merge_overlay_response(
 
 @router.get(
     "/jobs/{job_id}/floors",
+    dependencies=[_job_access],
     response_model=WMFloorSketchListResponse,
     summary="List all floor sketches for a job",
 )
@@ -211,6 +228,7 @@ def get_floor_sketches(
 
 @router.post(
     "/jobs/{job_id}/floors",
+    dependencies=[_job_access],
     response_model=WMFloorSketchDetailResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new floor sketch for a job",
@@ -232,6 +250,7 @@ def create_floor_sketch(
 
 @router.get(
     "/floors/{floor_sketch_id}",
+    dependencies=[_floor_access],
     response_model=WMFloorSketchDetailResponse,
     summary="Get a floor sketch with all overlay elements",
 )
@@ -253,6 +272,7 @@ def get_floor_sketch(
 
 @router.put(
     "/floors/{floor_sketch_id}",
+    dependencies=[_floor_access],
     response_model=WMFloorSketchDetailResponse,
     summary="Update floor sketch metadata",
 )
@@ -279,6 +299,7 @@ def update_floor_sketch(
 
 @router.delete(
     "/floors/{floor_sketch_id}",
+    dependencies=[_floor_access],
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a floor sketch and all its overlays",
 )
@@ -305,6 +326,7 @@ def delete_floor_sketch(
 
 @router.put(
     "/floors/{floor_sketch_id}/overlay",
+    dependencies=[_floor_access],
     response_model=WMFloorSketchDetailResponse,
     summary="Replace all overlay elements on a floor sketch",
 )
@@ -360,6 +382,7 @@ def save_overlay_data(
 
 @router.post(
     "/floors/{floor_sketch_id}/background-image",
+    dependencies=[_floor_access],
     response_model=WMBackgroundImageResponse,
     summary="Upload a background image for a floor sketch",
 )
@@ -400,6 +423,7 @@ def upload_background_image(
 
 @router.delete(
     "/floors/{floor_sketch_id}/background-image",
+    dependencies=[_floor_access],
     response_model=WMBackgroundImageResponse,
     summary="Remove the background image from a floor sketch",
 )
@@ -633,6 +657,7 @@ def preview_background_image(
 
 @router.post(
     "/floors/{floor_sketch_id}/analyze-image",
+    dependencies=[_floor_access],
     summary="Analyze floor plan image with AI to extract walls and rooms",
 )
 async def analyze_floor_plan_image(
@@ -747,6 +772,7 @@ async def _load_image_bytes(sketch: WMFloorSketch, db: Session) -> bytes:
 
 @router.post(
     "/jobs/{job_id}/generate-scope",
+    dependencies=[_job_access],
     response_model=GenerateScopeResponse,
     summary="Generate Scope of Work from sketch overlay data",
 )
@@ -792,6 +818,7 @@ def generate_scope_from_sketch(
 
 @router.get(
     "/jobs/{job_id}/report",
+    dependencies=[_job_access],
     summary="Generate a PDF sketch report for a WM job",
     response_class=StreamingResponse,
 )

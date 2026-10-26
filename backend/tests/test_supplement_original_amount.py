@@ -3,6 +3,7 @@ as estimates are uploaded, edited or deleted, on a throwaway SQLite database."""
 
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 import sys
 
 import pytest
@@ -22,6 +23,10 @@ from app.domains.supplement.models import SupplementRequest
 # SQLAlchemy configures every loaded model on first use, and models other test
 # files load name classes by string, so register them all as the app does
 import app.main  # noqa: E402,F401
+from app.domains.staff.models import StaffRole  # noqa: E402
+
+# The routes take the signed-in person; an admin sees every claim
+ADMIN = SimpleNamespace(id='00000000-0000-0000-0000-0000000000ad', role=StaffRole.admin)
 
 TABLES = [Client, Claim, ClaimNegotiation, ClaimActivity, SupplementRequest]
 START = datetime(2026, 10, 21)
@@ -128,7 +133,8 @@ def test_a_newer_estimate_moves_the_original(env):
 def test_editing_the_estimate_on_the_supplement_page_moves_the_original(env):
     _, ids, add_estimate, load = env
     neg_id = add_estimate(30000, 0)
-    supplement_api.update_insurance_estimate(ids['claim'], neg_id, {'rcv_amount': 31500})
+    supplement_api.update_insurance_estimate(ids['claim'], neg_id, {'rcv_amount': 31500},
+                                             db=None, current_staff=ADMIN)
     original, difference = load()
     assert original == pytest.approx(31500)
     assert difference == pytest.approx(45000 - 31500)
@@ -145,7 +151,7 @@ def test_deleting_the_latest_estimate_falls_back_to_the_one_before(env):
     database, ids, add_estimate, load = env
     add_estimate(30000, 0)
     newer = add_estimate(38000, 10)
-    supplement_api.delete_insurance_estimate(ids['claim'], newer)
+    supplement_api.delete_insurance_estimate(ids['claim'], newer, db=None, current_staff=ADMIN)
     assert load()[0] == pytest.approx(30000)
 
     # Same through the claim's own revision list

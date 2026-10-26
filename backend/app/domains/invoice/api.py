@@ -27,6 +27,7 @@ from app.common.services.pdf_service import get_pdf_service
 from app.common.utils.security import validate_file_path, PathTraversalError
 from app.common.utils.temp_file import temp_file_handler, get_temp_dir
 from app.core.database_factory import get_db_session as get_db
+from app.domains.auth.company_scope import document_condition, require_client, require_document
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.auth.document_access import owner_names, owner_to_list, require_document_access
 from app.domains.invoice.models import Invoice
@@ -71,8 +72,10 @@ def require_invoice_access(
     current_staff=Depends(get_current_staff),
     db=Depends(get_db),
 ):
-    """The signed-in person, if they may open this invoice (404 otherwise)"""
+    """The signed-in person, if they may open this invoice (404 otherwise):
+    they own it, and it's on a claim or from a company of theirs"""
     require_document_access(db, Invoice, invoice_id, current_staff, "Invoice")
+    require_document(db, current_staff, Invoice, invoice_id, "Invoice")
     return current_staff
 
 
@@ -150,7 +153,8 @@ def list_invoices(
             status=status,
             limit=limit,
             offset=skip,
-            filters=filters or None
+            filters=filters or None,
+            scope=document_condition(db, current_staff, Invoice.claim_id, Invoice.company_id),
         )
         names = owner_names(db, (invoice.get('owner_id') for invoice in invoices))
 
@@ -219,6 +223,10 @@ def create_invoice(
     import logging
     logger = logging.getLogger(__name__)
     logger.info(f"Received invoice data: {invoice_data.dict()}")
+
+    # The client's details are copied in below, so it must be one this person may see
+    if invoice_data.client_id:
+        require_client(db, current_staff, invoice_data.client_id)
 
     # Initialize repository with the injected db session for consistent transaction management
     from app.domains.invoice.repository import get_invoice_repository
@@ -648,6 +656,9 @@ def update_invoice(
 
     # Handle client information - fetch from Client model if client_id is provided
     client_id_value = update_dict.get('client_id')
+    if client_id_value and str(client_id_value) != str(existing.get('client_id') or ''):
+        # Linking a different client copies its details in, so it must be one this person may see
+        require_client(db, _staff, client_id_value)
     if client_id_value and (not invoice_data.client or not invoice_data.client.name):
         try:
             from app.domains.client.models import Client as ClientModel

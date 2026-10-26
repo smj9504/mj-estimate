@@ -2,6 +2,7 @@
 the job's other invoices keep theirs, and uploaded invoices stay."""
 
 from pathlib import Path
+from types import SimpleNamespace
 import sys
 import uuid
 
@@ -15,6 +16,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # SQLAlchemy configures every loaded model on first use, and models other test
 # files load name classes by string, so register them all as the app does
 import app.main  # noqa: E402,F401
+from app.domains.staff.models import StaffRole  # noqa: E402
+
+# The routes take the signed-in person; an admin sees every claim
+ADMIN = SimpleNamespace(id='00000000-0000-0000-0000-0000000000ad', role=StaffRole.admin)
 import app.common.services.pdf_service as pdf_service_module  # noqa: E402
 import app.common.utils.storage_helpers as storage_helpers  # noqa: E402
 import app.core.database_factory as database_factory  # noqa: E402
@@ -75,7 +80,7 @@ def env(tmp_path, monkeypatch):
 def save_pdf(env, invoice_id):
     download_invoice_pdf_with_document(
         job_id=uuid.UUID(str(env['job'].id)), invoice_id=invoice_id,
-        template_variant='a', db=env['session'], current_user=None,
+        template_variant='a', db=env['session'], current_user=ADMIN,
     )
 
 
