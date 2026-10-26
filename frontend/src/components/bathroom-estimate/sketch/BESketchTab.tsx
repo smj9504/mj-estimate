@@ -13,29 +13,74 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect, Suspense } from 'react';
-import { Layout, Button, Space, Typography, message, Spin, Tooltip, Grid, Drawer, Segmented } from 'antd';
+import { Button, Dropdown, Segmented, message, Spin, Tooltip, Grid, Drawer } from 'antd';
 import {
-  SaveOutlined,
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  ExpandOutlined,
+  CheckOutlined,
+  CompressOutlined,
+  EllipsisOutlined,
+  MinusOutlined,
+  PlusOutlined,
 } from '@ant-design/icons';
-import type { BESketchData } from '../../../types/bathroomSketch';
-import { EMPTY_BE_SKETCH, BATHTUB_SURROUND_DEFAULTS } from '../../../types/bathroomSketch';
+import type { BESketchData, BESketchTool } from '../../../types/bathroomSketch';
+import { BATHTUB_SURROUND_DEFAULTS } from '../../../types/bathroomSketch';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import { roomWallFinishTotals } from './utils/wallFinish';
 import { useBESketchState } from './hooks/useBESketchState';
-import BESketchToolbar from './BESketchToolbar';
+import BESketchToolbar, { MARK_TOOLS, type BESketchView } from './BESketchToolbar';
 import BESketchCanvas from './BESketchCanvas';
 import BESketchSidebar from './BESketchSidebar';
+import BELayoutPicker from './BELayoutPicker';
+import { findSelection, selectionTitle } from './BESketchInspector';
 import { bathroomEstimateService } from '../../../services/bathroomEstimateService';
+import './sketch.css';
 
 // three.js comes with it, so it's only downloaded when the 3D view is opened
 const Bathroom3DView = React.lazy(() => import('./Bathroom3DView'));
 
-const { Sider, Content } = Layout;
-const { Text } = Typography;
 const { useBreakpoint } = Grid;
+
+const PANEL_WIDTH = 300;
+
+/** The box around everything drawn, in plan coordinates */
+function contentBounds(d: BESketchData): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  const ppf = d.settings.pixelsPerFoot;
+  d.rooms.forEach((r) => r.boundary.forEach((p) => { xs.push(p.x); ys.push(p.y); }));
+  d.walls.forEach((w) => { xs.push(w.start.x, w.end.x); ys.push(w.start.y, w.end.y); });
+  d.fixtures.forEach((f) => {
+    const hw = (f.dimensions.width / 12) * ppf / 2;
+    const hh = (f.dimensions.height / 12) * ppf / 2;
+    xs.push(f.position.x - hw, f.position.x + hw);
+    ys.push(f.position.y - hh, f.position.y + hh);
+  });
+  [...d.damageZones, ...(d.drywallRepairZones ?? []), ...(d.insulationZones ?? [])]
+    .forEach((z) => z.boundary.forEach((p) => { xs.push(p.x); ys.push(p.y); }));
+  if (!xs.length) return null;
+  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+}
+
+/** What the drawing tools do, said while they're on */
+function toolHint(tool: BESketchTool, surface: 'wall' | 'ceiling', touch: boolean): string | null {
+  switch (tool) {
+    case 'room':
+      return touch
+        ? 'Tap each corner, then the first corner again.'
+        : 'Click each corner, double-click to finish. Shift-drag for a rectangle.';
+    case 'wall': return 'Drag from one end of the wall to the other.';
+    case 'damage_zone': return 'Drag over the damaged area.';
+    case 'drywall_repair':
+    case 'insulation':
+      return surface === 'wall' ? 'Drag along the wall.' : 'Drag over the ceiling area.';
+    default: return null;
+  }
+}
+
+const TOOL_NAMES: Partial<Record<BESketchTool, string>> = {
+  room: 'Room',
+  wall: 'Wall',
+  ...Object.fromEntries(MARK_TOOLS.map((t) => [t.key, t.label])),
+};
 
 // ── Props ──
 
@@ -581,19 +626,42 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [view, setView] = useState<'plan' | '3d'>('plan');
+  const [view, setView] = useState<BESketchView>('plan');
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
   const [zoomLevel, setZoomLevel] = useState(1);
   const stageRef = useRef<any>(null); // Konva.Stage ref passed to canvas
+  // The canvas has been measured, so a fit uses its real size
+  const measuredRef = useRef(false);
+  const fittedRef = useRef(false);
+
+  const data = api.data;
+  const hasContent = data.rooms.length > 0 || data.walls.length > 0 || data.fixtures.length > 0;
+  const selection = findSelection(data, api.selectedId);
 
   // ── Zoom controls ──
   const handleZoom = useCallback((direction: 'in' | 'out' | 'fit') => {
     const stage = stageRef.current;
     if (!stage) return;
     if (direction === 'fit') {
-      stage.scale({ x: 1, y: 1 });
-      stage.position({ x: 0, y: 0 });
-      setZoomLevel(1);
+      // Everything drawn, as large as the canvas allows
+      const b = contentBounds(data);
+      if (!b) {
+        stage.scale({ x: 1, y: 1 });
+        stage.position({ x: 0, y: 0 });
+        setZoomLevel(1);
+      } else {
+        const pad = 56;
+        const scale = Math.min(3, Math.max(0.2, Math.min(
+          (canvasSize.width - pad * 2) / Math.max(1, b.maxX - b.minX),
+          (canvasSize.height - pad * 2) / Math.max(1, b.maxY - b.minY),
+        )));
+        stage.scale({ x: scale, y: scale });
+        stage.position({
+          x: canvasSize.width / 2 - ((b.minX + b.maxX) / 2) * scale,
+          y: canvasSize.height / 2 - ((b.minY + b.maxY) / 2) * scale,
+        });
+        setZoomLevel(scale);
+      }
     } else {
       const scaleBy = 1.25;
       const oldScale = stage.scaleX();
@@ -613,7 +681,34 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
       setZoomLevel(newScale);
     }
     stage.batchDraw();
-  }, [canvasSize]);
+  }, [canvasSize, data]);
+
+  // The first time the plan is shown with something on it, fit it to the view
+  useEffect(() => {
+    if (!isActive || view !== 'plan' || !hasContent || fittedRef.current || !measuredRef.current) return;
+    const raf = requestAnimationFrame(() => {
+      fittedRef.current = true;
+      handleZoom('fit');
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isActive, view, hasContent, canvasSize, handleZoom]);
+
+  // Moves the drawing itself (not the view) to the middle of the canvas, so
+  // nothing sits off the edge where the PDF's picture of the plan would cut it
+  const movePlanToMiddle = useCallback(() => {
+    const b = contentBounds(data);
+    if (!b) return;
+    const dx = Math.round(canvasSize.width / 2 - (b.minX + b.maxX) / 2);
+    const dy = Math.round(canvasSize.height / 2 - (b.minY + b.maxY) / 2);
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) api.moveAll(dx, dy);
+    const stage = stageRef.current;
+    if (stage) {
+      stage.scale({ x: 1, y: 1 });
+      stage.position({ x: 0, y: 0 });
+      stage.batchDraw();
+      setZoomLevel(1);
+    }
+  }, [api, canvasSize, data]);
 
   // ── Expose sketch capture for PDF export ──
   useEffect(() => {
@@ -661,15 +756,13 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
         stage.width(needW);
         stage.height(needH);
 
-        // Hide grid layer (first) and dimension labels layer (last)
-        const layers = stage.getLayers();
+        // Hide the grid and the dimension tags. By name: with the grid off,
+        // the first layer is the rooms, which the picture needs.
         const hiddenLayers: any[] = [];
-        layers.forEach((layer: any, idx: number) => {
-          if (idx === 0 || idx === layers.length - 1) {
-            if (layer.visible()) {
-              layer.visible(false);
-              hiddenLayers.push(layer);
-            }
+        stage.getLayers().forEach((layer: any) => {
+          if ((layer.name() === 'grid' || layer.name() === 'dimensions') && layer.visible()) {
+            layer.visible(false);
+            hiddenLayers.push(layer);
           }
         });
         const overlays = document.querySelectorAll<HTMLElement>('[data-sketch-overlay]');
@@ -711,10 +804,11 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
     const updateSize = () => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
-      const sidebarW = isMobile ? 0 : (sidebarCollapsed ? 0 : 260);
+      const sidebarW = isMobile || sidebarCollapsed ? 0 : PANEL_WIDTH;
+      measuredRef.current = true;
       setCanvasSize({
-        width: Math.max(200, rect.width - sidebarW - 2),
-        height: Math.max(200, rect.height - 2),
+        width: Math.max(200, Math.floor(rect.width - sidebarW)),
+        height: Math.max(200, Math.floor(rect.height)),
       });
     };
 
@@ -762,75 +856,125 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
     }
   }, [api, estimateId]);
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 300 }}>
-      {/* Top bar: Toolbar + Save */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        flexShrink: 0, borderBottom: '1px solid #e8e8e8',
-        minWidth: 0,
-      }}>
-        <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-          <BESketchToolbar
-            api={api}
-            onZoomIn={() => handleZoom('in')}
-            onZoomOut={() => handleZoom('out')}
-            onZoomFit={() => handleZoom('fit')}
-            zoomLevel={zoomLevel}
-            canvasSize={canvasSize}
-          />
-        </div>
-        <Space size={4} style={{ padding: '4px 8px', flexShrink: 0 }}>
-          <Segmented
-            size="small"
-            value={view}
-            onChange={(v) => setView(v as 'plan' | '3d')}
-            options={[
-              { value: 'plan', label: 'Plan' },
-              { value: '3d', label: '3D' },
-            ]}
-            aria-label="Plan or 3D view"
-          />
-          {api.isDirty && <Text type="warning" style={{ fontSize: 10, whiteSpace: 'nowrap' }}>*</Text>}
-          <Tooltip title="Save sketch (Ctrl+S)">
-            <Button
-              size="small"
-              icon={<SaveOutlined />}
-              type={api.isDirty ? 'primary' : 'default'}
-              onClick={handleSave}
-            />
-          </Tooltip>
-          {isMobile ? (
-            <Tooltip title="Show panels">
-              <Button
-                size="small"
-                icon={<MenuUnfoldOutlined />}
-                onClick={() => setDrawerOpen(true)}
-              />
-            </Tooltip>
-          ) : (
-            <Tooltip title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}>
-              <Button
-                size="small"
-                icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              />
-            </Tooltip>
-          )}
-        </Space>
-      </div>
+  // Ctrl+S saves the sketch while its tab is open
+  useEffect(() => {
+    if (!isActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (api.isDirty) handleSave();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isActive, api.isDirty, handleSave]);
 
-      {/* Main area: Canvas + Sidebar */}
-      <div
-        ref={containerRef}
-        style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0 }}
-      >
+  const surface = api.activeTool === 'insulation' ? api.insulationSurface : api.drywallSurface;
+  const setSurface = api.activeTool === 'insulation' ? api.setInsulationSurface : api.setDrywallSurface;
+  const hint = toolHint(api.activeTool, surface, isMobile);
+  const baselineDrawn = !!baselineSketch && (baselineSketch.rooms?.length ?? 0) > 0;
+  const showEmpty = view === 'plan' && !hasContent && !baselineDrawn && api.activeTool === 'select';
+
+  return (
+    <div className="bes-root">
+      <BESketchToolbar
+        api={api}
+        view={view}
+        onViewChange={setView}
+        onSave={handleSave}
+        panel={isMobile ? undefined : { open: !sidebarCollapsed, onToggle: () => setSidebarCollapsed((c) => !c) }}
+      />
+
+      <div ref={containerRef} className="bes-main">
         {/* The plan stays mounted under the 3D view, so its zoom and the PDF's capture of it carry on */}
-        <div style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: view === 'plan' ? 'block' : 'none' }}>
+        <div className="bes-stage" style={{ display: view === 'plan' ? 'block' : 'none' }}>
           <BESketchCanvas
             api={api} width={canvasSize.width} height={canvasSize.height} stageRef={stageRef} onZoomChange={setZoomLevel}
-            baseline={baselineSketch} baselineName={baselineName}
+            zoom={zoomLevel} baseline={baselineSketch} baselineName={baselineName}
           />
+
+          {hint && (
+            <div className="bes-hint" role="status">
+              <span className="bes-hint-tool">{TOOL_NAMES[api.activeTool]}</span>
+              {(api.activeTool === 'drywall_repair' || api.activeTool === 'insulation') && (
+                <Segmented
+                  size="small"
+                  value={surface}
+                  onChange={(v) => setSurface(v as 'wall' | 'ceiling')}
+                  options={[
+                    { value: 'wall', label: 'Wall' },
+                    { value: 'ceiling', label: 'Ceiling' },
+                  ]}
+                  aria-label="Wall or ceiling"
+                />
+              )}
+              <span className="bes-hint-text">{hint}</span>
+              <Button type="text" size="small" onClick={() => api.setActiveTool('select')}>
+                Done
+              </Button>
+            </div>
+          )}
+
+          {showEmpty && (
+            <div className="bes-empty">
+              <div className="bes-empty-title">Draw the bathroom</div>
+              <p className="bes-empty-text">
+                Start from a common layout and adjust it, or draw the room corner by corner.
+              </p>
+              <div className="bes-empty-actions">
+                <BELayoutPicker api={api}>
+                  <Button type="primary">Start from a layout</Button>
+                </BELayoutPicker>
+                <Button onClick={() => api.setActiveTool('room')}>Draw the room</Button>
+              </div>
+            </div>
+          )}
+
+          <div className="bes-view" role="group" aria-label="Zoom and view">
+            <Tooltip title="Zoom out" mouseEnterDelay={0.6}>
+              <Button type="text" icon={<MinusOutlined />} onClick={() => handleZoom('out')} aria-label="Zoom out" />
+            </Tooltip>
+            <span className="bes-zoom">{Math.round(zoomLevel * 100)}%</span>
+            <Tooltip title="Zoom in" mouseEnterDelay={0.6}>
+              <Button type="text" icon={<PlusOutlined />} onClick={() => handleZoom('in')} aria-label="Zoom in" />
+            </Tooltip>
+            <Tooltip title="Fit the plan" mouseEnterDelay={0.6}>
+              <Button type="text" icon={<CompressOutlined />} onClick={() => handleZoom('fit')} aria-label="Fit the plan" />
+            </Tooltip>
+            <Dropdown
+              trigger={['click']}
+              placement="topRight"
+              menu={{
+                items: [
+                  {
+                    key: 'grid',
+                    label: 'Grid',
+                    icon: <CheckOutlined style={{ visibility: data.settings.showGrid ? 'visible' : 'hidden' }} />,
+                  },
+                  {
+                    key: 'dimensions',
+                    label: 'Dimensions',
+                    icon: <CheckOutlined style={{ visibility: data.settings.showDimensions ? 'visible' : 'hidden' }} />,
+                  },
+                  { type: 'divider' },
+                  { key: 'middle', label: 'Move the plan to the middle', disabled: !hasContent },
+                ],
+                onClick: ({ key }) => {
+                  if (key === 'grid') api.updateSettings({ showGrid: !data.settings.showGrid });
+                  else if (key === 'dimensions') api.updateSettings({ showDimensions: !data.settings.showDimensions });
+                  else if (key === 'middle') movePlanToMiddle();
+                },
+              }}
+            >
+              <Button type="text" icon={<EllipsisOutlined />} aria-label="View settings" />
+            </Dropdown>
+          </div>
+
+          {isMobile && (
+            <Button className="bes-sheet-open" onClick={() => setDrawerOpen(true)}>
+              {selection ? `Edit ${selectionTitle(selection).toLowerCase()}` : 'Add & takeoff'}
+            </Button>
+          )}
         </div>
         {view === '3d' && (
           <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
@@ -846,52 +990,25 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
           </div>
         )}
 
-        {/* Desktop: inline sidebar */}
+        {/* Desktop: the panel beside the canvas */}
         {!isMobile && !sidebarCollapsed && (
-          <BESketchSidebar api={api} width={260} />
+          <BESketchSidebar api={api} width={PANEL_WIDTH} />
         )}
       </div>
 
-      {/* Mobile: Drawer sidebar */}
+      {/* Phones: the same panel as a sheet */}
       {isMobile && (
         <Drawer
-          title="Sketch Panels"
+          title="Plan"
           placement="bottom"
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           height="70vh"
           styles={{ body: { padding: 0 } }}
         >
-          <BESketchSidebar api={api} width="100%" />
+          <BESketchSidebar api={api} width="100%" sheet />
         </Drawer>
       )}
-
-      {/* Status bar (compact) */}
-      <div
-        style={{
-          padding: '2px 8px',
-          borderTop: '1px solid #e8e8e8',
-          backgroundColor: '#fafafa',
-          fontSize: 10,
-          display: 'flex',
-          gap: 12,
-          color: '#8c8c8c',
-          flexShrink: 0,
-        }}
-      >
-        <span><strong style={{ textTransform: 'capitalize' }}>{api.activeTool.replace('_', ' ')}</strong></span>
-        <span>W:{api.data.walls.length}</span>
-        <span>R:{api.data.rooms.length}</span>
-        <span>F:{api.data.fixtures.length}</span>
-        {(api.data.drywallRepairZones ?? []).length > 0 && (
-          <span style={{ color: '#d46b08' }}>DW:{api.data.drywallRepairZones.length}</span>
-        )}
-        {(api.data.insulationZones ?? []).length > 0 && (
-          <span style={{ color: '#ad1457' }}>INS:{api.data.insulationZones.length}</span>
-        )}
-        {!isMobile && <span>Scale: {api.data.settings.pixelsPerFoot} px/ft</span>}
-        {api.selectedId && !isMobile && <span>Selected: {api.selectedId.slice(0, 15)}</span>}
-      </div>
     </div>
   );
 };

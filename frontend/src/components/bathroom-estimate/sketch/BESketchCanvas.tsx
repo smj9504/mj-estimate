@@ -12,7 +12,7 @@ import React, {
   useCallback,
   useMemo,
 } from 'react';
-import { Stage, Layer, Rect, Line, Circle, Text, Group, Path, Transformer, Arrow } from 'react-konva';
+import { Stage, Layer, Rect, Line, Circle, Text, Group, Path, Transformer, Arrow, Shape } from 'react-konva';
 import type Konva from 'konva';
 import type {
   BEPoint,
@@ -26,8 +26,16 @@ import type {
 import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { getFixtureShape } from './utils/beFixtureShapes';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
-import { clipPolygon, getShowerUnitPolygon, type Pt2 } from './utils/beGeometry';
+import { clipPolygon, getShowerUnitPolygon, resizeRoomEdge, type Pt2 } from './utils/beGeometry';
 import { wallTileRegions } from './utils/wallFinish';
+import {
+  buildPlanLabels,
+  dimensionAnchor,
+  estimateWidth,
+  LABEL_FONT,
+  lineFontSize,
+  type Measure,
+} from './utils/planLabels';
 
 interface BESketchCanvasProps {
   api: BESketchStateAPI;
@@ -35,6 +43,8 @@ interface BESketchCanvasProps {
   height: number;
   stageRef?: React.MutableRefObject<any>;
   onZoomChange?: (level: number) => void;
+  /** The view's zoom: dimensions stay the same size on screen at any zoom */
+  zoom?: number;
   /** For an option: the bathroom as it is (the restoration, or a remodel's current layout), drawn faintly under it. */
   baseline?: BESketchData | null;
   baselineName?: string;
@@ -297,9 +307,27 @@ function constrainAxis(start: BEPoint, current: BEPoint): BEPoint {
   return current; // diagonal (45° zone)
 }
 
+// Konva draws in Arial unless told otherwise, so labels are measured in it
+let measureCtx: CanvasRenderingContext2D | null = null;
+const measureText: Measure = (text, fontSize, strong) => {
+  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+  if (!measureCtx) return estimateWidth(text, fontSize, strong);
+  measureCtx.font = `${strong ? 'bold ' : ''}${fontSize}px Arial`;
+  return measureCtx.measureText(text).width;
+};
+
+// A dimension's tag, in screen px whatever the zoom
+const DIM_TAG = { h: 20, padX: 7, minW: 34, gap: 6, fontSize: 11 };
+const dimTagWidth = (text: string) => Math.max(DIM_TAG.minW, Math.ceil(measureText(text, DIM_TAG.fontSize, true)) + DIM_TAG.padX * 2);
+
+const centroidOf = (pts: BEPoint[]): BEPoint => ({
+  x: pts.reduce((s, p) => s + p.x, 0) / pts.length,
+  y: pts.reduce((s, p) => s + p.y, 0) / pts.length,
+});
+
 // ── Component ──
 
-const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, stageRef: externalStageRef, onZoomChange, baseline, baselineName }) => {
+const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, stageRef: externalStageRef, onZoomChange, zoom = 1, baseline, baselineName }) => {
   const internalStageRef = useRef<Konva.Stage>(null);
   const stageRef = externalStageRef ?? internalStageRef;
   const {
@@ -320,6 +348,30 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
   const ppf = settings.pixelsPerFoot;
   const gridPx = ppf * settings.gridSizeFt;  // visual minor grid (3")
   const snapPx = ppf * 0.125;                // snap resolution: 1.5" always
+
+  // One label per room and per fixture with tile, placed apart (utils/planLabels)
+  const planLabels = useMemo(() => buildPlanLabels(rooms, fixtures, tileZones, ppf, {
+    withRooms: settings.showAreaLabels,
+    withTile: settings.showTileZones,
+    measure: measureText,
+  }), [rooms, fixtures, tileZones, ppf, settings.showAreaLabels, settings.showTileZones]);
+
+  /** The room a wall bounds: listed on it, or along one of its edges */
+  const roomForWall = useCallback((wall: BEWall): BERoom | undefined => (
+    rooms.find((r) => r.wallIds.includes(wall.id))
+      ?? rooms.find((r) => r.boundary.some((p, i) => {
+        const q = r.boundary[(i + 1) % r.boundary.length];
+        return (dist(p, wall.start) < 4 && dist(q, wall.end) < 4) || (dist(p, wall.end) < 4 && dist(q, wall.start) < 4);
+      }))
+  ), [rooms]);
+
+  /** Where an edge's dimension tag sits on screen at the current view */
+  const dimensionScreenPos = useCallback((a: BEPoint, b: BEPoint, inside: BEPoint | null, text: string): BEPoint => {
+    const stage = stageRef.current;
+    const scale = stage?.scaleX() ?? 1;
+    const at = dimensionAnchor(a, b, inside, dimTagWidth(text) / scale, DIM_TAG.h / scale, DIM_TAG.gap / scale);
+    return { x: at.x * scale + (stage?.x() ?? 0), y: at.y * scale + (stage?.y() ?? 0) };
+  }, [stageRef]);
 
   // ── Wall body drag ref (move entire wall) ──
   const wallDragRef = useRef<{ wallId: string; rawStart: BEPoint; rawEnd: BEPoint } | null>(null);
@@ -809,15 +861,11 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
     const lenIn = Math.round((calcWallLengthPx(wall) / ppf) * 12);
     setEditingWallId(wallId);
     setEditingWallValue(fmtInches(lenIn));
-    // Capture midpoint in viewport coords at edit start (prevents input jumping)
-    const stage = stageRef.current;
-    const scale = stage?.scaleX() ?? 1;
-    const stageX = stage?.x() ?? 0;
-    const stageY = stage?.y() ?? 0;
-    const mid = wallMidpoint(wall);
-    wallEditPosRef.current = { x: mid.x * scale + stageX, y: mid.y * scale + stageY };
+    // Over the wall's dimension tag, fixed for the edit (prevents input jumping)
+    const room = roomForWall(wall);
+    wallEditPosRef.current = dimensionScreenPos(wall.start, wall.end, room ? centroidOf(room.boundary) : null, fmtInches(lenIn));
     setTimeout(() => { wallInputRef.current?.focus(); wallInputRef.current?.select(); }, 50);
-  }, [walls, ppf]);
+  }, [walls, ppf, roomForWall, dimensionScreenPos]);
 
   const commitWallEdit = useCallback(() => {
     if (!editingWallId) return;
@@ -825,6 +873,18 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
     if (!wall) { setEditingWallId(null); wallEditPosRef.current = null; return; }
     const newInches = parseDimension(editingWallValue);
     if (!newInches || newInches < 1) { setEditingWallId(null); wallEditPosRef.current = null; return; }
+
+    // A room's own wall: resize that edge of the room, which moves its walls
+    // with it (a rectangle stays one), rather than this wall alone
+    const ownRoom = rooms.find((r) => r.wallIds.length === r.boundary.length && r.wallIds.includes(wall.id));
+    if (ownRoom) {
+      const b = resizeRoomEdge(ownRoom.boundary, ownRoom.wallIds.indexOf(wall.id), (newInches / 12) * ppf);
+      if (b) updateRoom(ownRoom.id, b);
+      setEditingWallId(null);
+      wallEditPosRef.current = null;
+      return;
+    }
+
     const dx = wall.end.x - wall.start.x;
     const dy = wall.end.y - wall.start.y;
     let angle = Math.atan2(dy, dx);
@@ -869,16 +929,10 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
     const inches = Math.round((edgePx / ppf) * 12);
     setEditingRoomEdge({ roomId, edgeIdx, edge });
     setEditingRoomValue(fmtInches(inches));
-    // Capture edge midpoint position at edit start (prevents input jumping)
-    const stage = stageRef.current;
-    const scale = stage?.scaleX() ?? 1;
-    const stageX = stage?.x() ?? 0;
-    const stageY = stage?.y() ?? 0;
-    const mx = (pt.x + npt.x) / 2;
-    const my = (pt.y + npt.y) / 2;
-    roomEditPosRef.current = { x: mx * scale + stageX, y: my * scale + stageY };
+    // Over the edge's dimension tag, fixed for the edit (prevents input jumping)
+    roomEditPosRef.current = dimensionScreenPos(pt, npt, centroidOf(room.boundary), fmtInches(inches));
     setTimeout(() => { roomInputRef.current?.focus(); roomInputRef.current?.select(); }, 50);
-  }, [rooms, ppf]);
+  }, [rooms, ppf, dimensionScreenPos]);
 
   const commitRoomEdit = useCallback(() => {
     if (!editingRoomEdge) return;
@@ -886,49 +940,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
     if (!room) { setEditingRoomEdge(null); roomEditPosRef.current = null; return; }
     const newInches = parseDimension(editingRoomValue);
     if (!newInches || newInches < 3) { setEditingRoomEdge(null); roomEditPosRef.current = null; return; }
-    const newPx = (newInches / 12) * ppf;
-
-    const idx = editingRoomEdge.edgeIdx;
-    const nIdx = (idx + 1) % room.boundary.length;
-    const pt = room.boundary[idx];
-    const npt = room.boundary[nIdx];
-
-    // Snap edge direction to axis
-    let dx = npt.x - pt.x;
-    let dy = npt.y - pt.y;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len < 1) { setEditingRoomEdge(null); roomEditPosRef.current = null; return; }
-    // Force horizontal/vertical if close
-    const isH = Math.abs(dy) < Math.abs(dx) * 0.2; // nearly horizontal
-    const isV = Math.abs(dx) < Math.abs(dy) * 0.2; // nearly vertical
-    if (isH) { dy = 0; dx = dx > 0 ? len : -len; }
-    else if (isV) { dx = 0; dy = dy > 0 ? len : -len; }
-    const dirLen = Math.sqrt(dx * dx + dy * dy);
-
-    // New end point = start + direction * newPx
-    const newNpt: BEPoint = {
-      x: Math.round(pt.x + (dx / dirLen) * newPx),
-      y: Math.round(pt.y + (dy / dirLen) * newPx),
-    };
-
-    const oldB = [...room.boundary];
-    const b = [...room.boundary];
-    b[nIdx] = newNpt;
-
-    // For rectangular rooms: move any vertex that shared X or Y with old npt
-    if (room.boundary.length === 4) {
-      for (let i = 0; i < 4; i++) {
-        if (i === nIdx) continue;
-        if (Math.abs(oldB[i].x - oldB[nIdx].x) < 2) {
-          b[i] = { x: newNpt.x, y: b[i].y };
-        }
-        if (Math.abs(oldB[i].y - oldB[nIdx].y) < 2) {
-          b[i] = { x: b[i].x, y: newNpt.y };
-        }
-      }
-    }
-
-    updateRoom(room.id, b);
+    const b = resizeRoomEdge(room.boundary, editingRoomEdge.edgeIdx, (newInches / 12) * ppf);
+    if (b) updateRoom(room.id, b);
     setEditingRoomEdge(null); roomEditPosRef.current = null;
   }, [editingRoomEdge, editingRoomValue, rooms, ppf, updateRoom]);
 
@@ -938,13 +951,13 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
   const roomEditOverlayPos = editingRoomEdge ? roomEditPosRef.current : null;
 
   return (
-    <div style={{ position: 'relative', cursor, border: '1px solid #d9d9d9', backgroundColor: settings.backgroundColor }}>
+    <div style={{ position: 'relative', cursor, backgroundColor: settings.backgroundColor }}>
       {/* Inline wall length input overlay */}
       {editingWallId && editOverlayPos && (
         <div style={{
           position: 'absolute',
-          left: editOverlayPos.x - 40,
-          top: editOverlayPos.y - 32,
+          left: editOverlayPos.x - 26,
+          top: editOverlayPos.y - 11,
           zIndex: 10,
           display: 'flex',
           alignItems: 'center',
@@ -961,7 +974,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             onBlur={commitWallEdit}
             style={{
               width: 52, height: 22, fontSize: 11, fontWeight: 600,
-              textAlign: 'center', border: '2px solid #1890ff',
+              textAlign: 'center', border: '2px solid #1f74c9',
               borderRadius: 4, outline: 'none', background: '#fff',
             }}
           />
@@ -971,8 +984,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
       {editingRoomEdge && roomEditOverlayPos && (
         <div style={{
           position: 'absolute',
-          left: roomEditOverlayPos.x - 40,
-          top: roomEditOverlayPos.y - 30,
+          left: roomEditOverlayPos.x - 26,
+          top: roomEditOverlayPos.y - 11,
           zIndex: 10,
           display: 'flex',
           alignItems: 'center',
@@ -989,7 +1002,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             onBlur={commitRoomEdit}
             style={{
               width: 52, height: 22, fontSize: 11, fontWeight: 600,
-              textAlign: 'center', border: '2px solid #1890ff',
+              textAlign: 'center', border: '2px solid #1f74c9',
               borderRadius: 4, outline: 'none', background: '#fff',
             }}
           />
@@ -1037,54 +1050,47 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
       >
         {/* ── Grid Layer ── */}
         {settings.showGrid && (() => {
-          // Grid: minor = 3" (gridPx), major = 1 ft (ppf)
-          const majorPx = ppf;    // 1 foot intervals (bold lines)
-          const minorPx = gridPx; // 3 inch intervals (each visible square = 3")
-          // Extend grid to cover all content (beyond canvas viewport)
-          const allPx: number[] = [width];
-          const allPy: number[] = [height];
-          rooms.forEach(r => r.boundary.forEach(p => { allPx.push(p.x); allPy.push(p.y); }));
-          walls.forEach(w => { allPx.push(w.start.x, w.end.x); allPy.push(w.start.y, w.end.y); });
-          fixtures.forEach(f => {
-            const hw = (f.dimensions.width / 12) * ppf / 2;
-            const hh = (f.dimensions.height / 12) * ppf / 2;
-            allPx.push(f.position.x + hw); allPy.push(f.position.y + hh);
-          });
-          const gridW = Math.max(width, ...allPx) + ppf * 2;
-          const gridH = Math.max(height, ...allPy) + ppf * 2;
+          // Grid: minor = 3" (gridPx), major = 1 ft (ppf), and a faint line halfway
+          // between minor ones. One shape, drawn over whatever part of the plan is
+          // in view, so it reaches every edge however the view is zoomed or moved.
+          const majorPx = ppf;
+          const minorPx = gridPx;
           return (
-          <Layer listening={false}>
-            {/* 3-level grid: sub (1.5"), minor (3" = gridPx), major (1ft = ppf) */}
-            {/* Sub-grid lines (halfway between minor lines) */}
-            {Array.from({ length: Math.ceil(gridW / minorPx) }, (_, i) => (
-              <Line key={`gsv${i}`} points={[i * minorPx + minorPx / 2, 0, i * minorPx + minorPx / 2, gridH]} stroke="#f0f0f0" strokeWidth={0.3} />
-            ))}
-            {Array.from({ length: Math.ceil(gridH / minorPx) }, (_, i) => (
-              <Line key={`gsh${i}`} points={[0, i * minorPx + minorPx / 2, gridW, i * minorPx + minorPx / 2]} stroke="#f0f0f0" strokeWidth={0.3} />
-            ))}
-            {/* Minor (3") + Major (1ft) grid lines */}
-            {Array.from({ length: Math.ceil(gridW / minorPx) + 1 }, (_, i) => {
-              const isMajor = Math.abs(i * minorPx - Math.round(i * minorPx / majorPx) * majorPx) < 1;
-              return (
-                <Line
-                  key={`gv${i}`}
-                  points={[i * minorPx, 0, i * minorPx, gridH]}
-                  stroke={isMajor ? '#ccc' : '#e8e8e8'}
-                  strokeWidth={isMajor ? 1 : 0.5}
-                />
-              );
-            })}
-            {Array.from({ length: Math.ceil(gridH / minorPx) + 1 }, (_, i) => {
-              const isMajor = Math.abs(i * minorPx - Math.round(i * minorPx / majorPx) * majorPx) < 1;
-              return (
-                <Line
-                  key={`gh${i}`}
-                  points={[0, i * minorPx, gridW, i * minorPx]}
-                  stroke={isMajor ? '#ccc' : '#e8e8e8'}
-                  strokeWidth={isMajor ? 1 : 0.5}
-                />
-              );
-            })}
+          // Named so the PDF's picture of the plan can leave it out
+          <Layer name="grid" listening={false}>
+            <Shape
+              listening={false}
+              perfectDrawEnabled={false}
+              sceneFunc={(ctx, shape) => {
+                const stage = shape.getStage();
+                if (!stage || minorPx <= 0) return;
+                const s = stage.scaleX() || 1;
+                const x0 = -stage.x() / s;
+                const y0 = -stage.y() / s;
+                const x1 = x0 + stage.width() / s;
+                const y1 = y0 + stage.height() / s;
+                const onMajor = (v: number) => Math.abs(v - Math.round(v / majorPx) * majorPx) < 1;
+                const lines = (step: number, offset: number, stroke: string, lineWidth: number, skip?: (v: number) => boolean) => {
+                  ctx.beginPath();
+                  for (let x = Math.floor((x0 - offset) / step) * step + offset; x <= x1; x += step) {
+                    if (skip?.(x)) continue;
+                    ctx.moveTo(x, y0);
+                    ctx.lineTo(x, y1);
+                  }
+                  for (let y = Math.floor((y0 - offset) / step) * step + offset; y <= y1; y += step) {
+                    if (skip?.(y)) continue;
+                    ctx.moveTo(x0, y);
+                    ctx.lineTo(x1, y);
+                  }
+                  ctx.setAttr('strokeStyle', stroke);
+                  ctx.setAttr('lineWidth', lineWidth);
+                  ctx.stroke();
+                };
+                lines(minorPx, minorPx / 2, '#f0f0f0', 0.3);
+                lines(minorPx, 0, '#e8e8e8', 0.5, onMajor);
+                lines(majorPx, 0, '#ccc', 1);
+              }}
+            />
             {/* Scale indicator */}
             <Line points={[10, height - 20, 10 + ppf, height - 20]} stroke="#999" strokeWidth={1.5} />
             <Line points={[10, height - 24, 10, height - 16]} stroke="#999" strokeWidth={1} />
@@ -1107,8 +1113,6 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         <Layer>
           {rooms.map((room) => {
             const pts = room.boundary.flatMap((p) => [p.x, p.y]);
-            const cx = room.boundary.reduce((s, p) => s + p.x, 0) / room.boundary.length;
-            const cy = room.boundary.reduce((s, p) => s + p.y, 0) / room.boundary.length;
             const isRoomSelected = selectedId === room.id;
             const isRect = room.boundary.length === 4;
             const xs = room.boundary.map((p) => p.x);
@@ -1208,17 +1212,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                     </React.Fragment>
                   );
                 })}
-                {settings.showAreaLabels && (
-                  <Text
-                    x={cx - 35} y={cy - 14}
-                    text={`${room.name}\n${room.netFloorAreaSF ?? room.floorAreaSF} SF`}
-                    fontSize={room.parentRoomId ? 10 : 11}
-                    fill={room.parentRoomId ? '#8c6d1f' : '#444'}
-                    align="center" fontStyle="bold"
-                  />
-                )}
-                {/* Dimension labels */}
-                {/* Room selected dimension labels are now in top-most layer */}
+                {/* Its name and area are in the labels layer, placed off the fixtures */}
                 {/* Vertex handles (all polygon shapes) */}
                 {isRoomSelected && room.boundary.map((pt, idx) => (
                   <Circle
@@ -1384,25 +1378,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
               const pieces = zone.subBoundaries && zone.subBoundaries.length > 0
                 ? zone.subBoundaries
                 : [zone.boundary];
-              // Anchor the label on the largest strip (by shoelace area) so
-              // it sits over actual painted tile instead of the fixture's
-              // full footprint center — keeps it from overlapping labels of
-              // other zones (e.g. front panel) that sit near that center.
-              const polyCentroid = (poly: BEPoint[]) => ({
-                x: poly.reduce((s, p) => s + p.x, 0) / poly.length,
-                y: poly.reduce((s, p) => s + p.y, 0) / poly.length,
-              });
-              const polyArea = (poly: BEPoint[]) => Math.abs(poly.reduce(
-                (s, p, i) => s + p.x * poly[(i + 1) % poly.length].y - poly[(i + 1) % poly.length].x * p.y, 0,
-              )) / 2;
-              const labelAnchorPoly = pieces.length > 1
-                ? pieces.reduce((a, b) => (polyArea(b) > polyArea(a) ? b : a))
-                : pieces[0];
-              const { x: cx, y: cy } = polyCentroid(labelAnchorPoly);
-              // Front panel sits as a thin strip right where a deck's south
-              // strip also lands — nudge its label further out so the two
-              // don't render on top of each other.
-              const labelYOffset = zone.type === 'tub_front_panel' ? 10 : -6;
+              // Its name and SF are on its fixture's or room's label (labels layer)
               return (
                 <Group key={zone.id}>
                   {pieces.map((piece, i) => (
@@ -1416,7 +1392,6 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                       dash={[4, 4]}
                     />
                   ))}
-                  <Text x={cx - 20} y={cy + labelYOffset} text={`${zone.label}\n${zone.areaSF} SF`} fontSize={9} fill="#555" />
                 </Group>
               );
             })}
@@ -1601,7 +1576,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                       </>
                     )}
                     <Text x={mx - 30} y={my - 20}
-                      text={`Wall DW\n${zone.areaSF} SF`}
+                      text={`Drywall\n${zone.areaSF} SF`}
                       fontSize={9} fill="#bf360c" fontStyle="bold" align="center" listening={false} />
                   </Group>
                 );
@@ -1673,7 +1648,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                       />
                     ))}
                     <Text x={cx - 30} y={cy - 14}
-                      text={`Ceiling DW\n${zone.areaSF} SF`}
+                      text={`Ceiling drywall\n${zone.areaSF} SF`}
                       fontSize={9} fill="#0d47a1" fontStyle="bold" align="center" listening={false} />
                   </Group>
                 );
@@ -1703,7 +1678,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                     {lenPx > 20 && (
                       <Text
                         x={(s.x + c.x) / 2 - 30} y={(s.y + c.y) / 2 - 18}
-                        text={`Wall DW\n${areaSF.toFixed(1)} SF`}
+                        text={`Drywall\n${areaSF.toFixed(1)} SF`}
                         fontSize={10} fill="#e65100" fontStyle="bold"
                         listening={false}
                       />
@@ -1727,7 +1702,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                     {w > 30 && h > 20 && (
                       <Text
                         x={x + w / 2 - 30} y={y + h / 2 - 8}
-                        text={`Ceiling DW\n${areaSF.toFixed(1)} SF`}
+                        text={`Ceiling drywall\n${areaSF.toFixed(1)} SF`}
                         fontSize={10} fill="#e65100" fontStyle="bold"
                         listening={false}
                       />
@@ -1806,7 +1781,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                       />
                     ))}
                     <Text x={mx - 30} y={my - 20}
-                      text={`Wall INS\n${zone.areaSF} SF`}
+                      text={`Insulation\n${zone.areaSF} SF`}
                       fontSize={9} fill="#ad1457" fontStyle="bold" align="center" listening={false} />
                   </Group>
                 );
@@ -1865,7 +1840,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                       />
                     ))}
                     <Text x={cx - 30} y={cy - 14}
-                      text={`Ceiling INS\n${zone.areaSF} SF`}
+                      text={`Ceiling insulation\n${zone.areaSF} SF`}
                       fontSize={9} fill="#6a1b9a" fontStyle="bold" align="center" listening={false} />
                   </Group>
                 );
@@ -1890,7 +1865,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                     {lenPx > 20 && (
                       <Text
                         x={(s.x + c.x) / 2 - 30} y={(s.y + c.y) / 2 - 18}
-                        text={`Wall INS\n${areaSF.toFixed(1)} SF`}
+                        text={`Insulation\n${areaSF.toFixed(1)} SF`}
                         fontSize={10} fill="#ad1457" fontStyle="bold" listening={false} />
                     )}
                   </Group>
@@ -1910,7 +1885,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                     {w > 30 && h > 20 && (
                       <Text
                         x={x + w / 2 - 30} y={y + h / 2 - 8}
-                        text={`Ceiling INS\n${areaSF.toFixed(1)} SF`}
+                        text={`Ceiling insulation\n${areaSF.toFixed(1)} SF`}
                         fontSize={10} fill="#ad1457" fontStyle="bold" listening={false} />
                     )}
                   </Group>
@@ -2175,6 +2150,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
               isDraggable={activeTool === 'select'}
               snapToGrid={settings.snapToGrid}
               isResizable={activeTool === 'select'}
+              hideLabel={planLabels.labelledFixtureIds.has(fix.id)}
               onSelect={() => setSelectedId(fix.id)}
               onDragEnd={(pos) => api.updateFixture(fix.id, { position: pos })}
               onResize={(w, h) => api.updateFixture(fix.id, { dimensions: { width: w, height: h } })}
@@ -2183,36 +2159,60 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
           ))}
         </Layer>
 
+        {/* ── Labels: one per room and per fixture with tile, placed apart (utils/planLabels) ── */}
+        <Layer listening={false}>
+          {planLabels.labels.map((label) => {
+            const ink = label.subRoom ? '#8c6d1f' : '#37352f';
+            const tops = label.lines.reduce<number[]>((acc, line, i) => {
+              acc.push(i === 0 ? 0 : acc[i - 1] + lineFontSize(label.lines[i - 1]) * LABEL_FONT.lineHeight);
+              return acc;
+            }, []);
+            return (
+              <Group key={label.key} x={label.x - label.w / 2} y={label.y - label.h / 2}>
+                {/* A light wash so the words read over tile and fixture lines */}
+                <Rect width={label.w} height={label.h} fill="rgba(255, 255, 255, 0.82)" cornerRadius={3} />
+                {label.lines.map((line, i) => (
+                  <Text
+                    key={i}
+                    x={0}
+                    y={LABEL_FONT.pad + tops[i]}
+                    width={label.w}
+                    text={line.text}
+                    fontSize={lineFontSize(line)}
+                    lineHeight={LABEL_FONT.lineHeight}
+                    fontStyle={line.strong ? 'bold' : 'normal'}
+                    fill={line.strong ? ink : '#5f5e5b'}
+                    align="center"
+                  />
+                ))}
+              </Group>
+            );
+          })}
+        </Layer>
+
         {/* ── Dimension Labels Layer (top-most, but non-interactive when fixture selected) ── */}
-        <Layer listening={!fixtures.some(f => f.id === selectedId)}>
+        {/* Named so the PDF's picture of the plan can leave it out. Each tag sits
+            outside its room, the same size on screen whatever the zoom. */}
+        <Layer name="dimensions" listening={!fixtures.some(f => f.id === selectedId)}>
           {/* Wall dimension labels */}
           {walls.map((wall) => {
             const lenIn = (calcWallLengthPx(wall) / ppf) * 12;
             if (!settings.showDimensions || lenIn <= 6 || editingWallId === wall.id) return null;
-            const mid = wallMidpoint(wall);
+            const room = roomForWall(wall);
+            const text = fmtInches(lenIn);
             return (
-              <Group key={`wdim-${wall.id}`}>
-                <Rect
-                  x={mid.x - 22} y={mid.y - 22}
-                  width={44} height={18}
-                  fill="rgba(255,255,255,0.9)" cornerRadius={3}
-                  stroke="#1890ff" strokeWidth={0.5}
-                  onMouseDown={(e) => { e.cancelBubble = true; }}
-                  onClick={(e) => {
-                    e.cancelBubble = true;
-                    setSelectedId(wall.id);
-                    handleWallDblClick(wall.id);
-                  }}
-                  onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'text'; }}
-                  onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
-                />
-                <Text
-                  x={mid.x - 22} y={mid.y - 20}
-                  width={44} text={fmtInches(lenIn)}
-                  fontSize={11} fill="#1890ff" fontStyle="bold" align="center"
-                  listening={false}
-                />
-              </Group>
+              <DimensionTag
+                key={`wdim-${wall.id}`}
+                a={wall.start}
+                b={wall.end}
+                inside={room ? centroidOf(room.boundary) : null}
+                text={text}
+                zoom={zoom}
+                onEdit={() => {
+                  setSelectedId(wall.id);
+                  handleWallDblClick(wall.id);
+                }}
+              />
             );
           })}
           {/* Room edge dimension labels (when room has no separate walls) */}
@@ -2230,44 +2230,77 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                 return matchStart || matchReverse;
               });
               if (hasWall) return null;
-              const mx = (pt.x + npt.x) / 2;
-              const my = (pt.y + npt.y) / 2;
               const isH = Math.abs(npt.y - pt.y) < Math.abs(npt.x - pt.x);
               // Determine which room edge: top/bottom/left/right
               const edgeType: 'width' | 'depth' = isH ? 'width' : 'depth';
               const isEditing = editingRoomEdge?.roomId === room.id && editingRoomEdge?.edgeIdx === idx;
               if (isEditing) return null;
-              const lx = isH ? mx - 22 : mx - 38;
-              const ly = isH ? my - 22 : my - 9;
               return (
-                <Group key={`rdim-${room.id}-${idx}`}>
-                  <Rect
-                    x={lx} y={ly}
-                    width={44} height={18}
-                    fill="rgba(255,255,255,0.9)" cornerRadius={3}
-                    stroke="#1890ff" strokeWidth={0.5}
-                    onMouseDown={(e) => { e.cancelBubble = true; }}
-                    onClick={(e) => {
-                      e.cancelBubble = true;
-                      setSelectedId(room.id);
-                      handleRoomEdgeEdit(room.id, idx, edgeType);
-                    }}
-                    onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'text'; }}
-                    onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
-                  />
-                  <Text
-                    x={lx} y={ly + 2}
-                    width={44} text={fmtInches(edgeIn)}
-                    fontSize={11} fill="#1890ff" fontStyle="bold" align="center"
-                    listening={false}
-                  />
-                </Group>
+                <DimensionTag
+                  key={`rdim-${room.id}-${idx}`}
+                  a={pt}
+                  b={npt}
+                  inside={centroidOf(room.boundary)}
+                  text={fmtInches(edgeIn)}
+                  zoom={zoom}
+                  onEdit={() => {
+                    setSelectedId(room.id);
+                    handleRoomEdgeEdit(room.id, idx, edgeType);
+                  }}
+                />
               );
             });
           })}
         </Layer>
       </Stage>
     </div>
+  );
+};
+
+// ── Dimension tag: an edge's length, outside the room, click to type a new one ──
+
+const DimensionTag: React.FC<{
+  a: BEPoint;
+  b: BEPoint;
+  inside: BEPoint | null;
+  text: string;
+  zoom: number;
+  onEdit: () => void;
+}> = ({ a, b, inside, text, zoom, onEdit }) => {
+  const w = dimTagWidth(text);
+  const { h, gap, fontSize } = DIM_TAG;
+  // Sized in screen px, so placed with the zoom taken out
+  const at = dimensionAnchor(a, b, inside, w / zoom, h / zoom, gap / zoom);
+  return (
+    <Group x={at.x} y={at.y} scaleX={1 / zoom} scaleY={1 / zoom}>
+      <Rect
+        x={-w / 2} y={-h / 2}
+        width={w} height={h}
+        fill="#ffffff" cornerRadius={4}
+        stroke="#c8c7c3" strokeWidth={1}
+        onMouseDown={(e) => { e.cancelBubble = true; }}
+        onClick={(e) => { e.cancelBubble = true; onEdit(); }}
+        onTap={(e) => { e.cancelBubble = true; onEdit(); }}
+        onMouseEnter={(e) => {
+          e.target.getStage()!.container().style.cursor = 'text';
+          (e.target as Konva.Rect).stroke('#1f74c9');
+          e.target.getLayer()?.batchDraw();
+        }}
+        onMouseLeave={(e) => {
+          e.target.getStage()!.container().style.cursor = 'default';
+          (e.target as Konva.Rect).stroke('#c8c7c3');
+          e.target.getLayer()?.batchDraw();
+        }}
+      />
+      <Text
+        x={-w / 2} y={-h / 2}
+        width={w} height={h}
+        text={text}
+        fontSize={fontSize} fontStyle="bold" fill="#37352f"
+        align="center" verticalAlign="middle"
+        listening={false}
+      />
+    </Group>
   );
 };
 
@@ -2282,6 +2315,8 @@ interface FixtureNodeProps {
   isDraggable: boolean;
   snapToGrid: boolean;
   isResizable: boolean;
+  /** Its name is on a label with its tile (the labels layer) */
+  hideLabel?: boolean;
   onSelect: () => void;
   onDragEnd: (pos: BEPoint) => void;
   onResize: (widthInches: number, heightInches: number) => void;
@@ -2297,6 +2332,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
   isDraggable,
   snapToGrid: doSnap,
   isResizable,
+  hideLabel,
   onSelect,
   onDragEnd,
   onResize,
@@ -2383,16 +2419,18 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
       ))}
 
       {/* Label */}
-      <Text
-        x={-wPx / 2}
-        y={hPx / 2 + 2}
-        width={wPx}
-        text={fix.label ?? shape.label}
-        fontSize={Math.max(8, Math.min(11, wPx / 5))}
-        fill="#555"
-        align="center"
-        listening={false}
-      />
+      {!hideLabel && (
+        <Text
+          x={-wPx / 2}
+          y={hPx / 2 + 2}
+          width={wPx}
+          text={fix.label ?? shape.label}
+          fontSize={Math.max(8, Math.min(11, wPx / 5))}
+          fill="#555"
+          align="center"
+          listening={false}
+        />
+      )}
 
       {/* Surround indicator for bathtub */}
       {fix.type === 'bathtub' && fix.properties.hasSurround && (
@@ -2426,8 +2464,8 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
         />
       )}
 
-      {/* Niche indicators for shower */}
-      {fix.type === 'shower' && (fix.properties.nicheCount ?? 0) > 0 && (
+      {/* Niche indicators for shower (the label with its tile says it otherwise) */}
+      {!hideLabel && fix.type === 'shower' && (fix.properties.nicheCount ?? 0) > 0 && (
         <Text
           x={-wPx / 2 + 2}
           y={-hPx / 2 - 14}

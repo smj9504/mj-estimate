@@ -1584,11 +1584,6 @@ const BathroomEstimateDetail: React.FC = () => {
               <Card
                 className="be-sketch-card"
                 title={isPhone ? undefined : 'Bathroom Floor Plan & Tile Estimation'}
-                extra={isPhone ? undefined : (
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    Draw walls, place fixtures (tub, shower, vanity, toilet), then use the Tile tool to estimate tile quantities
-                  </Text>
-                )}
                 styles={{ body: { padding: 0 } }}
               >
                 {/* 700px tall; on a phone, the screen under the tab bar */}

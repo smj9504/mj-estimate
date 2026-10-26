@@ -1,231 +1,150 @@
 /**
- * BESketchToolbar - Bathroom Estimate Sketch toolbar
+ * BESketchToolbar - the sketch's one row of tools
  *
- * Tools: Select, Wall, Room, Fixture, Measure, Tile Zone, Damage Zone
- * Actions: Undo, Redo, Zoom controls, Settings toggles
+ * Select, Room, Wall, and Mark (damage, drywall repair, insulation) on the
+ * left with Undo / Redo; Plan or 3D, Save and the panel toggle on the right.
+ * Zoom and the view settings float on the canvas instead (see BESketchTab).
  */
 
 import React from 'react';
-import { Button, Space, Divider, Tooltip, Switch, Typography, Grid } from 'antd';
+import { Button, Dropdown, Segmented, Tooltip } from 'antd';
 import {
-  SelectOutlined,
-  LineOutlined,
-  BorderOutlined,
-  AppstoreOutlined,
-  ColumnHeightOutlined,
-  CalculatorOutlined,
-  WarningOutlined,
-  UndoOutlined,
+  CheckOutlined,
+  DownOutlined,
+  HighlightOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
   RedoOutlined,
-  EyeOutlined,
-  TableOutlined,
-  ZoomInOutlined,
-  ZoomOutOutlined,
-  CompressOutlined,
-  BuildOutlined,
-  FireOutlined,
-  DragOutlined,
+  SaveOutlined,
+  SelectOutlined,
+  UndoOutlined,
 } from '@ant-design/icons';
 import type { BESketchTool } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
+import { RoomGlyph, WallGlyph } from './beGlyphs';
 
-const { Text } = Typography;
-const { useBreakpoint } = Grid;
+export type BESketchView = 'plan' | '3d';
 
 interface BESketchToolbarProps {
   api: BESketchStateAPI;
-  onZoomIn?: () => void;
-  onZoomOut?: () => void;
-  onZoomFit?: () => void;
-  zoomLevel?: number;
-  canvasSize?: { width: number; height: number };
+  view: BESketchView;
+  onViewChange: (view: BESketchView) => void;
+  onSave: () => void;
+  /** Desktop only: the panel beside the canvas */
+  panel?: { open: boolean; onToggle: () => void };
 }
 
-const TOOLS: { key: BESketchTool; icon: React.ReactNode; label: string; tooltip: string }[] = [
-  { key: 'select', icon: <SelectOutlined />, label: 'Select', tooltip: 'Select and move elements' },
-  { key: 'wall', icon: <LineOutlined />, label: 'Wall', tooltip: 'Draw walls' },
-  { key: 'room', icon: <BorderOutlined />, label: 'Room', tooltip: 'Click vertices to draw polygon room (dbl-click to close). Shift+drag for rectangle.' },
-  { key: 'fixture', icon: <AppstoreOutlined />, label: 'Fixture', tooltip: 'Place bathroom fixtures (tub, shower, vanity, toilet)' },
-  { key: 'measure', icon: <ColumnHeightOutlined />, label: 'Measure', tooltip: 'Measure distances' },
-  { key: 'tile_zone', icon: <CalculatorOutlined />, label: 'Tile', tooltip: 'View and configure tile zones' },
-  { key: 'damage_zone', icon: <WarningOutlined />, label: 'Damage', tooltip: 'Mark water damage / cement board areas' },
-  { key: 'drywall_repair', icon: <BuildOutlined />, label: 'Drywall', tooltip: 'Mark drywall repair areas (install drywall + texture, prime & paint)' },
-  { key: 'insulation', icon: <FireOutlined />, label: 'Insulation', tooltip: 'Mark insulation areas (demo + install insulation on walls/ceiling)' },
+const DRAW_TOOLS: { key: BESketchTool; label: string; icon: React.ReactNode; tip: string }[] = [
+  { key: 'select', label: 'Select', icon: <SelectOutlined />, tip: 'Select, move and edit' },
+  { key: 'room', label: 'Room', icon: <RoomGlyph />, tip: 'Draw the room by its corners' },
+  { key: 'wall', label: 'Wall', icon: <WallGlyph />, tip: 'Draw a wall' },
 ];
 
-const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, onZoomIn, onZoomOut, onZoomFit, zoomLevel, canvasSize }) => {
-  const { activeTool, setActiveTool, undo, redo, canUndo, canRedo, data, updateSettings, drywallSurface, setDrywallSurface, insulationSurface, setInsulationSurface, moveAll } = api;
-  const screens = useBreakpoint();
-  const isMobile = !screens.md;
+export const MARK_TOOLS: { key: BESketchTool; label: string; short: string; desc: string }[] = [
+  { key: 'damage_zone', label: 'Damage', short: 'Damage', desc: 'Water damage, mold or cement board' },
+  { key: 'drywall_repair', label: 'Drywall repair', short: 'Drywall', desc: 'Board, texture and paint to replace' },
+  { key: 'insulation', label: 'Insulation', short: 'Insulation', desc: 'Insulation to take out or put in' },
+];
+
+const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, view, onViewChange, onSave, panel }) => {
+  const { activeTool, setActiveTool, undo, redo, canUndo, canRedo, isDirty } = api;
+  const isPlan = view === 'plan';
+  const mark = MARK_TOOLS.find((t) => t.key === activeTool);
 
   return (
-    <div
-      style={{
-        padding: '4px 8px',
-        borderBottom: '1px solid #e8e8e8',
-        backgroundColor: '#fafafa',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 4,
-        flexShrink: 0,
-        overflowX: 'auto',
-        overflowY: 'hidden',
-        WebkitOverflowScrolling: 'touch',
-        minWidth: 0,
-      }}
-    >
-      {/* Tools */}
-      <Space size={2} style={{ flexShrink: 0 }}>
-        {TOOLS.map((t) => (
-          <Tooltip key={t.key} title={isMobile ? undefined : t.tooltip}>
+    <div className="bes-toolbar" role="toolbar" aria-label="Sketch tools">
+      {isPlan && (
+        <>
+          <div className="bes-toolbar-group">
+            {DRAW_TOOLS.map((t) => (
+              <Tooltip key={t.key} title={t.tip} mouseEnterDelay={0.6}>
+                <Button
+                  type="text"
+                  className={`bes-tool${activeTool === t.key ? ' is-selected' : ''}`}
+                  aria-pressed={activeTool === t.key}
+                  aria-label={t.label}
+                  onClick={() => setActiveTool(t.key)}
+                >
+                  {t.icon}
+                  <span className="bes-tool-label">{t.label}</span>
+                </Button>
+              </Tooltip>
+            ))}
+            <Dropdown
+              trigger={['click']}
+              menu={{
+                selectable: true,
+                selectedKeys: mark ? [mark.key] : [],
+                items: MARK_TOOLS.map((t) => ({
+                  key: t.key,
+                  label: (
+                    <span className="bes-mark-option">
+                      <span>{t.label}</span>
+                      <span className="bes-mark-option-desc">{t.desc}</span>
+                    </span>
+                  ),
+                })),
+                onClick: ({ key }) => setActiveTool(key as BESketchTool),
+              }}
+            >
+              <Button
+                type="text"
+                className={`bes-tool${mark ? ' is-selected' : ''}`}
+                aria-label={mark ? `Mark: ${mark.label}` : 'Mark damage, drywall or insulation'}
+              >
+                <HighlightOutlined />
+                <span className="bes-tool-label">{mark ? mark.short : 'Mark'}</span>
+                <DownOutlined className="bes-tool-caret" />
+              </Button>
+            </Dropdown>
+          </div>
+
+          <span className="bes-toolbar-sep" aria-hidden="true" />
+
+          <div className="bes-toolbar-group">
+            <Tooltip title="Undo (Ctrl+Z)" mouseEnterDelay={0.6}>
+              <Button type="text" className="ui-icon-btn" icon={<UndoOutlined />} disabled={!canUndo} onClick={undo} aria-label="Undo" />
+            </Tooltip>
+            <Tooltip title="Redo (Ctrl+Y)" mouseEnterDelay={0.6}>
+              <Button type="text" className="ui-icon-btn" icon={<RedoOutlined />} disabled={!canRedo} onClick={redo} aria-label="Redo" />
+            </Tooltip>
+          </div>
+        </>
+      )}
+
+      <div className="bes-toolbar-group bes-toolbar-end">
+        <Segmented
+          value={view}
+          onChange={(v) => onViewChange(v as BESketchView)}
+          options={[
+            { value: 'plan', label: 'Plan' },
+            { value: '3d', label: '3D' },
+          ]}
+          aria-label="Plan or 3D view"
+        />
+        <Tooltip title={isDirty ? 'Save the sketch (Ctrl+S)' : 'All changes saved'} mouseEnterDelay={0.6}>
+          <Button
+            className="bes-save"
+            icon={isDirty ? <SaveOutlined /> : <CheckOutlined />}
+            disabled={!isDirty}
+            onClick={onSave}
+          >
+            <span className="bes-tool-label">{isDirty ? 'Save' : 'Saved'}</span>
+          </Button>
+        </Tooltip>
+        {panel && (
+          <Tooltip title={panel.open ? 'Hide panel' : 'Show panel'} mouseEnterDelay={0.6}>
             <Button
-              type={activeTool === t.key ? 'primary' : 'default'}
-              icon={t.icon}
-              size="small"
-              onClick={() => setActiveTool(t.key)}
-              style={{ padding: '0 6px', fontSize: 12 }}
+              type="text"
+              className="ui-icon-btn"
+              icon={panel.open ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={panel.onToggle}
+              aria-label={panel.open ? 'Hide panel' : 'Show panel'}
+              aria-expanded={panel.open}
             />
           </Tooltip>
-        ))}
-      </Space>
-
-      {/* Drywall surface toggle — shown only when drywall tool is active */}
-      {activeTool === 'drywall_repair' && (
-        <>
-          <Divider type="vertical" style={{ margin: '0 2px' }} />
-          <Space size={2} style={{ flexShrink: 0 }}>
-            <Text style={{ fontSize: 11, color: '#8c8c8c', marginRight: 2 }}>Surface:</Text>
-            <Tooltip title="Wall — draw a line; area = length × height">
-              <Button
-                size="small"
-                type={drywallSurface === 'wall' ? 'primary' : 'default'}
-                onClick={() => setDrywallSurface('wall')}
-                style={{ fontSize: 11, padding: '0 8px' }}
-              >
-                Wall
-              </Button>
-            </Tooltip>
-            <Tooltip title="Ceiling — drag a rectangle area">
-              <Button
-                size="small"
-                type={drywallSurface === 'ceiling' ? 'primary' : 'default'}
-                onClick={() => setDrywallSurface('ceiling')}
-                style={{ fontSize: 11, padding: '0 8px' }}
-              >
-                Ceiling
-              </Button>
-            </Tooltip>
-          </Space>
-        </>
-      )}
-
-      {/* Insulation surface toggle — shown only when insulation tool is active */}
-      {activeTool === 'insulation' && (
-        <>
-          <Divider type="vertical" style={{ margin: '0 2px' }} />
-          <Space size={2} style={{ flexShrink: 0 }}>
-            <Text style={{ fontSize: 11, color: '#8c8c8c', marginRight: 2 }}>Surface:</Text>
-            <Tooltip title="Wall — draw a line; area = length × height">
-              <Button
-                size="small"
-                type={insulationSurface === 'wall' ? 'primary' : 'default'}
-                onClick={() => setInsulationSurface('wall')}
-                style={{ fontSize: 11, padding: '0 8px' }}
-              >
-                Wall
-              </Button>
-            </Tooltip>
-            <Tooltip title="Ceiling — drag a rectangle area">
-              <Button
-                size="small"
-                type={insulationSurface === 'ceiling' ? 'primary' : 'default'}
-                onClick={() => setInsulationSurface('ceiling')}
-                style={{ fontSize: 11, padding: '0 8px' }}
-              >
-                Ceiling
-              </Button>
-            </Tooltip>
-          </Space>
-        </>
-      )}
-
-      <Divider type="vertical" style={{ margin: '0 2px' }} />
-
-      {/* Actions */}
-      <Space size={2} style={{ flexShrink: 0 }}>
-        {/* Undo / Redo */}
-        <Tooltip title={isMobile ? undefined : 'Undo (Ctrl+Z)'}>
-          <Button size="small" icon={<UndoOutlined />} disabled={!canUndo} onClick={undo} />
-        </Tooltip>
-        <Tooltip title={isMobile ? undefined : 'Redo (Ctrl+Y)'}>
-          <Button size="small" icon={<RedoOutlined />} disabled={!canRedo} onClick={redo} />
-        </Tooltip>
-
-        <Divider type="vertical" style={{ margin: '0 2px' }} />
-
-        <Tooltip title={isMobile ? undefined : 'Toggle grid'}>
-          <Button
-            size="small"
-            icon={<TableOutlined />}
-            type={data.settings.showGrid ? 'primary' : 'default'}
-            ghost={data.settings.showGrid}
-            onClick={() => updateSettings({ showGrid: !data.settings.showGrid })}
-          />
-        </Tooltip>
-        <Tooltip title={isMobile ? undefined : 'Toggle dimensions'}>
-          <Button
-            size="small"
-            icon={<EyeOutlined />}
-            type={data.settings.showDimensions ? 'primary' : 'default'}
-            ghost={data.settings.showDimensions}
-            onClick={() => updateSettings({ showDimensions: !data.settings.showDimensions })}
-          />
-        </Tooltip>
-
-        <Divider type="vertical" style={{ margin: '0 2px' }} />
-
-        <Tooltip title={isMobile ? undefined : 'Zoom in'}>
-          <Button size="small" icon={<ZoomInOutlined />} onClick={onZoomIn} />
-        </Tooltip>
-        {zoomLevel != null && (
-          <span style={{ fontSize: 10, minWidth: 32, textAlign: 'center', color: '#666' }}>
-            {Math.round(zoomLevel * 100)}%
-          </span>
         )}
-        <Tooltip title={isMobile ? undefined : 'Zoom out'}>
-          <Button size="small" icon={<ZoomOutOutlined />} onClick={onZoomOut} />
-        </Tooltip>
-        <Tooltip title={isMobile ? undefined : 'Fit to view'}>
-          <Button size="small" icon={<CompressOutlined />} onClick={onZoomFit} />
-        </Tooltip>
-
-        <Divider type="vertical" style={{ margin: '0 2px' }} />
-
-        <Tooltip title={isMobile ? undefined : 'Center sketch on canvas (move all elements)'}>
-          <Button size="small" icon={<DragOutlined />} onClick={() => {
-            const d = data;
-            const ppf = d.settings.pixelsPerFoot;
-            const allX: number[] = [];
-            const allY: number[] = [];
-            d.rooms.forEach(r => r.boundary.forEach(p => { allX.push(p.x); allY.push(p.y); }));
-            d.walls.forEach(w => { allX.push(w.start.x, w.end.x); allY.push(w.start.y, w.end.y); });
-            d.fixtures.forEach(f => {
-              const hw = (f.dimensions.width / 12) * ppf / 2;
-              const hh = (f.dimensions.height / 12) * ppf / 2;
-              allX.push(f.position.x - hw, f.position.x + hw);
-              allY.push(f.position.y - hh, f.position.y + hh);
-            });
-            if (!allX.length) return;
-            const contentCx = (Math.min(...allX) + Math.max(...allX)) / 2;
-            const contentCy = (Math.min(...allY) + Math.max(...allY)) / 2;
-            const cw = canvasSize?.width ?? 800;
-            const ch = canvasSize?.height ?? 600;
-            const dx = Math.round(cw / 2 - contentCx);
-            const dy = Math.round(ch / 2 - contentCy);
-            if (Math.abs(dx) > 2 || Math.abs(dy) > 2) moveAll(dx, dy);
-          }} />
-        </Tooltip>
-      </Space>
+      </div>
     </div>
   );
 };

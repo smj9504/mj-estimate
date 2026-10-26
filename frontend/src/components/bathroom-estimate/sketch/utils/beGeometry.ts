@@ -77,3 +77,43 @@ export function getShowerUnitPolygon(layout: ShowerLayout): Pt2[] {
   }
   return [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }];
 }
+
+/**
+ * A room's outline with one edge set to a new length. The edge's end moves
+ * along it (snapped level or upright when it nearly is); in a four-cornered
+ * room, the corners lined up with that end move with it, so a rectangle stays
+ * a rectangle. Null when the edge has no length to go by.
+ */
+export function resizeRoomEdge(boundary: Pt2[], edgeIdx: number, newLengthPx: number): Pt2[] | null {
+  const nIdx = (edgeIdx + 1) % boundary.length;
+  const pt = boundary[edgeIdx];
+  const npt = boundary[nIdx];
+
+  let dx = npt.x - pt.x;
+  let dy = npt.y - pt.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1) return null;
+  // Force horizontal/vertical if close
+  const isH = Math.abs(dy) < Math.abs(dx) * 0.2;
+  const isV = Math.abs(dx) < Math.abs(dy) * 0.2;
+  if (isH) { dy = 0; dx = dx > 0 ? len : -len; }
+  else if (isV) { dx = 0; dy = dy > 0 ? len : -len; }
+  const dirLen = Math.sqrt(dx * dx + dy * dy);
+
+  const newNpt: Pt2 = {
+    x: Math.round(pt.x + (dx / dirLen) * newLengthPx),
+    y: Math.round(pt.y + (dy / dirLen) * newLengthPx),
+  };
+
+  const b = [...boundary];
+  b[nIdx] = newNpt;
+  // Rectangular rooms: the corners that shared X or Y with the old end follow it
+  if (boundary.length === 4) {
+    for (let i = 0; i < 4; i++) {
+      if (i === nIdx) continue;
+      if (Math.abs(boundary[i].x - npt.x) < 2) b[i] = { x: newNpt.x, y: b[i].y };
+      if (Math.abs(boundary[i].y - npt.y) < 2) b[i] = { x: b[i].x, y: newNpt.y };
+    }
+  }
+  return b;
+}
