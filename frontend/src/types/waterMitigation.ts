@@ -3,6 +3,8 @@
  * Matches backend schemas from app/domains/water_mitigation/schemas.py
  */
 
+import type { RequestType, SupplementStatus } from './supplement';
+
 // Job Status Enum
 export enum JobStatus {
   LEAD = "Lead",
@@ -129,6 +131,17 @@ export interface WaterMitigationJob {
     name: string;
     company_code?: string;
   };
+
+  // Supplement requests on the linked claim, open ones first (list only)
+  supplements?: JobSupplement[];
+}
+
+export interface JobSupplement {
+  id: string;
+  request_type: RequestType;
+  status: SupplementStatus;
+  title?: string | null;
+  updated_at?: string | null;
 }
 
 // Request Types
@@ -309,6 +322,7 @@ export interface JobFilters {
   active?: boolean;
   hide_received?: boolean;
   with_insurance?: boolean;
+  has_supplement?: boolean;
   page?: number;
   page_size?: number;
 }

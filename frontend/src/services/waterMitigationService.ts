@@ -160,6 +160,7 @@ export const waterMitigationService = {
     if (filters?.active !== undefined) params.append('active', String(filters.active));
     if (filters?.hide_received) params.append('hide_received', 'true');
     if (filters?.with_insurance) params.append('with_insurance', 'true');
+    if (filters?.has_supplement) params.append('has_supplement', 'true');
     if (filters?.page) params.append('page', String(filters.page));
     if (filters?.page_size) params.append('page_size', String(filters.page_size));
 

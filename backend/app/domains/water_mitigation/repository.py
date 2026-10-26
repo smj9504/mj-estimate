@@ -6,7 +6,7 @@ import logging
 from typing import Any, Dict, List, Optional, Set
 from uuid import UUID
 
-from sqlalchemy import and_, desc, func, or_
+from sqlalchemy import and_, desc, exists, func, or_
 from sqlalchemy.orm import joinedload
 
 from app.common.base_repository import SQLAlchemyRepository
@@ -63,6 +63,7 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
         status: Optional[List[str]] = None,
         active: Optional[bool] = None,
         hide_received: bool = False,
+        has_supplement: bool = False,
         page: int = 1,
         page_size: int = 50
     ) -> tuple[List[WaterMitigationJob], int]:
@@ -74,6 +75,9 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
         hide_received drops jobs whose payment has been received (payment
         board view). NULL is treated as not received for rows that predate
         the column.
+
+        has_supplement keeps jobs whose claim has a supplement request in
+        any status.
         """
         from sqlalchemy.orm import aliased, joinedload
 
@@ -125,6 +129,12 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
                     WaterMitigationJob.payment_received.is_(False),
                     WaterMitigationJob.payment_received.is_(None),
                 )
+            )
+
+        if has_supplement:
+            from app.domains.supplement.models import SupplementRequest
+            conditions.append(
+                exists().where(SupplementRequest.claim_id == WaterMitigationJob.claim_id)
             )
 
         if conditions:

@@ -499,6 +499,7 @@ class WaterMitigationService:
         status: Optional[List[str]] = None,
         active: Optional[bool] = None,
         hide_received: bool = False,
+        has_supplement: bool = False,
         page: int = 1,
         page_size: int = 50
     ) -> tuple[List[WaterMitigationJob], int]:
@@ -513,6 +514,7 @@ class WaterMitigationService:
             status=status,
             active=active,
             hide_received=hide_received,
+            has_supplement=has_supplement,
             page=page,
             page_size=page_size
         )

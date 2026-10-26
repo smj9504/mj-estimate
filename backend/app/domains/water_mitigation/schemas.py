@@ -213,6 +213,15 @@ class CompanyBrief(BaseModel):
         from_attributes = True
 
 
+class JobSupplementBrief(BaseModel):
+    """A supplement request on the job's claim (see supplement_link.py)"""
+    id: UUID
+    request_type: str
+    status: str
+    title: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
 class JobResponse(JobBase):
     """Job response schema"""
     id: UUID
@@ -247,6 +256,8 @@ class JobResponse(JobBase):
     # Insurance WM amount from the linked claim (same number the detail page's
     # financial comparison shows). Only filled when the list is asked for it.
     approved_amount_auto: Optional[float] = None
+    # Supplement requests on the linked claim, open ones first. Only the list fills it.
+    supplements: Optional[List[JobSupplementBrief]] = None
 
     class Config:
         from_attributes = True

@@ -4,7 +4,7 @@
  * Responsive: mobile card layout, desktop table layout
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Table,
@@ -37,12 +37,15 @@ import type {
   WaterMitigationJob,
   JobFilters,
   JobStatus,
+  JobSupplement,
   JobUpdate,
   CheckRecipient
 } from '../types/waterMitigation';
 import { JOB_STATUS_OPTIONS } from '../types/waterMitigation';
 import { PageHeader, Pill } from '../components/common/ui';
 import { WMStatusPill } from '../components/water-mitigation/wmStatus';
+import { SUPPLEMENT_STATUS_TONES, supplementStatusLabel } from '../components/supplement/supplementUi';
+import { useAuth } from '../contexts/AuthContext';
 import JobFormModal from '../components/water-mitigation/JobFormModal';
 import GoogleSheetsSyncButton from '../components/water-mitigation/GoogleSheetsSyncButton';
 import SheetPAMappingButton from '../components/water-mitigation/SheetPAMappingButton';
@@ -72,6 +75,7 @@ const WaterMitigationList: React.FC = () => {
   // The View grant opens jobs and edits their details; no new jobs, sheet
   // sync, payment view, deactivating or deleting
   const { limited } = useWaterMitigationAccess();
+  const { canAccessPath } = useAuth();
   const [loading, setLoading] = useState(false);
   const [jobs, setJobs] = useState<WaterMitigationJob[]>([]);
   const [total, setTotal] = useState(0);
@@ -93,24 +97,55 @@ const WaterMitigationList: React.FC = () => {
   // Uncommitted InputNumber edits, keyed `${jobId}:${field}`; committed on blur/enter
   const [drafts, setDrafts] = useState<Record<string, number | null>>({});
 
-  // Load jobs
-  const loadJobs = async () => {
+  // Latest load wins, so a slow response can't overwrite a newer one
+  const loadSeq = useRef(0);
+
+  // A silent load (coming back to the window) keeps the list on screen
+  const fetchJobs = async (silent: boolean) => {
+    const seq = ++loadSeq.current;
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const response = await waterMitigationService.getJobs(filters);
+      if (seq !== loadSeq.current) return;
       setJobs(response.items);
       setTotal(response.total);
     } catch (error) {
-      message.error('Failed to load jobs');
+      if (!silent) message.error('Failed to load jobs');
       console.error('Load jobs error:', error);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
+
+  const loadJobs = () => fetchJobs(false);
 
   useEffect(() => {
     loadJobs();
   }, [filters]);
+
+  // Supplement status is read from the supplement records on every load, so
+  // coming back to this window picks up a status changed on that screen.
+  // Skipped mid-save so the reload can't undo an optimistic payment edit.
+  const reloadOnReturn = useRef(() => {});
+  reloadOnReturn.current = () => {
+    if (savingIds.size === 0) fetchJobs(true);
+  };
+
+  useEffect(() => {
+    // Switching tabs fires both events; one reload is enough
+    let lastReload = 0;
+    const onReturn = () => {
+      if (document.visibilityState !== 'visible' || Date.now() - lastReload < 1000) return;
+      lastReload = Date.now();
+      reloadOnReturn.current();
+    };
+    window.addEventListener('focus', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
+    return () => {
+      window.removeEventListener('focus', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
+    };
+  }, []);
 
   const handleSearch = (value: string) => {
     setFilters(prev => ({ ...prev, search: value, page: 1 }));
@@ -270,6 +305,57 @@ const WaterMitigationList: React.FC = () => {
     ]
   });
 
+  const supplementKind = (s: JobSupplement) =>
+    s.request_type === 'estimate_request' ? 'Estimate request' : 'Supplement';
+
+  // The claim's supplement request: the open one when there is one, else the
+  // latest. `labelled` names the kind in the pill for rows with no Supplement
+  // column header; in the column an estimate request gets a caption instead.
+  const canOpenSupplements = canAccessPath('/supplements');
+  const renderSupplement = (job: WaterMitigationJob, labelled = false) => {
+    const all = job.supplements ?? [];
+    const [shown] = all;
+    if (!shown) return null;
+    const status = supplementStatusLabel(shown.status);
+    const pill = (
+      <Pill tone={SUPPLEMENT_STATUS_TONES[shown.status] ?? 'gray'}>
+        {labelled ? `${supplementKind(shown)}: ${status}` : status}
+      </Pill>
+    );
+    const summary = all.map(s => (
+      <div key={s.id}>
+        {supplementKind(s)} · {supplementStatusLabel(s.status)}{s.title ? ` — ${s.title}` : ''}
+      </div>
+    ));
+    const tag = (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <Tooltip title={summary}>
+          {canOpenSupplements ? (
+            <a
+              href={`/supplements/${shown.id}`}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                navigate(`/supplements/${shown.id}`);
+              }}
+              aria-label={`Open ${supplementKind(shown).toLowerCase()} (${status})`}
+            >
+              {pill}
+            </a>
+          ) : <span>{pill}</span>}
+        </Tooltip>
+        {all.length > 1 && <Text type="secondary" style={{ fontSize: 12 }}>+{all.length - 1}</Text>}
+      </span>
+    );
+    if (labelled || shown.request_type !== 'estimate_request') return tag;
+    return (
+      <div>
+        {tag}
+        <div><Text type="secondary" style={{ fontSize: 12 }}>Estimate request</Text></div>
+      </div>
+    );
+  };
+
   // Table columns (desktop)
   const columns: ColumnsType<WaterMitigationJob> = [
     {
@@ -278,6 +364,12 @@ const WaterMitigationList: React.FC = () => {
       key: 'status',
       width: 150,
       render: (status: JobStatus) => <WMStatusPill status={status} />
+    },
+    {
+      title: 'Supplement',
+      key: 'supplement',
+      width: 140,
+      render: (_, record) => renderSupplement(record)
     },
     {
       title: 'Property Address',
@@ -448,6 +540,7 @@ const WaterMitigationList: React.FC = () => {
       <div className="ui-row-body">
         <div className="ui-row-tags">
           <WMStatusPill status={job.status} />
+          {renderSupplement(job, true)}
           {!job.active && <Pill tone="gray">Inactive</Pill>}
         </div>
         <span className="ui-row-title">{job.property_address}</span>
@@ -563,6 +656,17 @@ const WaterMitigationList: React.FC = () => {
           <Option value="inactive">Inactive Only</Option>
         </Select>
 
+        <label style={toggleLabelStyle}>
+          <Switch
+            size="small"
+            checked={!!filters.has_supplement}
+            onChange={(checked) =>
+              setFilters(prev => ({ ...prev, has_supplement: checked || undefined, page: 1 }))
+            }
+          />
+          Supplement only
+        </label>
+
         {!limited && (
           <div className="ui-toolbar-end">
             <label style={toggleLabelStyle}>
@@ -656,7 +760,7 @@ const WaterMitigationList: React.FC = () => {
               setFilters(prev => ({ ...prev, page, page_size: pageSize }));
             }
           }}
-          scroll={{ x: paymentView ? (showAmounts ? 1100 : 900) : 1200 }}
+          scroll={{ x: paymentView ? (showAmounts ? 1100 : 900) : 1340 }}
         />
       )}
 
