@@ -261,6 +261,9 @@ class WMShapeAnnotationBase(PydanticBaseModel):
     stroke_width: float = 2.0
     opacity: float = 0.7
     label: str = Field("", max_length=50)
+    flip_x: bool = False  # mirrored (door hinge / parking side)
+    # Door style when preset_id == 'door': swing | double | sliding | pocket | bifold | barn
+    door_type: Optional[str] = Field(None, max_length=20)
 
 
 class WMShapeAnnotationCreate(WMShapeAnnotationBase):

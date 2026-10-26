@@ -277,6 +277,86 @@ EQUIPMENT_CONFIG: Dict[str, Dict[str, str]] = {
 }
 
 
+_DOOR_TYPES = frozenset({"swing", "double", "sliding", "pocket", "bifold", "barn"})
+
+
+def _door_primitives(
+    door_type: Optional[str], w: float, h: float, flipped: bool
+) -> List[Dict[str, Any]]:
+    """Drawing primitives for a door box of w x h in box-local coordinates.
+
+    Mirrors ``doorSymbol`` in the frontend's sketch/utils/doorSymbols.ts —
+    change both together. The wall runs horizontally through the box with
+    the room above; unknown or missing styles are legacy swing doors.
+    """
+    def line(points, weight="panel", dashed=False):
+        return {"kind": "line", "points": points, "weight": weight, "dashed": dashed}
+
+    def rect(x, y, rw, rh, dashed=False):
+        return {"kind": "rect", "x": x, "y": y, "width": rw, "height": rh, "dashed": dashed}
+
+    def jambs(x1, x2, y1, y2):
+        return [line([x1, y1, x1, y2], "thin"), line([x2, y1, x2, y2], "thin")]
+
+    t = door_type if door_type in _DOOR_TYPES else "swing"
+    if t == "double":
+        r = min(w / 2, h)
+        parts = [
+            line([0, h, w, h]),
+            {"kind": "swing", "x": 0, "y": h, "radius": r, "rotation": -90},
+            {"kind": "swing", "x": w, "y": h, "radius": r, "rotation": 180},
+            {"kind": "hinge", "x": 0, "y": h},
+            {"kind": "hinge", "x": w, "y": h},
+        ]
+    elif t == "sliding":
+        parts = jambs(0, w, 0, h) + [
+            rect(0, h * 0.5, w * 0.55, h * 0.4),
+            rect(w * 0.45, h * 0.1, w * 0.55, h * 0.4),
+        ]
+    elif t == "pocket":
+        parts = jambs(w / 2, w, 0, h) + [
+            rect(w * 0.1, h * 0.3, w * 0.4, h * 0.4, dashed=True),
+            rect(w * 0.5, h * 0.3, w * 0.1, h * 0.4),
+        ]
+    elif t == "bifold":
+        parts = [
+            line([0, h, w * 0.25, 0, w * 0.5, h]),
+            line([w, h, w * 0.75, 0, w * 0.5, h]),
+            {"kind": "hinge", "x": 0, "y": h},
+            {"kind": "hinge", "x": w, "y": h},
+        ]
+    elif t == "barn":
+        parts = jambs(w / 2, w, h * 0.65, h) + [
+            line([0, h * 0.12, w, h * 0.12], "thin", dashed=True),
+            rect(w * 0.45, h * 0.25, w * 0.55, h * 0.35),
+        ]
+    else:
+        r = min(w, h)
+        parts = [
+            line([0, h, w, h]),
+            {"kind": "swing", "x": 0, "y": h, "radius": r, "rotation": -90},
+            {"kind": "hinge", "x": 0, "y": h},
+        ]
+
+    if not flipped:
+        return parts
+    mirrored: List[Dict[str, Any]] = []
+    for p in parts:
+        q = dict(p)
+        if p["kind"] == "line":
+            q["points"] = [w - v if i % 2 == 0 else v for i, v in enumerate(p["points"])]
+        elif p["kind"] == "rect":
+            q["x"] = w - p["x"] - p["width"]
+        elif p["kind"] == "swing":
+            # Angles reflect about the vertical: [a, a+90] -> [90-a, 180-a]
+            q["x"] = w - p["x"]
+            q["rotation"] = 90 - p["rotation"]
+        else:
+            q["x"] = w - p["x"]
+        mirrored.append(q)
+    return mirrored
+
+
 def _containment_type_display(containment_type: Optional[str]) -> str:
     """Legacy default 'Standard' should read as Containment in PDF labels."""
     t = (containment_type or "").strip()
@@ -2250,39 +2330,55 @@ class SketchPdfService:
         preset_id = shape.get("preset_id", "")
 
         if preset_id == "door":
-            # Industry-standard door symbol: line + quarter-circle arc
-            flipped = bool(shape.get("flip_x", False))
-            r = min(w, h)
-            sw = max(2, stroke_w)
-            arc_sw = max(1, stroke_w * 0.7)
-            hinge_x = w if flipped else 0
-            tip_x = 0 if flipped else w
-            # Door panel line
-            parts.append(
-                f'<line x1="{hinge_x:.1f}" y1="{h:.1f}" '
-                f'x2="{tip_x:.1f}" y2="{h:.1f}" '
-                f'stroke="{stroke}" stroke-width="{sw:.1f}"/>'
-            )
-            # Quarter-circle arc (swing from tip sweeping up)
-            if flipped:
-                parts.append(
-                    f'<path d="M {w - r:.1f} {h:.1f} '
-                    f'A {r:.1f} {r:.1f} 0 0 1 {w:.1f} {h - r:.1f}" '
-                    f'fill="none" stroke="{stroke}" '
-                    f'stroke-width="{arc_sw:.1f}"/>'
-                )
-            else:
-                parts.append(
-                    f'<path d="M {r:.1f} {h:.1f} '
-                    f'A {r:.1f} {r:.1f} 0 0 0 0 {h - r:.1f}" '
-                    f'fill="none" stroke="{stroke}" '
-                    f'stroke-width="{arc_sw:.1f}"/>'
-                )
-            # Hinge dot
-            parts.append(
-                f'<circle cx="{hinge_x:.1f}" cy="{h:.1f}" r="3" '
-                f'fill="{stroke}"/>'
-            )
+            import math
+
+            # Floor-plan door symbol for the door's style (swing, sliding, ...)
+            panel_sw = max(2, stroke_w)
+            thin_sw = max(1, stroke_w * 0.7)
+            for p in _door_primitives(
+                shape.get("door_type"), w, h, bool(shape.get("flip_x", False))
+            ):
+                kind = p["kind"]
+                if kind == "line":
+                    pts = p["points"]
+                    pairs = " ".join(
+                        f"{pts[i]:.1f},{pts[i + 1]:.1f}"
+                        for i in range(0, len(pts), 2)
+                    )
+                    sw = panel_sw if p["weight"] == "panel" else thin_sw
+                    dash = ' stroke-dasharray="4,3"' if p["dashed"] else ""
+                    parts.append(
+                        f'<polyline points="{pairs}" fill="none" '
+                        f'stroke="{stroke}" stroke-width="{sw:.1f}"{dash}/>'
+                    )
+                elif kind == "rect":
+                    # Sliding panel: solid where it shows, dashed inside the wall
+                    fill_attr = "none" if p["dashed"] else "#ffffff"
+                    dash = ' stroke-dasharray="3,2"' if p["dashed"] else ""
+                    parts.append(
+                        f'<rect x="{p["x"]:.1f}" y="{p["y"]:.1f}" '
+                        f'width="{p["width"]:.1f}" height="{p["height"]:.1f}" '
+                        f'fill="{fill_attr}" stroke="{stroke}" '
+                        f'stroke-width="{thin_sw:.1f}"{dash}/>'
+                    )
+                elif kind == "swing":
+                    # Quarter sector: pivot -> leaf -> 90 deg clockwise arc -> pivot
+                    cx, cy, r = p["x"], p["y"], p["radius"]
+                    a0 = math.radians(p["rotation"])
+                    a1 = math.radians(p["rotation"] + 90)
+                    parts.append(
+                        f'<path d="M {cx:.1f} {cy:.1f} '
+                        f'L {cx + r * math.cos(a0):.1f} {cy + r * math.sin(a0):.1f} '
+                        f'A {r:.1f} {r:.1f} 0 0 1 '
+                        f'{cx + r * math.cos(a1):.1f} {cy + r * math.sin(a1):.1f} Z" '
+                        f'fill="none" stroke="{stroke}" '
+                        f'stroke-width="{thin_sw:.1f}"/>'
+                    )
+                else:
+                    parts.append(
+                        f'<circle cx="{p["x"]:.1f}" cy="{p["y"]:.1f}" r="3" '
+                        f'fill="{stroke}"/>'
+                    )
         elif shape_type == "circle":
             rx = w / 2
             ry = h / 2

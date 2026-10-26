@@ -83,6 +83,7 @@ import type {
   WMRoom,
   WMSketchSelection,
   FloorPlanSourceType,
+  DoorType,
 } from '../../../types/wmSketch';
 import {
   EQUIPMENT_CONFIG,
@@ -122,6 +123,8 @@ import {
   DEFAULT_CONTENT_MANIPULATION_COLOR,
   DEFAULT_PAPER_WIDTH_FT,
 } from './utils/wmDefaults';
+import { DOOR_TYPES, DOOR_TYPE_ORDER, doorTypeOf, flipDoor, newDoorBox, retypeDoor } from './utils/doorSymbols';
+import DoorTypeIcon from './DoorTypeIcon';
 import { useWMResponsive } from './hooks/useWMResponsive';
 import WMFloorPlanSource from './WMFloorPlanSource';
 import WMSketchToolbar from './WMSketchToolbar';
@@ -586,6 +589,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // ------------------------------------------------------------------
   const [isCalibrating, setIsCalibrating] = useState(false);
   const [activeShapePresetId, setActiveShapePresetId] = useState<string | null>(null);
+  /** Style a newly placed door is drawn as */
+  const [activeDoorType, setActiveDoorType] = useState<DoorType>('swing');
   /** When true, new floor protection strips are created as stair type (higher labor cost) */
   const [isStairFloorProtection, setIsStairFloorProtection] = useState(false);
 
@@ -894,6 +899,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   const spaceDownRef = useRef(false);
   const activeShapePresetIdRef = useRef<string | null>(null);
   activeShapePresetIdRef.current = activeShapePresetId;
+  const activeDoorTypeRef = useRef<DoorType>('swing');
+  activeDoorTypeRef.current = activeDoorType;
   const floorSketchRef = useRef(floorSketch);
   floorSketchRef.current = floorSketch;
 
@@ -1794,16 +1801,41 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       items.push({ type: 'divider' as const, key: 'div-combine' });
     }
 
-    // --- Flip (for door shapes) ---
+    // --- Door style + flip (for door shapes) ---
     if (sel.length === 1 && sel[0].element_type === 'shape') {
       const shapeEl = (state.overlayData.shapes ?? []).find((s) => s.id === sel[0].element_id);
       if (shapeEl?.preset_id === 'door') {
+        const doorType = doorTypeOf(shapeEl);
         items.push({
-          key: 'flip-door',
-          icon: <SwapOutlined />,
-          label: `Flip Door (${shapeEl.flip_x ? '← Left' : 'Right →'})`,
-          onClick: () => updateShape({ id: shapeEl.id, flip_x: !shapeEl.flip_x }),
+          type: 'group' as const,
+          key: 'door-type',
+          label: 'Door Type',
+          children: DOOR_TYPE_ORDER.map((type) => ({
+            key: `door-type-${type}`,
+            icon: <DoorTypeIcon type={type} color={shapeEl.stroke_color} />,
+            label: (
+              <span>
+                {DOOR_TYPES[type].name}
+                {type === doorType && <CheckOutlined style={{ marginLeft: 8, fontSize: 11 }} />}
+              </span>
+            ),
+            onClick: () => {
+              if (type === doorType) return;
+              const pxPerFt = floorSketchRef.current?.scale_pixels_per_foot ?? 0;
+              updateShape({ id: shapeEl.id, ...retypeDoor(shapeEl, type, pxPerFt) });
+            },
+          })),
         });
+        if (DOOR_TYPES[doorType].flippable) {
+          items.push({
+            key: 'flip-door',
+            icon: <SwapOutlined />,
+            label: doorType === 'swing'
+              ? `Flip Door (${shapeEl.flip_x ? '← Left' : 'Right →'})`
+              : 'Flip Door',
+            onClick: () => updateShape({ id: shapeEl.id, ...flipDoor(shapeEl) }),
+          });
+        }
         items.push({ type: 'divider' as const, key: 'div-flip' });
       }
     }
@@ -2017,9 +2049,12 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         const scale = fs.scale_pixels_per_foot;
         const pixelW = Math.round(preset.real_width_ft * scale);
         const pixelH = Math.round(preset.real_height_ft * scale);
+        // Doors size from their style's opening instead of the preset box
+        const doorType = preset.id === 'door' ? activeDoorTypeRef.current : null;
+        const doorBox = doorType ? newDoorBox(doorType, scale) : null;
         // Use scale-calibrated size, fallback to default if scale is unset (default 20 px/ft)
-        const shapeW = pixelW > 0 ? pixelW : preset.default_width;
-        const shapeH = pixelH > 0 ? pixelH : preset.default_height;
+        const shapeW = doorBox ? doorBox.width : pixelW > 0 ? pixelW : preset.default_width;
+        const shapeH = doorBox ? doorBox.height : pixelH > 0 ? pixelH : preset.default_height;
         const shape: WMShapeAnnotation = {
           id: newId,
           floor_sketch_id: fs.id,
@@ -2035,6 +2070,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           stroke_width: 2,
           opacity: 0.7,
           label: preset.abbreviation,
+          ...(doorType ? { door_type: doorType } : {}),
         };
         addShape(shape);
         selectNewElement(newId, 'shape');
@@ -3416,8 +3452,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           setActiveEquipmentType(type);
           setTool('equipment');
         }}
-        onShapePresetChange={(presetId) => {
+        onShapePresetChange={(presetId, doorType) => {
           setActiveShapePresetId(presetId);
+          if (doorType) setActiveDoorType(doorType);
           setTool('shape');
         }}
         onSave={handleSave}
@@ -3834,7 +3871,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                 hideOverlays={hideOverlays}
                 onFlipShape={(id) => {
                   const s = (state.overlayData.shapes ?? []).find((sh) => sh.id === id);
-                  if (s) updateShape({ id, flip_x: !s.flip_x });
+                  if (s && DOOR_TYPES[doorTypeOf(s)].flippable) updateShape({ id, ...flipDoor(s) });
                 }}
                 polygonPreviewPoints={polygonDrawPoints.length > 0 ? polygonDrawPoints : undefined}
                 polygonPreviewCursor={polygonDrawCursor}

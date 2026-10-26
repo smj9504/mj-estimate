@@ -41,9 +41,12 @@ import type {
   DemoMaterialType,
   EquipmentType,
   ShapePreset,
+  DoorType,
 } from '../../../types/wmSketch';
 import { EQUIPMENT_CONFIG, SHAPE_PRESETS, getEffectiveRenderMode } from '../../../types/wmSketch';
 import { useIsCoarsePointer } from './hooks/useWMResponsive';
+import { DOOR_TYPES, DOOR_TYPE_ORDER } from './utils/doorSymbols';
+import DoorTypeIcon from './DoorTypeIcon';
 
 // Space.Compact is available in antd v5+
 const SpaceCompact = Space.Compact;
@@ -116,7 +119,8 @@ export interface WMSketchToolbarProps {
   onToolChange: (tool: WMSketchTool) => void;
   onMaterialTypeChange: (materialTypeId: string) => void;
   onEquipmentTypeChange: (equipmentType: EquipmentType) => void;
-  onShapePresetChange?: (presetId: string) => void;
+  /** `doorType` is set when a door style was picked */
+  onShapePresetChange?: (presetId: string, doorType?: DoorType) => void;
   onSave: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -324,29 +328,47 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
   // ------------------------------------------------------------------
   // Shape dropdown menu
   // ------------------------------------------------------------------
-  const shapeMenuItems: MenuProps['items'] = SHAPE_PRESETS.map((preset) => ({
+  // Doors come in several styles, listed as their own group ahead of the other shapes
+  const doorPreset = SHAPE_PRESETS.find((p) => p.id === 'door');
+  const doorMenuItems: MenuProps['items'] = doorPreset
+    ? [
+        {
+          type: 'group' as const,
+          key: 'door-group',
+          label: doorPreset.name,
+          children: DOOR_TYPE_ORDER.map((type) => ({
+            key: `door:${type}`,
+            label: (
+              <Space size={6}>
+                <DoorTypeIcon type={type} color={doorPreset.stroke_color} />
+                <span>{DOOR_TYPES[type].name}</span>
+              </Space>
+            ),
+            onClick: () => {
+              onShapePresetChange?.(doorPreset.id, type);
+              onToolChange('shape');
+            },
+          })),
+        },
+        { type: 'divider' as const, key: 'door-divider' },
+      ]
+    : [];
+
+  const shapeMenuItems: MenuProps['items'] = SHAPE_PRESETS.filter((preset) => preset.id !== 'door').map((preset) => ({
     key: preset.id,
     label: (
       <Space size={6}>
-        {preset.id === 'door' ? (
-          <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
-            <line x1="0" y1="13" x2="13" y2="13" stroke={preset.stroke_color} strokeWidth="1.5" />
-            <path d="M 13 13 A 13 13 0 0 0 0 0" fill="none" stroke={preset.stroke_color} strokeWidth="1" />
-            <circle cx="0" cy="13" r="1.5" fill={preset.stroke_color} />
-          </svg>
-        ) : (
-          <span
-            style={{
-              display: 'inline-block',
-              width: 14,
-              height: 14,
-              borderRadius: preset.shape_type === 'circle' ? '50%' : 2,
-              background: preset.fill_color,
-              border: `1.5px solid ${preset.stroke_color}`,
-              flexShrink: 0,
-            }}
-          />
-        )}
+        <span
+          style={{
+            display: 'inline-block',
+            width: 14,
+            height: 14,
+            borderRadius: preset.shape_type === 'circle' ? '50%' : 2,
+            background: preset.fill_color,
+            border: `1.5px solid ${preset.stroke_color}`,
+            flexShrink: 0,
+          }}
+        />
         <span>{preset.name}</span>
         {preset.abbreviation && (
           <span style={{ fontSize: 10, color: token.colorTextTertiary, fontFamily: 'monospace' }}>
@@ -588,6 +610,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
                 onToolChange('demolition_polygon');
               }},
               { type: 'divider' as const },
+              ...doorMenuItems as any[],
               ...shapeMenuItems as any[],
               { type: 'divider' as const },
               { key: 'text', icon: <FontSizeOutlined />, label: 'Text (T)', onClick: () => onToolChange('text') },

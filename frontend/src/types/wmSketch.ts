@@ -649,7 +649,12 @@ export interface WMShapeAnnotation {
   label: string;
   /** Horizontal flip (mirrors the shape, e.g. door hinge side) */
   flip_x?: boolean;
+  /** Door style when preset_id is 'door' (absent in legacy data → 'swing') */
+  door_type?: DoorType | null;
 }
+
+/** Floor-plan door styles a 'door' shape can be drawn as */
+export type DoorType = 'swing' | 'double' | 'sliding' | 'pocket' | 'bifold' | 'barn';
 
 // ============================================================================
 // Floor Plan Elements (walls & rooms)
