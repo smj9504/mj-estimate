@@ -454,6 +454,9 @@ def update_insurance_estimate(claim_id: str, negotiation_id: str, data: dict):
                 if claim:
                     claim.insurance_deductible = data['deductible'] or 0
 
+            from app.domains.supplement.service import sync_original_amount
+            sync_original_amount(session, claim_id)
+
             session.commit()
 
             # Return updated record
@@ -704,6 +707,9 @@ def delete_insurance_estimate(claim_id: str, negotiation_id: str):
             if not neg:
                 raise HTTPException(status_code=404, detail="Negotiation not found")
             session.delete(neg)
+            session.flush()
+            from app.domains.supplement.service import sync_original_amount
+            sync_original_amount(session, claim_id)
             session.commit()
             return {"message": "Estimate deleted successfully"}
         finally:

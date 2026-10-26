@@ -1006,6 +1006,9 @@ class ClaimFollowUpService:
             )
             if existing:
                 logger.info(f"Active supplement already exists for claim {claim_id} (status={existing.status})")
+                # It predates this estimate, so its Original has to catch up
+                from app.domains.supplement.service import sync_original_amount
+                sync_original_amount(session, claim_id)
                 return
 
             insurance_rcv = float(estimate_data.get('rcv_amount', 0)) if estimate_data else 0

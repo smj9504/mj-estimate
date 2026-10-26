@@ -304,6 +304,8 @@ class ClaimNegotiationService(BaseService[Dict[str, Any], str]):
                 result = repo.update(entity_id, update_data)
                 if result:
                     repo.sync_claim_amounts(str(result['claim_id']), include_deductible=True)
+                    from app.domains.supplement.service import sync_original_amount
+                    sync_original_amount(repo.db_session, str(result['claim_id']))
                     session.commit()
                 return result
             finally:
@@ -324,6 +326,8 @@ class ClaimNegotiationService(BaseService[Dict[str, Any], str]):
                 success = repo.delete(entity_id)
                 if success:
                     repo.sync_claim_amounts(str(existing['claim_id']))
+                    from app.domains.supplement.service import sync_original_amount
+                    sync_original_amount(repo.db_session, str(existing['claim_id']))
                     session.commit()
                 return success
             finally:

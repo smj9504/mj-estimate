@@ -8,7 +8,9 @@ from types import SimpleNamespace
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.sqlite import base as sqlite_base
+from sqlalchemy.ext.compiler import compiles
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core import database_factory
@@ -16,11 +18,19 @@ from app.core.database_factory import Base, SQLiteDatabase
 from app.domains.claim_followup.service import ClaimFollowUpService
 from app.domains.client.models import Claim, ClaimNegotiation, Client
 from app.domains.client.service import ClaimNegotiationService, ClaimService
+from app.domains.supplement.models import SupplementRequest
 # SQLAlchemy configures every loaded model on first use, and models other test
 # files load name classes by string, so register them all as the app does
 import app.main  # noqa: E402,F401
 
-TABLES = [Client, Claim, ClaimNegotiation]
+# Editing or deleting a revision also moves open supplements' Original
+TABLES = [Client, Claim, ClaimNegotiation, SupplementRequest]
+
+
+@compiles(JSONB, 'sqlite')
+def jsonb_as_json(type_, compiler, **kw):
+    """supplement_requests keeps a JSONB column; SQLite stores it as JSON"""
+    return 'JSON'
 
 
 def accept_iso_strings(monkeypatch):

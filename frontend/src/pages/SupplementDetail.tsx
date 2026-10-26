@@ -2555,6 +2555,8 @@ const SupplementDetail: React.FC = () => {
               supplementService.listInsuranceEstimates(supplement.claim_id)
                 .then(versions => setEstimateVersions(versions));
               loadFollowups(supplement.id);
+              // Original follows the new estimate, so the header needs a refetch
+              queryClient.invalidateQueries({ queryKey: ['supplement', id] });
               queryClient.invalidateQueries({ queryKey: ['supplements'] });
             } catch (err: any) {
               message.error(err?.response?.data?.detail || 'Failed to upload estimate');

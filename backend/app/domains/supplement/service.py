@@ -10,6 +10,48 @@ from sqlalchemy.sql import func
 logger = logging.getLogger(__name__)
 
 
+def sync_original_amount(session, claim_id: str) -> None:
+    """Point the claim's open supplements' Original at the carrier's latest
+    estimate, so it follows each estimate uploaded, edited or deleted rather
+    than staying at whatever it was when the supplement was created.
+
+    WM estimates are their own track, and settled supplements keep the figure
+    they closed on. Leaves the amounts alone when no estimate carries an RCV.
+    """
+    from sqlalchemy import or_
+    from app.domains.client.models import ClaimNegotiation
+    from app.domains.supplement.models import SupplementRequest
+
+    latest = (
+        session.query(ClaimNegotiation)
+        .filter(
+            ClaimNegotiation.claim_id == claim_id,
+            or_(
+                ClaimNegotiation.estimate_category.is_(None),
+                ClaimNegotiation.estimate_category != 'water_mitigation',
+            ),
+        )
+        .order_by(ClaimNegotiation.created_at.desc())
+        .first()
+    )
+    if not latest or not latest.rcv_amount:
+        return
+    original = float(latest.rcv_amount)
+
+    supplements = (
+        session.query(SupplementRequest)
+        .filter(
+            SupplementRequest.claim_id == claim_id,
+            SupplementRequest.request_type == 'supplement',
+            SupplementRequest.status.notin_(['approved', 'denied', 'withdrawn']),
+        )
+        .all()
+    )
+    for sup in supplements:
+        sup.original_amount = original
+        sup.difference = float(sup.supplement_amount or 0) - original
+
+
 class SupplementService:
     def __init__(self, database=None):
         from app.core.database_factory import get_database
