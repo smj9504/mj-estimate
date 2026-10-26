@@ -11,6 +11,7 @@ import {
   BarChartOutlined,
   ToolOutlined,
   DatabaseOutlined,
+  ShoppingOutlined,
   MenuUnfoldOutlined,
   MenuFoldOutlined,
   DropboxOutlined,
@@ -294,6 +295,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             key: '/line-items',
             icon: <DatabaseOutlined />,
             label: 'Line Items',
+          },
+          {
+            key: '/product-library',
+            icon: <ShoppingOutlined />,
+            label: 'Product Library',
           },
           {
             key: '/insurance-extractions',

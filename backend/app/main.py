@@ -165,6 +165,8 @@ from app.domains.cabinet_estimate.models import (
     CabinetEstimate, CabinetBox, CabinetEstimateLineItem, CabinetEstimateHistory
 )
 from app.domains.cabinet_estimate.sketch_models import CabinetSketch
+from app.domains.product_library.api import router as product_library_router
+from app.domains.product_library.models import Product  # noqa: F401  (registers the table)
 from app.domains.bathroom_estimate.api import router as bathroom_estimate_router
 from app.domains.bathroom_estimate.models import (
     BathroomEstimate, BathroomEstimateLineItem, BathroomEstimateHistory
@@ -1066,6 +1068,8 @@ app.include_router(cabinet_estimate_router, prefix="/api", tags=["Cabinet Estima
 app.include_router(bathroom_estimate_router, prefix="/api", tags=["Bathroom Estimates"])
 app.include_router(siding_estimate_router, prefix="/api", tags=["Siding Estimates"])
 app.include_router(roofing_estimate_router, prefix="/api", tags=["Roofing Estimates"])
+# Product library (shared by kitchen and bathroom estimates)
+app.include_router(product_library_router, prefix="/api", tags=["Product Library"])
 
 # Material Order System endpoints
 app.include_router(material_order_router, prefix="/api", tags=["Material Orders"])

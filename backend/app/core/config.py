@@ -236,6 +236,11 @@ class Settings(BaseSettings):
     # Cabinet sketch AI photo: the Gemini image model (GEMINI_API_KEY) that
     # turns the 3D view's realistic render into a photo-like picture.
     CABINET_AI_PHOTO_MODEL: str = os.getenv("CABINET_AI_PHOTO_MODEL", "gemini-nano-banana-2.1")
+    # Product library: the Claude model (ANTHROPIC_API_KEY) that reads a
+    # product's details off a retailer page or a screenshot of one.
+    PRODUCT_EXTRACT_MODEL: str = os.getenv("PRODUCT_EXTRACT_MODEL", "claude-haiku-5-5")
+    # low | medium | high | xhigh | max; empty for models without effort.
+    PRODUCT_EXTRACT_EFFORT: str = os.getenv("PRODUCT_EXTRACT_EFFORT", "low")
 
     # Storage Configuration
     STORAGE_PROVIDER: str = os.getenv("STORAGE_PROVIDER", "local")  # local, gdrive, gcs, s3, azure

@@ -92,6 +92,7 @@ const ScopeItemCategoriesManagement = lazyWithRetry(() => import('./pages/ScopeI
 
 // Cabinet Estimate Pages
 const CabinetEstimateList = lazyWithRetry(() => import('./pages/CabinetEstimateList'));
+const ProductLibrary = lazyWithRetry(() => import('./pages/ProductLibrary'));
 const CabinetEstimateDetail = lazyWithRetry(() => import('./pages/CabinetEstimateDetail'));
 
 // Bathroom Estimate Pages
@@ -848,6 +849,19 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <CabinetEstimateDetail />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Product library (kitchen and bathroom remodel options)
+  {
+    path: "/product-library",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <ProductLibrary />
           </Suspense>
         </Layout>
       </ProtectedRoute>
