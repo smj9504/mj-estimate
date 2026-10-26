@@ -12,8 +12,8 @@
  *   />
  */
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Layout, Button, Space, Typography, message, Spin, Tooltip, Grid, Drawer } from 'antd';
+import React, { useState, useRef, useCallback, useEffect, Suspense } from 'react';
+import { Layout, Button, Space, Typography, message, Spin, Tooltip, Grid, Drawer, Segmented } from 'antd';
 import {
   SaveOutlined,
   MenuFoldOutlined,
@@ -29,6 +29,9 @@ import BESketchToolbar from './BESketchToolbar';
 import BESketchCanvas from './BESketchCanvas';
 import BESketchSidebar from './BESketchSidebar';
 import { bathroomEstimateService } from '../../../services/bathroomEstimateService';
+
+// three.js comes with it, so it's only downloaded when the 3D view is opened
+const Bathroom3DView = React.lazy(() => import('./Bathroom3DView'));
 
 const { Sider, Content } = Layout;
 const { Text } = Typography;
@@ -569,6 +572,7 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [view, setView] = useState<'plan' | '3d'>('plan');
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
   const [zoomLevel, setZoomLevel] = useState(1);
   const stageRef = useRef<any>(null); // Konva.Stage ref passed to canvas
@@ -768,6 +772,16 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
           />
         </div>
         <Space size={4} style={{ padding: '4px 8px', flexShrink: 0 }}>
+          <Segmented
+            size="small"
+            value={view}
+            onChange={(v) => setView(v as 'plan' | '3d')}
+            options={[
+              { value: 'plan', label: 'Plan' },
+              { value: '3d', label: '3D' },
+            ]}
+            aria-label="Plan or 3D view"
+          />
           {api.isDirty && <Text type="warning" style={{ fontSize: 10, whiteSpace: 'nowrap' }}>*</Text>}
           <Tooltip title="Save sketch (Ctrl+S)">
             <Button
@@ -802,9 +816,23 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
         ref={containerRef}
         style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0 }}
       >
-        <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
+        {/* The plan stays mounted under the 3D view, so its zoom and the PDF's capture of it carry on */}
+        <div style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: view === 'plan' ? 'block' : 'none' }}>
           <BESketchCanvas api={api} width={canvasSize.width} height={canvasSize.height} stageRef={stageRef} onZoomChange={setZoomLevel} />
         </div>
+        {view === '3d' && (
+          <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
+            <Suspense fallback={<div style={{ height: canvasSize.height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin /></div>}>
+              <Bathroom3DView
+                sketch={api.data}
+                estimate={estimateData}
+                height={canvasSize.height}
+                selectedId={api.selectedId}
+                onSelect={api.setSelectedId}
+              />
+            </Suspense>
+          </div>
+        )}
 
         {/* Desktop: inline sidebar */}
         {!isMobile && !sidebarCollapsed && (

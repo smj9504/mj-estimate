@@ -140,46 +140,68 @@ function alongWall(wall: BEWall, p: BEPoint, pixelsPerFoot: number) {
   return { alongIn, offPx: off, lenPx: len, tPx: t };
 }
 
-function fixtureCorners(fix: BEFixture, pixelsPerFoot: number): BEPoint[] {
-  const hw = ((fix.dimensions.width / 12) * pixelsPerFoot) / 2;
-  const hh = ((fix.dimensions.height / 12) * pixelsPerFoot) / 2;
+/** A point of a fixture given in its own frame (px from its centre, before it's turned). */
+function fixturePoint(fix: BEFixture, lx: number, ly: number): BEPoint {
   const rad = ((fix.rotation || 0) * Math.PI) / 180;
   const cos = Math.cos(rad);
   const sin = Math.sin(rad);
-  return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([x, y]) => ({
-    x: fix.position.x + x * cos - y * sin,
-    y: fix.position.y + x * sin + y * cos,
-  }));
+  return { x: fix.position.x + lx * cos - ly * sin, y: fix.position.y + lx * sin + ly * cos };
 }
 
-/** Door and window openings in this wall. */
-export function wallOpenings(wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): FaceRect[] {
-  const rects: FaceRect[] = [];
+function fixtureCorners(fix: BEFixture, pixelsPerFoot: number): BEPoint[] {
+  const hw = ((fix.dimensions.width / 12) * pixelsPerFoot) / 2;
+  const hh = ((fix.dimensions.height / 12) * pixelsPerFoot) / 2;
+  return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([x, y]) => fixturePoint(fix, x, y));
+}
+
+export interface WallOpening {
+  rect: FaceRect;
+  fixture: BEFixture;
+}
+
+/**
+ * Door and window openings in this wall. The part of the plan symbol in the
+ * wall is a door's closed panel (its bottom edge — the door swings off it)
+ * or a window's middle line; a door or window not tied to a wall is in this
+ * one when that edge lies along it.
+ */
+export function wallOpeningsOf(wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): WallOpening[] {
+  const openings: WallOpening[] = [];
   for (const fix of fixtures) {
     if (fix.type !== 'door' && fix.type !== 'window') continue;
-    const at = alongWall(wall, fix.position, pixelsPerFoot);
+    const hw = ((fix.dimensions.width / 12) * pixelsPerFoot) / 2;
+    const ly = fix.type === 'door' ? ((fix.dimensions.height / 12) * pixelsPerFoot) / 2 : 0;
+    const ends = [fixturePoint(fix, -hw, ly), fixturePoint(fix, hw, ly)].map((p) => alongWall(wall, p, pixelsPerFoot));
     const onWall = fix.wallId
       ? fix.wallId === wall.id
-      : at.offPx <= AGAINST_WALL_PX / 2 && at.tPx >= 0 && at.tPx <= at.lenPx;
+      : ends.every((a) => a.offPx <= AGAINST_WALL_PX / 2 && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX);
     if (!onWall) continue;
-    const half = fix.dimensions.width / 2;
     const p = fix.properties || {};
     const y0 = fix.type === 'door' ? 0 : (p.sillHeightIn ?? WINDOW_SILL_IN);
     const y1 = fix.type === 'door'
       ? (p.openingHeightIn ?? DOOR_HEIGHT_IN)
       : y0 + (p.openingHeightIn ?? WINDOW_HEIGHT_IN);
-    rects.push({ x0: at.alongIn - half, x1: at.alongIn + half, y0, y1 });
+    const xs = ends.map((a) => a.alongIn);
+    openings.push({ rect: { x0: Math.min(...xs), x1: Math.max(...xs), y0, y1 }, fixture: fix });
   }
-  return rects;
+  return openings;
+}
+
+export const wallOpenings = (wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): FaceRect[] =>
+  wallOpeningsOf(wall, fixtures, pixelsPerFoot).map((o) => o.rect);
+
+export interface WallCover {
+  rect: FaceRect;
+  fixture: BEFixture;
 }
 
 /**
- * The part of this wall behind a tub or shower that stands against it: up to
- * the shower's tile height, or the tub's rim plus its surround. Two corners of
- * the fixture against the wall make the span.
+ * The part of this wall behind each tub or shower that stands against it: up
+ * to the shower's tile height, or the tub's rim plus its surround. Two corners
+ * of the fixture against the wall make the span.
  */
-export function wallFixtureCover(wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): FaceRect[] {
-  const rects: FaceRect[] = [];
+export function wallFixtureCovers(wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): WallCover[] {
+  const covers: WallCover[] = [];
   for (const fix of fixtures) {
     let top: number;
     if (fix.type === 'shower') {
@@ -196,9 +218,52 @@ export function wallFixtureCover(wall: BEWall, fixtures: BEFixture[], pixelsPerF
       .filter((a) => a.offPx <= AGAINST_WALL_PX && a.tPx >= -AGAINST_WALL_PX && a.tPx <= a.lenPx + AGAINST_WALL_PX);
     if (near.length < 2) continue;
     const xs = near.map((a) => a.alongIn);
-    rects.push({ x0: Math.min(...xs), x1: Math.max(...xs), y0: 0, y1: Math.min(top, wall.heightInches) });
+    covers.push({ rect: { x0: Math.min(...xs), x1: Math.max(...xs), y0: 0, y1: Math.min(top, wall.heightInches) }, fixture: fix });
   }
-  return rects;
+  return covers;
+}
+
+export const wallFixtureCover = (wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): FaceRect[] =>
+  wallFixtureCovers(wall, fixtures, pixelsPerFoot).map((c) => c.rect);
+
+/**
+ * `include` less `exclude`, as rectangles that don't overlap: the face is cut
+ * into columns at every edge, and a column's runs carry on into the next
+ * column for as long as they stay the same.
+ */
+export function subtractRects(include: FaceRect[], exclude: FaceRect[] = []): FaceRect[] {
+  if (!include.length) return [];
+  const all = include.concat(exclude);
+  const xs = Array.from(new Set(all.flatMap((r) => [r.x0, r.x1]))).sort((a, b) => a - b);
+  const ys = Array.from(new Set(all.flatMap((r) => [r.y0, r.y1]))).sort((a, b) => a - b);
+  const inside = (r: FaceRect, x: number, y: number) => x > r.x0 && x < r.x1 && y > r.y0 && y < r.y1;
+  const out: FaceRect[] = [];
+  let open: FaceRect[] = [];
+  for (let i = 0; i < xs.length - 1; i++) {
+    const x = (xs[i] + xs[i + 1]) / 2;
+    const runs: [number, number][] = [];
+    for (let j = 0; j < ys.length - 1; j++) {
+      const y = (ys[j] + ys[j + 1]) / 2;
+      if (!include.some((r) => inside(r, x, y)) || exclude.some((r) => inside(r, x, y))) continue;
+      const last = runs[runs.length - 1];
+      if (last && last[1] === ys[j]) last[1] = ys[j + 1];
+      else runs.push([ys[j], ys[j + 1]]);
+    }
+    const next: FaceRect[] = [];
+    for (const [y0, y1] of runs) {
+      const carried = open.find((r) => r.y0 === y0 && r.y1 === y1 && r.x1 === xs[i]);
+      if (carried) {
+        carried.x1 = xs[i + 1];
+        next.push(carried);
+      } else {
+        const rect = { x0: xs[i], x1: xs[i + 1], y0, y1 };
+        out.push(rect);
+        next.push(rect);
+      }
+    }
+    open = next;
+  }
+  return out;
 }
 
 export function wallFinishAreas(wall: BEWall, fixtures: BEFixture[], pixelsPerFoot: number): WallFinishAreas {

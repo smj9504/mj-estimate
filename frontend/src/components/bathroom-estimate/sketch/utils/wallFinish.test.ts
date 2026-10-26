@@ -3,8 +3,10 @@ import type { BEFixture, BERoom, BEWall } from '../../../../types/bathroomSketch
 import {
   coveredArea,
   roomWallFinishTotals,
+  subtractRects,
   wallFinishAreas,
   wallFixtureCover,
+  wallOpenings,
   wallStartOnLeft,
   wallTileRegions,
 } from './wallFinish';
@@ -90,6 +92,38 @@ describe('wallFinishAreas', () => {
   it('adds up a room', () => {
     const tiled = north({ tileRegions: [{ id: 't', startIn: 0, endIn: 96, bottomIn: 0, topIn: 48 }] });
     expect(roomWallFinishTotals([tiled, southWall], [], PPF)).toEqual({ tileSF: 32, paintSF: 96, existingTileSF: 0 });
+  });
+});
+
+describe('wallOpenings', () => {
+  it('finds a door by its closed panel, the edge of its symbol that sits in the wall', () => {
+    // As the plan places a door: its symbol inside the room, its bottom edge on the south wall
+    const door = fixture('door', 160, 200 - 160 / 3, 32, 32);
+    expect(wallOpenings(southWall, [door], PPF)).toEqual([{ x0: 32, x1: 64, y0: 0, y1: 80 }]);
+    expect(wallOpenings(north(), [door], PPF)).toEqual([]);
+  });
+
+  it('finds a window by its middle line', () => {
+    const win = fixture('window', 160, 0, 36, 6);
+    expect(wallOpenings(north(), [win], PPF)).toEqual([{ x0: 30, x1: 66, y0: 36, y1: 84 }]);
+  });
+});
+
+describe('subtractRects', () => {
+  it('cuts a hole out of a face as rectangles that cover the rest once', () => {
+    const face = { x0: 0, x1: 10, y0: 0, y1: 10 };
+    const hole = { x0: 4, x1: 6, y0: 0, y1: 8 };
+    const pieces = subtractRects([face], [hole]);
+    expect(pieces).toEqual([
+      { x0: 0, x1: 4, y0: 0, y1: 10 },
+      { x0: 4, x1: 6, y0: 8, y1: 10 },
+      { x0: 6, x1: 10, y0: 0, y1: 10 },
+    ]);
+    expect(coveredArea(pieces)).toBe(coveredArea([face], [hole]));
+  });
+
+  it('keeps one rectangle for a face with nothing taken out', () => {
+    expect(subtractRects([{ x0: 0, x1: 96, y0: 0, y1: 96 }])).toEqual([{ x0: 0, x1: 96, y0: 0, y1: 96 }]);
   });
 });
 
