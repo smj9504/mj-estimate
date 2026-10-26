@@ -2,8 +2,9 @@
  * The bathroom sketch in 3D, as plain data in inches: the walls cut around
  * their doors and windows with the tile and the tub / shower surrounds on
  * their room side, the floors, each fixture where the plan puts it, and the
- * looks (tile, paint, metal, tops) the estimate's specs give them. No
- * three.js here — bathroom3dScene.ts turns this into meshes.
+ * looks (tile, paint, metal, tops) the estimate's specs give them, or an
+ * option's picked products (their colour, finish, tile size and surface
+ * picture). No three.js here — bathroom3dScene.ts turns this into meshes.
  *
  * Plan to 3D: a plan point (x, y) in px is (x, y) / pixelsPerFoot × 12
  * inches. Plan x is three's x, plan y (down the screen) is three's z, and
@@ -12,6 +13,7 @@
  * was drawn at and fixtures stand against the wall's face.
  */
 
+import type { BathroomSelection } from '../../../types/bathroomEstimate';
 import type { BEFixture, BEPoint, BERoom, BESketchData, BEWall } from '../../../types/bathroomSketch';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
 import {
@@ -41,6 +43,8 @@ export interface TileLook {
   color: string;
   grout: string;
   roughness: number;
+  /** A picked tile's surface picture (a file id), laid on each tile in place of the flat colour. */
+  swatchFileId?: string;
 }
 
 export interface BathroomLooks {
@@ -210,6 +214,49 @@ export const DEFAULT_LOOKS: BathroomLooks = {
   tubShower: false,
 };
 
+// A product's look.material (product library) as the tile looks name it
+const PRODUCT_TILE_MATERIALS: Record<string, string> = {
+  porcelain: 'porcelain', ceramic: 'ceramic', glass: 'glass_mosaic', vinyl: 'lvt_spc', wood: 'lvt_spc',
+  natural_stone: 'natural_stone', marble: 'natural_stone', granite: 'natural_stone', quartzite: 'natural_stone',
+};
+const LAID_PATTERNS = new Set(['subway', 'herringbone', 'chevron', 'diagonal', 'basketweave']);
+
+const hexColor = (v: unknown): string | undefined =>
+  (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : undefined);
+
+/**
+ * A picked tile: its real size and colour, and its surface picture when it
+ * has one, laid in the estimate's pattern (or the product's own subway or
+ * herringbone when the estimate just says straight).
+ */
+export function productTileLook(p: BathroomSelection | undefined, specPattern: string | undefined, fallback: TileLook): TileLook | null {
+  if (!p) return null;
+  const material = PRODUCT_TILE_MATERIALS[String(p.look?.material ?? '')] ?? fallback.material;
+  const size = p.tile_width_in && p.tile_length_in ? `${p.tile_width_in}x${p.tile_length_in}` : undefined;
+  const own = String(p.look?.pattern ?? '');
+  const pattern = (!specPattern || specPattern === 'straight') && LAID_PATTERNS.has(own) ? own : specPattern;
+  const base = tileLook({ material, size, pattern }, fallback);
+  const color = hexColor(p.look?.color) ?? base.color;
+  const swatchFileId = p.swatch_file_id || undefined;
+  return {
+    ...base,
+    color,
+    swatchFileId,
+    key: `${base.material}|${base.widthIn}x${base.heightIn}|${base.pattern}|${color}|${base.grout}|${swatchFileId ?? ''}`,
+  };
+}
+
+/** A faucet's metal from its finish as sold ("Matte Black", "Brushed Nickel"…), else its colour. */
+function productMetal(p: BathroomSelection | undefined): string | undefined {
+  if (!p) return undefined;
+  const finish = `${p.finish ?? ''} ${p.title}`.toLowerCase();
+  if (/black/.test(finish)) return METAL_COLORS.matte_black;
+  if (/nickel|stainless/.test(finish)) return METAL_COLORS.brushed_nickel;
+  if (/gold|brass|bronze/.test(finish)) return METAL_COLORS.brass;
+  if (/chrome/.test(finish)) return METAL_COLORS.chrome;
+  return hexColor(p.look?.color);
+}
+
 const FLOOR_TILE_MATERIALS = new Set(['ceramic', 'porcelain', 'natural_stone', 'glass_mosaic', 'mosaic', 'glass']);
 
 /** The looks the estimate's specs and the sketch's tile zones give the bathroom. */
@@ -220,6 +267,9 @@ export function bathroomLooks(sketch: BESketchData, estimate?: Record<string, an
   const shower = estimate?.shower_spec || {};
   const vanity = estimate?.vanity_spec || {};
   const firstVanity = (Array.isArray(vanity.items) && vanity.items[0]) || vanity;
+  // An option's picked products (a restoration has none)
+  const picked: Record<string, BathroomSelection> = estimate?.selections || {};
+  const showerWallTile = productTileLook(picked.shower_wall_tile, shower.tile_spec?.pattern, DEFAULT_LOOKS.showerTile);
 
   let floor: TileLook | null;
   if (floorSpec.material === 'lvt_spc') {
@@ -230,21 +280,27 @@ export function bathroomLooks(sketch: BESketchData, estimate?: Record<string, an
   } else {
     floor = tileLook(floorSpec.material ? floorSpec : zoneSpec('floor'), DEFAULT_LOOKS.floor!);
   }
+  floor = productTileLook(picked.floor_tile, floorSpec.pattern, floor ?? DEFAULT_LOOKS.floor!) ?? floor;
 
   return {
     ...DEFAULT_LOOKS,
     floor,
-    wallTile: tileLook(
+    wallTile: productTileLook(picked.wall_tile, walls.tile_pattern, DEFAULT_LOOKS.wallTile) ?? tileLook(
       walls.tile_material || walls.tile_size || walls.tile_pattern
         ? { material: walls.tile_material, size: walls.tile_size, pattern: walls.tile_pattern }
         : null,
       DEFAULT_LOOKS.wallTile,
     ),
-    showerTile: tileLook(shower.tile_spec || zoneSpec('shower_walls'), DEFAULT_LOOKS.showerTile),
-    surroundTile: tileLook(zoneSpec('tub_surround'), DEFAULT_LOOKS.surroundTile),
-    vanityTop: TOP_COLORS[firstVanity?.top_material] ?? DEFAULT_LOOKS.vanityTop,
+    showerTile: showerWallTile ?? tileLook(shower.tile_spec || zoneSpec('shower_walls'), DEFAULT_LOOKS.showerTile),
+    surroundTile: showerWallTile ?? tileLook(zoneSpec('tub_surround'), DEFAULT_LOOKS.surroundTile),
+    prefab: hexColor(picked.bathtub?.look?.color) ?? DEFAULT_LOOKS.prefab,
+    vanityBox: hexColor(picked.vanity?.look?.color) ?? DEFAULT_LOOKS.vanityBox,
+    vanityTop: hexColor(picked.vanity_top?.look?.color)
+      ?? TOP_COLORS[String(picked.vanity_top?.look?.material ?? '')]
+      ?? TOP_COLORS[firstVanity?.top_material] ?? DEFAULT_LOOKS.vanityTop,
     vanityFloating: (firstVanity?.mounting ?? vanity.mounting) === 'wall_mount',
-    metal: METAL_COLORS[estimate?.accessories_spec?.finish] ?? DEFAULT_LOOKS.metal,
+    china: hexColor(picked.toilet?.look?.color) ?? DEFAULT_LOOKS.china,
+    metal: productMetal(picked.bath_faucet) ?? METAL_COLORS[estimate?.accessories_spec?.finish] ?? DEFAULT_LOOKS.metal,
     tubShower: shower.type === 'tub_combo'
       || (!sketch.fixtures.some((f) => f.type === 'shower')
         && sketch.fixtures.some((f) => f.type === 'bathtub' && f.properties.bathtubSubType !== 'freestanding'

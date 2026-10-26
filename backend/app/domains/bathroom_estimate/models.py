@@ -204,6 +204,10 @@ class BathroomEstimate(Base, BaseModel):
     sketch_data = Column(JSONB, nullable=True)
     # { version, walls, rooms, fixtures, tileZones, damageZones, settings }
 
+    # ── Products picked for an option (never a restoration) ──
+    selections = Column(JSONB, nullable=True)
+    # { slot: product snapshot (+ includes_top for a vanity) } — see selections.SLOTS
+
     # ── Documentation ──
     methodology_notes = Column(Text, nullable=True)
     warning_flags = Column(JSONB, nullable=True, default=list)

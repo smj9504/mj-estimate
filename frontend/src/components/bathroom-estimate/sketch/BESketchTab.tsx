@@ -111,12 +111,14 @@ export interface BESketchTabProps {
   /** For an option: the bathroom as it is (restoration or current layout), drawn faintly under the plan */
   baselineSketch?: BESketchData | null;
   baselineName?: string;
+  /** Bumped when the page changed the saved sketch itself (a picked product resized a fixture): load it again */
+  reloadKey?: number;
 }
 
 // ── Component ──
 
 /** Build sync payload from sketch rooms + fixtures → estimate form fields */
-function buildSketchSync(data: BESketchData): SketchFixtureSync {
+export function buildSketchSync(data: BESketchData): SketchFixtureSync {
   const { fixtures, rooms, walls } = data;
   const ppf = data.settings.pixelsPerFoot;
   const sync: SketchFixtureSync = {};
@@ -552,6 +554,7 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
   isActive = false,
   baselineSketch,
   baselineName,
+  reloadKey = 0,
 }) => {
   const api = useBESketchState();
   const lastLoadedRef = useRef<string | null>(null);
@@ -565,12 +568,13 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
       f: initialSketchData.fixtures?.length ?? 0,
       w: initialSketchData.walls?.length ?? 0,
       v: initialSketchData.version,
+      k: reloadKey,
     });
     if (sig !== lastLoadedRef.current) {
       lastLoadedRef.current = sig;
       api.loadSketch(initialSketchData);
     }
-  }, [initialSketchData, api]);
+  }, [initialSketchData, api, reloadKey]);
 
   const screens = useBreakpoint();
   const isMobile = !screens.md;

@@ -269,6 +269,9 @@ export interface BEFixtureProperties {
   swingDirection?: 'in' | 'out';
   handleSide?: 'left' | 'right';
 
+  /** The pick (its taken_at) an option's product last sized this fixture to; see utils/productFit. */
+  productTakenAt?: string;
+
   /** Extensible */
   [key: string]: any;
 }

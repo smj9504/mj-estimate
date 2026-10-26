@@ -129,7 +129,10 @@ function roundedRect(w: number, d: number, r: number, cx = 0, cz = 0, n = 6): Pt
 
 /** A sink or tub bowl: the lower half of an egg, seen from above. */
 function bowl(rx: number, depth: number, rz: number, material: THREE.Material, x: number, y: number, z: number): THREE.Mesh {
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 12, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), material);
+  // Seen from above it's the inside of the shell that shows
+  const inside = material.clone();
+  inside.side = THREE.DoubleSide;
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 12, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), inside);
   mesh.scale.set(rx, depth, rz);
   mesh.position.set(x, y, z);
   return mesh;

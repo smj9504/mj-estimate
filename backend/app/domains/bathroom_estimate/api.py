@@ -55,7 +55,9 @@ from .schemas import (
     OptionLabelUpdate,
     PricingInfoResponse,
     ProjectTypeUpdate,
+    SelectionPick,
 )
+from .selections import slots_meta
 from .service import BathroomEstimateService
 
 logger = logging.getLogger(__name__)
@@ -99,6 +101,12 @@ def get_pricing_info():
         "plumbing_rates": PLUMBING_RATES,
         "electrical_rates": ELECTRICAL_RATES,
     }
+
+
+@router.get("/selection-slots")
+def get_selection_slots(current_user: dict = Depends(get_current_user)):
+    """The products an option can be built from: each slot, and the library categories that fill it."""
+    return slots_meta()
 
 
 # ── CRUD ──
@@ -266,6 +274,44 @@ def rename_option(
         result = service.rename_option(estimate_id, data.option_label)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+@router.put("/{estimate_id}/selections/{slot}", response_model=BathroomEstimateResponse)
+def set_selection(
+    estimate_id: str,
+    slot: str,
+    data: SelectionPick,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Build an option's slot (vanity, floor tile…) from a library product; its price becomes the material cost."""
+    from app.domains.product_library.service import ProductError
+
+    service = BathroomEstimateService(session)
+    try:
+        result = service.set_selection(estimate_id, slot, data.product_id, data.includes_top)
+    except ProductError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+@router.delete("/{estimate_id}/selections/{slot}", response_model=BathroomEstimateResponse)
+def clear_selection(
+    estimate_id: str,
+    slot: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Take a slot's product off an option; it goes back to the rate table's allowance."""
+    service = BathroomEstimateService(session)
+    result = service.clear_selection(estimate_id, slot)
     if not result:
         raise HTTPException(status_code=404, detail="Estimate not found")
     return result
@@ -462,6 +508,7 @@ def export_pdf(
     pdf_bytes = export_svc.generate_pdf(
         estimate, show_signature=show_signature,
         show_breakdown_prices=show_breakdown_prices,
+        product_pictures=service.product_pictures([estimate]),
     )
 
     return StreamingResponse(
@@ -498,8 +545,9 @@ def export_pdf_with_sketch(
         show_signature=show_signature,
         sketch_image_base64=sketch_image,
         show_breakdown_prices=show_breakdown_prices,
-        # The 3D view; an option's PDF only shows it
+        # The 3D view and the picked products; an option's PDF only shows them
         render_image_base64=body.get("render_image"),
+        product_pictures=service.product_pictures([estimate]),
     )
 
     return StreamingResponse(
@@ -546,6 +594,7 @@ def _proposal_pdf(estimate_id: str, show_signature: bool, renders: Optional[Dict
 
     pdf_bytes = BathroomExportService().generate_proposal_pdf(
         group, show_signature=show_signature, renders=renders,
+        product_pictures=service.product_pictures(group["members"]),
     )
     return StreamingResponse(
         pdf_bytes,

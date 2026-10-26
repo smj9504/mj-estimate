@@ -4,6 +4,9 @@
  * with grout between. A texture covers one repeat of the pattern — `repeatIn`
  * inches each way — so a surface maps it at u = x / repeat.x, v = y / repeat.y
  * and the joints line up from one repeat to the next.
+ *
+ * A picked tile with a surface picture (TileLook.swatchFileId) is drawn flat
+ * first, then again with the picture on every tile once it has loaded.
  */
 
 import * as THREE from 'three';
@@ -121,10 +124,14 @@ function shiftColor(hex: string, amount: number): string {
   return `#${c.getHexString()}`;
 }
 
-function drawTiles(look: TileLook): { canvas: HTMLCanvasElement; repeat: [number, number] } {
+function drawTiles(
+  look: TileLook,
+  swatch?: HTMLImageElement,
+  into?: HTMLCanvasElement,
+): { canvas: HTMLCanvasElement; repeat: [number, number] } {
   const { repeat, tiles } = patternTiles(look);
   const ppi = Math.min(16, MAX_CANVAS_PX / Math.max(repeat[0], repeat[1]));
-  const canvas = document.createElement('canvas');
+  const canvas = into ?? document.createElement('canvas');
   canvas.width = Math.max(8, Math.round(repeat[0] * ppi));
   canvas.height = Math.max(8, Math.round(repeat[1] * ppi));
   const ctx = canvas.getContext('2d')!;
@@ -149,16 +156,58 @@ function drawTiles(look: TileLook): { canvas: HTMLCanvasElement; repeat: [number
       else ctx.lineTo(px, py);
     });
     ctx.closePath();
+    if (!swatch) {
+      ctx.fill();
+      return;
+    }
+    // The picture on this tile: as much of it as the tile's shape takes, from a different spot per tile
+    ctx.save();
+    ctx.clip();
+    const xs = quad.map((p) => p[0] * ppi);
+    const ys = quad.map((p) => canvas.height - p[1] * ppi);
+    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    const want = (x1 - x0) / Math.max(1e-6, y1 - y0);
+    const iw = swatch.naturalWidth;
+    const ih = swatch.naturalHeight;
+    const sw = Math.min(iw, ih * want);
+    const sh = sw / want;
+    const pick = (shade(i + 7) + 1) / 2;
+    ctx.drawImage(swatch, (iw - sw) * pick, (ih - sh) * (1 - pick), sw, sh, x0, y0, x1 - x0, y1 - y0);
+    // Fired tile varies a little from one to the next
+    ctx.globalAlpha = Math.abs(shade(i)) * variation * 2;
+    ctx.fillStyle = shade(i) > 0 ? '#ffffff' : '#000000';
     ctx.fill();
+    ctx.restore();
   });
   return { canvas, repeat };
+}
+
+/** A picture, ready to draw, or null if it can't be had (gone, or not shareable with WebGL). */
+function loadImage(url: string): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img.naturalWidth ? img : null);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+export interface TileTextureOptions {
+  anisotropy?: number;
+  /** Where a surface picture (a file id) is fetched from; without it, picked tile stays flat. */
+  imageUrl?: (fileId: string) => string;
+  /** A texture changed after it was handed out (its picture came in): draw again. */
+  onChange?: () => void;
 }
 
 /** One texture per look, shared by every surface with that look until the view closes. */
 export class TileTextureCache {
   private textures = new Map<string, TileTexture>();
+  private pending: Promise<void>[] = [];
+  private disposed = false;
 
-  constructor(private anisotropy = 4) {}
+  constructor(private options: TileTextureOptions = {}) {}
 
   get(look: TileLook): TileTexture {
     const cached = this.textures.get(look.key);
@@ -168,13 +217,27 @@ export class TileTextureCache {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = this.anisotropy;
+    texture.anisotropy = this.options.anisotropy ?? 4;
     const entry = { texture, repeatIn: repeat };
     this.textures.set(look.key, entry);
+    if (look.swatchFileId && this.options.imageUrl) {
+      this.pending.push(loadImage(this.options.imageUrl(look.swatchFileId)).then((img) => {
+        if (!img || this.disposed) return;
+        drawTiles(look, img, canvas);
+        texture.needsUpdate = true;
+        this.options.onChange?.();
+      }));
+    }
     return entry;
   }
 
+  /** Once every surface picture asked for so far is in (or has failed). */
+  async ready(): Promise<void> {
+    await Promise.all(this.pending);
+  }
+
   dispose() {
+    this.disposed = true;
     this.textures.forEach((t) => t.texture.dispose());
     this.textures.clear();
   }

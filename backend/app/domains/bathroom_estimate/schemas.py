@@ -4,6 +4,7 @@ Bathroom Remodel Estimate Pydantic schemas
 
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -239,6 +240,13 @@ class OptionLabelUpdate(BaseModel):
     option_label: str = Field(..., min_length=1, max_length=100)
 
 
+class SelectionPick(BaseModel):
+    """A product from the library for one of an option's slots."""
+    product_id: UUID
+    # A vanity sold with its top (and sink): no separate top is priced
+    includes_top: Optional[bool] = None
+
+
 class ProjectTypeUpdate(BaseModel):
     project_type: Literal["insurance", "remodel"]
 
@@ -333,6 +341,8 @@ class BathroomEstimateResponse(BaseModel):
     substrate_spec: Optional[Dict[str, Any]] = None
     hidden_costs: Optional[Dict[str, Any]] = None
     sketch_data: Optional[Dict[str, Any]] = None
+    # Products picked for an option, by slot (selections.SLOTS); never on a restoration
+    selections: Optional[Dict[str, Any]] = None
 
     # Overview & O&P
     overview_text: Optional[str] = None

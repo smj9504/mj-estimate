@@ -2,6 +2,8 @@
  * Bathroom Remodel Estimate types
  */
 
+import type { ProductLook } from './productLibrary';
+
 // ── Shower type helpers ──
 
 /**
@@ -333,6 +335,9 @@ export interface BathroomEstimate {
   // Sketch data
   sketch_data?: Record<string, any>;
 
+  /** Products picked for an option, by slot (BathroomSelectionSlot.key); never on a restoration. */
+  selections?: Record<string, BathroomSelection> | null;
+
   // Overview & O&P
   overview_text?: string;
   include_overhead_profit?: boolean;
@@ -380,6 +385,41 @@ export interface BathroomEstimate {
 export type BathroomProjectType = 'insurance' | 'remodel';
 /** existing: a remodel's bathroom as it is today — unpriced, what its options' layout changes are priced against. */
 export type BathroomEstimateKind = 'restore' | 'option' | 'existing';
+
+/** A product an option is built from: the estimate's own copy of it (product_library ProductSnapshot). */
+export interface BathroomSelection {
+  product_id: string;
+  category: string;
+  title: string;
+  brand?: string | null;
+  model_number?: string | null;
+  sku?: string | null;
+  finish?: string | null;
+  retailer: string;
+  source_url?: string | null;
+  price?: number | string | null;
+  price_unit: string;
+  box_sf?: number | null;
+  width_in?: number | null;
+  depth_in?: number | null;
+  height_in?: number | null;
+  tile_width_in?: number | null;
+  tile_length_in?: number | null;
+  image_file_ids: string[];
+  swatch_file_id?: string | null;
+  look: ProductLook;
+  taken_at: string;
+  /** A vanity sold with its top: no separate top is priced. */
+  includes_top?: boolean;
+}
+
+/** What an option can be built from (selections.SLOTS): a slot, and the library categories that fill it. */
+export interface BathroomSelectionSlot {
+  key: string;
+  label: string;
+  categories: string[];
+  unit: 'each' | 'sf';
+}
 
 /** One way an option's sketch differs from the bathroom as it is (layout_changes.py). */
 export interface BathroomLayoutChange {

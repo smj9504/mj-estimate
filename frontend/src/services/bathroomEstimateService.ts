@@ -14,6 +14,7 @@ import type {
   BathroomEstimateHistory,
   BathroomPricingInfo,
   BathroomProjectType,
+  BathroomSelectionSlot,
 } from '../types/bathroomEstimate';
 
 const BASE_URL = '/api/bathroom-estimates';
@@ -93,6 +94,27 @@ export const bathroomEstimateService = {
 
   async renameOption(id: string, optionLabel: string) {
     const { data } = await api.put(`${BASE_URL}/${id}/option-label`, { option_label: optionLabel });
+    return data as BathroomEstimate;
+  },
+
+  // ── Selections (the products an option is built from) ──
+
+  async getSelectionSlots() {
+    const { data } = await api.get(`${BASE_URL}/selection-slots`);
+    return data as BathroomSelectionSlot[];
+  },
+
+  /** Build an option's slot from a library product; the estimate keeps its own copy. */
+  async setSelection(id: string, slot: string, productId: string, includesTop?: boolean) {
+    const { data } = await api.put(`${BASE_URL}/${id}/selections/${slot}`, {
+      product_id: productId,
+      includes_top: includesTop,
+    });
+    return data as BathroomEstimate;
+  },
+
+  async clearSelection(id: string, slot: string) {
+    const { data } = await api.delete(`${BASE_URL}/${id}/selections/${slot}`);
     return data as BathroomEstimate;
   },
 

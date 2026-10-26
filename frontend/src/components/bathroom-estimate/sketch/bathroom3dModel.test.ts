@@ -119,3 +119,41 @@ describe('looks', () => {
     expect(bathroomLooks(s, { floor_spec: { material: 'carpet' } }).floor).toBeNull();
   });
 });
+
+describe('bathroomLooks with picked products', () => {
+  const picked = (fields: Record<string, any>) => ({
+    product_id: 'p', category: 'floor_tile', title: 'Tile', retailer: 'home_depot', price_unit: 'sf',
+    image_file_ids: [], look: {}, taken_at: 'now', ...fields,
+  });
+
+  it('lays a picked tile at its own size and colour, with its surface picture', () => {
+    const looks = bathroomLooks(sketch([]), {
+      floor_spec: { material: 'porcelain', size: '12x12', pattern: 'straight' },
+      selections: {
+        floor_tile: picked({ tile_width_in: 12, tile_length_in: 24, look: { color: '#3a3f44', material: 'marble' }, swatch_file_id: 'f1' }),
+        shower_wall_tile: picked({ category: 'wall_tile', tile_width_in: 3, tile_length_in: 12, look: { pattern: 'subway' } }),
+      },
+    });
+    expect(looks.floor).toMatchObject({ widthIn: 24, heightIn: 12, color: '#3a3f44', material: 'natural_stone', swatchFileId: 'f1', pattern: 'straight' });
+    // The product's own subway lay, on the shower and the tub surround alike
+    expect(looks.showerTile).toMatchObject({ widthIn: 12, heightIn: 3, pattern: 'subway' });
+    expect(looks.surroundTile).toBe(looks.showerTile);
+    expect(looks.floor!.key).not.toBe(bathroomLooks(sketch([]), { floor_spec: { material: 'porcelain' } }).floor!.key);
+  });
+
+  it('takes the vanity, top, toilet and tub colours and the faucet finish from their products', () => {
+    const looks = bathroomLooks(sketch([]), {
+      selections: {
+        vanity: picked({ category: 'vanity', look: { color: '#1f3b57' } }),
+        vanity_top: picked({ category: 'vanity_top', look: { material: 'granite' } }),
+        bath_faucet: picked({ category: 'bath_faucet', title: 'Delta Trinsic Faucet', finish: 'Matte Black' }),
+        toilet: picked({ category: 'toilet', look: { color: '#efe6d2' } }),
+      },
+    });
+    expect(looks.vanityBox).toBe('#1f3b57');
+    expect(looks.vanityTop).toBe('#77736b');
+    expect(looks.metal).toBe('#2a2a2a');
+    expect(looks.china).toBe('#efe6d2');
+    expect(looks.prefab).toBe(DEFAULT_LOOKS.prefab);
+  });
+});

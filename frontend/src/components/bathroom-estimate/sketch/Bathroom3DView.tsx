@@ -32,6 +32,7 @@ import {
   type CameraPose,
 } from './bathroom3dStage';
 import { TileTextureCache } from './bathroom3dTextures';
+import { fileService } from '../../../services/fileService';
 
 /** How far (screen px) the pointer may move between press and release and still count as a click. */
 const CLICK_SLOP_PX = 4;
@@ -113,7 +114,12 @@ const Bathroom3DView: React.FC<Bathroom3DViewProps> = ({ sketch, estimate, heigh
       camera,
       controls,
       sun,
-      textures: new TileTextureCache(renderer.capabilities.getMaxAnisotropy()),
+      textures: new TileTextureCache({
+        anisotropy: renderer.capabilities.getMaxAnisotropy(),
+        imageUrl: (fileId) => fileService.getPreviewUrl(fileId),
+        // A picked tile's picture came in
+        onChange: () => stageRef.current?.render(),
+      }),
       built: null,
       render: () => {
         if (stage.built) updateCutaway(stage.built, camera);

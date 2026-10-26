@@ -11,6 +11,7 @@ import { bathroomModel, type FinishView } from './bathroom3dModel';
 import { buildBathroomScene, disposeScene, updateCutaway } from './bathroom3dScene';
 import { aimSun, applyPose, createLitScene, eyeLevelPose, overviewPose, setUpRenderer } from './bathroom3dStage';
 import { TileTextureCache } from './bathroom3dTextures';
+import { fileService } from '../../../services/fileService';
 
 export interface SnapshotSubject {
   key: string;
@@ -65,7 +66,10 @@ export async function renderBathroomSnapshots(
   setUpRenderer(renderer);
   const { scene, sun, dispose: disposeLights } = createLitScene(renderer);
   const camera = new THREE.PerspectiveCamera(45, width / height, 1, 6000);
-  const textures = new TileTextureCache(renderer.capabilities.getMaxAnisotropy());
+  const textures = new TileTextureCache({
+    anisotropy: renderer.capabilities.getMaxAnisotropy(),
+    imageUrl: (fileId) => fileService.getPreviewUrl(fileId),
+  });
   const out: Record<string, string> = {};
 
   try {
@@ -78,6 +82,8 @@ export async function renderBathroomSnapshots(
       aimSun(sun, model);
       applyPose(camera, at);
       updateCutaway(built, camera);
+      // A picked tile's surface picture
+      await textures.ready();
       renderer.render(scene, camera);
       out[subject.key] = renderer.domElement.toDataURL(type, quality).replace(/^data:image\/\w+;base64,/, '');
       scene.remove(built.root);

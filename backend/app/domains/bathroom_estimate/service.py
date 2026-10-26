@@ -23,6 +23,7 @@ from .repository import (
     BathroomLineItemRepository,
 )
 from .schemas import BathroomEstimateCreate, BathroomEstimateUpdate
+from .selections import SLOTS, sold_with_top
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +307,8 @@ class BathroomEstimateService:
             "created_by_id": created_by_id,
             "status": "draft",
             "notes": "Cloned from estimate",
+            # A clone that starts an insurance job is its restoration: no products
+            "selections": copy.deepcopy(source.selections) if remodel else None,
         })
 
         # Recalculate totals for cloned estimate
@@ -415,6 +418,8 @@ class BathroomEstimateService:
             restore = current or estimate
             restore.kind = "restore"
             restore.option_label = None
+            # Priced from the rate tables, never from products
+            restore.selections = None
         for member in members:
             member.project_type = project_type
         _renumber(members)
@@ -487,6 +492,8 @@ class BathroomEstimateService:
             "created_by_id": created_by_id,
             "status": "draft",
             "target_total": None,
+            # The bathroom as it is has none of the option's new products
+            "selections": None,
         })
         # It isn't priced: no line items, no totals
         self.line_item_repo.delete_by_estimate_id(new_id)
@@ -496,6 +503,88 @@ class BathroomEstimateService:
         })
         self.session.flush()
         return self._get_full_estimate(new_id)
+
+    # ── Selections: the products an option is built from ──
+
+    def set_selection(
+        self, estimate_id: str, slot: str, product_id, includes_top: Optional[bool] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Pick a library product for one of an option's slots. The estimate
+        keeps a copy of it, so changing the library later doesn't move it."""
+        from app.domains.product_library.service import ProductService, snapshot
+
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not estimate:
+            return None
+        if estimate.kind != "option":
+            raise ValueError(
+                "Only an option is built from products; the restoration stays "
+                "priced from the rate tables."
+            )
+        if slot not in SLOTS:
+            raise ValueError(f"Unknown product slot {slot!r}")
+        product = ProductService(self.session).get(product_id)
+        if product.category not in SLOTS[slot]["categories"]:
+            raise ValueError(f"That product isn't a {SLOTS[slot]['label'].lower()}.")
+        entry = snapshot(product).model_dump(mode="json")
+        if slot == "vanity":
+            entry["includes_top"] = sold_with_top(product.title) if includes_top is None else includes_top
+        self._write_selections(estimate, {**(estimate.selections or {}), slot: entry})
+        return self._get_full_estimate(estimate_id)
+
+    def clear_selection(self, estimate_id: str, slot: str) -> Optional[Dict[str, Any]]:
+        """Take a slot's product off an option; it goes back to the rate table's allowance."""
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not estimate:
+            return None
+        remaining = {k: v for k, v in (estimate.selections or {}).items() if k != slot}
+        self._write_selections(estimate, remaining or None)
+        return self._get_full_estimate(estimate_id)
+
+    def product_pictures(self, estimates: List[Dict[str, Any]], max_bytes: int = 4 * 1024 * 1024) -> Dict[str, bytes]:
+        """The main picture of each product the options among `estimates`
+        picked, by file id, for their PDFs. One that can't be had is left
+        out; the PDF goes without it."""
+        from pathlib import Path
+
+        from app.common.utils.storage_helpers import download_from_storage, is_cloud_ref
+        from app.domains.file.models import File
+
+        wanted = {
+            sel["image_file_ids"][0]
+            for e in estimates if e.get("kind") == "option"
+            for sel in (e.get("selections") or {}).values()
+            if isinstance(sel, dict) and sel.get("image_file_ids")
+        }
+        pictures: Dict[str, bytes] = {}
+        for file_id in wanted:
+            record = self.session.query(File).filter(File.id == str(file_id)).first()
+            if not record or record.is_active is False:
+                continue
+            # The thumbnail first: it's plenty for a PDF and much smaller
+            for ref in (record.thumbnail_url, record.url):
+                if not ref:
+                    continue
+                try:
+                    cloud = (record.storage_provider or "local") != "local" or is_cloud_ref(ref)
+                    data = (
+                        download_from_storage(ref, record.storage_provider, max_bytes=max_bytes) if cloud
+                        else Path(ref).read_bytes() if Path(ref).is_file() else None
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"Product picture {file_id} not available for the PDF: {e}")
+                    data = None
+                if data:
+                    pictures[str(file_id)] = data
+                    break
+        return pictures
+
+    def _write_selections(self, estimate: BathroomEstimate, selections: Optional[Dict[str, Any]]):
+        from sqlalchemy.orm.attributes import flag_modified
+
+        estimate.selections = selections
+        flag_modified(estimate, "selections")
+        self.session.flush()
 
     def ensure_submittable_to_carrier(self, estimate_id: str):
         """Only a restoration goes to the insurance company.

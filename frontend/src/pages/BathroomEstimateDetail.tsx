@@ -60,8 +60,10 @@ import type {
   BathroomPricingInfo,
 } from '../types/bathroomEstimate';
 import { PHASE_LABELS, isCustomTileShower, memberName } from '../types/bathroomEstimate';
-import BESketchTab from '../components/bathroom-estimate/sketch/BESketchTab';
+import BESketchTab, { buildSketchSync } from '../components/bathroom-estimate/sketch/BESketchTab';
 import type { SketchFixtureSync } from '../components/bathroom-estimate/sketch/BESketchTab';
+import { fitFixturesToProducts } from '../components/bathroom-estimate/sketch/utils/productFit';
+import BESelectionsPanel from '../components/bathroom-estimate/BESelectionsPanel';
 import BEGroupBar from '../components/bathroom-estimate/BEGroupBar';
 import BEGroupCompareDrawer from '../components/bathroom-estimate/BEGroupCompareDrawer';
 import BELayoutChanges from '../components/bathroom-estimate/BELayoutChanges';
@@ -104,6 +106,10 @@ const BathroomEstimateDetail: React.FC = () => {
   );
   const [registerBidItemOpen, setRegisterBidItemOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
+  // An option's product slot being stored and repriced
+  const [selectionBusy, setSelectionBusy] = useState<string | null>(null);
+  // Bumped when a picked product resized the plan here, so the sketch loads it
+  const [sketchReload, setSketchReload] = useState(0);
   // Edits made on this page since the last save or calculate: typed into the
   // form or drawn on the sketch. Fields the page fills in itself don't count.
   const unsavedRef = useRef(false);
@@ -606,6 +612,33 @@ const BathroomEstimateDetail: React.FC = () => {
 
     form.setFieldsValue(updates);
   }, [form]);
+
+  // ── An option's products ──
+  // Store the pick, draw the plan at the product's size, and reprice with the page's values (as Calculate does)
+  const changeSelection = useCallback(async (slot: string, productId: string | null, opts?: { includesTop?: boolean }) => {
+    setSelectionBusy(slot);
+    try {
+      const picked = productId
+        ? await bathroomEstimateService.setSelection(id!, slot, productId, opts?.includesTop)
+        : await bathroomEstimateService.clearSelection(id!, slot);
+      const sketch = form.getFieldValue('sketch_data') ?? picked.sketch_data;
+      const fitted = sketch ? fitFixturesToProducts(sketch, picked.selections) : sketch;
+      if (fitted !== sketch) {
+        form.setFieldValue('sketch_data', fitted);
+        handleFixtureSync(buildSketchSync(fitted));
+      }
+      const priced = await bathroomEstimateService.calculate(id!, form.getFieldsValue(true));
+      unsavedRef.current = false;
+      queryClient.setQueryData(['bathroom-estimate', id], priced);
+      queryClient.invalidateQueries({ queryKey: ['bathroom-estimate-group'] });
+      queryClient.invalidateQueries({ queryKey: ['bathroom-layout-changes', id] });
+      if (fitted !== sketch) setSketchReload((n) => n + 1);
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Could not update the product');
+    } finally {
+      setSelectionBusy(null);
+    }
+  }, [form, handleFixtureSync, id, queryClient]);
 
   // ── Line Item mutations (must be before early return) ──
   const [editingItem, setEditingItem] = useState<any>(null);
@@ -1562,7 +1595,8 @@ const BathroomEstimateDetail: React.FC = () => {
                 <div className="be-sketch-frame">
                   <BESketchTab
                     estimateId={id!}
-                    estimateData={form.getFieldsValue()}
+                    estimateData={{ ...form.getFieldsValue(), selections: estimate?.selections }}
+                    reloadKey={sketchReload}
                     initialSketchData={estimate?.sketch_data as any}
                     baselineSketch={baseline?.sketch_data as any}
                     baselineName={baseline ? memberName(baseline) : undefined}
@@ -1574,6 +1608,18 @@ const BathroomEstimateDetail: React.FC = () => {
               </Card>
             ),
           },
+
+          // ════════ Products: what an option is built from ════════
+          ...(estimate?.kind === 'option' ? [{
+            key: 'products',
+            forceRender: true,
+            label: 'Products',
+            children: (
+              <Card className="be-tab-card">
+                <BESelectionsPanel estimate={estimate} onChange={changeSelection} busySlot={selectionBusy} />
+              </Card>
+            ),
+          }] : []),
 
           // ════════ TAB 4: Shower & Tub ════════
           {

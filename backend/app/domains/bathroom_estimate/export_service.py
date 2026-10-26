@@ -131,10 +131,21 @@ def _picture(image_base64: Optional[str], max_w: float, max_h: float):
     """A base64 image (the 3D view, rendered in the browser) fitted in max_w × max_h, or None."""
     if not image_base64:
         return None
+    import base64
     try:
-        import base64
+        return _picture_bytes(base64.b64decode(image_base64), max_w, max_h)
+    except Exception as e:
+        logger.warning(f"Failed to embed 3D view in PDF: {e}")
+        return None
+
+
+def _picture_bytes(data: Optional[bytes], max_w: float, max_h: float):
+    """An image's bytes fitted in max_w × max_h, or None if it can't be read."""
+    if not data:
+        return None
+    try:
         from reportlab.platypus import Image
-        img = Image(io.BytesIO(base64.b64decode(image_base64)))
+        img = Image(io.BytesIO(data))
         w, h = img.drawWidth, img.drawHeight
         if w <= 0 or h <= 0:
             return None
@@ -143,8 +154,74 @@ def _picture(image_base64: Optional[str], max_w: float, max_h: float):
         img.hAlign = "CENTER"
         return img
     except Exception as e:
-        logger.warning(f"Failed to embed 3D view in PDF: {e}")
+        logger.warning(f"Failed to embed a picture in PDF: {e}")
         return None
+
+
+_PRICE_UNITS = {"each": "each", "sf": "per sq ft", "box": "per box", "lf": "per linear ft"}
+
+
+def _products_table(
+    selections: Optional[Dict[str, Any]],
+    pictures: Optional[Dict[str, bytes]],
+    width: float,
+    thumb: float,
+):
+    """An option's picked products, for its customer: picture, what and whose it
+    is, where it's sold (a link), and its price as sold. None when it has none."""
+    from xml.sax.saxutils import escape
+
+    from reportlab.lib import colors
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import Paragraph, Table, TableStyle
+
+    from app.domains.product_library.catalog import RETAILERS
+
+    from .selections import SLOTS
+
+    dark, grey = "#1a2332", "#4a5568"
+    text_style = ParagraphStyle("Product", fontSize=8.5, fontName="Helvetica", textColor=colors.HexColor(dark), leading=11)
+    price_style = ParagraphStyle("ProductPrice", parent=text_style, alignment=2)
+    rows = []
+    for slot, meta in SLOTS.items():
+        p = (selections or {}).get(slot)
+        if not isinstance(p, dict) or not p.get("title"):
+            continue
+        image_ids = p.get("image_file_ids") or []
+        picture = _picture_bytes((pictures or {}).get(image_ids[0]) if image_ids else None, thumb, thumb) or ""
+        size = " × ".join(f'{float(p[k]):g}"' for k in ("width_in", "depth_in", "height_in") if p.get(k))
+        details = " · ".join(escape(str(v)) for v in (p.get("brand"), p.get("finish"), p.get("model_number"), size) if v)
+        lines = [
+            f'<font size="6.5" color="{grey}">{escape(meta["label"].upper())}</font>',
+            f"<b>{escape(p['title'])}</b>",
+        ]
+        if details:
+            lines.append(f'<font color="{grey}">{details}</font>')
+        if p.get("source_url"):
+            seller = escape(str(RETAILERS.get(p.get("retailer") or "other", {}).get("label", "Listing")))
+            lines.append(f'<link href="{escape(p["source_url"])}" color="#2c5282">{seller}</link>')
+        price = ""
+        if p.get("price") not in (None, ""):
+            unit = _PRICE_UNITS.get(p.get("price_unit") or "each", p.get("price_unit") or "")
+            price = f"${float(p['price']):,.2f} {unit}"
+            if p.get("price_unit") == "box" and p.get("box_sf"):
+                price += f'<br/><font color="{grey}">{float(p["box_sf"]):g} sq ft a box</font>'
+            if slot == "vanity" and p.get("includes_top"):
+                price += f'<br/><font color="{grey}">top included</font>'
+        rows.append([picture, Paragraph("<br/>".join(lines), text_style), Paragraph(price, price_style)])
+    if not rows:
+        return None
+    price_w = 1.25 * 72
+    table = Table(rows, colWidths=[thumb + 10, width - thumb - 10 - price_w, price_w])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (0, -1), "CENTER"),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.5, colors.HexColor("#e2e8f0")),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (0, -1), 0),
+    ]))
+    return table
 
 
 def _member_name(member: Dict[str, Any]) -> str:
@@ -206,11 +283,13 @@ class BathroomExportService:
         sketch_image_base64: Optional[str] = None,
         show_breakdown_prices: bool = True,
         render_image_base64: Optional[str] = None,
+        product_pictures: Optional[Dict[str, bytes]] = None,
     ) -> io.BytesIO:
         """Generate a professional PDF estimate.
 
-        render_image_base64: the 3D view, shown on an option's PDF. The
-        restoration's PDF (the carrier's) is left as it is.
+        render_image_base64: the 3D view, shown on an option's PDF, as are the
+        products it's built from (product_pictures: their pictures by file
+        id). The restoration's PDF (the carrier's) is left as it is.
         """
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import letter
@@ -498,6 +577,16 @@ class BathroomExportService:
             # The title moves to the next page with the picture rather than end this one alone
             elements.append(KeepTogether([Paragraph("How It Will Look", section_title_style), render]))
 
+        # ══════ PRODUCTS (an option only) ══════
+        products = (
+            _products_table(estimate.get("selections"), product_pictures, usable_w, 0.85 * inch)
+            if estimate.get("kind") == "option" else None
+        )
+        if products is not None:
+            elements.append(Spacer(1, 6))
+            elements.append(Paragraph("Selected Products", section_title_style))
+            elements.append(products)
+
         elements.append(Spacer(1, 28))
 
         # ══════ DETAILED LINE ITEMS ══════
@@ -680,6 +769,7 @@ class BathroomExportService:
     def generate_proposal_pdf(
         self, group: Dict[str, Any], show_signature: bool = True,
         renders: Optional[Dict[str, str]] = None,
+        product_pictures: Optional[Dict[str, bytes]] = None,
     ) -> io.BytesIO:
         """The customer's side-by-side of a bathroom job's estimates.
 
@@ -689,6 +779,7 @@ class BathroomExportService:
         customer only; the carrier gets the restoration's own PDF.
 
         renders: each estimate's 3D view by id, rendered in the browser.
+        product_pictures: the pictures of the options' picked products, by file id.
         """
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import letter
@@ -857,6 +948,15 @@ class BathroomExportService:
                 ]))
                 # The title stays with the first row of pictures
                 elements.append(KeepTogether([Paragraph("How Each Looks", section_title_style), grid]) if i == 0 else grid)
+
+        # ══════ THE PRODUCTS EACH OPTION IS BUILT FROM ══════
+        built_from = [(m, _products_table(m.get("selections"), product_pictures, usable_w, 0.6 * inch)) for m in options]
+        built_from = [(m, t) for m, t in built_from if t is not None]
+        for i, (m, table) in enumerate(built_from):
+            heading = [Paragraph(f"<b>{_member_name(m)}</b>", cell_style), Spacer(1, 4)]
+            if i == 0:
+                heading.insert(0, Paragraph("Products in Each Option", section_title_style))
+            elements.append(KeepTogether([*heading, table, Spacer(1, 10)]))
 
         # ══════ BY PHASE ══════
         phases = sorted({li.get("phase") for m in members for li in (m.get("line_items") or [])
