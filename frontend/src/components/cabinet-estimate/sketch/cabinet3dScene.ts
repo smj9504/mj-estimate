@@ -1,17 +1,27 @@
 /**
  * Turns the 3D model (cabinet3dModel.ts) into three.js objects: cabinet
  * boxes with their doors, drawers, glass and countertops, sinks, the
- * detach & reset appliances with a tag over each, see-through walls and a
- * floor with a 1 ft grid. One inch is one world unit.
+ * detach & reset appliances with a tag over each, walls and a floor. One
+ * inch is one world unit.
  *
- * Colours follow the Front view, so the two read as the same drawing.
+ * Two looks. The drawing look follows the Front view's colours, every edge
+ * outlined, over a 1 ft grid with see-through walls, so the two read as the
+ * same drawing. The realistic look draws the sketch's finish
+ * (kitchenFinish.ts) under real light: textured materials (finishMaterials.ts),
+ * shaker, raised-panel or slab doors with pulls or knobs, a backsplash, sinks
+ * sunk into the counter under a gooseneck faucet, solid walls that open
+ * toward the camera (cutAwayWalls) — what the AI photo starts from.
  */
 
 import * as THREE from 'three';
+import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
+import type { CabinetSketchFinish } from '../../../types/cabinetSketch';
 import { COUNTER_TOP_IN, GLASS_STILE_IN } from './cabinetFronts';
 import type { Face } from './cabinetFronts';
-import { applianceExtent, modelBounds, toPlan } from './cabinet3dModel';
+import { applianceExtent, inPolygon, modelBounds, toPlan } from './cabinet3dModel';
 import type { ApplianceSolid, CabinetSolid, CounterSlab, FillerSolid, FrontRun, Pt2, WallSolid } from './cabinet3dModel';
+import { finishMaterials } from './finishMaterials';
+import type { FinishMaterials } from './finishMaterials';
 import type { LocalRect } from './sketchAppliances';
 
 /** Walls are drawn to the 8 ft ceiling the Front view uses. */
@@ -20,6 +30,25 @@ export const WALL_HEIGHT_IN = 96;
 const FACE_THICK_IN = 0.75;
 /** An appliance opening is a panel set nearly flush with the box. */
 const OPENING_THICK_IN = 0.3;
+/** A shaker front's centre panel, set back in its frame. */
+const SHAKER_PANEL_IN = 0.25;
+/** Fronts smaller than this either way stay slabs in the shaker style, as short drawer fronts do. */
+const SHAKER_MIN_IN = 9;
+/** How far a pull's bar stands off the front. */
+const PULL_STANDOFF_IN = 1.1;
+/** Above this height (inches from the floor), a door is an upper's: its pull goes near its bottom. */
+const UPPER_DOOR_FROM_IN = 30;
+/** A tall door's pull is centred about this high off the floor. */
+const TALL_PULL_AT_IN = 38;
+/** A raised-panel door's raised field: its margin inside the frame, the slope of its bevel, and how far it stands off the panel. */
+const RAISED_MARGIN_IN = 1;
+const RAISED_BEVEL_IN = 1.1;
+const RAISED_THICK_IN = 0.45;
+/** How deep a sink's bowls go below the counter top, inches. */
+const BOWL_DEPTH_IN = 8;
+/** The backsplash: how high it goes above the counter, and how thick it is. */
+const BACKSPLASH_IN = 18;
+const BACKSPLASH_THICK_IN = 0.375;
 
 const COLORS = {
   box: '#EADCC6',
@@ -45,8 +74,33 @@ const COLORS = {
   window: '#39424a',
   wood: '#c49a6c',
   bowl: '#8f99a1',
+  /** An apron sink's front, in the drawing look a face like the rest. */
+  ceramic: '#FBF6EF',
   /** The detach & reset tag, as on the plan. */
   tag: '#b45309',
+};
+
+type Surface = keyof typeof COLORS;
+
+/** The realistic material that stands for each drawing colour. */
+const REALISTIC: Partial<Record<Surface, keyof FinishMaterials>> = {
+  box: 'cabinet',
+  face: 'cabinet',
+  wood: 'cabinet',
+  toe: 'toe',
+  counter: 'counter',
+  appliance: 'steel',
+  steel: 'steel',
+  steelFace: 'steel',
+  bowl: 'sinkSteel',
+  dark: 'black',
+  burner: 'burner',
+  window: 'darkGlass',
+  glass: 'glass',
+  pull: 'pull',
+  wall: 'wall',
+  floor: 'floor',
+  ceramic: 'ceramic',
 };
 
 /** A solid colour that sits a hair behind its outline, so the edges don't flicker. */
@@ -62,7 +116,52 @@ function solidMaterial(color: string, extra: THREE.MeshStandardMaterialParameter
   });
 }
 
-/** A plan outline (local x, z), less any holes, stood up between heights y0 and y1. */
+function withEdges(mesh: THREE.Mesh, color: string): THREE.Mesh {
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(mesh.geometry, 25),
+    new THREE.LineBasicMaterial({ color })
+  );
+  mesh.add(edges);
+  return mesh;
+}
+
+/** How one build is drawn: see the file comment. */
+interface Paint {
+  realistic: boolean;
+  /** Door and drawer fronts: shaker, raised (panel) or slab. */
+  doors: string;
+  /** Hardware shape: bar (pulls), knob, or cup (knobs on doors, cup pulls on drawers). */
+  hardware: string;
+  /** The realistic look's materials, for what has no drawing colour (backsplash, sink, faucet); null in the drawing look. */
+  materials: FinishMaterials | null;
+  /** The material of a surface; `extra` only tunes the drawing look's (see-through glass and walls, a selection glow). */
+  mat: (surface: Surface, extra?: THREE.MeshStandardMaterialParameters) => THREE.Material;
+  /** Outlines a mesh, in the drawing look. */
+  outline: (mesh: THREE.Mesh, color: string) => THREE.Mesh;
+}
+
+const DRAWING: Paint = {
+  realistic: false,
+  doors: 'slab',
+  hardware: 'bar',
+  materials: null,
+  mat: (surface, extra) => solidMaterial(COLORS[surface], extra),
+  outline: withEdges,
+};
+
+function realisticPaint(finish: CabinetSketchFinish): Paint {
+  const materials = finishMaterials(finish);
+  return {
+    realistic: true,
+    doors: finish.door_style,
+    hardware: finish.hardware_style,
+    materials,
+    mat: (surface) => materials[REALISTIC[surface] ?? 'cabinet'] ?? materials.wall,
+    outline: (mesh) => mesh,
+  };
+}
+
+/** A plan outline (local x, z), less any holes, stood up between heights y0 and y1. UVs in inches. */
 function prism(points: Pt2[], y0: number, y1: number, holes: Pt2[][] = []): THREE.BufferGeometry {
   // The shape is drawn in (x, -z) and extruded along +Z; turning it a
   // quarter about X then stands it up with z back where it belongs.
@@ -75,55 +174,203 @@ function prism(points: Pt2[], y0: number, y1: number, holes: Pt2[][] = []): THRE
   return geometry;
 }
 
-function withEdges(mesh: THREE.Mesh, color: string): THREE.Mesh {
-  const edges = new THREE.LineSegments(
-    new THREE.EdgesGeometry(mesh.geometry, 25),
-    new THREE.LineBasicMaterial({ color })
-  );
-  mesh.add(edges);
-  return mesh;
+/** A box w × h × d with its UVs in inches, so a texture keeps its scale on every side. */
+function inchBox(w: number, h: number, d: number): THREE.BoxGeometry {
+  const geometry = new THREE.BoxGeometry(w, h, d);
+  const uv = geometry.attributes.uv as THREE.BufferAttribute;
+  // Sides +x, -x, +y, -y, +z, -z, four corners each.
+  const spans: [number, number][] = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+  spans.forEach(([su, sv], side) => {
+    for (let i = side * 4; i < side * 4 + 4; i++) uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
+  });
+  return geometry;
 }
 
-/** The doors, drawers and openings of one front run, in the cabinet's local frame. */
-function frontMeshes(run: FrontRun, glass: boolean, edgeColor: string): THREE.Object3D[] {
+/** A bar pull on its two posts, centred on the origin and standing off toward +z. */
+function barPull(len: number, vertical: boolean, material: THREE.Material): THREE.Group {
+  const pull = new THREE.Group();
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, len, 12), material);
+  bar.position.z = PULL_STANDOFF_IN;
+  pull.add(bar);
+  for (const end of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, PULL_STANDOFF_IN, 10), material);
+    leg.rotation.x = Math.PI / 2;
+    leg.position.set(0, end * (len / 2 - 0.4), PULL_STANDOFF_IN / 2);
+    pull.add(leg);
+  }
+  if (!vertical) pull.rotation.z = Math.PI / 2;
+  return pull;
+}
+
+/** A raised-panel door's field, w × h, centred on the origin: flat in the middle, bevelled down to its edges, its back at z = 0. */
+function raisedField(w: number, h: number, material: THREE.Material): THREE.Mesh {
+  const bevel = Math.min(RAISED_BEVEL_IN, w / 4, h / 4);
+  const x = w / 2 - bevel;
+  const y = h / 2 - bevel;
+  const shape = new THREE.Shape([new THREE.Vector2(-x, -y), new THREE.Vector2(x, -y), new THREE.Vector2(x, y), new THREE.Vector2(-x, y)]);
+  // The bevel grows the outline by `bevel` and adds its thickness either side of `depth`.
+  const slope = RAISED_THICK_IN * 0.4;
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: RAISED_THICK_IN - 2 * slope,
+    bevelEnabled: true,
+    bevelThickness: slope,
+    bevelSize: bevel,
+    bevelSegments: 1,
+  });
+  geometry.translate(0, 0, slope);
+  return new THREE.Mesh(geometry, material);
+}
+
+/** A round knob on a short stem, standing off toward +z. */
+function knob(material: THREE.Material): THREE.Group {
+  const group = new THREE.Group();
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.7, 12), material);
+  stem.rotation.x = Math.PI / 2;
+  stem.position.z = 0.35;
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(0.6, 20, 14), material);
+  ball.scale.z = 0.8;
+  ball.position.z = 0.95;
+  group.add(stem, ball);
+  return group;
+}
+
+/** A cup (bin) pull, 3" across: a quarter shell open underneath, on a plate, standing off toward +z. */
+function cupPull(material: THREE.Material): THREE.Group {
+  const group = new THREE.Group();
+  const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 3, 16, 1, true, 0, Math.PI / 2), material);
+  // Its axis turned to run across; the quarter it keeps then runs from its top round to its front.
+  shell.rotation.z = Math.PI / 2;
+  shell.position.y = -0.4;
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.3, 0.12), material);
+  plate.position.z = 0.06;
+  group.add(shell, plate);
+  return group;
+}
+
+/** Where a door is hung from: the side away from the door beside it, if there is one. */
+function pullSide(f: Face, faces: Face[]): 'left' | 'right' {
+  const beside = (g: Face) => g !== f && g.kind === 'door' && g.y < f.y + f.h && f.y < g.y + g.h;
+  if (faces.some((g) => beside(g) && Math.abs(g.x - (f.x + f.w)) < 2)) return 'right';
+  if (faces.some((g) => beside(g) && Math.abs(g.x + g.w - f.x) < 2)) return 'left';
+  return 'right';
+}
+
+/**
+ * One realistic front in its own frame (x from its left edge, y up from its
+ * bottom, z out from the box): a slab, or a shaker frame around a recessed
+ * panel or glass, with its pull. `bottom` is the front's height off the floor.
+ */
+function realisticFront(f: Face, faces: Face[], glass: boolean, bottom: number, paint: Paint): THREE.Object3D[] {
+  const out: THREE.Object3D[] = [];
+  const at = (mesh: THREE.Mesh, x: number, y: number, z: number) => {
+    mesh.position.set(x, y, z);
+    out.push(mesh);
+    return mesh;
+  };
+  if (f.kind === 'opening') {
+    at(new THREE.Mesh(inchBox(f.w, f.h, OPENING_THICK_IN), paint.mat('appliance')), f.w / 2, f.h / 2, OPENING_THICK_IN / 2);
+    return out;
+  }
+  const surface: Surface = f.label === 'APRON SINK' ? 'ceramic' : 'face';
+  const glassDoor = glass && f.kind === 'door';
+  const framed = glassDoor || (paint.doors !== 'slab' && surface === 'face' && Math.min(f.w, f.h) >= SHAKER_MIN_IN);
+  const s = Math.min(GLASS_STILE_IN, f.w / 4, f.h / 4);
+  if (framed) {
+    const piece = (x: number, y: number, w: number, h: number) =>
+      at(new THREE.Mesh(inchBox(w, h, FACE_THICK_IN), paint.mat(surface)), x + w / 2, y + h / 2, FACE_THICK_IN / 2);
+    piece(0, 0, s, f.h);
+    piece(f.w - s, 0, s, f.h);
+    piece(s, 0, f.w - 2 * s, s);
+    piece(s, f.h - s, f.w - 2 * s, s);
+    const inner = new THREE.Mesh(inchBox(f.w - 2 * s, f.h - 2 * s, SHAKER_PANEL_IN), paint.mat(glassDoor ? 'glass' : surface));
+    at(inner, f.w / 2, f.h / 2, glassDoor ? FACE_THICK_IN / 2 : SHAKER_PANEL_IN / 2);
+    // A raised-panel door's field stands up off the recessed panel, bevelled, short of the frame.
+    const fieldW = f.w - 2 * s - 2 * RAISED_MARGIN_IN;
+    const fieldH = f.h - 2 * s - 2 * RAISED_MARGIN_IN;
+    if (paint.doors === 'raised' && f.kind === 'door' && !glassDoor && fieldW > 4 && fieldH > 4) {
+      at(raisedField(fieldW, fieldH, paint.mat(surface)), f.w / 2, f.h / 2, SHAKER_PANEL_IN);
+    }
+  } else {
+    at(new THREE.Mesh(inchBox(f.w, f.h, FACE_THICK_IN), paint.mat(surface)), f.w / 2, f.h / 2, FACE_THICK_IN / 2);
+  }
+
+  const metal = paint.mat('pull');
+  if (f.kind === 'drawer') {
+    // Centred — on the recessed panel of a framed front — and a pair across a wide drawer for knobs and cups.
+    const z = framed ? SHAKER_PANEL_IN : FACE_THICK_IN;
+    if (paint.hardware === 'bar') {
+      const pull = barPull(Math.min(Math.max(f.w * 0.33, 3.75), 12), false, metal);
+      pull.position.set(f.w / 2, f.h / 2, z);
+      out.push(pull);
+    } else {
+      const across = f.w >= 30 ? [f.w / 4, (3 * f.w) / 4] : [f.w / 2];
+      for (const x of across) {
+        const piece = paint.hardware === 'cup' ? cupPull(metal) : knob(metal);
+        piece.position.set(x, f.h / 2, z);
+        out.push(piece);
+      }
+    }
+  } else if (f.kind === 'door') {
+    const tall = bottom < UPPER_DOOR_FROM_IN && bottom + f.h > TALL_PULL_AT_IN + 6;
+    const len = paint.hardware === 'bar' ? (tall ? 12 : 5) : 0;
+    const ends = Math.min(len / 2 + 2, f.h / 2);
+    const y =
+      bottom >= UPPER_DOOR_FROM_IN
+        ? ends
+        : tall
+          ? Math.min(Math.max(TALL_PULL_AT_IN - bottom, ends), f.h - ends)
+          : f.h - ends;
+    // On the stile of a framed door.
+    const inset = framed ? s / 2 : 1.5;
+    const pull = paint.hardware === 'bar' ? barPull(len, true, metal) : knob(metal);
+    pull.position.set(pullSide(f, faces) === 'right' ? f.w - inset : inset, y, FACE_THICK_IN);
+    out.push(pull);
+  }
+  return out;
+}
+
+/** The doors, drawers and openings of one front run, in the cabinet's local frame. `bottom`: the cabinet's height off the floor. */
+function frontMeshes(run: FrontRun, glass: boolean, edgeColor: string, bottom: number, paint: Paint): THREE.Object3D[] {
   const [ax, az] = run.a;
   const len = Math.hypot(run.b[0] - ax, run.b[1] - az);
   if (len < 0.01) return [];
   const u = { x: (run.b[0] - ax) / len, z: (run.b[1] - az) / len };
   const n = { x: -u.z, z: u.x };
-  // Turned so the mesh's x runs along the front and its z points out of it.
+  // Turned so a front's x runs along the run and its z points out of it.
   const turn = Math.atan2(-u.z, u.x);
-  const at = (along: number, out: number, y: number) =>
-    new THREE.Vector3(ax + u.x * along + n.x * out, y, az + u.z * along + n.z * out);
 
   const out: THREE.Object3D[] = [];
-  const place = (obj: THREE.Object3D, along: number, outward: number, y: number) => {
-    obj.position.copy(at(along, outward, y));
-    obj.rotation.y = turn;
-    out.push(obj);
-  };
-
   run.faces.forEach((f: Face) => {
     if (f.w <= 0 || f.h <= 0) return;
+    // Each front in its own frame: x from its left edge, y up from its bottom, z out from the box.
+    const front = new THREE.Group();
+    front.position.set(ax + u.x * f.x + n.x * 0.02, f.y, az + u.z * f.x + n.z * 0.02);
+    front.rotation.y = turn;
+    out.push(front);
+
+    if (paint.realistic) {
+      front.add(...realisticFront(f, run.faces, glass, bottom + f.y, paint));
+      return;
+    }
     const opening = f.kind === 'opening';
     const thick = opening ? OPENING_THICK_IN : FACE_THICK_IN;
-    const panel = new THREE.Mesh(
-      new THREE.BoxGeometry(f.w, f.h, thick),
-      solidMaterial(opening ? COLORS.appliance : COLORS.face)
-    );
-    place(withEdges(panel, opening ? COLORS.applianceEdge : edgeColor), f.x + f.w / 2, thick / 2 + 0.02, f.y + f.h / 2);
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(f.w, f.h, thick), paint.mat(opening ? 'appliance' : 'face'));
+    panel.position.set(f.w / 2, f.h / 2, thick / 2);
+    front.add(paint.outline(panel, opening ? COLORS.applianceEdge : edgeColor));
 
     if (glass && f.kind === 'door') {
       const stile = Math.min(GLASS_STILE_IN, f.w / 4, f.h / 4);
       const pane = new THREE.Mesh(
         new THREE.PlaneGeometry(f.w - 2 * stile, f.h - 2 * stile),
-        solidMaterial(COLORS.glass, { roughness: 0.15, transparent: true, opacity: 0.8 })
+        paint.mat('glass', { roughness: 0.15, transparent: true, opacity: 0.8 })
       );
-      place(pane, f.x + f.w / 2, thick + 0.04, f.y + f.h / 2);
+      pane.position.set(f.w / 2, f.h / 2, thick + 0.02);
+      front.add(pane);
     }
     if (f.kind === 'drawer' && f.h > 3) {
-      const pull = new THREE.Mesh(new THREE.BoxGeometry(Math.min(f.w * 0.4, 5), 0.5, 0.6), solidMaterial(COLORS.pull));
-      place(pull, f.x + f.w / 2, thick + 0.3, f.y + f.h - Math.min(f.h / 2, 2));
+      const pull = new THREE.Mesh(new THREE.BoxGeometry(Math.min(f.w * 0.4, 5), 0.5, 0.6), paint.mat('pull'));
+      pull.position.set(f.w / 2, f.h - Math.min(f.h / 2, 2), thick + 0.28);
+      front.add(pull);
     }
   });
   return out;
@@ -137,35 +384,155 @@ const rectPoints = ([x0, z0, x1, z1]: LocalRect): Pt2[] => [
 ];
 
 /** A box between local x0..x1, z0..z1 and heights y0..y1, outlined. */
-function block(rect: LocalRect, y0: number, y1: number, color: string, edge: string): THREE.Mesh {
-  return withEdges(new THREE.Mesh(prism(rectPoints(rect), y0, y1), solidMaterial(color)), edge);
+function block(rect: LocalRect, y0: number, y1: number, surface: Surface, edge: string, paint: Paint): THREE.Mesh {
+  return paint.outline(new THREE.Mesh(prism(rectPoints(rect), y0, y1), paint.mat(surface)), edge);
 }
 
 /** An upright cylinder standing on (x, y0, z). */
-function post(x: number, z: number, radius: number, y0: number, height: number, color: string): THREE.Mesh {
-  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, 24), solidMaterial(color));
+function post(x: number, z: number, radius: number, y0: number, height: number, surface: Surface, paint: Paint): THREE.Mesh {
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, 24), paint.mat(surface));
   mesh.position.set(x, y0 + height / 2, z);
   return mesh;
 }
 
 /** A sink set in the counter of its base: rim, bowls with their drains, and the faucet behind. */
-function sinkObject(sink: NonNullable<CabinetSolid['sink']>): THREE.Group {
+function sinkObject(sink: NonNullable<CabinetSolid['sink']>, paint: Paint): THREE.Group {
   const group = new THREE.Group();
   const top = COUNTER_TOP_IN;
-  group.add(block(sink.rim, top, top + 0.15, COLORS.steelFace, COLORS.steelEdge));
+  group.add(block(sink.rim, top, top + 0.15, 'steelFace', COLORS.steelEdge, paint));
   for (const bowl of sink.bowls) {
-    group.add(block(bowl, top + 0.15, top + 0.18, COLORS.bowl, COLORS.steelEdge));
-    group.add(post((bowl[0] + bowl[2]) / 2, (bowl[1] + bowl[3]) / 2, 1.4, top + 0.18, 0.04, COLORS.dark));
+    group.add(block(bowl, top + 0.15, top + 0.18, 'bowl', COLORS.steelEdge, paint));
+    group.add(post((bowl[0] + bowl[2]) / 2, (bowl[1] + bowl[3]) / 2, 1.4, top + 0.18, 0.04, 'dark', paint));
   }
   const [fx, fz] = sink.faucet;
-  group.add(post(fx, fz, 0.6, top, 11, COLORS.steel));
-  const spout = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 8), solidMaterial(COLORS.steel));
+  group.add(post(fx, fz, 0.6, top, 11, 'steel', paint));
+  const spout = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 8), paint.mat('steel'));
   spout.position.set(fx, top + 10.5, fz + 4);
   group.add(spout);
   return group;
 }
 
-function cabinetObject(solid: CabinetSolid, selected: boolean): THREE.Group {
+/** A bowl's inside, facing in: four sides and a floor hanging BOWL_DEPTH_IN under the counter top `top`, a drain in the floor. */
+function basin([x0, z0, x1, z1]: LocalRect, top: number, material: THREE.Material, drain: THREE.Material): THREE.Group {
+  const group = new THREE.Group();
+  const w = x1 - x0;
+  const d = z1 - z0;
+  const cx = (x0 + x1) / 2;
+  const cz = (z0 + z1) / 2;
+  const bottom = top - BOWL_DEPTH_IN;
+  // A plane faces +z; turned about y it faces +x (pi/2), -x (-pi/2) or -z (pi).
+  const side = (width: number, x: number, z: number, turn: number) => {
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(width, BOWL_DEPTH_IN), material);
+    wall.position.set(x, bottom + BOWL_DEPTH_IN / 2, z);
+    wall.rotation.y = turn;
+    group.add(wall);
+  };
+  side(w, cx, z0, 0);
+  side(w, cx, z1, Math.PI);
+  side(d, x0, cz, Math.PI / 2);
+  side(d, x1, cz, -Math.PI / 2);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), material);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(cx, bottom, cz);
+  const hole = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 0.06, 24), drain);
+  hole.position.set(cx, bottom + 0.04, cz);
+  group.add(floor, hole);
+  return group;
+}
+
+/** A gooseneck pull-down faucet standing on the counter top `top` at (x, z), its spout arching over toward +z. */
+function gooseneck(x: number, z: number, top: number, material: THREE.Material): THREE.Group {
+  const group = new THREE.Group();
+  const rise = 12;
+  const reach = 4.5;
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.2, 1, 24), material);
+  base.position.y = 0.5;
+  const column = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.62, rise, 20), material);
+  column.position.y = 1 + rise / 2;
+  // A half torus stood up and turned so it arches from the column top forward.
+  const arch = new THREE.Mesh(new THREE.TorusGeometry(reach / 2, 0.5, 12, 32, Math.PI), material);
+  arch.rotation.y = -Math.PI / 2;
+  arch.position.set(0, 1 + rise, reach / 2);
+  const head = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.55, 3.2, 16), material);
+  head.position.set(0, 1 + rise - 1.6, reach);
+  const lever = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 3, 10), material);
+  lever.rotation.z = Math.PI / 2.6;
+  lever.position.set(1.4, 5, 0);
+  group.add(base, column, arch, head, lever);
+  group.position.set(x, top, z);
+  return group;
+}
+
+/** The realistic look's sink: its bowls sunk into the counter (cut out by cabinetObject), and the faucet behind. */
+function realisticSink(sink: NonNullable<CabinetSolid['sink']>, materials: FinishMaterials): THREE.Group {
+  const group = new THREE.Group();
+  for (const bowl of sink.bowls) group.add(basin(bowl, COUNTER_TOP_IN, materials.sink, materials.black));
+  group.add(gooseneck(sink.faucet[0], sink.faucet[1], COUNTER_TOP_IN, materials.faucet));
+  return group;
+}
+
+/**
+ * A backsplash panel along the side a→b of a footprint (local inches),
+ * from the counter top up BACKSPLASH_IN, its face turned to `inside` (a
+ * point of the footprint). `bottom`: the footprint's height off the floor.
+ * The tiles are laid out from where the side is along the wall line
+ * (`toWorld` gives plan inches), so they run on unbroken from one cabinet
+ * to the next.
+ */
+function splashPanel(a: Pt2, b: Pt2, inside: Pt2, toWorld: (p: Pt2) => Pt2, bottom: number, material: THREE.Material): THREE.Mesh | null {
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (len < 1) return null;
+  // Run the side so the panel's face (its +z) turns inward, over the counter.
+  if ((inside[0] - (a[0] + b[0]) / 2) * -(b[1] - a[1]) + (inside[1] - (a[1] + b[1]) / 2) * (b[0] - a[0]) < 0) [a, b] = [b, a];
+  const u = { x: (b[0] - a[0]) / len, z: (b[1] - a[1]) / len };
+  const n = { x: -u.z, z: u.x };
+  const geometry = inchBox(len, BACKSPLASH_IN, BACKSPLASH_THICK_IN);
+  // Along the wall line: from the plan's origin, measured the way the side runs.
+  const [wax, waz] = toWorld(a);
+  const [wbx, wbz] = toWorld(b);
+  const along = (wax * (wbx - wax) + waz * (wbz - waz)) / len;
+  const uv = geometry.attributes.uv as THREE.BufferAttribute;
+  for (let k = 0; k < uv.count; k++) uv.setX(k, uv.getX(k) + along);
+  const panel = new THREE.Mesh(geometry, material);
+  const off = BACKSPLASH_THICK_IN / 2 + 0.01;
+  panel.position.set((a[0] + b[0]) / 2 + n.x * off, COUNTER_TOP_IN - bottom + BACKSPLASH_IN / 2, (a[1] + b[1]) / 2 + n.z * off);
+  panel.rotation.y = Math.atan2(-u.z, u.x);
+  return panel;
+}
+
+/** A base's backsplash on each side that backs onto a wall: its back, and a corner unit's side leg too. */
+function backsplashes(solid: CabinetSolid, material: THREE.Material): THREE.Mesh[] {
+  const pts = solid.outline;
+  const xs = pts.map(([x]) => x);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const legX = solid.cabinet.corner_side === 'right' ? maxX : minX;
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.01;
+  const inside: Pt2 = [pts.reduce((sum, [x]) => sum + x, 0) / pts.length, pts.reduce((sum, [, z]) => sum + z, 0) / pts.length];
+  const out: THREE.Mesh[] = [];
+  pts.forEach((a, i) => {
+    const b = pts[(i + 1) % pts.length];
+    const back = near(a[1], 0) && near(b[1], 0);
+    const leg = pts.length > 4 && near(a[0], legX) && near(b[0], legX);
+    if (!back && !leg) return;
+    const panel = splashPanel(a, b, inside, (p) => toPlan(solid, p), solid.bottom, material);
+    if (panel) out.push(panel);
+  });
+  return out;
+}
+
+/** In the realistic look a selected cabinet glows faintly, having no outline to colour. */
+function glow(obj: THREE.Object3D) {
+  obj.traverse((o) => {
+    if (!(o instanceof THREE.Mesh) || !(o.material instanceof THREE.MeshStandardMaterial)) return;
+    const material = o.material.clone();
+    material.emissive.set(COLORS.selected);
+    material.emissiveIntensity = 0.22;
+    o.material = material;
+  });
+}
+
+function cabinetObject(solid: CabinetSolid, selected: boolean, paint: Paint): THREE.Group {
   const group = new THREE.Group();
   group.userData.cabinetId = solid.cabinet.id;
   group.position.set(solid.x, solid.bottom, solid.z);
@@ -175,25 +542,31 @@ function cabinetObject(solid: CabinetSolid, selected: boolean): THREE.Group {
   const boxEdge = selected ? COLORS.selected : solid.appliance ? COLORS.applianceEdge : COLORS.boxEdge;
   const faceEdge = selected ? COLORS.selected : COLORS.faceEdge;
 
+  // The realistic look sinks the bowls into the counter, through the box top under it.
+  const materials = paint.materials;
+  const bowls = materials && solid.sink ? solid.sink.bowls.map(rectPoints) : [];
   const box = new THREE.Mesh(
-    prism(solid.outline, solid.toeKick, solid.height),
-    solidMaterial(solid.appliance ? COLORS.appliance : COLORS.box, selected ? { emissive: COLORS.selected, emissiveIntensity: 0.12 } : {})
+    prism(solid.outline, solid.toeKick, solid.height, bowls),
+    paint.mat(solid.appliance ? 'appliance' : 'box', selected ? { emissive: COLORS.selected, emissiveIntensity: 0.12 } : {})
   );
-  group.add(withEdges(box, boxEdge));
+  group.add(paint.outline(box, boxEdge));
   if (solid.toeKick > 0) {
-    group.add(new THREE.Mesh(prism(solid.toeOutline, 0, solid.toeKick), solidMaterial(COLORS.toe)));
+    group.add(new THREE.Mesh(prism(solid.toeOutline, 0, solid.toeKick), paint.mat('toe')));
   }
   if (solid.counter) {
-    const top = new THREE.Mesh(prism(solid.counter, solid.height, COUNTER_TOP_IN), solidMaterial(COLORS.counter));
-    group.add(withEdges(top, '#6f6d68'));
+    const top = new THREE.Mesh(prism(solid.counter, solid.height, COUNTER_TOP_IN, bowls), paint.mat('counter'));
+    group.add(paint.outline(top, '#6f6d68'));
   }
-  for (const run of solid.fronts) group.add(...frontMeshes(run, solid.glass, faceEdge));
-  if (solid.sink) group.add(sinkObject(solid.sink));
+  for (const run of solid.fronts) group.add(...frontMeshes(run, solid.glass, faceEdge, solid.bottom, paint));
+  if (solid.sink) group.add(materials ? realisticSink(solid.sink, materials) : sinkObject(solid.sink, paint));
+  const isBase = solid.bottom < 1 && solid.height < COUNTER_TOP_IN + 1 && solid.cabinet.location !== 'island';
+  if (materials?.backsplash && isBase) group.add(...backsplashes(solid, materials.backsplash));
+  if (selected && paint.realistic) glow(group);
   return group;
 }
 
 /** One detach & reset appliance, built from boxes in its own frame: x along it, z from its back to its front, y up from its bottom. */
-function applianceObject(a: ApplianceSolid, selected: boolean): THREE.Group {
+function applianceObject(a: ApplianceSolid, selected: boolean, paint: Paint): THREE.Group {
   const group = new THREE.Group();
   // In a cabinet, picking it picks the cabinet.
   if (a.hostId) group.userData.cabinetId = a.hostId;
@@ -203,15 +576,15 @@ function applianceObject(a: ApplianceSolid, selected: boolean): THREE.Group {
   const { width: w, height: h, back: b } = a;
   const front = b + a.depth;
   const edge = selected ? COLORS.selected : COLORS.steelEdge;
-  const body = (color: string = COLORS.steel) => block([0, b, w, front], 0, h, color, edge);
+  const body = (surface: Surface = 'steel') => block([0, b, w, front], 0, h, surface, edge, paint);
   // A panel on the front, standing out from it by `out`.
-  const panel = (x0: number, x1: number, y0: number, y1: number, color: string, out = 0.4) =>
-    block([x0, front, x1, front + out], y0, y1, color, edge);
-  const barAcross = (x0: number, x1: number, y: number) => block([x0, front + 0.4, x1, front + 1.4], y - 0.4, y + 0.4, COLORS.dark, COLORS.dark);
-  const barUp = (x: number, y0: number, y1: number) => block([x - 0.4, front + 0.4, x + 0.4, front + 1.4], y0, y1, COLORS.dark, COLORS.dark);
+  const panel = (x0: number, x1: number, y0: number, y1: number, surface: Surface, out = 0.4) =>
+    block([x0, front, x1, front + out], y0, y1, surface, edge, paint);
+  const barAcross = (x0: number, x1: number, y: number) => block([x0, front + 0.4, x1, front + 1.4], y - 0.4, y + 0.4, 'dark', COLORS.dark, paint);
+  const barUp = (x: number, y0: number, y1: number) => block([x - 0.4, front + 0.4, x + 0.4, front + 1.4], y0, y1, 'dark', COLORS.dark, paint);
   const burners = (y: number) => {
     for (const fx of [0.28, 0.72]) {
-      for (const fz of [0.3, 0.7]) group.add(post(w * fx, b + a.depth * fz, Math.min(w, a.depth) * 0.12, y, 0.25, COLORS.burner));
+      for (const fz of [0.3, 0.7]) group.add(post(w * fx, b + a.depth * fz, Math.min(w, a.depth) * 0.12, y, 0.25, 'burner', paint));
     }
   };
 
@@ -219,9 +592,9 @@ function applianceObject(a: ApplianceSolid, selected: boolean): THREE.Group {
     case 'fridge': {
       const split = h * 0.36;
       group.add(body());
-      group.add(panel(0.4, w / 2 - 0.2, split + 0.3, h - 0.4, COLORS.steelFace));
-      group.add(panel(w / 2 + 0.2, w - 0.4, split + 0.3, h - 0.4, COLORS.steelFace));
-      group.add(panel(0.4, w - 0.4, 0.4, split - 0.3, COLORS.steelFace));
+      group.add(panel(0.4, w / 2 - 0.2, split + 0.3, h - 0.4, 'steelFace'));
+      group.add(panel(w / 2 + 0.2, w - 0.4, split + 0.3, h - 0.4, 'steelFace'));
+      group.add(panel(0.4, w - 0.4, 0.4, split - 0.3, 'steelFace'));
       group.add(barUp(w / 2 - 1.6, split + 6, Math.min(split + 34, h - 4)));
       group.add(barUp(w / 2 + 1.6, split + 6, Math.min(split + 34, h - 4)));
       group.add(barAcross(w * 0.3, w * 0.7, split - 3));
@@ -229,82 +602,74 @@ function applianceObject(a: ApplianceSolid, selected: boolean): THREE.Group {
     }
     case 'range': {
       group.add(body());
-      group.add(panel(0.8, w - 0.8, 0.5, 4.5, COLORS.steelFace));
-      group.add(panel(0.8, w - 0.8, 5, h - 6, COLORS.steelFace));
-      group.add(panel(4, w - 4, 10, h - 14, COLORS.window, 0.6));
+      group.add(panel(0.8, w - 0.8, 0.5, 4.5, 'steelFace'));
+      group.add(panel(0.8, w - 0.8, 5, h - 6, 'steelFace'));
+      group.add(panel(4, w - 4, 10, h - 14, 'window', 0.6));
       group.add(barAcross(3, w - 3, h - 8));
-      group.add(block([0.5, b + 0.5, w - 0.5, front - 0.5], h, h + 0.3, COLORS.dark, COLORS.dark));
+      group.add(block([0.5, b + 0.5, w - 0.5, front - 0.5], h, h + 0.3, 'dark', COLORS.dark, paint));
       burners(h + 0.3);
       break;
     }
     case 'cooktop':
-      group.add(body(COLORS.dark));
+      group.add(body('dark'));
       burners(h);
       break;
     case 'oven':
       group.add(body());
-      group.add(panel(4, w - 4, h * 0.2, h - 7, COLORS.window, 0.3));
+      group.add(panel(4, w - 4, h * 0.2, h - 7, 'window', 0.3));
       group.add(barAcross(3, w - 3, h - 3.5));
       break;
     case 'microwave':
       group.add(body());
-      group.add(panel(1.5, w * 0.68, 2, h - 2, COLORS.window));
-      group.add(panel(w * 0.72, w - 1.5, 2, h - 2, COLORS.dark));
+      group.add(panel(1.5, w * 0.68, 2, h - 2, 'window'));
+      group.add(panel(w * 0.72, w - 1.5, 2, h - 2, 'dark'));
       group.add(barUp(w * 0.7, 3, h - 3));
       break;
     case 'hood':
-      group.add(body(h > 12 ? COLORS.wood : COLORS.steel));
+      group.add(body(h > 12 ? 'wood' : 'steel'));
       break;
     case 'disposal':
-      group.add(post(w / 2, b + a.depth / 2, (Math.min(w, a.depth) / 2) * 0.9, 0, h, COLORS.dark));
+      group.add(post(w / 2, b + a.depth / 2, (Math.min(w, a.depth) / 2) * 0.9, 0, h, 'dark', paint));
       break;
     default: {
       // A dishwasher (and any appliance this catalog doesn't know).
       group.add(body());
-      group.add(panel(0.3, w - 0.3, 4.5, h - 0.3, COLORS.steelFace));
+      group.add(panel(0.3, w - 0.3, 4.5, h - 0.3, 'steelFace'));
       group.add(barAcross(3, w - 3, h - 3));
     }
   }
   if (a.counter) {
-    group.add(block([0, b, w, front + 1], h, COUNTER_TOP_IN, COLORS.counter, '#6f6d68'));
+    group.add(block([0, b, w, front + 1], h, COUNTER_TOP_IN, 'counter', '#6f6d68', paint));
+    // In line with the backsplash of the cabinets beside it, whose backs are at the wall.
+    const splash = paint.materials?.backsplash;
+    const panel = splash && splashPanel([0, 0], [w, 0], [w / 2, front], (p) => toPlan(a, p), a.bottom, splash);
+    if (panel) group.add(panel);
   }
+  if (selected && paint.realistic) glow(group);
   return group;
 }
 
-/** A flat tag that always faces the camera and shows through everything: where a detach & reset appliance is. */
-function tagSprite(text: string): THREE.Sprite {
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return new THREE.Sprite();
-  const font = '600 40px "Segoe UI", Inter, sans-serif';
-  const pad = 18;
-  const tall = 64;
-  ctx.font = font;
-  canvas.width = Math.ceil(ctx.measureText(text).width) + pad * 2;
-  canvas.height = tall;
-  // Resizing the canvas reset the context.
-  ctx.font = font;
-  const r = 14;
-  const wide = canvas.width;
-  ctx.beginPath();
-  ctx.moveTo(r, 0);
-  ctx.arcTo(wide, 0, wide, tall, r);
-  ctx.arcTo(wide, tall, 0, tall, r);
-  ctx.arcTo(0, tall, 0, 0, r);
-  ctx.arcTo(0, 0, wide, 0, r);
-  ctx.closePath();
-  ctx.fillStyle = COLORS.tag;
-  ctx.fill();
-  ctx.fillStyle = '#ffffff';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, pad, tall / 2 + 2);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
-  const heightIn = 5;
-  sprite.scale.set((heightIn * wide) / tall, heightIn, 1);
-  sprite.renderOrder = 10;
-  return sprite;
+/**
+ * A tag that always faces the camera and shows over everything, where a
+ * detach & reset appliance is: an HTML label (drawn by the view's
+ * CSS2DRenderer), so it sits over the ray tracer's canvas as well as the
+ * raster one, and stays out of every picture taken of the view.
+ */
+function tagLabel(text: string): CSS2DObject {
+  const el = document.createElement('div');
+  el.textContent = text;
+  Object.assign(el.style, {
+    padding: '1px 7px',
+    borderRadius: '5px',
+    background: COLORS.tag,
+    color: '#ffffff',
+    font: '600 11px "Segoe UI", Inter, sans-serif',
+    whiteSpace: 'nowrap',
+    pointerEvents: 'none',
+  });
+  const label = new CSS2DObject(el);
+  label.userData.tag = true;
+  return label;
 }
 
 /**
@@ -312,45 +677,61 @@ function tagSprite(text: string): THREE.Sprite {
  * counter; on the face of one that hangs, or sits in a cabinet (an oven,
  * a disposal under the sink), so tags stacked one over another stay apart.
  */
-function applianceTag(a: ApplianceSolid): THREE.Sprite {
-  const sprite = tagSprite(`D&R · ${a.spec.label}`);
+function applianceTag(a: ApplianceSolid): CSS2DObject {
+  const label = tagLabel(`D&R · ${a.spec.label}`);
   const above = a.spec.mount === 'floor' || a.spec.mount === 'counter';
   const [x, z] = toPlan(a, [a.width / 2, above ? a.back + a.depth / 2 : a.back + a.depth + 1]);
   const y = above ? Math.max(a.bottom + a.height, COUNTER_TOP_IN) + 4 : a.bottom + a.height / 2;
-  sprite.position.set(x, y, z);
-  return sprite;
+  label.position.set(x, y, z);
+  return label;
 }
 
 /** A countertop laid over several cabinets (the island top), in plan coordinates. */
-function slabObject(slab: CounterSlab): THREE.Mesh {
-  const top = new THREE.Mesh(prism(slab.outline, slab.bottom, COUNTER_TOP_IN, slab.holes), solidMaterial(COLORS.counter));
-  return withEdges(top, '#6f6d68');
+function slabObject(slab: CounterSlab, paint: Paint): THREE.Mesh {
+  const top = new THREE.Mesh(prism(slab.outline, slab.bottom, COUNTER_TOP_IN, slab.holes), paint.mat('counter'));
+  return paint.outline(top, '#6f6d68');
 }
 
 /** A tapered filler in an angled joint, in plan coordinates: finished like the doors on the door side, like the boxes at the back. */
-function fillerObject(filler: FillerSolid): THREE.Group {
+function fillerObject(filler: FillerSolid, paint: Paint): THREE.Group {
   const group = new THREE.Group();
   const front = !!filler.toeOutline;
-  const body = new THREE.Mesh(prism(filler.outline, filler.toeKick, filler.height), solidMaterial(front ? COLORS.face : COLORS.box));
-  group.add(withEdges(body, front ? COLORS.faceEdge : COLORS.boxEdge));
+  const body = new THREE.Mesh(prism(filler.outline, filler.toeKick, filler.height), paint.mat(front ? 'face' : 'box'));
+  group.add(paint.outline(body, front ? COLORS.faceEdge : COLORS.boxEdge));
   if (filler.toeOutline && filler.toeKick > 0) {
-    group.add(new THREE.Mesh(prism(filler.toeOutline, 0, filler.toeKick), solidMaterial(COLORS.toe)));
+    group.add(new THREE.Mesh(prism(filler.toeOutline, 0, filler.toeKick), paint.mat('toe')));
   }
   return group;
 }
 
-function wallObject(wall: WallSolid): THREE.Mesh {
+/**
+ * A wall. In the drawing look it is see-through, so the cabinets stay in
+ * view from any side; in the realistic look it is solid, and remembers
+ * which way the room is (`toward`, a point inside it) so cutAwayWalls can
+ * take it out when the camera is behind it.
+ */
+function wallObject(wall: WallSolid, toward: { x: number; z: number }, paint: Paint): THREE.Mesh {
   const dx = wall.b[0] - wall.a[0];
   const dz = wall.b[1] - wall.a[1];
   const len = Math.hypot(dx, dz);
-  // See-through, so the cabinets stay in view from any side.
   const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(len, WALL_HEIGHT_IN, wall.thickness),
-    solidMaterial(COLORS.wall, { transparent: true, opacity: 0.35, depthWrite: false })
+    paint.realistic ? inchBox(len, WALL_HEIGHT_IN, wall.thickness) : new THREE.BoxGeometry(len, WALL_HEIGHT_IN, wall.thickness),
+    paint.mat('wall', { transparent: true, opacity: 0.35, depthWrite: false })
   );
-  mesh.position.set((wall.a[0] + wall.b[0]) / 2, WALL_HEIGHT_IN / 2, (wall.a[1] + wall.b[1]) / 2);
+  const mx = (wall.a[0] + wall.b[0]) / 2;
+  const mz = (wall.a[1] + wall.b[1]) / 2;
+  mesh.position.set(mx, WALL_HEIGHT_IN / 2, mz);
   mesh.rotation.y = Math.atan2(-dz, dx);
-  return withEdges(mesh, COLORS.wallEdge);
+  if (paint.realistic && len > 0) {
+    let nx = -dz / len;
+    let nz = dx / len;
+    if ((toward.x - mx) * nx + (toward.z - mz) * nz < 0) {
+      nx = -nx;
+      nz = -nz;
+    }
+    mesh.userData.cutaway = { x: mx, z: mz, nx, nz, half: wall.thickness / 2 };
+  }
+  return paint.outline(mesh, COLORS.wallEdge);
 }
 
 /** Everything the 3D view draws for the sketch, as one group to swap out when the sketch changes. */
@@ -362,47 +743,97 @@ export function buildCabinetScene(
     counters = [],
     fillers = [],
     appliances = [],
-  }: { counters?: CounterSlab[]; fillers?: FillerSolid[]; appliances?: ApplianceSolid[] } = {}
+    finish = null,
+  }: {
+    counters?: CounterSlab[];
+    fillers?: FillerSolid[];
+    appliances?: ApplianceSolid[];
+    /** Draw the realistic look, in this finish; absent for the drawing look. */
+    finish?: CabinetSketchFinish | null;
+  } = {}
 ): THREE.Group {
+  const paint = finish ? realisticPaint(finish) : DRAWING;
   const root = new THREE.Group();
   const bounds = modelBounds(solids, walls, applianceExtent(appliances));
+  const center = bounds ? { x: (bounds.minX + bounds.maxX) / 2, z: (bounds.minZ + bounds.maxZ) / 2 } : { x: 0, z: 0 };
   if (bounds) {
-    // Floor and 1 ft grid, a couple of feet past the drawing on every side.
+    // The floor, a couple of feet past the drawing on every side; a 1 ft grid on it in the drawing look.
     const size = Math.ceil((Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ) + 48) / 12) * 12;
-    const cx = (bounds.minX + bounds.maxX) / 2;
-    const cz = (bounds.minZ + bounds.maxZ) / 2;
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(size, size), solidMaterial(COLORS.floor));
+    const plane = new THREE.PlaneGeometry(size, size);
+    if (paint.realistic) {
+      const uv = plane.attributes.uv as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * size, uv.getY(i) * size);
+    }
+    const floor = new THREE.Mesh(plane, paint.mat('floor'));
     floor.rotation.x = -Math.PI / 2;
-    floor.position.set(cx, 0, cz);
+    floor.position.set(center.x, 0, center.z);
+    floor.userData.floor = true;
     root.add(floor);
-    const grid = new THREE.GridHelper(size, size / 12, COLORS.grid, COLORS.grid);
-    grid.position.set(cx, 0.05, cz);
-    root.add(grid);
+    if (!paint.realistic) {
+      const grid = new THREE.GridHelper(size, size / 12, COLORS.grid, COLORS.grid);
+      grid.position.set(center.x, 0.05, center.z);
+      root.add(grid);
+    }
   }
-  for (const wall of walls) root.add(wallObject(wall));
+  for (const wall of walls) root.add(wallObject(wall, center, paint));
   // A range in its range base is drawn in place of the base's own appliance box.
   const replaced = new Set(appliances.filter((a) => a.replacesHost).map((a) => a.hostId));
   for (const solid of solids) {
-    if (!replaced.has(solid.cabinet.id)) root.add(cabinetObject(solid, selectedIds.has(solid.cabinet.id)));
+    if (!replaced.has(solid.cabinet.id)) root.add(cabinetObject(solid, selectedIds.has(solid.cabinet.id), paint));
   }
-  for (const slab of counters) root.add(slabObject(slab));
-  for (const filler of fillers) root.add(fillerObject(filler));
+  // In the realistic look an island sink's bowls sink through the island top too.
+  const islandBowls = paint.materials
+    ? solids
+        .filter((s) => s.sink && !s.counter)
+        .flatMap((s) => s.sink!.bowls.map((bowl) => rectPoints(bowl).map((p) => toPlan(s, p))))
+    : [];
+  for (const slab of counters) {
+    const holes = islandBowls.filter((hole) => inPolygon(hole[0], slab.outline));
+    root.add(slabObject(holes.length ? { ...slab, holes: [...slab.holes, ...holes] } : slab, paint));
+  }
+  for (const filler of fillers) root.add(fillerObject(filler, paint));
   for (const a of appliances) {
-    root.add(applianceObject(a, !!a.hostId && selectedIds.has(a.hostId)));
+    root.add(applianceObject(a, !!a.hostId && selectedIds.has(a.hostId), paint));
     root.add(applianceTag(a));
+  }
+  if (paint.realistic) {
+    root.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      o.castShadow = !o.userData.floor;
+      o.receiveShadow = true;
+    });
   }
   return root;
 }
 
-/** Free the GPU buffers of everything under `root`. */
+/**
+ * Realistic look: hide each wall the camera stands behind, so the room is
+ * seen as through an opening. Returns which walls show, one 0/1 each, so a
+ * change can be noticed.
+ */
+export function cutAwayWalls(root: THREE.Object3D, camera: THREE.Camera): string {
+  const eye = camera.position;
+  let shown = '';
+  for (const child of root.children) {
+    const cut = child.userData.cutaway as { x: number; z: number; nx: number; nz: number; half: number } | undefined;
+    if (!cut) continue;
+    child.visible = (eye.x - cut.x) * cut.nx + (eye.z - cut.z) * cut.nz > -cut.half;
+    shown += child.visible ? '1' : '0';
+  }
+  return shown;
+}
+
+/** Free the GPU buffers of everything under `root`, but the kept textures (finishMaterials.ts), and take its tags off the page. */
 export function disposeScene(root: THREE.Object3D) {
   root.traverse((obj) => {
+    // A label's element is only taken off when the label itself is removed, not a group above it.
+    if (obj instanceof CSS2DObject) obj.element.remove();
     const item = obj as THREE.Mesh;
     item.geometry?.dispose();
     const material = item.material as THREE.Material | THREE.Material[] | undefined;
-    // A tag's text is a texture of its own.
     const release = (m: THREE.Material) => {
-      (m as THREE.SpriteMaterial).map?.dispose();
+      const map = (m as THREE.MeshStandardMaterial).map;
+      if (map && !map.userData.keep) map.dispose();
       m.dispose();
     };
     if (Array.isArray(material)) material.forEach(release);

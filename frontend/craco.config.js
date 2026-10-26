@@ -9,6 +9,16 @@ module.exports = {
       // Set public path for proper routing
       webpackConfig.output.publicPath = '/';
 
+      // three-mesh-bvh's WebGPU code (under the 3D view's ray tracer) star-exports
+      // `closestPointToTriangle` from two of its files. In an ES module package
+      // webpack fails the whole build on that; nothing takes the name through
+      // the star export (its one user imports it from tsl/fns.js directly), so
+      // the check is off for that package alone.
+      webpackConfig.module.rules.push({
+        test: /[\\/]node_modules[\\/]three-mesh-bvh[\\/]/,
+        parser: { reexportExportsPresence: false },
+      });
+
       if (!isProd) {
         // Dev: use native file watchers (faster than polling)
         webpackConfig.watchOptions = {
@@ -52,6 +62,13 @@ module.exports = {
                 test: /[\\/]node_modules[\\/]three[\\/]/,
                 name: 'vendor-three',
                 priority: 20,
+              },
+              // The 3D view's ray tracer, fetched only when it is switched on:
+              // the tracer and three's WebGPU build, which nothing else uses.
+              pathtracer: {
+                test: /[\\/]node_modules[\\/](three-gpu-pathtracer[\\/]|three-mesh-bvh[\\/]|three[\\/]build[\\/]three\.(webgpu|tsl)\.js)/,
+                name: 'vendor-pathtracer',
+                priority: 30,
               },
               vendor: {
                 test: /[\\/]node_modules[\\/]/,

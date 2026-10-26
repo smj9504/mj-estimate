@@ -73,11 +73,31 @@ export interface CabinetSketchAppliance {
   host_id?: string | null;
 }
 
+/**
+ * What the kitchen is finished in, for the 3D view's realistic look and
+ * the AI photo made from it (see kitchenFinish.ts for the choices). Not
+ * priced — the estimate's own line items are. Absent on sketches saved
+ * before it existed; kitchenFinish.ts fills in the defaults.
+ */
+export interface CabinetSketchFinish {
+  cabinet_color: string;
+  door_style: string;
+  countertop: string;
+  backsplash: string;
+  sink: string;
+  faucet: string;
+  /** The hardware's metal; hardware_style its shape. */
+  hardware: string;
+  hardware_style: string;
+  floor: string;
+}
+
 export interface CabinetSketchOverlayData {
   walls: CabinetSketchWall[];
   cabinets: CabinetSketchCabinet[];
   appliances: CabinetSketchAppliance[];
   element_order: string[];
+  finish?: CabinetSketchFinish | null;
 }
 
 export interface CabinetSketch {

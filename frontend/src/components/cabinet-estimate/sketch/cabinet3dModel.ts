@@ -309,7 +309,7 @@ const toPlanIn = (p: { x: number; y: number }, scalePixelsPerFoot: number): Pt2 
 const area2 = (loop: Pt2[]) => signedArea2(loop.map(([x, y]) => ({ x, y })));
 
 /** Point in a polygon of any shape (even-odd). */
-function inPolygon([x, z]: Pt2, loop: Pt2[]): boolean {
+export function inPolygon([x, z]: Pt2, loop: Pt2[]): boolean {
   let inside = false;
   for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {
     const [xi, zi] = loop[i];

@@ -57,11 +57,30 @@ class CabinetSketchAppliance(BaseModel):
     host_id: Optional[str] = None
 
 
+class CabinetSketchFinish(BaseModel):
+    """What the 3D view's realistic look and the AI photo finish the kitchen in.
+
+    Keys of the frontend's kitchenFinish.ts choices; not priced.
+    """
+
+    cabinet_color: str = "white"
+    door_style: str = "shaker"
+    countertop: str = "white_quartz"
+    backsplash: str = "white_subway"
+    sink: str = "stainless"
+    faucet: str = "stainless"
+    # The hardware's metal; hardware_style its shape (bar / knob / cup).
+    hardware: str = "nickel"
+    hardware_style: str = "bar"
+    floor: str = "light_oak"
+
+
 class CabinetSketchOverlayData(BaseModel):
     walls: List[CabinetSketchWall] = Field(default_factory=list)
     cabinets: List[CabinetSketchCabinet] = Field(default_factory=list)
     appliances: List[CabinetSketchAppliance] = Field(default_factory=list)
     element_order: List[str] = Field(default_factory=list)
+    finish: Optional[CabinetSketchFinish] = None
 
 
 class CabinetSketchResponse(BaseModel):
@@ -80,3 +99,20 @@ class CabinetSketchUpdate(BaseModel):
     canvas_width: Optional[int] = None
     canvas_height: Optional[int] = None
     scale_pixels_per_foot: Optional[float] = None
+
+
+class CabinetSketchAiPhotoRequest(BaseModel):
+    """The 3D view's realistic render, to be redrawn as a photo (sketch_ai_photo.py)."""
+
+    # Base64 JPEG / PNG / WebP, bare or as a data: URL.
+    image: str = Field(..., max_length=12_000_000)
+    # The kitchen's finishes in words, from the frontend's kitchenFinish.ts.
+    finish: str = Field("", max_length=1000)
+    # Anything else the picture should show, in the user's words.
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
+class CabinetSketchAiPhotoResponse(BaseModel):
+    # The picture, as a data: URL.
+    image: str
+    model: str

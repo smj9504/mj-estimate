@@ -53,10 +53,13 @@ from .schemas import (
 )
 from .service import CabinetEstimateService
 from .sketch_schemas import (
+    CabinetSketchAiPhotoRequest,
+    CabinetSketchAiPhotoResponse,
     CabinetSketchOverlayData,
     CabinetSketchResponse,
     CabinetSketchUpdate,
 )
+from .sketch_ai_photo import AiPhotoError, make_photo
 from .sketch_service import CabinetSketchService
 
 logger = logging.getLogger(__name__)
@@ -292,6 +295,27 @@ def save_sketch_overlay(
     """
     _ensure_estimate_exists(estimate_id, session)
     return CabinetSketchService(db).save_overlay(UUID(estimate_id), payload)
+
+
+@router.post("/{estimate_id}/sketch/ai-photo", response_model=CabinetSketchAiPhotoResponse)
+def make_sketch_ai_photo(
+    estimate_id: str,
+    payload: CabinetSketchAiPhotoRequest,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Redraw the 3D view's realistic render as a photo of the finished kitchen.
+
+    A concept picture from a Gemini image model (sketch_ai_photo.py): it is
+    not stored, and may differ from the sketch in small ways.
+    """
+    _ensure_estimate_exists(estimate_id, session)
+    try:
+        image, model = make_photo(payload.image, payload.finish, payload.notes)
+    except AiPhotoError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    logger.info("Cabinet AI photo for estimate %s by %s (%s)", estimate_id, current_user.id, model)
+    return CabinetSketchAiPhotoResponse(image=image, model=model)
 
 
 # ── History ──

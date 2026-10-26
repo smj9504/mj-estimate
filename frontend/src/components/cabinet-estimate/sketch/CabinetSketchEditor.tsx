@@ -28,6 +28,7 @@ import Konva from 'konva';
 import { Button, InputNumber, Segmented, Select, Space, Tag, Tooltip, message } from 'antd';
 import {
   BorderOutlined,
+  CameraOutlined,
   CompressOutlined,
   DeleteOutlined,
   RedoOutlined,
@@ -61,6 +62,10 @@ import CabinetWallRenderer, { CabinetWallPreview } from './CabinetWallRenderer';
 import CabinetShapeRenderer from './CabinetShapeRenderer';
 import { ApplianceShape, DR_TAG_COLOR, SinkShape } from './CabinetApplianceRenderer';
 import CabinetElevationView from './CabinetElevationView';
+import KitchenFinishPicker from './KitchenFinishPicker';
+import AiPhotoModal from './AiPhotoModal';
+import { finishOf, finishWords } from './kitchenFinish';
+import type { Cabinet3DViewHandle } from './Cabinet3DView';
 import { pixelsToFeet, generateOverlayId, snapToWallEndpoint, constrainToAxis } from './cabinetSketchUtils';
 import {
   buildElevations,
@@ -253,6 +258,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     syncCabinets,
     updateAppliances,
     syncAppliances,
+    setFinish,
     loadOverlayData,
     markSaved,
     undo,
@@ -271,6 +277,15 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
 
   const scalePixelsPerFoot = sketch?.scale_pixels_per_foot ?? 20;
   const { cabinets, walls } = state.overlayData;
+  const finish = useMemo(() => finishOf(state.overlayData.finish), [state.overlayData.finish]);
+  // The 3D view's look: the outlined drawing, or the kitchen in its finish.
+  const [realistic, setRealistic] = useState(false);
+  const view3dRef = useRef<Cabinet3DViewHandle>(null);
+  // The realistic view as it was framed when AI photo was clicked; the AI photo dialog is open while set.
+  const [aiPhotoRender, setAiPhotoRender] = useState<string | null>(null);
+  // The 3D view, once opened, stays mounted (hidden) so it needn't start over.
+  const [opened3d, setOpened3d] = useState(false);
+  if (view === '3d' && !opened3d) setOpened3d(true);
   const appliances = state.overlayData.appliances ?? NO_APPLIANCES;
 
   // Keep the shapes in step with the Edit tab. Also re-runs after undo/redo,
@@ -1053,7 +1068,33 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
             )}
           </>
         ) : view === '3d' ? (
-          cabinetPickers
+          <>
+            {cabinetPickers}
+            <Segmented<'drawing' | 'realistic'>
+              value={realistic ? 'realistic' : 'drawing'}
+              onChange={(v) => setRealistic(v === 'realistic')}
+              options={[
+                { label: <Tooltip title="Outlined, in the Front view's colours">Drawing</Tooltip>, value: 'drawing' },
+                { label: <Tooltip title="In the kitchen's finishes, with light and shadow">Realistic</Tooltip>, value: 'realistic' },
+              ]}
+            />
+            {realistic && <KitchenFinishPicker finish={finish} onChange={setFinish} />}
+            {realistic && (
+              <Tooltip title="A photo-like picture of the finished kitchen, drawn by AI from the view as framed now">
+                <Button
+                  icon={<CameraOutlined />}
+                  disabled={cabinets.length === 0}
+                  onClick={() => {
+                    const render = view3dRef.current?.capture();
+                    if (render) setAiPhotoRender(render);
+                    else message.warning('The 3D view is not ready yet');
+                  }}
+                >
+                  AI photo
+                </Button>
+              </Tooltip>
+            )}
+          </>
         ) : (
           elevations.length > 1 && (
             <Select
@@ -1197,8 +1238,27 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
             </Layer>
           </Stage>
         </div>
-      ) : view === '3d' ? (
-        <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, overflow: 'hidden', background: '#f7f7f5' }}>
+      ) : view === '3d' ? null : (
+        <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, overflow: 'hidden', background: '#ffffff' }}>
+          <CabinetElevationView
+            run={currentRun}
+            presets={CABINET_PRESETS}
+            height={CANVAS_HEIGHT}
+            selectedIds={selectedIds}
+          />
+        </div>
+      )}
+      {/* Kept mounted once opened, only hidden after: the ray tracer's shader takes about a minute to build. */}
+      {opened3d && (
+        <div
+          style={{
+            display: view === '3d' ? 'block' : 'none',
+            border: '1px solid #d9d9d9',
+            borderRadius: 4,
+            overflow: 'hidden',
+            background: '#f7f7f5',
+          }}
+        >
           <React.Suspense
             fallback={
               <div style={{ height: CANVAS_HEIGHT, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
@@ -1207,6 +1267,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
             }
           >
             <Cabinet3DView
+              ref={view3dRef}
               cabinets={cabinets}
               walls={walls}
               appliances={appliances}
@@ -1215,19 +1276,18 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
               scalePixelsPerFoot={scalePixelsPerFoot}
               height={CANVAS_HEIGHT}
               islandSeatingIn={islandSeatingIn}
+              finish={realistic ? finish : null}
+              active={view === '3d'}
               selectedIds={selectedIds}
               onSelect={handleSelect('cabinet')}
               onDeselect={deselect}
             />
           </React.Suspense>
-        </div>
-      ) : (
-        <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, overflow: 'hidden', background: '#ffffff' }}>
-          <CabinetElevationView
-            run={currentRun}
-            presets={CABINET_PRESETS}
-            height={CANVAS_HEIGHT}
-            selectedIds={selectedIds}
+          <AiPhotoModal
+            estimateId={estimateId}
+            render={aiPhotoRender}
+            finish={finishWords(finish)}
+            onClose={() => setAiPhotoRender(null)}
           />
         </div>
       )}
@@ -1238,7 +1298,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
           : view === 'plan'
             ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. For an angled island, select the cabinets of one side, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors. Detach & reset appliances (D&R) come from the Edit tab: one that goes in a cabinet sits in it, the rest start in a row below the drawing — drag them into place (onto a range base, oven cabinet or sink base to put them in it), and turn a selected one by its handle, the angle box or R; the dark edge is its front. Sizes and glass come from the Edit tab; a selected cabinet shows in its list above, where picking another changes it (Esc or a click on empty canvas to add new ones instead).'
             : view === '3d'
-              ? 'The plan in 3D, at real sizes, with each detach & reset appliance tagged. Drag to look around, scroll to zoom, right-drag to pan. Click a cabinet to select it and change it from its list above; move cabinets and appliances in Top.'
+              ? 'The plan in 3D, at real sizes, with each detach & reset appliance tagged. Drag to look around, scroll to zoom, right-drag to pan. Click a cabinet to select it and change it from its list above; move cabinets and appliances in Top. Realistic draws the kitchen in the finishes picked beside it (saved with the sketch, not priced); walls between you and the room are left out. With Ray-traced light on, the picture sharpens toward a photo a few seconds after the view stops moving (it needs about a minute to get ready when the 3D view first opens).'
               : 'Each run is drawn from the front, as laid out in the plan. Uppers hang at 54" above the floor; shorter ones line up with their tops.'}
       </div>
     </div>

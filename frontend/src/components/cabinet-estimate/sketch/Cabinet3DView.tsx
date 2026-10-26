@@ -7,6 +7,16 @@
  * scroll to zoom, right-drag to pan; click a cabinet to select it (Ctrl /
  * Cmd adds to the selection), click empty space to deselect.
  *
+ * Two looks (see cabinet3dScene.ts): the drawing look, flat and outlined
+ * like the Front view, and — given a `finish` — the realistic one, under a
+ * sun that casts shadows and follows the camera round, with reflections
+ * from a studio environment and ambient occlusion in the corners. In the
+ * realistic look, ray-traced light (rayTracer.ts, on unless turned off)
+ * takes over whenever the camera rests: a WebGPU canvas over the raster
+ * one fades in as the picture sharpens toward a photo, and drops away the
+ * moment the camera moves. The D&R tags are HTML labels over both. The
+ * realistic view is what `capture` hands the AI photo.
+ *
  * View-only like the Front view: cabinets are moved in the plan and sized
  * in the Edit tab. Plain three.js rather than a React renderer — the scene
  * is rebuilt whole whenever the sketch or selection changes (a kitchen is
@@ -16,12 +26,23 @@
  * when the 3D view is opened.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Tooltip } from 'antd';
-import { AimOutlined } from '@ant-design/icons';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { Button, Switch, Tooltip } from 'antd';
+import { AimOutlined, EyeOutlined } from '@ant-design/icons';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { CabinetSketchAppliance, CabinetSketchCabinet, CabinetSketchWall } from '../../../types/cabinetSketch';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
+import type {
+  CabinetSketchAppliance,
+  CabinetSketchCabinet,
+  CabinetSketchFinish,
+  CabinetSketchWall,
+} from '../../../types/cabinetSketch';
 import type { PresetCatalog } from './cabinetSketchLayout';
 import {
   applianceExtent,
@@ -33,20 +54,196 @@ import {
   modelBounds,
   wallSolids,
 } from './cabinet3dModel';
-import { buildCabinetScene, cabinetIdOf, disposeScene } from './cabinet3dScene';
+import { WALL_HEIGHT_IN, buildCabinetScene, cabinetIdOf, cutAwayWalls, disposeScene } from './cabinet3dScene';
+import { RAY_SAMPLES, RAY_SHOW_SAMPLES, disposeRayTracer, hasWebGPU, loadRayTracer } from './rayTracer';
+import type { RayTracer } from './rayTracer';
 
 const BACKGROUND = '#f7f7f5';
+const REALISTIC_BACKGROUND = '#e7e4de';
 const NO_APPLIANCES: CabinetSketchAppliance[] = [];
 /** How far (screen px) the pointer may move between press and release and still count as a click. */
 const CLICK_SLOP_PX = 4;
+/** The realistic sun: this far up from the horizon, turned this far from the camera, so it shines over the viewer's shoulder. */
+const SUN_ELEVATION = (50 * Math.PI) / 180;
+const SUN_TURN = (70 * Math.PI) / 180;
+/** A standing person's eye, inches off the floor: the Eye level view's camera height. */
+const EYE_HEIGHT_IN = 62;
+/** Width of a captured image, px; its height keeps the view's proportions. */
+const CAPTURE_WIDTH_PX = 1600;
+/** The studio environment's strength in the raster look; the ray tracer's sky's. */
+const ENVIRONMENT_INTENSITY = 0.45;
+const RAY_ENVIRONMENT_INTENSITY = 0.4;
+/**
+ * The ray-traced look's main light: a panel across the ceiling, shining
+ * down. Light the tracer can aim at comes clean far sooner than light
+ * reaching in only from the sky over the walls. The raster view never sees
+ * it (CEILING_LAYER is off its camera) — it has its sun.
+ */
+const CEILING_INTENSITY = 1.4;
+const CEILING_LAYER = 2;
+/** How long (ms) the camera must rest before tracing starts. */
+const TRACE_REST_MS = 150;
+/** Frames between asks of how many samples the picture has (an ask reads back from the GPU). */
+const COUNT_EVERY_FRAMES = 8;
+/** Where this browser remembers ray tracing being turned off. */
+const RAY_TRACED_KEY = 'cabinet3d.rayTraced';
+
+const rememberedRayTraced = () => {
+  try {
+    return window.localStorage.getItem(RAY_TRACED_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+};
+
+/** How far the traced picture has come, 0 to 1; 'preparing' while the tracer loads; null while not tracing. */
+type TraceProgress = number | 'preparing' | null;
 
 interface Stage {
   renderer: THREE.WebGLRenderer;
+  /** Draws the D&R tags, HTML labels over both canvases. */
+  labels: CSS2DRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
+  composer: EffectComposer;
+  hemi: THREE.HemisphereLight;
+  sun: THREE.DirectionalLight;
+  fill: THREE.DirectionalLight;
+  ceiling: THREE.RectAreaLight;
+  environment: THREE.Texture;
   content: THREE.Group | null;
+  realistic: boolean;
+  /** Middle of the model and how far its farthest corner is from it, for the realistic sun's shadows. */
+  center: THREE.Vector3;
+  reach: number;
+  /** The ray tracer, once loaded, and whether it is wanted. */
+  tracer: RayTracer | null;
+  rayTraced: boolean;
+  /** The tracer's copy of the scene is out of date (a rebuilt model): taken again before its next sample. */
+  traceStale: boolean;
+  /** A wall was cut away or came back: the tracer re-reads what shows. */
+  wallsChanged: boolean;
+  /** Which walls showed last (cutAwayWalls). */
+  wallsShown: string;
+  /** When the camera last moved (performance.now()). */
+  movedAt: number;
+  /** Bumped at each restart of the picture, so a sample count asked for before it is ignored. */
+  traceRound: number;
+  frames: number;
+  counting: boolean;
+  /** The traced picture is finished: the loop rests until something changes. */
+  traceDone: boolean;
+  /** Cancels the tracing loop's next turn, while one is due. */
+  stopTracing: (() => void) | null;
+  onTraceProgress: (progress: TraceProgress) => void;
+  /** Draws the raster view and the tags, now. */
+  draw: () => void;
+  /** Shows the scene as it stands: the raster view now, and the traced picture started over. */
   render: () => void;
+}
+
+const tracing = (stage: Stage) => stage.realistic && stage.rayTraced && !!stage.tracer && !!stage.content;
+
+/** Lay the traced canvas over the raster one (fading in), or take it away at once. */
+function showTraced(stage: Stage, shown: boolean) {
+  const canvas = stage.tracer?.canvas;
+  if (!canvas) return;
+  canvas.style.transition = shown ? 'opacity 0.4s' : 'none';
+  canvas.style.opacity = shown ? '1' : '0';
+}
+
+/**
+ * Give the ray tracer the scene as it stands. It reads the backdrop, the
+ * environment and the lights as it takes it: a colour for the backdrop
+ * (the raster look clears to one instead), its own sky, and no sun — the
+ * ceiling panel lights the room, the sky fills in and gives the reflections.
+ */
+function traceScene(stage: Stage, { tracer, sky }: RayTracer) {
+  const { scene, camera, sun, fill } = stage;
+  const environment = scene.environment;
+  scene.background = new THREE.Color(REALISTIC_BACKGROUND);
+  scene.environment = sky;
+  scene.environmentIntensity = RAY_ENVIRONMENT_INTENSITY;
+  sun.visible = false;
+  fill.visible = false;
+  tracer.setScene(scene, camera);
+  scene.background = null;
+  scene.environment = environment;
+  scene.environmentIntensity = ENVIRONMENT_INTENSITY;
+  sun.visible = true;
+  fill.visible = true;
+}
+
+/** Run traceFrame on the next frame, or after `wait` ms; one turn due at a time. */
+function scheduleTrace(stage: Stage, wait = 0) {
+  if (stage.stopTracing) return;
+  const run = () => {
+    stage.stopTracing = null;
+    traceFrame(stage);
+  };
+  if (wait > 0) {
+    const id = window.setTimeout(run, wait);
+    stage.stopTracing = () => window.clearTimeout(id);
+  } else {
+    const id = requestAnimationFrame(run);
+    stage.stopTracing = () => cancelAnimationFrame(id);
+  }
+}
+
+function stopTrace(stage: Stage) {
+  stage.stopTracing?.();
+  stage.stopTracing = null;
+}
+
+/** Every few frames, how many samples the picture has: it is shown once it has a few, and the loop rests once it has all. */
+function countSamples(stage: Stage, rt: RayTracer) {
+  if (stage.counting) return;
+  stage.counting = true;
+  const round = stage.traceRound;
+  rt.tracer
+    .getSampleCountsAsync()
+    .then(({ min }) => {
+      stage.counting = false;
+      if (round !== stage.traceRound || !tracing(stage)) return;
+      if (min >= RAY_SHOW_SAMPLES) showTraced(stage, true);
+      stage.onTraceProgress(Math.min(min / RAY_SAMPLES, 1));
+      if (min >= RAY_SAMPLES) {
+        stage.traceDone = true;
+        stopTrace(stage);
+      }
+    })
+    .catch(() => {
+      stage.counting = false;
+    });
+}
+
+/** One turn of tracing, once the camera has rested: samples onto the traced canvas, and the next turn until the picture is done. */
+function traceFrame(stage: Stage) {
+  const rt = stage.tracer;
+  if (!rt || !tracing(stage) || stage.traceDone) return;
+  const rested = performance.now() - stage.movedAt;
+  if (rested < TRACE_REST_MS) {
+    scheduleTrace(stage, TRACE_REST_MS - rested);
+    return;
+  }
+  if (stage.traceStale) {
+    stage.traceStale = false;
+    stage.wallsChanged = false;
+    traceScene(stage, rt);
+  } else if (stage.wallsChanged) {
+    stage.wallsChanged = false;
+    rt.tracer.updateTransforms();
+  }
+  rt.tracer.renderSample();
+  stage.frames += 1;
+  if (stage.frames % COUNT_EVERY_FRAMES === 0) countSamples(stage, rt);
+  scheduleTrace(stage);
+}
+
+export interface Cabinet3DViewHandle {
+  /** The realistic view as it stands (the traced picture when it shows), as a JPEG data URL; null before there is one. */
+  capture: () => string | null;
 }
 
 export interface Cabinet3DViewProps {
@@ -61,30 +258,78 @@ export interface Cabinet3DViewProps {
   height: number;
   /** The Edit tab's island seating overhang, inches, for the island top. */
   islandSeatingIn?: number;
+  /** Draw the realistic look, in this finish; absent for the drawing look. */
+  finish?: CabinetSketchFinish | null;
+  /** On show. Kept mounted while hidden, so the ray tracer needn't start over; it rests meanwhile. */
+  active?: boolean;
   selectedIds: Set<string>;
   onSelect: (id: string, additive: boolean) => void;
   onDeselect: () => void;
 }
 
-const Cabinet3DView: React.FC<Cabinet3DViewProps> = ({
-  cabinets,
-  walls,
-  appliances = NO_APPLIANCES,
-  sinkBowls = 1,
-  presets,
-  scalePixelsPerFoot,
-  height,
-  islandSeatingIn = 0,
-  selectedIds,
-  onSelect,
-  onDeselect,
-}) => {
+/** Put the realistic sun over the camera's shoulder, its shadows covering the model. */
+function aimSun(stage: Stage) {
+  const { camera, sun, center, reach } = stage;
+  const turn = Math.atan2(camera.position.z - center.z, camera.position.x - center.x) + SUN_TURN;
+  const far = reach * 2;
+  sun.position.set(
+    center.x + Math.cos(turn) * Math.cos(SUN_ELEVATION) * far,
+    center.y + Math.sin(SUN_ELEVATION) * far,
+    center.z + Math.sin(turn) * Math.cos(SUN_ELEVATION) * far
+  );
+  sun.target.position.copy(center);
+  sun.target.updateMatrixWorld();
+}
+
+/** Set the lights, tone and background for one look or the other. */
+function setLook(stage: Stage, realistic: boolean) {
+  const { renderer, scene, hemi, sun, fill } = stage;
+  stage.realistic = realistic;
+  renderer.setClearColor(realistic ? REALISTIC_BACKGROUND : BACKGROUND);
+  scene.environment = realistic ? stage.environment : null;
+  scene.environmentIntensity = ENVIRONMENT_INTENSITY;
+  renderer.toneMapping = realistic ? THREE.AgXToneMapping : THREE.NoToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  hemi.intensity = realistic ? 0.3 : 2.2;
+  sun.intensity = realistic ? 2.8 : 1.6;
+  sun.castShadow = realistic;
+  fill.intensity = realistic ? 0.2 : 0.6;
+  if (!realistic) {
+    sun.position.set(-300, 600, 400);
+    sun.target.position.set(0, 0, 0);
+    sun.target.updateMatrixWorld();
+  }
+}
+
+const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(function Cabinet3DView(
+  {
+    cabinets,
+    walls,
+    appliances = NO_APPLIANCES,
+    sinkBowls = 1,
+    presets,
+    scalePixelsPerFoot,
+    height,
+    islandSeatingIn = 0,
+    finish = null,
+    active = true,
+    selectedIds,
+    onSelect,
+    onDeselect,
+  },
+  ref
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
   // Bumped when the renderer is (re)created, so the model is put into the new scene.
   const [stageVersion, setStageVersion] = useState(0);
   const framed = useRef(false);
   const [failed, setFailed] = useState(false);
+  const [rayTraced, setRayTraced] = useState(rememberedRayTraced);
+  // The browser turned out to have no WebGPU: the toggle says so.
+  const [noWebGPU, setNoWebGPU] = useState(() => !hasWebGPU());
+  // Coarse (5% steps), so the tracing loop doesn't re-render the page every frame.
+  const [traceProgress, setTraceProgress] = useState<TraceProgress>(null);
   // Latest callbacks, so the pointer handlers set up once still call the current ones.
   const pickRef = useRef({ onSelect, onDeselect });
   pickRef.current = { onSelect, onDeselect };
@@ -121,6 +366,26 @@ const Cabinet3DView: React.FC<Cabinet3DViewProps> = ({
     stage.render();
   }, [solids, wallModels, extras]);
 
+  // Stand across the room from the doors at eye height, back far enough for the cabinets to fill the width: how a photo of the kitchen is taken.
+  const eyeLevel = useCallback(() => {
+    const stage = stageRef.current;
+    const bounds = modelBounds(solids, [], applianceExtent(extras.appliances));
+    if (!stage || !bounds) return;
+    const cx = (bounds.minX + bounds.maxX) / 2;
+    const cz = (bounds.minZ + bounds.maxZ) / 2;
+    const [fx, fz] = mainFacing(solids);
+    // Half the cabinets' spread across the line of sight.
+    const half = (Math.abs(fz) * (bounds.maxX - bounds.minX) + Math.abs(fx) * (bounds.maxZ - bounds.minZ)) / 2;
+    const camera = stage.camera;
+    const halfWide = Math.atan(Math.tan(((camera.fov / 2) * Math.PI) / 180) * camera.aspect);
+    const distance = Math.max(half / Math.tan(halfWide) * 1.1, 72);
+    const angle = Math.atan2(fz, fx) + 0.12;
+    camera.position.set(cx + Math.cos(angle) * distance, EYE_HEIGHT_IN, cz + Math.sin(angle) * distance);
+    stage.controls.target.set(cx, 44, cz);
+    stage.controls.update();
+    stage.render();
+  }, [solids, extras]);
+
   // Renderer, camera, lights and controls: once.
   useEffect(() => {
     const container = containerRef.current;
@@ -132,44 +397,137 @@ const Cabinet3DView: React.FC<Cabinet3DViewProps> = ({
       setFailed(true);
       return;
     }
+    const width = container.clientWidth || 900;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(container.clientWidth || 900, height);
+    renderer.setSize(width, height);
+    renderer.shadowMap.enabled = true;
+    // Soft since r182, which retired PCFSoftShadowMap.
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     container.appendChild(renderer.domElement);
 
+    const labels = new CSS2DRenderer();
+    labels.setSize(width, height);
+    Object.assign(labels.domElement.style, { position: 'absolute', top: '0', left: '0', pointerEvents: 'none' });
+    container.appendChild(labels.domElement);
+
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(BACKGROUND);
-    scene.add(new THREE.HemisphereLight('#ffffff', '#cfc8bc', 2.2));
+    const hemi = new THREE.HemisphereLight('#ffffff', '#cfc8bc', 2.2);
+    scene.add(hemi);
     const sun = new THREE.DirectionalLight('#ffffff', 1.6);
-    sun.position.set(-300, 600, 400);
-    scene.add(sun);
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.bias = -0.0004;
+    sun.shadow.normalBias = 0.4;
+    sun.shadow.radius = 3;
+    scene.add(sun, sun.target);
     const fill = new THREE.DirectionalLight('#ffffff', 0.6);
     fill.position.set(400, 300, -300);
     scene.add(fill);
+    const ceiling = new THREE.RectAreaLight('#fff4e6', CEILING_INTENSITY, 96, 96);
+    // Facing down: the tracer lights the side its -z faces.
+    ceiling.rotation.x = -Math.PI / 2;
+    ceiling.layers.set(CEILING_LAYER);
+    scene.add(ceiling);
 
-    const camera = new THREE.PerspectiveCamera(40, (container.clientWidth || 900) / height, 1, 10000);
+    const camera = new THREE.PerspectiveCamera(40, width / height, 1, 10000);
     const controls = new OrbitControls(camera, renderer.domElement);
     // Stay above the floor.
     controls.maxPolarAngle = Math.PI / 2 - 0.02;
     controls.minDistance = 24;
     controls.maxDistance = 2400;
 
+    // The raster look's light and reflections: a studio room, caught in a cube map.
+    const environmentTarget = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
+    const studio = new RoomEnvironment();
+    new THREE.CubeCamera(0.1, 100, environmentTarget).update(renderer, studio);
+    studio.dispose();
+    const environment = environmentTarget.texture;
+    environment.needsPMREMUpdate = true;
+    // The raster view's passes: the scene, ambient occlusion (radius in inches), then tone and colour.
+    const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(width, height, { type: THREE.HalfFloatType, samples: 4 }));
+    composer.setPixelRatio(renderer.getPixelRatio());
+    composer.setSize(width, height);
+    composer.addPass(new RenderPass(scene, camera));
+    const ao = new GTAOPass(scene, camera, width, height);
+    ao.updateGtaoMaterial({ radius: 16, thickness: 10, distanceExponent: 1, scale: 1.8, samples: 16 });
+    composer.addPass(ao);
+    composer.addPass(new OutputPass());
+
     const stage: Stage = {
       renderer,
+      labels,
       scene,
       camera,
       controls,
+      composer,
+      hemi,
+      sun,
+      fill,
+      ceiling,
+      environment,
       content: null,
-      render: () => renderer.render(scene, camera),
+      realistic: false,
+      center: new THREE.Vector3(),
+      reach: 240,
+      tracer: null,
+      rayTraced: false,
+      traceStale: true,
+      wallsChanged: false,
+      wallsShown: '',
+      movedAt: 0,
+      traceRound: 0,
+      frames: 0,
+      counting: false,
+      traceDone: false,
+      stopTracing: null,
+      onTraceProgress: () => {},
+      draw: () => {
+        if (stage.realistic && stage.content) {
+          followCamera();
+          composer.render();
+        } else {
+          renderer.render(scene, camera);
+        }
+        labels.render(scene, camera);
+      },
+      render: () => {
+        stage.draw();
+        const rt = stage.tracer;
+        if (!rt || !tracing(stage)) return;
+        // The traced picture starts over from where the camera now is, once it rests.
+        showTraced(stage, false);
+        stage.movedAt = performance.now();
+        stage.traceRound += 1;
+        stage.traceDone = false;
+        rt.tracer.updateCamera();
+        stage.onTraceProgress(0);
+        scheduleTrace(stage);
+      },
     };
+    // What in the realistic look turns with the camera: the walls cut away, the sun.
+    const followCamera = () => {
+      if (!stage.content) return;
+      const shown = cutAwayWalls(stage.content, camera);
+      if (shown !== stage.wallsShown) {
+        stage.wallsShown = shown;
+        stage.wallsChanged = true;
+      }
+      aimSun(stage);
+    };
+    setLook(stage, false);
     stageRef.current = stage;
     framed.current = false;
     setStageVersion((v) => v + 1);
     controls.addEventListener('change', stage.render);
 
     const resize = new ResizeObserver((entries) => {
-      const w = Math.max(320, Math.floor(entries[0]?.contentRect.width ?? 0));
-      if (!w) return;
+      // Hidden (the Sketch tab on another view) it measures nothing: leave it as it was.
+      const measured = Math.floor(entries[0]?.contentRect.width ?? 0);
+      if (!measured) return;
+      const w = Math.max(320, measured);
       renderer.setSize(w, height);
+      composer.setSize(w, height);
+      labels.setSize(w, height);
+      stage.tracer?.renderer.setSize(w, height);
       camera.aspect = w / height;
       camera.updateProjectionMatrix();
       stage.render();
@@ -193,7 +551,7 @@ const Cabinet3DView: React.FC<Cabinet3DViewProps> = ({
         -((e.clientY - rect.top) / rect.height) * 2 + 1
       );
       raycaster.setFromCamera(pointer, camera);
-      // Walls are see-through, so a cabinet behind one is still the pick.
+      // Walls are see-through (or cut away), so a cabinet behind one is still the pick.
       const hit = raycaster
         .intersectObjects(stage.content.children, true)
         .find((h) => h.object instanceof THREE.Mesh && cabinetIdOf(h.object));
@@ -205,18 +563,24 @@ const Cabinet3DView: React.FC<Cabinet3DViewProps> = ({
     renderer.domElement.addEventListener('pointerup', onPointerUp);
 
     return () => {
+      stopTrace(stage);
+      if (stage.tracer) disposeRayTracer(stage.tracer);
       resize.disconnect();
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
       controls.dispose();
       if (stage.content) disposeScene(stage.content);
+      ao.dispose();
+      composer.dispose();
+      environmentTarget.dispose();
       renderer.dispose();
       renderer.domElement.remove();
+      labels.domElement.remove();
       stageRef.current = null;
     };
   }, [height]);
 
-  // The model: rebuilt whenever the sketch or the selection changes.
+  // The model: rebuilt whenever the sketch, the selection or the look changes.
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
@@ -224,8 +588,29 @@ const Cabinet3DView: React.FC<Cabinet3DViewProps> = ({
       stage.scene.remove(stage.content);
       disposeScene(stage.content);
     }
-    stage.content = buildCabinetScene(solids, wallModels, selectedIds, extras);
+    setLook(stage, !!finish);
+    stage.content = buildCabinetScene(solids, wallModels, selectedIds, { ...extras, finish });
     stage.scene.add(stage.content);
+    stage.traceStale = true;
+
+    const bounds = modelBounds(solids, wallModels, applianceExtent(extras.appliances));
+    if (bounds) {
+      stage.center.set((bounds.minX + bounds.maxX) / 2, 40, (bounds.minZ + bounds.maxZ) / 2);
+      stage.reach = Math.hypot(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ, 96) / 2 + 24;
+      const shadow = stage.sun.shadow.camera;
+      shadow.left = -stage.reach;
+      shadow.right = stage.reach;
+      shadow.top = stage.reach;
+      shadow.bottom = -stage.reach;
+      shadow.near = 1;
+      shadow.far = stage.reach * 4;
+      shadow.updateProjectionMatrix();
+      // Most of the room's ceiling, just under it.
+      stage.ceiling.position.set(stage.center.x, WALL_HEIGHT_IN - 1, stage.center.z);
+      stage.ceiling.width = Math.max(bounds.maxX - bounds.minX, 48) * 0.8;
+      stage.ceiling.height = Math.max(bounds.maxZ - bounds.minZ, 48) * 0.8;
+    }
+
     // Frame the kitchen the first time there is one to see; after that the camera stays where it was put.
     if (!framed.current && (solids.length > 0 || wallModels.length > 0)) {
       framed.current = true;
@@ -233,7 +618,107 @@ const Cabinet3DView: React.FC<Cabinet3DViewProps> = ({
     } else {
       stage.render();
     }
-  }, [solids, wallModels, extras, selectedIds, frameView, stageVersion]);
+  }, [solids, wallModels, extras, selectedIds, finish, frameView, stageVersion]);
+
+  // Ray tracing: loaded the first time the realistic look wants it, then
+  // switched on and off with the look, the toggle and the view's showing.
+  useEffect(() => {
+    const stage = stageRef.current;
+    const container = containerRef.current;
+    if (!stage || !container) return;
+    let step: TraceProgress = null;
+    stage.onTraceProgress = (progress) => {
+      const next = typeof progress === 'number' ? Math.floor(progress * 20) / 20 : progress;
+      if (next !== step) {
+        step = next;
+        setTraceProgress(next);
+      }
+    };
+    stage.rayTraced = rayTraced && active && !noWebGPU;
+    if (!finish || !stage.rayTraced) {
+      stopTrace(stage);
+      showTraced(stage, false);
+      stage.onTraceProgress(null);
+      stage.render();
+      return;
+    }
+    if (stage.tracer) {
+      stage.render();
+      return;
+    }
+    let current = true;
+    stage.onTraceProgress('preparing');
+    const size = stage.renderer.getSize(new THREE.Vector2());
+    loadRayTracer(size.x, size.y, stage.renderer.getPixelRatio())
+      .then((rt) => {
+        if (!current || stageRef.current !== stage) {
+          if (rt) disposeRayTracer(rt);
+          return;
+        }
+        if (!rt) {
+          setNoWebGPU(true);
+          return;
+        }
+        // Over the raster canvas, under the tags; the raster canvas still takes the pointer.
+        Object.assign(rt.canvas.style, { position: 'absolute', top: '0', left: '0', pointerEvents: 'none', opacity: '0' });
+        stage.renderer.domElement.after(rt.canvas);
+        stage.tracer = rt;
+        stage.traceStale = true;
+        stage.render();
+      })
+      .catch(() => {
+        // Left on the raster view, the toggle off, so it's plain why.
+        if (current) setRayTraced(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [finish, rayTraced, active, noWebGPU, stageVersion]);
+
+  const toggleRayTraced = (on: boolean) => {
+    setRayTraced(on);
+    try {
+      window.localStorage.setItem(RAY_TRACED_KEY, on ? 'on' : 'off');
+    } catch {
+      // Not remembered; it still switches for now.
+    }
+  };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      capture: () => {
+        const stage = stageRef.current;
+        if (!stage?.content) return null;
+        const { renderer, composer, tracer } = stage;
+        // A traced picture on show is taken as it is, at the view's own size: tracing it again bigger would take seconds.
+        if (tracer && tracing(stage) && tracer.canvas.style.opacity === '1') {
+          tracer.tracer.renderSample();
+          // Read in the same task as the sample, before the canvas hands the frame on.
+          return tracer.canvas.toDataURL('image/jpeg', 0.92);
+        }
+        const size = renderer.getSize(new THREE.Vector2());
+        const ratio = renderer.getPixelRatio();
+        // Drawn again bigger, at the same proportions so the camera sees the same picture.
+        const w = CAPTURE_WIDTH_PX;
+        const h = Math.round((w * size.y) / size.x);
+        renderer.setPixelRatio(1);
+        renderer.setSize(w, h, false);
+        composer.setPixelRatio(1);
+        composer.setSize(w, h);
+        stage.draw();
+        // Read before the frame is handed to the page, which clears the canvas.
+        const image = renderer.domElement.toDataURL('image/jpeg', 0.92);
+        renderer.setPixelRatio(ratio);
+        renderer.setSize(size.x, size.y);
+        composer.setPixelRatio(ratio);
+        composer.setSize(size.x, size.y);
+        stage.draw();
+        return image;
+      },
+    }),
+    []
+  );
 
   if (failed) {
     return (
@@ -245,13 +730,57 @@ const Cabinet3DView: React.FC<Cabinet3DViewProps> = ({
 
   return (
     <div style={{ position: 'relative' }}>
-      <div ref={containerRef} style={{ width: '100%', height, cursor: 'grab' }} />
+      <div ref={containerRef} style={{ position: 'relative', width: '100%', height, cursor: 'grab' }} />
+      {finish && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 8,
+            left: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '3px 10px',
+            borderRadius: 6,
+            background: 'rgba(255, 255, 255, 0.85)',
+            fontSize: 12,
+            color: '#3d3c39',
+          }}
+        >
+          <Tooltip
+            title={
+              noWebGPU
+                ? 'Needs a browser with WebGPU (Chrome or Edge, or Safari 26); this one draws the realistic look without it.'
+                : 'Light, shadow and reflections worked out as in a photo: a few seconds after the view stops moving, the picture sharpens toward a photo. Turn it off on a slow computer.'
+            }
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Switch size="small" checked={rayTraced && !noWebGPU} disabled={noWebGPU} onChange={toggleRayTraced} />
+              Ray-traced light
+            </span>
+          </Tooltip>
+          {rayTraced && !noWebGPU && traceProgress !== null && (
+            <span style={{ color: '#7a7873', fontVariantNumeric: 'tabular-nums' }}>
+              {traceProgress === 'preparing'
+                ? 'Preparing…'
+                : traceProgress >= 1
+                  ? 'Done'
+                  : `Refining ${Math.round(traceProgress * 100)}%`}
+            </span>
+          )}
+        </div>
+      )}
       {cabinets.length === 0 && walls.length === 0 && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5f5e5b', fontSize: 13, pointerEvents: 'none' }}>
           No cabinets to show yet. Add cabinets in the Edit tab and they appear here.
         </div>
       )}
-      <div style={{ position: 'absolute', top: 8, right: 8 }}>
+      <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 6 }}>
+        <Tooltip title="Stand across the room at eye height, as a photo of the kitchen would be taken">
+          <Button size="small" icon={<EyeOutlined />} onClick={eyeLevel} disabled={solids.length === 0}>
+            Eye level
+          </Button>
+        </Tooltip>
         <Tooltip title="Back to the starting view">
           <Button size="small" icon={<AimOutlined />} onClick={frameView}>
             Reset view
@@ -260,6 +789,6 @@ const Cabinet3DView: React.FC<Cabinet3DViewProps> = ({
       </div>
     </div>
   );
-};
+});
 
 export default Cabinet3DView;

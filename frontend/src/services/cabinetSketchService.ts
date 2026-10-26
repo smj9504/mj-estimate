@@ -51,6 +51,20 @@ export const cabinetSketchService = {
     );
     return normalize(response.data);
   },
+
+  /**
+   * Redraw the 3D view's realistic render as a photo of the finished
+   * kitchen (an AI concept picture; not stored). `finish` is the finish in
+   * words (finishWords), `notes` anything else the picture should show.
+   */
+  makeAiPhoto: async (
+    estimateId: string,
+    request: { image: string; finish: string; notes?: string }
+  ): Promise<{ image: string; model: string }> => {
+    // An image model takes a while to answer.
+    const response = await api.post(`${BASE_URL}/${estimateId}/sketch/ai-photo`, request, { timeout: 150000 });
+    return response.data;
+  },
 };
 
 export default cabinetSketchService;

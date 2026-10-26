@@ -233,6 +233,9 @@ class Settings(BaseSettings):
     PHOTO_CLASSIFICATION_EFFORT: str = os.getenv("PHOTO_CLASSIFICATION_EFFORT", "low")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    # Cabinet sketch AI photo: the Gemini image model (GEMINI_API_KEY) that
+    # turns the 3D view's realistic render into a photo-like picture.
+    CABINET_AI_PHOTO_MODEL: str = os.getenv("CABINET_AI_PHOTO_MODEL", "gemini-nano-banana-2.1")
 
     # Storage Configuration
     STORAGE_PROVIDER: str = os.getenv("STORAGE_PROVIDER", "local")  # local, gdrive, gcs, s3, azure

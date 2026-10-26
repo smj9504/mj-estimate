@@ -14,6 +14,7 @@ import type {
   CabinetSketchWall,
   CabinetSketchCabinet,
   CabinetSketchAppliance,
+  CabinetSketchFinish,
   CabinetSketchTool,
   CabinetSketchSelection,
 } from '../types/cabinetSketch';
@@ -53,6 +54,7 @@ type CabinetSketchAction =
   | { type: 'SYNC_CABINETS'; payload: CabinetSketchCabinet[] }
   | { type: 'UPDATE_APPLIANCES'; payload: (Partial<CabinetSketchAppliance> & { id: string })[] }
   | { type: 'SYNC_APPLIANCES'; payload: CabinetSketchAppliance[] }
+  | { type: 'SET_FINISH'; payload: CabinetSketchFinish }
   | { type: 'LOAD_OVERLAY_DATA'; payload: CabinetSketchOverlayData }
   | { type: 'MARK_SAVED' }
   | { type: 'UNDO' }
@@ -342,6 +344,18 @@ function cabinetSketchReducer(
       };
     }
 
+    // The realistic 3D look's finish, as one undo step.
+    case 'SET_FINISH': {
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: { ...state.overlayData, finish: action.payload },
+      };
+    }
+
     case 'LOAD_OVERLAY_DATA':
       return {
         ...state,
@@ -427,6 +441,7 @@ export interface CabinetSketchStateReturn {
   syncCabinets: (cabinets: CabinetSketchCabinet[]) => void;
   updateAppliances: (patches: (Partial<CabinetSketchAppliance> & { id: string })[]) => void;
   syncAppliances: (appliances: CabinetSketchAppliance[]) => void;
+  setFinish: (finish: CabinetSketchFinish) => void;
   loadOverlayData: (data: CabinetSketchOverlayData) => void;
   markSaved: () => void;
 
@@ -502,6 +517,10 @@ export function useCabinetSketchState(
     (appliances: CabinetSketchAppliance[]) => dispatch({ type: 'SYNC_APPLIANCES', payload: appliances }),
     []
   );
+  const setFinish = useCallback(
+    (finish: CabinetSketchFinish) => dispatch({ type: 'SET_FINISH', payload: finish }),
+    []
+  );
   const loadOverlayData = useCallback(
     (data: CabinetSketchOverlayData) => dispatch({ type: 'LOAD_OVERLAY_DATA', payload: data }),
     []
@@ -536,6 +555,7 @@ export function useCabinetSketchState(
     syncCabinets,
     updateAppliances,
     syncAppliances,
+    setFinish,
     loadOverlayData,
     markSaved,
     undo,
