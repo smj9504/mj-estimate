@@ -250,7 +250,8 @@ const SupplementDetail: React.FC = () => {
 
   const { data: bathroomEstimatesForBid = [] } = useQuery({
     queryKey: ['bathroom-estimates-for-bid'],
-    queryFn: () => bathroomEstimateService.list({ page_size: 50 }).then(r => r.items),
+    // A bid item goes to the carrier, so only restorations — never an upgrade option
+    queryFn: () => bathroomEstimateService.list({ page_size: 50, kind: 'restore' }).then(r => r.items),
     enabled: bidItemModalOpen && bidItemType === 'bathroom',
   });
   const { data: cabinetEstimatesForBid = [] } = useQuery({

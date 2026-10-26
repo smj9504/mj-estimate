@@ -3,7 +3,7 @@ Bathroom Estimate API endpoints
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -45,13 +45,16 @@ from .pricing import (
 )
 from .schemas import (
     BathroomEstimateCreate,
+    BathroomEstimateGroupResponse,
     BathroomEstimateListResponse,
     BathroomEstimateResponse,
     BathroomEstimateUpdate,
     HistoryResponse,
     LineItemCreate,
     LineItemUpdate,
+    OptionLabelUpdate,
     PricingInfoResponse,
+    ProjectTypeUpdate,
 )
 from .service import BathroomEstimateService
 
@@ -118,6 +121,8 @@ def list_estimates(
     company_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    kind: Optional[Literal["restore", "option"]] = Query(None),
+    grouped: bool = Query(False, description="One row per bathroom job"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     session: DatabaseSession = Depends(get_db_session),
@@ -130,6 +135,8 @@ def list_estimates(
         company_id=company_id,
         status=status,
         search=search,
+        kind=kind,
+        grouped=grouped,
         page=page,
         page_size=page_size,
     )
@@ -170,14 +177,82 @@ def update_estimate(
 @router.delete("/{estimate_id}")
 def delete_estimate(
     estimate_id: str,
+    whole_group: bool = Query(False, description="Delete every estimate of the job"),
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
     """Delete a bathroom estimate."""
     service = BathroomEstimateService(session)
-    if not service.delete_estimate(estimate_id):
+    try:
+        deleted = service.delete_estimate(estimate_id, whole_group=whole_group)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    if not deleted:
         raise HTTPException(status_code=404, detail="Estimate not found")
     return {"message": "Estimate deleted"}
+
+
+# ── Estimate group (restoration + options) ──
+
+@router.get("/{estimate_id}/group", response_model=BathroomEstimateGroupResponse)
+def get_estimate_group(
+    estimate_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Every estimate of this one's job, with line items, for comparing them."""
+    service = BathroomEstimateService(session)
+    result = service.get_group(estimate_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+@router.post("/{estimate_id}/options", response_model=BathroomEstimateResponse)
+def add_option(
+    estimate_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Add an option to the job, starting as a copy of this estimate."""
+    service = BathroomEstimateService(session)
+    result = service.add_option(estimate_id, created_by_id=current_user.id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+@router.put("/{estimate_id}/option-label", response_model=BathroomEstimateResponse)
+def rename_option(
+    estimate_id: str,
+    data: OptionLabelUpdate,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Rename an option."""
+    service = BathroomEstimateService(session)
+    try:
+        result = service.rename_option(estimate_id, data.option_label)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+@router.put("/{estimate_id}/project-type", response_model=BathroomEstimateResponse)
+def set_project_type(
+    estimate_id: str,
+    data: ProjectTypeUpdate,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Switch the whole job between an insurance claim and a remodel."""
+    service = BathroomEstimateService(session)
+    result = service.set_project_type(estimate_id, data.project_type)
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
 
 
 # ── Calculation ──
@@ -399,6 +474,36 @@ def export_pdf_with_sketch(
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'attachment; filename="bathroom_estimate_{estimate_id[:8]}_{"detail" if show_breakdown_prices else "clean"}.pdf"'
+        },
+    )
+
+
+@router.get("/{estimate_id}/export/proposal-pdf")
+def export_proposal_pdf(
+    estimate_id: str,
+    show_signature: bool = Query(True),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """The customer's comparison of every estimate of this one's job.
+
+    For the customer only: the carrier gets the restoration's own PDF.
+    """
+    from .export_service import BathroomExportService
+
+    service = BathroomEstimateService(session)
+    group = service.get_group(estimate_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+    pdf_bytes = BathroomExportService().generate_proposal_pdf(
+        group, show_signature=show_signature,
+    )
+    return StreamingResponse(
+        pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="bathroom_options_{estimate_id[:8]}.pdf"'
         },
     )
 

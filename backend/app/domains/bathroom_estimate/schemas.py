@@ -3,7 +3,7 @@ Bathroom Remodel Estimate Pydantic schemas
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -103,7 +103,8 @@ class BathroomEstimateBase(BaseModel):
 
 
 class BathroomEstimateCreate(BathroomEstimateBase):
-    pass
+    # insurance → the new estimate is the restoration; remodel → Option A
+    project_type: Literal["insurance", "remodel"] = "insurance"
 
 
 class BathroomEstimateUpdate(BaseModel):
@@ -221,6 +222,27 @@ class LineItemResponse(BaseModel):
         from_attributes = True
 
 
+# ── Estimate group schemas ──
+
+class GroupMemberSummary(BaseModel):
+    """One estimate of a bathroom job, as the group switcher shows it."""
+    id: str
+    kind: str
+    option_label: Optional[str] = None
+    option_order: int = 0
+    status: str
+    total: float = 0
+    updated_at: Optional[datetime] = None
+
+
+class OptionLabelUpdate(BaseModel):
+    option_label: str = Field(..., min_length=1, max_length=100)
+
+
+class ProjectTypeUpdate(BaseModel):
+    project_type: Literal["insurance", "remodel"]
+
+
 # ── Response schemas ──
 
 class BathroomEstimateResponse(BaseModel):
@@ -229,6 +251,14 @@ class BathroomEstimateResponse(BaseModel):
     company_id: Optional[str] = None
     created_by_id: Optional[str] = None
     status: str
+
+    # Estimate group
+    group_id: Optional[str] = None
+    project_type: str = "insurance"
+    kind: str = "restore"
+    option_label: Optional[str] = None
+    option_order: int = 0
+    group_members: List[GroupMemberSummary] = []
 
     # Project meta
     property_address: Optional[str] = None
@@ -345,6 +375,13 @@ class BathroomEstimateListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class BathroomEstimateGroupResponse(BaseModel):
+    """Every estimate of a bathroom job with its line items, for comparing them."""
+    group_id: str
+    project_type: str
+    members: List[BathroomEstimateResponse]
 
 
 # ── History schemas ──

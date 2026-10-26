@@ -27,7 +27,8 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { bathroomEstimateService } from '../services/bathroomEstimateService';
-import type { BathroomEstimate } from '../types/bathroomEstimate';
+import type { BathroomEstimate, BathroomProjectType } from '../types/bathroomEstimate';
+import { PROJECT_TYPE_LABELS } from '../components/bathroom-estimate/BEGroupBar';
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -37,6 +38,26 @@ const STATUS_COLORS: Record<string, string> = {
   calculated: 'processing',
   approved: 'success',
   exported: 'purple',
+};
+
+const money = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+const dollars = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
+
+/** A job's figure: the restoration's total, or the range of a remodel's options. */
+const jobTotal = (record: BathroomEstimate): string => {
+  if (record.project_type !== 'remodel') return record.total ? money(record.total) : '-';
+  const totals = (record.group_members || []).map((m) => m.total).filter((t) => t > 0);
+  if (!totals.length) return '-';
+  const low = Math.min(...totals);
+  const high = Math.max(...totals);
+  return low === high ? money(low) : `${dollars(low)}–${dollars(high)}`;
+};
+
+/** The job's estimates beyond the one the row's figure is. */
+const optionsNote = (record: BathroomEstimate): string | null => {
+  const options = (record.group_members || []).filter((m) => m.kind === 'option');
+  if (record.project_type === 'remodel') return options.length > 1 ? `${options.length} options` : null;
+  return options.length ? `+ ${options.length} upgrade option${options.length === 1 ? '' : 's'}` : null;
 };
 
 const BathroomEstimateList: React.FC = () => {
@@ -55,18 +76,25 @@ const BathroomEstimateList: React.FC = () => {
       bathroomEstimateService.list({
         search: search || undefined,
         status: statusFilter,
+        grouped: true,
         page,
         page_size: pageSize,
       }),
   });
 
+  // A row is a whole bathroom job, so deleting it deletes all its estimates
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => bathroomEstimateService.delete(id),
+    mutationFn: (id: string) => bathroomEstimateService.delete(id, { wholeGroup: true }),
     onSuccess: () => {
       message.success('Estimate deleted');
       queryClient.invalidateQueries({ queryKey: ['bathroom-estimates'] });
     },
   });
+
+  const deletePrompt = (record: BathroomEstimate) => {
+    const count = record.group_members?.length || 1;
+    return count > 1 ? `Delete this job and all ${count} of its estimates?` : 'Delete this estimate?';
+  };
 
   const cloneMutation = useMutation({
     mutationFn: (id: string) => bathroomEstimateService.clone(id),
@@ -76,13 +104,37 @@ const BathroomEstimateList: React.FC = () => {
     },
   });
 
-  const handleCreate = async () => {
+  const handleCreate = async (projectType: BathroomProjectType) => {
     try {
-      const result = await bathroomEstimateService.create({});
+      const result = await bathroomEstimateService.create({ project_type: projectType });
       navigate(`/bathroom-estimates/${result.id}`);
     } catch {
       message.error('Failed to create estimate');
     }
+  };
+
+  const createMenu = {
+    items: [
+      {
+        key: 'insurance',
+        label: (
+          <div>
+            <div>{PROJECT_TYPE_LABELS.insurance}</div>
+            <Text type="secondary" style={{ fontSize: 12 }}>Restoration for the carrier, upgrade options for the customer</Text>
+          </div>
+        ),
+      },
+      {
+        key: 'remodel',
+        label: (
+          <div>
+            <div>{PROJECT_TYPE_LABELS.remodel}</div>
+            <Text type="secondary" style={{ fontSize: 12 }}>Options for the customer, no insurance</Text>
+          </div>
+        ),
+      },
+    ],
+    onClick: ({ key }: { key: string }) => handleCreate(key as BathroomProjectType),
   };
 
   const columns = [
@@ -114,6 +166,15 @@ const BathroomEstimateList: React.FC = () => {
       },
     },
     {
+      title: 'Type',
+      key: 'type',
+      render: (_: any, record: BathroomEstimate) => (
+        <Tag color={record.project_type === 'remodel' ? 'green' : 'blue'}>
+          {PROJECT_TYPE_LABELS[record.project_type || 'insurance']}
+        </Tag>
+      ),
+    },
+    {
       title: 'Client',
       dataIndex: 'client_name',
       key: 'client',
@@ -131,11 +192,17 @@ const BathroomEstimateList: React.FC = () => {
     },
     {
       title: 'Total',
-      dataIndex: 'total',
       key: 'total',
       align: 'right' as const,
-      render: (total: number) =>
-        total ? `$${total.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '-',
+      render: (_: any, record: BathroomEstimate) => {
+        const note = optionsNote(record);
+        return (
+          <div style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <div>{jobTotal(record)}</div>
+            {note && <Text type="secondary" style={{ fontSize: 12 }}>{note}</Text>}
+          </div>
+        );
+      },
     },
     {
       title: 'Created',
@@ -162,7 +229,7 @@ const BathroomEstimateList: React.FC = () => {
             onClick={() => cloneMutation.mutate(record.id)}
           />
           <Popconfirm
-            title="Delete this estimate?"
+            title={deletePrompt(record)}
             onConfirm={() => deleteMutation.mutate(record.id)}
           >
             <Button size="small" danger icon={<DeleteOutlined />} />
@@ -205,7 +272,7 @@ const BathroomEstimateList: React.FC = () => {
                   label: 'Delete',
                   danger: true,
                   onClick: () => {
-                    if (window.confirm('Delete this estimate?')) {
+                    if (window.confirm(deletePrompt(record))) {
                       deleteMutation.mutate(record.id);
                     }
                   },
@@ -224,6 +291,9 @@ const BathroomEstimateList: React.FC = () => {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
             <Tag color={STATUS_COLORS[record.status] || 'default'}>{record.status?.toUpperCase()}</Tag>
+            <Tag color={record.project_type === 'remodel' ? 'green' : 'blue'}>
+              {PROJECT_TYPE_LABELS[record.project_type || 'insurance']}
+            </Tag>
             {bathLabel && <Text type="secondary" style={{ fontSize: 12 }}>{bathLabel}</Text>}
           </div>
           <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 2 }}>
@@ -236,11 +306,14 @@ const BathroomEstimateList: React.FC = () => {
             {record.client_name && (
               <Text type="secondary" style={{ fontSize: 12 }}>{record.client_name}</Text>
             )}
-            {record.total ? (
+            {jobTotal(record) !== '-' && (
               <Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>
-                ${record.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                {jobTotal(record)}
               </Text>
-            ) : null}
+            )}
+            {optionsNote(record) && (
+              <Text type="secondary" style={{ fontSize: 12 }}>{optionsNote(record)}</Text>
+            )}
             {record.created_at && (
               <Text type="secondary" style={{ fontSize: 12 }}>
                 {new Date(record.created_at).toLocaleDateString()}
@@ -257,9 +330,11 @@ const BathroomEstimateList: React.FC = () => {
       <Card
         title={<Title level={4} style={{ margin: 0 }}>Bathroom Estimates</Title>}
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            {isMobile ? 'New' : 'New Estimate'}
-          </Button>
+          <Dropdown menu={createMenu} trigger={['click']} placement="bottomRight">
+            <Button type="primary" icon={<PlusOutlined />}>
+              {isMobile ? 'New' : 'New Estimate'}
+            </Button>
+          </Dropdown>
         }
         styles={{
           header: isMobile ? { padding: '0 12px' } : undefined,

@@ -778,7 +778,10 @@ def create_bid_item(supplement_id: str, data: BidItemEstimateCreate):
 def update_bid_item(supplement_id: str, item_id: str, data: BidItemEstimateUpdate):
     service = _get_service()
     update_data = data.dict(exclude_unset=True)
-    result = service.update_bid_item(item_id, update_data)
+    try:
+        result = service.update_bid_item(item_id, update_data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not result:
         raise HTTPException(status_code=404, detail="Bid item not found")
     return result

@@ -6,10 +6,13 @@ import api from './api';
 import type {
   BathroomEstimate,
   BathroomEstimateCreate,
+  BathroomEstimateGroup,
+  BathroomEstimateKind,
   BathroomEstimateListResponse,
   BathroomEstimateUpdate,
   BathroomEstimateHistory,
   BathroomPricingInfo,
+  BathroomProjectType,
 } from '../types/bathroomEstimate';
 
 const BASE_URL = '/api/bathroom-estimates';
@@ -29,6 +32,10 @@ export const bathroomEstimateService = {
     company_id?: string;
     status?: string;
     search?: string;
+    /** 'restore' = only restorations, the estimates that may go to the carrier */
+    kind?: BathroomEstimateKind;
+    /** One row per bathroom job (its first estimate), with every estimate's summary */
+    grouped?: boolean;
     page?: number;
     page_size?: number;
   }) {
@@ -51,9 +58,54 @@ export const bathroomEstimateService = {
     return data as BathroomEstimate;
   },
 
-  async delete(id: string) {
-    const { data } = await api.delete(`${BASE_URL}/${id}`);
+  async delete(id: string, options?: { wholeGroup?: boolean }) {
+    const { data } = await api.delete(`${BASE_URL}/${id}`, {
+      params: options?.wholeGroup ? { whole_group: true } : undefined,
+    });
     return data;
+  },
+
+  // ── Estimate group (restoration + options) ──
+
+  async getGroup(id: string) {
+    const { data } = await api.get(`${BASE_URL}/${id}/group`);
+    return data as BathroomEstimateGroup;
+  },
+
+  /** A new option in the same job, starting as a copy of this estimate. */
+  async addOption(id: string) {
+    const { data } = await api.post(`${BASE_URL}/${id}/options`);
+    return data as BathroomEstimate;
+  },
+
+  async renameOption(id: string, optionLabel: string) {
+    const { data } = await api.put(`${BASE_URL}/${id}/option-label`, { option_label: optionLabel });
+    return data as BathroomEstimate;
+  },
+
+  async setProjectType(id: string, projectType: BathroomProjectType) {
+    const { data } = await api.put(`${BASE_URL}/${id}/project-type`, { project_type: projectType });
+    return data as BathroomEstimate;
+  },
+
+  /** The customer's side-by-side of every estimate of the job. Never for the carrier. */
+  async exportProposalPdf(id: string, options?: { show_signature?: boolean; address?: string }) {
+    const response = await api.get(`${BASE_URL}/${id}/export/proposal-pdf`, {
+      responseType: 'blob',
+      params: options?.show_signature === false ? { show_signature: false } : undefined,
+    });
+    const sanitized = (options?.address || '')
+      .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .trim()
+      .replace(/\s+/g, '_');
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `bathroom_options_${sanitized || id.substring(0, 8)}.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   },
 
   // ── Calculation ──

@@ -2,7 +2,10 @@
 Bathroom Estimate service layer
 """
 
+import copy
 import logging
+import string
+import uuid
 from typing import Any, Dict, List, Optional
 
 from app.core.interfaces import DatabaseSession
@@ -22,6 +25,39 @@ from .schemas import BathroomEstimateCreate, BathroomEstimateUpdate
 
 logger = logging.getLogger(__name__)
 
+# Facts about the job rather than the scope: every estimate of a bathroom
+# job shares them, so changing one estimate's changes them all.
+GROUP_SHARED_FIELDS = (
+    "claim_id", "company_id", "property_address", "city", "state",
+    "zip_code", "building_type", "year_built", "designation",
+)
+
+# Columns a copy never takes from its source: its identity, its place in a
+# job and its bookkeeping. Everything else is the scope and is copied, so a
+# column added later is copied without anyone having to list it.
+_NOT_COPIED = {
+    "id", "created_at", "updated_at", "created_by_id", "status",
+    "group_id", "project_type", "kind", "option_label", "option_order",
+}
+
+
+def _next_option_label(members: List[BathroomEstimate]) -> str:
+    taken = {m.option_label for m in members}
+    for letter in string.ascii_uppercase:
+        if f"Option {letter}" not in taken:
+            return f"Option {letter}"
+    n = len(string.ascii_uppercase) + 1
+    while f"Option {n}" in taken:
+        n += 1
+    return f"Option {n}"
+
+
+def _renumber(members: List[BathroomEstimate]):
+    """The restoration first, then the options in the order they had."""
+    ordered = sorted(members, key=lambda m: (m.kind != "restore", m.option_order))
+    for i, m in enumerate(ordered):
+        m.option_order = i
+
 
 class BathroomEstimateService:
     def __init__(self, session: DatabaseSession):
@@ -35,13 +71,25 @@ class BathroomEstimateService:
     def create_estimate(
         self, data: BathroomEstimateCreate, created_by_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Create a new bathroom estimate."""
-        estimate_data = data.dict()
-        estimate_data["created_by_id"] = created_by_id
-        estimate_data["status"] = "draft"
+        """Create a new bathroom estimate, the first of its own job.
 
-        result = self.estimate_repo.create(estimate_data)
-        estimate_id = result["id"]
+        An insurance job starts with its restoration, a remodel job with
+        Option A.
+        """
+        estimate_data = data.dict()
+        estimate_id = str(uuid.uuid4())
+        remodel = estimate_data.get("project_type") == "remodel"
+        estimate_data.update({
+            "id": estimate_id,
+            "group_id": estimate_id,
+            "kind": "option" if remodel else "restore",
+            "option_label": "Option A" if remodel else None,
+            "option_order": 0,
+            "created_by_id": created_by_id,
+            "status": "draft",
+        })
+
+        self.estimate_repo.create(estimate_data)
         self.session.flush()
         return self._get_full_estimate(estimate_id)
 
@@ -55,24 +103,40 @@ class BathroomEstimateService:
         company_id: Optional[str] = None,
         status: Optional[str] = None,
         search: Optional[str] = None,
+        kind: Optional[str] = None,
+        grouped: bool = False,
         page: int = 1,
         page_size: int = 50,
     ) -> tuple:
-        """List estimates with filters."""
+        """List estimates with filters.
+
+        grouped: one row per bathroom job (its first estimate), each with
+        the summaries of all its estimates.
+        """
         estimates, total = self.estimate_repo.find_by_filters(
             claim_id=claim_id,
             company_id=company_id,
             status=status,
             search=search,
+            kind=kind,
+            grouped=grouped,
             page=page,
             page_size=page_size,
         )
+        members_by_group: Dict[str, List[Dict[str, Any]]] = {}
+        for row in self.estimate_repo.find_member_summaries(
+            [str(est.group_id or est.id) for est in estimates]
+        ):
+            members_by_group.setdefault(str(row.group_id), []).append(
+                self._member_summary(row)
+            )
         items = []
         for est in estimates:
             item = self.estimate_repo._convert_to_dict(est)
             item["line_items"] = [
                 self.line_item_repo._convert_to_dict(li) for li in est.line_items
             ]
+            item["group_members"] = members_by_group.get(str(est.group_id or est.id), [])
             self._enrich_claim_info(est, item)
             items.append(item)
         return items, total
@@ -108,17 +172,48 @@ class BathroomEstimateService:
                     except Exception:
                         pass
 
+            self._share_with_group(estimate, update_dict)
+
         self.session.flush()
         if skip_full_read:
             return {"id": estimate_id}
         return self._get_full_estimate(estimate_id)
 
-    def delete_estimate(self, estimate_id: str) -> bool:
-        """Delete an estimate and all related data (cascaded)."""
-        estimate = self.estimate_repo.get_by_id(estimate_id)
+    def _share_with_group(self, estimate: BathroomEstimate, update_dict: Dict[str, Any]):
+        """Carry job facts (address, claim, company…) to the job's other estimates."""
+        shared = {k: update_dict[k] for k in GROUP_SHARED_FIELDS if k in update_dict}
+        if not shared:
+            return
+        for member in self._group_members(estimate):
+            if str(member.id) == str(estimate.id):
+                continue
+            changed = {k: v for k, v in shared.items() if getattr(member, k) != v}
+            if changed:
+                self.estimate_repo.update(str(member.id), changed)
+
+    def delete_estimate(self, estimate_id: str, whole_group: bool = False) -> bool:
+        """Delete an estimate and all related data (cascaded).
+
+        whole_group deletes every estimate of the job. A restoration that
+        still has options can't go on its own: the options were priced as
+        upgrades on it.
+        """
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
         if not estimate:
             return False
+        members = self._group_members(estimate)
+        if whole_group:
+            for member in members:
+                self.estimate_repo.delete(str(member.id))
+            self.session.flush()
+            return True
+        if estimate.kind == "restore" and len(members) > 1:
+            raise ValueError(
+                "This restoration still has upgrade options. Delete the "
+                "options first, or delete the whole job from the estimate list."
+            )
         self.estimate_repo.delete(estimate_id)
+        _renumber([m for m in members if str(m.id) != str(estimate_id)])
         self.session.flush()
         return True
 
@@ -179,57 +274,42 @@ class BathroomEstimateService:
     def clone_estimate(
         self, estimate_id: str, created_by_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        """Clone an existing estimate into a new draft."""
+        """Clone an existing estimate into a new draft, the first of a new job."""
         source = self.estimate_repo.find_by_id_with_relations(estimate_id)
         if not source:
             return None
 
-        # Fields to copy
-        copy_fields = [
-            "claim_id", "company_id", "property_address", "city", "state",
-            "zip_code", "building_type", "year_built", "designation",
-            "bath_function", "length_ft", "width_ft", "height_ft",
-            "floor_sf", "wall_sf", "demo_floor", "demo_walls",
-            "demo_ceiling", "replace_shower", "replace_tub", "replace_vanity",
-            "replace_toilet",
-            "detach_reset_shower", "detach_reset_tub",
-            "detach_reset_vanity", "detach_reset_toilet",
-            "replace_mirror", "detach_reset_mirror",
-            "replace_vanity_light", "detach_reset_vanity_light",
-            "demo_already_done",
-            "repair_drywall_walls", "repair_drywall_walls_sf",
-            "repair_drywall_ceiling", "repair_drywall_ceiling_sf",
-            "repair_subfloor", "repair_subfloor_sf",
-            "water_damage", "mold_suspected",
-            "existing_tub_material", "shower_spec", "bathtub_spec",
-            "vanity_spec", "toilet_spec", "floor_spec", "walls_spec",
-            "accessories_spec", "plumbing_spec", "electrical_spec",
-            "substrate_spec", "hidden_costs", "sketch_data", "overview_text",
-            "include_overhead_profit", "overhead_pct", "profit_pct",
-            # Demo detail, cement board / insulation scope and the
-            # reverse-pricing target.
-            "demo_scope", "demo_floor_sf", "demo_wall_sf",
-            "demo_ceiling_sf", "replace_floor", "water_damage_source",
-            "demo_cement_board", "demo_cement_board_sf",
-            "replace_cement_board", "replace_cement_board_sf",
-            "demo_insulation_walls", "demo_insulation_walls_sf",
-            "demo_insulation_ceiling", "demo_insulation_ceiling_sf",
-            "install_insulation_walls", "install_insulation_walls_sf",
-            "install_insulation_ceiling",
-            "install_insulation_ceiling_sf",
-            "target_total",
-        ]
+        new_id = str(uuid.uuid4())
+        remodel = source.project_type == "remodel"
+        self._copy_estimate(source, {
+            "id": new_id,
+            "group_id": new_id,
+            "project_type": source.project_type,
+            "kind": "option" if remodel else "restore",
+            "option_label": "Option A" if remodel else None,
+            "option_order": 0,
+            "created_by_id": created_by_id,
+            "status": "draft",
+            "notes": "Cloned from estimate",
+        })
 
-        new_data = {"created_by_id": created_by_id, "status": "draft"}
-        for field in copy_fields:
-            new_data[field] = getattr(source, field, None)
-        new_data["notes"] = "Cloned from estimate"
+        # Recalculate totals for cloned estimate
+        self._recalc_estimate_totals(new_id)
+        return self._get_full_estimate(new_id)
 
-        result = self.estimate_repo.create(new_data)
-        new_id = result["id"]
+    def _copy_estimate(self, source: BathroomEstimate, fields: Dict[str, Any]) -> str:
+        """A new estimate with source's whole scope and line items, plus `fields`."""
+        new_data = {
+            col.name: copy.deepcopy(getattr(source, col.name))
+            for col in BathroomEstimate.__table__.columns
+            if col.name not in _NOT_COPIED
+        }
+        new_data.update(fields)
+        new_id = new_data.setdefault("id", str(uuid.uuid4()))
+
+        self.estimate_repo.create(new_data)
         self.session.flush()
 
-        # Clone line items
         for li in source.line_items:
             self.line_item_repo.create({
                 "estimate_id": new_id,
@@ -244,10 +324,108 @@ class BathroomEstimateService:
                 "display_order": li.display_order,
             })
         self.session.flush()
+        return new_id
 
-        # Recalculate totals for cloned estimate
-        self._recalc_estimate_totals(new_id)
+    # ── Estimate group ──
+
+    def _group_members(self, estimate: BathroomEstimate) -> List[BathroomEstimate]:
+        return self.estimate_repo.find_group_members(str(estimate.group_id or estimate.id))
+
+    @staticmethod
+    def _member_summary(member) -> Dict[str, Any]:
+        return {
+            "id": str(member.id),
+            "kind": member.kind,
+            "option_label": member.option_label,
+            "option_order": member.option_order,
+            "status": member.status,
+            "total": member.total or 0,
+            "updated_at": member.updated_at,
+        }
+
+    def add_option(
+        self, estimate_id: str, created_by_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """A new option in the same job, starting as a copy of this estimate.
+
+        It doesn't take the source's target total: that pins the total, so a
+        recalculated option would come back at the restoration's figure
+        whatever was upgraded.
+        """
+        source = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not source:
+            return None
+        members = self._group_members(source)
+        new_id = self._copy_estimate(source, {
+            "group_id": str(source.group_id or source.id),
+            "project_type": source.project_type,
+            "kind": "option",
+            "option_label": _next_option_label(members),
+            "option_order": max((m.option_order for m in members), default=0) + 1,
+            "created_by_id": created_by_id,
+            "status": "calculated" if source.line_items else "draft",
+            "target_total": None,
+        })
         return self._get_full_estimate(new_id)
+
+    def rename_option(self, estimate_id: str, label: str) -> Optional[Dict[str, Any]]:
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not estimate:
+            return None
+        if estimate.kind != "option":
+            raise ValueError("The restoration estimate has no option name.")
+        estimate.option_label = label.strip()
+        self.session.flush()
+        return self._get_full_estimate(estimate_id)
+
+    def set_project_type(self, estimate_id: str, project_type: str) -> Optional[Dict[str, Any]]:
+        """Switch the whole job between insurance and remodel.
+
+        To remodel, the restoration becomes an option like the others. To
+        insurance, the estimate this is asked from becomes the restoration.
+        """
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not estimate:
+            return None
+        members = self._group_members(estimate)
+        if project_type == "remodel":
+            for member in members:
+                if member.kind == "restore":
+                    member.kind = "option"
+                    member.option_label = _next_option_label(members)
+        elif not any(m.kind == "restore" for m in members):
+            estimate.kind = "restore"
+            estimate.option_label = None
+        for member in members:
+            member.project_type = project_type
+        _renumber(members)
+        self.session.flush()
+        return self._get_full_estimate(estimate_id)
+
+    def get_group(self, estimate_id: str) -> Optional[Dict[str, Any]]:
+        """Every estimate of this one's job, with line items, to compare them."""
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not estimate:
+            return None
+        members = [self._get_full_estimate(str(m.id)) for m in self._group_members(estimate)]
+        return {
+            "group_id": str(estimate.group_id or estimate.id),
+            "project_type": estimate.project_type,
+            "members": members,
+        }
+
+    def ensure_submittable_to_carrier(self, estimate_id: str):
+        """Only a restoration goes to the insurance company.
+
+        Options are what the customer pays for on top; sending one to the
+        carrier would put the upgrade on the claim.
+        """
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if estimate and estimate.kind != "restore":
+            raise ValueError(
+                f"{estimate.option_label or 'This option'} is an upgrade option. "
+                "Only the restoration estimate can go to the insurance company."
+            )
 
     # ── Line Item CRUD ──
 
@@ -258,14 +436,17 @@ class BathroomEstimateService:
         item = self.line_item_repo.get_by_id(item_id)
         if not item:
             return None
-        item_est_id = item.get('estimate_id', '') if isinstance(item, dict) else getattr(item, 'estimate_id', '')
-        if str(item_est_id) != estimate_id:
+
+        def current(field):
+            return item.get(field) if isinstance(item, dict) else getattr(item, field, None)
+
+        if str(current('estimate_id') or '') != estimate_id:
             return None
 
         # Auto-calculate total if qty or rate changed
         update = {k: v for k, v in data.items() if v is not None}
-        qty = update.get('quantity', item.quantity)
-        rate = update.get('unit_price', item.unit_price)
+        qty = update.get('quantity', current('quantity'))
+        rate = update.get('unit_price', current('unit_price'))
         if 'total' not in update:
             update['total'] = round(qty * rate, 2)
 
@@ -456,6 +637,12 @@ class BathroomEstimateService:
         result = self.estimate_repo._convert_to_dict(estimate)
         result["line_items"] = [
             self.line_item_repo._convert_to_dict(li) for li in estimate.line_items
+        ]
+        result["group_members"] = [
+            self._member_summary(row)
+            for row in self.estimate_repo.find_member_summaries(
+                [str(estimate.group_id or estimate.id)]
+            )
         ]
         self._enrich_claim_info(estimate, result)
         self._enrich_company_info(estimate, result)

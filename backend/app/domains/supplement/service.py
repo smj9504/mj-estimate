@@ -203,10 +203,19 @@ class SupplementService:
     # Bid Item Estimates
     # ============================================================
 
+    def _ensure_bathroom_restoration(self, session, data: Dict[str, Any]):
+        """A bid item goes to the carrier, so only a bathroom restoration may back it."""
+        if data.get('bathroom_estimate_id'):
+            from app.domains.bathroom_estimate.service import BathroomEstimateService
+            BathroomEstimateService(session).ensure_submittable_to_carrier(
+                str(data['bathroom_estimate_id'])
+            )
+
     def create_bid_item(self, data: Dict[str, Any]) -> Dict[str, Any]:
         session = self._get_session()
         try:
             from app.domains.supplement.repository import get_bid_item_estimate_repository
+            self._ensure_bathroom_restoration(session, data)
             repo = get_bid_item_estimate_repository(session)
             result = repo.create(data)
             self._recalculate_supplement_amount(session, str(data['supplement_id']))
@@ -224,6 +233,7 @@ class SupplementService:
         session = self._get_session()
         try:
             from app.domains.supplement.repository import get_bid_item_estimate_repository
+            self._ensure_bathroom_restoration(session, data)
             repo = get_bid_item_estimate_repository(session)
             result = repo.update(item_id, data)
             if result:
@@ -318,6 +328,13 @@ class SupplementService:
                 from app.domains.bathroom_estimate.export_service import BathroomExportService
                 svc = BathroomEstimateService(session)
                 estimate = svc.get_estimate(str(item.bathroom_estimate_id))
+                if estimate and estimate.get("kind", "restore") != "restore":
+                    # An upgrade option never goes to the carrier.
+                    logger.warning(
+                        f"Bid item {item.id} links bathroom option "
+                        f"{item.bathroom_estimate_id}; not attaching it"
+                    )
+                    return None
                 if estimate:
                     pdf_buf = BathroomExportService().generate_pdf(
                         estimate, show_signature=False

@@ -27,8 +27,19 @@ class BathroomEstimate(Base, BaseModel):
         Index("ix_bathroom_estimates_claim_id", "claim_id"),
         Index("ix_bathroom_estimates_company_id", "company_id"),
         Index("ix_bathroom_estimates_status", "status"),
+        Index("ix_bathroom_estimates_group_id", "group_id"),
         {"extend_existing": True},
     )
+
+    # ── Estimate group ──
+    # One bathroom job is one group. An insurance job holds one restoration
+    # (the estimate the carrier sees) plus any upgrade options; a remodel job
+    # holds options only. Every member is a full estimate of its own.
+    group_id = Column(UUIDType(), nullable=True)  # set on create; old rows = id
+    project_type = Column(String(20), default="insurance", nullable=False)  # insurance / remodel
+    kind = Column(String(20), default="restore", nullable=False)  # restore / option
+    option_label = Column(String(100), nullable=True)  # "Option A"; none on the restoration
+    option_order = Column(Integer, default=0, nullable=False)  # restoration 0, options after
 
     # Relationships to client system
     claim_id = Column(

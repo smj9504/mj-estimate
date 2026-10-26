@@ -358,6 +358,16 @@ export interface BathroomEstimate {
   // Relations
   line_items: BathroomEstimateLineItem[];
 
+  // Estimate group: one bathroom job. An insurance job is its restoration
+  // (the estimate the carrier sees) plus any upgrade options; a remodel job
+  // is options only.
+  group_id?: string;
+  project_type?: BathroomProjectType;
+  kind?: BathroomEstimateKind;
+  option_label?: string | null;
+  option_order?: number;
+  group_members?: BathroomGroupMember[];
+
   // Enriched
   claim_number?: string;
   client_name?: string;
@@ -367,16 +377,42 @@ export interface BathroomEstimate {
   updated_at?: string;
 }
 
+export type BathroomProjectType = 'insurance' | 'remodel';
+export type BathroomEstimateKind = 'restore' | 'option';
+
+/** One estimate of a bathroom job, as the switcher shows it. */
+export interface BathroomGroupMember {
+  id: string;
+  kind: BathroomEstimateKind;
+  option_label?: string | null;
+  option_order: number;
+  status: string;
+  total: number;
+  updated_at?: string | null;
+}
+
+export interface BathroomEstimateGroup {
+  group_id: string;
+  project_type: BathroomProjectType;
+  members: BathroomEstimate[];
+}
+
+/** What a job member is called on screen and on the customer's proposal. */
+export const memberName = (m: { kind?: string; option_label?: string | null }): string =>
+  m.kind === 'restore' ? 'Restoration' : m.option_label || 'Option';
+
 // ── Request types ──
 
 export type BathroomEstimateCreate = Omit<BathroomEstimate,
   'id' | 'status' | 'created_by_id' | 'subtotal' | 'overhead_amount' |
   'profit_amount' | 'tax_amount' | 'total' | 'methodology_notes' |
   'warning_flags' | 'line_items' | 'claim_number' | 'client_name' |
-  'created_at' | 'updated_at'
+  'created_at' | 'updated_at' |
+  // A job's shape changes through its own endpoints, not a save
+  'group_id' | 'kind' | 'option_label' | 'option_order' | 'group_members'
 >;
 
-export type BathroomEstimateUpdate = Partial<BathroomEstimateCreate>;
+export type BathroomEstimateUpdate = Partial<Omit<BathroomEstimateCreate, 'project_type'>>;
 
 // ── List response ──
 

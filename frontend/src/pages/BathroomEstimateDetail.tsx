@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Alert,
   Button,
@@ -44,7 +44,7 @@ import {
   AuditOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { resolveAddressParts } from '../utils/addressUtils';
 import { bathroomEstimateService } from '../services/bathroomEstimateService';
@@ -57,9 +57,11 @@ import type {
   BathroomEstimateHistory,
   BathroomPricingInfo,
 } from '../types/bathroomEstimate';
-import { PHASE_LABELS, isCustomTileShower } from '../types/bathroomEstimate';
+import { PHASE_LABELS, isCustomTileShower, memberName } from '../types/bathroomEstimate';
 import BESketchTab from '../components/bathroom-estimate/sketch/BESketchTab';
 import type { SketchFixtureSync } from '../components/bathroom-estimate/sketch/BESketchTab';
+import BEGroupBar from '../components/bathroom-estimate/BEGroupBar';
+import BEGroupCompareDrawer from '../components/bathroom-estimate/BEGroupCompareDrawer';
 
 const RegisterBidItemModal = React.lazy(() => import('../components/supplement/RegisterBidItemModal'));
 
@@ -89,10 +91,18 @@ const FALLBACK_ELECTRICAL_RATES: Record<string, number | Record<string, number>>
 const BathroomEstimateDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
-  const [activeTab, setActiveTab] = useState('project');
+  // Opening another estimate of the job keeps the tab you were on
+  const [activeTab, setActiveTab] = useState<string>(
+    (location.state as { tab?: string } | null)?.tab || 'project'
+  );
   const [registerBidItemOpen, setRegisterBidItemOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
+  // Edits made on this page since the last save or calculate: typed into the
+  // form or drawn on the sketch. Fields the page fills in itself don't count.
+  const unsavedRef = useRef(false);
 
   // ── Queries ──
   const { data: estimate, isLoading } = useQuery({
@@ -215,6 +225,7 @@ const BathroomEstimateDetail: React.FC = () => {
     mutationFn: (payload: BathroomEstimateUpdate) =>
       bathroomEstimateService.update(id!, payload),
     onSuccess: () => {
+      unsavedRef.current = false;
       message.success('Saved');
       queryClient.invalidateQueries({ queryKey: ['bathroom-estimate', id] });
     },
@@ -225,8 +236,11 @@ const BathroomEstimateDetail: React.FC = () => {
     mutationFn: (payload: BathroomEstimateUpdate) =>
       bathroomEstimateService.calculate(id!, payload),
     onSuccess: () => {
+      unsavedRef.current = false;
       message.success('Calculated successfully');
       queryClient.invalidateQueries({ queryKey: ['bathroom-estimate', id] });
+      // Job facts are shared, so the job's other estimates may have changed
+      queryClient.invalidateQueries({ queryKey: ['bathroom-estimate-group'] });
       setActiveTab('result');
     },
     onError: (err: any) => message.error(err?.response?.data?.detail || 'Calculation failed'),
@@ -332,8 +346,54 @@ const BathroomEstimateDetail: React.FC = () => {
     calculateMutation.mutate(values);
   }, [form, calculateMutation]);
 
+  // ── The job's other estimates ──
+  // Run `action` once this estimate's unsaved edits are saved or let go.
+  const guardUnsaved = useCallback((action: () => void) => {
+    if (!unsavedRef.current) {
+      action();
+      return;
+    }
+    const modal = Modal.confirm({
+      title: 'Save your changes first?',
+      content: `${estimate ? memberName(estimate) : 'This estimate'} has changes that aren't saved yet.`,
+      okText: 'Save',
+      cancelText: 'Stay here',
+      footer: (_, { OkBtn, CancelBtn }) => (
+        <>
+          <CancelBtn />
+          <Button
+            danger
+            onClick={() => {
+              unsavedRef.current = false;
+              modal.destroy();
+              action();
+            }}
+          >
+            Discard changes
+          </Button>
+          <OkBtn />
+        </>
+      ),
+      onOk: async () => {
+        await saveMutation.mutateAsync(form.getFieldsValue(true));
+        action();
+      },
+    });
+  }, [estimate, form, saveMutation]);
+
+  const openMember = useCallback((memberId: string, options?: { discard?: boolean }) => {
+    const go = () => navigate(`/bathroom-estimates/${memberId}`, { state: { tab: activeTab } });
+    if (options?.discard) {
+      unsavedRef.current = false;
+      go();
+    } else {
+      guardUnsaved(go);
+    }
+  }, [activeTab, guardUnsaved, navigate]);
+
   // ── Sketch → Form sync ──
   const handleSketchChange = useCallback((sketchData: any) => {
+    unsavedRef.current = true;
     form.setFieldValue('sketch_data', sketchData);
   }, [form]);
 
@@ -562,14 +622,17 @@ const BathroomEstimateDetail: React.FC = () => {
           </Title>
         </Space>
         <Space wrap>
-            <Button
-              icon={<AuditOutlined />}
-              onClick={() => setRegisterBidItemOpen(true)}
-              disabled={!estimate || estimate.status === 'draft'}
-              title="Register as Bid Item in Supplement"
-            >
-              Add to Supplement
-            </Button>
+            {/* A supplement goes to the carrier: only the restoration may */}
+            {estimate?.kind !== 'option' && (
+              <Button
+                icon={<AuditOutlined />}
+                onClick={() => setRegisterBidItemOpen(true)}
+                disabled={!estimate || estimate.status === 'draft'}
+                title="Register as Bid Item in Supplement"
+              >
+                Add to Supplement
+              </Button>
+            )}
             <Button icon={<SaveOutlined />} onClick={handleSave} loading={saveMutation.isPending}>
               Save
             </Button>
@@ -722,6 +785,18 @@ const BathroomEstimateDetail: React.FC = () => {
                       } catch { doExport(); }
                     },
                   },
+                  // The customer's side-by-side of the whole job; never for the carrier
+                  ...((estimate?.group_members?.length ?? 0) > 1 ? [
+                    { type: 'divider' as const },
+                    {
+                      key: 'pdf-proposal',
+                      label: 'Customer proposal (all estimates)',
+                      icon: <FilePdfOutlined />,
+                      onClick: () => bathroomEstimateService.exportProposalPdf(id!, {
+                        address: estimate?.property_address,
+                      }),
+                    },
+                  ] : []),
                 ],
               }}
             >
@@ -729,7 +804,11 @@ const BathroomEstimateDetail: React.FC = () => {
                 PDF <DownOutlined />
               </Button>
             </Dropdown>
-            <Button icon={<CopyOutlined />} onClick={() => cloneMutation.mutate()}>
+            <Button
+              icon={<CopyOutlined />}
+              onClick={() => cloneMutation.mutate()}
+              title="Copy this estimate into a new job, e.g. another bathroom"
+            >
               Clone
             </Button>
             <Button icon={<BookOutlined />} onClick={() => setGuideOpen(true)}>
@@ -737,6 +816,26 @@ const BathroomEstimateDetail: React.FC = () => {
             </Button>
         </Space>
       </div>
+
+      {estimate && (
+        <>
+          <BEGroupBar
+            estimate={estimate}
+            onOpen={openMember}
+            guardUnsaved={guardUnsaved}
+            onCompare={() => setCompareOpen(true)}
+          />
+          <BEGroupCompareDrawer
+            open={compareOpen}
+            onClose={() => setCompareOpen(false)}
+            estimate={estimate}
+            onOpen={(memberId) => {
+              setCompareOpen(false);
+              if (memberId !== estimate.id) openMember(memberId);
+            }}
+          />
+        </>
+      )}
 
       <Modal
         title="Plumbing & Electrical Guide"
@@ -788,7 +887,7 @@ const BathroomEstimateDetail: React.FC = () => {
         </div>
       </Modal>
 
-      <Form form={form} layout="vertical" size="small">
+      <Form form={form} layout="vertical" size="small" onValuesChange={() => { unsavedRef.current = true; }}>
         <Tabs activeKey={activeTab} onChange={setActiveTab} destroyOnHidden={false} items={[
           // ════════ TAB 1: Project Info ════════
           {
@@ -2913,4 +3012,13 @@ const BathroomEstimateDetail: React.FC = () => {
   );
 };
 
-export default BathroomEstimateDetail;
+/**
+ * Each estimate of a job opens at its own URL. Switching between them starts
+ * the page fresh, so no form field, sketch or tab state carries across.
+ */
+const BathroomEstimateDetailRoute: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  return <BathroomEstimateDetail key={id} />;
+};
+
+export default BathroomEstimateDetailRoute;
