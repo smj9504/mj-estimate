@@ -1,7 +1,7 @@
 /**
  * Turns the 3D model (cabinet3dModel.ts) into three.js objects: cabinet
  * boxes with their doors, drawers, glass and countertops, sinks, the
- * detach & reset appliances with a tag over each, walls and a floor. One
+ * detach & reset appliances, walls and a floor. One
  * inch is one world unit.
  *
  * Two looks. The drawing look follows the Front view's colours, every edge
@@ -81,8 +81,6 @@ const COLORS = {
   bowl: '#8f99a1',
   /** An apron sink's front, in the drawing look a face like the rest. */
   ceramic: '#FBF6EF',
-  /** The detach & reset tag, as on the plan. */
-  tag: '#b45309',
 };
 
 type Surface = keyof typeof COLORS;
@@ -770,43 +768,6 @@ function applianceObject(a: ApplianceSolid, selected: boolean, paint: Paint, wal
   return group;
 }
 
-/**
- * A tag that always faces the camera and shows over everything, where a
- * detach & reset appliance is: an HTML label (drawn by the view's
- * CSS2DRenderer), so it sits over the ray tracer's canvas as well as the
- * raster one, and stays out of every picture taken of the view.
- */
-function tagLabel(text: string): CSS2DObject {
-  const el = document.createElement('div');
-  el.textContent = text;
-  Object.assign(el.style, {
-    padding: '1px 7px',
-    borderRadius: '5px',
-    background: COLORS.tag,
-    color: '#ffffff',
-    font: '600 11px "Segoe UI", Inter, sans-serif',
-    whiteSpace: 'nowrap',
-    pointerEvents: 'none',
-  });
-  const label = new CSS2DObject(el);
-  label.userData.tag = true;
-  return label;
-}
-
-/**
- * The tag of an appliance: over one that stands on the floor or the
- * counter; on the face of one that hangs, or sits in a cabinet (an oven,
- * a disposal under the sink), so tags stacked one over another stay apart.
- */
-function applianceTag(a: ApplianceSolid): CSS2DObject {
-  const label = tagLabel(`D&R · ${a.spec.label}`);
-  const above = a.spec.mount === 'floor' || a.spec.mount === 'counter';
-  const [x, z] = toPlan(a, [a.width / 2, above ? a.back + a.depth / 2 : a.back + a.depth + 1]);
-  const y = above ? Math.max(a.bottom + a.height, COUNTER_TOP_IN) + 4 : a.bottom + a.height / 2;
-  label.position.set(x, y, z);
-  return label;
-}
-
 /** A countertop laid over several cabinets (the island top), in plan coordinates. */
 function slabObject(slab: CounterSlab, paint: Paint): THREE.Mesh {
   const top = new THREE.Mesh(prism(slab.outline, slab.bottom, COUNTER_TOP_IN, slab.holes), paint.mat('counter'));
@@ -924,7 +885,6 @@ export function buildCabinetScene(
   for (const filler of fillers) root.add(fillerObject(filler, paint));
   for (const a of appliances) {
     root.add(applianceObject(a, !!a.hostId && selectedIds.has(a.hostId), paint, walls));
-    root.add(applianceTag(a));
   }
   if (paint.realistic) {
     root.traverse((o) => {
@@ -953,7 +913,7 @@ export function cutAwayWalls(root: THREE.Object3D, camera: THREE.Camera): string
   return shown;
 }
 
-/** Free the GPU buffers of everything under `root`, but the kept textures (finishMaterials.ts), and take its tags off the page. */
+/** Free the GPU buffers of everything under `root`, but the kept textures (finishMaterials.ts), and take any HTML labels off the page. */
 export function disposeScene(root: THREE.Object3D) {
   root.traverse((obj) => {
     // A label's element is only taken off when the label itself is removed, not a group above it.

@@ -3,7 +3,7 @@
  *
  * The sketch in 3D: the plan's cabinets stood up at their real sizes, with
  * doors, drawers, glass, countertops, sinks, the detach & reset appliances
- * (each tagged) and the drawn walls. Drag to orbit,
+ * and the drawn walls. Drag to orbit,
  * scroll to zoom, right-drag to pan; click a cabinet to select it (Ctrl /
  * Cmd adds to the selection), click empty space to deselect.
  *
@@ -14,8 +14,8 @@
  * realistic look, ray-traced light (rayTracer.ts, on unless turned off)
  * takes over whenever the camera rests: a WebGPU canvas over the raster
  * one fades in as the picture sharpens toward a photo, and drops away the
- * moment the camera moves. The D&R tags are HTML labels over both. The
- * realistic view is what `capture` hands the AI photo.
+ * moment the camera moves. The realistic view is what `capture` hands the
+ * AI photo.
  *
  * View-only like the Front view: cabinets are moved in the plan and sized
  * in the Edit tab. Plain three.js rather than a React renderer — the scene
