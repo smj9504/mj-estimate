@@ -163,11 +163,17 @@ const wmSketchService = {
    * Generate and download a PDF sketch report for a WM job.
    * Triggers a browser download with the PDF file.
    * @param templateVariant - Template variant: 'a' (default), 'b' (formal), 'c' (modern)
+   * @param showInsurance - Print the insurance company, policy # and claim #
    */
-  downloadSketchReport: async (jobId: string, filename?: string, templateVariant: string = 'a'): Promise<void> => {
+  downloadSketchReport: async (
+    jobId: string,
+    filename?: string,
+    templateVariant: string = 'a',
+    showInsurance: boolean = true,
+  ): Promise<void> => {
     const response = await api.get(`${BASE_URL}/jobs/${jobId}/report`, {
       responseType: 'blob',
-      params: { template_variant: templateVariant },
+      params: { template_variant: templateVariant, show_insurance: showInsurance },
     });
     const blob = new Blob([response.data], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);

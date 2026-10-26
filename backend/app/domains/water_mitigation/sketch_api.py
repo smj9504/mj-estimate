@@ -825,12 +825,13 @@ def generate_scope_from_sketch(
 def generate_sketch_report(
     job_id: UUID,
     template_variant: str = Query("a", description="Template variant: a (default), b (formal), c (modern)"),
+    show_insurance: bool = Query(True, description="Print the insurance company, policy # and claim #"),
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_user),
 ):
     """
     Generate and download a PDF report that includes:
-    - Jobsite / homeowner / insurance information
+    - Jobsite / homeowner / insurance information (insurance only if show_insurance)
     - SVG floor plan for each floor sketch
     - Per-floor demolition, equipment, containment, and protection summaries
 
@@ -848,7 +849,9 @@ def generate_sketch_report(
 
     try:
         pdf_service = SketchPdfService(db)
-        pdf_bytes = pdf_service.generate_sketch_report(job_id, template_variant=template_variant)
+        pdf_bytes = pdf_service.generate_sketch_report(
+            job_id, template_variant=template_variant, show_insurance=show_insurance
+        )
     except DocumentResourceError as exc:
         raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "10"})
     except ValueError as exc:

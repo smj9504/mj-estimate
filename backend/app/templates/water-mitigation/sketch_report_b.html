@@ -325,7 +325,7 @@
     <div class="report-subtitle">Floor Plan &amp; Material Summary</div>
     <div class="report-meta">
       Report Date: {{ report_date | fmt_date }}
-      {% if job.claim_number %} &nbsp;&bull;&nbsp; Claim #{{ job.claim_number }}{% endif %}
+      {% if show_insurance and job.claim_number %} &nbsp;&bull;&nbsp; Claim #{{ job.claim_number }}{% endif %}
     </div>
   </div>
 
@@ -337,26 +337,32 @@
         <div class="label">Property Address</div>
         <div class="value {% if not job.property_address %}empty{% endif %}">{{ job.property_address or 'N/A' }}</div>
       </div>
+      {% if show_insurance %}
       <div class="info-cell">
         <div class="label">Insurance Company</div>
         <div class="value {% if not job.insurance_company %}empty{% endif %}">{{ job.insurance_company or '—' }}</div>
       </div>
+      {% endif %}
       <div class="info-cell">
         <div class="label">Homeowner</div>
         <div class="value {% if not job.homeowner_name %}empty{% endif %}">{{ job.homeowner_name or '—' }}</div>
       </div>
+      {% if show_insurance %}
       <div class="info-cell">
         <div class="label">Policy Number</div>
         <div class="value {% if not job.insurance_policy_number %}empty{% endif %}">{{ job.insurance_policy_number or '—' }}</div>
       </div>
+      {% endif %}
       <div class="info-cell">
         <div class="label">Phone</div>
         <div class="value {% if not job.homeowner_phone %}empty{% endif %}">{{ job.homeowner_phone or '—' }}</div>
       </div>
+      {% if show_insurance %}
       <div class="info-cell">
         <div class="label">Claim Number</div>
         <div class="value {% if not job.claim_number %}empty{% endif %}">{{ job.claim_number or '—' }}</div>
       </div>
+      {% endif %}
       <div class="info-cell">
         <div class="label">Email</div>
         <div class="value {% if not job.homeowner_email %}empty{% endif %}">{{ job.homeowner_email or '—' }}</div>

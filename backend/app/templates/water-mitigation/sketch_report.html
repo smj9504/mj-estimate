@@ -317,7 +317,7 @@
     </div>
     <div class="report-meta">
       <div><strong>Report Date:</strong> {{ report_date | fmt_date }}</div>
-      {% if job.claim_number %}
+      {% if show_insurance and job.claim_number %}
       <div><strong>Claim #:</strong> {{ job.claim_number }}</div>
       {% endif %}
     </div>
@@ -332,56 +332,66 @@
         <td class="info-value {% if not job.property_address %}empty{% endif %}">
           {{ job.property_address or 'N/A' }}
         </td>
+        {% if show_insurance %}
         <td class="col-divider"></td>
         <td class="info-label">Insurance Co.</td>
         <td class="info-value {% if not job.insurance_company %}empty{% endif %}">
           {{ job.insurance_company or '—' }}
         </td>
+        {% endif %}
       </tr>
       <tr>
         <td class="info-label">Homeowner</td>
         <td class="info-value {% if not job.homeowner_name %}empty{% endif %}">
           {{ job.homeowner_name or '—' }}
         </td>
+        {% if show_insurance %}
         <td class="col-divider"></td>
         <td class="info-label">Policy #</td>
         <td class="info-value {% if not job.insurance_policy_number %}empty{% endif %}">
           {{ job.insurance_policy_number or '—' }}
         </td>
+        {% endif %}
       </tr>
       <tr>
         <td class="info-label">Phone</td>
         <td class="info-value {% if not job.homeowner_phone %}empty{% endif %}">
           {{ job.homeowner_phone or '—' }}
         </td>
+        {% if show_insurance %}
         <td class="col-divider"></td>
         <td class="info-label">Claim #</td>
         <td class="info-value {% if not job.claim_number %}empty{% endif %}">
           {{ job.claim_number or '—' }}
         </td>
+        {% endif %}
       </tr>
       <tr>
         <td class="info-label">Email</td>
         <td class="info-value {% if not job.homeowner_email %}empty{% endif %}">
           {{ job.homeowner_email or '—' }}
         </td>
+        {% if show_insurance %}
         <td class="col-divider"></td>
         <td class="info-label">&nbsp;</td>
         <td class="info-value">&nbsp;</td>
+        {% endif %}
       </tr>
       <tr>
         <td class="info-label">Date of Loss</td>
         <td class="info-value {% if not job.date_of_loss %}empty{% endif %}">
           {{ job.date_of_loss | fmt_date }}
         </td>
+        {% if show_insurance %}
         <td class="col-divider"></td>
         <td class="info-label">&nbsp;</td>
         <td class="info-value">&nbsp;</td>
+        {% endif %}
       </tr>
       {% if job.mitigation_start_date or job.mitigation_end_date %}
       <tr>
         <td class="info-label">Mitigation Period</td>
-        <td colspan="4" class="info-value">
+        <td colspan="{{ 4 if show_insurance else 1 }}" class="info-value">
           {{ job.mitigation_start_date | fmt_date('%B %d, %Y') }}
           &nbsp;&rarr;&nbsp;
           {% if job.mitigation_end_date %}{{ job.mitigation_end_date | fmt_date('%B %d, %Y') }}{% else %}Ongoing{% endif %}

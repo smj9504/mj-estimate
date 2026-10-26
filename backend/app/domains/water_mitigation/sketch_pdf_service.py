@@ -591,6 +591,7 @@ class SketchPdfService:
         self.db = db
         self._svg = _get_svg_style("a")
         self._template_variant = "a"
+        self._show_insurance = True
         self._floor_count = 1
 
     # ──────────────────────────────────────────────────────────────────────
@@ -598,17 +599,21 @@ class SketchPdfService:
     # ──────────────────────────────────────────────────────────────────────
 
     @document_job
-    def generate_sketch_report(self, job_id: UUID, template_variant: str = "a") -> bytes:
+    def generate_sketch_report(
+        self, job_id: UUID, template_variant: str = "a", show_insurance: bool = True
+    ) -> bytes:
         """
         Generate a PDF report for all floor sketches belonging to a WM job.
 
         Args:
             job_id: UUID of the water mitigation job
             template_variant: Template variant to use ('a', 'b', or 'c')
+            show_insurance: Print the insurance company, policy # and claim #
 
         Returns raw PDF bytes suitable for streaming to the client.
         """
         self._template_variant = template_variant
+        self._show_insurance = show_insurance
         self._svg = _get_svg_style(template_variant)
         # Load the job
         job: Optional[WaterMitigationJob] = (
@@ -2733,6 +2738,7 @@ class SketchPdfService:
             job=job,
             floor_data=floor_data,
             report_date=report_date,
+            show_insurance=self._show_insurance,
         )
 
     def _html_to_pdf(self, html_content: str) -> bytes:

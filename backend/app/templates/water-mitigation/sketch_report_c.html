@@ -8,7 +8,7 @@
       size: letter;
       margin: 1.5cm 2cm 2cm 2cm;
       @bottom-left {
-        content: "Confidential — For Insurance Purposes Only";
+        content: "{% if show_insurance %}Confidential — For Insurance Purposes Only{% else %}Confidential{% endif %}";
         font-size: 7px;
         color: #aaa;
         font-family: 'Trebuchet MS', 'Calibri', sans-serif;
@@ -354,7 +354,7 @@
       <div class="report-subtitle">Water Mitigation — Floor Plan &amp; Materials</div>
       <div class="report-date">
         {{ report_date | fmt_date }}
-        {% if job.claim_number %} · Claim #{{ job.claim_number }}{% endif %}
+        {% if show_insurance and job.claim_number %} · Claim #{{ job.claim_number }}{% endif %}
       </div>
     </div>
   </div>
@@ -367,28 +367,34 @@
         <div class="card-label">Property Address</div>
         <div class="card-value {% if not job.property_address %}empty{% endif %}">{{ job.property_address or 'N/A' }}</div>
       </div>
+      {% if show_insurance %}
       <div class="info-card">
         <div class="card-label">Insurance Company</div>
         <div class="card-value {% if not job.insurance_company %}empty{% endif %}">{{ job.insurance_company or '—' }}</div>
       </div>
+      {% endif %}
       <div class="info-card">
         <div class="card-label">Homeowner</div>
         <div class="card-value {% if not job.homeowner_name %}empty{% endif %}">{{ job.homeowner_name or '—' }}</div>
       </div>
+      {% if show_insurance %}
       <div class="info-card">
         <div class="card-label">Policy #</div>
         <div class="card-value {% if not job.insurance_policy_number %}empty{% endif %}">{{ job.insurance_policy_number or '—' }}</div>
       </div>
+      {% endif %}
       <div class="info-card">
         <div class="card-label">Contact</div>
         <div class="card-value {% if not job.homeowner_phone %}empty{% endif %}">
           {{ job.homeowner_phone or '—' }}{% if job.homeowner_email %} · {{ job.homeowner_email }}{% endif %}
         </div>
       </div>
+      {% if show_insurance %}
       <div class="info-card">
         <div class="card-label">Claim #</div>
         <div class="card-value {% if not job.claim_number %}empty{% endif %}">{{ job.claim_number or '—' }}</div>
       </div>
+      {% endif %}
       <div class="info-card">
         <div class="card-label">Date of Loss</div>
         <div class="card-value {% if not job.date_of_loss %}empty{% endif %}">{{ job.date_of_loss | fmt_date }}</div>

@@ -31,15 +31,14 @@ import {
   Typography,
   Card,
   Tooltip,
-  Dropdown,
+  Radio,
+  Checkbox,
 } from 'antd';
-import type { MenuProps } from 'antd';
 import {
   PlusOutlined,
   EnvironmentOutlined,
   FilePdfOutlined,
   FileTextOutlined,
-  DownOutlined,
 } from '@ant-design/icons';
 import wmSketchService from '../../../services/wmSketchService';
 import { magicPlanService } from '../../../services/waterMitigationService';
@@ -119,6 +118,9 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
+  const [pdfVariant, setPdfVariant] = useState('a');
+  const [pdfShowInsurance, setPdfShowInsurance] = useState(true);
   const [scopeGenerating, setScopeGenerating] = useState(false);
   const [mpImporting, setMpImporting] = useState(false);
   const [mpFloorPlanModal, setMpFloorPlanModal] = useState(false);
@@ -539,12 +541,18 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
     [activeFloorId]
   );
 
-  const handleGeneratePdf = useCallback(async (templateVariant: string = 'a') => {
+  const handleGeneratePdf = useCallback(async () => {
     setPdfGenerating(true);
     try {
       const address = jobAddress.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 40);
-      await wmSketchService.downloadSketchReport(jobId, `sketch_report_${address}.pdf`, templateVariant);
+      await wmSketchService.downloadSketchReport(
+        jobId,
+        `sketch_report_${address}.pdf`,
+        pdfVariant,
+        pdfShowInsurance,
+      );
       message.success('PDF report downloaded.');
+      setPdfModalOpen(false);
     } catch (err: any) {
       // Blob responses carry the server's JSON error (e.g. a 503 memory/busy message) as a Blob.
       let detail: string | undefined;
@@ -558,12 +566,12 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
     } finally {
       setPdfGenerating(false);
     }
-  }, [jobId, jobAddress]);
+  }, [jobId, jobAddress, pdfVariant, pdfShowInsurance]);
 
-  const pdfVariantMenu: MenuProps['items'] = [
-    { key: 'a', label: 'Format A — Standard' },
-    { key: 'b', label: 'Format B — Formal' },
-    { key: 'c', label: 'Format C — Modern' },
+  const pdfVariantOptions = [
+    { value: 'a', label: 'Format A — Standard' },
+    { value: 'b', label: 'Format B — Formal' },
+    { value: 'c', label: 'Format C — Modern' },
   ];
 
   const handleGenerateScope = useCallback(() => {
@@ -709,19 +717,15 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
             </Button>
           </Tooltip>
           <Tooltip title={floors.length === 0 ? 'Add a floor sketch first' : 'Download PDF Report'}>
-            <Dropdown.Button
-              icon={<DownOutlined />}
+            <Button
+              icon={<FilePdfOutlined />}
               size="small"
               loading={pdfGenerating}
               disabled={floors.length === 0}
-              onClick={() => handleGeneratePdf('a')}
-              menu={{
-                items: pdfVariantMenu,
-                onClick: ({ key }) => handleGeneratePdf(key),
-              }}
+              onClick={() => setPdfModalOpen(true)}
             >
-              <FilePdfOutlined /> PDF
-            </Dropdown.Button>
+              PDF
+            </Button>
           </Tooltip>
         </div>
       </div>
@@ -816,6 +820,34 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
         currentFloorLabel={activeFloor?.floor_label || 'Current Floor'}
         loading={mpImporting}
       />
+
+      {/* PDF report options */}
+      <Modal
+        title="Download Sketch PDF"
+        open={pdfModalOpen}
+        onCancel={() => setPdfModalOpen(false)}
+        onOk={handleGeneratePdf}
+        okText="Download"
+        confirmLoading={pdfGenerating}
+        width={400}
+      >
+        <Text strong style={{ display: 'block', marginBottom: 6 }}>Format</Text>
+        <Radio.Group value={pdfVariant} onChange={(e) => setPdfVariant(e.target.value)}>
+          <Space direction="vertical" size={4}>
+            {pdfVariantOptions.map((o) => (
+              <Radio key={o.value} value={o.value}>{o.label}</Radio>
+            ))}
+          </Space>
+        </Radio.Group>
+        <div style={{ marginTop: 16 }}>
+          <Checkbox
+            checked={pdfShowInsurance}
+            onChange={(e) => setPdfShowInsurance(e.target.checked)}
+          >
+            Include insurance info (company, policy #, claim #)
+          </Checkbox>
+        </div>
+      </Modal>
     </div>
   );
 };
