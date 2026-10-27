@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import type { BathroomLooks, BathroomModel, FixtureSolid, Pt, TileLook, WallOpeningSolid, WallSolid } from './bathroom3dModel';
 import type { TileTextureCache } from './bathroom3dTextures';
 import { MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN } from '../../../types/bathroomSketch';
-import { getShowerUnitPolygon } from './utils/beGeometry';
+import { getShowerUnitPolygon, showerDoorPosition, showerDoorSpan, showerFrontPanels } from './utils/beGeometry';
 import { subtractRects, type FaceRect } from './utils/wallFinish';
 
 const COLORS = {
@@ -582,16 +582,37 @@ function buildShower(f: FixtureSolid, kit: FixtureKit, g: THREE.Group) {
     g.add(rod);
     g.add(panelAlong(a, [a[0] + (b[0] - a[0]) * 0.45, a[1] + (b[1] - a[1]) * 0.45], glassBottom + 2, glassTop + 1.5, 0.2, mat(COLORS.curtain, { roughness: 0.9 })));
   } else if (doorType !== 'none') {
-    g.add(panelAlong(front[0], front[1], glassBottom, glassTop, 0.375, kit.glass));
-    const framed = doorType === 'sliding' || doorType === 'swing' || doorType === 'bi_fold';
-    if (framed) {
-      g.add(panelAlong(front[0], front[1], glassTop - 0.5, glassTop + 0.5, 0.9, kit.metal));
-      g.add(panelAlong(front[0], front[1], glassBottom, glassBottom + 0.8, 0.9, kit.metal));
+    // Across the front as the plan has it: the door where it's set, fixed
+    // panels beside it, and a tiled return where a swing or bi-fold door
+    // has no panel (a sliding door's leftover front stays glass)
+    const along = (t: number): Pt => [front[0][0] + (front[1][0] - front[0][0]) * t, front[0][1] + (front[1][1] - front[0][1]) * t];
+    const frontLen = Math.hypot(front[1][0] - front[0][0], front[1][1] - front[0][1]);
+    const neo = layout === 'neo_angle' || layout === 'neo_angle_right';
+    const position = showerDoorPosition(p);
+    const door: [number, number] = neo ? [0, 1] : showerDoorSpan(position, (p.showerDoorWidth ?? W * 0.5) / W);
+    const gap = 0.2 / frontLen;
+    const glass: [number, number][] = [[door[0] + gap, door[1] - gap]];
+    if (!neo) {
+      const panels = showerFrontPanels(p.fixedPanelConfig, door);
+      glass.push(...panels);
+      const returnMat = mat(kit.looks.showerTile.color, { roughness: kit.looks.showerTile.roughness });
+      for (const [s, e] of [[0, door[0]], [door[1], 1]] as [number, number][]) {
+        if (e - s < gap || panels.some(([ps]) => ps === s)) continue;
+        if (doorType === 'sliding') glass.push([s, e]);
+        else g.add(panelAlong(along(s), along(e), 0, height, 3.5, returnMat));
+      }
     }
-    // A handle at the door's free edge
-    const t = 0.72;
-    const hx = front[0][0] + (front[1][0] - front[0][0]) * t;
-    const hz = front[0][1] + (front[1][1] - front[0][1]) * t;
+    const framed = doorType === 'sliding' || doorType === 'swing' || doorType === 'bi_fold';
+    for (const [s, e] of glass) {
+      g.add(panelAlong(along(s), along(e), glassBottom, glassTop, 0.375, kit.glass));
+      if (framed) {
+        g.add(panelAlong(along(s), along(e), glassTop - 0.5, glassTop + 0.5, 0.9, kit.metal));
+        g.add(panelAlong(along(s), along(e), glassBottom, glassBottom + 0.8, 0.9, kit.metal));
+      }
+    }
+    // A handle near the door's free edge, across from the hinge
+    const inset = Math.min(3 / frontLen, (door[1] - door[0]) / 2);
+    const [hx, hz] = along(position === 'right' ? door[0] + inset : door[1] - inset);
     g.add(post(0.4, 10, kit.metal, hx, 36, hz));
   }
 

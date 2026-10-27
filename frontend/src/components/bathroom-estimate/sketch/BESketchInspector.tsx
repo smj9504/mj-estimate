@@ -20,6 +20,7 @@ import type {
   BEWall,
   DrywallTextureType,
   InsulationType,
+  ShowerDoorPosition,
   ShowerDoorType,
   ShowerFloorType,
   ShowerWallMaterial,
@@ -33,7 +34,7 @@ import {
 } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
-import { resizeRoomEdge } from './utils/beGeometry';
+import { resizeRoomEdge, showerDoorPosition } from './utils/beGeometry';
 import BEWallFinishEditor from './BEWallFinishEditor';
 
 // ── Names ──
@@ -79,6 +80,14 @@ const ROOM_TYPES: { value: string; label: string; name: string }[] = [
 ];
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
+
+type PanelConfig = 'none' | 'left' | 'right' | 'both';
+
+/** The fixed panels a shower door leaves room for: one against a side moves a panel there to the other side. */
+function panelsBesideDoor(position: ShowerDoorPosition, panels: PanelConfig): PanelConfig {
+  if (panels === 'none' || position === 'center') return panels;
+  return position === 'left' ? 'right' : 'left';
+}
 
 /** 5.5 → 5′ 6″ */
 export function feetInches(ft: number): string {
@@ -401,6 +410,12 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
     const layout = p.showerLayout ?? 'alcove';
     const isCornerOrNeo = layout === 'neo_angle' || layout === 'neo_angle_right' || layout === 'corner' || layout === 'corner_right';
     const curb = p.curbHeight ?? 4;
+    const glassDoor = !!p.showerDoorType && p.showerDoorType !== 'none' && p.showerDoorType !== 'curtain';
+    const doorWidth = p.showerDoorWidth ?? Math.round(fixture.dimensions.width * 0.5);
+    // A neo-angle door sits on its diagonal, and a door the full width has nowhere to move
+    const doorMoves = glassDoor && !layout.startsWith('neo_angle') && doorWidth < fixture.dimensions.width;
+    const doorPosition = doorMoves ? showerDoorPosition(p) : 'center';
+    const panelConfig = p.fixedPanelConfig ?? 'none';
     const hasGlass = isCornerOrNeo
       || (!!p.showerDoorType && p.showerDoorType !== 'none' && p.showerDoorType !== 'curtain')
       || (p.fixedPanelConfig ?? 'none') !== 'none';
@@ -515,11 +530,11 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
               ]}
             />
           </Field>
-          {p.showerDoorType && p.showerDoorType !== 'none' && p.showerDoorType !== 'curtain' && (
+          {glassDoor && (
             <Field label="Door width">
               <Num
                 label="Door width, inches"
-                value={p.showerDoorWidth ?? Math.round(fixture.dimensions.width * 0.5)}
+                value={doorWidth}
                 min={18}
                 max={fixture.dimensions.width}
                 unit="in"
@@ -527,16 +542,30 @@ const FixtureInspector: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> 
               />
             </Field>
           )}
+          {doorMoves && (
+            <Field label="Door position" hint="Looking in from outside. A swing door hinges on the side it's against.">
+              <Select
+                aria-label="Door position"
+                value={doorPosition}
+                onChange={(v: ShowerDoorPosition) => setProps({ showerDoorPosition: v, fixedPanelConfig: panelsBesideDoor(v, panelConfig) })}
+                options={[
+                  { value: 'left', label: 'Left' },
+                  { value: 'center', label: 'Center' },
+                  { value: 'right', label: 'Right' },
+                ]}
+              />
+            </Field>
+          )}
           <Field label="Fixed panel">
             <Select
               aria-label="Fixed glass panel"
-              value={p.fixedPanelConfig ?? 'none'}
-              onChange={(v) => setProps({ fixedPanelConfig: v as 'none' | 'left' | 'right' | 'both' })}
+              value={panelConfig}
+              onChange={(v: PanelConfig) => setProps({ fixedPanelConfig: v })}
               options={[
                 { value: 'none', label: 'None' },
-                { value: 'left', label: 'Left side' },
-                { value: 'right', label: 'Right side' },
-                { value: 'both', label: 'Both sides' },
+                { value: 'left', label: 'Left side', disabled: doorPosition === 'left' },
+                { value: 'right', label: 'Right side', disabled: doorPosition === 'right' },
+                { value: 'both', label: 'Both sides', disabled: doorPosition !== 'center' },
               ]}
             />
           </Field>

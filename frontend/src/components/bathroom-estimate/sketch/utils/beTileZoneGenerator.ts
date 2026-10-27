@@ -14,7 +14,7 @@ import type {
   BEPoint,
 } from '../../../../types/bathroomSketch';
 import { DEFAULT_TILE_SPEC, SHOWER_DOOR_HEIGHT_IN, TILE_ZONE_COLORS } from '../../../../types/bathroomSketch';
-import { clipPolygon, getShowerUnitPolygon } from './beGeometry';
+import { clipPolygon, getShowerUnitPolygon, showerDoorPosition, showerDoorSpan, showerFrontPanels } from './beGeometry';
 
 let _zoneCounter = 0;
 function zoneId(): string {
@@ -310,7 +310,6 @@ function generateBathtubDeckZone(fix: BEFixture, ppf: number, room?: BERoom): BE
 
   const wPx = (tubWidth / 12) * ppf;
   const hPx = (tubDepth / 12) * ppf;
-  const deckPx = (deckWidth / 12) * ppf;
   const cx = fix.position.x;
   const cy = fix.position.y;
 
@@ -356,77 +355,58 @@ function generateBathtubDeckZone(fix: BEFixture, ppf: number, room?: BERoom): BE
   }
 
   // ── Visual boundary ──
-  // `boundary` = outer footprint (label anchor / legacy consumers).
-  // `subBoundaries` = the actual strips to paint, so the deck renders as a
-  // rim/frame around the tub rather than a solid fill over the whole tub.
+  // The deck is the platform's top, inside the tub's outline, so it's marked
+  // by a thin strip just inside each exposed edge: drawn deck-wide it spilled
+  // out over whatever stands beside the tub. (The front panel's strip runs
+  // just outside the same edges.)
+  // `boundary` = the strip's outline or the footprint (label anchor / legacy
+  // consumers); `subBoundaries` = the strips to paint, when there are several.
+  const ind = 6; // visual indicator thickness
+  const left = cx - wPx / 2;
+  const right = cx + wPx / 2;
+  const top = cy - hPx / 2;
+  const bottom = cy + hPx / 2;
   let rawBoundary: BEPoint[];
   let rawSubBoundaries: BEPoint[][] | undefined;
   if (chamfered && deckTileSides <= 2) {
-    // Chamfered L-shape: follows the pentagonal tub outline + deck offset.
-    // Already a thin frame around the exposed corner, so a single fill is fine.
+    // Chamfered: down the right side, along the chamfer, across the bottom,
+    // and back along the same edges moved in by the strip's thickness
     const cutW = wPx * CHAMFER_RATIO;
     const cutH = hPx * CHAMFER_RATIO;
-    // Perpendicular outward offset for chamfer line
     const diagLen = Math.sqrt(cutW * cutW + cutH * cutH);
-    const perpX = deckPx * cutH / diagLen;
-    const perpY = deckPx * cutW / diagLen;
     rawBoundary = [
-      { x: cx - wPx / 2, y: cy - hPx / 2 },                                        // top-left (wall)
-      { x: cx + wPx / 2 + deckPx, y: cy - hPx / 2 },                               // top-right (deck right)
-      { x: cx + wPx / 2 + deckPx, y: cy + hPx / 2 - cutH + perpY },                // right → chamfer start
-      { x: cx + wPx / 2 - cutW + perpX, y: cy + hPx / 2 + deckPx },                // chamfer end → bottom
-      { x: cx - wPx / 2, y: cy + hPx / 2 + deckPx },                               // bottom-left (deck bottom)
+      { x: right, y: top },
+      { x: right, y: bottom - cutH },
+      { x: right - cutW, y: bottom },
+      { x: left, y: bottom },
+      { x: left, y: bottom - ind },
+      { x: right - cutW + ind * (cutW - diagLen) / cutH, y: bottom - ind },
+      { x: right - ind, y: bottom - cutH + ind * (cutH - diagLen) / cutW },
+      { x: right - ind, y: top },
     ];
   } else {
-    // Rectangular tub: build one thin strip per exposed edge, extending
-    // deckPx past the corner on either end so adjoining strips meet cleanly.
+    // Rectangular tub: one thin strip inside each exposed edge; a side
+    // strip stops short of the strips across the top and bottom
     const exposed = autoWalls
       ? { north: !autoWalls.north, south: !autoWalls.south, east: !autoWalls.east, west: !autoWalls.west }
       : legacyExposedSides(deckTileSides);
-    const left = cx - wPx / 2;
-    const right = cx + wPx / 2;
-    const top = cy - hPx / 2;
-    const bottom = cy + hPx / 2;
+    const sideTop = top + (exposed.north ? ind : 0);
+    const sideBottom = bottom - (exposed.south ? ind : 0);
     const strips: BEPoint[][] = [];
     if (exposed.north) {
-      strips.push([
-        { x: left - (exposed.west ? deckPx : 0), y: top - deckPx },
-        { x: right + (exposed.east ? deckPx : 0), y: top - deckPx },
-        { x: right + (exposed.east ? deckPx : 0), y: top },
-        { x: left - (exposed.west ? deckPx : 0), y: top },
-      ]);
+      strips.push([{ x: left, y: top }, { x: right, y: top }, { x: right, y: top + ind }, { x: left, y: top + ind }]);
     }
     if (exposed.south) {
-      strips.push([
-        { x: left - (exposed.west ? deckPx : 0), y: bottom },
-        { x: right + (exposed.east ? deckPx : 0), y: bottom },
-        { x: right + (exposed.east ? deckPx : 0), y: bottom + deckPx },
-        { x: left - (exposed.west ? deckPx : 0), y: bottom + deckPx },
-      ]);
+      strips.push([{ x: left, y: bottom - ind }, { x: right, y: bottom - ind }, { x: right, y: bottom }, { x: left, y: bottom }]);
     }
     if (exposed.west) {
-      strips.push([
-        { x: left - deckPx, y: top - (exposed.north ? deckPx : 0) },
-        { x: left, y: top - (exposed.north ? deckPx : 0) },
-        { x: left, y: bottom + (exposed.south ? deckPx : 0) },
-        { x: left - deckPx, y: bottom + (exposed.south ? deckPx : 0) },
-      ]);
+      strips.push([{ x: left, y: sideTop }, { x: left + ind, y: sideTop }, { x: left + ind, y: sideBottom }, { x: left, y: sideBottom }]);
     }
     if (exposed.east) {
-      strips.push([
-        { x: right, y: top - (exposed.north ? deckPx : 0) },
-        { x: right + deckPx, y: top - (exposed.north ? deckPx : 0) },
-        { x: right + deckPx, y: bottom + (exposed.south ? deckPx : 0) },
-        { x: right, y: bottom + (exposed.south ? deckPx : 0) },
-      ]);
+      strips.push([{ x: right - ind, y: sideTop }, { x: right, y: sideTop }, { x: right, y: sideBottom }, { x: right - ind, y: sideBottom }]);
     }
     rawSubBoundaries = strips.length > 0 ? strips : undefined;
-    rawBoundary = [
-      { x: left - (exposed.west ? deckPx : 0), y: top - (exposed.north ? deckPx : 0) },
-      { x: right + (exposed.east ? deckPx : 0), y: top - (exposed.north ? deckPx : 0) },
-      { x: right + (exposed.east ? deckPx : 0), y: bottom + (exposed.south ? deckPx : 0) },
-      { x: left - (exposed.west ? deckPx : 0), y: bottom + (exposed.south ? deckPx : 0) },
-    ];
+    rawBoundary = [{ x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom }];
   }
   const boundary = rotateBoundary(rawBoundary, fix.position, fix.rotation);
   const subBoundaries = rawSubBoundaries?.map((s) => rotateBoundary(s, fix.position, fix.rotation));
@@ -972,14 +952,26 @@ function generateShowerGlassPanelZone(fix: BEFixture, ppf: number): BETileZone |
     panelCount++;
   }
 
-  // Front fixed panels (alcove/corner only, not neo-angle)
-  if (!isNeoAngle(layout)) {
+  // Front fixed panels (alcove/corner only, not neo-angle): beside a door
+  // against one side, one panel across the rest of the front; beside a
+  // centred door, a quarter of the width each, as the estimate prices them
+  const doorPosition = showerDoorPosition(fix.properties);
+  const frontPanels = isNeoAngle(layout) ? [] : showerFrontPanels(
+    panelCfg,
+    showerDoorSpan(doorPosition, (fix.properties.showerDoorWidth ?? showerWidth * 0.5) / showerWidth),
+  );
+  if (!isNeoAngle(layout) && doorPosition === 'center') {
     if (hasLeft) {
       totalPanelWidthInches += showerWidth * 0.25;
       panelCount++;
     }
     if (hasRight) {
       totalPanelWidthInches += showerWidth * 0.25;
+      panelCount++;
+    }
+  } else {
+    for (const [s, e] of frontPanels) {
+      totalPanelWidthInches += (e - s) * showerWidth;
       panelCount++;
     }
   }
@@ -996,62 +988,64 @@ function generateShowerGlassPanelZone(fix: BEFixture, ppf: number): BETileZone |
   const cx = fix.position.x;
   const cy = fix.position.y;
 
-  // Visual indicator: thin strip on the glass side
+  // Visual indicator: thin strip on each piece of glass
   const ind = 4;
-  let rawBoundary: BEPoint[];
+  const pieces: BEPoint[][] = [];
   if (isNeoAngle(layout)) {
     // Neo-angle: visual indicator along the diagonal front edge
     const isRight = layout === 'neo_angle_right';
     if (!isRight) {
       // neo_angle: diagonal from bottom-right corner area
-      rawBoundary = [
+      pieces.push([
         { x: cx + wPx / 2, y: cy },
         { x: cx + wPx / 2 + ind, y: cy },
         { x: cx + ind, y: cy + hPx / 2 + ind },
         { x: cx, y: cy + hPx / 2 },
-      ];
+      ]);
     } else {
       // neo_angle_right: diagonal from bottom-left corner area
-      rawBoundary = [
+      pieces.push([
         { x: cx - wPx / 2, y: cy },
         { x: cx, y: cy + hPx / 2 },
         { x: cx - ind, y: cy + hPx / 2 + ind },
         { x: cx - wPx / 2 - ind, y: cy },
-      ];
+      ]);
     }
   } else if (layout === 'corner') {
     // Glass on right side
-    rawBoundary = [
+    pieces.push([
       { x: cx + wPx / 2, y: cy - hPx / 2 },
       { x: cx + wPx / 2 + ind, y: cy - hPx / 2 },
       { x: cx + wPx / 2 + ind, y: cy + hPx / 2 },
       { x: cx + wPx / 2, y: cy + hPx / 2 },
-    ];
+    ]);
   } else if (layout === 'corner_right') {
     // Glass on left side
-    rawBoundary = [
+    pieces.push([
       { x: cx - wPx / 2 - ind, y: cy - hPx / 2 },
       { x: cx - wPx / 2, y: cy - hPx / 2 },
       { x: cx - wPx / 2, y: cy + hPx / 2 },
       { x: cx - wPx / 2 - ind, y: cy + hPx / 2 },
-    ];
-  } else {
-    // Fixed panel on front-left portion
-    const panelW = wPx * 0.4;
-    rawBoundary = [
-      { x: cx - wPx / 2, y: cy + hPx / 2 },
-      { x: cx - wPx / 2 + panelW, y: cy + hPx / 2 },
-      { x: cx - wPx / 2 + panelW, y: cy + hPx / 2 + ind },
-      { x: cx - wPx / 2, y: cy + hPx / 2 + ind },
-    ];
+    ]);
   }
-  const boundary = rotateBoundary(rawBoundary, fix.position, fix.rotation);
+  // Front panels where the plan draws them, beside the door
+  const frontPieces = frontPanels.length > 0 ? frontPanels : pieces.length > 0 ? [] : [[0, 1] as [number, number]];
+  for (const [s, e] of frontPieces) {
+    pieces.push([
+      { x: cx - wPx / 2 + s * wPx, y: cy + hPx / 2 },
+      { x: cx - wPx / 2 + e * wPx, y: cy + hPx / 2 },
+      { x: cx - wPx / 2 + e * wPx, y: cy + hPx / 2 + ind },
+      { x: cx - wPx / 2 + s * wPx, y: cy + hPx / 2 + ind },
+    ]);
+  }
+  const rotated = pieces.map((piece) => rotateBoundary(piece, fix.position, fix.rotation));
 
   return {
     id: zoneId(),
     type: 'shower_glass_panel',
     label: `Glass Panel (${panelCount})`,
-    boundary,
+    boundary: rotated[0],
+    subBoundaries: rotated.length > 1 ? rotated : undefined,
     areaSF,
     fixtureId: fix.id,
     // Glass panels use different cost structure (not tile - glass + labor)
@@ -1067,10 +1061,6 @@ function generateShowerDoorZone(fix: BEFixture, ppf: number): BETileZone | null 
   const showerWidth = fix.dimensions.width;
   const showerDepth = fix.dimensions.height;
   const doorType = fix.properties.showerDoorType ?? 'none';
-  const panelCfg = fix.properties.fixedPanelConfig ?? 'none';
-  const hasLeft = panelCfg === 'left' || panelCfg === 'both';
-  const hasRight = panelCfg === 'right' || panelCfg === 'both';
-  const hasAny = hasLeft || hasRight;
 
   if (doorType === 'none' || doorType === 'curtain') return null;
 
@@ -1138,10 +1128,10 @@ function generateShowerDoorZone(fix: BEFixture, ppf: number): BETileZone | null 
       ];
     }
   } else {
-    const leftPx = hasLeft ? wPx * 0.25 : 0;
-    const rightPx = hasRight ? wPx * 0.25 : 0;
-    const startX = cx - wPx / 2 + leftPx + (hasLeft ? 2 : 0);
-    const endX = cx + wPx / 2 - rightPx - (hasRight ? 2 : 0);
+    // Along the front where the door is, just clear of what's beside it
+    const [s, e] = showerDoorSpan(showerDoorPosition(fix.properties), doorWidthInches / showerWidth);
+    const startX = cx - wPx / 2 + s * wPx + (s > 0 ? 2 : 0);
+    const endX = cx - wPx / 2 + e * wPx - (e < 1 ? 2 : 0);
     rawBoundary = [
       { x: startX, y: cy + hPx / 2 + 2 },
       { x: endX, y: cy + hPx / 2 + 2 },

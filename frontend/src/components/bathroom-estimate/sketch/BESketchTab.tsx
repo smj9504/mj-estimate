@@ -24,6 +24,7 @@ import {
 import type { BESketchData, BESketchTool } from '../../../types/bathroomSketch';
 import { BATHTUB_SURROUND_DEFAULTS, MIRROR_HEIGHT_IN, SHOWER_DOOR_HEIGHT_IN } from '../../../types/bathroomSketch';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
+import { showerDoorPosition } from './utils/beGeometry';
 import { roomWallFinishTotals } from './utils/wallFinish';
 import { useBESketchState } from './hooks/useBESketchState';
 import BESketchToolbar, { MARK_TOOLS, type BESketchView } from './BESketchToolbar';
@@ -441,6 +442,7 @@ export function buildSketchSync(data: BESketchData): SketchFixtureSync {
       door_type: p.showerDoorType ?? 'none',
       door_width_in: p.showerDoorWidth ?? Math.round(shower.dimensions.width * 0.5),
       door_height_in: p.showerDoorHeight ?? SHOWER_DOOR_HEIGHT_IN,
+      door_position: showerDoorPosition(p),
       fixed_panel_config: p.fixedPanelConfig ?? 'none',
       layout: p.showerLayout ?? 'alcove',
       wall_material: p.showerWallMaterial ?? 'tile',

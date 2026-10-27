@@ -37,6 +37,9 @@ export type BEFixtureType =
 
 export type ShowerDoorType = 'none' | 'sliding' | 'swing' | 'frameless_swing' | 'bi_fold' | 'curtain' | 'neo_angle_pivot';
 
+/** Where a glass door sits along a shower's front, looking in from outside */
+export type ShowerDoorPosition = 'left' | 'center' | 'right';
+
 export type ShowerWallMaterial = 'tile' | 'prefab_acrylic' | 'prefab_fiberglass' | 'solid_surface';
 
 export type BathtubSubType =
@@ -231,6 +234,13 @@ export interface BEFixtureProperties {
   showerDoorType?: ShowerDoorType;
   /** Shower door opening width in inches (auto-calculated if not set) */
   showerDoorWidth?: number;
+  /**
+   * Where the glass door sits along the front (default center): against the
+   * left or right side, any fixed panel on the other. Swing doors hinge on
+   * the side they're against. Not used by neo-angle layouts, an open front
+   * or a curtain.
+   */
+  showerDoorPosition?: ShowerDoorPosition;
   /** Height of the glass door and panels in inches, standing on the curb; apart from the tile height (default 72) */
   showerDoorHeight?: number;
   /** Fixed glass panel position: none, left of door, right, or both sides */

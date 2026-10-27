@@ -1611,6 +1611,11 @@ def calculate_estimate(estimate, layout_changes=None) -> Dict[str, Any]:
             # Corner: one full side is glass (no additional front panels)
             panel_width_in += panel_s_d
             panel_count += 1
+        elif shower_spec.get("door_position") in ("left", "right") and door_width:
+            # Alcove, door against one side: one panel across the rest
+            if panel_cfg != "none" and panel_s_w > door_width:
+                panel_width_in += panel_s_w - door_width
+                panel_count += 1
         else:
             # Alcove: front fixed panels from config
             if panel_cfg in ("left", "both"):

@@ -41,6 +41,8 @@ export interface ShowerSpec {
   door_width?: number;
   /** Fixed glass panel config: none, left, right, both */
   fixed_panel_config?: string;
+  /** Where the glass door sits across the front: left, center, right */
+  door_position?: string;
   /** Enclosure layout: alcove, corner, corner_right, neo_angle, neo_angle_right */
   layout?: string;
   /** Curb height in inches (0 = curbless) */

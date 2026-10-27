@@ -5,7 +5,8 @@
  * Stroke color: #444 (dark gray), Fill: #f8f8f8 (near-white) or none.
  */
 
-import type { BEFixtureType, BathtubSubType, VanitySubType, ShowerDoorType } from '../../../../types/bathroomSketch';
+import type { BEFixtureType, BathtubSubType, VanitySubType, ShowerDoorPosition, ShowerDoorType } from '../../../../types/bathroomSketch';
+import { showerDoorSpan, showerFrontPanels } from './beGeometry';
 
 const GLASS = '#d4eaf7'; // light blue for glass panels
 
@@ -200,6 +201,7 @@ function buildShowerShape(
   doorType: ShowerDoorType,
   panelConfig: 'none' | 'left' | 'right' | 'both',
   doorRatio: number, // 0-1, door width as fraction of shower width
+  doorPosition: ShowerDoorPosition,
 ): FixtureShape {
   // Neo-angle layouts use a dedicated builder
   if (layout === 'neo_angle' || layout === 'neo_angle_right') {
@@ -207,8 +209,10 @@ function buildShowerShape(
   }
 
   const paths: PathEntry[] = [];
-  const hasLeft = panelConfig === 'left' || panelConfig === 'both';
-  const hasRight = panelConfig === 'right' || panelConfig === 'both';
+  const [doorStart, doorEnd] = showerDoorSpan(doorPosition, doorRatio);
+  const panels = showerFrontPanels(panelConfig, [doorStart, doorEnd]);
+  const hasLeft = panels.some(([s]) => s === 0);
+  const hasRight = panels.some(([, e]) => e === 1);
 
   // ── Interior (tile grid, showerhead, wall-mounted faucet/valve) ──
   paths.push(
@@ -239,24 +243,14 @@ function buildShowerShape(
   }
 
   // ── Front side: [left panel?] + door + [right panel?] ──
-  // Door centered in available space; panels fill remaining
-  const doorW = Math.min(Math.max(doorRatio, 0.2), 1); // clamp 20%-100%
-  const doorCenter = 0.5;
-  const doorStart = Math.max(0, doorCenter - doorW / 2);
-  const doorEnd = Math.min(1, doorCenter + doorW / 2);
-  // Panel edges: space between wall and door
-  const leftEdge = hasLeft ? doorStart : 0;
-  const rightEdge = hasRight ? doorEnd : 1;
-
-  // Left fixed panel (0 → doorStart)
-  if (hasLeft && doorStart > 0.02) {
+  // Door centered or against one side; panels fill from their side to the door
+  if (hasLeft) {
     paths.push(
       { d: `M0,0.94 L${doorStart},0.94 L${doorStart},1 L0,1 Z`, fill: GLASS, stroke: '#2196f3', strokeWidth: 1.5 },
       { d: `M${doorStart},0.92 L${doorStart},1`, fill: N, stroke: S, strokeWidth: 2 },
     );
   }
-  // Right fixed panel (doorEnd → 1)
-  if (hasRight && doorEnd < 0.98) {
+  if (hasRight) {
     paths.push(
       { d: `M${doorEnd},0.94 L1,0.94 L1,1 L${doorEnd},1 Z`, fill: GLASS, stroke: '#2196f3', strokeWidth: 1.5 },
       { d: `M${doorEnd},0.92 L${doorEnd},1`, fill: N, stroke: S, strokeWidth: 2 },
@@ -287,10 +281,13 @@ function buildShowerShape(
     const sw = isFrameless ? 2 : 1.5;
     paths.push({ d: `M${doorStart},0.93 L${doorEnd},0.93 L${doorEnd},1 L${doorStart},1 Z`, fill: GLASS, stroke: S, strokeWidth: sw });
     paths.push({ d: `M${doorStart},0.92 L${doorStart},1`, fill: N, stroke: S, strokeWidth: isFrameless ? 1.5 : 2 });
+    // Swing arc from the free edge, about the hinge: on the right for a door against the right side
     const radius = doorEnd - doorStart;
-    paths.push({ d: `M${doorEnd},0.97 A${radius},${radius} 0 0,0 ${doorStart},${0.97 - radius}`, fill: N, stroke: SL, strokeWidth: 0.6 });
-    if (!hasLeft) paths.push({ d: `M0,1 L${doorStart},1`, fill: N, stroke: S, strokeWidth: 3 });
-    if (!hasRight) paths.push({ d: `M${doorEnd},1 L1,1`, fill: N, stroke: S, strokeWidth: 3 });
+    paths.push(doorPosition === 'right'
+      ? { d: `M${doorStart},0.97 A${radius},${radius} 0 0,1 ${doorEnd},${0.97 - radius}`, fill: N, stroke: SL, strokeWidth: 0.6 }
+      : { d: `M${doorEnd},0.97 A${radius},${radius} 0 0,0 ${doorStart},${0.97 - radius}`, fill: N, stroke: SL, strokeWidth: 0.6 });
+    if (!hasLeft && doorStart > 0) paths.push({ d: `M0,1 L${doorStart},1`, fill: N, stroke: S, strokeWidth: 3 });
+    if (!hasRight && doorEnd < 1) paths.push({ d: `M${doorEnd},1 L1,1`, fill: N, stroke: S, strokeWidth: 3 });
     paths.push({ d: `M${doorEnd},0.92 L${doorEnd},1`, fill: N, stroke: S, strokeWidth: 2 });
   } else if (doorType === 'bi_fold') {
     const mid = (doorStart + doorEnd) / 2;
@@ -301,8 +298,8 @@ function buildShowerShape(
       { d: `M${doorStart},0.92 L${doorStart},1`, fill: N, stroke: S, strokeWidth: 2 },
       { d: `M${doorEnd},0.92 L${doorEnd},1`, fill: N, stroke: S, strokeWidth: 2 },
     );
-    if (!hasLeft) paths.push({ d: `M0,1 L${doorStart},1`, fill: N, stroke: S, strokeWidth: 3 });
-    if (!hasRight) paths.push({ d: `M${doorEnd},1 L1,1`, fill: N, stroke: S, strokeWidth: 3 });
+    if (!hasLeft && doorStart > 0) paths.push({ d: `M0,1 L${doorStart},1`, fill: N, stroke: S, strokeWidth: 3 });
+    if (!hasRight && doorEnd < 1) paths.push({ d: `M${doorEnd},1 L1,1`, fill: N, stroke: S, strokeWidth: 3 });
   }
 
   return { label: 'Shower', paths };
@@ -625,6 +622,7 @@ export function getFixtureShape(
   vanitySubType?: VanitySubType,
   lightType?: string,
   wallSides?: WallSides | null,
+  showerDoorPosition?: ShowerDoorPosition,
 ): FixtureShape {
   switch (type) {
     case 'bathtub':
@@ -639,6 +637,7 @@ export function getFixtureShape(
         showerDoorType ?? 'none',
         fixedPanelConfig ?? 'none',
         showerDoorRatio ?? 0.5,
+        showerDoorPosition ?? 'center',
       );
     case 'vanity':
       if (vanitySubType === 'pedestal_sink') return pedestalSink;

@@ -7,6 +7,8 @@
  * past the glass unless it's clipped against the real footprint.
  */
 
+import type { BEFixtureProperties, ShowerDoorPosition } from '../../../../types/bathroomSketch';
+
 export interface Pt2 {
   x: number;
   y: number;
@@ -76,6 +78,44 @@ export function getShowerUnitPolygon(layout: ShowerLayout): Pt2[] {
     return [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0.5, y: 1 }, { x: 0, y: 0.5 }];
   }
   return [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }];
+}
+
+/**
+ * Where a shower's door sits across its front: a glass door in an alcove or
+ * corner shower where it's set; an open front, a curtain or a neo-angle
+ * door (on its diagonal) in the middle.
+ */
+export function showerDoorPosition(
+  p: Pick<BEFixtureProperties, 'showerDoorType' | 'showerDoorPosition' | 'showerLayout'>,
+): ShowerDoorPosition {
+  const glassDoor = !!p.showerDoorType && p.showerDoorType !== 'none' && p.showerDoorType !== 'curtain';
+  const neo = p.showerLayout === 'neo_angle' || p.showerLayout === 'neo_angle_right';
+  return glassDoor && !neo ? p.showerDoorPosition ?? 'center' : 'center';
+}
+
+/**
+ * The door's stretch of an alcove or corner shower's front, as [start, end]
+ * fractions of the width from the left: centred, or against one side.
+ */
+export function showerDoorSpan(position: ShowerDoorPosition, doorRatio: number): [number, number] {
+  const w = Math.min(Math.max(doorRatio, 0.2), 1);
+  const start = position === 'left' ? 0 : position === 'right' ? 1 - w : (1 - w) / 2;
+  return [start, start + w];
+}
+
+/**
+ * The fixed glass panels across a shower's front, as [start, end] fractions
+ * of the width: each fills its side up to the door, so there's none on a
+ * side the door is against.
+ */
+export function showerFrontPanels(
+  panelConfig: 'none' | 'left' | 'right' | 'both' | undefined,
+  [doorStart, doorEnd]: [number, number],
+): [number, number][] {
+  const panels: [number, number][] = [];
+  if ((panelConfig === 'left' || panelConfig === 'both') && doorStart > 0.02) panels.push([0, doorStart]);
+  if ((panelConfig === 'right' || panelConfig === 'both') && doorEnd < 0.98) panels.push([doorEnd, 1]);
+  return panels;
 }
 
 /**

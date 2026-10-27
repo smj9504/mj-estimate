@@ -26,7 +26,7 @@ import type {
 import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { getFixtureShape } from './utils/beFixtureShapes';
 import { findFixtureWallSides } from './utils/beTileZoneGenerator';
-import { clipPolygon, getShowerUnitPolygon, resizeRoomEdge, type Pt2 } from './utils/beGeometry';
+import { clipPolygon, getShowerUnitPolygon, resizeRoomEdge, showerDoorPosition, type Pt2 } from './utils/beGeometry';
 import { wallTileRegions } from './utils/wallFinish';
 import {
   buildPlanLabels,
@@ -2357,6 +2357,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
     fix.properties.vanitySubType,
     fix.properties.lightType,
     wallSides,
+    showerDoorPosition(fix.properties),
   );
 
   // Attach transformer to the standalone Rect; re-sync on dimension/rotation change
