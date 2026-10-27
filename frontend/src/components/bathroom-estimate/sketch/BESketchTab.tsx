@@ -747,8 +747,10 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
         (d.damageZones ?? []).forEach((z: any) => (z.boundary ?? []).forEach((p: any) => { allX.push(p.x); allY.push(p.y); }));
         if (!allX.length) return undefined;
         const pad = 40;
-        const minX = Math.max(0, Math.min(...allX) - pad);
-        const minY = Math.max(0, Math.min(...allY) - pad);
+        // Not clamped at 0: the plan can be drawn left of or above the
+        // canvas origin, and the capture redraws each layer, so it's there too
+        const minX = Math.min(...allX) - pad;
+        const minY = Math.min(...allY) - pad;
         const maxX = Math.max(...allX) + pad;
         const maxY = Math.max(...allY) + pad;
         const cropW = maxX - minX;

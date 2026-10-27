@@ -478,7 +478,7 @@ class BathroomExportService:
         # Fallback: server-side rendering from sketch_data
         if not sketch_element:
             sketch_data = estimate.get("sketch_data")
-            if sketch_data and (sketch_data.get("rooms") or sketch_data.get("fixtures")):
+            if sketch_data and (sketch_data.get("rooms") or sketch_data.get("walls") or sketch_data.get("fixtures")):
                 try:
                     drawing = self._render_sketch_drawing(
                         sketch_data, left_col_w - 8, max_sketch_h)
