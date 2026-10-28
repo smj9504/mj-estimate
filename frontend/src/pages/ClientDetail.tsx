@@ -75,6 +75,7 @@ import ClaimContractDashboard from '../components/contract/ClaimContractDashboar
 import ClientDocumentHub from '../components/client/ClientDocumentHub';
 import ClaimNotes from '../components/client/ClaimNotes';
 import ClaimPhotosSection from '../components/client/ClaimPhotosSection';
+import ClaimWMPhotos from '../components/client/ClaimWMPhotos';
 import ClaimTodos from '../components/client/ClaimTodos';
 import AccuLynxArchiveTab from '../components/client/AccuLynxArchiveTab';
 import { acculynxArchiveService } from '../services/acculynxArchiveService';
@@ -2375,18 +2376,55 @@ const ClaimEmailSection: React.FC<{ claimId: string; onSend: () => void }> = ({ 
   );
 };
 
-const ClaimPhotos: React.FC<{ claimId: string }> = ({ claimId }) => {
+const COMPLETION_PHOTOS = 'completion';
+
+// The claim's photos, one set at a time: each water mitigation job's (the
+// same photos as the job's Photos tab) and the claim's completion photos
+const ClaimPhotos: React.FC<{ claim: Claim }> = ({ claim }) => {
+  const wmJobs = claim.wm_jobs ?? [];
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState(wmJobs[0]?.id ?? COMPLETION_PHOTOS);
+  const views = [
+    ...wmJobs.map((job, i) => ({
+      key: job.id,
+      label: wmJobs.length > 1
+        ? `WM · ${job.company_name || job.property_address || i + 1}`
+        : 'Water mitigation',
+    })),
+    { key: COMPLETION_PHOTOS, label: 'Completion' },
+  ];
+  // A job unlinked from the claim since the view was picked
+  const current = views.some(v => v.key === view) ? view : views[0].key;
+
   return (
     <ClaimSection
-      title="Completion photos"
+      title="Photos"
+      meta={open && views.length > 1 ? (
+        <div className="cl-view-tabs" role="tablist" aria-label="Photo set">
+          {views.map(v => (
+            <Button
+              key={v.key}
+              type="text"
+              size="small"
+              role="tab"
+              aria-selected={current === v.key}
+              className={`ui-view-tab${current === v.key ? ' is-selected' : ''}`}
+              onClick={() => setView(v.key)}
+            >
+              {v.label}
+            </Button>
+          ))}
+        </div>
+      ) : undefined}
       actions={(
         <Button size="small" type="text" icon={<CameraOutlined />} aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? 'Hide photos' : 'Show photos'}
         </Button>
       )}
     >
-      {open && <ClaimPhotosSection claimId={claimId} />}
+      {open && (current === COMPLETION_PHOTOS
+        ? <ClaimPhotosSection claimId={claim.id} />
+        : <ClaimWMPhotos key={current} jobId={current} />)}
     </ClaimSection>
   );
 };
@@ -2417,7 +2455,7 @@ const ClaimPanel: React.FC<{
         <ClaimTodos clientId={client.id} claimId={claim.id} />
         <ClaimNotes clientId={client.id} claimId={claim.id} />
       </div>
-      <ClaimPhotos claimId={claim.id} />
+      <ClaimPhotos claim={claim} />
     </div>
     <div className="cl-claim-aside cl-claim-aside--bottom">
       <ClaimActivityTimeline clientId={client.id} claimId={claim.id} />
