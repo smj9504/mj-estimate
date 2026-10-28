@@ -129,10 +129,12 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'W3627': { cab_type: 'wall', width: 36, height: 27, label: '36"W x 27"H' },
   // Wall - Corner. The 30"H codes predate the 36"/42" ones and carry no
   // height; saved estimates use them, so they keep their names.
-  'WDC24':   { cab_type: 'wall', width: 24, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"W x 30"H' },
+  // A diagonal corner's width is its reach along each wall. On site it is
+  // measured by its angled door, 17" on the 24" box, so the label carries both.
+  'WDC24':   { cab_type: 'wall', width: 24, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"W x 30"H (17" door)' },
   'WDC27':   { cab_type: 'wall', width: 27, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 27"W x 30"H' },
-  'WDC2436': { cab_type: 'wall', width: 24, height: 36, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"W x 36"H' },
-  'WDC2442': { cab_type: 'wall', width: 24, height: 42, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"W x 42"H' },
+  'WDC2436': { cab_type: 'wall', width: 24, height: 36, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"W x 36"H (17" door)' },
+  'WDC2442': { cab_type: 'wall', width: 24, height: 42, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"W x 42"H (17" door)' },
   'WDC2736': { cab_type: 'wall', width: 27, height: 36, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 27"W x 36"H' },
   'WDC2742': { cab_type: 'wall', width: 27, height: 42, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 27"W x 42"H' },
   // Easy-reach (pie-cut) corner: 24" along each wall, bi-fold doors
