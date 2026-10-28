@@ -16,24 +16,27 @@
 
 .rd-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px 12px;
   margin-bottom: 6px;
-}
-/* Zoom alone sits at the right, as before */
-.rd-toolbar:not(:has(.rd-trace-actions)) {
-  justify-content: flex-end;
 }
 .rd-trace-actions {
   display: flex;
   align-items: center;
   gap: 6px;
 }
+.rd-line-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* Zoom always sits at the right */
 .rd-zoom {
   display: flex;
   align-items: center;
   gap: 2px;
+  margin-left: auto;
 }
 .ant-btn.rd-zoom-value {
   min-width: 52px;
@@ -70,6 +73,18 @@
   cursor: grab;
 }
 .rd-trace-vertex:active {
+  cursor: grabbing;
+}
+
+/* Placing the scale line takes every click on the drawing */
+.rd-scale-line-capture {
+  cursor: crosshair;
+}
+.rd-scale-line-end {
+  cursor: grab;
+  touch-action: none;
+}
+.rd-scale-line-end:active {
   cursor: grabbing;
 }
 

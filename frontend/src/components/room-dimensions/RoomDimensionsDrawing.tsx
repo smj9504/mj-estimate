@@ -5,6 +5,7 @@
 
 import React, { useLayoutEffect, useRef, useState } from 'react';
 import type { RoomDetection } from '../../utils/roomDimensions';
+import ScaleLine, { type ScaleLineState } from './ScaleLine';
 import {
   DRAWING_COLORS,
   LABEL_FONT,
@@ -28,6 +29,8 @@ interface RoomDimensionsDrawingProps {
   hoveredLabel: string | null;
   onFaceClick: (label: string) => void;
   onFaceHover: (label: string | null) => void;
+  /** The line drawn between two points, in the detection's pixels */
+  scaleLine?: ScaleLineState;
 }
 
 const Label: React.FC<{ label: LabelBox; textColor: string; border: string; fill?: string; strokeWidth: number }> = ({
@@ -70,6 +73,7 @@ const RoomDimensionsDrawing: React.FC<RoomDimensionsDrawingProps> = ({
   hoveredLabel,
   onFaceClick,
   onFaceHover,
+  scaleLine,
 }) => {
   const { width, height } = detection;
   const svgRef = useRef<SVGSVGElement>(null);
@@ -186,6 +190,8 @@ const RoomDimensionsDrawing: React.FC<RoomDimensionsDrawingProps> = ({
           </g>
         );
       })}
+
+      {scaleLine && <ScaleLine {...scaleLine} width={width} height={height} unit={unit} />}
     </svg>
   );
 };

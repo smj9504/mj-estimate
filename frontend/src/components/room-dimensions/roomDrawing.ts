@@ -1,6 +1,7 @@
 /**
  * What goes on top of a room capture: the measured room, a line along each
- * inside face with its length, and the openings. Shared by the on-screen
+ * inside face with its length, the openings, and the line the user may draw
+ * between two points to set the scale. Shared by the on-screen
  * drawing (SVG) and the downloaded PNG so both read the same.
  *
  * Sizes are in screen pixels; `unit` is image pixels per screen pixel, so
@@ -26,7 +27,12 @@ export const DRAWING_COLORS = {
   angle: colors.neutral600,
   /** Corners that are not square — the ones the user is looking for */
   angleWarn: colors.warning,
+  /** The line the user draws between two points to set the scale */
+  line: colors.purple,
 };
+
+/** What the drawn line is called, on the drawing and beside the wall letters as a scale reference */
+export const LINE_LABEL = 'Line';
 
 export const LABEL_FONT = fontFamily.system;
 const FONT_SIZE = 12;
@@ -154,6 +160,26 @@ export function faceTicks(face: WallFace, unit: number): [Point, Point][] {
 }
 
 // ============================================================================
+// Scale line
+// ============================================================================
+
+/** Label sitting on the drawn line, halfway along it, like a dimension string */
+export function scaleLineLabel(a: Point, b: Point, text: string, unit: number): LabelBox {
+  return box({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, a, b, text, unit);
+}
+
+/** Short marks across both ends of the drawn line */
+export function scaleLineTicks(a: Point, b: Point, unit: number): [Point, Point][] {
+  const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  const n = { x: -(b.y - a.y) / len, y: (b.x - a.x) / len };
+  const half = 5 * unit;
+  return [a, b].map(p => [
+    { x: p.x - n.x * half, y: p.y - n.y * half },
+    { x: p.x + n.x * half, y: p.y + n.y * half },
+  ]);
+}
+
+// ============================================================================
 // PNG export
 // ============================================================================
 
@@ -186,6 +212,27 @@ function drawLabel(ctx: CanvasRenderingContext2D, label: LabelBox, unit: number,
   ctx.restore();
 }
 
+/** The drawn line with its length (or its name before a scale is set), over everything else */
+function drawScaleLine(ctx: CanvasRenderingContext2D, line: Point[], pxPerFt: number | null, unit: number) {
+  if (line.length < 2) return;
+  const [a, b] = line;
+  ctx.strokeStyle = DRAWING_COLORS.line;
+  ctx.lineWidth = 2 * unit;
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.stroke();
+  ctx.lineWidth = 1.5 * unit;
+  for (const [p, q] of scaleLineTicks(a, b, unit)) {
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(q.x, q.y);
+    ctx.stroke();
+  }
+  const text = lengthText(Math.hypot(b.x - a.x, b.y - a.y), pxPerFt) ?? LINE_LABEL;
+  drawLabel(ctx, scaleLineLabel(a, b, text, unit), unit, DRAWING_COLORS.line, DRAWING_COLORS.line);
+}
+
 /**
  * The capture with every length drawn on it, as a PNG. Small captures are
  * scaled up so the labels stay sharp when the image is shared.
@@ -194,6 +241,8 @@ export function renderDrawingPng(
   image: CanvasImageSource,
   detection: RoomDetection,
   pxPerFt: number | null,
+  /** The drawn line in the detection's pixels, when there is one */
+  line: Point[] = [],
 ): Promise<Blob> {
   const { width, height } = detection;
   const factor = Math.min(3, Math.max(1, 1600 / Math.max(width, height)));
@@ -251,6 +300,7 @@ export function renderDrawingPng(
   for (const face of detection.faces) {
     drawLabel(ctx, faceLabel(face, faceText(face, pxPerFt), unit), unit, DRAWING_COLORS.ink, DRAWING_COLORS.face);
   }
+  drawScaleLine(ctx, line, pxPerFt, unit);
 
   return new Promise((resolve, reject) =>
     canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('Could not create the image'))), 'image/png'),
@@ -268,6 +318,7 @@ export function renderTracePng(
   metrics: TraceMetrics,
   points: Point[],
   pxPerFt: number | null,
+  line: Point[] = [],
 ): Promise<Blob> {
   const factor = Math.min(3, Math.max(1, 1600 / Math.max(imageWidth, imageHeight)));
   const unit = 1.25 / factor;
@@ -318,6 +369,7 @@ export function renderTracePng(
     const color = v.isRightAngle ? DRAWING_COLORS.angle : DRAWING_COLORS.angleWarn;
     drawLabel(ctx, traceAngleLabel(v.point, inside, text, unit), unit, color, color);
   }
+  drawScaleLine(ctx, line, pxPerFt, unit);
 
   return new Promise((resolve, reject) =>
     canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('Could not create the image'))), 'image/png'),

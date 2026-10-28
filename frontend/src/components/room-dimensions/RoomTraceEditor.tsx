@@ -10,6 +10,7 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Point } from '../../utils/roomDimensions';
 import { angleText, type TraceMetrics } from '../../utils/roomTrace';
+import ScaleLine, { type ScaleLineState } from './ScaleLine';
 import {
   DRAWING_COLORS,
   LABEL_FONT,
@@ -36,6 +37,8 @@ interface RoomTraceEditorProps {
   onCloseLoop: () => void;
   onSelectSegment: (label: string) => void;
   onHoverSegment: (label: string | null) => void;
+  /** The line drawn between two points; while it is being placed, clicks go to it instead of the outline */
+  scaleLine?: ScaleLineState;
 }
 
 const Pill: React.FC<{ label: LabelBox; textColor: string; border: string; fill?: string; strokeWidth: number }> = ({
@@ -88,6 +91,7 @@ const RoomTraceEditor: React.FC<RoomTraceEditorProps> = ({
   onCloseLoop,
   onSelectSegment,
   onHoverSegment,
+  scaleLine,
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   // Image pixels per screen pixel, so strokes and labels keep their size at any zoom
@@ -121,6 +125,7 @@ const RoomTraceEditor: React.FC<RoomTraceEditorProps> = ({
   };
 
   const canClose = !closed && points.length >= 3;
+  const placingLine = !!scaleLine?.placing;
   const inside = useMemo(() => centroid(points), [points]);
   const outlinePoints = points.map(p => `${p.x},${p.y}`).join(' ');
 
@@ -170,7 +175,7 @@ const RoomTraceEditor: React.FC<RoomTraceEditorProps> = ({
   return (
     <svg
       ref={svgRef}
-      className={`rd-drawing rd-trace${closed ? '' : ' is-drawing'}`}
+      className={`rd-drawing rd-trace${closed || placingLine ? '' : ' is-drawing'}`}
       viewBox={`0 0 ${width} ${height}`}
       style={zoom > 1 ? { width: `${zoom * 100}%`, maxWidth: 'none', maxHeight: 'none' } : { maxWidth: width * 2 }}
       role="img"
@@ -184,7 +189,7 @@ const RoomTraceEditor: React.FC<RoomTraceEditorProps> = ({
       {closed && points.length >= 3 && <polygon points={outlinePoints} fill={DRAWING_COLORS.room} pointerEvents="none" />}
 
       {/* Rubber band from the last corner to the cursor while drawing */}
-      {!closed && cursor && points.length > 0 && (
+      {!closed && !placingLine && cursor && points.length > 0 && (
         <line
           x1={points[points.length - 1].x}
           y1={points[points.length - 1].y}
@@ -280,6 +285,8 @@ const RoomTraceEditor: React.FC<RoomTraceEditorProps> = ({
           </g>
         );
       })}
+
+      {scaleLine && <ScaleLine {...scaleLine} width={width} height={height} unit={unit} />}
     </svg>
   );
 };

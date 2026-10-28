@@ -95,6 +95,12 @@ async function uploadCapture(page: Page) {
   });
 }
 
+/** Click the auto-detect drawing at a pixel of the 420×320 test room */
+async function clickRoom(page: Page, x: number, y: number) {
+  const box = (await page.locator('.rd-drawing').boundingBox())!;
+  await page.mouse.click(box.x + (x / 420) * box.width, box.y + (y / 320) * box.height);
+}
+
 const wallRow = (page: Page, letter: string) =>
   page.locator('.rd-face-row').filter({ has: page.locator('.rd-face-letter', { hasText: new RegExp(`^${letter}$`) }) });
 
@@ -169,6 +175,50 @@ test.describe('Room Dimensions', () => {
     await expect(page.locator('.rd-scale-current')).toHaveText(`Wall F = 18' 6"`);
   });
 
+  test('a line between two points sets the scale when no wall length is known', async ({ page }) => {
+    await page.goto('/tools/room-dimensions');
+    await uploadCapture(page);
+    await expect(page.locator('.rd-face-letter')).toHaveCount(6);
+
+    // Only the 8' opening in the right wall is known. Its ends are where B stops and C starts;
+    // clicks a little off them snap onto those corners, so the line is exactly the opening
+    await page.getByRole('button', { name: 'Draw line' }).click();
+    await clickRoom(page, 346, 122);
+    await clickRoom(page, 346, 214);
+    await expect(page.getByLabel('Feet')).toBeFocused();
+    await page.getByLabel('Feet').fill('8');
+    await page.getByRole('button', { name: 'Set scale' }).click();
+
+    await expect(page.locator('.rd-scale-current')).toHaveText(`Line = 8' 0"`);
+    await expect(page.getByRole('button', { name: `Scale line, 8' 0"` })).toBeVisible();
+    const expected: Record<string, string> = {
+      A: `24' 0"`,
+      B: `6' 0"`,
+      C: `4' 0"`,
+      D: `13' 0"`,
+      E: `8' 0"`,
+      F: `18' 0"`,
+    };
+    for (const [letter, length] of Object.entries(expected)) {
+      await expect(wallRow(page, letter)).toContainText(length);
+    }
+
+    // A new line reads off the scale the first one set, which stays put
+    await page.getByRole('button', { name: 'Redraw line' }).click();
+    await clickRoom(page, 62, 50);
+    await clickRoom(page, 346, 50);
+    await expect(page.getByLabel('Feet')).toHaveValue('24');
+    await expect(page.getByLabel('Inches')).toHaveValue('0');
+    await expect(page.getByRole('button', { name: `Scale line, 24' 0"` })).toBeVisible();
+    await expect(page.locator('.rd-scale-current')).toHaveText(`Earlier line = 8' 0"`);
+    await expect(wallRow(page, 'B')).toContainText(`6' 0"`);
+
+    // Taking the line off the drawing keeps the scale it set
+    await page.getByRole('button', { name: 'Remove line' }).click();
+    await expect(page.getByRole('button', { name: /^Scale line/ })).toHaveCount(0);
+    await expect(wallRow(page, 'B')).toContainText(`6' 0"`);
+  });
+
   test('a pasted screenshot is measured too', async ({ page }) => {
     await page.goto('/tools/room-dimensions');
     await expect(page.locator('.rd-dropzone')).toBeVisible();
@@ -213,6 +263,9 @@ test.describe('Room Dimensions', () => {
       mimeType: 'image/png',
       buffer: Buffer.from(blank, 'base64'),
     });
+    // With nothing to detect it opens in Trace walls; Auto-detect says why
+    await expect(page.getByRole('button', { name: 'Close loop' })).toBeVisible();
+    await page.getByText('Auto-detect').click();
     await expect(page.getByText('No walls found in this image')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Download PNG' })).toBeDisabled();
   });
@@ -301,6 +354,32 @@ test.describe('Room Dimensions', () => {
     await expect(corner).toContainText('135°');
     await expect(corner).toHaveClass(/is-off/);
     await expect(page.locator('.rd-angle-row.is-off')).not.toHaveCount(0);
+  });
+
+  test('a line sets the scale of a traced room without joining its outline', async ({ page }) => {
+    await startTrace(page);
+    await clickImage(page, 40, 40);
+    await clickImage(page, 360, 40);
+    await clickImage(page, 360, 240);
+    await clickImage(page, 40, 240);
+    await page.getByRole('button', { name: 'Close loop' }).click();
+
+    // Down the left side, each end snapping to a traced corner: 200px
+    await page.getByRole('button', { name: 'Draw line' }).click();
+    await clickImage(page, 42, 42);
+    await clickImage(page, 42, 238);
+    await page.getByLabel('Feet').fill('10');
+    await page.getByRole('button', { name: 'Set scale' }).click();
+
+    await expect(page.locator('.rd-scale-current')).toHaveText(`Line = 10' 0"`);
+    await expect(page.locator('.rd-face-letter')).toHaveText(['A', 'B', 'C', 'D']);
+    await expect(wallRow(page, 'A')).toContainText(`16' 0"`);
+    await expect(wallRow(page, 'B')).toContainText(`10' 0"`);
+
+    // Reopening the outline shifts the wall letters, not the line's scale
+    await page.getByRole('button', { name: 'Reopen' }).click();
+    await expect(wallRow(page, 'A')).toContainText(`16' 0"`);
+    await expect(page.locator('.rd-scale-current')).toHaveText(`Line = 10' 0"`);
   });
 
   test('downloads a traced plan with its lengths and angles drawn on', async ({ page }) => {

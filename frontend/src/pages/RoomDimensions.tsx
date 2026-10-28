@@ -11,7 +11,9 @@
  *    and each corner's angle, flagging the ones that are not square.
  *
  * Either way a capture has no scale of its own, so the user gives one wall's
- * real length and every other length follows from it.
+ * real length and every other length follows from it. When no single wall is
+ * a length they know, they draw a line between two points that is — across
+ * the gap between two wall pieces, say — and give its length instead.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -19,6 +21,8 @@ import { Alert, Button, InputNumber, Segmented, Select, Spin, Upload, message } 
 import {
   BorderOuterOutlined,
   ClearOutlined,
+  CloseOutlined,
+  ColumnWidthOutlined,
   DownloadOutlined,
   UndoOutlined,
   UploadOutlined,
@@ -30,7 +34,8 @@ import type { InputNumberRef } from 'rc-input-number';
 import { PageHeader, PropertyList } from '../components/common/ui';
 import RoomDimensionsDrawing from '../components/room-dimensions/RoomDimensionsDrawing';
 import RoomTraceEditor from '../components/room-dimensions/RoomTraceEditor';
-import { lengthText, renderDrawingPng, renderTracePng } from '../components/room-dimensions/roomDrawing';
+import type { ScaleLineState } from '../components/room-dimensions/ScaleLine';
+import { LINE_LABEL, lengthText, renderDrawingPng, renderTracePng } from '../components/room-dimensions/roomDrawing';
 import { detectRoomFaces, type Point, type RoomDetection } from '../utils/roomDimensions';
 import { angleText, traceMetrics } from '../utils/roomTrace';
 import '../components/room-dimensions/roomDimensions.css';
@@ -53,6 +58,8 @@ interface Capture {
 interface Reference {
   label: string;
   feet: number;
+  /** The line's pixel length when it set the scale, kept once it is redrawn or removed so the scale holds */
+  px?: number;
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -75,6 +82,16 @@ function splitFeet(feet: number): { ft: number; inches: number } {
   return { ft, inches };
 }
 
+const scalePoint = (p: Point, k: number): Point => ({ x: p.x * k, y: p.y * k });
+
+const lineLength = (line: Point[]) => (line.length === 2 ? Math.hypot(line[1].x - line[0].x, line[1].y - line[0].y) : null);
+
+/** How the scale form names its reference */
+const referenceName = (ref: Reference) =>
+  ref.label !== LINE_LABEL ? `Wall ${ref.label}` : ref.px != null ? 'Earlier line' : 'Line';
+
+const LINE_HINT = 'Click the two ends of a length you know. An end snaps to a nearby corner; Esc cancels.';
+
 const RoomDimensions: React.FC = () => {
   const [capture, setCapture] = useState<Capture | null>(null);
   const [detection, setDetection] = useState<RoomDetection | null>(null);
@@ -95,6 +112,10 @@ const RoomDimensions: React.FC = () => {
   const [traceHovered, setTraceHovered] = useState<string | null>(null);
   const [traceRef, setTraceRef] = useState<Reference | null>(null);
 
+  // A line between two points the user knows the distance of, in natural image pixels, shared by both modes
+  const [line, setLine] = useState<Point[]>([]);
+  const [placingLine, setPlacingLine] = useState(false);
+
   const urlRef = useRef<string | null>(null);
   const feetInputRef = useRef<InputNumberRef>(null);
 
@@ -102,13 +123,35 @@ const RoomDimensions: React.FC = () => {
     if (urlRef.current) URL.revokeObjectURL(urlRef.current);
   }, []);
 
+  useEffect(() => {
+    if (!placingLine) return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPlacingLine(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [placingLine]);
+
+  /** Start the outline over; a scale set from the drawn line is not part of it and stays */
   const resetTrace = () => {
     setTracePoints([]);
     setTraceClosed(false);
-    setTraceSelected(null);
-    setTraceRef(null);
+    setTraceSelected(label => (label === LINE_LABEL ? label : null));
+    setTraceRef(ref => (ref?.label === LINE_LABEL ? ref : null));
     setTraceHovered(null);
   };
+
+  /** Put a length in the form, or empty it */
+  const fillLength = useCallback((feet: number | null) => {
+    if (feet) {
+      const { ft, inches } = splitFeet(feet);
+      setFormFt(ft);
+      setFormIn(inches);
+    } else {
+      setFormFt(null);
+      setFormIn(null);
+    }
+  }, []);
 
   const loadCapture = useCallback(async (file: Blob, name: string) => {
     if (!file.type.startsWith('image/')) {
@@ -141,6 +184,10 @@ const RoomDimensions: React.FC = () => {
       setHovered(null);
       setZoom(1);
       resetTrace();
+      setTraceSelected(null);
+      setTraceRef(null);
+      setLine([]);
+      setPlacingLine(false);
       // A busy, over-dimensioned plan yields a storm of spurious faces; trace it by hand instead
       setMode(result.faces.length === 0 || result.faces.length > AUTO_FACE_CEILING ? 'trace' : 'auto');
       // Suggest the longest wall: the one most likely to have a known length
@@ -175,47 +222,61 @@ const RoomDimensions: React.FC = () => {
 
   // ── Auto-detect scale ─────────────────────────────────────────────
   const faces = useMemo(() => detection?.faces ?? [], [detection]);
-  const referenceFace = reference ? faces.find(f => f.label === reference.label) : undefined;
-  const pxPerFt = referenceFace && reference ? referenceFace.lengthPx / reference.feet : null;
+  // A large capture is measured shrunk to its working size; the drawn line is kept in the capture's own pixels
+  const workScale = capture && detection ? detection.width / capture.image.naturalWidth : 1;
+  const lineNaturalPx = lineLength(line);
+  const autoLinePx = lineNaturalPx != null ? lineNaturalPx * workScale : null;
+  const referencePx = reference
+    ? reference.px ??
+      (reference.label === LINE_LABEL ? autoLinePx : faces.find(f => f.label === reference.label)?.lengthPx ?? null)
+    : null;
+  const pxPerFt = reference && referencePx ? referencePx / reference.feet : null;
 
   const pickFace = useCallback(
     (label: string) => {
       setFormLabel(label);
-      const face = faces.find(f => f.label === label);
-      if (face && pxPerFt) {
-        const { ft, inches } = splitFeet(face.lengthPx / pxPerFt);
-        setFormFt(ft);
-        setFormIn(inches);
-      } else {
-        setFormFt(null);
-        setFormIn(null);
+      if (label === LINE_LABEL && autoLinePx == null) {
+        // Nothing drawn yet: picking the line starts one
+        setPlacingLine(true);
+        return;
       }
+      const px = label === LINE_LABEL ? autoLinePx : faces.find(f => f.label === label)?.lengthPx;
+      fillLength(px && pxPerFt ? px / pxPerFt : null);
       feetInputRef.current?.focus();
     },
-    [faces, pxPerFt],
+    [faces, pxPerFt, autoLinePx, fillLength],
+  );
+
+  // Corners a line end snaps to: where faces end, and where openings turn
+  const autoSnapPoints = useMemo(
+    () =>
+      detection ? [...detection.faces.flatMap(f => [f.start, f.end]), ...detection.openings.flatMap(o => o.path)] : [],
+    [detection],
   );
 
   // ── Trace walls scale ─────────────────────────────────────────────
   const naturalSize = capture ? { w: capture.image.naturalWidth, h: capture.image.naturalHeight } : { w: 1, h: 1 };
   const metrics = useMemo(() => traceMetrics(tracePoints, traceClosed), [tracePoints, traceClosed]);
-  const traceReferenceSeg = traceRef ? metrics.segments.find(s => s.label === traceRef.label) : undefined;
-  const tracePxPerFt = traceReferenceSeg && traceRef ? traceReferenceSeg.lengthPx / traceRef.feet : null;
+  const traceReferencePx = traceRef
+    ? traceRef.px ??
+      (traceRef.label === LINE_LABEL
+        ? lineNaturalPx
+        : metrics.segments.find(s => s.label === traceRef.label)?.lengthPx ?? null)
+    : null;
+  const tracePxPerFt = traceRef && traceReferencePx ? traceReferencePx / traceRef.feet : null;
 
   const pickSegment = useCallback(
     (label: string) => {
       setTraceSelected(label);
-      const seg = metrics.segments.find(s => s.label === label);
-      if (seg && tracePxPerFt) {
-        const { ft, inches } = splitFeet(seg.lengthPx / tracePxPerFt);
-        setFormFt(ft);
-        setFormIn(inches);
-      } else {
-        setFormFt(null);
-        setFormIn(null);
+      if (label === LINE_LABEL && lineNaturalPx == null) {
+        setPlacingLine(true);
+        return;
       }
+      const px = label === LINE_LABEL ? lineNaturalPx : metrics.segments.find(s => s.label === label)?.lengthPx;
+      fillLength(px && tracePxPerFt ? px / tracePxPerFt : null);
       feetInputRef.current?.focus();
     },
-    [metrics.segments, tracePxPerFt],
+    [metrics.segments, tracePxPerFt, lineNaturalPx, fillLength],
   );
 
   const addPoint = useCallback((p: Point) => setTracePoints(prev => [...prev, p]), []);
@@ -229,8 +290,48 @@ const RoomDimensions: React.FC = () => {
     } else {
       setTracePoints(prev => prev.slice(0, -1));
     }
-    setTraceSelected(null);
-    setTraceRef(null);
+    // Wall letters shift as corners come off; the drawn line's scale does not
+    setTraceSelected(label => (label === LINE_LABEL ? label : null));
+    setTraceRef(ref => (ref?.label === LINE_LABEL ? ref : null));
+  };
+
+  // ── Scale line ────────────────────────────────────────────────────
+  /**
+   * A scale set from the line outlives it: before the line is redrawn or
+   * removed, its length is kept. Only dragging its ends moves the scale.
+   */
+  const keepLineScale = () => {
+    const keep = (ref: Reference | null, px: number | null) =>
+      ref?.label === LINE_LABEL && ref.px == null && px ? { ...ref, px } : ref;
+    setReference(ref => keep(ref, autoLinePx));
+    setTraceRef(ref => keep(ref, lineNaturalPx));
+  };
+
+  /** A new line, in natural image pixels: picked in the form, showing its length once there is a scale */
+  const placeLine = (a: Point, b: Point) => {
+    keepLineScale();
+    setLine([a, b]);
+    setPlacingLine(false);
+    const trace = mode === 'trace';
+    const scale = trace ? tracePxPerFt : pxPerFt;
+    const px = Math.hypot(b.x - a.x, b.y - a.y) * (trace ? 1 : workScale);
+    if (trace) setTraceSelected(LINE_LABEL);
+    else setFormLabel(LINE_LABEL);
+    fillLength(scale ? px / scale : null);
+    feetInputRef.current?.focus();
+  };
+
+  const moveLineEnd = useCallback(
+    (index: number, p: Point) => setLine(prev => prev.map((q, i) => (i === index ? p : q))),
+    [],
+  );
+
+  const removeLine = () => {
+    keepLineScale();
+    setLine([]);
+    setPlacingLine(false);
+    if (formLabel === LINE_LABEL) setFormLabel(null);
+    if (traceSelected === LINE_LABEL) setTraceSelected(null);
   };
 
   const applyScale = () => {
@@ -256,9 +357,9 @@ const RoomDimensions: React.FC = () => {
     try {
       const blob =
         mode === 'trace'
-          ? await renderTracePng(capture.image, naturalSize.w, naturalSize.h, metrics, tracePoints, tracePxPerFt)
+          ? await renderTracePng(capture.image, naturalSize.w, naturalSize.h, metrics, tracePoints, tracePxPerFt, line)
           : detection
-            ? await renderDrawingPng(capture.image, detection, pxPerFt)
+            ? await renderDrawingPng(capture.image, detection, pxPerFt, line.map(p => scalePoint(p, workScale)))
             : null;
       if (!blob) return;
       const base = capture.name.replace(/\.[^.]+$/, '') || 'room';
@@ -348,8 +449,23 @@ const RoomDimensions: React.FC = () => {
   }
 
   const trace = mode === 'trace';
-  const faceOptions = faces.map(face => ({ value: face.label, label: face.label }));
+  const lineOption = { value: LINE_LABEL, label: 'Line' };
+  const faceOptions = [...faces.map(face => ({ value: face.label, label: face.label })), lineOption];
   const scaleReady = pxPerFt != null;
+  // Without walls in Auto-detect there is nothing for a scale to measure
+  const lineAvailable = trace || faces.length > 0;
+  // The trace editor draws in natural pixels, the auto drawing in the detection's
+  const lineView = trace ? 1 : workScale;
+  const scaleLine: ScaleLineState = {
+    points: line.map(p => scalePoint(p, lineView)),
+    placing: placingLine,
+    pxPerFt: trace ? tracePxPerFt : pxPerFt,
+    selected: (trace ? traceSelected : formLabel) === LINE_LABEL,
+    snapPoints: trace ? tracePoints : autoSnapPoints,
+    onPlace: (a, b) => placeLine(scalePoint(a, 1 / lineView), scalePoint(b, 1 / lineView)),
+    onMove: (index, p) => moveLineEnd(index, scalePoint(p, 1 / lineView)),
+    onSelect: () => (trace ? pickSegment(LINE_LABEL) : pickFace(LINE_LABEL)),
+  };
 
   return (
     <div className="rd-page">
@@ -363,6 +479,7 @@ const RoomDimensions: React.FC = () => {
                 setMode(value as Mode);
                 setHovered(null);
                 setTraceHovered(null);
+                setPlacingLine(false);
               }}
               options={[
                 { label: 'Auto-detect', value: 'auto' },
@@ -386,6 +503,29 @@ const RoomDimensions: React.FC = () => {
                 <Button size="small" icon={<ClearOutlined />} onClick={resetTrace} disabled={!tracePoints.length}>
                   Clear
                 </Button>
+              </div>
+            )}
+            {lineAvailable && (
+              <div className="rd-line-actions" role="group" aria-label="Scale line">
+                <Button
+                  size="small"
+                  icon={<ColumnWidthOutlined />}
+                  type={placingLine ? 'primary' : 'default'}
+                  aria-pressed={placingLine}
+                  onClick={() => setPlacingLine(on => !on)}
+                >
+                  {line.length ? 'Redraw line' : 'Draw line'}
+                </Button>
+                {line.length > 0 && (
+                  <Button
+                    type="text"
+                    size="small"
+                    className="ui-icon-btn"
+                    icon={<CloseOutlined />}
+                    aria-label="Remove line"
+                    onClick={removeLine}
+                  />
+                )}
               </div>
             )}
             <div className="rd-zoom" role="group" aria-label="Zoom">
@@ -428,6 +568,7 @@ const RoomDimensions: React.FC = () => {
                 onCloseLoop={() => setTraceClosed(true)}
                 onSelectSegment={pickSegment}
                 onHoverSegment={setTraceHovered}
+                scaleLine={scaleLine}
               />
             ) : (
               detection && (
@@ -440,6 +581,7 @@ const RoomDimensions: React.FC = () => {
                   hoveredLabel={hovered}
                   onFaceClick={pickFace}
                   onFaceHover={setHovered}
+                  scaleLine={lineAvailable ? scaleLine : undefined}
                 />
               )
             )}
@@ -459,9 +601,9 @@ const RoomDimensions: React.FC = () => {
                   <h2 className="ui-section-title">Trace the room</h2>
                 </div>
                 <p className="rd-hint">
-                  Click each corner of the room in order. Drag a corner to nudge it, and click the first corner (or
-                  Close loop) to join the outline. Then pick any wall below and enter its real length to set the
-                  scale.
+                  {placingLine
+                    ? LINE_HINT
+                    : 'Click each corner of the room in order. Drag a corner to nudge it, and click the first corner (or Close loop) to join the outline. Then pick any wall below, or draw a line between two points you know the distance of, and enter its real length to set the scale.'}
                 </p>
                 <div className="rd-scale-form">
                   <Select
@@ -469,8 +611,7 @@ const RoomDimensions: React.FC = () => {
                     placeholder="Wall"
                     value={traceSelected ?? undefined}
                     onChange={pickSegment}
-                    disabled={!metrics.segments.length}
-                    options={metrics.segments.map(s => ({ value: s.label, label: s.label }))}
+                    options={[...metrics.segments.map(s => ({ value: s.label, label: s.label })), lineOption]}
                   />
                   <InputNumber
                     ref={feetInputRef}
@@ -498,9 +639,9 @@ const RoomDimensions: React.FC = () => {
                     {tracePxPerFt ? 'Update scale' : 'Set scale'}
                   </Button>
                 </div>
-                {traceRef && traceReferenceSeg && tracePxPerFt && (
+                {traceRef && traceReferencePx && tracePxPerFt && (
                   <div className="rd-scale-current">
-                    Wall {traceRef.label} = {lengthText(traceReferenceSeg.lengthPx, tracePxPerFt)}
+                    {referenceName(traceRef)} = {lengthText(traceReferencePx, tracePxPerFt)}
                   </div>
                 )}
               </section>
@@ -577,9 +718,11 @@ const RoomDimensions: React.FC = () => {
                   <h2 className="ui-section-title">Scale</h2>
                 </div>
                 <p className="rd-hint">
-                  {scaleReady
-                    ? 'To correct the scale, pick any wall and enter its real length.'
-                    : 'A capture has no scale. Pick a wall on the drawing or here and enter its real length; every other wall follows from it.'}
+                  {placingLine
+                    ? LINE_HINT
+                    : scaleReady
+                      ? 'To correct the scale, pick any wall or draw a line, and enter its real length.'
+                      : 'A capture has no scale. Pick a wall on the drawing or here, or draw a line between two points you know the distance of, and enter its real length; every other wall follows from it.'}
                 </p>
                 <div className="rd-scale-form">
                   <Select aria-label="Wall" value={formLabel ?? undefined} onChange={pickFace} options={faceOptions} />
@@ -609,9 +752,9 @@ const RoomDimensions: React.FC = () => {
                     {pxPerFt ? 'Update scale' : 'Set scale'}
                   </Button>
                 </div>
-                {reference && pxPerFt && (
+                {reference && referencePx && pxPerFt && (
                   <div className="rd-scale-current">
-                    Wall {reference.label} = {lengthText(referenceFace!.lengthPx, pxPerFt)}
+                    {referenceName(reference)} = {lengthText(referencePx, pxPerFt)}
                   </div>
                 )}
               </section>
