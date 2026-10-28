@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons';
 import type { PhotoRoom } from '../../types/packing-estimate';
 import { useSheetModal } from '../common/ui';
+import { photoFilesToBase64 } from './photoFiles';
 import './packing.css';
 
 const IMAGE_EXTENSIONS = new Set([
@@ -65,18 +66,6 @@ function groupFilesBySubfolder(files: FileList): FolderRoom[] {
   return Array.from(groups.entries())
     .map(([name, files]) => ({ name, files, selected: true }))
     .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.split(',')[1]);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 function defaultPhotoRoom(roomName: string): PhotoRoom {
@@ -193,7 +182,7 @@ const FolderImportModal: React.FC<FolderImportModalProps> = ({
         setImportProgress({ current: i + 1, total: selectedRooms.length });
 
         const filesToConvert = folderRoom.files.slice(0, MAX_PHOTOS_PER_ROOM);
-        const base64List = await Promise.all(filesToConvert.map(fileToBase64));
+        const base64List = await photoFilesToBase64(filesToConvert);
 
         if (base64List.length === 0) continue;
 

@@ -6,8 +6,9 @@ Supports Quick Estimate and Photo AI modes with
 client/company DB integration.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+import asyncio
 import logging
 from sqlalchemy.orm import Session, joinedload
 from typing import Optional
@@ -129,6 +130,19 @@ async def analyze_room(
         existing_items=request.existing_items or None,
     )
     return result
+
+
+@router.post("/convert-photo")
+async def convert_photo(
+    file: UploadFile = File(...),
+    current_user: Staff = Depends(get_current_user),
+):
+    """Re-encode a photo the browser can't show (e.g. iPhone HEIC) as JPEG."""
+    from .vision import convert_photo_to_jpeg
+    data = await file.read()
+    # PIL decode/re-encode is CPU-bound; keep it off the event loop
+    image = await asyncio.to_thread(convert_photo_to_jpeg, data)
+    return {"image": image}
 
 
 @router.post("/analyze-batch")

@@ -51,6 +51,14 @@ except ImportError:  # pragma: no cover
     _ANTHROPIC_AVAILABLE = False
 
 try:
+    # Teaches Pillow to open iPhone HEIC/HEIF photos
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+except ImportError:  # pragma: no cover
+    pass
+
+try:
     from app.domains.pack_calculation.taxonomy import normalize_items_list
 
     _TAXONOMY_AVAILABLE = True
@@ -707,6 +715,27 @@ def _select_diverse_images(
     return selected
 
 
+def _sniff_media_type(raw_b64: str) -> Optional[str]:
+    """Return the media type Claude accepts for these bytes, or None.
+
+    Reads the file signature, since the frontend sends bare base64 without
+    a data URL prefix and the photo may be PNG/WebP rather than JPEG.
+    """
+    try:
+        head = base64.b64decode(raw_b64[:24])
+    except Exception:
+        return None
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if head.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
 def _compress_image_base64(
     image_base64: str,
     max_bytes: int = MAX_IMAGE_BYTES,
@@ -714,19 +743,21 @@ def _compress_image_base64(
     """Compress a base64 image so the raw base64 string stays under max_bytes.
 
     Returns (media_type, base64_data) with the data URL prefix stripped.
-    If the image is already small enough, returns it unchanged.
-    Falls back gracefully if Pillow is not installed.
+    If the image is already small enough and in a format Claude accepts
+    (JPEG/PNG/GIF/WebP), returns it unchanged; anything else is re-encoded
+    as JPEG. Raises HTTPException(400) for a photo Pillow cannot read.
     """
-    media_type = "image/jpeg"
     raw_b64 = image_base64
 
     if raw_b64.startswith("data:"):
         parts = raw_b64.split(",", 1)
         if len(parts) > 1:
-            media_type = parts[0].split(":")[1].split(";")[0]
             raw_b64 = parts[1]
 
-    if len(raw_b64) <= max_bytes:
+    # Trust the bytes, not the label: a mislabeled image is a 400 from Claude
+    media_type = _sniff_media_type(raw_b64)
+
+    if media_type and len(raw_b64) <= max_bytes:
         return media_type, raw_b64
 
     try:
@@ -766,7 +797,44 @@ def _compress_image_base64(
     except Exception:
         pass
 
+    if media_type is None:
+        # Pillow couldn't open it and Claude won't take it as-is
+        raise HTTPException(status_code=400, detail=_UNREADABLE_PHOTO)
     return media_type, raw_b64
+
+
+_UNREADABLE_PHOTO = (
+    "A photo is in a format that can't be read. "
+    "Please upload JPEG, PNG, WebP or HEIC photos."
+)
+
+PREVIEW_MAX_DIM = 2048  # px — sharp enough to zoom in the photo preview
+
+
+def convert_photo_to_jpeg(data: bytes) -> str:
+    """Re-encode an uploaded photo (e.g. iPhone HEIC) as base64 JPEG.
+
+    Browsers like Chrome can't display HEIC, so the frontend converts those
+    photos here on upload and keeps the JPEG for thumbnails and analysis.
+    Raises HTTPException(400) for a file Pillow cannot read.
+    """
+    from PIL import Image, ImageOps
+
+    try:
+        with io.BytesIO(data) as input_buf:
+            img = Image.open(input_buf)
+            img.load()  # Force full decode so input_buf can be closed
+    except Exception:
+        raise HTTPException(status_code=400, detail=_UNREADABLE_PHOTO)
+
+    img = ImageOps.exif_transpose(img)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    img.thumbnail((PREVIEW_MAX_DIM, PREVIEW_MAX_DIM), Image.LANCZOS)
+
+    with io.BytesIO() as buf:
+        img.save(buf, format="JPEG", quality=85, optimize=True)
+        return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 # ============================================
@@ -840,10 +908,11 @@ async def _analyze_room_with_claude(
         pass1_prompt = _build_pass1_tool_prompt(room_name, len(images), existing_items)
         content.append({"type": "text", "text": pass1_prompt})
 
+        # No `temperature`: anthropic>=1.15 dropped it from messages.create
+        # and raises TypeError before any request is sent.
         pass1_msg = await client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=4096,
-            temperature=0,
             tools=[PASS1_TOOL],
             tool_choice={"type": "tool", "name": "report_room_contents"},
             messages=[{"role": "user", "content": content}],
@@ -871,7 +940,6 @@ async def _analyze_room_with_claude(
         pass2_msg = await client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=4096,
-            temperature=0,
             tools=[PASS2_TOOL],
             tool_choice={"type": "tool", "name": "enrich_packing_details"},
             messages=[{"role": "user", "content": pass2_prompt}],

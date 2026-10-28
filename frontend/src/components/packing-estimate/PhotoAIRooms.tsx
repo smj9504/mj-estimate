@@ -23,6 +23,7 @@ import {
 import FolderImportModal from './FolderImportModal';
 import { Pill, type TagTone } from '../common/ui';
 import { contaminationSelectLabel, multiplierSelectLabel } from './packingUi';
+import { PHOTO_ACCEPT, photoFilesToBase64 } from './photoFiles';
 import './packing.css';
 
 const { Option } = Select;
@@ -35,18 +36,6 @@ interface PhotoAIRoomsProps {
 
 function generateId(): string {
   return `room_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.split(',')[1]);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 function toDataUri(base64: string): string {
@@ -124,9 +113,8 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
   }, [useCustomName, newRoomName, newRoomPreset, pendingPhotos, rooms, setRooms, allPresets]);
 
   const handlePhotoFiles = useCallback(async (files: FileList | File[]) => {
-    const fileArr = Array.from(files).filter(f => f.type.startsWith('image/'));
-    if (fileArr.length === 0) return;
-    const base64List = await Promise.all(fileArr.map(fileToBase64));
+    const base64List = await photoFilesToBase64(Array.from(files));
+    if (base64List.length === 0) return;
     setPendingPhotos(prev => [...prev, ...base64List]);
   }, []);
 
@@ -227,17 +215,13 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
   // ── Add more photos to existing room ───────
 
   const handleAddPhotosToRoom = useCallback(async (roomId: string, files: FileList | File[]) => {
-    const fileArr = Array.from(files).filter(f => f.type.startsWith('image/'));
-    if (fileArr.length === 0) return;
-    const base64List = await Promise.all(fileArr.map(fileToBase64));
-    const room = rooms.find(r => r.id === roomId);
-    if (room) {
-      updateRoom(roomId, {
-        photos: [...room.photos, ...base64List],
-        analyzed: false,
-      });
-    }
-  }, [rooms, updateRoom]);
+    const base64List = await photoFilesToBase64(Array.from(files));
+    if (base64List.length === 0) return;
+    // HEIC conversion awaits the server, so read the rooms as they are now
+    setRooms(roomsRef.current.map(r => r.id === roomId ? {
+      ...r, photos: [...r.photos, ...base64List], analyzed: false,
+    } : r));
+  }, [setRooms]);
 
   // ── Item editing ───────────────────────────
 
@@ -364,7 +348,7 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
             <Dragger
               className="pk-dragger"
               multiple
-              accept="image/*"
+              accept={PHOTO_ACCEPT}
               showUploadList={false}
               // Called once per selected file, so add just that file
               beforeUpload={(file) => {
@@ -392,7 +376,7 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
                   </div>
                 ))}
                 <Upload
-                  multiple accept="image/*" showUploadList={false}
+                  multiple accept={PHOTO_ACCEPT} showUploadList={false}
                   beforeUpload={(file) => { handlePhotoFiles([file]); return false; }}
                 >
                   <button type="button" className="pk-photo-add" aria-label="Add photos">
@@ -525,7 +509,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
           <PlusOutlined />
         </button>
         <input
-          ref={fileRef} type="file" accept="image/*" multiple hidden
+          ref={fileRef} type="file" accept={PHOTO_ACCEPT} multiple hidden
           onChange={e => { if (e.target.files) onAddPhotos(e.target.files); e.target.value = ''; }}
         />
       </div>

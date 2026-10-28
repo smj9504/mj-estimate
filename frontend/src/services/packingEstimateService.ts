@@ -33,6 +33,16 @@ export async function contentEstimate(
 
 // ── Room Photo Analysis ───────────────────────
 
+/** Re-encode a photo the browser can't show (e.g. iPhone HEIC) as bare base64 JPEG */
+export async function convertPhoto(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const { data } = await api.post(`${BASE}/convert-photo`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data.image;
+}
+
 export async function analyzeRoom(
   roomName: string,
   images: string[],
