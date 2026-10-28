@@ -2,6 +2,8 @@
  * Client, Claim, and ClaimNegotiation types
  */
 
+import type { TagTone } from '../styles/tokens';
+
 export interface OwnerInfo {
   name: string;
   phone?: string;
@@ -117,6 +119,18 @@ export interface ClaimNegotiationCreate {
  * supplement estimate goes out.
  */
 export type ClaimStatus = 'open' | 'negotiating' | 'appraisal' | 'settled' | 'closed' | 'denied';
+
+export const CLAIM_STATUS_CONFIG: Record<
+  ClaimStatus,
+  { tone: TagTone; label: string }
+> = {
+  open:        { tone: 'blue',   label: 'Open' },
+  negotiating: { tone: 'orange', label: 'Negotiating' },
+  appraisal:   { tone: 'pink',   label: 'Appraisal' },
+  settled:     { tone: 'green',  label: 'Settled' },
+  closed:      { tone: 'gray',   label: 'Closed' },
+  denied:      { tone: 'red',    label: 'Denied' },
+};
 
 /**
  * Who produced the initial estimate. Most carriers write their own, but some
@@ -594,7 +608,12 @@ export interface ClientListItem {
   /** null/undefined = entered in this app, 'acculynx' = AccuLynx archive import */
   source?: 'acculynx' | null;
   claim_count: number;
+  /** Status of the client's newest claim; null when it has none */
+  latest_claim_status?: ClaimStatus | null;
   created_at?: string;
+  updated_at?: string;
+  /** When the client or any of its claims last changed */
+  last_activity_at?: string;
 }
 
 /** Which clients the list shows: entered in this app, or imported from AccuLynx */

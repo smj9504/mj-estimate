@@ -155,6 +155,31 @@ def test_claim_counts_only_count_visible_claims(env):
     assert counts == {'Pat Shared': 1, 'Lee New': 0}
 
 
+def test_the_list_shows_each_clients_newest_visible_claim_and_last_change(env):
+    as_, ids, database = env
+    session = database.get_session()
+    pat = session.query(Client).filter(Client.display_name == 'Pat Shared').one()
+    pat.created_at = pat.updated_at = datetime(2025, 12, 1)
+    wm = session.query(Claim).filter(Claim.claim_number == 'WM-1').one()
+    wm.created_at, wm.updated_at, wm.status = datetime(2026, 1, 1), datetime(2026, 3, 1), 'settled'
+    build = session.query(Claim).filter(Claim.claim_number == 'RB-1').one()
+    build.created_at, build.updated_at, build.status = datetime(2026, 2, 1), datetime(2026, 2, 5), 'negotiating'
+    session.commit()
+    session.close()
+
+    def rows(name, **params):
+        clients = as_(name).get('/api/clients/', params=params).json()['clients']
+        return {c['display_name']: (c['latest_claim_status'], (c['last_activity_at'] or '')[:10])
+                for c in clients}
+
+    # Newest claim by when it was opened; last change across the client and its claims
+    assert rows('admin')['Pat Shared'] == ('negotiating', '2026-03-01')
+    assert rows('bob')['Pat Shared'] == ('negotiating', '2026-02-05')
+    assert rows('alice')['Pat Shared'] == ('settled', '2026-03-01')
+    assert rows('alice')['Lee New'][0] is None
+    assert rows('alice', search='Pat') == {'Pat Shared': ('settled', '2026-03-01')}
+
+
 def test_a_shared_client_shows_each_company_its_own_claims(env):
     as_, ids, _ = env
     alice_claims = as_('alice').get(f"/api/clients/{ids['pat']}/claims").json()['claims']

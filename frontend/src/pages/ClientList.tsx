@@ -38,7 +38,8 @@ import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { PageHeader, Pill, useSheetModal } from '../components/common/ui';
 import { clientService } from '../services/clientService';
 import { useAuth } from '../contexts/AuthContext';
-import type { Client, ClientCreate, ClientListItem, ClientSourceFilter, OwnerInfo } from '../types/client';
+import { CLAIM_STATUS_CONFIG } from '../types/client';
+import type { ClaimStatus, Client, ClientCreate, ClientListItem, ClientSourceFilter, OwnerInfo } from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 
@@ -500,22 +501,19 @@ const ClientList: React.FC = () => {
     },
     {
       title: 'Status',
-      dataIndex: 'is_active',
-      key: 'is_active',
-      width: 100,
-      render: (active: boolean) =>
-        active ? (
-          <Tag color="success">Active</Tag>
-        ) : (
-          <Tag color="default">Inactive</Tag>
-        ),
+      dataIndex: 'latest_claim_status',
+      key: 'latest_claim_status',
+      width: 120,
+      render: (status?: ClaimStatus | null) => {
+        const cfg = status ? CLAIM_STATUS_CONFIG[status] : undefined;
+        return cfg ? <Pill tone={cfg.tone}>{cfg.label}</Pill> : '—';
+      },
     },
     {
-      title: 'Created',
-      dataIndex: 'created_at',
-      key: 'created_at',
+      title: 'Updated',
+      key: 'last_activity_at',
       width: 120,
-      render: formatDate,
+      render: (_: any, record) => formatDate(record.last_activity_at ?? record.updated_at ?? record.created_at),
       responsive: ['xl'],
     },
     {
@@ -578,12 +576,13 @@ const ClientList: React.FC = () => {
   const renderPhoneRow = (record: ClientListItem) => {
     const owner = primaryOwner(record.owners);
     const address = [record.address, record.city, record.state, record.zipcode].filter(Boolean).join(', ');
+    const statusCfg = record.latest_claim_status ? CLAIM_STATUS_CONFIG[record.latest_claim_status] : undefined;
     return (
       <div className="ui-row" onClick={() => navigate(`/clients/${record.id}`)}>
         <div className="ui-row-body">
-          {!record.is_active && (
+          {statusCfg && (
             <div className="ui-row-tags">
-              <Pill tone="gray">Inactive</Pill>
+              <Pill tone={statusCfg.tone}>{statusCfg.label}</Pill>
             </div>
           )}
           <span className="ui-row-title">{record.display_name}</span>
@@ -596,6 +595,7 @@ const ClientList: React.FC = () => {
           <div className="ui-row-meta">
             {record.insurance_company && <span>{record.insurance_company}</span>}
             <span>{record.claim_count} {record.claim_count === 1 ? 'claim' : 'claims'}</span>
+            <span>Updated {formatDate(record.last_activity_at ?? record.updated_at ?? record.created_at)}</span>
           </div>
         </div>
         <div onClick={(e) => e.stopPropagation()}>

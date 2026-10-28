@@ -244,6 +244,40 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
         total = scoped(self.db_session.query(func.count(Client.id)), scope).scalar() or 0
         return {'manual': total - imported, 'acculynx': imported}
 
+    def _list_items(self, client_objs: List[Client], staff: Any = None) -> List[Dict[str, Any]]:
+        """Client list rows: each client with its claim count, its newest
+        claim's status, and when the client or any of its claims last changed.
+        With staff, only the claims that person may see count."""
+        from app.domains.auth.company_scope import scoped
+
+        claims_by_client: Dict[Any, List[Any]] = {}
+        client_ids = [c.id for c in client_objs]
+        if client_ids:
+            rows = scoped(
+                self.db_session.query(
+                    Claim.client_id, Claim.status, Claim.created_at, Claim.updated_at
+                ).filter(Claim.client_id.in_(client_ids)),
+                self._claim_scope(staff),
+            ).all()
+            for row in rows:
+                claims_by_client.setdefault(row.client_id, []).append(row)
+
+        items = []
+        for client_obj in client_objs:
+            claims = claims_by_client.get(client_obj.id, [])
+            newest = max(claims, key=lambda c: c.created_at, default=None)
+            changed = [client_obj.updated_at or client_obj.created_at] + [
+                c.updated_at or c.created_at for c in claims
+            ]
+            last_activity = max((d for d in changed if d), default=None)
+
+            item = self._convert_to_dict(client_obj)
+            item['claim_count'] = len(claims)
+            item['latest_claim_status'] = newest.status if newest else None
+            item['last_activity_at'] = last_activity.isoformat() if last_activity else None
+            items.append(item)
+        return items
+
     def get_all_with_counts(self, filters=None, order_by=None, limit=None, offset=None,
                             source: Optional[str] = None, staff: Any = None) -> List[Dict[str, Any]]:
         """Get all clients with claim counts, ordered by latest claim activity.
@@ -251,8 +285,6 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
         from app.domains.auth.company_scope import scoped
 
         try:
-            claim_scope = self._claim_scope(staff)
-
             # Subquery: latest claim activity per client
             latest_claim_activity = scoped(
                 self.db_session.query(
@@ -261,15 +293,11 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                         func.coalesce(Claim.updated_at, Claim.created_at)
                     ).label('latest_activity')
                 ),
-                claim_scope,
+                self._claim_scope(staff),
             ).group_by(Claim.client_id).subquery()
 
-            claim_join = Client.id == Claim.client_id
-            if claim_scope is not None:
-                claim_join = and_(claim_join, claim_scope)
             query = (
-                self.db_session.query(Client, func.count(Claim.id).label('claim_count'))
-                .outerjoin(Claim, claim_join)
+                self.db_session.query(Client)
                 .outerjoin(
                     latest_claim_activity,
                     Client.id == latest_claim_activity.c.client_id
@@ -283,11 +311,6 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                         query = query.filter(getattr(Client, key) == value)
             query = self._filter_source(query, source)
             query = scoped(query, self._client_scope(staff))
-
-            query = query.group_by(
-                Client.id,
-                latest_claim_activity.c.latest_activity,
-            )
 
             # Order by most recent activity: client's own updated_at vs. its
             # claims' latest activity, whichever is more recent (desc)
@@ -304,15 +327,7 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
             if limit:
                 query = query.limit(limit)
 
-            results = query.all()
-
-            clients = []
-            for client_obj, claim_count in results:
-                client_dict = self._convert_to_dict(client_obj)
-                client_dict['claim_count'] = claim_count
-                clients.append(client_dict)
-
-            return clients
+            return self._list_items(query.all(), staff)
         except Exception as e:
             logger.error(f"Error getting clients with counts: {e}")
             raise
@@ -334,7 +349,7 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                     Client.city.ilike(search_term),
                 )
             ).order_by(Client.display_name).limit(limit).all()
-            return [self._convert_to_dict(c) for c in clients]
+            return self._list_items(clients, staff)
         except Exception as e:
             logger.error(f"Error searching clients: {e}")
             raise

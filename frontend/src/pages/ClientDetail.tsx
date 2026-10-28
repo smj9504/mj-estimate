@@ -97,6 +97,7 @@ import type {
   PlumberReportSummary,
 } from '../types/client';
 import {
+  CLAIM_STATUS_CONFIG,
   ESTIMATE_ORIGIN_CONFIG,
   ESTIMATE_CATEGORY_CONFIG,
   CONTRACTOR_ESTIMATE_STAGE_ORDER,
@@ -121,18 +122,6 @@ const US_STATES = [
   'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT',
   'VA','WA','WV','WI','WY',
 ];
-
-const CLAIM_STATUS_CONFIG: Record<
-  ClaimStatus,
-  { tone: TagTone; label: string }
-> = {
-  open:        { tone: 'blue',   label: 'Open' },
-  negotiating: { tone: 'orange', label: 'Negotiating' },
-  appraisal:   { tone: 'pink',   label: 'Appraisal' },
-  settled:     { tone: 'green',  label: 'Settled' },
-  closed:      { tone: 'gray',   label: 'Closed' },
-  denied:      { tone: 'red',    label: 'Denied' },
-};
 
 const REVISION_TYPE_CONFIG: Record<
   ClaimNegotiation['revision_type'],

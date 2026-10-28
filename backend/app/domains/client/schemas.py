@@ -653,7 +653,10 @@ class ClientListResponse(BaseModel):
     is_active: bool = True
     source: Optional[str] = None
     claim_count: int = 0
+    latest_claim_status: Optional[str] = None  # status of the newest claim
     created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    last_activity_at: Optional[datetime] = None  # client or any of its claims changed
 
     class Config:
         from_attributes = True
