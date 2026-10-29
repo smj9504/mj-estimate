@@ -3448,6 +3448,13 @@ mark.fu-tpl-missing {
   color: var(--color-neutral-900);
   font-variant-numeric: tabular-nums;
 }
+/* A claim's stage pill, with construction beside it when it runs alongside */
+.cl-stage {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
 .cl-claim-head .cl-meta {
   margin-top: 2px;
   font-variant-numeric: tabular-nums;

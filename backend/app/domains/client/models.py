@@ -202,6 +202,20 @@ class Claim(Base, BaseModel):
     # this. Kept after the claim settles so the history still shows it.
     appraisal_date = Column(DateTime(timezone=True))
 
+    # Where the claim is in the lifecycle is worked out from its records (see
+    # claim_stage.py). Staff set this when those records lag behind; it holds
+    # until the records reach a later stage on their own. NULL = automatic.
+    stage_override = Column(
+        String(40), nullable=True,
+        comment="Lifecycle stage set by hand; NULL = derived from the claim's records",
+    )
+
+    # Rebuild construction runs alongside the paperwork: it starts around the
+    # first carrier estimate and ends whenever it ends. Finishing it opens
+    # depreciation recovery.
+    construction_started_at = Column(DateTime(timezone=True))
+    construction_completed_at = Column(DateTime(timezone=True))
+
     notes = Column(Text)
 
     # Relationships

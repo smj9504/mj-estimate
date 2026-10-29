@@ -63,6 +63,7 @@ import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { PageHeader, Pill, PropertyList, humanize, toneFromKey, useSheetModal, type TagTone } from '../components/common/ui';
 import { tagTones } from '../styles/tokens';
 import ClaimSection from '../components/client/ClaimSection';
+import ClaimStagePill from '../components/client/ClaimStagePill';
 import { WMStatusPill } from '../components/water-mitigation/wmStatus';
 import { WorkOrderStatusPill } from '../components/work-order/workOrderUi';
 import { useBreadcrumbTitle } from '../contexts/BreadcrumbContext';
@@ -99,6 +100,8 @@ import type {
 } from '../types/client';
 import {
   CLAIM_STATUS_CONFIG,
+  CLAIM_STAGE_CONFIG,
+  OVERRIDE_STAGES,
   ESTIMATE_ORIGIN_CONFIG,
   ESTIMATE_CATEGORY_CONFIG,
   CONTRACTOR_ESTIMATE_STAGE_ORDER,
@@ -514,6 +517,9 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           estimate_origin: editingClaim.estimate_origin,
           contractor_estimate_stage: editingClaim.contractor_estimate_stage,
           rebuild_estimate_company_id: editingClaim.rebuild_estimate_company_id || undefined,
+          stage_override: editingClaim.stage_override || undefined,
+          construction_started_at: editingClaim.construction_started_at ? dayjs(editingClaim.construction_started_at) as any : undefined,
+          construction_completed_at: editingClaim.construction_completed_at ? dayjs(editingClaim.construction_completed_at) as any : undefined,
           notes: editingClaim.notes,
           initial_acv: editingClaim.current_acv,
           initial_rcv: editingClaim.current_rcv,
@@ -534,6 +540,12 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
       date_of_loss: values.date_of_loss ? dayjs(values.date_of_loss).format('YYYY-MM-DD') : undefined,
       // null clears it; the field only renders for appraisal claims
       appraisal_date: values.appraisal_date ? dayjs(values.appraisal_date).format('YYYY-MM-DD') : null,
+      // null hands the stage back to the claim's records
+      stage_override: values.stage_override || null,
+      construction_started_at: values.construction_started_at
+        ? dayjs(values.construction_started_at).format('YYYY-MM-DD') : null,
+      construction_completed_at: values.construction_completed_at
+        ? dayjs(values.construction_completed_at).format('YYYY-MM-DD') : null,
       // '' clears it on an existing claim; a new claim just leaves it out
       rebuild_estimate_company_id: values.estimate_origin === 'contractor_prepared'
         ? (values.rebuild_estimate_company_id || (editingClaim ? '' : undefined))
@@ -587,7 +599,8 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
             )}
           </Col>
           <Col xs={24} sm={12}>
-            <Form.Item name="status" label="Status" initialValue="open">
+            <Form.Item name="status" label="Status" initialValue="open"
+              tooltip={isCash ? undefined : 'Closed and Denied finish the claim; Appraisal puts it on the appraisal path. The Stage below follows from the claim\'s records.'}>
               <Select
                 onChange={(v) => {
                   if (v === 'appraisal' && !form.getFieldValue('appraisal_date' as any)) {
@@ -637,6 +650,39 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
             ) : null
           }
         </Form.Item>
+
+        <Row gutter={12}>
+          <Col xs={24}>
+            <Form.Item
+              name="stage_override"
+              label="Stage"
+              tooltip="Worked out from the WM job, follow-ups, supplements and depreciation. Pick a stage only when those records are behind; once they reach a later stage on their own, the claim follows them again."
+            >
+              <Select
+                allowClear
+                placeholder={editingClaim?.auto_stage && CLAIM_STAGE_CONFIG[editingClaim.auto_stage]
+                  ? `Automatic (${CLAIM_STAGE_CONFIG[editingClaim.auto_stage].label})`
+                  : 'Automatic'}
+              >
+                {OVERRIDE_STAGES.map((val) => (
+                  <Option key={val} value={val}>{CLAIM_STAGE_CONFIG[val].label}</Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={12}>
+            <Form.Item name="construction_started_at" label="Construction Started"
+              tooltip="Construction runs alongside the paperwork, usually from the first carrier estimate">
+              <DatePicker style={{ width: '100%' }} format="MM/DD/YYYY" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={12}>
+            <Form.Item name="construction_completed_at" label="Construction Completed"
+              tooltip="Finishing construction moves the claim on to depreciation recovery">
+              <DatePicker style={{ width: '100%' }} format="MM/DD/YYYY" />
+            </Form.Item>
+          </Col>
+        </Row>
 
         <Row gutter={12}>
           <Col xs={24} sm={12}>
@@ -2108,7 +2154,6 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
 const isCashJob = (claim?: Pick<Claim, 'claim_type'> | null) => claim?.claim_type === 'cash';
 
 const ClaimRowHead: React.FC<{ claim: Claim; showAmounts?: 'rcv' | 'both' }> = ({ claim, showAmounts = 'rcv' }) => {
-  const statusCfg = CLAIM_STATUS_CONFIG[claim.status];
   const hasAmounts = claim.current_acv > 0 || claim.current_rcv > 0;
   const cash = isCashJob(claim);
   // A cash job without a number goes by what the job is
@@ -2130,7 +2175,12 @@ const ClaimRowHead: React.FC<{ claim: Claim; showAmounts?: 'rcv' | 'both' }> = (
         <span className="cl-claim-num">
           {cash ? cashTitle : (claim.claim_number || 'No claim #')}
         </span>
-        {statusCfg && <Pill tone={statusCfg.tone}>{statusCfg.label}</Pill>}
+        <ClaimStagePill
+          stage={claim.stage}
+          detail={claim.stage_detail}
+          source={claim.stage_source}
+          construction={claim.construction}
+        />
       </div>
       {meta.length > 0 && <div className="cl-meta">{meta.join(' · ')}</div>}
     </div>
@@ -2182,6 +2232,33 @@ const ClaimCompanies: React.FC<{ claim: Claim }> = ({ claim }) => {
 };
 
 // The claim's facts: adjuster, deductible, estimate, loss description
+// The stage, what it is waiting on, and what the records say when it was set by hand
+const ClaimStageFact: React.FC<{ claim: Claim }> = ({ claim }) => {
+  if (!claim.stage) return null;
+  const auto = claim.auto_stage ? CLAIM_STAGE_CONFIG[claim.auto_stage] : undefined;
+  const note = claim.stage_source === 'manual'
+    ? `Set by hand · records say ${auto?.label ?? 'earlier'}`
+    : claim.stage_detail;
+  return (
+    <div>
+      <ClaimStagePill stage={claim.stage} source={claim.stage_source} />
+      {note && <div className="cl-meta">{note}</div>}
+    </div>
+  );
+};
+
+// Construction runs alongside the paperwork; its dates, or what the
+// depreciation follow-up says when no dates were entered
+const constructionText = (claim: Claim): string => {
+  const started = claim.construction_started_at ? formatDate(claim.construction_started_at) : null;
+  const done = claim.construction_completed_at ? formatDate(claim.construction_completed_at) : null;
+  if (done) return started ? `${started} – ${done}` : `Done ${done}`;
+  if (claim.construction === 'done') return 'Done';
+  if (started) return `In progress since ${started}`;
+  if (claim.construction === 'in_progress') return 'In progress';
+  return 'Not started';
+};
+
 const ClaimFacts: React.FC<{ claim: Claim; onEdit: () => void; onEmail: () => void }> = ({ claim, onEdit, onEmail }) => isCashJob(claim) ? (
   <ClaimSection
     title="Cash job"
@@ -2214,6 +2291,8 @@ const ClaimFacts: React.FC<{ claim: Claim; onEdit: () => void; onEmail: () => vo
       labelWidth={104}
       items={[
         { key: 'num', label: 'Claim #', value: claim.claim_number },
+        { key: 'stage', label: 'Stage', value: <ClaimStageFact claim={claim} /> },
+        { key: 'construction', label: 'Construction', value: constructionText(claim) },
         { key: 'companies', label: 'Companies', value: <ClaimCompanies claim={claim} /> },
         { key: 'dol', label: 'Date of loss', value: claim.date_of_loss ? formatDate(claim.date_of_loss) : null },
         {

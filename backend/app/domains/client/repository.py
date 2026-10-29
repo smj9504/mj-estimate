@@ -91,11 +91,15 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
             work_order_counts = _counts_by_claim(WorkOrder)
             cabinet_estimate_counts = _counts_by_claim(CabinetEstimate)
 
+            from app.domains.client.claim_stage import claim_stages
+            stages = claim_stages(self.db_session, claims)
+
             claims_list = []
             for claim in claims:
                 claim_dict = self._convert_to_dict(claim)
                 cid = str(claim.id)
 
+                claim_dict.update(stages[cid])
                 claim_dict['negotiations'] = negotiations_by_claim.get(cid, [])
                 claim_dict['companies'] = companies.get(cid, [])
                 claim_dict['invoice_count'] = invoice_counts.get(cid, 0)
@@ -245,27 +249,31 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
         return {'manual': total - imported, 'acculynx': imported}
 
     def _list_items(self, client_objs: List[Client], staff: Any = None) -> List[Dict[str, Any]]:
-        """Client list rows: each client with its claim count, its newest
-        claim's status, and when the client or any of its claims last changed.
-        With staff, only the claims that person may see count."""
+        """Client list rows: each client with its claim count, the stage of the
+        claim that describes it, and when the client or any of its claims last
+        changed. The claim shown is the newest one still being worked, else the
+        newest one. With staff, only the claims that person may see count."""
         from app.domains.auth.company_scope import scoped
+        from app.domains.client.claim_stage import claim_stages, is_active_stage
 
         claims_by_client: Dict[Any, List[Any]] = {}
+        stages: Dict[str, Dict[str, Any]] = {}
         client_ids = [c.id for c in client_objs]
         if client_ids:
-            rows = scoped(
-                self.db_session.query(
-                    Claim.client_id, Claim.status, Claim.created_at, Claim.updated_at
-                ).filter(Claim.client_id.in_(client_ids)),
+            claims = scoped(
+                self.db_session.query(Claim).filter(Claim.client_id.in_(client_ids)),
                 self._claim_scope(staff),
             ).all()
-            for row in rows:
-                claims_by_client.setdefault(row.client_id, []).append(row)
+            for claim in claims:
+                claims_by_client.setdefault(claim.client_id, []).append(claim)
+            stages = claim_stages(self.db_session, claims)
 
         items = []
         for client_obj in client_objs:
             claims = claims_by_client.get(client_obj.id, [])
-            newest = max(claims, key=lambda c: c.created_at, default=None)
+            active = [c for c in claims if is_active_stage(stages[str(c.id)]['stage'])]
+            shown = max(active or claims, key=lambda c: c.created_at, default=None)
+            shown_stage = stages[str(shown.id)] if shown else {}
             changed = [client_obj.updated_at or client_obj.created_at] + [
                 c.updated_at or c.created_at for c in claims
             ]
@@ -273,7 +281,12 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
 
             item = self._convert_to_dict(client_obj)
             item['claim_count'] = len(claims)
-            item['latest_claim_status'] = newest.status if newest else None
+            item['active_claim_count'] = len(active)
+            item['latest_claim_status'] = shown.status if shown else None
+            item['claim_stage'] = shown_stage.get('stage')
+            item['claim_stage_detail'] = shown_stage.get('stage_detail')
+            item['claim_stage_source'] = shown_stage.get('stage_source')
+            item['claim_construction'] = shown_stage.get('construction')
             item['last_activity_at'] = last_activity.isoformat() if last_activity else None
             items.append(item)
         return items
@@ -442,6 +455,9 @@ class ClaimSQLAlchemyRepository(SQLAlchemyRepository):
                 self.db_session, [claim.rebuild_estimate_company_id]
             ).get(str(claim.rebuild_estimate_company_id or ''))
 
+            from app.domains.client.claim_stage import claim_stages
+            claim_dict.update(claim_stages(self.db_session, [claim])[str(claim.id)])
+
             return claim_dict
         except Exception as e:
             logger.error(f"Error getting claim with details: {e}")
@@ -503,7 +519,11 @@ class ClaimSQLAlchemyRepository(SQLAlchemyRepository):
         )
         companies = companies_by_claim(self.db_session, claim_ids)
 
+        from app.domains.client.claim_stage import claim_stages
+        stages = claim_stages(self.db_session, claims)
+
         for claim in claims:
+            claim.update(stages[str(claim['id'])])
             claim['companies'] = companies.get(str(claim['id']), [])
             claim['wm_jobs'] = wm_jobs_by_claim.get(claim['id'], [])
             claim['wm_job_count'] = len(claim['wm_jobs'])
