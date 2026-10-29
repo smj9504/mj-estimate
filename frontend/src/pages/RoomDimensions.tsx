@@ -19,13 +19,14 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, InputNumber, Segmented, Select, Spin, Upload, message } from 'antd';
+import { Alert, Button, InputNumber, Modal, Segmented, Select, Spin, Upload, message } from 'antd';
 import {
   BorderOuterOutlined,
   ClearOutlined,
   CloseOutlined,
   ColumnWidthOutlined,
   DownloadOutlined,
+  EditOutlined,
   UndoOutlined,
   UploadOutlined,
   ZoomInOutlined,
@@ -39,7 +40,7 @@ import RoomTraceEditor from '../components/room-dimensions/RoomTraceEditor';
 import type { ScaleLineState } from '../components/room-dimensions/ScaleLine';
 import { LINE_LABEL, lengthText, renderDrawingPng, renderTracePng } from '../components/room-dimensions/roomDrawing';
 import { detectRoomFaces, type Point, type RoomDetection, type WallFace } from '../utils/roomDimensions';
-import { angleText, traceMetrics } from '../utils/roomTrace';
+import { angleText, outlineCorners, traceMetrics } from '../utils/roomTrace';
 import '../components/room-dimensions/roomDimensions.css';
 
 /** Larger captures are measured at this size; the scale is set on the same pixels, so lengths are unaffected */
@@ -64,7 +65,12 @@ interface Reference {
   px?: number;
   /** Auto-detect: the room the wall belongs to, so the scale holds when another room is measured */
   room?: number;
+  /** What to call it when it came from elsewhere: Auto-detect's scale carried into Trace walls */
+  name?: string;
 }
+
+/** A scale that does not hang on a traced wall's letter outlives the outline changing */
+const keepsScale = (ref: Reference | null) => (ref && (ref.label === LINE_LABEL || ref.px != null) ? ref : null);
 
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -92,6 +98,7 @@ const lineLength = (line: Point[]) => (line.length === 2 ? Math.hypot(line[1].x 
 
 /** How the scale form names its reference; a wall of a room other than `room` says which */
 const referenceName = (ref: Reference, room = 0) => {
+  if (ref.name) return ref.name;
   if (ref.label === LINE_LABEL) return ref.px != null ? 'Earlier line' : 'Line';
   return ref.room != null && ref.room !== room ? `Room ${ref.room + 1} wall ${ref.label}` : `Wall ${ref.label}`;
 };
@@ -143,12 +150,12 @@ const RoomDimensions: React.FC = () => {
     return () => document.removeEventListener('keydown', onKey);
   }, [placingLine]);
 
-  /** Start the outline over; a scale set from the drawn line is not part of it and stays */
+  /** Start the outline over; a scale set from the drawn line (or carried from Auto-detect) is not part of it and stays */
   const resetTrace = () => {
     setTracePoints([]);
     setTraceClosed(false);
     setTraceSelected(label => (label === LINE_LABEL ? label : null));
-    setTraceRef(ref => (ref?.label === LINE_LABEL ? ref : null));
+    setTraceRef(keepsScale);
     setTraceHovered(null);
   };
 
@@ -262,6 +269,47 @@ const RoomDimensions: React.FC = () => {
     [faces, pxPerFt, autoLinePx, fillLength],
   );
 
+  /**
+   * Carry the room Auto-detect measured into Trace walls, its corners ready to
+   * move, add or remove where the detection went wrong. Its scale comes along.
+   */
+  const editCorners = () => {
+    if (!view?.outline) return;
+    const carry = () => {
+      // Corners closer together than a wall is thick are one corner by hand
+      const corners = outlineCorners(view.outline!, view.wallThicknessPx);
+      setTracePoints(corners.map(p => scalePoint(p, 1 / workScale)));
+      setTraceClosed(true);
+      setTraceSelected(null);
+      setTraceHovered(null);
+      if (reference && referencePx) {
+        setTraceRef(
+          reference.label === LINE_LABEL && reference.px == null
+            ? { label: LINE_LABEL, feet: reference.feet }
+            : {
+                label: reference.label,
+                feet: reference.feet,
+                px: referencePx / workScale,
+                name: `${referenceName(reference, roomIndex)} (Auto-detect)`,
+              },
+        );
+      }
+      setPlacingLine(false);
+      setHovered(null);
+      setMode('trace');
+    };
+    if (tracePoints.length === 0) {
+      carry();
+      return;
+    }
+    Modal.confirm({
+      title: 'Replace your traced outline?',
+      content: 'The corners you clicked in Trace walls are replaced by the room Auto-detect found.',
+      okText: 'Replace',
+      onOk: carry,
+    });
+  };
+
   /** Measure another of the capture's rooms. The scale holds; the wall offered for it is the new room's longest */
   const pickRoom = useCallback(
     (index: number) => {
@@ -316,15 +364,28 @@ const RoomDimensions: React.FC = () => {
     (index: number, p: Point) => setTracePoints(prev => prev.map((q, i) => (i === index ? p : q))),
     [],
   );
+  /** Wall letters shift as corners come and go; a scale that does not hang on a letter stays */
+  const lettersShift = () => {
+    setTraceSelected(label => (label === LINE_LABEL ? label : null));
+    setTraceRef(keepsScale);
+    setTraceHovered(null);
+  };
   const undoTrace = () => {
     if (traceClosed) {
       setTraceClosed(false);
     } else {
       setTracePoints(prev => prev.slice(0, -1));
     }
-    // Wall letters shift as corners come off; the drawn line's scale does not
-    setTraceSelected(label => (label === LINE_LABEL ? label : null));
-    setTraceRef(ref => (ref?.label === LINE_LABEL ? ref : null));
+    lettersShift();
+  };
+  const removeVertex = (index: number) => {
+    if (tracePoints.length <= 3) return;
+    setTracePoints(prev => prev.filter((_, i) => i !== index));
+    lettersShift();
+  };
+  const insertVertex = (after: number, p: Point) => {
+    setTracePoints(prev => [...prev.slice(0, after + 1), p, ...prev.slice(after + 1)]);
+    lettersShift();
   };
 
   // ── Scale line ────────────────────────────────────────────────────
@@ -537,6 +598,11 @@ const RoomDimensions: React.FC = () => {
                 </Button>
               </div>
             )}
+            {!trace && view?.outline && (
+              <Button size="small" icon={<EditOutlined />} onClick={editCorners}>
+                Edit corners
+              </Button>
+            )}
             {lineAvailable && (
               <div className="rd-line-actions" role="group" aria-label="Scale line">
                 <Button
@@ -597,6 +663,8 @@ const RoomDimensions: React.FC = () => {
                 hoveredLabel={traceHovered}
                 onAddPoint={addPoint}
                 onMoveVertex={moveVertex}
+                onRemoveVertex={removeVertex}
+                onInsertVertex={insertVertex}
                 onCloseLoop={() => setTraceClosed(true)}
                 onSelectSegment={pickSegment}
                 onHoverSegment={setTraceHovered}
@@ -639,7 +707,9 @@ const RoomDimensions: React.FC = () => {
                 <p className="rd-hint">
                   {placingLine
                     ? LINE_HINT
-                    : 'Click each corner of the room in order. Drag a corner to nudge it, and click the first corner (or Close loop) to join the outline. Then pick any wall below, or draw a line between two points you know the distance of, and enter its real length to set the scale.'}
+                    : traceClosed
+                      ? 'Drag a corner to move it. Double-click a corner to remove it, or a wall to add a corner there. Pick any wall below, or draw a line between two points you know the distance of, and enter its real length to set the scale.'
+                      : 'Click each corner of the room in order. Drag a corner to nudge it, and click the first corner (or Close loop) to join the outline. Then pick any wall below, or draw a line between two points you know the distance of, and enter its real length to set the scale.'}
                 </p>
                 <div className="rd-scale-form">
                   <Select
@@ -799,12 +869,15 @@ const RoomDimensions: React.FC = () => {
                 <div className="ui-section-head">
                   <h2 className="ui-section-title">Walls</h2>
                 </div>
-                {detection && detection.rooms.length > 1 && (
-                  <p className="rd-hint">
-                    Room {roomIndex + 1} of {detection.rooms.length}
-                    {roomIndex === 0 ? ', the largest' : ''}. Click another room on the drawing to measure it.
-                  </p>
-                )}
+                <p className="rd-hint">
+                  {detection && detection.rooms.length > 1 && (
+                    <>
+                      Room {roomIndex + 1} of {detection.rooms.length}
+                      {roomIndex === 0 ? ', the largest' : ''}. Click another room on the drawing to measure it.{' '}
+                    </>
+                  )}
+                  If a wall is wrong, Edit corners lets you fix the outline by hand.
+                </p>
                 <ul className="rd-faces">
                   {faces.map(face => (
                     <li key={face.label}>

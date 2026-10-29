@@ -105,6 +105,13 @@ const LINE_TONE_SPREAD = 0.4;
 const MAX_BUMP_DEPTH = 0.75;
 const MAX_BUMP_WIDTH = 3;
 const MAX_BUMP_CORNERS = 3;
+/** A thin wall brought back runs at most this many wall thicknesses, and is inked along this share of it */
+const MAX_THIN_WALL = 30;
+const MIN_THIN_WALL_INK = 0.95;
+/** A direction this close to square to the page (cos 10°) is taken as square */
+const SQUARE_SNAP = 0.985;
+/** … keeping within this many wall thicknesses of one offset from the line between the ends */
+const MAX_THIN_WALL_WANDER = 0.4;
 /** A room is at least this many wall thicknesses across; smaller loops are stray bits of wall */
 const MIN_ROOM_SPAN = 4;
 
@@ -117,6 +124,7 @@ const DY = [0, 1, 0, -1];
 // ============================================================================
 
 const sub = (a: Point, b: Point): Point => ({ x: a.x - b.x, y: a.y - b.y });
+const midpoint = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 const dot = (a: Point, b: Point) => a.x * b.x + a.y * b.y;
 const cross = (a: Point, b: Point) => a.x * b.y - a.y * b.x;
@@ -828,6 +836,135 @@ function flattenBumps(points: Point[], maxDepth: number, maxWidth: number, eps: 
   return pts;
 }
 
+/** The end of a wall: its cap edge along the outline (ink on the left), and the way the wall runs on past it */
+interface WallEnd {
+  a: Point;
+  b: Point;
+  out: Point;
+}
+
+/** A direction within a few degrees of square to the page, made square: plans are drawn that way, short edges wobble */
+function squared(u: Point): Point {
+  if (Math.abs(u.x) >= SQUARE_SNAP) return { x: Math.sign(u.x), y: 0 };
+  if (Math.abs(u.y) >= SQUARE_SNAP) return { x: 0, y: Math.sign(u.y) };
+  return u;
+}
+
+/** The end of a wall at cap `i` of an outline. It runs on the way the face leading into the cap runs, square to the cap when that face is short. */
+function wallEnd(points: Point[], i: number, thickness: number): WallEnd {
+  const m = points.length;
+  const a = points[i];
+  const b = points[(i + 1) % m];
+  const face = points[(i - 1 + m) % m];
+  return { a, b, out: squared(dist(face, a) >= thickness ? unit(face, a) : rightOf(unit(a, b))) };
+}
+
+/**
+ * Bring back thin walls. On a plan drawn in single lines an inside wall can
+ * be no thicker than the dimension lines, and is cleared away with them.
+ * From each wall end, straight on or sideways from either corner, an
+ * unbroken line of ink that runs straight on until it meets another wall is
+ * a wall too, and its ink goes back. A dashed line (a missing wall) is
+ * broken, so it stays an opening; a folding door's zigzag wanders; door
+ * leaves and dimension lines do not run from a wall's end to another wall.
+ *
+ * Returns whether any came back.
+ */
+function restoreThinWalls(
+  mask: Uint8Array,
+  ink: Uint8Array,
+  width: number,
+  height: number,
+  thickness: number,
+  ends: WallEnd[],
+  /** The walls' outside corners, ends included */
+  corners: Point[],
+): boolean {
+  const reach = Math.ceil(thickness * 0.75);
+  const at = (p: Point) => {
+    const x = Math.floor(p.x);
+    const y = Math.floor(p.y);
+    return x >= 0 && y >= 0 && x < width && y < height ? y * width + x : -1;
+  };
+
+  /** Where a straight line of ink from `start` meets a wall, or null */
+  const follow = (start: Point, dir: Point): Point | null => {
+    const side = rightOf(dir);
+    const offsets: number[] = [];
+    let missing = 0;
+    let away = false;
+    for (let t = 1; t <= thickness * MAX_THIN_WALL; t++) {
+      const centre = { x: start.x + dir.x * t, y: start.y + dir.y * t };
+      if (at(centre) < 0) return null;
+      // The ink nearest the line here: 0, 1, -1, 2, -2… pixels off it
+      let found = -1;
+      let offset = 0;
+      for (let k = 0; k <= 2 * reach && found < 0; k++) {
+        offset = k % 2 ? (k + 1) / 2 : -k / 2;
+        const i = at({ x: centre.x + side.x * offset, y: centre.y + side.y * offset });
+        if (i >= 0 && ink[i]) found = i;
+      }
+      if (found >= 0 && mask[found]) {
+        // Still beside the wall it starts from, or arrived at another
+        if (!away) {
+          if (t > reach) return null;
+          continue;
+        }
+        if (t < thickness * 2 || offsets.length < (offsets.length + missing) * MIN_THIN_WALL_INK) return null;
+        offsets.sort((p, q) => p - q);
+        const spread = offsets[Math.floor(offsets.length * 0.9)] - offsets[Math.floor(offsets.length * 0.1)];
+        if (spread > thickness * MAX_THIN_WALL_WANDER) return null;
+        // A wall meets the other at its end or a corner; a dimension line can stop anywhere along it
+        return corners.some(c => dist(c, centre) <= reach * 1.5) ? centre : null;
+      }
+      if (found >= 0) {
+        away = true;
+        offsets.push(offset);
+      } else {
+        if (!away) return null;
+        missing++;
+        if (missing > Math.max(2, (offsets.length + missing) * (1 - MIN_THIN_WALL_INK))) return null;
+      }
+    }
+    return null;
+  };
+
+  const found: [Point, Point][] = [];
+  for (const { a, b, out } of ends) {
+    // Sideways is square to the way the wall runs, from a towards b
+    const square = rightOf(out);
+    const side = dot(sub(b, a), square) >= 0 ? square : { x: -square.x, y: -square.y };
+    const probes: [Point, Point][] = [
+      [midpoint(a, b), out],
+      [b, side],
+      [a, { x: -side.x, y: -side.y }],
+    ];
+    for (const [start, dir] of probes) {
+      const end = follow(start, dir);
+      if (end) found.push([start, end]);
+    }
+  }
+
+  // Its ink, in a corridor along the line
+  for (const [p, q] of found) {
+    const u = unit(p, q);
+    const n = rightOf(u);
+    const len = dist(p, q);
+    const x0 = Math.max(0, Math.floor(Math.min(p.x, q.x) - reach));
+    const x1 = Math.min(width - 1, Math.ceil(Math.max(p.x, q.x) + reach));
+    const y0 = Math.max(0, Math.floor(Math.min(p.y, q.y) - reach));
+    const y1 = Math.min(height - 1, Math.ceil(Math.max(p.y, q.y) + reach));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const d = { x: x + 0.5 - p.x, y: y + 0.5 - p.y };
+        const along = dot(d, u);
+        if (along >= 0 && along <= len && Math.abs(dot(d, n)) <= reach && ink[y * width + x]) mask[y * width + x] = 1;
+      }
+    }
+  }
+  return found.length > 0;
+}
+
 // ============================================================================
 // Which side of each wall faces the room
 // ============================================================================
@@ -840,27 +977,37 @@ interface Side {
 }
 
 /**
- * Cut a wall outline at its end caps. An end cap is a short edge where the
- * outline turns left twice to wrap around the end of a wall (ink is on the
- * left), so what is left are the wall's long sides. A closed ring of walls
- * has no caps: its outer and inner loops are each one side.
+ * The end caps of a wall outline: short edges where the outline turns left
+ * twice to wrap around the end of a wall (ink is on the left). Each is the
+ * index of the edge's first point.
  */
-function splitAtEndCaps(points: Point[], component: number, thickness: number): Side[] {
+function endCaps(points: Point[], thickness: number): number[] {
   const m = points.length;
   const dirs = points.map((p, i) => unit(p, points[(i + 1) % m]));
-  const lens = points.map((p, i) => dist(p, points[(i + 1) % m]));
-  const isCap = points.map((_, i) => {
+  const caps: number[] = [];
+  points.forEach((p, i) => {
     const before = dirs[(i - 1 + m) % m];
     const after = dirs[(i + 1) % m];
-    return (
-      lens[i] <= thickness * 1.8 &&
+    if (
+      dist(p, points[(i + 1) % m]) <= thickness * 1.8 &&
       cross(before, dirs[i]) < 0 &&
       cross(dirs[i], after) < 0 &&
       dot(before, after) < -0.7
-    );
+    ) {
+      caps.push(i);
+    }
   });
+  return caps;
+}
 
-  const caps = isCap.map((c, i) => (c ? i : -1)).filter(i => i >= 0);
+/**
+ * Cut a wall outline at its end caps, so what is left are the wall's long
+ * sides. A closed ring of walls has no caps: its outer and inner loops are
+ * each one side.
+ */
+function splitAtEndCaps(points: Point[], component: number, thickness: number): Side[] {
+  const m = points.length;
+  const caps = endCaps(points, thickness);
   if (caps.length === 0) return [{ points, closed: true, component, score: 0 }];
 
   const sides: Side[] = [];
@@ -1140,11 +1287,13 @@ export function detectRoomFaces(img: RgbaImage): RoomDetection {
 
   // Walls drawn as two lines: fill between each pair, so a wall is one band whatever its lines' width
   const hollow = fillHollowWalls(ink, width, height, thickness);
+  let hollowWalls = false;
   if (hollow) {
     const band = strokeWidths(hollow, width, height);
     if (band.wall >= thickness * HOLLOW_BAND_MIN) {
       ink = hollow;
       ({ wall: thickness, annotation } = band);
+      hollowWalls = true;
     }
   }
 
@@ -1158,7 +1307,8 @@ export function detectRoomFaces(img: RgbaImage): RoomDetection {
   const mask = keepThickStrokes(ink, width, height, depth);
 
   // Leftover specks (bold text, symbols) are not walls
-  const { labels, sizes, boxes } = labelComponents(mask, width, height);
+  const { sizes, boxes, labels: speckLabels } = labelComponents(mask, width, height);
+  let labels = speckLabels;
   const keep = sizes.map(
     (size, c) => c > 0 && size >= thickness * thickness * 3 && Math.max(boxes[c].maxX - boxes[c].minX, boxes[c].maxY - boxes[c].minY) + 1 >= thickness * 4,
   );
@@ -1170,11 +1320,37 @@ export function detectRoomFaces(img: RgbaImage): RoomDetection {
   }
 
   const eps = Math.max(1.2, thickness * 0.2);
+  const outlines = () =>
+    traceLoops(mask, labels, width, height).map(loop => ({
+      component: loop.component,
+      points: flattenBumps(simplifyLoop(loop.points, eps), thickness * MAX_BUMP_DEPTH, thickness * MAX_BUMP_WIDTH, eps),
+    }));
+
+  // A wall drawn thinner than the rest (an inside wall) went with the dimension lines; bring back
+  // those running from a wall's end to another wall. Where walls are drawn as two lines, a single
+  // line is never a wall.
+  let loops = outlines();
+  const ends: WallEnd[] = hollowWalls
+    ? []
+    : loops.flatMap(({ points }) =>
+        points.length < 3 ? [] : endCaps(points, thickness).map(i => wallEnd(points, i, thickness)),
+      );
+  // Where an outline turns left it wraps round ink: an outside corner of a wall
+  const corners = loops.flatMap(({ points }) =>
+    points.filter((p, i) => {
+      const m = points.length;
+      return m >= 3 && cross(sub(p, points[(i - 1 + m) % m]), sub(points[(i + 1) % m], p)) < 0;
+    }),
+  );
+  if (restoreThinWalls(mask, ink, width, height, thickness, ends, corners)) {
+    labels = labelComponents(mask, width, height).labels;
+    loops = outlines();
+  }
+
   const sides: Side[] = [];
-  for (const loop of traceLoops(mask, labels, width, height)) {
-    const pts = flattenBumps(simplifyLoop(loop.points, eps), thickness * MAX_BUMP_DEPTH, thickness * MAX_BUMP_WIDTH, eps);
+  for (const { component, points: pts } of loops) {
     if (pts.length < 3) continue;
-    for (const side of splitAtEndCaps(pts, loop.component, thickness)) {
+    for (const side of splitAtEndCaps(pts, component, thickness)) {
       side.score = enclosureScore(side, mask, width, height, thickness);
       sides.push(side);
     }

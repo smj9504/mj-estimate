@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cornerAngle, segmentLabel, traceMetrics } from './roomTrace';
+import { cornerAngle, outlineCorners, segmentLabel, traceMetrics } from './roomTrace';
 import type { Point } from './roomDimensions';
 
 const square: Point[] = [
@@ -70,5 +70,26 @@ describe('traceMetrics', () => {
     const m = traceMetrics([{ x: 0, y: 0 }, { x: 10, y: 0 }], false);
     expect(m.segments).toHaveLength(1);
     expect(m.vertices.every(v => v.angleDeg === null)).toBe(true);
+  });
+});
+
+describe('outlineCorners', () => {
+  it('keeps only the corners of a detected outline', () => {
+    const outline: Point[] = [
+      { x: 0, y: 0 },
+      { x: 50, y: 0 }, // a wall ends here and the next starts: straight on
+      { x: 100, y: 0 },
+      { x: 100, y: 1 }, // a corner point a pixel off the one before
+      { x: 100, y: 60 },
+      { x: 60, y: 60 },
+      { x: 0, y: 60 },
+      { x: 0, y: 1 }, // a pixel short of where it started
+    ];
+    expect(outlineCorners(outline, 4)).toEqual([
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+      { x: 100, y: 60 },
+      { x: 0, y: 60 },
+    ]);
   });
 });

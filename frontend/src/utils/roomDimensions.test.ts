@@ -220,6 +220,30 @@ describe('detectRoomFaces', () => {
     expect(result.faces.map(f => Math.round(f.lengthPx))).toEqual([240, 180, 240, 180]);
   });
 
+  it('keeps a wall drawn thinner than the rest, running from one wall end to another', () => {
+    const img = blank(340, 280);
+    rect(img, 40, 40, 300, 50, INK); // 10px walls…
+    rect(img, 40, 230, 300, 240, INK);
+    rect(img, 40, 40, 50, 240, INK);
+    rect(img, 292, 50, 298, 230, INK); // …and a 6px one closing the room on the right
+
+    const result = detectRoomFaces(img);
+    expect(result.faces.map(f => Math.round(f.lengthPx))).toEqual([242, 180, 242, 180]);
+    expect(result.openings).toEqual([]);
+  });
+
+  it('leaves a dashed (missing) wall as an opening', () => {
+    const img = blank(340, 280);
+    rect(img, 40, 40, 300, 50, INK);
+    rect(img, 40, 230, 300, 240, INK);
+    rect(img, 40, 40, 50, 240, INK);
+    for (let y = 56; y < 226; y += 20) rect(img, 292, y, 298, y + 10, INK);
+
+    const result = detectRoomFaces(img);
+    expect(result.faces.map(f => Math.round(f.lengthPx))).toEqual([250, 250, 180]);
+    expect(result.openings.map(o => Math.round(o.lengthPx))).toEqual([180]);
+  });
+
   it('measures the larger of two rooms, and returns the other too', () => {
     const img = blank(340, 180);
     wall(img, 20, 20, 320, 28);

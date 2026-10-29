@@ -133,6 +133,32 @@ export function traceMetrics(
   };
 }
 
+/**
+ * The corners of an outline worth tracing by hand: points closer than
+ * `minGap` to the corner before them merge into it, and points where the
+ * outline runs straight on are dropped. Used to hand a detected room to
+ * Trace walls with only the corners a person would have clicked.
+ */
+export function outlineCorners(points: Point[], minGap: number, straightDeg = 3): Point[] {
+  let kept: Point[] = [];
+  for (const p of points) {
+    if (!kept.length || dist(p, kept[kept.length - 1]) >= minGap) kept.push(p);
+  }
+  if (kept.length > 1 && dist(kept[0], kept[kept.length - 1]) < minGap) kept.pop();
+
+  for (let changed = true; changed && kept.length > 3; ) {
+    changed = false;
+    for (let i = 0; i < kept.length && kept.length > 3; i++) {
+      const n = kept.length;
+      if (cornerAngle(kept[(i - 1 + n) % n], kept[i], kept[(i + 1) % n]) > 180 - straightDeg) {
+        kept = kept.filter((_, k) => k !== i);
+        changed = true;
+      }
+    }
+  }
+  return kept;
+}
+
 /** Degrees as the drawing shows them: whole numbers, with 90° exact for square corners */
 export function angleText(angleDeg: number | null): string | null {
   if (angleDeg == null) return null;

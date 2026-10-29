@@ -2,9 +2,11 @@
  * Trace walls mode: the capture with a polyline the user draws over it.
  *
  * Click the stage to drop a corner, drag a corner to nudge it, and click the
- * first corner (or Close loop) to join the outline. Each wall run carries its
- * length once a scale is set, and each corner carries its angle — square ones
- * quietly, the rest in warning colour so an angled wall stands out.
+ * first corner (or Close loop) to join the outline. Once it is joined,
+ * double-click a corner to remove it or a wall to add a corner there. Each
+ * wall run carries its length once a scale is set, and each corner carries
+ * its angle — square ones quietly, the rest in warning colour so an angled
+ * wall stands out.
  */
 
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -34,6 +36,9 @@ interface RoomTraceEditorProps {
   hoveredLabel: string | null;
   onAddPoint: (p: Point) => void;
   onMoveVertex: (index: number, p: Point) => void;
+  /** On a joined outline: remove a corner, or add one on the wall after corner `after` */
+  onRemoveVertex: (index: number) => void;
+  onInsertVertex: (after: number, p: Point) => void;
   onCloseLoop: () => void;
   onSelectSegment: (label: string) => void;
   onHoverSegment: (label: string | null) => void;
@@ -88,6 +93,8 @@ const RoomTraceEditor: React.FC<RoomTraceEditorProps> = ({
   hoveredLabel,
   onAddPoint,
   onMoveVertex,
+  onRemoveVertex,
+  onInsertVertex,
   onCloseLoop,
   onSelectSegment,
   onHoverSegment,
@@ -203,6 +210,22 @@ const RoomTraceEditor: React.FC<RoomTraceEditorProps> = ({
         />
       )}
 
+      {/* On a joined outline, a wide invisible band along each wall takes a double-click to add a corner */}
+      {closed &&
+        metrics.segments.map((seg, i) => (
+          <line
+            key={`hit-${seg.label}`}
+            className="rd-trace-wall"
+            x1={seg.start.x}
+            y1={seg.start.y}
+            x2={seg.end.x}
+            y2={seg.end.y}
+            stroke="transparent"
+            strokeWidth={12 * unit}
+            onDoubleClick={e => onInsertVertex(i, toImage(e))}
+          />
+        ))}
+
       {metrics.segments.map(seg => {
         const active = seg.label === hoveredLabel || seg.label === selectedLabel;
         return (
@@ -233,6 +256,7 @@ const RoomTraceEditor: React.FC<RoomTraceEditorProps> = ({
           onPointerDown={startDrag(i)}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag(i)}
+          onDoubleClick={closed ? () => onRemoveVertex(i) : undefined}
         />
       ))}
 

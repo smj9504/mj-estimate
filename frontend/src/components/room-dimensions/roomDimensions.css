@@ -75,6 +75,9 @@
 .rd-trace-vertex:active {
   cursor: grabbing;
 }
+.rd-trace-wall {
+  cursor: copy;
+}
 
 /* Placing the scale line takes every click on the drawing */
 .rd-scale-line-capture {

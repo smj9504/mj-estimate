@@ -212,6 +212,34 @@ test.describe('Room Dimensions', () => {
     await expect(page.locator('.rd-scale-current')).toHaveText(`Wall A = 15' 0"`);
   });
 
+  test('carries the detected room into Trace walls to fix its corners, scale and all', async ({ page }) => {
+    await page.goto('/tools/room-dimensions');
+    await uploadCapture(page);
+    await wallRow(page, 'A').click();
+    await page.getByLabel('Feet').fill('24');
+    await page.getByRole('button', { name: 'Set scale' }).click();
+
+    // The room's four corners come across, the door and opening running straight through
+    await page.getByRole('button', { name: 'Edit corners' }).click();
+    await expect(page.getByRole('button', { name: 'Close loop' })).toBeVisible();
+    await expect(page.locator('.rd-face-letter')).toHaveText(['A', 'B', 'C', 'D']);
+    await expect(page.locator('.rd-scale-current')).toHaveText(`Wall A (Auto-detect) = 24' 0"`);
+    const room = page.locator('.ui-props');
+    await expect(room.locator('.ui-props-row', { hasText: 'Perimeter' })).toContainText(`84' 0"`);
+    await expect(room.locator('.ui-props-row', { hasText: 'Floor area' })).toContainText('432.00 SF');
+
+    // Double-click a wall to add a corner on it, and the corner to take it away again. The wall's
+    // band is a bare SVG line, so the click goes to the middle of it on screen.
+    const wall = page.locator('.rd-trace-wall').first();
+    const [x1, y1, x2, y2] = await Promise.all(['x1', 'y1', 'x2', 'y2'].map(a => wall.getAttribute(a).then(Number)));
+    const box = (await page.locator('.rd-trace').boundingBox())!;
+    await page.mouse.dblclick(box.x + (((x1 + x2) / 2) / 420) * box.width, box.y + (((y1 + y2) / 2) / 320) * box.height);
+    await expect(page.locator('.rd-face-letter')).toHaveCount(5);
+    await page.locator('.rd-trace-vertex').nth(1).dblclick();
+    await expect(page.locator('.rd-face-letter')).toHaveCount(4);
+    await expect(room.locator('.ui-props-row', { hasText: 'Perimeter' })).toContainText(`84' 0"`);
+  });
+
   test('picking another wall shows its length to correct the scale', async ({ page }) => {
     await page.goto('/tools/room-dimensions');
     await uploadCapture(page);
