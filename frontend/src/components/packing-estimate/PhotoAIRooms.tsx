@@ -10,7 +10,7 @@ import {
 import {
   PlusOutlined, DeleteOutlined, ScanOutlined, LoadingOutlined,
   CheckOutlined, CloseOutlined, ThunderboltOutlined, InboxOutlined,
-  FolderOpenOutlined, StopOutlined, RightOutlined,
+  FolderOpenOutlined, StopOutlined, RightOutlined, PictureOutlined,
 } from '@ant-design/icons';
 import * as packingService from '../../services/packingEstimateService';
 import type {
@@ -36,6 +36,8 @@ interface PhotoAIRoomsProps {
   loading?: { done: number; total: number } | null;
   /** Runs Analyze All once each time it changes (rooms just loaded from a claim) */
   autoAnalyzeKey?: number;
+  /** Opens Load from a claim: the photos picked for packing on a claim */
+  onLoadFromClaim?: () => void;
 }
 
 function generateId(): string {
@@ -47,7 +49,9 @@ function toDataUri(base64: string): string {
   return `data:image/jpeg;base64,${base64}`;
 }
 
-const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms, loading, autoAnalyzeKey }) => {
+const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
+  rooms, setRooms, loading, autoAnalyzeKey, onLoadFromClaim,
+}) => {
   const [presets, setPresets] = useState<Record<string, (RoomPreset & { key: string })[]>>({});
   const [showAddRoom, setShowAddRoom] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
@@ -269,6 +273,19 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms, loading, a
           Photo AI Rooms <span className="pk-count">{rooms.length}</span>
         </h2>
         <div className="pk-section-actions">
+          {onLoadFromClaim && (
+            <Tooltip title="Load the photos picked for packing on a claim, room by room">
+              <Button
+                type="text"
+                size="small"
+                icon={<PictureOutlined />}
+                onClick={onLoadFromClaim}
+                disabled={!!loading || batchAnalyzing}
+              >
+                From Claim
+              </Button>
+            </Tooltip>
+          )}
           <Tooltip title="Import rooms from folder (each subfolder = 1 room)">
             <Button
               type="text"
@@ -301,7 +318,18 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms, loading, a
       )}
 
       {rooms.length === 0 && !showAddRoom && !loading && (
-        <p className="pk-empty-line">Add rooms with photos to start AI analysis.</p>
+        <p className="pk-empty-line">
+          Add rooms with photos to start AI analysis
+          {onLoadFromClaim && (
+            <>
+              , or{' '}
+              <button type="button" className="pk-text-link" onClick={onLoadFromClaim}>
+                load the photos picked on a claim
+              </button>
+            </>
+          )}
+          .
+        </p>
       )}
 
       <div className="pk-room-list">

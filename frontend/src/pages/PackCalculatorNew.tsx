@@ -4,7 +4,8 @@
  * Supports Quick Estimate and Photo AI modes
  * Supports recalculation from existing estimate via navigation state
  * Started from a claim (navigation state claimPhotos), it fills in the job,
- * loads the claim's packing photos as Photo AI rooms and analyzes them
+ * loads the claim's packing photos as Photo AI rooms and analyzes them;
+ * From Claim in Photo AI Rooms loads them from here, a claim and rooms picked
  */
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -14,6 +15,7 @@ import {
 } from '@ant-design/icons';
 import DetailsStep, { EstimationSettings } from '../components/packing-estimate/DetailsStep';
 import PhotoAIRooms from '../components/packing-estimate/PhotoAIRooms';
+import ClaimPhotosImportModal from '../components/packing-estimate/ClaimPhotosImportModal';
 import QuickEstimateRooms from '../components/packing-estimate/QuickEstimateRooms';
 import { DEFAULT_SETTINGS } from '../components/packing-estimate/constants';
 import { loadClaimPhotoRooms } from '../components/packing-estimate/claimPhotos';
@@ -25,7 +27,7 @@ import * as packingService from '../services/packingEstimateService';
 import type {
   PackingSettings, PackingRoom, PhotoRoom,
   RoomInput, EstimateResponse, PackingMode,
-  ContentRoomInput,
+  ContentRoomInput, PackingPhotoClaim,
 } from '../types/packing-estimate';
 
 const timeFormat = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
@@ -82,12 +84,41 @@ const PackCalculatorNew: React.FC = () => {
   const [claimPhotoLoad, setClaimPhotoLoad] = useState<{ done: number; total: number } | null>(null);
   const [autoAnalyzeKey, setAutoAnalyzeKey] = useState<number | undefined>();
   const claimPhotosStarted = useRef(false);
+  const [claimImportOpen, setClaimImportOpen] = useState(false);
 
   // Show recalculation notice
   useEffect(() => {
     if (recalcState?.recalculateFrom) {
       message.info('Settings loaded from previous estimate. Add rooms and recalculate.');
     }
+  }, []);
+
+  // A claim's packing photos (all its rooms, or roomNames) become Photo AI rooms
+  const loadClaimPhotos = useCallback((
+    claimId: string,
+    opts: { roomNames?: string[]; existingNames?: string[]; analyze: boolean },
+  ) => {
+    setClaimPhotoLoad({ done: 0, total: 0 });
+    loadClaimPhotoRooms(claimId, (done, total) => setClaimPhotoLoad({ done, total }), opts)
+      .then(({ rooms: loaded, failed }) => {
+        if (failed > 0) {
+          message.warning(`${failed} photo${failed === 1 ? '' : 's'} couldn't be loaded and ${failed === 1 ? 'was' : 'were'} left out`);
+        }
+        if (loaded.length === 0) {
+          message.warning('No packing photos could be loaded from the claim');
+          return;
+        }
+        setPhotoRooms(prev => [...prev, ...loaded]);
+        if (opts.analyze) {
+          setAutoAnalyzeKey(Date.now());
+        } else {
+          message.success(`Loaded ${loaded.length} room${loaded.length === 1 ? '' : 's'} from the claim`);
+        }
+      })
+      .catch((err: any) => {
+        message.error(err?.response?.data?.detail || "Failed to load the claim's packing photos");
+      })
+      .finally(() => setClaimPhotoLoad(null));
   }, []);
 
   // Started from a claim: its packing photos become the Photo AI rooms
@@ -99,25 +130,25 @@ const PackCalculatorNew: React.FC = () => {
     const rest = { ...recalcState };
     delete rest.claimPhotos;
     navigate(location.pathname, { replace: true, state: rest });
-
-    setClaimPhotoLoad({ done: 0, total: 0 });
-    loadClaimPhotoRooms(claimId, (done, total) => setClaimPhotoLoad({ done, total }))
-      .then(({ rooms: loaded, failed }) => {
-        if (failed > 0) {
-          message.warning(`${failed} photo${failed === 1 ? '' : 's'} couldn't be loaded and ${failed === 1 ? 'was' : 'were'} left out`);
-        }
-        if (loaded.length === 0) {
-          message.warning('No packing photos could be loaded from the claim');
-          return;
-        }
-        setPhotoRooms(prev => [...prev, ...loaded]);
-        setAutoAnalyzeKey(Date.now());
-      })
-      .catch((err: any) => {
-        message.error(err?.response?.data?.detail || "Failed to load the claim's packing photos");
-      })
-      .finally(() => setClaimPhotoLoad(null));
+    loadClaimPhotos(claimId, { analyze: true });
   }, []);
+
+  // From Claim: the estimate goes on the claim the photos come from
+  const handleLoadFromClaim = useCallback((claim: PackingPhotoClaim, roomNames: string[], analyze: boolean) => {
+    if (claim.claim_id !== selectedClaimId) {
+      setSelectedClientId(claim.client_id);
+      setSelectedClaimId(claim.claim_id);
+      if (claim.project_address) setProjectAddress(claim.project_address);
+    } else if (!projectAddress && claim.project_address) {
+      setProjectAddress(claim.project_address);
+    }
+    if (!selectedCompanyId && claim.company_id) setSelectedCompanyId(claim.company_id);
+    loadClaimPhotos(claim.claim_id, {
+      roomNames,
+      existingNames: photoRooms.map(r => r.room_name),
+      analyze,
+    });
+  }, [selectedClaimId, selectedCompanyId, projectAddress, photoRooms, loadClaimPhotos]);
 
   const roomInputs: RoomInput[] = useMemo(() => rooms.map(r => ({
     preset: r.preset,
@@ -331,8 +362,17 @@ const PackCalculatorNew: React.FC = () => {
                 setRooms={setPhotoRooms}
                 loading={claimPhotoLoad}
                 autoAnalyzeKey={autoAnalyzeKey}
+                onLoadFromClaim={() => setClaimImportOpen(true)}
               />
             )}
+
+          <ClaimPhotosImportModal
+            open={claimImportOpen}
+            onClose={() => setClaimImportOpen(false)}
+            currentClaimId={selectedClaimId}
+            existingRoomNames={photoRooms.map(r => r.room_name)}
+            onLoad={handleLoadFromClaim}
+          />
 
           <EstimationSettings settings={settings} setSettings={setSettings} />
 

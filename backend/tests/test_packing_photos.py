@@ -263,3 +263,92 @@ def test_staff_outside_the_claims_companies_see_nothing(env):
     assert api.get(url).status_code == 404
     assert api.post(url, json={'room_name': 'Den', 'photos': [
         {'source': 'wm', 'photo_id': ids.kitchen}]}).status_code == 404
+
+
+def test_the_builder_lists_the_claims_with_packing_photos(env):
+    from app.domains.company.models import Company
+    from app.domains.contract.models import ClaimCompany
+
+    api, database, tmp_path, _ = env
+    ids = _seed(database, tmp_path)
+    s = database.get_session()
+    claim = s.query(Claim).filter(Claim.id == ids.claim).one()
+    claim.insurance_company = 'Acme Mutual'
+    client = s.query(Client).filter(Client.id == claim.client_id).one()
+    client.address, client.city, client.state, client.zipcode = '12 Oak St', 'Fairfax', 'VA', '22030'
+    builder, mover = Company(name='Builder Co'), Company(name='Mover Co')
+    s.add(builder)
+    s.add(mover)
+    s.flush()
+    s.add(ClaimCompany(claim_id=ids.claim, company_id=builder.id, role='reconstruction'))
+    s.add(ClaimCompany(claim_id=ids.claim, company_id=mover.id, role='moving'))
+    mover_id = str(mover.id)
+    s.commit()
+    s.close()
+    url = '/api/packing-estimate/claims/with-photos'
+
+    assert api.get(url).json() == {'claims': []}
+
+    api.post(f"/api/packing-estimate/claims/{ids.claim}/photos", json={'photos': [
+        {'source': 'wm', 'photo_id': ids.kitchen, 'room_name': 'Kitchen'},
+        {'source': 'wm', 'photo_id': ids.living, 'room_name': 'Living Room'},
+        {'source': 'claim', 'photo_id': ids.claim_photo, 'room_name': 'Kitchen'},
+    ]})
+    claims = api.get(url).json()['claims']
+    assert claims == [{
+        'claim_id': ids.claim,
+        'claim_number': 'C-1',
+        'insurance_company': 'Acme Mutual',
+        'client_id': claims[0]['client_id'],
+        'client_name': 'Pat Client',
+        'project_address': '12 Oak St, Fairfax, VA, 22030',
+        # The pack-out goes under the claim's moving company
+        'company_id': mover_id,
+        'photo_count': 3,
+        'rooms': [
+            {'room_name': 'Kitchen', 'photo_count': 2},
+            {'room_name': 'Living Room', 'photo_count': 1},
+        ],
+    }]
+
+    # Search by client, claim number or address
+    for text in ('pat', 'c-1', 'oak st'):
+        assert [c['claim_id'] for c in api.get(url, params={'search': text}).json()['claims']] == [ids.claim]
+    assert api.get(url, params={'search': 'nobody'}).json() == {'claims': []}
+
+    # A photo trashed in its job drops out of the count; a claim left with
+    # none drops out of the list
+    s = database.get_session()
+    s.query(WMPhoto).filter(WMPhoto.id == ids.living).update({'is_trashed': True})
+    s.commit()
+    assert api.get(url).json()['claims'][0]['rooms'] == [{'room_name': 'Kitchen', 'photo_count': 2}]
+    s.query(WMPhoto).filter(WMPhoto.id == ids.kitchen).update({'is_trashed': True})
+    s.query(File).filter(File.id == ids.claim_photo).update({'is_active': False})
+    s.commit()
+    s.close()
+    assert api.get(url).json() == {'claims': []}
+
+
+def test_staff_see_only_their_companies_claims_with_packing_photos(env):
+    from app.domains.company.models import Company
+    from app.domains.contract.models import ClaimCompany
+    from app.domains.staff.models import StaffCompany
+
+    api, database, tmp_path, staff = env
+    ids = _seed(database, tmp_path)
+    api.post(f"/api/packing-estimate/claims/{ids.claim}/photos", json={'room_name': 'Den', 'photos': [
+        {'source': 'wm', 'photo_id': ids.kitchen}]})
+    url = '/api/packing-estimate/claims/with-photos'
+
+    staff['role'] = StaffRole.staff
+    assert api.get(url).json() == {'claims': []}
+
+    s = database.get_session()
+    company = Company(name='Mover Co')
+    s.add(company)
+    s.flush()
+    s.add(ClaimCompany(claim_id=ids.claim, company_id=company.id, role='moving'))
+    s.add(StaffCompany(staff_id=ADMIN_ID, company_id=company.id))
+    s.commit()
+    s.close()
+    assert [c['claim_id'] for c in api.get(url).json()['claims']] == [ids.claim]

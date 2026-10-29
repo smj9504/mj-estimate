@@ -6,7 +6,10 @@
 import api from '../../services/api';
 import * as packingService from '../../services/packingEstimateService';
 import type { ClaimPackingPhoto, Floor, PhotoRoom } from '../../types/packing-estimate';
-import { defaultPhotoRoom } from './FolderImportModal';
+import { defaultPhotoRoom, resolveNameCollisions } from './FolderImportModal';
+
+/** react-query key of a claim's packing photos */
+export const claimPackingPhotosKey = (claimId: string) => ['claim-packing-photos', claimId];
 
 /** The analysis looks at this many photos of a room, the most different ones */
 export const AI_PHOTOS_PER_ROOM = 6;
@@ -76,15 +79,19 @@ async function mapLimited<T, R>(items: T[], limit: number, fn: (item: T) => Prom
 }
 
 /**
- * Photo AI rooms from the claim's packing photos. Photos that can't be
- * loaded are left out and counted in `failed`; a room left with no photos
- * is dropped.
+ * Photo AI rooms from the claim's packing photos: all its rooms, or only
+ * `roomNames`. A room named like one in `existingNames` (already in the
+ * builder) is loaded as "Kitchen (2)". Photos that can't be loaded are left
+ * out and counted in `failed`; a room left with no photos is dropped.
  */
 export async function loadClaimPhotoRooms(
   claimId: string,
   onProgress?: (done: number, total: number) => void,
+  options: { roomNames?: string[]; existingNames?: string[] } = {},
 ): Promise<{ rooms: PhotoRoom[]; failed: number }> {
-  const groups = groupPackingRooms(await packingService.listClaimPhotos(claimId));
+  const { roomNames, existingNames = [] } = options;
+  const groups = groupPackingRooms(await packingService.listClaimPhotos(claimId))
+    .filter(g => !roomNames || roomNames.includes(g.room_name));
   const all = groups.flatMap(g => g.photos);
   let done = 0;
   onProgress?.(0, all.length);
@@ -102,16 +109,17 @@ export async function loadClaimPhotoRooms(
   });
   const imageById = new Map(all.map((p, i) => [p.id, images[i]]));
 
-  const rooms = groups.flatMap(group => {
+  const loaded = groups.flatMap(group => {
     const photos = group.photos
       .map(p => imageById.get(p.id))
       .filter((img): img is string => !!img);
-    if (photos.length === 0) return [];
-    return [{
-      ...defaultPhotoRoom(group.room_name),
-      floor: roomFloor(group.photos),
-      photos,
-    }];
+    return photos.length > 0 ? [{ group, photos }] : [];
   });
+  const names = resolveNameCollisions(loaded.map(l => l.group.room_name), existingNames);
+  const rooms = loaded.map(({ group, photos }, i) => ({
+    ...defaultPhotoRoom(names[i]),
+    floor: roomFloor(group.photos),
+    photos,
+  }));
   return { rooms, failed: images.filter(img => !img).length };
 }

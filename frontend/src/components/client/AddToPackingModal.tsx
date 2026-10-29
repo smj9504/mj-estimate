@@ -11,14 +11,12 @@ import { useSheetModal } from '../common/ui';
 import type { FileItem } from '../common/FileGallery';
 import * as packingService from '../../services/packingEstimateService';
 import type { PackingPhotoRef, PackingPhotoSource } from '../../types/packing-estimate';
-import { groupPackingRooms } from '../packing-estimate/claimPhotos';
+import { claimPackingPhotosKey, groupPackingRooms } from '../packing-estimate/claimPhotos';
 
 const COMMON_ROOMS = [
   'Kitchen', 'Living Room', 'Family Room', 'Dining Room', 'Master Bedroom', 'Bedroom',
   'Bathroom', 'Office', 'Laundry Room', 'Basement', 'Garage', 'Closet',
 ];
-
-export const claimPackingPhotosKey = (claimId: string) => ['claim-packing-photos', claimId];
 
 interface AddToPackingModalProps {
   open: boolean;
