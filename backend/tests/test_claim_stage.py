@@ -105,13 +105,33 @@ def test_appraisal_runs_its_own_estimate_and_follow_up():
 
 def test_finishing_construction_opens_depreciation_then_settlement():
     done = {'insurance_estimate_received': True, 'construction_completed_at': datetime(2026, 10, 1)}
+    assert stage(done, supplements={'s1': ('approved', 'supplement')}) == (
+        'depreciation', 'Prepare depreciation docs')
+    # No supplement ever started: nothing holds the file back
     assert stage(done) == ('depreciation', 'Prepare depreciation docs')
-    assert stage(done, supplements={'s1': ('submitted', 'supplement')}) == (
-        'depreciation', 'Supplement still open')
     assert stage(done, tasks=[task('depreciation_recovery', 'awaiting_response', 'docs_sent_pa')]) == (
         'depreciation', 'Docs sent to PA')
+    # Finished without the estimate on file: construction only starts once it came
+    assert stage({'construction_completed_at': datetime(2026, 10, 1)})[0] == 'depreciation'
     assert stage(done, depreciation_paid=True) == ('settlement', 'Depreciation paid')
     assert stage({**done, 'payment_status': 'paid'}) == ('settlement', 'Paid in full')
+
+
+def test_a_rebuild_that_finishes_first_waits_on_the_paperwork():
+    done = {'insurance_estimate_received': True, 'construction_completed_at': datetime(2026, 10, 1)}
+    info = claim_stage(claim(**done), StageFacts(supplements={'s1': ('submitted', 'supplement')}))
+    assert (info['stage'], info['construction']) == ('supplement_followup', 'done')
+    assert stage(done, supplements={'s1': ('identified', 'supplement')})[0] == 'supplement_prep'
+    assert stage(done, tasks=[task('supplement_estimate_prep')])[0] == 'supplement_prep'
+    # Appraisal not decided yet
+    appraisal = {**done, 'status': 'appraisal'}
+    assert stage(appraisal, tasks=[task('appraisal', 'awaiting_response')])[0] == 'appraisal_followup'
+    assert stage(appraisal, revision_types={'initial', 'appraisal'})[0] == 'depreciation'
+    # The depreciation file went out anyway (allowed during appraisal)
+    assert stage(appraisal, tasks=[
+        task('appraisal', 'awaiting_response'),
+        task('depreciation_recovery', 'awaiting_response', 'docs_sent_insurance'),
+    ]) == ('depreciation', 'Docs sent to carrier')
 
 
 def test_the_depreciation_task_phase_tracks_construction_without_dates():
@@ -244,7 +264,7 @@ def test_the_list_shows_the_newest_claim_still_being_worked(env):
     session.add(WaterMitigationJob(property_address='12 Oak St', status='Complete',
                                    claim_id=working.id))
     session.commit()
-    pat_id, working_id = str(pat.id), str(working.id)
+    pat_id, working_id, supp_id = str(pat.id), str(working.id), supp.id
     session.close()
 
     row = api.get('/api/clients/').json()['clients'][0]
@@ -259,13 +279,20 @@ def test_the_list_shows_the_newest_claim_still_being_worked(env):
     detail = api.get(f'/api/clients/{pat_id}/claims/{working_id}').json()
     assert detail['stage'] == 'supplement_followup'
 
-    # Construction finishes: depreciation, with the supplement still out
+    # Construction finishes first: the supplement is still out, so it waits
     response = api.put(f'/api/clients/{pat_id}/claims/{working_id}',
                        json={'construction_completed_at': '2026-10-01'})
     assert response.status_code == 200, response.text
     row = api.get('/api/clients/').json()['clients'][0]
-    assert (row['claim_stage'], row['claim_stage_detail'], row['claim_construction']) == (
-        'depreciation', 'Supplement still open', 'done')
+    assert (row['claim_stage'], row['claim_construction']) == ('supplement_followup', 'done')
+
+    # The supplement is approved: on to depreciation
+    session = database.get_session()
+    session.query(SupplementRequest).filter(SupplementRequest.id == supp_id).one().status = 'approved'
+    session.commit()
+    session.close()
+    row = api.get('/api/clients/').json()['clients'][0]
+    assert (row['claim_stage'], row['claim_stage_detail']) == ('depreciation', 'Prepare depreciation docs')
 
 
 def test_a_stage_set_by_hand_and_handed_back(env):

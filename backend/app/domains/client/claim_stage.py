@@ -15,8 +15,12 @@ The office runs every claim through the same steps:
 7. settlement           Money in; settling up with the PA and the contractor
 
 Construction runs alongside steps 3-5: it starts around the first carrier
-estimate (which brings the first check) and ends whenever it ends. So it is
-reported on its own (construction_state) and only its end moves the stage.
+estimate (which brings the first check) and ends whenever it ends, before or
+after the supplement or appraisal is settled. So it is reported on its own
+(construction_state). Depreciation needs both: the rebuild finished and the
+paperwork settled, since the depreciation file can't go out while a
+supplement is still being negotiated. A rebuild that finishes first leaves
+the claim on its supplement or appraisal stage until that is settled.
 
 The claim's status still decides the end: 'closed' and 'denied' claims are
 finished whatever their records say. stage_override lets staff move a claim
@@ -55,6 +59,8 @@ POST_CONSTRUCTION_PHASES = (
     'docs_sent_insurance', 'following_up', 'payment_received',
 )
 DEPRECIATION_PHASE_ORDER = ('in_construction',) + POST_CONSTRUCTION_PHASES
+# The depreciation file already went out: the claim has moved on to it
+DOCS_OUT_PHASES = ('docs_sent_pa', 'docs_sent_insurance', 'following_up')
 DEPRECIATION_DETAILS = {
     'construction_done': 'Prepare depreciation docs',
     'preparing_docs': 'Preparing depreciation docs',
@@ -74,6 +80,10 @@ WAITING_TASK_STATUSES = ('awaiting_response', 'awaiting_confirmation', 'responde
 SUPPLEMENT_PREP_STATUSES = ('identified', 'in_progress')
 SUPPLEMENT_SUBMITTED_STATUSES = ('submitted', 'under_review')
 SUPPLEMENT_DONE_STATUSES = ('approved', 'denied', 'withdrawn')
+SUPPLEMENT_TASK_TYPES = ('supplement_estimate_prep', 'supplement_sent')
+
+# Supplement or appraisal work that holds a finished rebuild back from depreciation
+PAPERWORK_STAGES = ('supplement_prep', 'supplement_followup', 'appraisal_prep', 'appraisal_followup')
 BID_PREP_STATUSES = ('draft', 'revision_needed')
 
 
@@ -205,11 +215,20 @@ def _tasks(facts: StageFacts, task_type: str, statuses: Iterable[str]) -> list:
     return [t for t in facts.tasks if t[0] == task_type and t[1] in statuses]
 
 
+def _supplements(facts: StageFacts) -> Dict[str, Tuple[str, Optional[str]]]:
+    """Supplement records, without the estimates a carrier asked us for"""
+    return {sid: s for sid, s in facts.supplements.items() if (s[1] or 'supplement') == 'supplement'}
+
+
+def _supplement_started(facts: StageFacts) -> bool:
+    return bool(_supplements(facts)) or any(t[0] in SUPPLEMENT_TASK_TYPES for t in facts.tasks)
+
+
 def _supplement_stage(facts: StageFacts) -> Tuple[str, str]:
     """After the first estimate, on the supplement path"""
     prep = bool(_tasks(facts, 'supplement_estimate_prep', OPEN_TASK_STATUSES))
     submitted = bool(_tasks(facts, 'supplement_sent', OPEN_TASK_STATUSES))
-    supplements = {sid: s for sid, s in facts.supplements.items() if (s[1] or 'supplement') == 'supplement'}
+    supplements = _supplements(facts)
     for supp_id, (status, _) in supplements.items():
         bids = facts.bids.get(supp_id, [])
         if status in SUPPLEMENT_SUBMITTED_STATUSES:
@@ -280,27 +299,34 @@ def derive_stage(claim: Any, facts: StageFacts) -> Tuple[str, str]:
     construction = construction_state(claim, facts)
     if _depreciation_received(facts):
         return 'settlement', 'Depreciation paid'
-    if construction == 'done':
-        if _get(claim, 'payment_status') in ('paid', 'overpaid'):
-            return 'settlement', 'Paid in full'
-        phase = _depreciation_phase(facts)
-        pending_supplement = any(
-            s[0] not in SUPPLEMENT_DONE_STATUSES for s in facts.supplements.values()
-        )
-        detail = DEPRECIATION_DETAILS.get(phase, 'Prepare depreciation docs')
-        # The docs can't go out while a supplement is still being negotiated
-        # (the depreciation task may still say in_construction when the
-        # completion date was entered on the claim)
-        if pending_supplement and phase in (None, 'in_construction', 'construction_done', 'preparing_docs'):
-            detail = 'Supplement still open'
-        return 'depreciation', detail
+    if construction == 'done' and _get(claim, 'payment_status') in ('paid', 'overpaid'):
+        return 'settlement', 'Paid in full'
 
     if _in_appraisal(claim, facts):
         stage, detail = _appraisal_stage(facts)
     elif _has_estimate(claim, facts):
         stage, detail = _supplement_stage(facts)
     else:
-        return _before_estimate(claim, facts)
+        stage, detail = _before_estimate(claim, facts)
+
+    if construction == 'done':
+        phase = _depreciation_phase(facts)
+        # A rebuild that finished before the supplement or appraisal was
+        # settled waits on it, unless the depreciation file already went out
+        # (allowed during appraisal). A supplement never started holds nothing.
+        held = (
+            stage in PAPERWORK_STAGES
+            and phase not in DOCS_OUT_PHASES
+            and not (stage == 'supplement_prep' and not _supplement_started(facts))
+        )
+        if held:
+            return stage, detail
+        detail = DEPRECIATION_DETAILS.get(phase, 'Prepare depreciation docs')
+        # Requested-estimate records block the file too
+        pending = any(s[0] not in SUPPLEMENT_DONE_STATUSES for s in facts.supplements.values())
+        if pending and phase not in DOCS_OUT_PHASES:
+            detail = 'Supplement still open'
+        return 'depreciation', detail
 
     if stage == 'construction':
         detail = 'In progress' if construction == 'in_progress' else 'Not started'

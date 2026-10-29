@@ -678,7 +678,7 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           </Col>
           <Col xs={24} sm={12}>
             <Form.Item name="construction_completed_at" label="Construction Completed"
-              tooltip="Finishing construction moves the claim on to depreciation recovery">
+              tooltip="Once construction is finished and the supplement or appraisal is settled, the claim moves on to depreciation recovery">
               <DatePicker style={{ width: '100%' }} format="MM/DD/YYYY" />
             </Form.Item>
           </Col>

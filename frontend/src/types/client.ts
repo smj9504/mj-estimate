@@ -161,7 +161,7 @@ export const CLAIM_STAGE_CONFIG: Record<
   supplement_followup: { tone: 'blue',   label: 'Supplement Follow-up', description: 'Submitted by the PA; following up on approval' },
   appraisal_followup:  { tone: 'pink',   label: 'Appraisal Follow-up', description: 'Submitted by the PA; following up on the decision' },
   construction:        { tone: 'yellow', label: 'Construction',        description: 'Paperwork settled; waiting on the rebuild to finish' },
-  depreciation:        { tone: 'purple', label: 'Depreciation',        description: 'Rebuild done; depreciation file to the PA and carrier' },
+  depreciation:        { tone: 'purple', label: 'Depreciation',        description: 'Rebuild done and paperwork settled; depreciation file to the PA and carrier' },
   settlement:          { tone: 'green',  label: 'Settlement',          description: 'Money in; settling up with the PA and contractor' },
   open:                { tone: 'blue',   label: 'Open' },
   closed:              { tone: 'gray',   label: 'Closed' },
