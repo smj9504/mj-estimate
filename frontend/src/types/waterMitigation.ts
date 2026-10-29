@@ -488,7 +488,8 @@ export interface MagicPlanProjectSearchResponse {
 export interface MagicPlanSyncResult {
   success: boolean;
   photos_synced: number;
-  photos_skipped: number;
+  videos_synced: number;
+  photos_skipped: number;  // already imported or no file (photos and videos)
   floor_plans_synced: number;
   errors: string[];
   magicplan_project_id: string;

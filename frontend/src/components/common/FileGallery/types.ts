@@ -95,6 +95,9 @@ export interface FileGalleryProps {
   // Photo order (water-mitigation only)
   sortBy?: PhotoSortBy;
 
+  // Leave videos out, for pickers that feed image-only output (e.g. PDFs)
+  hideVideos?: boolean;
+
   // Document-specific features
   showDocumentPreview?: boolean;
   enableDocumentSearch?: boolean;

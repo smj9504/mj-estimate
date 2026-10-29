@@ -1949,9 +1949,9 @@ export const magicPlanService = {
         sync_photos: true,
         sync_floor_plans: true,
       },
-      // Downloads and re-uploads every project photo server-side, which can
-      // take well over the default 30s timeout.
-      { timeout: 300000 }
+      // Downloads and re-uploads every project photo and video server-side,
+      // which can take well over the default 30s timeout.
+      { timeout: 600000 }
     );
     return response.data;
   },

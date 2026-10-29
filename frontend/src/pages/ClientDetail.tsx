@@ -81,6 +81,7 @@ import ClaimWMPhotos from '../components/client/ClaimWMPhotos';
 import ClaimPackingSection from '../components/client/ClaimPackingSection';
 import AddToPackingModal from '../components/client/AddToPackingModal';
 import type { FileItem } from '../components/common/FileGallery';
+import { isVideoFile } from '../components/common/FileGallery';
 import type { PackingPhotoSource } from '../types/packing-estimate';
 import ClaimTodos from '../components/client/ClaimTodos';
 import AccuLynxArchiveTab from '../components/client/AccuLynxArchiveTab';
@@ -2489,17 +2490,21 @@ const ClaimPhotos: React.FC<{ claim: Claim }> = ({ claim }) => {
   const packingAction = (source: PackingPhotoSource) => (
     selected: FileItem[],
     { compact, clearSelection }: { compact: boolean; clearSelection: () => void },
-  ) => (
-    <Button
-      size={compact ? 'middle' : 'small'}
-      icon={<InboxOutlined />}
-      aria-label="Use for packing"
-      disabled={selected.length === 0}
-      onClick={() => setPacking({ source, photos: selected, clearSelection })}
-    >
-      {compact ? 'Packing' : 'Use for packing'}
-    </Button>
-  );
+  ) => {
+    // Packing reads items off photos; selected videos are left out
+    const photos = selected.filter(f => !isVideoFile(f));
+    return (
+      <Button
+        size={compact ? 'middle' : 'small'}
+        icon={<InboxOutlined />}
+        aria-label="Use for packing"
+        disabled={photos.length === 0}
+        onClick={() => setPacking({ source, photos, clearSelection })}
+      >
+        {compact ? 'Packing' : 'Use for packing'}
+      </Button>
+    );
+  };
 
   return (
     <ClaimSection

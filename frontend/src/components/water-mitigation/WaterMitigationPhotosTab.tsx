@@ -950,7 +950,10 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         totalPages = response.data.total_pages || 1;
         page++;
       } while (page <= totalPages);
-      const items = allItems;
+      // Videos aren't AI-classified
+      const items = allItems.filter((p: any) =>
+        p.mime_type ? !p.mime_type.startsWith('video/') : p.file_type !== 'video'
+      );
 
       // Filter: uncategorized only (default) or all photos (reclassify)
       const targetPhotos = reclassifyAll
@@ -1351,7 +1354,9 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       );
       setMpSyncResult(result);
       if (result.success) {
-        message.success(`Synced ${result.photos_synced} photos from MagicPlan`);
+        message.success(
+          `Synced ${result.photos_synced} photos${result.videos_synced ? ` and ${result.videos_synced} videos` : ''} from MagicPlan`
+        );
         queryClient.invalidateQueries({ queryKey: ['files-infinite', 'water-mitigation', jobId] });
       } else {
         message.error('MagicPlan sync failed');
@@ -2272,7 +2277,8 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             description={
               <div>
                 <div>Photos synced: <strong>{mpSyncResult.photos_synced}</strong></div>
-                <div>Photos skipped (existing): <strong>{mpSyncResult.photos_skipped}</strong></div>
+                <div>Videos synced: <strong>{mpSyncResult.videos_synced ?? 0}</strong></div>
+                <div>Skipped (existing): <strong>{mpSyncResult.photos_skipped}</strong></div>
                 {mpSyncResult.errors.length > 0 && (
                   <div style={{ marginTop: 8, color: '#d44c47' }}>
                     Errors: {mpSyncResult.errors.slice(0, 3).join(', ')}

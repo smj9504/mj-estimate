@@ -12,13 +12,16 @@ Base URL: https://cloud.magicplan.app/api/v2/
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import IO, Any, Dict, List, Optional, Tuple
 
 import httpx
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# List endpoints default to 10 items per page and cap page_size at 50.
+MAX_PAGE_SIZE = 50
 
 
 class MagicPlanClient:
@@ -102,38 +105,83 @@ class MagicPlanClient:
             logger.error(f"MagicPlan API request failed for {method} {url}: {e}")
             raise
 
+    # ── Pagination ───────────────────────────────────────────
+
+    async def _list_page(
+        self,
+        path: str,
+        page: int,
+        page_size: int,
+        params: Optional[Dict] = None,
+        items_key: str = "data",
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """Fetch one page of a list endpoint: (items, page_info)."""
+        result = await self._request(
+            "GET",
+            path,
+            params={**(params or {}), "page": page, "page_size": page_size},
+        )
+        if isinstance(result, list):
+            return result, {}
+        items = result.get("data", result.get(items_key, []))
+        return items or [], result.get("page_info") or {}
+
+    async def _list_all(
+        self,
+        path: str,
+        params: Optional[Dict] = None,
+        items_key: str = "data",
+        max_pages: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """Fetch every page of a list endpoint.
+
+        Without page/page_size the API returns only its first 10 items, which
+        is why a sync used to bring over just part of a project's photos.
+        """
+        all_items: List[Dict[str, Any]] = []
+        page = 1
+        while page <= max_pages:
+            items, page_info = await self._list_page(
+                path, page, MAX_PAGE_SIZE, params, items_key
+            )
+            all_items.extend(items)
+            total_pages = page_info.get("total_pages")
+            if not items:
+                break
+            if total_pages is not None:
+                if page >= total_pages:
+                    break
+            elif len(items) < MAX_PAGE_SIZE:
+                break
+            page += 1
+        else:
+            logger.warning(
+                f"MagicPlan {path}: stopped after {max_pages} pages "
+                f"({len(all_items)} items)"
+            )
+        return all_items
+
     # ── Projects ─────────────────────────────────────────────
 
     async def list_projects(
-        self, page: int = 1, per_page: int = 50
+        self, page: int = 1, per_page: int = MAX_PAGE_SIZE
     ) -> List[Dict[str, Any]]:
-        """List all projects in the workspace."""
-        result = await self._request(
-            "GET", "/projects", params={"page": page, "per_page": per_page}
+        """List one page of projects in the workspace."""
+        items, _ = await self._list_page(
+            "/projects", page, min(per_page, MAX_PAGE_SIZE), items_key="projects"
         )
-        # API may return list directly or paginated dict
-        if isinstance(result, list):
-            return result
-        return result.get("data", result.get("projects", []))
+        return items
 
     async def get_project(self, project_id: str) -> Dict[str, Any]:
         """Get project details by ID."""
         return await self._request("GET", f"/projects/{project_id}")
 
     async def search_projects(self, query: str) -> List[Dict[str, Any]]:
-        """
-        Search projects by name/address.
-        MagicPlan API may not have a dedicated search endpoint,
-        so we list all and filter client-side if needed.
-        """
-        # Try query parameter first
+        """Search projects by name (the API's partial-match `name` filter)."""
         try:
-            result = await self._request(
-                "GET", "/projects", params={"query": query, "per_page": 100}
+            return await self._list_all(
+                "/projects", params={"name": query}, items_key="projects"
             )
-            if isinstance(result, list):
-                return result
-            return result.get("data", result.get("projects", []))
         except httpx.HTTPStatusError:
             # Fallback: list all and filter
             all_projects = await self.list_all_projects()
@@ -145,19 +193,9 @@ class MagicPlanClient:
                 or query_lower in (p.get("name", "") or "").lower()
             ]
 
-    async def list_all_projects(self, max_pages: int = 20) -> List[Dict[str, Any]]:
+    async def list_all_projects(self) -> List[Dict[str, Any]]:
         """Fetch all projects with pagination."""
-        all_projects = []
-        page = 1
-        while page <= max_pages:
-            projects = await self.list_projects(page=page, per_page=100)
-            if not projects:
-                break
-            all_projects.extend(projects)
-            if len(projects) < 100:
-                break
-            page += 1
-        return all_projects
+        return await self._list_all("/projects", items_key="projects")
 
     # ── Plans / Floors ───────────────────────────────────────
 
@@ -176,12 +214,12 @@ class MagicPlanClient:
 
     async def get_project_files(self, project_id: str) -> List[Dict[str, Any]]:
         """
-        Get exported files for a project (JPG/PNG/SVG/PDF floor plans).
+        Get every file of a project: captured photos and videos plus
+        exported floor plans (JPG/PNG/SVG/PDF), across all pages.
         """
-        result = await self._request("GET", f"/projects/{project_id}/files")
-        if isinstance(result, list):
-            return result
-        return result.get("data", result.get("files", []))
+        return await self._list_all(
+            f"/projects/{project_id}/files", items_key="files"
+        )
 
     # ── File Download ────────────────────────────────────────
 
@@ -198,6 +236,30 @@ class MagicPlanClient:
         except httpx.HTTPError as e:
             logger.error(f"Failed to download file from {url}: {e}")
             raise
+
+    async def download_file_to(self, url: str, dest: IO[bytes]) -> int:
+        """Stream a file into `dest` without holding it all in memory
+        (videos can run to hundreds of MB). Returns the byte count."""
+        try:
+            if self._shared_client:
+                stream = self._shared_client.stream("GET", url, timeout=60.0)
+                async with stream as response:
+                    return await self._write_stream(response, dest)
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                async with client.stream("GET", url) as response:
+                    return await self._write_stream(response, dest)
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to download file from {url}: {e}")
+            raise
+
+    @staticmethod
+    async def _write_stream(response: httpx.Response, dest: IO[bytes]) -> int:
+        response.raise_for_status()
+        size = 0
+        async for chunk in response.aiter_bytes(1024 * 1024):
+            dest.write(chunk)
+            size += len(chunk)
+        return size
 
     # ── Health Check ─────────────────────────────────────────
 

@@ -1,13 +1,15 @@
 import React, { useState, memo, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Card, Image, Typography, Modal, Checkbox, message } from 'antd';
+import { Card, Typography, Checkbox, message } from 'antd';
 import {
   EyeOutlined,
   DownloadOutlined,
   DeleteOutlined,
-  FileOutlined
+  FileOutlined,
+  CaretRightFilled
 } from '@ant-design/icons';
 import { FileItem, FileCategory } from './types';
 import { getCategoryColor } from './categoryColors';
+import MediaPreviewModal, { isVideoFile } from './MediaPreviewModal';
 import { fileService } from '../../../services/fileService';
 import api from '../../../services/api';
 import dayjs from 'dayjs';
@@ -26,6 +28,7 @@ const LazyImage: React.FC<LazyImageProps> = memo(({ src, fallbackSrc, alt, enabl
   const imgRef = useRef<HTMLImageElement>(null);
   const [imageSrc, setImageSrc] = useState<string | null>(enableLazyLoading ? null : src);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isFailed, setIsFailed] = useState(false);
 
   useEffect(() => {
     if (!enableLazyLoading || !imgRef.current) {
@@ -68,7 +71,7 @@ const LazyImage: React.FC<LazyImageProps> = memo(({ src, fallbackSrc, alt, enabl
       justifyContent: 'center'
     }}>
       {/* Loading placeholder - shows skeleton while image loads */}
-      {!isLoaded && (
+      {!isLoaded && !isFailed && (
         <div style={{
           position: 'absolute',
           inset: 0,
@@ -99,6 +102,9 @@ const LazyImage: React.FC<LazyImageProps> = memo(({ src, fallbackSrc, alt, enabl
           const img = e.target as HTMLImageElement;
           if (img.src !== fallbackSrc && imageSrc !== fallbackSrc) {
             setImageSrc(fallbackSrc);
+          } else {
+            // Nothing left to try (e.g. a video with no readable frame): stop the shimmer
+            setIsFailed(true);
           }
         }}
       />
@@ -157,8 +163,10 @@ const FileCardItem = memo<FileCardItemProps>(({
   }
 
   const contentType = file.contentType || file.mimeType || '';
+  // Videos show as an image tile too: their thumbnail/web URLs are a still frame
+  const isVideo = isVideoFile(file);
   // Determine if file is an image: use contentType OR fileCategory prop
-  const isImage = contentType.startsWith('image/') || fileCategory === 'image';
+  const isImage = isVideo || contentType.startsWith('image/') || fileCategory === 'image';
 
   // Ensure imageQuality has a default value
   const quality = imageQuality || 'web';
@@ -185,16 +193,22 @@ const FileCardItem = memo<FileCardItemProps>(({
             <>
               <LazyImage
                 src={
-                  quality === 'original'
+                  // A video's original is the video itself, not an image
+                  quality === 'original' && !isVideo
                     ? (file.fileUrl || file.url || file.thumbnailUrl || '')
-                    : quality === 'web'
-                    ? (file.url || file.thumbnailUrl || '')
-                    : (file.thumbnailUrl || file.url || '')
+                    : quality === 'thumbnail'
+                    ? (file.thumbnailUrl || file.url || '')
+                    : (file.url || file.thumbnailUrl || '')
                 }
                 fallbackSrc={file.url || file.thumbnailUrl || ''}
                 alt={file.originalName}
                 enableLazyLoading={enableLazyLoading}
               />
+              {isVideo && (
+                <span className="file-grid-video-badge" aria-label="Video">
+                  <CaretRightFilled />
+                </span>
+              )}
               {/* Date and Category overlay - always visible at bottom */}
               <div style={{
                 position: 'absolute',
@@ -400,8 +414,7 @@ const FileGrid: React.FC<FileGridProps> = ({
   renderCardExtraAction
 }) => {
   const [previewVisible, setPreviewVisible] = useState(false);
-  const [previewImage, setPreviewImage] = useState<string>('');
-  const [previewTitle, setPreviewTitle] = useState<string>('');
+  const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
 
   // Use Set if provided, otherwise fallback to array
   const currentSelectedSet = React.useMemo(
@@ -443,12 +456,9 @@ const FileGrid: React.FC<FileGridProps> = ({
   }, [allowMultiSelect, onFileSelect]);
 
   const handlePreview = useCallback((file: FileItem) => {
-    if (fileCategory === 'image' && showImagePreview) {
-      // Use original high-resolution image for preview modal
-      // fileUrl = original full resolution, url = optimized web preview
-      const previewUrl = file.fileUrl || file.url;
-      setPreviewImage(previewUrl);
-      setPreviewTitle(file.originalName);
+    if ((fileCategory === 'image' || isVideoFile(file)) && showImagePreview) {
+      // Original high-resolution image, or the video playing
+      setPreviewFile(file);
       setPreviewVisible(true);
     } else if (file.contentType === 'application/pdf') {
       // Open PDF in new tab
@@ -567,6 +577,23 @@ const FileGrid: React.FC<FileGridProps> = ({
         opacity: 1;
       }
 
+      .file-grid-video-badge {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.55);
+        color: #fff;
+        font-size: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+      }
+
       .overlay-btn {
         width: 32px;
         height: 32px;
@@ -651,24 +678,12 @@ const FileGrid: React.FC<FileGridProps> = ({
         ))}
       </div>
 
-      {/* Image Preview Modal */}
-      <Modal
+      {/* Image / Video Preview Modal */}
+      <MediaPreviewModal
         open={previewVisible}
-        title={previewTitle}
-        footer={null}
-        onCancel={() => setPreviewVisible(false)}
-        width="80%"
-        style={{ top: 20 }}
-        styles={{ body: { textAlign: 'center' } }}
-        destroyOnHidden
-      >
-        <Image
-          src={previewImage}
-          alt={previewTitle}
-          style={{ maxWidth: '100%', maxHeight: 'calc(100vh - 160px)', objectFit: 'contain' }}
-          preview={false}
-        />
-      </Modal>
+        file={previewFile}
+        onClose={() => setPreviewVisible(false)}
+      />
     </>
   );
 };

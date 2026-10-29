@@ -52,8 +52,9 @@ def clean_room_name(name: Optional[str]) -> str:
 # ── Where the photos live ─────────────────────
 
 def _wm_photos(db: Session, claim_id: str, photo_ids: List[str]) -> Dict[str, object]:
-    """The claim's WM job photos among photo_ids that aren't in the trash"""
+    """The claim's WM job photos (not videos) among photo_ids that aren't in the trash"""
     from app.domains.water_mitigation.models import WaterMitigationJob, WMPhoto
+    from app.domains.water_mitigation.video_preview import is_video
 
     ids = [i for i in photo_ids if _is_uuid(i)]
     if not ids:
@@ -65,7 +66,7 @@ def _wm_photos(db: Session, claim_id: str, photo_ids: List[str]) -> Dict[str, ob
         WaterMitigationJob.claim_id == str(claim_id),
         WMPhoto.is_trashed.isnot(True),
     ).all()
-    return {str(p.id): p for p in rows}
+    return {str(p.id): p for p in rows if not is_video(p)}
 
 
 def _claim_files(db: Session, claim_id: str, photo_ids: List[str]) -> Dict[str, object]:

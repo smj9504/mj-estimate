@@ -706,6 +706,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                   fileCategory="image"
                   height="100%"
                   allowUpload={false}  // No upload in document creation modal
+                  hideVideos  // The PDF takes photos only
                   allowMultiSelect={true}  // Always allow multi-select, handler will limit for EWA
                   selectedFiles={selectedPhotoIds}
                   onFileSelect={handlePhotoSelection}

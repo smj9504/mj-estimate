@@ -5,6 +5,7 @@ export { default as FileCard } from './FileCard';
 export { default as FileUploadZone } from './FileUploadZone';
 export { default as ViewModeSelector } from './ViewModeSelector';
 export { default as CategoryManager } from './CategoryManager';
+export { isVideoFile } from './MediaPreviewModal';
 
 export { useFileGallery } from './hooks/useFileGallery';
 

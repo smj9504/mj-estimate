@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { message } from 'antd';
 import { FileItem, FileContext, FileCategory, PhotoSortBy } from '../types';
+import { isVideoFile } from '../MediaPreviewModal';
 import { fileService } from '../../../../services/fileService';
 import api from '../../../../services/api';
 
@@ -16,6 +17,7 @@ interface UseFileGalleryProps {
   categoryFilter?: string | string[];  // Category filter for server-side filtering
   sourceFilter?: string;  // Source filter (companycam, magicplan, manual_upload)
   sortBy?: PhotoSortBy;  // Water-mitigation photo order (default: newest first)
+  hideVideos?: boolean;  // Leave videos out of the returned files
 }
 
 export const useFileGallery = ({
@@ -28,7 +30,8 @@ export const useFileGallery = ({
   pageSize = 20,  // Optimized default: smaller initial load for faster perceived performance
   categoryFilter,  // Category filter passed to API
   sourceFilter,  // Source filter passed to API
-  sortBy = 'captured_date'
+  sortBy = 'captured_date',
+  hideVideos = false
 }: UseFileGalleryProps) => {
   const queryClient = useQueryClient();
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
@@ -153,6 +156,7 @@ export const useFileGallery = ({
 
           // Original full-resolution URL for preview modal and large grid display
           // Always use the preview endpoint with size=original to ensure highest quality
+          // (for a video this is the video itself; the sizes above are a still frame from it)
           const originalUrl = `${baseURL}/api/water-mitigation/photos/${photo.id}/preview?size=original`;
 
           // Build description with MagicPlan metadata if available
@@ -176,7 +180,7 @@ export const useFileGallery = ({
             url: imageUrl,  // Optimized web preview for grid display
             fileUrl: originalUrl,  // Original high-res for modal preview
             thumbnailUrl: thumbUrl,  // Small thumbnail
-            contentType: photo.mime_type || 'image/jpeg',
+            contentType: photo.mime_type || (photo.file_type === 'video' ? 'video/mp4' : 'image/jpeg'),
             mimeType: photo.mime_type,
             size: photo.file_size || 0,
             category: photo.category || '',
@@ -261,10 +265,12 @@ export const useFileGallery = ({
   // Select the appropriate query based on mode
   // For infinite scroll, keep all loaded pages to preserve scroll position
   // This allows smooth scrolling up and down without losing data
-  const files = enableInfiniteScroll
+  const allFiles = enableInfiniteScroll
     ? (infiniteQuery.data?.pages
         .flatMap(page => page.items) || []) // Keep all pages for smooth bidirectional scrolling
     : (regularQuery.data || []);
+  // Filtered after paging: dropping rows inside a page would end infinite scroll early
+  const files = hideVideos ? allFiles.filter((f: FileItem) => !isVideoFile(f)) : allFiles;
 
   const loading = enableInfiniteScroll ? infiniteQuery.isLoading : regularQuery.isLoading;
   const fetching = enableInfiniteScroll ? infiniteQuery.isFetching : regularQuery.isFetching;

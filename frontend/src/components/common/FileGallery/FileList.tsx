@@ -1,8 +1,9 @@
 import React, { useState, useRef } from 'react';
-import { List, Avatar, Button, Typography, Space, Modal, Image, Checkbox, Tag, Tooltip, message } from 'antd';
+import { List, Avatar, Button, Typography, Space, Checkbox, Tag, Tooltip, message } from 'antd';
 import {
   FileOutlined,
   PictureOutlined,
+  VideoCameraOutlined,
   EyeOutlined,
   DownloadOutlined,
   DeleteOutlined,
@@ -13,6 +14,7 @@ import {
   FileTextOutlined
 } from '@ant-design/icons';
 import { FileItem, FileCategory } from './types';
+import MediaPreviewModal, { isVideoFile } from './MediaPreviewModal';
 import { fileService } from '../../../services/fileService';
 import api from '../../../services/api';
 
@@ -49,8 +51,7 @@ const FileList: React.FC<FileListProps> = ({
   listLayout = 'detailed'
 }) => {
   const [previewVisible, setPreviewVisible] = useState(false);
-  const [previewImage, setPreviewImage] = useState<string>('');
-  const [previewTitle, setPreviewTitle] = useState<string>('');
+  const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
 
   // Use Set if provided, otherwise fallback to array
   const currentSelectedSet = React.useMemo(
@@ -87,12 +88,9 @@ const FileList: React.FC<FileListProps> = ({
 
   const handlePreview = (file: FileItem) => {
     const contentType = file.contentType || file.mimeType || '';
-    if (contentType.startsWith('image/') && showImagePreview) {
-      // Use original high-resolution image for preview modal
-      // fileUrl = original full resolution, url = optimized web preview
-      const previewUrl = file.fileUrl || file.url;
-      setPreviewImage(previewUrl);
-      setPreviewTitle(file.originalName);
+    if ((contentType.startsWith('image/') || isVideoFile(file)) && showImagePreview) {
+      // Original high-resolution image, or the video playing
+      setPreviewFile(file);
       setPreviewVisible(true);
     } else if (contentType === 'application/pdf') {
       // Open PDF in new tab
@@ -141,6 +139,10 @@ const FileList: React.FC<FileListProps> = ({
 
   const getFileIcon = (file: FileItem) => {
     const contentType = file.contentType || file.mimeType || '';
+
+    if (contentType.startsWith('video/')) {
+      return <VideoCameraOutlined style={{ fontSize: 24, color: '#1f74c9' }} />;
+    }
 
     if (contentType.startsWith('image/')) {
       return <PictureOutlined style={{ fontSize: 24, color: '#448361' }} />;
@@ -366,23 +368,12 @@ const FileList: React.FC<FileListProps> = ({
         }}
       />
 
-      {/* Image Preview Modal */}
-      <Modal
+      {/* Image / Video Preview Modal */}
+      <MediaPreviewModal
         open={previewVisible}
-        title={previewTitle}
-        footer={null}
-        onCancel={() => setPreviewVisible(false)}
-        width="80%"
-        style={{ top: 20 }}
-        styles={{ body: { textAlign: 'center' } }}
-      >
-        <Image
-          src={previewImage}
-          alt={previewTitle}
-          style={{ maxWidth: '100%', maxHeight: 'calc(100vh - 160px)', objectFit: 'contain' }}
-          preview={false}
-        />
-      </Modal>
+        file={previewFile}
+        onClose={() => setPreviewVisible(false)}
+      />
     </>
   );
 };

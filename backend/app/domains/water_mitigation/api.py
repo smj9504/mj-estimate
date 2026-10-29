@@ -43,6 +43,7 @@ from .job_access import (
     require_photos,
 )
 from .models import WMPhoto
+from .video_preview import is_video
 from .schemas import (
     BulkUpdateDateRequest,
     BulkUpdatePhotoDatesByCategoryRequest,
@@ -920,6 +921,59 @@ def _render_preview_and_cache(source, max_size, quality, cache_file: Path, photo
     return optimized_bytes
 
 
+# Gallery sizes a video poster frame is rendered at (max box, WebP quality)
+_VIDEO_POSTER_SIZES = {"thumbnail": ((250, 250), 80), "web": ((800, 800), 85)}
+# Rendering a poster means fetching the whole video; cap how many run at once
+_VIDEO_POSTER_SLOTS = asyncio.Semaphore(2)
+# Videos with no readable frame, so each gallery load doesn't refetch them
+_VIDEO_POSTER_FAILED: set = set()
+
+
+async def _video_poster_response(
+    photo_id, size: str, file_path: str, storage_provider, storage_file_id
+) -> Response:
+    """A video's thumbnail/web preview: a still frame from the video, rendered
+    once into the preview disk cache at every gallery size."""
+    from app.core.config import settings as app_settings
+
+    from .video_preview import load_video_poster
+
+    cache_dir = Path(app_settings.STORAGE_BASE_DIR) / ".cache" / "previews"
+    cache_file = cache_dir / size / f"{photo_id}.webp"
+    headers = {
+        "Content-Disposition": "inline",
+        "Cache-Control": "public, max-age=604800, immutable",
+    }
+    if cache_file.exists():
+        return FileResponse(path=str(cache_file), media_type='image/webp', headers=headers)
+
+    async with _VIDEO_POSTER_SLOTS:
+        # Checked inside the slot too: a request queued behind the one
+        # rendering this video finds its frame already cached
+        if cache_file.exists():
+            return FileResponse(path=str(cache_file), media_type='image/webp', headers=headers)
+        if str(photo_id) in _VIDEO_POSTER_FAILED:
+            raise HTTPException(status_code=404, detail="No preview frame for this video")
+
+        try:
+            frame = await load_video_poster(file_path, storage_provider, storage_file_id)
+        except Exception as e:
+            logger.warning(f"Failed to load video {photo_id} for a poster frame: {e}")
+            frame = None
+        if frame is None:
+            _VIDEO_POSTER_FAILED.add(str(photo_id))
+            raise HTTPException(status_code=404, detail="No preview frame for this video")
+
+        rendered = {}
+        for name, (max_size, quality) in _VIDEO_POSTER_SIZES.items():
+            rendered[name] = await asyncio.to_thread(
+                _render_preview_and_cache,
+                frame, max_size, quality, cache_dir / name / f"{photo_id}.webp", photo_id,
+            )
+
+    return Response(content=rendered[size], media_type='image/webp', headers=headers)
+
+
 @router.get("/photos/{photo_id}/preview")
 async def preview_photo(
     photo_id: UUID,
@@ -1128,6 +1182,14 @@ async def preview_photo(
         except Exception as e:
             logger.error(f"Failed to proxy CompanyCam photo for {photo_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to access CompanyCam photo: {str(e)}")
+
+    # Videos: thumbnail/web sizes are a still frame for the gallery tile;
+    # size=original falls through and serves the video itself
+    if media_type.startswith('video/') and size in _VIDEO_POSTER_SIZES:
+        storage_file_id = photo.get('storage_file_id') if isinstance(photo, dict) else photo.storage_file_id
+        return await _video_poster_response(
+            photo_id, size, file_path, storage_provider, storage_file_id
+        )
 
     # Handle cloud storage (Google Drive, GCS, S3, etc.)
     if storage_provider and storage_provider != 'local':
@@ -1459,6 +1521,8 @@ def perspective_crop_photo(
         raise HTTPException(status_code=404, detail="Photo not found")
 
     photo_dict = service.photo_repo._convert_to_dict(photo)
+    if is_video(photo_dict):
+        raise HTTPException(status_code=400, detail="A video can't be cropped")
     file_path_str = photo_dict.get('file_path', '')
     storage_provider = settings.STORAGE_PROVIDER
 
@@ -2632,6 +2696,11 @@ async def generate_document_pdf(
                 raise HTTPException(status_code=404, detail=f"Photo {photo_id} not found")
 
             photo_dict = service.photo_repo._convert_to_dict(photo)
+            if is_video(photo_dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{photo_dict.get('file_name') or photo_id} is a video; documents take photos only",
+                )
             file_path_str = photo_dict.get('file_path', '')
             source = photo_dict.get('source', 'local')
             external_id = photo_dict.get('external_id')
@@ -4187,6 +4256,13 @@ async def ai_classify_photos(
                 })
                 failed += 1
                 continue
+            if is_video(photo):
+                results.append({
+                    "photo_id": photo_id,
+                    "error": "Videos are not classified"
+                })
+                failed += 1
+                continue
 
             # Check cache first (unless force refresh)
             if not request.force_refresh:
@@ -4968,6 +5044,8 @@ async def detect_duplicate_photos(
     photo_hashes: list[tuple[str, str, dict]] = []  # (photo_id, hash, photo_dict)
 
     for photo in items:
+        if is_video(photo):
+            continue
         photo_dict = {
             'id': str(photo.id),
             'file_path': photo.file_path,
@@ -5096,7 +5174,7 @@ async def compute_photo_visual_signatures(
     semaphore = asyncio.Semaphore(6)
 
     async def fingerprint(photo) -> str | None:
-        if photo.file_type == 'video' or (photo.mime_type or '').startswith('video/'):
+        if is_video(photo):
             return None
         async with semaphore:
             image_data = await asyncio.to_thread(_read_cached_preview, photo.id)

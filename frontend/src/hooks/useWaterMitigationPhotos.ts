@@ -90,7 +90,11 @@ export const useWaterMitigationPhotos = (
       } while (page <= totalPages);
 
       const baseURL = api.defaults.baseURL || '';
-      return allItems.map((p) => mapPhotoResponse(p, baseURL));
+      // Photos only: every user of this hook (reports, documents, sketch
+      // reference) draws them as images
+      return allItems
+        .filter((p) => (p.mime_type ? !p.mime_type.startsWith('video/') : p.file_type !== 'video'))
+        .map((p) => mapPhotoResponse(p, baseURL));
     },
     staleTime: 5 * 60 * 1000,        // 5분간 신선한 데이터로 간주
     gcTime: 10 * 60 * 1000,          // 10분간 캐시 보관

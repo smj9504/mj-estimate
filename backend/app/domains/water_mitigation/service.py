@@ -1658,8 +1658,13 @@ class WaterMitigationService:
         if not job:
             raise ValueError("Job not found")
 
+        from .video_preview import is_video
+
         photos = self.get_job_photos(job_id)
-        photos_list = [self.photo_repo._convert_to_dict(p) for p in photos]
+        # A video in a section is left out: the PDF can only draw images
+        photos_list = [
+            self.photo_repo._convert_to_dict(p) for p in photos if not is_video(p)
+        ]
 
         # Company data - prioritize assigned company, fall back to client company
         company_data = None
