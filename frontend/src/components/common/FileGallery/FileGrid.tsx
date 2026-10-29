@@ -9,6 +9,7 @@ import {
 import { FileItem, FileCategory } from './types';
 import { getCategoryColor } from './categoryColors';
 import { fileService } from '../../../services/fileService';
+import api from '../../../services/api';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
@@ -463,8 +464,9 @@ const FileGrid: React.FC<FileGridProps> = ({
     downloadingRef.current.add(file.id);
     const hide = message.loading('다운로드 중...', 0);
     try {
+      // A bare /api path hits Vercel's index.html fallback in production, not the backend
       const url = context === 'water-mitigation'
-        ? `/api/water-mitigation/photos/${file.id}/download`
+        ? `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${file.id}/download`
         : fileService.getDownloadUrl(file.id);
       const resp = await fetch(url);
       if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);

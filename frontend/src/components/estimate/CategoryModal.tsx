@@ -42,29 +42,6 @@ export interface CategoryModalProps {
   selectedValue?: string;
 }
 
-// Simple in-memory cache for categories
-let cachedCategories: Array<{ value: string; label: string }> | null = null;
-
-// Get categories from API with caching
-const getCategories = async () => {
-  if (cachedCategories) {
-    console.log('Using cached categories');
-    return cachedCategories;
-  }
-  
-  console.log('Loading categories from API (first time)');
-  try {
-    const response = await fetch('/api/line-items/categories');
-    const data = await response.json();
-    cachedCategories = data.map((cat: any) => ({ value: cat.code, label: cat.name }));
-    
-    return cachedCategories;
-  } catch (error) {
-    console.error('Failed to load categories:', error);
-    return [];
-  }
-};
-
 const CategoryModal: React.FC<CategoryModalProps> = ({
   open,
   onCancel,
