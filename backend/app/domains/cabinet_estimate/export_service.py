@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # ── Line item category → section mapping ──
 # Installation shares the cabinet section: the PDF folds each install line
 # into the supply line it installs, leaving only stand-alone install scope
-# (toe kick) behind. See _merge_install_into_supply.
+# (toe kick, quarter round) behind. See _merge_install_into_supply.
 SECTION_ORDER = [
     ("Cabinets", ["supply", "premium", "install"]),
     ("Demolition & Removal", ["demo"]),

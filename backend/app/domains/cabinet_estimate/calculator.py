@@ -144,6 +144,7 @@ def _calc_location_cabinets(
     spec_mult: float = 1.0,
     hardware_product: Optional[dict] = None,
     finish: Optional[str] = None,
+    include_quarter_round: bool = False,
 ) -> tuple[List[LineItem], float, float, int]:
     """Calculate cabinet supply/install items for a location.
 
@@ -153,7 +154,8 @@ def _calc_location_cabinets(
     SPECIALTY_PREMIUM_TIER_SCALE.
     `hardware_product`, an option's chosen pull or knob, prices the hardware
     supply at its own price instead of the mid-grade allowance.
-    `finish` decides whether the toe kick is painted; see PAINTED_FINISHES.
+    `finish` decides whether the toe kick and quarter round are painted;
+    see PAINTED_FINISHES.
     """
     line_items: List[LineItem] = []
     loc_label = "Island" if loc == "island" else ""
@@ -781,8 +783,8 @@ def _calc_location_cabinets(
             location=loc,
         ))
 
-    # The toe kick takes the cabinet finish: painted on site, or
-    # prefinished to match.
+    # Toe kick and quarter round run along the base cabinets and take the
+    # cabinet finish: painted on site, or prefinished to match.
     trim_finish = finish or "Stained"
     if trim_finish in PAINTED_FINISHES:
         trim_scope = "Install & Paint"
@@ -808,6 +810,26 @@ def _calc_location_cabinets(
             total=tk_total,
             notes=trim_notes,
             material_share=MATERIAL_SHARE["toe_kick"],
+            category="install",
+            location=loc,
+        ))
+
+    # ── Quarter round ──
+    # Only some kitchens have it: shoe molding along the toe kick, covering
+    # the gap at the floor.
+    if include_quarter_round and base_lf > 0:
+        qr_unit = SCOPE_ITEMS["quarter_round_per_lf"]
+        qr_total = round(base_lf * qr_unit, 2)
+        line_items.append(LineItem(
+            description=(
+                f"{prefix}Quarter Round — {trim_scope}"
+            ),
+            quantity=round(base_lf, 2),
+            unit="LF",
+            unit_price=qr_unit,
+            total=qr_total,
+            notes=trim_notes,
+            material_share=MATERIAL_SHARE["quarter_round"],
             category="install",
             location=loc,
         ))
@@ -869,6 +891,7 @@ def calculate_estimate(
     backsplash_type: Optional[str] = None,
     backsplash_sqft: Optional[float] = None,
     include_toe_kick: bool = True,
+    include_quarter_round: bool = False,
     include_countertop: bool = False,
     countertop_material: Optional[str] = None,
     countertop_sqft: Optional[float] = None,
@@ -1023,7 +1046,7 @@ def calculate_estimate(
             total_mult, include_install,
             include_hardware, include_crown_molding,
             include_toe_kick, warnings, spec_mult,
-            hardware_product, finish,
+            hardware_product, finish, include_quarter_round,
         )
     )
     line_items.extend(p_items)
@@ -1095,7 +1118,7 @@ def calculate_estimate(
                 include_hardware,
                 False,  # no crown molding on island
                 include_toe_kick, warnings, spec_mult,
-                hardware_product, finish,
+                hardware_product, finish, include_quarter_round,
             )
         )
         line_items.extend(i_items)

@@ -317,8 +317,9 @@ FINISH_MULTIPLIER = {
 # the actual upcharge with the supplier.
 VOLATILE_FINISHES = {"Glazed"}
 
-# Finishes whose toe kick is painted on site. A stained or laminate line
-# ships its toe kick prefinished to match, so it is installed, not painted.
+# Finishes whose toe kick and quarter round are painted on site. A stained
+# or laminate line ships that trim prefinished to match, so it is
+# installed, not painted.
 PAINTED_FINISHES = {"Painted", "Glazed"}
 
 # Specialty cabinet premiums ($ per box, on top of LF pricing).
@@ -749,6 +750,11 @@ SCOPE_ITEMS = {
     # base molding installed runs $9-$14/LF). Was $13 — top of range for
     # what is a simple ripped-and-fitted strip. Trimmed to mid-range.
     "toe_kick_per_lf": 10,
+    # Quarter round (shoe molding) along the base cabinets where the toe
+    # kick meets the floor. Market $3-$7/LF installed (Angi 2026); the
+    # bathroom quotes paint-grade pine at $4.90 before paint. One rate
+    # whether it is painted on site or prefinished to match.
+    "quarter_round_per_lf": 6,
     # Countertop supply+install rates live in COUNTERTOP_MATERIALS,
     # the only table the calculator reads - do not duplicate them here.
     # Drywall - Patch & Repair (nail holes, screw holes, minor damage)
@@ -888,6 +894,7 @@ MATERIAL_SHARE = {
     "dumpster": 1.00,            # haul-off/disposal fee, no crew time in it
     "delivery": 0.00,            # freight/handling, billed as labor time
     "toe_kick": 0.35,            # trim stock vs. cut, fit and paint
+    "quarter_round": 0.30,       # molding vs. cut, cope, nail and finish
     "countertop": 0.55,          # slab + fabrication vs. template and install
     "countertop_reset": 0.00,
     "drywall_patch": 0.20,       # compound and tape vs. labor

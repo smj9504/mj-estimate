@@ -94,6 +94,35 @@ def test_toe_kick_is_painted_only_on_a_painted_finish(finish, description):
     assert all(("paint" in li["notes"]) == painted for li in toe_kicks)
 
 
+def test_quarter_round_is_off_unless_asked_for():
+    assert not any(
+        "Quarter Round" in li["description"]
+        for li in _line_items(PERIMETER + ISLAND)
+    )
+
+
+@pytest.mark.parametrize("finish,scope", [
+    ("Stained", "Install (Prefinished)"),
+    ("Painted", "Install & Paint"),
+])
+def test_quarter_round_runs_the_base_cabinets_in_their_finish(finish, scope):
+    items = _line_items(
+        PERIMETER + ISLAND, finish=finish, include_quarter_round=True,
+    )
+    by_desc = {li["description"]: li for li in items}
+    toe_kick = by_desc[f"Toe Kick — {scope}"]
+    quarter_round = by_desc[f"Quarter Round — {scope}"]
+    assert quarter_round["quantity"] == toe_kick["quantity"]
+    assert quarter_round["unit"] == "LF"
+    assert quarter_round["notes"] == toe_kick["notes"]
+    assert f"Island Quarter Round — {scope}" in by_desc
+
+    # It stays its own line on the PDF, like the toe kick
+    merged = _merge_install_into_supply(items)
+    assert f"Quarter Round — {scope}" in [li["description"] for li in merged]
+    assert _total(merged) == _total(items)
+
+
 def test_pooled_install_splits_by_quantity_and_keeps_its_total():
     items = _line_items(PERIMETER)
     merged = _merge_install_into_supply(items)

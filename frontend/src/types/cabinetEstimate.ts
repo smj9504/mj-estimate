@@ -130,6 +130,7 @@ export interface CabinetEstimate {
   backsplash_type?: BacksplashType | null;
   backsplash_sqft?: number;
   include_toe_kick: boolean;
+  include_quarter_round?: boolean;
   include_countertop: boolean;
   include_drywall_repair: boolean;
   drywall_repair_type?: 'patch' | 'rr';
@@ -266,6 +267,7 @@ export interface CabinetEstimateCreate {
   backsplash_type?: BacksplashType | null;
   backsplash_sqft?: number;
   include_toe_kick?: boolean;
+  include_quarter_round?: boolean;
   include_countertop?: boolean;
   include_drywall_repair?: boolean;
   drywall_repair_type?: 'patch' | 'rr';
@@ -339,6 +341,7 @@ export interface CabinetEstimateUpdate {
   backsplash_type?: BacksplashType | null;
   backsplash_sqft?: number;
   include_toe_kick?: boolean;
+  include_quarter_round?: boolean;
   include_countertop?: boolean;
   include_drywall_repair?: boolean;
   drywall_repair_type?: 'patch' | 'rr';

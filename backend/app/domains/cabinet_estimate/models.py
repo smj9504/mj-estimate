@@ -121,6 +121,8 @@ class CabinetEstimate(Base, BaseModel):
     backsplash_type = Column(String(50), nullable=True)
     backsplash_sqft = Column(Float, nullable=True)
     include_toe_kick = Column(Boolean, default=True)
+    # Shoe molding along the toe kick at the floor; only some kitchens
+    include_quarter_round = Column(Boolean, default=False)
     include_countertop = Column(Boolean, default=False)
     include_drywall_repair = Column(Boolean, default=False)
     drywall_repair_type = Column(

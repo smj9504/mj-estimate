@@ -316,6 +316,10 @@ class CabinetEstimateService:
                 if getattr(estimate, 'include_toe_kick', None)
                 is not None else True
             ),
+            include_quarter_round=(
+                getattr(estimate, 'include_quarter_round', False)
+                or False
+            ),
             include_countertop=(
                 getattr(estimate, 'include_countertop', False)
                 or False

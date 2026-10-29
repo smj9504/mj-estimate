@@ -179,6 +179,7 @@ class CabinetEstimateBase(BaseModel):
     backsplash_type: Optional[str] = None
     backsplash_sqft: Optional[float] = None
     include_toe_kick: bool = True
+    include_quarter_round: bool = False
     include_countertop: bool = False
     include_drywall_repair: bool = False
     drywall_repair_type: Optional[str] = "patch"
@@ -265,6 +266,7 @@ class CabinetEstimateUpdate(BaseModel):
     backsplash_type: Optional[str] = None
     backsplash_sqft: Optional[float] = None
     include_toe_kick: Optional[bool] = None
+    include_quarter_round: Optional[bool] = None
     include_countertop: Optional[bool] = None
     include_drywall_repair: Optional[bool] = None
     drywall_repair_type: Optional[str] = None
@@ -376,6 +378,7 @@ class CabinetEstimateResponse(BaseModel):
     backsplash_type: Optional[str] = None
     backsplash_sqft: Optional[float] = None
     include_toe_kick: bool = True
+    include_quarter_round: bool = False
     include_countertop: bool = False
     include_drywall_repair: bool = False
     drywall_repair_type: Optional[str] = "patch"

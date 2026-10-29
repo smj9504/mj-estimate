@@ -348,6 +348,7 @@ const CabinetEstimateDetail: React.FC = () => {
         backsplash_sqft: estimate.backsplash_sqft,
         backsplash_height_inches: 18,
         include_toe_kick: estimate.include_toe_kick ?? true,
+        include_quarter_round: estimate.include_quarter_round ?? false,
         include_countertop: estimate.include_countertop,
         include_countertop_backsplash: estimate.include_countertop_backsplash ?? false,
         countertop_backsplash_lf: estimate.countertop_backsplash_lf,
@@ -1482,6 +1483,11 @@ const CabinetEstimateDetail: React.FC = () => {
                     <Col xs={12} md={8}>
                       <Form.Item name="include_toe_kick" valuePropName="checked">
                         <Checkbox>Toe Kick</Checkbox>
+                      </Form.Item>
+                    </Col>
+                    <Col xs={12} md={8}>
+                      <Form.Item name="include_quarter_round" valuePropName="checked">
+                        <Checkbox>Quarter Round (Base Cabinets)</Checkbox>
                       </Form.Item>
                     </Col>
                     <Col xs={12} md={8}>
