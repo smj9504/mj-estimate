@@ -211,8 +211,8 @@ class Claim(Base, BaseModel):
     )
 
     # Rebuild construction runs alongside the paperwork: it starts around the
-    # first carrier estimate and ends whenever it ends. Finishing it opens
-    # depreciation recovery.
+    # first carrier estimate and ends whenever it ends, sometimes before the
+    # supplement is settled. Depreciation recovery opens once both are done.
     construction_started_at = Column(DateTime(timezone=True))
     construction_completed_at = Column(DateTime(timezone=True))
 

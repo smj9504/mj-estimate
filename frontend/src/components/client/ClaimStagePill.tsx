@@ -5,13 +5,13 @@
  */
 
 import React from 'react';
-import { ToolOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, ToolOutlined } from '@ant-design/icons';
 import { Tooltip } from 'antd';
 import { Pill } from '../common/ui';
 import { CLAIM_STAGE_CONFIG } from '../../types/client';
 import type { ClaimStage, ConstructionState } from '../../types/client';
 
-// Construction only finishes on the way into these, so they say it already
+// These already say where construction is (or no longer matter)
 const AFTER_CONSTRUCTION: ClaimStage[] = ['construction', 'depreciation', 'settlement', 'closed', 'denied'];
 
 interface ClaimStagePillProps {
@@ -29,17 +29,22 @@ export const ClaimStagePill: React.FC<ClaimStagePillProps> = ({ stage, detail, s
     detail,
     source === 'manual' && 'Set by hand',
   ].filter(Boolean).join(' · ');
-  const showConstruction = construction === 'in_progress' && !AFTER_CONSTRUCTION.includes(stage!);
+  // A rebuild that finished first: the claim waits on its supplement or appraisal
+  const showConstruction = !!construction && !AFTER_CONSTRUCTION.includes(stage!);
   return (
     <span className="cl-stage">
       <Tooltip title={tip || undefined}>
         <span><Pill tone={cfg.tone}>{cfg.label}{source === 'manual' ? '*' : ''}</Pill></span>
       </Tooltip>
-      {showConstruction && (
+      {showConstruction && (construction === 'done' ? (
+        <Tooltip title="Rebuild finished; depreciation follows once this is settled">
+          <span><Pill tone="yellow" icon={<CheckCircleOutlined />}>Built</Pill></span>
+        </Tooltip>
+      ) : (
         <Tooltip title="Rebuild construction in progress">
           <span><Pill tone="yellow" icon={<ToolOutlined />}>Building</Pill></span>
         </Tooltip>
-      )}
+      ))}
     </span>
   );
 };
