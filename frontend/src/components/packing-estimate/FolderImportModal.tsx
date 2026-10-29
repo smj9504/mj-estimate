@@ -68,7 +68,7 @@ function groupFilesBySubfolder(files: FileList): FolderRoom[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function defaultPhotoRoom(roomName: string): PhotoRoom {
+export function defaultPhotoRoom(roomName: string): PhotoRoom {
   return {
     id: generateId(),
     room_name: roomName,

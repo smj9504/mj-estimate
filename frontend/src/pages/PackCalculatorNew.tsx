@@ -3,6 +3,8 @@
  * Builder: job, rooms and settings on the left, the estimate on the right
  * Supports Quick Estimate and Photo AI modes
  * Supports recalculation from existing estimate via navigation state
+ * Started from a claim (navigation state claimPhotos), it fills in the job,
+ * loads the claim's packing photos as Photo AI rooms and analyzes them
  */
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -14,6 +16,7 @@ import DetailsStep, { EstimationSettings } from '../components/packing-estimate/
 import PhotoAIRooms from '../components/packing-estimate/PhotoAIRooms';
 import QuickEstimateRooms from '../components/packing-estimate/QuickEstimateRooms';
 import { DEFAULT_SETTINGS } from '../components/packing-estimate/constants';
+import { loadClaimPhotoRooms } from '../components/packing-estimate/claimPhotos';
 import {
   EstimateBreakdown, Figures, estimateFigures, regionLabel, modeLabel, sectionsWithLines, packEstimateTitle,
 } from '../components/packing-estimate/packingUi';
@@ -75,11 +78,45 @@ const PackCalculatorNew: React.FC = () => {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => new Set());
   const estimateRef = useRef<HTMLElement>(null);
 
+  // Claim packing photos loading into rooms, then a token that starts Analyze All
+  const [claimPhotoLoad, setClaimPhotoLoad] = useState<{ done: number; total: number } | null>(null);
+  const [autoAnalyzeKey, setAutoAnalyzeKey] = useState<number | undefined>();
+  const claimPhotosStarted = useRef(false);
+
   // Show recalculation notice
   useEffect(() => {
     if (recalcState?.recalculateFrom) {
       message.info('Settings loaded from previous estimate. Add rooms and recalculate.');
     }
+  }, []);
+
+  // Started from a claim: its packing photos become the Photo AI rooms
+  useEffect(() => {
+    const claimId: string | undefined = recalcState?.claimPhotos;
+    if (!claimId || claimPhotosStarted.current) return;
+    claimPhotosStarted.current = true;
+    // A reload keeps the job but doesn't import and analyze the photos again
+    const rest = { ...recalcState };
+    delete rest.claimPhotos;
+    navigate(location.pathname, { replace: true, state: rest });
+
+    setClaimPhotoLoad({ done: 0, total: 0 });
+    loadClaimPhotoRooms(claimId, (done, total) => setClaimPhotoLoad({ done, total }))
+      .then(({ rooms: loaded, failed }) => {
+        if (failed > 0) {
+          message.warning(`${failed} photo${failed === 1 ? '' : 's'} couldn't be loaded and ${failed === 1 ? 'was' : 'were'} left out`);
+        }
+        if (loaded.length === 0) {
+          message.warning('No packing photos could be loaded from the claim');
+          return;
+        }
+        setPhotoRooms(prev => [...prev, ...loaded]);
+        setAutoAnalyzeKey(Date.now());
+      })
+      .catch((err: any) => {
+        message.error(err?.response?.data?.detail || "Failed to load the claim's packing photos");
+      })
+      .finally(() => setClaimPhotoLoad(null));
   }, []);
 
   const roomInputs: RoomInput[] = useMemo(() => rooms.map(r => ({
@@ -216,7 +253,9 @@ const PackCalculatorNew: React.FC = () => {
       done: roomCount > 0,
       text: roomCount > 0
         ? `${roomCount} room${roomCount === 1 ? '' : 's'} added`
-        : mode === 'quick' ? 'Add rooms from the presets' : 'Add rooms with photos',
+        : mode === 'quick'
+          ? 'Add rooms from the presets'
+          : claimPhotoLoad ? "Loading the claim's packing photos..." : 'Add rooms with photos',
     },
     ...(mode === 'photo_ai' && roomCount > 0 ? [{
       key: 'analysis',
@@ -244,8 +283,8 @@ const PackCalculatorNew: React.FC = () => {
           <Button
             type="text"
             icon={<ArrowLeftOutlined />}
-            onClick={() => navigate('/reconstruction-estimate/pack-calculator-new/list')}
-            aria-label="Back to packing estimates"
+            onClick={() => navigate(recalcState?.returnTo || '/reconstruction-estimate/pack-calculator-new/list')}
+            aria-label={recalcState?.returnTo ? 'Back to the client' : 'Back to packing estimates'}
           />
         }
         title={packEstimateTitle({ project_address: projectAddress })}
@@ -286,7 +325,14 @@ const PackCalculatorNew: React.FC = () => {
 
           {mode === 'quick'
             ? <QuickEstimateRooms rooms={rooms} setRooms={setRooms} />
-            : <PhotoAIRooms rooms={photoRooms} setRooms={setPhotoRooms} />}
+            : (
+              <PhotoAIRooms
+                rooms={photoRooms}
+                setRooms={setPhotoRooms}
+                loading={claimPhotoLoad}
+                autoAnalyzeKey={autoAnalyzeKey}
+              />
+            )}
 
           <EstimationSettings settings={settings} setSettings={setSettings} />
 

@@ -1,16 +1,19 @@
 import React, { useCallback } from 'react';
 import { message } from 'antd';
 import FileGallery from '../common/FileGallery/FileGallery';
+import type { FileGalleryProps } from '../common/FileGallery/types';
 import waterMitigationService from '../../services/waterMitigationService';
 
 interface ClaimWMPhotosProps {
   jobId: string;
+  /** An extra action for the selected photos (Use for packing) */
+  renderBulkExtraAction?: FileGalleryProps['renderBulkExtraAction'];
 }
 
 // A water mitigation job's photos on the claim: the same photos as the job's
 // own Photos tab, so an upload or delete here shows there too. Deleting moves
 // a photo to the job's trash, where it can still be restored.
-const ClaimWMPhotos: React.FC<ClaimWMPhotosProps> = ({ jobId }) => {
+const ClaimWMPhotos: React.FC<ClaimWMPhotosProps> = ({ jobId, renderBulkExtraAction }) => {
   const handleUpload = useCallback(async (files: File[], category?: string): Promise<void> => {
     const msgKey = `claim-wm-photo-upload-${jobId}`;
     message.loading({ content: `Uploading 0/${files.length} photos...`, key: msgKey, duration: 0 });
@@ -76,6 +79,7 @@ const ClaimWMPhotos: React.FC<ClaimWMPhotosProps> = ({ jobId }) => {
         showUploadList: false,
         accept: 'image/*',
       }}
+      renderBulkExtraAction={renderBulkExtraAction}
     />
   );
 };

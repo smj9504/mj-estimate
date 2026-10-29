@@ -811,7 +811,7 @@ _UNREADABLE_PHOTO = (
 PREVIEW_MAX_DIM = 2048  # px — sharp enough to zoom in the photo preview
 
 
-def convert_photo_to_jpeg(data: bytes) -> str:
+def convert_photo_to_jpeg(data: bytes, max_dim: int = PREVIEW_MAX_DIM) -> str:
     """Re-encode an uploaded photo (e.g. iPhone HEIC) as base64 JPEG.
 
     Browsers like Chrome can't display HEIC, so the frontend converts those
@@ -830,7 +830,7 @@ def convert_photo_to_jpeg(data: bytes) -> str:
     img = ImageOps.exif_transpose(img)
     if img.mode != "RGB":
         img = img.convert("RGB")
-    img.thumbnail((PREVIEW_MAX_DIM, PREVIEW_MAX_DIM), Image.LANCZOS)
+    img.thumbnail((max_dim, max_dim), Image.LANCZOS)
 
     with io.BytesIO() as buf:
         img.save(buf, format="JPEG", quality=85, optimize=True)

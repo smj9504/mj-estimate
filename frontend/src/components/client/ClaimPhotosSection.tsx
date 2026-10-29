@@ -1,11 +1,14 @@
 import React from 'react';
 import FileGallery from '../common/FileGallery/FileGallery';
+import type { FileGalleryProps } from '../common/FileGallery/types';
 
 interface ClaimPhotosSectionProps {
   claimId: string;
+  /** An extra action for the selected photos (Use for packing) */
+  renderBulkExtraAction?: FileGalleryProps['renderBulkExtraAction'];
 }
 
-const ClaimPhotosSection: React.FC<ClaimPhotosSectionProps> = ({ claimId }) => {
+const ClaimPhotosSection: React.FC<ClaimPhotosSectionProps> = ({ claimId, renderBulkExtraAction }) => {
   return (
     <div style={{ minHeight: 300 }}>
       <FileGallery
@@ -28,6 +31,7 @@ const ClaimPhotosSection: React.FC<ClaimPhotosSectionProps> = ({ claimId }) => {
           showUploadList: false,
           accept: 'image/*',
         }}
+        renderBulkExtraAction={renderBulkExtraAction}
       />
     </div>
   );

@@ -11,6 +11,8 @@ import type {
   PackEstimateListResponse,
   PackingPrice,
   RoomPreset,
+  ClaimPackingPhoto,
+  PackingPhotoRef,
 } from '../types/packing-estimate';
 
 const BASE = '/api/packing-estimate';
@@ -111,6 +113,51 @@ export function analyzeRoomBatch(
   return () => controller.abort();
 }
 
+// ── Claim Packing Photos ──────────────────────
+
+export async function listClaimPhotos(claimId: string): Promise<ClaimPackingPhoto[]> {
+  const { data } = await api.get(`${BASE}/claims/${claimId}/photos`);
+  return data.photos;
+}
+
+/** File claim photos under rooms; a photo already filed moves to its new room */
+export async function addClaimPhotos(
+  claimId: string,
+  photos: PackingPhotoRef[],
+  roomName?: string,
+): Promise<ClaimPackingPhoto[]> {
+  const { data } = await api.post(`${BASE}/claims/${claimId}/photos`, {
+    room_name: roomName,
+    photos,
+  });
+  return data.photos;
+}
+
+/** Move packing photos to a room; moving all of a room's photos renames it */
+export async function moveClaimPhotos(
+  claimId: string,
+  ids: string[],
+  roomName: string,
+): Promise<ClaimPackingPhoto[]> {
+  const { data } = await api.patch(`${BASE}/claims/${claimId}/photos`, {
+    ids,
+    room_name: roomName,
+  });
+  return data.photos;
+}
+
+/** Take photos out of the packing set; the photos themselves stay */
+export async function removeClaimPhotos(claimId: string, ids: string[]): Promise<ClaimPackingPhoto[]> {
+  const { data } = await api.post(`${BASE}/claims/${claimId}/photos/remove`, { ids });
+  return data.photos;
+}
+
+/** One packing photo as bare base64 JPEG, sized for the AI analysis */
+export async function getClaimPhotoImage(claimId: string, entryId: string): Promise<string> {
+  const { data } = await api.get(`${BASE}/claims/${claimId}/photos/${entryId}/image`);
+  return data.image;
+}
+
 // ── Presets ───────────────────────────────────
 
 export async function getPresets(): Promise<Record<string, (RoomPreset & { key: string })[]>> {
@@ -149,6 +196,7 @@ export async function seedPrices(
 export async function listEstimates(params?: {
   client_id?: string;
   company_id?: string;
+  claim_id?: string;
   status?: string;
   skip?: number;
   limit?: number;

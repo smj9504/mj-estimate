@@ -3802,6 +3802,75 @@ a.cl-contact-line:hover {
   background: var(--color-neutral-50);
 }
 
+/* Packing estimate: the claim photos picked for it, room by room (photo
+   strip from packing.css), then the claim's packing estimates */
+.cl-packing-rooms {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cl-packing-room {
+  padding: 8px 0 2px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.cl-packing-room:last-child {
+  border-bottom: none;
+}
+.cl-packing-room-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  margin-bottom: 6px;
+}
+.cl-packing-room-title {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+}
+.cl-packing-room-name {
+  font-weight: 500;
+  color: var(--color-neutral-900);
+  overflow-wrap: anywhere;
+}
+.cl-packing-room-input {
+  flex: 1;
+  max-width: 280px;
+}
+.cl-packing-photos.pk-photos {
+  margin-bottom: 8px;
+}
+.cl-packing-estimates {
+  margin: 4px 0 0;
+}
+.cl-packing-rooms + .cl-packing-estimates {
+  padding-top: 8px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+/* The Use for packing dialog */
+.cl-packing-intro {
+  margin: 0 0 16px;
+  color: var(--color-neutral-600);
+}
+.cl-packing-tags.ant-checkbox-wrapper {
+  margin-bottom: 16px;
+}
+.cl-packing-tag-list {
+  display: block;
+}
+.cl-packing-room-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cl-packing-label {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+
 /* Todos */
 .cl-todo .td-status {
   margin-top: -1px;

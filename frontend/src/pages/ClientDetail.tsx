@@ -56,6 +56,7 @@ import {
   FileDoneOutlined,
   CloseCircleOutlined,
   SwapOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -77,6 +78,10 @@ import ClientDocumentHub from '../components/client/ClientDocumentHub';
 import ClaimNotes from '../components/client/ClaimNotes';
 import ClaimPhotosSection from '../components/client/ClaimPhotosSection';
 import ClaimWMPhotos from '../components/client/ClaimWMPhotos';
+import ClaimPackingSection from '../components/client/ClaimPackingSection';
+import AddToPackingModal from '../components/client/AddToPackingModal';
+import type { FileItem } from '../components/common/FileGallery';
+import type { PackingPhotoSource } from '../types/packing-estimate';
 import ClaimTodos from '../components/client/ClaimTodos';
 import AccuLynxArchiveTab from '../components/client/AccuLynxArchiveTab';
 import { acculynxArchiveService } from '../services/acculynxArchiveService';
@@ -2458,11 +2463,17 @@ const ClaimEmailSection: React.FC<{ claimId: string; onSend: () => void }> = ({ 
 const COMPLETION_PHOTOS = 'completion';
 
 // The claim's photos, one set at a time: each water mitigation job's (the
-// same photos as the job's Photos tab) and the claim's completion photos
+// same photos as the job's Photos tab) and the claim's completion photos.
+// Selected photos can go to the packing estimate (Use for packing).
 const ClaimPhotos: React.FC<{ claim: Claim }> = ({ claim }) => {
   const wmJobs = claim.wm_jobs ?? [];
   const [open, setOpen] = useState(false);
   const [view, setView] = useState(wmJobs[0]?.id ?? COMPLETION_PHOTOS);
+  const [packing, setPacking] = useState<{
+    source: PackingPhotoSource;
+    photos: FileItem[];
+    clearSelection: () => void;
+  } | null>(null);
   const views = [
     ...wmJobs.map((job, i) => ({
       key: job.id,
@@ -2474,6 +2485,21 @@ const ClaimPhotos: React.FC<{ claim: Claim }> = ({ claim }) => {
   ];
   // A job unlinked from the claim since the view was picked
   const current = views.some(v => v.key === view) ? view : views[0].key;
+
+  const packingAction = (source: PackingPhotoSource) => (
+    selected: FileItem[],
+    { compact, clearSelection }: { compact: boolean; clearSelection: () => void },
+  ) => (
+    <Button
+      size={compact ? 'middle' : 'small'}
+      icon={<InboxOutlined />}
+      aria-label="Use for packing"
+      disabled={selected.length === 0}
+      onClick={() => setPacking({ source, photos: selected, clearSelection })}
+    >
+      {compact ? 'Packing' : 'Use for packing'}
+    </Button>
+  );
 
   return (
     <ClaimSection
@@ -2502,8 +2528,16 @@ const ClaimPhotos: React.FC<{ claim: Claim }> = ({ claim }) => {
       )}
     >
       {open && (current === COMPLETION_PHOTOS
-        ? <ClaimPhotosSection claimId={claim.id} />
-        : <ClaimWMPhotos key={current} jobId={current} />)}
+        ? <ClaimPhotosSection claimId={claim.id} renderBulkExtraAction={packingAction('claim')} />
+        : <ClaimWMPhotos key={current} jobId={current} renderBulkExtraAction={packingAction('wm')} />)}
+      <AddToPackingModal
+        open={!!packing}
+        claimId={claim.id}
+        source={packing?.source ?? 'wm'}
+        photos={packing?.photos ?? []}
+        onClose={() => setPacking(null)}
+        onAdded={() => packing?.clearSelection()}
+      />
     </ClaimSection>
   );
 };
@@ -2534,6 +2568,7 @@ const ClaimPanel: React.FC<{
         <ClaimTodos clientId={client.id} claimId={claim.id} />
         <ClaimNotes clientId={client.id} claimId={claim.id} />
       </div>
+      <ClaimPackingSection claim={claim} client={client} />
       <ClaimPhotos claim={claim} />
     </div>
     <div className="cl-claim-aside cl-claim-aside--bottom">

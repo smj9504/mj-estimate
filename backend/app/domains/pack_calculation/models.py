@@ -2,7 +2,7 @@
 Pack Calculation domain models
 """
 
-from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, Boolean, Float, Enum as SQLEnum, Index
+from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, Boolean, Float, Enum as SQLEnum, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -291,6 +291,29 @@ class PackItem(Base, BaseModel):
 
     # Relationships
     room = relationship("PackRoom", back_populates="items")
+
+
+class PackingPhoto(Base, BaseModel):
+    """
+    A claim photo picked for the claim's packing estimate, filed under a room.
+    Points at the photo where it already lives, so nothing is copied:
+    source 'wm' is a water mitigation job photo (wm_photos.id), 'claim' a
+    claim photo (files.id). A photo is in one room of a claim at a time.
+    """
+    __tablename__ = "packing_photos"
+    __table_args__ = (
+        UniqueConstraint('claim_id', 'source', 'photo_id', name='uq_packing_photos_claim_photo'),
+        Index('ix_packing_photos_claim', 'claim_id'),
+        {'extend_existing': True}
+    )
+
+    claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="CASCADE"), nullable=False)
+    source = Column(String(20), nullable=False)  # 'wm' | 'claim'
+    photo_id = Column(String(64), nullable=False)
+    room_name = Column(String(100), nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+
+    created_by_id = Column(UUIDType(), ForeignKey("staff.id", ondelete="SET NULL"))
 
 
 class ItemMaterialMapping(Base, BaseModel):

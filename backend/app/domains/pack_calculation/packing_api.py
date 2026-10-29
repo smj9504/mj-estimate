@@ -34,7 +34,11 @@ from .packing_schemas import (
     MasterContentResponse,
     SubmitCorrectionsRequest,
     SubmitCorrectionsResponse,
+    AddPackingPhotosRequest,
+    MovePackingPhotosRequest,
+    RemovePackingPhotosRequest,
 )
+from . import packing_photos
 from .models import (
     PackCalculation, PackRoom, PackItem,
     PackEstimateMode, PackEstimateStatus,
@@ -215,6 +219,78 @@ def analyze_batch(
     )
 
 
+# ── Claim Packing Photos ──────────────────────
+
+def _require_packing_claim(db, staff, claim_id: str) -> None:
+    require_claim(db, staff, claim_id)
+    packing_photos.require_claim_row(db, claim_id)
+
+
+@router.get("/claims/{claim_id}/photos")
+def list_claim_packing_photos(
+    claim_id: str,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """The claim's photos picked for its packing estimate, room by room."""
+    _require_packing_claim(db, current_user, claim_id)
+    return {"photos": packing_photos.list_photos(db, claim_id)}
+
+
+@router.post("/claims/{claim_id}/photos")
+def add_claim_packing_photos(
+    claim_id: str,
+    request: AddPackingPhotosRequest,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """File claim photos under packing rooms (moves ones already filed)."""
+    _require_packing_claim(db, current_user, claim_id)
+    packing_photos.add_photos(
+        db, claim_id, request.room_name, request.photos, current_user.id,
+    )
+    return {"photos": packing_photos.list_photos(db, claim_id)}
+
+
+@router.patch("/claims/{claim_id}/photos")
+def move_claim_packing_photos(
+    claim_id: str,
+    request: MovePackingPhotosRequest,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """Move packing photos to a room; moving a whole room renames it."""
+    _require_packing_claim(db, current_user, claim_id)
+    packing_photos.move_photos(db, claim_id, request.ids, request.room_name)
+    return {"photos": packing_photos.list_photos(db, claim_id)}
+
+
+@router.post("/claims/{claim_id}/photos/remove")
+def remove_claim_packing_photos(
+    claim_id: str,
+    request: RemovePackingPhotosRequest,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """Take photos out of the packing set; the photos themselves stay."""
+    _require_packing_claim(db, current_user, claim_id)
+    packing_photos.remove_photos(db, claim_id, request.ids)
+    return {"photos": packing_photos.list_photos(db, claim_id)}
+
+
+@router.get("/claims/{claim_id}/photos/{entry_id}/image")
+async def get_claim_packing_photo_image(
+    claim_id: str,
+    entry_id: str,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """One packing photo as base64 JPEG, sized for the AI analysis."""
+    _require_packing_claim(db, current_user, claim_id)
+    image = await packing_photos.load_image(db, claim_id, entry_id)
+    return {"image": image}
+
+
 # ── Master Content List ───────────────────────
 
 @router.post(
@@ -337,6 +413,7 @@ def seed_prices(
 def list_estimates(
     client_id: Optional[str] = None,
     company_id: Optional[str] = None,
+    claim_id: Optional[str] = None,
     status: Optional[str] = None,
     skip: int = 0,
     limit: int = 50,
@@ -361,6 +438,10 @@ def list_estimates(
         query = query.filter(
             PackCalculation.company_id == company_id
         )
+    if claim_id:
+        query = query.filter(
+            PackCalculation.claim_id == claim_id
+        )
     if status:
         query = query.filter(
             PackCalculation.status == status
@@ -375,6 +456,10 @@ def list_estimates(
     if company_id:
         count_query = count_query.filter(
             PackCalculation.company_id == company_id
+        )
+    if claim_id:
+        count_query = count_query.filter(
+            PackCalculation.claim_id == claim_id
         )
     if status:
         count_query = count_query.filter(

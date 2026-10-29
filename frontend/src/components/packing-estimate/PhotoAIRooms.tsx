@@ -32,6 +32,10 @@ const { Dragger } = Upload;
 interface PhotoAIRoomsProps {
   rooms: PhotoRoom[];
   setRooms: (rooms: PhotoRoom[]) => void;
+  /** A claim's packing photos still loading into rooms */
+  loading?: { done: number; total: number } | null;
+  /** Runs Analyze All once each time it changes (rooms just loaded from a claim) */
+  autoAnalyzeKey?: number;
 }
 
 function generateId(): string {
@@ -43,7 +47,7 @@ function toDataUri(base64: string): string {
   return `data:image/jpeg;base64,${base64}`;
 }
 
-const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
+const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms, loading, autoAnalyzeKey }) => {
   const [presets, setPresets] = useState<Record<string, (RoomPreset & { key: string })[]>>({});
   const [showAddRoom, setShowAddRoom] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
@@ -212,6 +216,14 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
     }
   }, [unanalyzedRooms, rooms, setRooms]);
 
+  // Rooms loaded from a claim go straight into the analysis, once per load
+  const autoAnalyzedRef = useRef<number | undefined>();
+  React.useEffect(() => {
+    if (!autoAnalyzeKey || autoAnalyzedRef.current === autoAnalyzeKey) return;
+    autoAnalyzedRef.current = autoAnalyzeKey;
+    handleBatchAnalyze();
+  }, [autoAnalyzeKey, handleBatchAnalyze]);
+
   // ── Add more photos to existing room ───────
 
   const handleAddPhotosToRoom = useCallback(async (roomId: string, files: FileList | File[]) => {
@@ -279,7 +291,16 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
         </div>
       </div>
 
-      {rooms.length === 0 && !showAddRoom && (
+      {loading && (
+        <p className="pk-empty-line pk-loading-line" role="status">
+          <LoadingOutlined aria-hidden="true" />
+          {loading.total > 0
+            ? `Loading the claim's packing photos... ${loading.done} of ${loading.total}`
+            : "Loading the claim's packing photos..."}
+        </p>
+      )}
+
+      {rooms.length === 0 && !showAddRoom && !loading && (
         <p className="pk-empty-line">Add rooms with photos to start AI analysis.</p>
       )}
 

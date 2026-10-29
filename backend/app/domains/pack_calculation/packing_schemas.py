@@ -508,3 +508,35 @@ class BatchCompleteEvent(BaseModel):
     succeeded: int
     failed: int
     failed_rooms: List[str] = Field(default_factory=list)
+
+
+# ============================================
+# CLAIM PACKING PHOTOS
+# ============================================
+
+class PackingPhotoSource(str, Enum):
+    WM = "wm"         # a water mitigation job photo (wm_photos.id)
+    CLAIM = "claim"   # a claim photo (files.id)
+
+
+class PackingPhotoRef(BaseModel):
+    source: PackingPhotoSource
+    photo_id: str
+    room_name: Optional[str] = Field(
+        default=None,
+        description="This photo's room; falls back to the request's room_name",
+    )
+
+
+class AddPackingPhotosRequest(BaseModel):
+    room_name: Optional[str] = None
+    photos: List[PackingPhotoRef] = Field(..., min_length=1)
+
+
+class MovePackingPhotosRequest(BaseModel):
+    ids: List[str] = Field(..., min_length=1)
+    room_name: str
+
+
+class RemovePackingPhotosRequest(BaseModel):
+    ids: List[str] = Field(..., min_length=1)

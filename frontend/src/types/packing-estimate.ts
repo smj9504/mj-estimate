@@ -331,3 +331,30 @@ export interface BatchCompleteEvent {
   failed: number;
   failed_rooms: string[];
 }
+
+// ── Claim Packing Photos ─────────────────────
+
+/** Where a claim photo lives: a water mitigation job photo or a claim photo */
+export type PackingPhotoSource = 'wm' | 'claim';
+
+/** A claim photo picked for the packing estimate, filed under a room */
+export interface ClaimPackingPhoto {
+  id: string;
+  source: PackingPhotoSource;
+  photo_id: string;
+  room_name: string;
+  file_name?: string;
+  /** API paths; prefix with the API base URL */
+  thumbnail_url: string;
+  preview_url: string;
+  /** The WM photo's location tag, if it has one */
+  location_level?: string | null;
+  location_room?: string | null;
+}
+
+export interface PackingPhotoRef {
+  source: PackingPhotoSource;
+  photo_id: string;
+  /** This photo's own room; otherwise the request's room_name */
+  room_name?: string;
+}
