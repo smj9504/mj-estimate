@@ -133,6 +133,64 @@ export const CLAIM_STATUS_CONFIG: Record<
 };
 
 /**
+ * Where a claim is in the office's lifecycle, worked out on the server from
+ * its records (backend/app/domains/client/claim_stage.py). Appraisal runs
+ * the same steps 4-5 as a supplement. 'open' is a cash job; 'closed' and
+ * 'denied' come from the claim's status.
+ */
+export type ClaimStage =
+  | 'mitigation' | 'wm_docs' | 'awaiting_estimate'
+  | 'supplement_prep' | 'appraisal_prep'
+  | 'supplement_followup' | 'appraisal_followup'
+  | 'construction' | 'depreciation' | 'settlement'
+  | 'open' | 'closed' | 'denied';
+
+/** Stages staff may set by hand, in lifecycle order */
+export type OverrideStage = Exclude<ClaimStage, 'open' | 'closed' | 'denied'>;
+
+// tone: blue = waiting on the carrier, orange = ours to write, pink = appraisal
+export const CLAIM_STAGE_CONFIG: Record<
+  ClaimStage,
+  { tone: TagTone; label: string; description?: string }
+> = {
+  mitigation:          { tone: 'gray',   label: 'Mitigation',          description: 'Lead in; water mitigation under way' },
+  wm_docs:             { tone: 'brown',  label: 'WM Docs Prep',        description: 'Claim filed; putting the WM file together' },
+  awaiting_estimate:   { tone: 'blue',   label: 'Awaiting Estimate',   description: 'WM file sent; waiting on the carrier estimate' },
+  supplement_prep:     { tone: 'orange', label: 'Supplement Prep',     description: 'Writing the supplement estimate for the PA' },
+  appraisal_prep:      { tone: 'pink',   label: 'Appraisal Estimate',  description: 'Writing the contractor estimate for appraisal' },
+  supplement_followup: { tone: 'blue',   label: 'Supplement Follow-up', description: 'Submitted by the PA; following up on approval' },
+  appraisal_followup:  { tone: 'pink',   label: 'Appraisal Follow-up', description: 'Submitted by the PA; following up on the decision' },
+  construction:        { tone: 'yellow', label: 'Construction',        description: 'Paperwork settled; waiting on the rebuild to finish' },
+  depreciation:        { tone: 'purple', label: 'Depreciation',        description: 'Rebuild done; depreciation file to the PA and carrier' },
+  settlement:          { tone: 'green',  label: 'Settlement',          description: 'Money in; settling up with the PA and contractor' },
+  open:                { tone: 'blue',   label: 'Open' },
+  closed:              { tone: 'gray',   label: 'Closed' },
+  denied:              { tone: 'red',    label: 'Denied' },
+};
+
+export const OVERRIDE_STAGES: OverrideStage[] = [
+  'mitigation', 'wm_docs', 'awaiting_estimate',
+  'supplement_prep', 'appraisal_prep',
+  'supplement_followup', 'appraisal_followup',
+  'construction', 'depreciation', 'settlement',
+];
+
+/** Rebuild construction, reported apart from the stage it runs alongside */
+export type ConstructionState = 'in_progress' | 'done';
+
+/** Fields the server adds to every claim it returns */
+export interface ClaimStageInfo {
+  stage?: ClaimStage;
+  stage_detail?: string;
+  /** manual: a stage set by hand that the records haven't caught up with */
+  stage_source?: 'auto' | 'manual';
+  /** The stage the records alone give */
+  auto_stage?: ClaimStage;
+  auto_stage_detail?: string;
+  construction?: ConstructionState | null;
+}
+
+/**
  * Who produced the initial estimate. Most carriers write their own, but some
  * decline and ask the contractor to submit one for approval instead, which
  * inverts the usual negotiation flow.
@@ -218,7 +276,7 @@ export interface ClaimCompanyRef {
   role?: string;
 }
 
-export interface Claim {
+export interface Claim extends ClaimStageInfo {
   id: string;
   client_id: string;
   company_id?: string;
@@ -264,6 +322,10 @@ export interface Claim {
   /** Who writes the rebuild estimate on the contractor-prepared path */
   rebuild_estimate_company_id?: string | null;
   rebuild_estimate_company_name?: string | null;
+  /** Stage set by hand; null = worked out from the claim's records */
+  stage_override?: OverrideStage | null;
+  construction_started_at?: string | null;
+  construction_completed_at?: string | null;
   /** Companies that did this claim's WM; they may not write the rebuild estimate */
   wm_company_ids?: string[];
   wm_cost_status?: WMCostStatus | null;
@@ -491,6 +553,10 @@ export interface ClaimCreate {
   contractor_estimate_stage?: ContractorEstimateStage | null;
   /** '' clears it */
   rebuild_estimate_company_id?: string | null;
+  /** null hands the stage back to the claim's records */
+  stage_override?: OverrideStage | null;
+  construction_started_at?: string | null;
+  construction_completed_at?: string | null;
   notes?: string;
   initial_acv?: number;
   initial_rcv?: number;
@@ -608,8 +674,17 @@ export interface ClientListItem {
   /** null/undefined = entered in this app, 'acculynx' = AccuLynx archive import */
   source?: 'acculynx' | null;
   claim_count: number;
-  /** Status of the client's newest claim; null when it has none */
+  /** Claims still being worked (not closed or denied) */
+  active_claim_count?: number;
+  /**
+   * The claim the row describes: the newest one still being worked, else the
+   * newest one. All null when the client has no claims.
+   */
   latest_claim_status?: ClaimStatus | null;
+  claim_stage?: ClaimStage | null;
+  claim_stage_detail?: string | null;
+  claim_stage_source?: 'auto' | 'manual' | null;
+  claim_construction?: ConstructionState | null;
   created_at?: string;
   updated_at?: string;
   /** When the client or any of its claims last changed */

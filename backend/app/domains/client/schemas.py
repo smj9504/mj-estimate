@@ -149,6 +149,16 @@ def _check_claim_type(v):
     return v
 
 
+def _check_stage_override(v):
+    """'' or None hands the stage back to the claim's records"""
+    from app.domains.client.claim_stage import OVERRIDE_STAGES
+    if not v:
+        return None
+    if v not in OVERRIDE_STAGES:
+        raise ValueError(f"stage_override must be one of {list(OVERRIDE_STAGES)}")
+    return v
+
+
 class ClaimBase(BaseModel):
     claim_number: Optional[str] = None
     # insurance = a claim; cash = a cash job (no insurance details)
@@ -169,6 +179,10 @@ class ClaimBase(BaseModel):
     contractor_estimate_stage: Optional[str] = None
     # Who writes the rebuild estimate on the contractor-prepared path
     rebuild_estimate_company_id: Optional[UUID] = None
+    # Lifecycle stage set by hand; None = worked out from the claim's records
+    stage_override: Optional[str] = None
+    construction_started_at: Optional[datetime] = None
+    construction_completed_at: Optional[datetime] = None
     notes: Optional[str] = None
 
     @validator('status')
@@ -179,6 +193,7 @@ class ClaimBase(BaseModel):
         return v
 
     _claim_type = validator('claim_type', allow_reuse=True)(_check_claim_type)
+    _stage_override = validator('stage_override', allow_reuse=True)(_check_stage_override)
 
     @validator('estimate_origin')
     def validate_estimate_origin(cls, v):
@@ -253,9 +268,14 @@ class ClaimUpdate(BaseModel):
     contractor_estimate_stage: Optional[str] = None
     # Must not be a company that did this claim's water mitigation. '' clears it.
     rebuild_estimate_company_id: Optional[str] = None
+    # null or '' goes back to the stage worked out from the records
+    stage_override: Optional[str] = None
+    construction_started_at: Optional[datetime] = None
+    construction_completed_at: Optional[datetime] = None
     notes: Optional[str] = None
 
     _claim_type = validator('claim_type', allow_reuse=True)(_check_claim_type)
+    _stage_override = validator('stage_override', allow_reuse=True)(_check_stage_override)
 
     @validator('wm_cost_status')
     def validate_wm_cost_status(cls, v):
@@ -377,6 +397,14 @@ class ClaimDetailResponse(ClaimBase):
     rebuild_jobs: List[Dict[str, Any]] = []
     cabinet_estimate_count: int = 0
     plumber_report_id: Optional[str] = None
+
+    # Lifecycle stage (populated by claim_stage.claim_stages)
+    stage: Optional[str] = None
+    stage_detail: Optional[str] = None
+    stage_source: Optional[str] = None  # auto | manual
+    auto_stage: Optional[str] = None
+    auto_stage_detail: Optional[str] = None
+    construction: Optional[str] = None  # in_progress | done | None (not started)
 
     class Config:
         from_attributes = True
@@ -653,7 +681,13 @@ class ClientListResponse(BaseModel):
     is_active: bool = True
     source: Optional[str] = None
     claim_count: int = 0
-    latest_claim_status: Optional[str] = None  # status of the newest claim
+    # The claim shown: the newest one still being worked, else the newest one
+    active_claim_count: int = 0
+    latest_claim_status: Optional[str] = None
+    claim_stage: Optional[str] = None
+    claim_stage_detail: Optional[str] = None
+    claim_stage_source: Optional[str] = None
+    claim_construction: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     last_activity_at: Optional[datetime] = None  # client or any of its claims changed

@@ -35,11 +35,11 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
-import { PageHeader, Pill, useSheetModal } from '../components/common/ui';
+import { PageHeader, useSheetModal } from '../components/common/ui';
+import ClaimStagePill from '../components/client/ClaimStagePill';
 import { clientService } from '../services/clientService';
 import { useAuth } from '../contexts/AuthContext';
-import { CLAIM_STATUS_CONFIG } from '../types/client';
-import type { ClaimStatus, Client, ClientCreate, ClientListItem, ClientSourceFilter, OwnerInfo } from '../types/client';
+import type { Client, ClientCreate, ClientListItem, ClientSourceFilter, OwnerInfo } from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 
@@ -500,14 +500,24 @@ const ClientList: React.FC = () => {
       ),
     },
     {
-      title: 'Status',
-      dataIndex: 'latest_claim_status',
-      key: 'latest_claim_status',
-      width: 120,
-      render: (status?: ClaimStatus | null) => {
-        const cfg = status ? CLAIM_STATUS_CONFIG[status] : undefined;
-        return cfg ? <Pill tone={cfg.tone}>{cfg.label}</Pill> : '—';
-      },
+      // The newest claim still being worked, else the newest claim
+      title: 'Stage',
+      dataIndex: 'claim_stage',
+      key: 'claim_stage',
+      width: 210,
+      render: (_: any, record) => record.claim_stage ? (
+        <div>
+          <ClaimStagePill
+            stage={record.claim_stage}
+            detail={record.claim_stage_detail}
+            source={record.claim_stage_source}
+            construction={record.claim_construction}
+          />
+          {(record.active_claim_count ?? 0) > 1 && (
+            <div><Text type="secondary" style={{ fontSize: 12 }}>{record.active_claim_count} active claims</Text></div>
+          )}
+        </div>
+      ) : '—',
     },
     {
       title: 'Updated',
@@ -576,13 +586,18 @@ const ClientList: React.FC = () => {
   const renderPhoneRow = (record: ClientListItem) => {
     const owner = primaryOwner(record.owners);
     const address = [record.address, record.city, record.state, record.zipcode].filter(Boolean).join(', ');
-    const statusCfg = record.latest_claim_status ? CLAIM_STATUS_CONFIG[record.latest_claim_status] : undefined;
+    const activeClaims = record.active_claim_count ?? 0;
     return (
       <div className="ui-row" onClick={() => navigate(`/clients/${record.id}`)}>
         <div className="ui-row-body">
-          {statusCfg && (
+          {record.claim_stage && (
             <div className="ui-row-tags">
-              <Pill tone={statusCfg.tone}>{statusCfg.label}</Pill>
+              <ClaimStagePill
+                stage={record.claim_stage}
+                detail={record.claim_stage_detail}
+                source={record.claim_stage_source}
+                construction={record.claim_construction}
+              />
             </div>
           )}
           <span className="ui-row-title">{record.display_name}</span>
@@ -594,7 +609,10 @@ const ClientList: React.FC = () => {
           ) : null}
           <div className="ui-row-meta">
             {record.insurance_company && <span>{record.insurance_company}</span>}
-            <span>{record.claim_count} {record.claim_count === 1 ? 'claim' : 'claims'}</span>
+            <span>
+              {record.claim_count} {record.claim_count === 1 ? 'claim' : 'claims'}
+              {activeClaims > 1 && ` · ${activeClaims} active`}
+            </span>
             <span>Updated {formatDate(record.last_activity_at ?? record.updated_at ?? record.created_at)}</span>
           </div>
         </div>

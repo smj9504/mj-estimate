@@ -470,6 +470,10 @@ _NEEDED_COLUMNS = [
     # Company that writes the rebuild estimate when the carrier asks the
     # contractor for one (never the company that did the water mitigation)
     ("claims", "rebuild_estimate_company_id", "UUID"),
+    # Lifecycle stage set by hand, and when rebuild construction ran
+    ("claims", "stage_override", "VARCHAR(40)"),
+    ("claims", "construction_started_at", "TIMESTAMPTZ"),
+    ("claims", "construction_completed_at", "TIMESTAMPTZ"),
 ]
 
 
