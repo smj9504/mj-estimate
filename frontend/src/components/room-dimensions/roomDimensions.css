@@ -92,6 +92,19 @@
   cursor: pointer;
   outline: none;
 }
+
+/* Another room in the capture: shows itself on hover, measured on click */
+.rd-room-option {
+  fill: transparent;
+  stroke: transparent;
+  cursor: pointer;
+  outline: none;
+}
+.rd-room-option:hover,
+.rd-room-option:focus-visible {
+  fill: rgba(31, 116, 201, 0.05);
+  stroke: var(--color-primary);
+}
 .rd-face-label:focus-visible rect {
   stroke: var(--color-primary-deep);
   stroke-dasharray: 2 1;

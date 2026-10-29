@@ -156,6 +156,62 @@ test.describe('Room Dimensions', () => {
     await expect(room.locator('.ui-props-row', { hasText: 'Floor area' })).toContainText('432.00 SF');
   });
 
+  test('measures the largest of two rooms, and another once it is clicked', async ({ page }) => {
+    await page.goto('/tools/room-dimensions');
+    // Two rooms side by side at 12px per foot, a 3' door in the wall between:
+    // left 11' 4" × 15' 4", right 15' × 15' 4"
+    const png = await page.evaluate(() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 420;
+      canvas.height = 280;
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, 420, 280);
+      const wall = (x0: number, y0: number, x1: number, y1: number) => {
+        ctx.fillStyle = '#282828';
+        ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+        ctx.fillStyle = '#c0c0c0';
+        ctx.fillRect(x0 + 1, y0 + 1, x1 - x0 - 2, y1 - y0 - 2);
+      };
+      wall(40, 40, 380, 48);
+      wall(40, 232, 380, 240);
+      wall(40, 40, 48, 240);
+      wall(372, 40, 380, 240);
+      wall(184, 40, 192, 100);
+      wall(184, 136, 192, 240);
+      return canvas.toDataURL('image/png').split(',')[1];
+    });
+    await page.locator('.rd-dropzone input[type="file"]').setInputFiles({
+      name: 'two-rooms.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(png, 'base64'),
+    });
+
+    // The larger room first: top, right, bottom, then both sides of the door in the shared wall
+    await expect(page.getByText('Room 1 of 2, the largest.')).toBeVisible();
+    await wallRow(page, 'A').click();
+    await page.getByLabel('Feet').fill('15');
+    await page.getByLabel('Inches').fill('0');
+    await page.getByRole('button', { name: 'Set scale' }).click();
+    await expect(wallRow(page, 'B')).toContainText(`15' 4"`);
+    await expect(wallRow(page, 'D')).toContainText(`8' 0"`);
+    await expect(page.locator('.rd-face-row--static')).toHaveText([`Opening3' 0"`]);
+
+    // Click inside the other room: its walls are lettered afresh, and the scale holds
+    await page.getByRole('button', { name: 'Measure room 2' }).click();
+    await expect(page.getByText('Room 2 of 2.')).toBeVisible();
+    const expected: Record<string, string> = { A: `11' 4"`, B: `4' 4"`, C: `8' 0"`, D: `11' 4"`, E: `15' 4"` };
+    for (const [letter, length] of Object.entries(expected)) {
+      await expect(wallRow(page, letter)).toContainText(length);
+    }
+    await expect(page.locator('.rd-scale-current')).toHaveText(`Room 1 wall A = 15' 0"`);
+
+    // And back again
+    await page.getByRole('button', { name: 'Measure room 1' }).click();
+    await expect(wallRow(page, 'A')).toContainText(`15' 0"`);
+    await expect(page.locator('.rd-scale-current')).toHaveText(`Wall A = 15' 0"`);
+  });
+
   test('picking another wall shows its length to correct the scale', async ({ page }) => {
     await page.goto('/tools/room-dimensions');
     await uploadCapture(page);

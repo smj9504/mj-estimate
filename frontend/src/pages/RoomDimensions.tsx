@@ -5,7 +5,9 @@
  * ways to measure it:
  *
  *  • Auto-detect finds the walls from the pixels and letters every inside
- *    face. It wants a clean capture — one room, walls as filled bands.
+ *    face. It reads room captures (walls as filled bands) and dimensioned
+ *    plans alike; when a capture shows several rooms it measures the largest,
+ *    and clicking another room on the drawing measures that one.
  *  • Trace walls is for a busy, fully dimensioned plan the pixels can't be
  *    read from: click the corners and the tool gives each wall run's length
  *    and each corner's angle, flagging the ones that are not square.
@@ -36,7 +38,7 @@ import RoomDimensionsDrawing from '../components/room-dimensions/RoomDimensionsD
 import RoomTraceEditor from '../components/room-dimensions/RoomTraceEditor';
 import type { ScaleLineState } from '../components/room-dimensions/ScaleLine';
 import { LINE_LABEL, lengthText, renderDrawingPng, renderTracePng } from '../components/room-dimensions/roomDrawing';
-import { detectRoomFaces, type Point, type RoomDetection } from '../utils/roomDimensions';
+import { detectRoomFaces, type Point, type RoomDetection, type WallFace } from '../utils/roomDimensions';
 import { angleText, traceMetrics } from '../utils/roomTrace';
 import '../components/room-dimensions/roomDimensions.css';
 
@@ -60,6 +62,8 @@ interface Reference {
   feet: number;
   /** The line's pixel length when it set the scale, kept once it is redrawn or removed so the scale holds */
   px?: number;
+  /** Auto-detect: the room the wall belongs to, so the scale holds when another room is measured */
+  room?: number;
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -86,15 +90,22 @@ const scalePoint = (p: Point, k: number): Point => ({ x: p.x * k, y: p.y * k });
 
 const lineLength = (line: Point[]) => (line.length === 2 ? Math.hypot(line[1].x - line[0].x, line[1].y - line[0].y) : null);
 
-/** How the scale form names its reference */
-const referenceName = (ref: Reference) =>
-  ref.label !== LINE_LABEL ? `Wall ${ref.label}` : ref.px != null ? 'Earlier line' : 'Line';
+/** How the scale form names its reference; a wall of a room other than `room` says which */
+const referenceName = (ref: Reference, room = 0) => {
+  if (ref.label === LINE_LABEL) return ref.px != null ? 'Earlier line' : 'Line';
+  return ref.room != null && ref.room !== room ? `Room ${ref.room + 1} wall ${ref.label}` : `Wall ${ref.label}`;
+};
 
 const LINE_HINT = 'Click the two ends of a length you know. An end snaps to a nearby corner; Esc cancels.';
+
+const longestFace = (faces: WallFace[]) =>
+  faces.reduce<WallFace | null>((best, face) => (!best || face.lengthPx > best.lengthPx ? face : best), null);
 
 const RoomDimensions: React.FC = () => {
   const [capture, setCapture] = useState<Capture | null>(null);
   const [detection, setDetection] = useState<RoomDetection | null>(null);
+  /** Which of the capture's rooms Auto-detect measures; 0 is the largest */
+  const [roomIndex, setRoomIndex] = useState(0);
   const [mode, setMode] = useState<Mode>('auto');
   const [processing, setProcessing] = useState(false);
   const [reference, setReference] = useState<Reference | null>(null);
@@ -180,6 +191,7 @@ const RoomDimensions: React.FC = () => {
       urlRef.current = url;
       setCapture({ url, image, name });
       setDetection(result);
+      setRoomIndex(0);
       setReference(null);
       setHovered(null);
       setZoom(1);
@@ -191,11 +203,7 @@ const RoomDimensions: React.FC = () => {
       // A busy, over-dimensioned plan yields a storm of spurious faces; trace it by hand instead
       setMode(result.faces.length === 0 || result.faces.length > AUTO_FACE_CEILING ? 'trace' : 'auto');
       // Suggest the longest wall: the one most likely to have a known length
-      const longest = result.faces.reduce<RoomDetection['faces'][number] | null>(
-        (best, face) => (!best || face.lengthPx > best.lengthPx ? face : best),
-        null,
-      );
-      setFormLabel(longest?.label ?? null);
+      setFormLabel(longestFace(result.faces)?.label ?? null);
       setFormFt(null);
       setFormIn(null);
     } catch {
@@ -221,14 +229,21 @@ const RoomDimensions: React.FC = () => {
   }, [loadCapture]);
 
   // ── Auto-detect scale ─────────────────────────────────────────────
-  const faces = useMemo(() => detection?.faces ?? [], [detection]);
+  // The room being measured, with the capture's size; the bare detection when it found no room
+  const view = useMemo<RoomDetection | null>(() => {
+    const room = detection?.rooms[roomIndex];
+    return detection && room ? { ...detection, ...room } : detection;
+  }, [detection, roomIndex]);
+  const faces = useMemo(() => view?.faces ?? [], [view]);
   // A large capture is measured shrunk to its working size; the drawn line is kept in the capture's own pixels
   const workScale = capture && detection ? detection.width / capture.image.naturalWidth : 1;
   const lineNaturalPx = lineLength(line);
   const autoLinePx = lineNaturalPx != null ? lineNaturalPx * workScale : null;
   const referencePx = reference
     ? reference.px ??
-      (reference.label === LINE_LABEL ? autoLinePx : faces.find(f => f.label === reference.label)?.lengthPx ?? null)
+      (reference.label === LINE_LABEL
+        ? autoLinePx
+        : detection?.rooms[reference.room ?? 0]?.faces.find(f => f.label === reference.label)?.lengthPx ?? null)
     : null;
   const pxPerFt = reference && referencePx ? referencePx / reference.feet : null;
 
@@ -247,10 +262,27 @@ const RoomDimensions: React.FC = () => {
     [faces, pxPerFt, autoLinePx, fillLength],
   );
 
-  // Corners a line end snaps to: where faces end, and where openings turn
+  /** Measure another of the capture's rooms. The scale holds; the wall offered for it is the new room's longest */
+  const pickRoom = useCallback(
+    (index: number) => {
+      const room = detection?.rooms[index];
+      if (!room) return;
+      setRoomIndex(index);
+      setHovered(null);
+      if (formLabel === LINE_LABEL) return;
+      const longest = longestFace(room.faces);
+      setFormLabel(longest?.label ?? null);
+      fillLength(longest && pxPerFt ? longest.lengthPx / pxPerFt : null);
+    },
+    [detection, formLabel, pxPerFt, fillLength],
+  );
+
+  // Corners a line end snaps to: where faces end, and where openings turn, in every room
   const autoSnapPoints = useMemo(
     () =>
-      detection ? [...detection.faces.flatMap(f => [f.start, f.end]), ...detection.openings.flatMap(o => o.path)] : [],
+      detection
+        ? detection.rooms.flatMap(r => [...r.faces.flatMap(f => [f.start, f.end]), ...r.openings.flatMap(o => o.path)])
+        : [],
     [detection],
   );
 
@@ -348,7 +380,7 @@ const RoomDimensions: React.FC = () => {
       message.warning('Pick a wall and enter its length.');
       return;
     }
-    setReference({ label: formLabel, feet });
+    setReference({ label: formLabel, feet, room: roomIndex });
   };
 
   const download = async () => {
@@ -358,8 +390,8 @@ const RoomDimensions: React.FC = () => {
       const blob =
         mode === 'trace'
           ? await renderTracePng(capture.image, naturalSize.w, naturalSize.h, metrics, tracePoints, tracePxPerFt, line)
-          : detection
-            ? await renderDrawingPng(capture.image, detection, pxPerFt, line.map(p => scalePoint(p, workScale)))
+          : view
+            ? await renderDrawingPng(capture.image, view, pxPerFt, line.map(p => scalePoint(p, workScale)))
             : null;
       if (!blob) return;
       const base = capture.name.replace(/\.[^.]+$/, '') || 'room';
@@ -372,22 +404,22 @@ const RoomDimensions: React.FC = () => {
   };
 
   const autoTotals = useMemo(() => {
-    if (!detection || !pxPerFt) return null;
-    const walls = detection.faces.reduce((sum, f) => sum + f.lengthPx, 0);
-    const openings = detection.openings.reduce((sum, o) => sum + o.lengthPx, 0);
+    if (!view || !pxPerFt) return null;
+    const walls = view.faces.reduce((sum, f) => sum + f.lengthPx, 0);
+    const openings = view.openings.reduce((sum, o) => sum + o.lengthPx, 0);
     return {
       walls: lengthText(walls, pxPerFt),
-      openings: detection.openings.length ? lengthText(openings, pxPerFt) : null,
+      openings: view.openings.length ? lengthText(openings, pxPerFt) : null,
       perimeter: lengthText(walls + openings, pxPerFt),
       area:
-        detection.areaPx != null
-          ? `${(detection.areaPx / (pxPerFt * pxPerFt)).toLocaleString(undefined, {
+        view.areaPx != null
+          ? `${(view.areaPx / (pxPerFt * pxPerFt)).toLocaleString(undefined, {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })} SF`
           : null,
     };
-  }, [detection, pxPerFt]);
+  }, [view, pxPerFt]);
 
   const traceTotals = useMemo(() => {
     if (!tracePxPerFt) return null;
@@ -438,9 +470,9 @@ const RoomDimensions: React.FC = () => {
             <BorderOuterOutlined className="rd-dropzone-icon" aria-hidden="true" />
             <p className="rd-dropzone-title">Drop a room capture here, or click to choose one</p>
             <p className="rd-dropzone-hint">
-              You can also paste a screenshot with Ctrl+V. Auto-detect works best with one room, walls drawn as
-              filled bands on a white background; for a busy, dimensioned plan, switch to Trace walls and click the
-              corners.
+              You can also paste a screenshot with Ctrl+V. Auto-detect reads room captures and dimensioned plans,
+              and measures the largest room in the picture; click another room to measure it. If it misreads a
+              plan, switch to Trace walls and click the corners.
             </p>
           </Upload.Dragger>
         </Spin>
@@ -571,10 +603,14 @@ const RoomDimensions: React.FC = () => {
                 scaleLine={scaleLine}
               />
             ) : (
-              detection && (
+              detection &&
+              view && (
                 <RoomDimensionsDrawing
                   imageUrl={capture.url}
-                  detection={detection}
+                  detection={view}
+                  rooms={detection.rooms}
+                  roomIndex={roomIndex}
+                  onRoomPick={pickRoom}
                   pxPerFt={pxPerFt}
                   zoom={zoom}
                   selectedLabel={formLabel}
@@ -754,7 +790,7 @@ const RoomDimensions: React.FC = () => {
                 </div>
                 {reference && referencePx && pxPerFt && (
                   <div className="rd-scale-current">
-                    {referenceName(reference)} = {lengthText(referencePx, pxPerFt)}
+                    {referenceName(reference, roomIndex)} = {lengthText(referencePx, pxPerFt)}
                   </div>
                 )}
               </section>
@@ -763,6 +799,12 @@ const RoomDimensions: React.FC = () => {
                 <div className="ui-section-head">
                   <h2 className="ui-section-title">Walls</h2>
                 </div>
+                {detection && detection.rooms.length > 1 && (
+                  <p className="rd-hint">
+                    Room {roomIndex + 1} of {detection.rooms.length}
+                    {roomIndex === 0 ? ', the largest' : ''}. Click another room on the drawing to measure it.
+                  </p>
+                )}
                 <ul className="rd-faces">
                   {faces.map(face => (
                     <li key={face.label}>
@@ -780,7 +822,7 @@ const RoomDimensions: React.FC = () => {
                       </button>
                     </li>
                   ))}
-                  {detection?.openings.map((opening, i) => (
+                  {view?.openings.map((opening, i) => (
                     <li key={`opening-${i}`}>
                       <div className="rd-face-row rd-face-row--static">
                         <span className="rd-face-name">Opening</span>

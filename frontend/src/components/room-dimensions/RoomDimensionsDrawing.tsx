@@ -1,10 +1,12 @@
 /**
  * The capture with its measured faces drawn on top. Each face label is a
  * button: picking one makes it the wall whose real length sets the scale.
+ * When the capture shows more than one room, each of the others is a button
+ * too: clicking inside it measures that room instead.
  */
 
 import React, { useLayoutEffect, useRef, useState } from 'react';
-import type { RoomDetection } from '../../utils/roomDimensions';
+import type { DetectedRoom, RoomDetection } from '../../utils/roomDimensions';
 import ScaleLine, { type ScaleLineState } from './ScaleLine';
 import {
   DRAWING_COLORS,
@@ -19,7 +21,12 @@ import {
 
 interface RoomDimensionsDrawingProps {
   imageUrl: string;
+  /** The room being measured, with the capture's size */
   detection: RoomDetection;
+  /** Every room in the capture, largest first, and which one `detection` is */
+  rooms: DetectedRoom[];
+  roomIndex: number;
+  onRoomPick: (index: number) => void;
   pxPerFt: number | null;
   /** 1 fits the stage; above 1 the drawing grows (labels keep their size) and the stage scrolls */
   zoom: number;
@@ -67,6 +74,9 @@ const Label: React.FC<{ label: LabelBox; textColor: string; border: string; fill
 const RoomDimensionsDrawing: React.FC<RoomDimensionsDrawingProps> = ({
   imageUrl,
   detection,
+  rooms,
+  roomIndex,
+  onRoomPick,
   pxPerFt,
   zoom,
   selectedLabel,
@@ -93,7 +103,7 @@ const RoomDimensionsDrawing: React.FC<RoomDimensionsDrawingProps> = ({
     return () => observer.disconnect();
   }, [width, height]);
 
-  const outlinePoints = detection.outline?.map(p => `${p.x},${p.y}`).join(' ');
+  const pointsOf = (room: DetectedRoom) => room.outline?.map(p => `${p.x},${p.y}`).join(' ');
 
   return (
     <svg
@@ -110,7 +120,31 @@ const RoomDimensionsDrawing: React.FC<RoomDimensionsDrawingProps> = ({
     >
       <image href={imageUrl} x={0} y={0} width={width} height={height} />
 
-      {outlinePoints && <polygon points={outlinePoints} fill={DRAWING_COLORS.room} pointerEvents="none" />}
+      {/* Largest first, so a room drawn inside another stays clickable; the one measured takes its own clicks */}
+      {rooms.map((room, i) => {
+        const points = pointsOf(room);
+        if (!points) return null;
+        if (i === roomIndex) return <polygon key={`room-${i}`} points={points} fill={DRAWING_COLORS.room} />;
+        return (
+          <polygon
+            key={`room-${i}`}
+            className="rd-room-option"
+            points={points}
+            strokeWidth={1.5 * unit}
+            strokeDasharray={`${4 * unit} ${3 * unit}`}
+            role="button"
+            tabIndex={0}
+            aria-label={`Measure room ${i + 1}`}
+            onClick={() => onRoomPick(i)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onRoomPick(i);
+              }
+            }}
+          />
+        );
+      })}
 
       {detection.openings.map((opening, i) => (
         <polyline

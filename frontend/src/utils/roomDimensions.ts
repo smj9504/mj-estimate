@@ -3,9 +3,15 @@
  *
  * A captured room drawing (Xactimate, MagicPlan and the like) shows walls as
  * filled bands on a light background. This finds those bands, traces their
- * outlines along pixel edges, keeps the sides that face the room, and returns
+ * outlines along pixel edges, keeps the sides that face a room, and returns
  * each straight run of those sides as a wall face. Gaps between wall ends
- * (doors, missing walls) become openings that close the room outline.
+ * (doors, missing walls) become openings that close each room's outline.
+ *
+ * A dimensioned plan (an Xactimate sketch printout) is read the same way
+ * once its walls are bands: walls drawn as two lines are filled between, and
+ * dimension lines, door leaves and text, all thinner than a wall, are cleared
+ * away. Such a plan often shows several rooms; each is returned, largest
+ * first.
  *
  * Everything here is in image pixels. The page turns pixels into feet with
  * one length the user knows, so the screenshot's zoom does not matter.
@@ -39,16 +45,22 @@ export interface RoomOpening {
   lengthPx: number;
 }
 
-export interface RoomDetection {
-  width: number;
-  height: number;
-  wallThicknessPx: number;
+export interface DetectedRoom {
   faces: WallFace[];
   openings: RoomOpening[];
   /** Inside outline of the room, closed across openings; null when the walls could not be joined */
   outline: Point[] | null;
   /** Floor area inside the outline, in square pixels */
   areaPx: number | null;
+}
+
+/** The largest room's faces, openings and outline, and every room found */
+export interface RoomDetection extends DetectedRoom {
+  width: number;
+  height: number;
+  wallThicknessPx: number;
+  /** Largest first, so the first is the detection's own */
+  rooms: DetectedRoom[];
 }
 
 // ============================================================================
@@ -62,11 +74,39 @@ const MAX_INK_CHROMA = 60;
 const MAX_WALL_THICKNESS = 80;
 /** Walls run at least this many times longer than they are thick, in total */
 const MIN_STROKE_ELONGATION = 6;
+/** Walls are the thickest strokes holding at least this share of the most ink any one width holds */
+const WALL_PEAK_SHARE = 0.5;
+/** A thinner family of strokes (dimension lines, door leaves) holds at least this share … */
+const ANNOTATION_PEAK_SHARE = 0.25;
+/** … and is at most this fraction of the wall thickness */
+const MAX_ANNOTATION_WIDTH = 0.8;
+/** The thinnest stroke kept as a wall, as a fraction of the wall thickness … */
+const MIN_WALL_STROKE = 0.6;
+/** … raised to clear a thinner family by this many pixels, but never past this fraction */
+const ANNOTATION_MARGIN = 3;
+const MAX_WALL_STROKE = 0.85;
 /** Rays cast from a face, spread around its normal */
 const RAY_ANGLES_DEG = [-75, -60, -45, -30, -15, 0, 15, 30, 45, 60, 75];
 const MAX_SAMPLES_PER_SIDE = 60;
-/** Above this many open wall runs the outline is joined greedily instead of exhaustively */
-const MAX_EXHAUSTIVE_SIDES = 7;
+/** A hollow wall's gap is at most this many times as wide as its lines */
+const MAX_HOLLOW_GAP = 4;
+/** The strokes either side of a hollow wall's gap are this many times its line width (more when slanted) */
+const FLANK_MIN = 0.5;
+const FLANK_MAX = 1.6;
+/** … and alike: the two lines of one wall differ by at most this share of the wider */
+const FLANK_MISMATCH = 0.35;
+/** Share of a strip that must keep one width, as the paper between two parallel lines does */
+const MIN_STEADY_SHARE = 0.75;
+/** Filled hollow walls must come out at least this many line widths thick to be read as walls */
+const HOLLOW_BAND_MIN = 1.8;
+/** Hollow wall lines are at most this far from the main ink tone towards the paper */
+const LINE_TONE_SPREAD = 0.4;
+/** A bump left on a face by a thin stroke touching it: at most this deep and this long, in wall thicknesses, with this many corners */
+const MAX_BUMP_DEPTH = 0.75;
+const MAX_BUMP_WIDTH = 3;
+const MAX_BUMP_CORNERS = 3;
+/** A room is at least this many wall thicknesses across; smaller loops are stray bits of wall */
+const MIN_ROOM_SPAN = 4;
 
 // Directions on the pixel-corner grid, clockwise on screen: E, S, W, N
 const DX = [1, 0, -1, 0];
@@ -107,8 +147,14 @@ export function polygonArea(points: Point[]): number {
 // Wall mask
 // ============================================================================
 
-/** Dark, unsaturated pixels: wall fill and outlines, plus thin lines and text for now */
-function inkMask(img: RgbaImage): Uint8Array {
+interface Tones {
+  lum: Uint8Array;
+  chroma: Uint8Array;
+  /** The paper's luminance */
+  paper: number;
+}
+
+function readTones(img: RgbaImage): Tones {
   const { width, height, data } = img;
   const n = width * height;
   const lum = new Uint8Array(n);
@@ -136,25 +182,75 @@ function inkMask(img: RgbaImage): Uint8Array {
       paper = l;
     }
   }
+  return { lum, chroma, paper };
+}
 
-  const cut = paper - INK_CONTRAST;
-  const mask = new Uint8Array(n);
-  for (let i = 0; i < n; i++) {
-    mask[i] = lum[i] < cut && chroma[i] < MAX_INK_CHROMA ? 1 : 0;
+/**
+ * Unsaturated pixels darker than `cut`: wall fill and outlines, plus thin
+ * lines and text for now. With `coloured`, saturated strokes count too.
+ */
+function inkMask({ lum, chroma, paper }: Tones, cut: number, coloured = false): Uint8Array {
+  const mask = new Uint8Array(lum.length);
+  for (let i = 0; i < lum.length; i++) {
+    const ink = chroma[i] < MAX_INK_CHROMA ? lum[i] < cut : coloured && lum[i] < paper - INK_CONTRAST;
+    mask[i] = ink ? 1 : 0;
   }
   return mask;
 }
 
 /**
- * The stroke width that covers the most ink. For each ink pixel the shorter
- * of its horizontal and vertical runs is the width of the stroke it sits in.
- * Walls are the thick, long strokes of a room capture, so they hold more ink
- * than dashed lines and text; a width only counts when its strokes are long
- * for their width, so a solid block (a legend, a logo) cannot win.
+ * The cut that keeps only lines drawn in the plan's main ink, its most
+ * common ink tone. A plan with hollow walls draws them in black and its
+ * stairs and hatching in grey; on a room capture the main ink is the grey
+ * wall fill itself, so nothing is lost. A fixture drawn in colour against a
+ * wall (a vanity, a cabinet) covers the wall's line, so colour counts.
  */
-export function estimateWallThickness(mask: Uint8Array, width: number, height: number): number {
+function lineCut({ lum, paper }: Tones, ink: Uint8Array): number {
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < ink.length; i++) if (ink[i]) hist[lum[i]]++;
+  let tone = 0;
+  for (let l = 1; l < 256; l++) if (hist[l] > hist[tone]) tone = l;
+  return tone + (paper - tone) * LINE_TONE_SPREAD;
+}
+
+/**
+ * The shorter of each ink pixel's two diagonal runs, as a distance. At the
+ * elbow of an L-shaped line both straight runs follow an arm and are long;
+ * a diagonal one cuts across the elbow at about the line's width.
+ */
+function diagonalWidth(mask: Uint8Array, width: number, height: number): Float64Array {
+  const out = new Float64Array(width * height).fill(Infinity);
+  for (const dx of [1, -1]) {
+    const starts: number[] = [];
+    for (let x = 0; x < width; x++) starts.push(x);
+    for (let y = 1; y < height; y++) starts.push(y * width + (dx > 0 ? 0 : width - 1));
+    for (const start of starts) {
+      // Walk one diagonal, measuring each run of ink along it
+      let x = start % width;
+      let y = (start / width) | 0;
+      const run: number[] = [];
+      for (;;) {
+        const inside = x >= 0 && x < width && y < height;
+        if (inside && mask[y * width + x]) {
+          run.push(y * width + x);
+        } else if (run.length) {
+          const len = run.length * Math.SQRT2;
+          for (const i of run) out[i] = Math.min(out[i], len);
+          run.length = 0;
+        }
+        if (!inside) break;
+        x += dx;
+        y += 1;
+      }
+    }
+  }
+  return out;
+}
+
+/** The width of the stroke each ink pixel sits in: the shorter of its horizontal and vertical runs. Paper gets 0. */
+function inkWidth(mask: Uint8Array, width: number, height: number): Uint16Array {
   const hRun = new Uint16Array(width * height);
-  const vRun = new Uint16Array(width * height);
+  const out = new Uint16Array(width * height);
 
   for (let y = 0; y < height; y++) {
     let x = 0;
@@ -171,29 +267,253 @@ export function estimateWallThickness(mask: Uint8Array, width: number, height: n
       if (!mask[y * width + x]) { y++; continue; }
       const start = y;
       while (y < height && mask[y * width + x]) y++;
-      for (let k = start; k < y; k++) vRun[k * width + x] = y - start;
+      for (let k = start; k < y; k++) out[k * width + x] = Math.min(y - start, hRun[k * width + x]);
     }
   }
+  return out;
+}
 
+/**
+ * The wall thickness: the thickest stroke width that holds a good share of
+ * the ink. For each ink pixel the shorter of its horizontal and vertical runs
+ * is the width of the stroke it sits in. Walls are the thick, long strokes
+ * of a plan; text and dashed lines are thinner, and on a dimensioned plan
+ * the dimension lines can hold as much ink as the walls but are thinner too.
+ * A width only counts when its strokes are long for their width, so a solid
+ * block (a legend, a logo) cannot win.
+ */
+export function estimateWallThickness(mask: Uint8Array, width: number, height: number): number {
+  return strokeWidths(mask, width, height).wall;
+}
+
+/**
+ * The wall thickness, and the width of the next thinner family of strokes
+ * when one stands apart from the walls: the dimension lines and their ticks
+ * on a dimensioned plan, the door leaves on a plan with hollow walls. 0 when
+ * there is none.
+ */
+function strokeWidths(mask: Uint8Array, width: number, height: number): { wall: number; annotation: number } {
+  const strokes = inkWidth(mask, width, height);
   const area = new Float64Array(MAX_WALL_THICKNESS + 2);
   for (let i = 0; i < mask.length; i++) {
-    if (!mask[i]) continue;
-    const m = Math.min(hRun[i], vRun[i]);
+    const m = strokes[i];
     if (m >= 3 && m <= MAX_WALL_THICKNESS) area[m]++;
   }
 
-  let thickness = 0;
+  // Anti-aliasing spreads one width over neighbouring values
+  const share = new Float64Array(MAX_WALL_THICKNESS + 2);
   let best = 0;
   for (let m = 3; m <= MAX_WALL_THICKNESS; m++) {
-    // Anti-aliasing spreads one wall width over neighbouring values
     const s = area[m] + 0.5 * (area[m - 1] + area[m + 1]);
-    if (s < MIN_STROKE_ELONGATION * m * m) continue;
-    if (s > best) {
-      best = s;
-      thickness = m;
+    if (s >= MIN_STROKE_ELONGATION * m * m) share[m] = s;
+    best = Math.max(best, share[m]);
+  }
+  if (!best) return { wall: 0, annotation: 0 };
+
+  const peaks: number[] = [];
+  for (let m = 3; m <= MAX_WALL_THICKNESS; m++) {
+    if (share[m] && share[m] >= share[m - 1] && share[m] > share[m + 1]) peaks.push(m);
+  }
+  const wall = Math.max(...peaks.filter(m => share[m] >= best * WALL_PEAK_SHARE));
+
+  // A thinner family counts when the widths between it and the walls hold little ink
+  let annotation = 0;
+  for (const m of peaks) {
+    if (m >= wall * MAX_ANNOTATION_WIDTH || share[m] < best * ANNOTATION_PEAK_SHARE) continue;
+    let valley = Infinity;
+    for (let k = m + 1; k < wall; k++) valley = Math.min(valley, share[k]);
+    if (valley < Math.min(share[m], share[wall]) * 0.5) annotation = m;
+  }
+  return { wall, annotation };
+}
+
+/** A paper run that reaches the image edge, so nothing bounds it */
+const OPEN_RUN = 0xffff;
+
+/**
+ * Visit every run of paper along each row (or column), with the ink pixels
+ * either side of it (-1 at the image edge); a run that reaches the image
+ * edge is OPEN_RUN long.
+ */
+function scanPaperRuns(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  horizontal: boolean,
+  visit: (i: number, run: number, before: number, after: number) => void,
+) {
+  const len = horizontal ? width : height;
+  const lines = horizontal ? height : width;
+  const at = (line: number, k: number) => (horizontal ? line * width + k : k * width + line);
+  for (let line = 0; line < lines; line++) {
+    let k = 0;
+    while (k < len) {
+      if (mask[at(line, k)]) { k++; continue; }
+      const start = k;
+      while (k < len && !mask[at(line, k)]) k++;
+      const before = start > 0 ? at(line, start - 1) : -1;
+      const after = k < len ? at(line, k) : -1;
+      const run = before < 0 || after < 0 ? OPEN_RUN : k - start;
+      for (let j = start; j < k; j++) visit(at(line, j), run, before, after);
     }
   }
-  return thickness;
+}
+
+/**
+ * How wide the paper is at each paper pixel: the shorter of its horizontal
+ * and vertical runs between ink. With `line`, that run only counts between
+ * two strokes alike and about `line` wide, as between the two lines of a
+ * hollow wall (not between a wall and a thinner dimension line beside it),
+ * and is OPEN_RUN otherwise. Ink pixels get 0.
+ */
+function paperWidth(mask: Uint8Array, width: number, height: number, line = 0): Uint16Array {
+  const n = width * height;
+  const hRun = new Uint16Array(n);
+  const hFlanked = new Uint8Array(n);
+  const out = new Uint16Array(n);
+  const straight = line ? inkWidth(mask, width, height) : null;
+  const diagonal = line ? diagonalWidth(mask, width, height) : null;
+  const strokeAt = (i: number) => (i < 0 ? 0 : Math.min(straight![i], diagonal![i]));
+  const flankedBy = (before: number, after: number) => {
+    const a = strokeAt(before);
+    const b = strokeAt(after);
+    const lineLike = (w: number) => w >= line * FLANK_MIN && w <= line * FLANK_MAX;
+    return lineLike(a) && lineLike(b) && Math.abs(a - b) <= Math.max(a, b) * FLANK_MISMATCH;
+  };
+
+  scanPaperRuns(mask, width, height, true, (i, run, before, after) => {
+    hRun[i] = run;
+    if (line) hFlanked[i] = flankedBy(before, after) ? 1 : 0;
+  });
+  scanPaperRuns(mask, width, height, false, (i, run, before, after) => {
+    const h = hRun[i];
+    if (!line) {
+      out[i] = Math.min(h, run);
+      return;
+    }
+    // A run at the image edge has no ink on that side, so it is never flanked
+    const vFlanked = flankedBy(before, after);
+    const flanked = h < run ? hFlanked[i] : run < h ? vFlanked : hFlanked[i] || vFlanked;
+    out[i] = flanked ? Math.min(h, run) : OPEN_RUN;
+  });
+  return out;
+}
+
+/**
+ * Lighter ink drawn across a line (a grey stair edge over a wall) breaks
+ * it. Where `lines` continues on both sides of a short run of `ink`, the
+ * run is line too.
+ */
+function bridgeLines(lines: Uint8Array, ink: Uint8Array, width: number, height: number, maxGap: number): Uint8Array {
+  const out = lines.slice();
+  for (const horizontal of [true, false]) {
+    const len = horizontal ? width : height;
+    const count = horizontal ? height : width;
+    const at = (line: number, k: number) => (horizontal ? line * width + k : k * width + line);
+    for (let line = 0; line < count; line++) {
+      let k = 0;
+      while (k < len) {
+        if (!ink[at(line, k)] || lines[at(line, k)]) { k++; continue; }
+        const start = k;
+        while (k < len && ink[at(line, k)] && !lines[at(line, k)]) k++;
+        const bounded = start > 0 && k < len && lines[at(line, start - 1)] && lines[at(line, k)];
+        if (bounded && k - start <= maxGap) for (let j = start; j < k; j++) out[at(line, j)] = 1;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Hollow walls. A dimensioned plan (an Xactimate sketch printout and the
+ * like) draws each wall as its two faces: two lines with a strip of paper
+ * between. Read as they are, each line is a wall of its own and the strip
+ * between them a narrow room.
+ *
+ * This fills those strips so every wall becomes one solid band, as on a
+ * room capture. A strip is paper between two strokes of the wall lines'
+ * width, at the most common such gap on the plan, that keeps one width all
+ * along, as paper between parallel lines does; the wedge between a door
+ * leaf and its wall widens steadily instead, and text and dimension lines
+ * are drawn thinner. The corners and junctions the strips leave shut in
+ * are filled with them.
+ *
+ * Returns null when the plan has no hollow walls.
+ */
+function fillHollowWalls(mask: Uint8Array, width: number, height: number, line: number): Uint8Array | null {
+  const n = width * height;
+  const widths = paperWidth(mask, width, height, line);
+  const maxGap = Math.round(line * MAX_HOLLOW_GAP);
+
+  const hist = new Float64Array(maxGap + 2);
+  for (let i = 0; i < n; i++) {
+    if (!mask[i] && widths[i] >= 2 && widths[i] <= maxGap) hist[widths[i]]++;
+  }
+  let gap = 0;
+  let best = 0;
+  for (let g = 2; g <= maxGap; g++) {
+    const s = hist[g] + 0.5 * (hist[g - 1] + hist[g + 1]);
+    if (s > best) {
+      best = s;
+      gap = g;
+    }
+  }
+  const band = 2 * line + gap;
+  // Enough of it to run several wall thicknesses, as walls do
+  if (!gap || best < MIN_STROKE_ELONGATION * band * gap) return null;
+
+  const lo = gap * 0.7 - 1;
+  const hi = gap * 1.5 + 1;
+  const filled = mask.slice();
+
+  // Open strips: paper about the gap's width that keeps one width all along
+  const strip = new Uint8Array(n);
+  for (let i = 0; i < n; i++) strip[i] = !mask[i] && widths[i] >= lo && widths[i] <= hi ? 1 : 0;
+  const strips = labelComponents(strip, width, height);
+  const top = Math.floor(hi) + 1;
+  const counts = new Uint32Array(strips.sizes.length * top);
+  for (let i = 0; i < n; i++) if (strip[i]) counts[strips.labels[i] * top + widths[i]]++;
+  const steady = strips.sizes.map((size, c) => {
+    if (c === 0 || size < gap * gap) return false;
+    const row = counts.subarray(c * top, (c + 1) * top);
+    let median = 0;
+    for (let seen = 0; seen * 2 < size; median++) seen += row[median];
+    median--;
+    const tol = Math.max(1, Math.round(median * 0.12));
+    let near = 0;
+    for (let w = Math.max(0, median - tol); w <= Math.min(top - 1, median + tol); w++) near += row[w];
+    return near >= size * MIN_STEADY_SHARE;
+  });
+  const fresh = new Uint8Array(n);
+  for (let i = 0; i < n; i++) if (strip[i] && steady[strips.labels[i]]) fresh[i] = filled[i] = 1;
+
+  // What the strips leave shut in by ink, nowhere wider than the gap: a wall's corners, junctions and ends
+  const paper = new Uint8Array(n);
+  for (let i = 0; i < n; i++) paper[i] = filled[i] ? 0 : 1;
+  const holes = labelComponents(paper, width, height);
+  const after = paperWidth(filled, width, height);
+  const widest = new Uint16Array(holes.sizes.length);
+  const touches = new Uint8Array(holes.sizes.length);
+  for (let i = 0; i < n; i++) {
+    if (!paper[i]) continue;
+    const c = holes.labels[i];
+    widest[c] = Math.max(widest[c], after[i]);
+    const x = i % width;
+    if ((x > 0 && fresh[i - 1]) || (x < width - 1 && fresh[i + 1]) || fresh[i - width] || fresh[i + width]) touches[c] = 1;
+  }
+  const shut = holes.boxes.map(
+    (b, c) =>
+      c > 0 &&
+      touches[c] === 1 &&
+      b.minX > 0 &&
+      b.minY > 0 &&
+      b.maxX < width - 1 &&
+      b.maxY < height - 1 &&
+      widest[c] <= hi,
+  );
+  for (let i = 0; i < n; i++) if (paper[i] && shut[holes.labels[i]]) filled[i] = 1;
+
+  return filled;
 }
 
 /**
@@ -221,13 +541,71 @@ function boxPass(src: Uint8Array, width: number, height: number, r: number, hori
   return out;
 }
 
-/** Morphological opening: removes strokes thinner than 2r+1 and keeps the rest exactly */
-function openMask(mask: Uint8Array, width: number, height: number, r: number): Uint8Array {
-  let m = boxPass(mask, width, height, r, true, true);
-  m = boxPass(m, width, height, r, false, true);
-  m = boxPass(m, width, height, r, true, false);
-  m = boxPass(m, width, height, r, false, false);
-  return m;
+/** Squared distance transform of one line (Felzenszwalb & Huttenlocher): d[q] = min over p of (q − p)² + f[p] */
+function distance1d(f: Float64Array, n: number, d: Float64Array, v: Int32Array, z: Float64Array) {
+  let k = 0;
+  v[0] = 0;
+  z[0] = -Infinity;
+  z[1] = Infinity;
+  for (let q = 1; q < n; q++) {
+    let s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * (q - v[k]));
+    while (s <= z[k]) {
+      k--;
+      s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * (q - v[k]));
+    }
+    k++;
+    v[k] = q;
+    z[k] = s;
+    z[k + 1] = Infinity;
+  }
+  k = 0;
+  for (let q = 0; q < n; q++) {
+    while (z[k + 1] < q) k++;
+    d[q] = (q - v[k]) * (q - v[k]) + f[v[k]];
+  }
+}
+
+/** Squared distance from each ink pixel to the nearest paper pixel; outside the image counts as paper */
+function paperDistance2(mask: Uint8Array, width: number, height: number): Float64Array {
+  const far = (width + height + 2) ** 2;
+  const out = new Float64Array(width * height);
+  const n = Math.max(width, height) + 2;
+  const f = new Float64Array(n);
+  const d = new Float64Array(n);
+  const v = new Int32Array(n);
+  const z = new Float64Array(n + 1);
+
+  for (let x = 0; x < width; x++) {
+    f[0] = 0;
+    for (let y = 0; y < height; y++) f[y + 1] = mask[y * width + x] ? far : 0;
+    f[height + 1] = 0;
+    distance1d(f, height + 2, d, v, z);
+    for (let y = 0; y < height; y++) out[y * width + x] = d[y + 1];
+  }
+  for (let y = 0; y < height; y++) {
+    f[0] = 0;
+    for (let x = 0; x < width; x++) f[x + 1] = out[y * width + x];
+    f[width + 1] = 0;
+    distance1d(f, width + 2, d, v, z);
+    for (let x = 0; x < width; x++) out[y * width + x] = d[x + 1];
+  }
+  return out;
+}
+
+/**
+ * Keep the strokes that reach `depth` pixels into the ink, at any angle: a
+ * stroke w pixels wide reaches (w + 1) / 2. What is kept is grown back to
+ * the stroke's own edges, so walls stay exactly as drawn, square corners
+ * included, and a thinner stroke running into a wall is cut off at its face.
+ */
+function keepThickStrokes(mask: Uint8Array, width: number, height: number, depth: number): Uint8Array {
+  const dist2 = paperDistance2(mask, width, height);
+  const core = new Uint8Array(width * height);
+  for (let i = 0; i < core.length; i++) core[i] = dist2[i] >= depth * depth ? 1 : 0;
+  let grown = boxPass(core, width, height, depth - 1, true, false);
+  grown = boxPass(grown, width, height, depth - 1, false, false);
+  for (let i = 0; i < grown.length; i++) grown[i] &= mask[i];
+  return grown;
 }
 
 /** 4-connected components; returns a label per pixel (0 = paper) and each label's pixel count */
@@ -414,6 +792,42 @@ function simplifyLoop(points: Point[], eps: number): Point[] {
   return result;
 }
 
+/**
+ * Flatten the small bumps on a straight face. Where a thin stroke touches a
+ * wall (a dimension tick, a door's hinge end) the wall keeps a stub of it:
+ * the outline steps off the face, no deeper than the wall is thick, and
+ * comes back onto the same line further along. Left in, the stub would read
+ * as the end of a wall. A real wall end turns back along the wall's other
+ * face instead, so it is left alone.
+ */
+function flattenBumps(points: Point[], maxDepth: number, maxWidth: number, eps: number): Point[] {
+  let pts = points;
+  for (let changed = true; changed && pts.length > 4; ) {
+    changed = false;
+    const m = pts.length;
+    search: for (let i = 0; i < m; i++) {
+      const before = pts[(i - 1 + m) % m];
+      const leave = pts[i];
+      const along = unit(before, leave);
+      for (let k = 1; k <= MAX_BUMP_CORNERS && k + 3 <= m; k++) {
+        const back = pts[(i + k + 1) % m];
+        const after = pts[(i + k + 2) % m];
+        if (perpendicularDistance(back, before, leave) > eps) continue;
+        if (dot(sub(back, leave), along) <= 0 || dist(leave, back) > maxWidth) continue;
+        if (dot(unit(back, after), along) < 0.95) continue;
+        let shallow = true;
+        for (let s = 1; s <= k; s++) if (perpendicularDistance(pts[(i + s) % m], before, leave) > maxDepth) shallow = false;
+        if (!shallow) continue;
+        const drop = new Set(Array.from({ length: k + 2 }, (_, s) => (i + s) % m));
+        pts = pts.filter((_, idx) => !drop.has(idx));
+        changed = true;
+        break search;
+      }
+    }
+  }
+  return pts;
+}
+
 // ============================================================================
 // Which side of each wall faces the room
 // ============================================================================
@@ -546,16 +960,21 @@ function pickRoomSides(sides: Side[]): Side[] {
 interface Gap {
   path: Point[];
   cost: number;
+  /** The opening leaves the run before it this far back from the run's end, at a corner */
+  trimEnd: number;
+  /** … and joins the run after it this far in from that run's start */
+  trimStart: number;
 }
 
-/** Whether a straight run between two wall ends passes through ink, ignoring the ends themselves */
+/** Whether a straight run between two wall ends passes through a wall, ignoring the ends and grazing its face */
 function crossesWall(mask: Uint8Array, width: number, height: number, a: Point, b: Point, margin: number): boolean {
   const len = dist(a, b);
   const u = unit(a, b);
+  const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < width && y < height && mask[y * width + x] === 1;
   for (let t = margin; t < len - margin; t += 1) {
     const x = Math.floor(a.x + u.x * t);
     const y = Math.floor(a.y + u.y * t);
-    if (x >= 0 && y >= 0 && x < width && y < height && mask[y * width + x]) return true;
+    if (inside(x, y) && inside(x - 1, y) && inside(x + 1, y) && inside(x, y - 1) && inside(x, y + 1)) return true;
   }
   return false;
 }
@@ -564,91 +983,129 @@ function crossesWall(mask: Uint8Array, width: number, height: number, a: Point, 
  * The opening from the end of one wall run to the start of the next. Walls
  * that meet at a corner without touching (a corner opening) get an L through
  * the corner where their faces would meet; anything else is a straight gap.
+ * A run whose last (or first) stretch runs on past that corner, as a wall
+ * does that carries on along the next room, is cut back to it.
  */
 function gapBetween(
   from: Point,
   fromDir: Point,
+  fromReach: number,
   to: Point,
   toDir: Point,
+  toReach: number,
   mask: Uint8Array,
   width: number,
   height: number,
   thickness: number,
 ): Gap {
-  const d = sub(to, from);
   let path = [from, to];
+  let trimEnd = 0;
+  let trimStart = 0;
   const turn = cross(fromDir, toDir);
   if (Math.abs(turn) > 0.5) {
+    const d = sub(to, from);
     const t = cross(d, toDir) / turn; // distance from `from` along its wall to the corner
     const s = -cross(fromDir, d) / turn; // corner sits at `to` + s·toDir, behind `to` when s ≤ 0
+    const corner = { x: from.x + fromDir.x * t, y: from.y + fromDir.y * t };
     if (t > -1 && s < 1) {
-      const corner = { x: from.x + fromDir.x * t, y: from.y + fromDir.y * t };
       path = [from, corner, to];
+    } else if (t <= -1 && -t < fromReach && s < 1) {
+      path = [corner, to];
+      trimEnd = -t;
+    } else if (s >= 1 && s < toReach && t > -1) {
+      path = [from, corner];
+      trimStart = s;
     }
   }
 
+  const d = sub(path[path.length - 1], path[0]);
   const length = polylineLength(path);
-  let cost = length;
+  // Wall cut off a run is wall this room does not get
+  let cost = length + trimEnd + trimStart;
+  const blocked = length * 4 + thickness * 10;
   for (let i = 0; i < path.length - 1; i++) {
-    if (crossesWall(mask, width, height, path[i], path[i + 1], thickness)) cost += length * 4 + thickness * 10;
+    if (crossesWall(mask, width, height, path[i], path[i + 1], thickness)) cost += blocked;
   }
   // An opening that doubles back past the wall end it starts from is not an opening
-  if (dot(d, fromDir) < -thickness || dot(d, toDir) < -thickness) cost += length * 2;
-  return { path, cost };
+  if (dot(d, fromDir) < -thickness || dot(d, toDir) < -thickness) cost += blocked;
+  // Nor is one that wraps round the end of a wall, from its room-facing side to its back: that is the next room
+  const side = thickness * 0.5;
+  if (dot(d, rightOf(fromDir)) < -side || dot(d, rightOf(toDir)) > side) cost += blocked;
+  return { path, cost, trimEnd, trimStart };
 }
 
-function permutations(items: number[]): number[][] {
-  if (items.length <= 1) return [items.slice()];
-  const result: number[][] = [];
-  items.forEach((item, i) => {
-    const rest = [...items.slice(0, i), ...items.slice(i + 1)];
-    for (const p of permutations(rest)) result.push([item, ...p]);
-  });
-  return result;
+/** Min-cost assignment (the Hungarian method): column given to each row of a square cost matrix */
+function assign(cost: number[][]): number[] {
+  const n = cost.length;
+  const u = new Array<number>(n + 1).fill(0);
+  const v = new Array<number>(n + 1).fill(0);
+  const p = new Array<number>(n + 1).fill(0);
+  const way = new Array<number>(n + 1).fill(0);
+  for (let i = 1; i <= n; i++) {
+    p[0] = i;
+    let j0 = 0;
+    const minv = new Array<number>(n + 1).fill(Infinity);
+    const used = new Array<boolean>(n + 1).fill(false);
+    do {
+      used[j0] = true;
+      const i0 = p[j0];
+      let delta = Infinity;
+      let j1 = 0;
+      for (let j = 1; j <= n; j++) {
+        if (used[j]) continue;
+        const cur = cost[i0 - 1][j - 1] - u[i0] - v[j];
+        if (cur < minv[j]) {
+          minv[j] = cur;
+          way[j] = j0;
+        }
+        if (minv[j] < delta) {
+          delta = minv[j];
+          j1 = j;
+        }
+      }
+      for (let j = 0; j <= n; j++) {
+        if (used[j]) {
+          u[p[j]] += delta;
+          v[j] -= delta;
+        } else {
+          minv[j] -= delta;
+        }
+      }
+      j0 = j1;
+    } while (p[j0] !== 0);
+    do {
+      const j1 = way[j0];
+      p[j0] = p[j1];
+      j0 = j1;
+    } while (j0);
+  }
+  const match = new Array<number>(n);
+  for (let j = 1; j <= n; j++) match[p[j] - 1] = j - 1;
+  return match;
 }
 
 /**
- * Join the room-facing wall runs into one loop. Every run is traced with the
- * room on its right, so the loop only needs an order: the one whose openings
- * add up shortest without cutting through a wall.
+ * Group the room-facing wall runs into rooms. Every run is traced with its
+ * room on the right, so a room is a loop of runs, each joined end to start
+ * to the next by an opening (to itself, when one run goes all the way
+ * round). Matching every run's end to a run's start so that the openings add
+ * up shortest without cutting through a wall gives the loops: one room each.
  */
-function orderRuns(runs: Side[], gap: (a: Side, b: Side) => Gap): { order: number[]; gaps: Gap[] } {
-  const n = runs.length;
-  const gapCache = new Map<string, Gap>();
-  const gapOf = (i: number, j: number) => {
-    const key = `${i}:${j}`;
-    if (!gapCache.has(key)) gapCache.set(key, gap(runs[i], runs[j]));
-    return gapCache.get(key)!;
-  };
-
-  let order: number[];
-  if (n <= MAX_EXHAUSTIVE_SIDES) {
-    let best = Infinity;
-    order = [0];
-    const rest = Array.from({ length: n - 1 }, (_, i) => i + 1);
-    for (const perm of permutations(rest)) {
-      const cand = [0, ...perm];
-      let cost = 0;
-      for (let k = 0; k < n && cost < best; k++) cost += gapOf(cand[k], cand[(k + 1) % n]).cost;
-      if (cost < best) {
-        best = cost;
-        order = cand;
-      }
+function groupRuns(runs: Side[], gap: (a: Side, b: Side) => Gap): { order: number[]; gaps: Gap[] }[] {
+  const gaps = runs.map(a => runs.map(b => gap(a, b)));
+  const next = assign(gaps.map(row => row.map(g => g.cost)));
+  const seen = new Set<number>();
+  const loops: { order: number[]; gaps: Gap[] }[] = [];
+  runs.forEach((_, start) => {
+    if (seen.has(start)) return;
+    const order: number[] = [];
+    for (let i = start; !seen.has(i); i = next[i]) {
+      seen.add(i);
+      order.push(i);
     }
-  } else {
-    order = [0];
-    const left = new Set(Array.from({ length: n - 1 }, (_, i) => i + 1));
-    while (left.size) {
-      const last = order[order.length - 1];
-      let pick = -1;
-      left.forEach(j => {
-        if (pick < 0 || gapOf(last, j).cost < gapOf(last, pick).cost) pick = j;
-      });
-      order.push(pick);
-      left.delete(pick);
-    }
-  }
-  return { order, gaps: order.map((i, k) => gapOf(i, order[(k + 1) % n])) };
+    loops.push({ order, gaps: order.map(i => gaps[i][next[i]]) });
+  });
+  return loops;
 }
 
 // ============================================================================
@@ -666,16 +1123,39 @@ const EMPTY = (img: RgbaImage, thickness = 0): RoomDetection => ({
   openings: [],
   outline: null,
   areaPx: null,
+  rooms: [],
 });
 
 export function detectRoomFaces(img: RgbaImage): RoomDetection {
   const { width, height } = img;
-  const raw = inkMask(img);
-  const thickness = estimateWallThickness(raw, width, height);
-  if (!thickness) return EMPTY(img);
+  const tones = readTones(img);
+  const raw = inkMask(tones, tones.paper - INK_CONTRAST);
+  if (!estimateWallThickness(raw, width, height)) return EMPTY(img);
 
-  // Thin strokes (dashed neighbours, frames, text, door swings) go; walls stay exactly as drawn
-  const mask = openMask(raw, width, height, Math.max(1, Math.round(thickness * 0.3)));
+  // Strokes in the plan's main ink, and fixtures drawn over its walls in colour
+  let ink = inkMask(tones, lineCut(tones, raw), true);
+  let { wall: thickness, annotation } = strokeWidths(ink, width, height);
+  if (!thickness) return EMPTY(img);
+  ink = bridgeLines(ink, raw, width, height, thickness);
+
+  // Walls drawn as two lines: fill between each pair, so a wall is one band whatever its lines' width
+  const hollow = fillHollowWalls(ink, width, height, thickness);
+  if (hollow) {
+    const band = strokeWidths(hollow, width, height);
+    if (band.wall >= thickness * HOLLOW_BAND_MIN) {
+      ink = hollow;
+      ({ wall: thickness, annotation } = band);
+    }
+  }
+
+  // Strokes thinner than the walls go: text, dashed neighbours, door swings, and on a dimensioned
+  // plan its dimension lines and door leaves too. Walls stay exactly as drawn.
+  let depth = Math.max(1, Math.round((thickness * MIN_WALL_STROKE) / 2)) + 1;
+  if (annotation) {
+    const clear = Math.ceil((annotation + ANNOTATION_MARGIN) / 2);
+    depth = Math.max(depth, Math.min(clear, Math.floor((thickness * MAX_WALL_STROKE + 1) / 2)));
+  }
+  const mask = keepThickStrokes(ink, width, height, depth);
 
   // Leftover specks (bold text, symbols) are not walls
   const { labels, sizes, boxes } = labelComponents(mask, width, height);
@@ -692,7 +1172,7 @@ export function detectRoomFaces(img: RgbaImage): RoomDetection {
   const eps = Math.max(1.2, thickness * 0.2);
   const sides: Side[] = [];
   for (const loop of traceLoops(mask, labels, width, height)) {
-    const pts = simplifyLoop(loop.points, eps);
+    const pts = flattenBumps(simplifyLoop(loop.points, eps), thickness * MAX_BUMP_DEPTH, thickness * MAX_BUMP_WIDTH, eps);
     if (pts.length < 3) continue;
     for (const side of splitAtEndCaps(pts, loop.component, thickness)) {
       side.score = enclosureScore(side, mask, width, height, thickness);
@@ -703,46 +1183,72 @@ export function detectRoomFaces(img: RgbaImage): RoomDetection {
   const roomSides = pickRoomSides(sides);
   if (roomSides.length === 0) return EMPTY(img, thickness);
 
-  // Walk the room: open wall runs joined by openings, or a closed ring on its own
-  const runs = roomSides.filter(s => !s.closed);
-  const rings = roomSides.filter(s => s.closed);
-  const segmentsInOrder: { a: Point; b: Point }[] = [];
-  const openings: RoomOpening[] = [];
-  let outline: Point[] | null = null;
-
-  const pushSegments = (pts: Point[], closed: boolean) => {
-    for (let i = 0; i < pts.length - (closed ? 0 : 1); i++) {
-      segmentsInOrder.push({ a: pts[i], b: pts[(i + 1) % pts.length] });
-    }
-  };
-
-  if (runs.length > 0) {
-    const firstDir = (s: Side) => unit(s.points[0], s.points[1]);
-    const lastDir = (s: Side) => unit(s.points[s.points.length - 2], s.points[s.points.length - 1]);
-    const { order, gaps } = orderRuns(runs, (a, b) =>
-      gapBetween(a.points[a.points.length - 1], lastDir(a), b.points[0], firstDir(b), mask, width, height, thickness),
-    );
-    outline = [];
-    order.forEach((runIndex, k) => {
-      const run = runs[runIndex];
-      pushSegments(run.points, false);
-      outline!.push(...run.points);
-      const g = gaps[k];
-      if (g.path.length === 3) outline!.push(g.path[1]);
-      const length = polylineLength(g.path);
-      if (length >= thickness * 0.5) openings.push({ path: g.path, lengthPx: length });
-    });
-  }
-  for (const ring of rings) {
-    pushSegments(ring.points, true);
-    if (!outline || Math.abs(polygonArea(ring.points)) > Math.abs(polygonArea(outline))) outline = ring.points;
-  }
-
   const minFace = Math.max(3, thickness * 0.5);
-  const faceSegments = segmentsInOrder.filter(({ a, b }) => dist(a, b) >= minFace);
+  const rooms: DetectedRoom[] = [];
+
+  // Open wall runs, joined by openings into one loop per room
+  const runs = roomSides.filter(s => !s.closed);
+  if (runs.length > 0) {
+    const loops = groupRuns(runs, (a, b) => {
+      const end = a.points.length - 1;
+      return gapBetween(
+        a.points[end],
+        unit(a.points[end - 1], a.points[end]),
+        dist(a.points[end - 1], a.points[end]),
+        b.points[0],
+        unit(b.points[0], b.points[1]),
+        dist(b.points[0], b.points[1]),
+        mask,
+        width,
+        height,
+        thickness,
+      );
+    });
+    for (const { order, gaps } of loops) {
+      const segments: Segment[] = [];
+      const openings: RoomOpening[] = [];
+      const outline: Point[] = [];
+      order.forEach((runIndex, k) => {
+        // Each run as far as the openings either side of it reach
+        const pts = runs[runIndex].points.slice();
+        const before = gaps[(k - 1 + order.length) % order.length];
+        if (before.trimStart) pts[0] = before.path[before.path.length - 1];
+        if (gaps[k].trimEnd) pts[pts.length - 1] = gaps[k].path[0];
+        for (let i = 0; i < pts.length - 1; i++) segments.push({ a: pts[i], b: pts[i + 1] });
+        outline.push(...pts);
+        const g = gaps[k];
+        if (g.path.length === 3) outline.push(g.path[1]);
+        const length = polylineLength(g.path);
+        if (length >= thickness * 0.5) openings.push({ path: g.path, lengthPx: length });
+      });
+      rooms.push(roomFrom(segments, openings, outline, minFace));
+    }
+  }
+  // A closed ring of walls is a room on its own
+  for (const ring of roomSides.filter(s => s.closed)) {
+    const segments = ring.points.map((a, i) => ({ a, b: ring.points[(i + 1) % ring.points.length] }));
+    rooms.push(roomFrom(segments, [], ring.points, minFace));
+  }
+
+  const span = thickness * MIN_ROOM_SPAN;
+  const withFaces = rooms.filter(r => r.faces.length > 0);
+  const real = withFaces.filter(r => (r.areaPx ?? 0) >= span * span);
+  const found = (real.length ? real : withFaces).sort((a, b) => (b.areaPx ?? 0) - (a.areaPx ?? 0));
+  if (found.length === 0) return EMPTY(img, thickness);
+  return { width, height, wallThicknessPx: thickness, ...found[0], rooms: found };
+}
+
+interface Segment {
+  a: Point;
+  b: Point;
+}
+
+/** A room from its wall segments in order round it, its openings and its outline */
+function roomFrom(segments: Segment[], openings: RoomOpening[], outline: Point[], minFace: number): DetectedRoom {
+  const faceSegments = segments.filter(({ a, b }) => dist(a, b) >= minFace);
 
   // Letter the faces clockwise starting from the top wall (leftmost if several)
-  const mid = ({ a, b }: { a: Point; b: Point }) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const mid = ({ a, b }: Segment) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
   let first = 0;
   faceSegments.forEach((seg, i) => {
     const m = mid(seg);
@@ -758,14 +1264,5 @@ export function detectRoomFaces(img: RgbaImage): RoomDetection {
     lengthPx: dist(a, b),
     normal: rightOf(unit(a, b)),
   }));
-
-  return {
-    width,
-    height,
-    wallThicknessPx: thickness,
-    faces,
-    openings,
-    outline,
-    areaPx: outline ? Math.abs(polygonArea(outline)) : null,
-  };
+  return { faces, openings, outline, areaPx: Math.abs(polygonArea(outline)) };
 }

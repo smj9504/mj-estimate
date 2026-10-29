@@ -7,6 +7,8 @@ import { detectRoomFaces, estimateWallThickness, type Point, type RgbaImage } fr
 type Rgb = [number, number, number];
 const OUTLINE: Rgb = [40, 40, 40];
 const FILL: Rgb = [192, 192, 192];
+/** Dimensioned plans draw everything in black */
+const INK: Rgb = [0, 0, 0];
 
 function blank(width: number, height: number): RgbaImage {
   return { width, height, data: new Uint8ClampedArray(width * height * 4).fill(255) };
@@ -28,6 +30,14 @@ function rect(img: RgbaImage, x0: number, y0: number, x1: number, y1: number, co
 function wall(img: RgbaImage, x0: number, y0: number, x1: number, y1: number) {
   rect(img, x0, y0, x1, y1, OUTLINE);
   rect(img, x0 + 1, y0 + 1, x1 - 1, y1 - 1, FILL);
+}
+
+/** A rectangle drawn as a t-pixel line */
+function ring(img: RgbaImage, x0: number, y0: number, x1: number, y1: number, t: number, color: Rgb) {
+  rect(img, x0, y0, x1, y0 + t, color);
+  rect(img, x0, y1 - t, x1, y1, color);
+  rect(img, x0, y0, x0 + t, y1, color);
+  rect(img, x1 - t, y0, x1, y1, color);
 }
 
 function line(img: RgbaImage, a: Point, b: Point, color: Rgb, dashed = false) {
@@ -168,6 +178,63 @@ describe('detectRoomFaces', () => {
     for (let i = 0; i < 6; i++) rect(img, 80 + i * 9, 90, 86 + i * 9, 92, [30, 30, 30]); // "LIVING ROOM"
     rect(img, 80, 96, 132, 97, [30, 30, 30]);
     expect(lengths(img)).toEqual([184, 134, 184, 134]);
+  });
+
+  it('reads walls drawn as two lines, past a door leaf, dimension lines and text', () => {
+    // A dimensioned plan: each wall is two 4px lines with paper between, a 16px wall in all
+    const img = blank(300, 240);
+    ring(img, 20, 20, 260, 200, 4, INK); // outside faces
+    ring(img, 32, 32, 248, 188, 4, INK); // inside faces: the room is 36…244 × 36…184
+    rect(img, 40, 4, 240, 6, INK); // a dimension line above, with its ticks
+    rect(img, 40, 0, 42, 10, INK);
+    rect(img, 238, 0, 240, 10, INK);
+    for (let k = 0; k < 40; k++) rect(img, 60 + k, 36 + k, 66 + k, 42 + k, INK); // a door leaf off the top wall
+    for (let i = 0; i < 6; i++) rect(img, 110 + i * 9, 110, 115 + i * 9, 122, INK); // "HALLWAY"
+
+    const result = detectRoomFaces(img);
+    expect(result.wallThicknessPx).toBe(16);
+    expect(result.faces.map(f => Math.round(f.lengthPx))).toEqual([208, 148, 208, 148]);
+    expect(result.areaPx).toBe(208 * 148);
+  });
+
+  it('reads single-line walls as walls even when the thinner dimension lines hold more ink', () => {
+    const img = blank(340, 280);
+    rect(img, 40, 40, 300, 50, INK); // 10px walls round a 240 × 180 room
+    rect(img, 40, 230, 300, 240, INK);
+    rect(img, 40, 40, 50, 240, INK);
+    rect(img, 290, 40, 300, 240, INK);
+    // Dimension lines outside and inside, 5px with ticks
+    for (const y of [14, 120, 180, 262]) {
+      rect(img, 40, y, 300, y + 5, INK);
+      rect(img, 40, y - 6, 45, y + 11, INK);
+      rect(img, 295, y - 6, 300, y + 11, INK);
+    }
+    for (const x of [14, 80, 260, 316]) {
+      rect(img, x, 50, x + 5, 230, INK);
+      rect(img, x - 6, 50, x + 11, 55, INK);
+      rect(img, x - 6, 225, x + 11, 230, INK);
+    }
+
+    const result = detectRoomFaces(img);
+    expect(result.wallThicknessPx).toBe(10);
+    expect(result.faces.map(f => Math.round(f.lengthPx))).toEqual([240, 180, 240, 180]);
+  });
+
+  it('measures the larger of two rooms, and returns the other too', () => {
+    const img = blank(340, 180);
+    wall(img, 20, 20, 320, 28);
+    wall(img, 20, 152, 320, 160);
+    wall(img, 20, 20, 28, 160);
+    wall(img, 312, 20, 320, 160);
+    wall(img, 128, 20, 136, 70); // the wall between them, with a door
+    wall(img, 128, 100, 136, 160);
+
+    const result = detectRoomFaces(img);
+    expect(result.rooms.map(r => r.areaPx)).toEqual([176 * 124, 100 * 124]);
+    expect(result.faces).toBe(result.rooms[0].faces);
+    expect(result.rooms.map(r => r.openings.map(o => Math.round(o.lengthPx)))).toEqual([[30], [30]]);
+    // Top, down the wall stub to the door, up the other stub from the door, bottom, left
+    expect(result.rooms[1].faces.map(f => Math.round(f.lengthPx))).toEqual([100, 42, 52, 100, 124]);
   });
 
   it('finds nothing on a blank capture', () => {
