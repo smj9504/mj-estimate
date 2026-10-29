@@ -317,6 +317,10 @@ FINISH_MULTIPLIER = {
 # the actual upcharge with the supplier.
 VOLATILE_FINISHES = {"Glazed"}
 
+# Finishes whose toe kick is painted on site. A stained or laminate line
+# ships its toe kick prefinished to match, so it is installed, not painted.
+PAINTED_FINISHES = {"Painted", "Glazed"}
+
 # Specialty cabinet premiums ($ per box, on top of LF pricing).
 #
 # 2026-09-18: these are the STOCK-tier premiums. They used to be applied

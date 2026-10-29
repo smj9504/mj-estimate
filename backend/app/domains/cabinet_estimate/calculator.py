@@ -47,6 +47,7 @@ from .pricing import (
     MATERIAL_MULTIPLIER,
     MATERIAL_SHARE,
     OVERLAY_STYLE_MULTIPLIER,
+    PAINTED_FINISHES,
     SCOPE_ITEMS,
     COUNTERTOP_BACKSPLASH_PER_LF,
     NON_STANDARD_WIDTH_MULTIPLIER,
@@ -142,6 +143,7 @@ def _calc_location_cabinets(
     warnings: List[str],
     spec_mult: float = 1.0,
     hardware_product: Optional[dict] = None,
+    finish: Optional[str] = None,
 ) -> tuple[List[LineItem], float, float, int]:
     """Calculate cabinet supply/install items for a location.
 
@@ -151,6 +153,7 @@ def _calc_location_cabinets(
     SPECIALTY_PREMIUM_TIER_SCALE.
     `hardware_product`, an option's chosen pull or knob, prices the hardware
     supply at its own price instead of the mid-grade allowance.
+    `finish` decides whether the toe kick is painted; see PAINTED_FINISHES.
     """
     line_items: List[LineItem] = []
     loc_label = "Island" if loc == "island" else ""
@@ -778,19 +781,32 @@ def _calc_location_cabinets(
             location=loc,
         ))
 
+    # The toe kick takes the cabinet finish: painted on site, or
+    # prefinished to match.
+    trim_finish = finish or "Stained"
+    if trim_finish in PAINTED_FINISHES:
+        trim_scope = "Install & Paint"
+        trim_notes = "Supply, install, and paint to match"
+    else:
+        trim_scope = "Install (Prefinished)"
+        trim_notes = (
+            f"Supply and install, prefinished to match the "
+            f"{trim_finish.lower()} cabinets"
+        )
+
     # ── Toe kick ──
     if include_toe_kick and base_lf > 0:
         tk_unit = SCOPE_ITEMS["toe_kick_per_lf"]
         tk_total = round(base_lf * tk_unit, 2)
         line_items.append(LineItem(
             description=(
-                f"{prefix}Toe Kick — Install & Paint"
+                f"{prefix}Toe Kick — {trim_scope}"
             ),
             quantity=round(base_lf, 2),
             unit="LF",
             unit_price=tk_unit,
             total=tk_total,
-            notes="Supply, install, and paint to match",
+            notes=trim_notes,
             material_share=MATERIAL_SHARE["toe_kick"],
             category="install",
             location=loc,
@@ -1007,7 +1023,7 @@ def calculate_estimate(
             total_mult, include_install,
             include_hardware, include_crown_molding,
             include_toe_kick, warnings, spec_mult,
-            hardware_product,
+            hardware_product, finish,
         )
     )
     line_items.extend(p_items)
@@ -1079,7 +1095,7 @@ def calculate_estimate(
                 include_hardware,
                 False,  # no crown molding on island
                 include_toe_kick, warnings, spec_mult,
-                hardware_product,
+                hardware_product, finish,
             )
         )
         line_items.extend(i_items)

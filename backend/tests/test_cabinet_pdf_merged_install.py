@@ -70,11 +70,28 @@ def test_only_stand_alone_install_is_left(boxes, kw):
     merged = _merge_install_into_supply(items)
 
     left = [li["description"] for li in merged if li["category"] == "install"]
-    assert left and all(d.endswith("Toe Kick — Install & Paint") for d in left)
+    assert left and all("Toe Kick — " in d for d in left)
     assert not any(
         li["description"].endswith(("(Material)", "(Supply)")) for li in merged
     )
     assert _total(merged) == _total(items)
+
+
+@pytest.mark.parametrize("finish,description", [
+    (None, "Toe Kick — Install (Prefinished)"),
+    ("Stained", "Toe Kick — Install (Prefinished)"),
+    ("Laminate", "Toe Kick — Install (Prefinished)"),
+    ("Painted", "Toe Kick — Install & Paint"),
+    ("Glazed", "Toe Kick — Install & Paint"),
+])
+def test_toe_kick_is_painted_only_on_a_painted_finish(finish, description):
+    items = _line_items(PERIMETER + ISLAND, finish=finish)
+    toe_kicks = [li for li in items if "Toe Kick" in li["description"]]
+    assert [li["description"] for li in toe_kicks] == [
+        description, f"Island {description}",
+    ]
+    painted = description.endswith("Paint")
+    assert all(("paint" in li["notes"]) == painted for li in toe_kicks)
 
 
 def test_pooled_install_splits_by_quantity_and_keeps_its_total():
