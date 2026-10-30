@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Card, Form, Input, Button, Typography, Space, Alert, Divider,
+  Card, Form, Input, Button, Typography, Space, Alert, Divider, Select,
   Row, Col, message, Modal, Switch, Spin, Tag, List, Breadcrumb
 } from 'antd';
 import {
@@ -10,6 +10,7 @@ import {
   DisconnectOutlined, LinkOutlined, FolderAddOutlined,
   ArrowLeftOutlined, HomeOutlined
 } from '@ant-design/icons';
+import { HOME_CHOICES, HOME_TODOS } from '../constants/screens';
 import { useAuth } from '../contexts/AuthContext';
 import authService from '../services/authService';
 import ChangePasswordModal from '../components/auth/ChangePasswordModal';
@@ -36,7 +37,7 @@ interface FolderPath {
 }
 
 const Profile: React.FC = () => {
-  const { user } = useAuth();
+  const { user, canAccessPath } = useAuth();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [passwordModalVisible, setPasswordModalVisible] = useState(false);
@@ -73,6 +74,7 @@ const Profile: React.FC = () => {
         last_name: user.last_name,
         phone: user.phone || '',
         mobile_phone: user.mobile_phone || '',
+        home_screen: user.home_screen || HOME_TODOS,
       });
 
       // Load OAuth status
@@ -273,6 +275,7 @@ const Profile: React.FC = () => {
         last_name: values.last_name,
         phone: values.phone,
         mobile_phone: values.mobile_phone,
+        home_screen: values.home_screen,
       });
 
       // Update localStorage so AuthContext picks up changes on reload
@@ -412,6 +415,20 @@ const Profile: React.FC = () => {
                 </Form.Item>
               </Col>
             </Row>
+
+            <Form.Item
+              name="home_screen"
+              label="Home screen"
+              extra="What opens first when you start the app."
+            >
+              <Select
+                showSearch
+                optionFilterProp="label"
+                options={HOME_CHOICES
+                  .filter(c => canAccessPath(c.path))
+                  .map(c => ({ value: c.key, label: c.label }))}
+              />
+            </Form.Item>
 
             <Form.Item>
               <Space>

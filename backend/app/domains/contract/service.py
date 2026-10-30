@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from app.common.base_service import BaseService
 from app.core.interfaces import DatabaseProvider
+from app.domains.contract.signature_lines import TASK_ASSIGN_CLAIM, TASK_COMPANY_SIGNATURE
 
 logger = logging.getLogger(__name__)
 
@@ -643,20 +644,25 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
         except Exception:
             return ''
 
-    def _generate_filled_pdf(self, template_file_url: str, mappings: list, prefill: dict) -> Optional[Dict[str, str]]:
+    def _generate_filled_pdf(
+        self, template_file_url: str, mappings: list, prefill: dict, include_signer_fields: bool = False,
+    ) -> Optional[Dict[str, str]]:
         """Generate a filled PDF by overlaying text on the template PDF using reportlab.
+
+        Signer-editable fields stay blank for the signer to fill, unless
+        include_signer_fields says their values have been entered by now.
 
         Returns {"url": ..., "provider": ...} on success (provider is the
         authoritative storage_provider for url - callers must persist it
         alongside the url, not re-derive it later by parsing the url string).
         """
+        temp_template_path = None
         try:
             from pypdf import PdfReader, PdfWriter
             from reportlab.pdfgen import canvas as rl_canvas
 
             # Resolve template file — try cloud storage first, then local
             import tempfile
-            temp_template_path = None
             template_path = None
 
             # Try cloud storage download
@@ -721,7 +727,7 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
 
                     for field in fields_on_page:
                         # Skip signer-editable fields — they remain blank for signer to fill
-                        if field.get('inputMode') == 'signer':
+                        if field.get('inputMode') == 'signer' and not include_signer_fields:
                             continue
                         value = self._resolve_field_value(prefill, field.get('fieldKey', ''))
                         if not value:
@@ -759,7 +765,6 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                 writer.add_page(page)
 
             # Write to buffer and upload to cloud storage
-            from io import BytesIO
             pdf_buffer = BytesIO()
             writer.write(pdf_buffer)
             pdf_bytes = pdf_buffer.getvalue()
@@ -975,6 +980,92 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
             logger.error(f"Error creating field contract: {e}")
             raise
 
+    def create_onsite_contract(
+        self, data: Dict[str, Any], answers: Dict[str, Dict[str, str]], today: str, actor_name: str = None,
+    ) -> Dict[str, Any]:
+        """Create the contract for an on-site signing: what's on record about the
+        client and company, overlaid with what was entered on site. Signing right
+        after draws the text and the signatures onto the PDF together."""
+        session = self.database.get_session()
+        try:
+            prefill = self._build_prefill(session, data)
+            for category, fields in answers.items():
+                prefill.setdefault(category, {}).update(fields)
+            prefill['meta'] = {'current_date': today}
+            prefill.setdefault('wm_job', {})['today'] = today
+
+            repo = self._get_repository_instance(session)
+            result = repo.create_with_token(dict(data), 30)
+
+            prefill['meta']['contract_number'] = result.get('contract_number', '')
+            repo.update(str(result['id']), {'prefill_data': json.dumps(prefill)})
+            session.commit()
+            result['prefill_data'] = json.dumps(prefill)
+        finally:
+            session.close()
+
+        self.append_audit_log(
+            str(result['id']),
+            action='created',
+            actor_name=actor_name,
+            detail={'title': result.get('title', ''), 'source': 'onsite_signing'},
+        )
+        return result
+
+    def close_signing_link(self, contract_id: str) -> None:
+        """Expire a contract's signing link. One signed on site was never sent
+        anywhere, so nothing should still open it, and an open link would list it
+        on the field-signing page."""
+        session = self.database.get_session()
+        try:
+            from app.domains.contract.models import ContractInstance
+            instance = session.query(ContractInstance).filter(ContractInstance.id == contract_id).first()
+            if instance:
+                instance.token_expires_at = datetime.utcnow()
+                session.commit()
+        finally:
+            session.close()
+
+    def unassigned_for_client(self, client_id: str) -> List[Dict[str, Any]]:
+        """Signed contracts of this client's that aren't on a claim yet, newest first"""
+        session = self.database.get_readonly_session()
+        try:
+            from app.domains.contract.models import ContractInstance
+            repo = self._get_repository_instance(session)
+            rows = session.query(ContractInstance).filter(
+                ContractInstance.client_id == client_id,
+                ContractInstance.claim_id.is_(None),
+                ContractInstance.status == 'signed',
+            ).order_by(ContractInstance.signed_at.desc()).all()
+            return [repo._enrich(row) for row in rows]
+        finally:
+            session.close()
+
+    def assign_to_claim(self, contract_id: str, claim_id: str) -> Optional[Dict[str, Any]]:
+        """Put a contract on a claim and finish the todos asking for that"""
+        session = self.database.get_session()
+        try:
+            from app.domains.client.models import ClaimTodo
+            from app.domains.client.service import ClaimTodoService
+
+            repo = self._get_repository_instance(session)
+            repo.update(contract_id, {'claim_id': claim_id})
+            todos = session.query(ClaimTodo).filter(
+                ClaimTodo.contract_id == contract_id,
+                ClaimTodo.status != 'done',
+            ).all()
+            for todo in todos:
+                todo.claim_id = claim_id
+                if todo.contract_task == TASK_ASSIGN_CLAIM:
+                    ClaimTodoService._apply_status(todo, 'done')
+            session.commit()
+            return repo.get_by_id_enriched(contract_id)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def update_prefill_and_regenerate(self, token: str, new_prefill_data: Dict[str, Any]) -> Dict[str, Any]:
         """Update prefill data on a contract and regenerate the filled PDF."""
         try:
@@ -1026,14 +1117,17 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                         mappings = json.loads(raw_mappings)
                     if mappings:
                         filled = self._generate_filled_pdf(
-                            template_file_url, mappings, existing
+                            template_file_url, mappings, existing,
+                            include_signer_fields=True,
                         )
-                        if filled:
-                            repo.update(instance_id, {
-                                'filled_pdf_url': filled['url'],
-                                'filled_pdf_provider': filled['provider'],
-                            })
-                            session.commit()
+                        # If this failed, drop the old PDF rather than let the
+                        # previous values be signed; signing then draws the text
+                        # from prefill_data onto the template
+                        repo.update(instance_id, {
+                            'filled_pdf_url': filled['url'] if filled else None,
+                            'filled_pdf_provider': filled['provider'] if filled else None,
+                        })
+                        session.commit()
 
                 return repo.get_by_id_enriched(instance_id)
             finally:
@@ -1090,6 +1184,10 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                     raise ValueError("Contract not found")
                 if contract['status'] == 'voided':
                     raise ValueError("Contract has been voided")
+                # A link signs once. The company's lines left open are signed
+                # signed in, through add_company_signature, not by whoever holds the link
+                if contract.get('signatures'):
+                    raise ValueError("This contract has already been signed")
 
                 # Check token expiry (timezone-safe)
                 expires = contract.get('token_expires_at')
@@ -1102,6 +1200,7 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                         raise ValueError("Signing link has expired")
 
                 instance_id = str(contract['id'])
+                sig_data['signed_field_ids'] = json.dumps(sorted(signature_fields or {}))
                 result = repo.add_signature(instance_id, sig_data)
 
                 # Generate signed PDF with overlaid signatures
@@ -1148,6 +1247,113 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
             logger.error(f"Error signing contract: {e}")
             raise
 
+    def get_by_id_enriched(self, contract_id: str) -> Optional[Dict[str, Any]]:
+        session = self.database.get_readonly_session()
+        try:
+            return self._get_repository_instance(session).get_by_id_enriched(contract_id)
+        finally:
+            session.close()
+
+    def add_company_signature(
+        self, contract_id: str, sig_data: Dict[str, Any], signature_fields: Dict[str, str],
+    ) -> Optional[Dict[str, Any]]:
+        """Add the company's signature to a contract the customer has signed, and
+        finish the todos asking for it. The PDF comes first: with none to show the
+        signature, nothing is recorded and this returns None."""
+        session = self.database.get_session()
+        try:
+            from app.domains.client.models import ClaimTodo
+            from app.domains.client.service import ClaimTodoService
+            from app.domains.contract.models import ContractInstance, ContractSignature
+
+            # One at a time, or the second would draw over a PDF without the first
+            session.query(ContractInstance.id).filter(
+                ContractInstance.id == contract_id
+            ).with_for_update().first()
+
+            repo = self._get_repository_instance(session)
+            contract = repo.get_by_id_enriched(contract_id)
+            if not contract:
+                raise ValueError("Contract not found")
+            line_ids = {line['id'] for line in contract['open_company_lines']}
+            if not line_ids or set(signature_fields) != line_ids:
+                raise ValueError("These lines have already been signed")
+            # Without the customer's signed PDF, this one would leave their signature out
+            if not contract.get('signed_pdf_url'):
+                return None
+
+            signed = self._generate_signed_pdf(session, contract, signature_fields)
+            if not signed:
+                return None
+
+            session.add(ContractSignature(
+                contract_instance_id=contract_id,
+                document_hash=self._compute_pdf_hash(signed['url']),
+                signed_field_ids=json.dumps(sorted(signature_fields)),
+                **sig_data,
+            ))
+            repo.update(contract_id, {
+                'signed_pdf_url': signed['url'],
+                'signed_pdf_provider': signed['provider'],
+                'filled_pdf_url': signed['url'],
+                'filled_pdf_provider': signed['provider'],
+            })
+            todos = session.query(ClaimTodo).filter(
+                ClaimTodo.contract_id == contract_id,
+                ClaimTodo.contract_task == TASK_COMPANY_SIGNATURE,
+                ClaimTodo.status != 'done',
+            ).all()
+            for todo in todos:
+                ClaimTodoService._apply_status(todo, 'done')
+            session.commit()
+            return repo.get_by_id_enriched(contract_id)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def ask_for_company_signature(self, token: str) -> None:
+        """A contract signed from its link can still be waiting on the company.
+        Every admin gets a todo about it. A failure here mustn't undo the customer's
+        signature, so it is only logged."""
+        session = self.database.get_session()
+        try:
+            from app.domains.auth.company_scope import ALL_DATA_ROLES
+            from app.domains.client.models import Client
+            from app.domains.client.service import ClaimTodoService
+            from app.domains.staff.models import Staff
+
+            contract = self._get_repository_instance(session).get_by_token(token)
+            if not contract or not contract.get('open_company_lines'):
+                return
+
+            client = session.query(Client.address, Client.display_name).filter(
+                Client.id == contract.get('client_id')
+            ).first() if contract.get('client_id') else None
+            where = (client[0] or client[1]) if client else None
+            title = contract.get('title') or contract.get('template_name') or 'Contract'
+            admins = [row[0] for row in session.query(Staff.id).filter(
+                Staff.role.in_(ALL_DATA_ROLES),
+                Staff.is_active.is_(True),
+                Staff.can_login.is_(True),
+            ).all()]
+
+            todos = ClaimTodoService(self.database)
+            for admin_id in admins:
+                todos.create_todo({
+                    'title': f"Sign for the company: {title}" + (f", {where}" if where else ''),
+                    'owner_id': str(admin_id),
+                    'client_id': str(contract['client_id']) if contract.get('client_id') else None,
+                    'claim_id': str(contract['claim_id']) if contract.get('claim_id') else None,
+                    'contract_id': str(contract['id']),
+                    'contract_task': TASK_COMPANY_SIGNATURE,
+                })
+        except Exception as e:
+            logger.error(f"Could not ask for the company's signature on {token}: {e}", exc_info=True)
+        finally:
+            session.close()
+
     def _generate_signed_pdf(
         self, session, contract: Dict[str, Any],
         signature_fields: Dict[str, str],
@@ -1161,7 +1367,6 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
         """
         import base64
         from io import BytesIO
-        from pathlib import Path
 
         from pypdf import PdfReader, PdfWriter
         from reportlab.lib.utils import ImageReader
@@ -1178,30 +1383,25 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
         # Build lookup: field_id -> mapping
         field_map = {m.get('id'): m for m in mappings}
 
-        # Resolve source PDF (prefer filled, fallback to template)
-        has_filled = bool(contract.get('filled_pdf_url'))
-        pdf_url = (
-            contract.get('filled_pdf_url')
-            or contract.get('file_url')
-        )
-        if not pdf_url:
-            return None
+        # Source PDF: the filled one the signer reviewed, which already has the
+        # text. If it can't be loaded, start again from the template and draw the
+        # text below, unless it holds an earlier signature that would be lost.
+        from app.domains.contract.api import _resolve_contract_pdf
 
-        # Download the PDF
-        try:
-            from app.domains.storage.factory import StorageFactory
-            storage = StorageFactory.get_instance()
-            pdf_bytes = storage.download(pdf_url)
-        except Exception:
-            # Fallback to local
-            backend_dir = Path(__file__).resolve().parents[3]
-            if pdf_url.startswith('/uploads/'):
-                local = backend_dir / pdf_url.lstrip('/')
-            else:
-                local = Path(pdf_url)
-            if not local.exists():
+        pdf_bytes = None
+        if contract.get('filled_pdf_url'):
+            pdf_bytes = _resolve_contract_pdf(
+                contract.get('filled_pdf_url'), contract.get('filled_pdf_provider')
+            )
+            if not pdf_bytes and contract.get('signed_pdf_url'):
                 return None
-            pdf_bytes = local.read_bytes()
+        has_filled = bool(pdf_bytes)
+        if not pdf_bytes:
+            pdf_bytes = _resolve_contract_pdf(
+                contract.get('file_url'), contract.get('storage_provider')
+            )
+        if not pdf_bytes:
+            return None
 
         # If no filled PDF, also overlay text fields from prefill_data
         prefill = {}

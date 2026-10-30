@@ -12,6 +12,8 @@ import {
   EditOutlined, FontSizeOutlined,
 } from '@ant-design/icons';
 
+import { useSheetModal } from '../../common/ui';
+
 const { Text } = Typography;
 
 interface WMSignaturePadProps {
@@ -22,6 +24,8 @@ interface WMSignaturePadProps {
   defaultName?: string;
   /** Pre-load existing signature image (base64 data URL) onto canvas */
   initialImage?: string;
+  /** Says whose signature this is when a document has more than one */
+  title?: string;
 }
 
 const CANVAS_WIDTH = 500;
@@ -46,11 +50,13 @@ const loadSignatureFonts = () => {
 };
 
 const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
-  open, onClose, onSave, defaultName, initialImage,
+  open, onClose, onSave, defaultName, initialImage, title,
 }) => {
   // Touch screens get 32px tool buttons instead of the compact 24px ones
   const screens = Grid.useBreakpoint();
   const toolSize = screens.md ? 'small' : 'middle';
+  const { sheetProps } = useSheetModal();
+  const sidePadding = screens.md ? 24 : 16;
 
   // Draw mode state
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -297,7 +303,8 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
 
   return (
     <Modal
-      title={null}
+      {...sheetProps}
+      title={title ?? null}
       open={open}
       onCancel={onClose}
       width={540}
@@ -305,7 +312,7 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
       styles={{ body: { padding: 0 } }}
     >
       {/* Header */}
-      <div style={{ padding: '16px 24px 0', borderBottom: '1px solid #f0f0f0' }}>
+      <div style={{ padding: `16px ${sidePadding}px 0`, borderBottom: '1px solid #f0f0f0' }}>
         <Tabs
           activeKey={activeTab}
           onChange={(key) => setActiveTab(key as 'draw' | 'type')}
@@ -318,7 +325,7 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
       </div>
 
       {/* Content */}
-      <div style={{ padding: '20px 24px' }}>
+      <div style={{ padding: `20px ${sidePadding}px` }}>
         {activeTab === 'draw' ? (
           <div>
             {/* Canvas */}
@@ -424,7 +431,7 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
 
       {/* Footer */}
       <div style={{
-        padding: '12px 24px 16px',
+        padding: `12px ${sidePadding}px 16px`,
         borderTop: '1px solid #f0f0f0',
       }}>
         <Button

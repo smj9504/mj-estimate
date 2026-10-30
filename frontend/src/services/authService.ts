@@ -50,6 +50,7 @@ class AuthService {
     last_name?: string;
     phone?: string;
     mobile_phone?: string;
+    home_screen?: string | null;
   }) {
     const response = await api.put(`${API_BASE_URL}/me`, data);
     return response.data;
@@ -112,6 +113,7 @@ class AuthService {
 
   // Admin only: Update user (can update username, staff_number, role)
   async updateUser(userId: string, data: {
+    home_screen?: string | null;
     email?: string;
     first_name?: string;
     last_name?: string;

@@ -52,9 +52,12 @@ import type {
   ContractInstance,
   ContractStatus,
 } from '../../types/contract';
+import CompanySignSheet from './CompanySignSheet';
 import ContractGenerateModal from './ContractGenerateModal';
+import { canSignForCompany } from './signatureLines';
 import { Pill, humanize, useSheetModal, type TagTone } from '../common/ui';
 import ClaimSection from '../client/ClaimSection';
+import { useAuth } from '../../contexts/AuthContext';
 
 const { Text } = Typography;
 
@@ -186,6 +189,7 @@ function getAuditDescription(entry: ContractAuditEntry): string {
     case 'signed':
       if (detail?.signer_name) {
         desc = `Document e-signed by ${detail.signer_name}`;
+        if (detail.signer_role === 'company_rep') desc += ' for the company';
         if (entry.actor_email) desc += ` (${entry.actor_email})`;
       }
       break;
@@ -217,6 +221,8 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
   onContractCreated,
 }) => {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const [signingContract, setSigningContract] = useState<ContractInstance | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
   const { sheetProps } = useSheetModal();
   const [emailModalContract, setEmailModalContract] = useState<ContractInstance | null>(null);
@@ -358,6 +364,11 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
   const companies = dashboard?.companies || [];
 
   const contractActions = (contract: ContractInstance) => [
+    !!contract.open_company_lines?.length && canSignForCompany(user, contract.company_id) && (
+      <Button key="company-sign" size="small" onClick={() => setSigningContract(contract)}>
+        Sign for company
+      </Button>
+    ),
     contract.file_url && (
       <Tooltip title="View PDF" key="view">
         <a
@@ -489,6 +500,9 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
                           <div className="cl-list-title">
                             <span>{contract.title || contract.template_name || 'Untitled'}</span>
                             <ContractStatusPill status={contract.status} />
+                            {!!contract.open_company_lines?.length && (
+                              <Pill tone="orange">Needs company signature</Pill>
+                            )}
                           </div>
                           {meta.length > 0 && <div className="cl-meta">{meta.join(' · ')}</div>}
                         </div>
@@ -501,6 +515,10 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
             </div>
           );
         })
+      )}
+
+      {signingContract && (
+        <CompanySignSheet contract={signingContract} onClose={() => setSigningContract(null)} />
       )}
 
       {/* Generate Contract Modal */}

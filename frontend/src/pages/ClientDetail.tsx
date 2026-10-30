@@ -74,6 +74,7 @@ import { companyService } from '../services/companyService';
 import { useAuth } from '../contexts/AuthContext';
 import CompanyMultiSelect from '../components/company/CompanyMultiSelect';
 import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
+import UnassignedContracts from '../components/contract/UnassignedContracts';
 import ClientDocumentHub from '../components/client/ClientDocumentHub';
 import ClaimNotes from '../components/client/ClaimNotes';
 import ClaimPhotosSection from '../components/client/ClaimPhotosSection';
@@ -3351,6 +3352,8 @@ const ClientDetail: React.FC = () => {
           ]}
         />
       </div>
+
+      <UnassignedContracts clientId={client.id} claims={client.claims} />
 
       <Tabs
         className="cl-tabs"

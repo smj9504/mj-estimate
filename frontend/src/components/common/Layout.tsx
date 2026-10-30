@@ -35,6 +35,7 @@ import {
   AppstoreOutlined,
   BorderOuterOutlined,
   CheckSquareOutlined,
+  SignatureOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -148,6 +149,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         key: '/todos',
         icon: <CheckSquareOutlined />,
         label: 'Todos',
+      },
+      {
+        key: '/onsite-signing',
+        icon: <SignatureOutlined />,
+        label: 'On-site Signing',
       },
 
       // ── Jobs & Claims ──────────────────────────────────

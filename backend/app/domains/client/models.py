@@ -459,6 +459,10 @@ class ClaimTodo(Base, BaseModel):
     client_id = Column(UUIDType(), ForeignKey("clients.id", ondelete="SET NULL"), nullable=True)
     # Whose board it is on. Todos from before the board have none and show on the client page only.
     owner_id = Column(UUIDType(), ForeignKey("staff.id", ondelete="SET NULL"), nullable=True)
+    # A signed contract this todo is about, and what it asks: put it on a claim
+    # (assign_claim) or sign for the company (company_signature). Doing that finishes the todo
+    contract_id = Column(UUIDType(), ForeignKey("contract_instances.id", ondelete="CASCADE"), nullable=True, index=True)
+    contract_task = Column(String(30))
     title = Column(String(500), nullable=False)
     description = Column(Text)
     priority = Column(String(20), default="normal")  # low | normal | high | urgent

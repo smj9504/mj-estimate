@@ -47,6 +47,7 @@ const ClientDetail = lazyWithRetry(() => import('./pages/ClientDetail'));
 const ContractTemplateManagement = lazyWithRetry(() => import('./pages/ContractTemplateManagement'));
 const ContractSigning = lazyWithRetry(() => import('./pages/ContractSigning'));
 const FieldContractSigning = lazyWithRetry(() => import('./pages/FieldContractSigning'));
+const OnsiteSigning = lazyWithRetry(() => import('./pages/OnsiteSigning'));
 
 // Dashboard Pages
 const RoleBasedDashboard = lazyWithRetry(() => import('./pages/RoleBasedDashboard'));
@@ -311,6 +312,18 @@ const router = createBrowserRouter([
       </ProtectedRoute>
     )
   },
+  {
+    path: "/onsite-signing",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <OnsiteSigning />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
   // Hidden from the menus for now (Todos took its place); the route stays for later
   {
     path: "/dashboard",
@@ -469,13 +482,15 @@ const router = createBrowserRouter([
       </Suspense>
     )
   },
-  // Public field contract signing page (NO auth required, iPad optimized)
+  // Field contract signing page (iPad optimized, no app shell)
   {
     path: "/field-sign",
     element: (
-      <Suspense fallback={<PageLoader />}>
-        <FieldContractSigning />
-      </Suspense>
+      <ProtectedRoute>
+        <Suspense fallback={<PageLoader />}>
+          <FieldContractSigning />
+        </Suspense>
+      </ProtectedRoute>
     )
   },
   // Regular user routes

@@ -27,7 +27,7 @@ export function usePdfRenderer() {
     setLoading(true);
     try {
       const baseURL = publicApi.defaults.baseURL || '';
-      const fullUrl = pdfUrl.startsWith('http') ? pdfUrl : `${baseURL}${pdfUrl}`;
+      const fullUrl = /^(https?:|blob:)/.test(pdfUrl) ? pdfUrl : `${baseURL}${pdfUrl}`;
       const res = await fetch(fullUrl);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const buffer = await res.arrayBuffer();

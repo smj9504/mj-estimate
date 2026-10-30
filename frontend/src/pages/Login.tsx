@@ -23,7 +23,8 @@ const Login: React.FC = () => {
       const storedUser = localStorage.getItem('auth_user');
       if (storedUser) {
         const userData = JSON.parse(storedUser);
-        if (userData.role === 'contractor') {
+        // Someone given a home screen goes there instead
+        if (userData.role === 'contractor' && !userData.home_screen) {
           navigate('/contractor-portal', { replace: true });
           return;
         }

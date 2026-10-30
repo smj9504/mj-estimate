@@ -5,10 +5,13 @@ Contract admin API endpoints (requires authentication)
 import logging
 import os
 import uuid
-from typing import Optional
+from datetime import datetime
+from typing import Dict, Literal, Optional
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Form
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile, Form
 from pathlib import Path
+from pydantic import BaseModel
 
 from app.core.database_factory import get_db_session as get_db
 from app.domains.auth.company_scope import (
@@ -18,7 +21,10 @@ from app.domains.auth.company_scope import (
     require_document,
 )
 from app.domains.auth.dependencies import get_current_staff
+from app.domains.client.models import Claim
 from app.domains.contract.models import ClaimCompany, ContractInstance
+from app.domains.contract.onsite_signing import SIGNING_PURPOSES
+from app.domains.contract.signature_lines import COMPANY_ROLE
 from app.domains.staff.models import Staff
 from app.domains.contract.schemas import (
     ContractTemplateCreate,
@@ -86,12 +92,16 @@ async def create_template(
     description: str = Form(None),
     requires_signature: bool = Form(True),
     signature_roles: str = Form('["homeowner"]'),
+    signing_purpose: str = Form(None),
     file: UploadFile = File(...),
     service: ContractTemplateService = Depends(_get_template_service),
     current_staff: Staff = Depends(get_current_staff),
 ):
     """Create a contract template with PDF upload"""
     try:
+        if signing_purpose and signing_purpose not in SIGNING_PURPOSES:
+            raise HTTPException(status_code=400, detail="Unknown signing purpose")
+
         # Validate file type
         if not file.filename.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail="Only PDF files are allowed")
@@ -117,6 +127,7 @@ async def create_template(
             'description': description,
             'requires_signature': requires_signature,
             'signature_roles': signature_roles,
+            'signing_purpose': signing_purpose or None,
             'file_url': storage_info["file_path"],
             'file_name': file.filename,
             'file_size': storage_info["file_size"],
@@ -228,6 +239,128 @@ def delete_template(
 # ============================================================
 # Contract Instances (under claim)
 # ============================================================
+
+@router.get("/clients/{client_id}/unassigned")
+def list_unassigned_contracts(
+    client_id: str,
+    service: ContractInstanceService = Depends(_get_instance_service),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
+):
+    """Signed contracts of this client's waiting to be put on a claim"""
+    require_client(db, current_staff, client_id)
+    contracts = service.unassigned_for_client(client_id)
+    return {"contracts": contracts, "total": len(contracts)}
+
+
+class ContractClaimAssign(BaseModel):
+    claim_id: UUID
+
+
+@router.put("/contracts/{contract_id}/claim")
+def assign_contract_to_claim(
+    contract_id: str,
+    data: ContractClaimAssign,
+    service: ContractInstanceService = Depends(_get_instance_service),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
+):
+    """Put a contract on one of its client's claims"""
+    require_document(db, current_staff, ContractInstance, contract_id, "Contract")
+    require_claim(db, current_staff, data.claim_id)
+    contract = db.query(ContractInstance).filter(ContractInstance.id == contract_id).first()
+    claim = db.query(Claim).filter(Claim.id == str(data.claim_id)).first()
+    if not contract or not claim:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    if not contract.client_id or str(contract.client_id) != str(claim.client_id):
+        raise HTTPException(status_code=400, detail="That claim belongs to a different client")
+    return service.assign_to_claim(contract_id, str(data.claim_id))
+
+
+class CompanySignatureCreate(BaseModel):
+    # Line id -> signature or initials image (data URL), or the date for date_signed
+    signature_fields: Dict[str, str]
+    signature_type: Literal['drawn', 'typed'] = 'drawn'
+    # The device's date, so an evening signing isn't dated tomorrow (UTC)
+    today: Optional[str] = None
+    consent_agreed: bool = False
+    consent_text: Optional[str] = None
+
+
+@router.post("/contracts/{contract_id}/company-signature")
+def add_company_signature(
+    contract_id: str,
+    data: CompanySignatureCreate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    service: ContractInstanceService = Depends(_get_instance_service),
+    current_staff: Staff = Depends(get_current_staff),
+    db=Depends(get_db),
+):
+    """Sign the company's lines a customer's signature left open. Only someone at
+    the company that issued the contract can, under their own name."""
+    from app.domains.contract.onsite_signing_api import _signature_fields, _today
+    from app.domains.contract.signing_api import _send_signed_notification
+
+    require_document(db, current_staff, ContractInstance, contract_id, "Contract")
+    contract = service.get_by_id_enriched(contract_id)
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    allowed = company_ids(db, current_staff)
+    if allowed is not None and str(contract['company_id']) not in allowed:
+        raise HTTPException(status_code=403, detail="Only someone at the issuing company can sign for it")
+    if not data.consent_agreed:
+        raise HTTPException(status_code=400, detail="You must agree to sign electronically")
+
+    lines = contract['open_company_lines']
+    if not lines:
+        raise HTTPException(status_code=409, detail="This contract isn't waiting on the company")
+    signatures = _signature_fields(lines, data.signature_fields, _today(data.today))
+    marks = [line for line in lines if line['fieldType'] != 'date_signed']
+    marks.sort(key=lambda line: line['fieldType'] != 'signature')
+
+    staff_row = db.query(Staff.first_name, Staff.last_name, Staff.username, Staff.email).filter(
+        Staff.id == str(current_staff.id)
+    ).first()
+    signer_name = f"{staff_row[0] or ''} {staff_row[1] or ''}".strip() or staff_row[2]
+    ip = request.client.host if request.client else None
+    user_agent = request.headers.get('user-agent', '')
+
+    try:
+        signed = service.add_company_signature(
+            contract_id,
+            {
+                'signer_name': signer_name,
+                'signer_role': COMPANY_ROLE,
+                'signature_image': signatures[marks[0]['id']],
+                'signature_type': data.signature_type,
+                'signed_at': datetime.utcnow(),
+                'ip_address': ip,
+                'user_agent': user_agent,
+                'consent_agreed': True,
+                'consent_text': data.consent_text,
+            },
+            signatures,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    if not signed:
+        raise HTTPException(status_code=500, detail="Couldn't add the signature to the PDF, so nothing was saved")
+
+    service.append_audit_log(
+        contract_id, action='signed', ip=ip, user_agent=user_agent,
+        detail={
+            'signer_name': signer_name,
+            'signer_role': COMPANY_ROLE,
+            'signature_type': data.signature_type,
+            'consent_agreed': True,
+        },
+        actor_name=signer_name,
+        actor_email=staff_row[3],
+    )
+    background_tasks.add_task(_send_signed_notification, service, signed['signing_token'], signer_name)
+    return signed
+
 
 @router.get("/claims/{claim_id}/contracts")
 def list_contracts(

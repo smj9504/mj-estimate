@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { EditOutlined } from '@ant-design/icons';
+import { humanize } from '../common/ui';
 import type { SignatureFieldPlacement } from '../../types/contract';
 
 const FIELD_TYPE_LABELS: Record<string, string> = {
@@ -31,7 +32,12 @@ const ContractSignatureOverlay: React.FC<Props> = ({
   const height = field.height * containerHeight;
 
   const isSig = field.fieldType === 'signature' || field.fieldType === 'initial';
-  const label = FIELD_TYPE_LABELS[field.fieldType] || field.label;
+  // Someone else's line says whose it is, rather than asking whoever holds the device to sign
+  const label = isSig && field.signerRole && field.signerRole !== 'homeowner'
+    ? humanize(field.signerRole)
+    : FIELD_TYPE_LABELS[field.fieldType] || field.label;
+  // A narrow initials box on a phone only has room for the word
+  const compact = width < 72;
 
   return (
     <div
@@ -54,7 +60,7 @@ const ContractSignatureOverlay: React.FC<Props> = ({
       }}
       onClick={disabled ? undefined : onClick}
     >
-      {capturedImage ? (
+      {capturedImage && isSig ? (
         <img
           src={capturedImage}
           alt="Signature"
@@ -64,13 +70,27 @@ const ContractSignatureOverlay: React.FC<Props> = ({
             objectFit: 'contain',
           }}
         />
+      ) : capturedImage ? (
+        <span style={{ fontSize: 12, color: '#37352f', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+          {capturedImage}
+        </span>
       ) : (
-        <div style={{ textAlign: 'center', padding: 4 }}>
-          {isSig && <EditOutlined style={{ fontSize: 16, color: '#f5222d', display: 'block', marginBottom: 2 }} />}
-          <span style={{ fontSize: 11, color: '#f5222d', fontWeight: 500 }}>
-            {label}
-          </span>
-        </div>
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: '0 4px',
+            fontSize: 11,
+            lineHeight: 1,
+            color: '#f5222d',
+            fontWeight: 500,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {isSig && !compact && <EditOutlined style={{ fontSize: 12 }} aria-hidden="true" />}
+          {compact && field.fieldType === 'initial' ? 'Initial' : label}
+        </span>
       )}
     </div>
   );

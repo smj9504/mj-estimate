@@ -108,7 +108,10 @@ class Staff(Base):
     # Screens this person may open, as screen keys (see auth/screen_access.py).
     # NULL = follow the role's defaults in role_screen_access.
     screen_access = Column(JSON, nullable=True)
-    
+
+    # What "/" opens for this person: 'todos' or a screen key. NULL = the todo board.
+    home_screen = Column(String(50), nullable=True)
+
     # Preferences
     timezone = Column(String(100), default="UTC")
     language = Column(String(10), default="en")

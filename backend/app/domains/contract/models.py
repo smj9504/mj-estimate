@@ -57,6 +57,10 @@ class ContractTemplate(Base, BaseModel):
     # Field mapping config (JSON: array of field placement objects)
     field_mappings = Column(Text)
 
+    # Which card it shows under on the On-site Signing screen; NULL keeps it off
+    # that screen. Values: SIGNING_PURPOSES in contract/onsite_signing.py
+    signing_purpose = Column(String(50))
+
     is_active = Column(Boolean, default=True)
     version = Column(Integer, default=1)
 
@@ -177,6 +181,10 @@ class ContractSignature(Base, BaseModel):
 
     # Document integrity
     document_hash = Column(String(128))
+
+    # JSON list of the template lines this signature filled. NULL on signatures
+    # from before this was recorded, when any line may have taken the last mark
+    signed_field_ids = Column(Text)
 
     # Relationship
     contract_instance = relationship("ContractInstance", back_populates="signatures")

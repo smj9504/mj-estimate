@@ -1,0 +1,320 @@
+/* ============================================================
+   On-site signing: a one-thumb flow on a phone, handed to the
+   customer at the end. One column on the white sheet.
+   ============================================================ */
+
+.os-page {
+  max-width: 560px;
+}
+.os-page--wide {
+  max-width: 760px;
+}
+
+.os-lead {
+  margin: 0 0 12px;
+  color: var(--color-neutral-700);
+}
+.os-trail {
+  color: var(--color-neutral-600);
+}
+
+/* Purpose cards */
+.os-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.os-card {
+  display: block;
+  width: 100%;
+  min-height: 88px;
+  padding: 16px;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-neutral-900);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) {
+  .os-card:hover {
+    border-color: var(--color-neutral-400);
+    box-shadow: 0 1px 2px rgba(15, 15, 15, 0.06);
+  }
+  .os-row:hover,
+  .os-review-row:hover {
+    background: rgba(55, 53, 47, 0.03);
+  }
+}
+.os-card:active {
+  background: rgba(55, 53, 47, 0.04);
+}
+.os-card-title {
+  display: block;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.os-card-text {
+  display: block;
+  margin-top: 2px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--color-neutral-600);
+}
+
+/* Records to pick from: clients, companies, documents */
+.os-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.os-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+  background: none;
+  color: var(--color-neutral-900);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.os-row:active {
+  background: rgba(55, 53, 47, 0.06);
+}
+.os-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.os-row-title {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.os-row-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-neutral-600);
+  overflow-wrap: anywhere;
+}
+.os-row-go {
+  flex: none;
+  font-size: 12px;
+  color: var(--color-placeholder);
+}
+.os-card:focus-visible,
+.os-row:focus-visible,
+.os-review-row:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+}
+
+.os-empty {
+  padding: 12px 0;
+  color: var(--color-neutral-700);
+}
+.os-empty strong {
+  display: block;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+
+.os-search {
+  margin-bottom: 12px;
+}
+.os-address {
+  margin-top: 24px;
+}
+.os-address-toggle {
+  margin-top: 16px;
+}
+/* The address box is an Input inside an AutoComplete, which resets its size;
+   below 16px iOS also zooms the page when it takes focus */
+.os-page .ant-select-auto-complete .ant-input-affix-wrapper {
+  min-height: 45px;
+  font-size: inherit;
+}
+.os-page .ant-select-auto-complete .ant-input {
+  font-size: inherit;
+}
+.os-address-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* A label over its control */
+.os-field {
+  display: block;
+  margin-bottom: 16px;
+}
+.os-field-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--color-neutral-700);
+}
+.os-control {
+  width: 100%;
+}
+
+.os-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Back on the left, the way forward on the right, directly under the work so
+   the keyboard never covers it */
+.os-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.os-actions-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Review of what was entered */
+.os-review {
+  border-top: 1px solid var(--color-neutral-200);
+}
+.os-review-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+  background: none;
+  color: var(--color-neutral-900);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.os-review-label {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.os-review-value {
+  overflow-wrap: anywhere;
+}
+
+.os-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-neutral-700);
+}
+.os-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--tag-red-bg);
+  color: var(--tag-red-text);
+}
+.os-warning {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--tag-orange-bg);
+  color: var(--tag-orange-text);
+}
+
+/* The document, then what the customer does about it */
+.os-pdf-page {
+  position: relative;
+  margin-bottom: 12px;
+  overflow: hidden;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 4px;
+}
+.os-pdf-page img {
+  display: block;
+  width: 100%;
+}
+.os-sign {
+  margin-top: 24px;
+}
+.os-sign-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.os-sign-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.os-sign-image {
+  flex: none;
+  width: 96px;
+  height: 40px;
+  object-fit: contain;
+}
+.os-signer {
+  margin-top: 16px;
+}
+.os-consent {
+  margin-top: 4px;
+}
+
+/* Done */
+.os-done-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.os-email {
+  margin-top: 28px;
+}
+.os-email-row {
+  display: flex;
+  gap: 8px;
+}
+.os-email-row .ant-input-affix-wrapper,
+.os-email-row .ant-input {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 767px) {
+  /* The way forward takes the width that's left, within reach of a thumb */
+  .os-actions-end {
+    flex: 1;
+    justify-content: flex-end;
+  }
+  .os-actions-end .ant-btn {
+    flex: 1;
+  }
+  .os-done-actions .ant-btn {
+    flex: 1 1 100%;
+  }
+}

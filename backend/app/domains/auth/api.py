@@ -175,6 +175,7 @@ def login(
         "screens": screen_access.effective_screens(db, staff),
         "company_ids": staff.company_ids,
         "all_companies": bool(staff.all_companies),
+        "home_screen": staff.home_screen,
         "must_change_password": bool(staff.must_change_password),
     }
 

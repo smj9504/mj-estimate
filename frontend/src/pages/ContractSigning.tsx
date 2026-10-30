@@ -37,7 +37,9 @@ import { publicApi } from '../services/api';
 import type { ContractViewData, SignatureFieldPlacement, SignerEditableField } from '../types/contract';
 import WMSignaturePad from '../components/water-mitigation/pdf-annotator/WMSignaturePad';
 import ContractSignatureOverlay from '../components/contract/ContractSignatureOverlay';
+import { initialsOf, lineLabel, requiredCustomerLines, slotOf } from '../components/contract/signatureLines';
 import { usePdfRenderer } from '../components/contract/usePdfRenderer';
+import { humanize } from '../components/common/ui';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -154,6 +156,25 @@ const SendCopyCard: React.FC<{ token: string; clientEmail?: string }> = ({ token
   );
 };
 
+// ── Signer's Name ─────────────────────────────────────────────────────────────
+
+const SignerNameField: React.FC<{ value: string; onChange: (name: string) => void }> = ({ value, onChange }) => (
+  <div style={{ marginBottom: 16 }}>
+    <label htmlFor="signer-name" style={{ display: 'block', fontSize: 14, marginBottom: 4 }}>
+      Your full name
+    </label>
+    <Input
+      id="signer-name"
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      placeholder="Enter your full legal name"
+      autoComplete="name"
+      maxLength={255}
+      style={{ height: 48, fontSize: 16, borderRadius: 6 }}
+    />
+  </div>
+);
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const ContractSigning: React.FC = () => {
@@ -161,13 +182,11 @@ const ContractSigning: React.FC = () => {
   const [sigPadOpen, setSigPadOpen] = useState(false);
   const [activeFieldId, setActiveFieldId] = useState<string | null>(null);
   const [signerName, setSignerName] = useState('');
-  const [nameError, setNameError] = useState<string | undefined>(undefined);
   const [sigSuccess, setSigSuccess] = useState(false);
   // Map of fieldId -> captured signature/initial image (base64)
   const [capturedSignatures, setCapturedSignatures] = useState<Record<string, string>>({});
-  // Remember last drawn signature/initial for reuse
-  const [lastSignatureImage, setLastSignatureImage] = useState<string | null>(null);
-  const [lastInitialImage, setLastInitialImage] = useState<string | null>(null);
+  // The last mark per signer and kind, so later lines reuse a person's own and nobody else's
+  const [lastMarks, setLastMarks] = useState<Record<string, string>>({});
   const [consentChecked, setConsentChecked] = useState(false);
   // Signer-editable field values
   const [signerFieldValues, setSignerFieldValues] = useState<Record<string, string>>({});
@@ -193,6 +212,14 @@ const ContractSigning: React.FC = () => {
   const sigFields = contract?.signature_fields || [];
   const signerEditableFields = contract?.signer_editable_fields || [];
   const hasPositionedFields = sigFields.length > 0;
+  const requiredSigFields = requiredCustomerLines(sigFields);
+  // Lines this person needn't sign, in case that signer is with them
+  const otherSigners = [...new Set(
+    sigFields
+      .filter(f => f.fieldType !== 'date_signed' && !requiredSigFields.includes(f))
+      .map(f => humanize(f.signerRole))
+  )];
+  const activeField = sigFields.find(f => f.id === activeFieldId);
 
   // Initialize signer field values from contract data
   useEffect(() => {
@@ -253,7 +280,6 @@ const ContractSigning: React.FC = () => {
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
   const handleFieldClick = (fieldId: string) => {
-    setNameError(undefined);
     const field = sigFields.find(f => f.id === fieldId);
     if (field?.fieldType === 'date_signed') {
       const today = new Date().toLocaleDateString('en-US', {
@@ -269,10 +295,8 @@ const ContractSigning: React.FC = () => {
       setSigPadOpen(true);
       return;
     }
-    // Reuse previous signature/initial if already drawn
-    const previousImage = field?.fieldType === 'initial'
-      ? lastInitialImage
-      : lastSignatureImage;
+    // Reuse this signer's own signature/initial if already drawn
+    const previousImage = field && lastMarks[slotOf(field)];
     if (previousImage) {
       setCapturedSignatures(prev => ({ ...prev, [fieldId]: previousImage }));
       return;
@@ -289,13 +313,9 @@ const ContractSigning: React.FC = () => {
   ) => {
     setSigPadOpen(false);
     if (activeFieldId) {
-      // Remember for reuse on same-type fields
+      // Remember for reuse on this signer's other lines of the same kind
       const field = sigFields.find(f => f.id === activeFieldId);
-      if (field?.fieldType === 'initial') {
-        setLastInitialImage(imageData);
-      } else {
-        setLastSignatureImage(imageData);
-      }
+      if (field) setLastMarks(prev => ({ ...prev, [slotOf(field)]: imageData }));
       setCapturedSignatures(prev => ({
         ...prev,
         [activeFieldId]: imageData,
@@ -306,7 +326,6 @@ const ContractSigning: React.FC = () => {
 
   // Legacy: single-signature flow (no positioned fields)
   const handleLegacySignClick = () => {
-    setNameError(undefined);
     setActiveFieldId(null);
     setSigPadOpen(true);
   };
@@ -322,17 +341,14 @@ const ContractSigning: React.FC = () => {
 
   const handleSubmitAll = () => {
     // Check all required signature/initial fields are filled
-    const requiredFields = sigFields.filter(
-      f => f.fieldType === 'signature' || f.fieldType === 'initial'
-    );
-    const missing = requiredFields.filter(f => !capturedSignatures[f.id]);
+    const missing = requiredSigFields.filter(f => !capturedSignatures[f.id]);
     if (missing.length > 0) {
       message.warning(`Please complete all ${missing.length} signature/initial field(s).`);
       return;
     }
 
-    // Use first signature image as the primary
-    const firstSig = requiredFields.find(f => f.fieldType === 'signature' && capturedSignatures[f.id]);
+    // The signer's own first signature is the primary
+    const firstSig = requiredSigFields.find(f => f.fieldType === 'signature') ?? requiredSigFields[0];
     const primaryImage = firstSig
       ? capturedSignatures[firstSig.id]
       : Object.values(capturedSignatures)[0] || '';
@@ -394,7 +410,7 @@ const ContractSigning: React.FC = () => {
           <CheckCircleFilled style={{ fontSize: 72, color: '#52c41a', marginBottom: 16 }} />
           <Title level={2} style={{ color: '#262626' }}>Document Signed</Title>
           <Paragraph type="secondary" style={{ fontSize: 16, maxWidth: 400, margin: '0 auto' }}>
-            Thank you, <strong>{signerName}</strong>. Your signature has been recorded successfully.
+            Thank you, <strong>{signerName.trim()}</strong>. Your signature has been recorded successfully.
           </Paragraph>
           {contract.company_name && (
             <Paragraph type="secondary" style={{ marginTop: 12 }}>
@@ -411,8 +427,14 @@ const ContractSigning: React.FC = () => {
   const documentTypeLabel = DOCUMENT_TYPE_LABELS[contract.document_type ?? ''] ?? contract.document_type ?? '';
 
   // Count completed signature fields
-  const requiredSigFields = sigFields.filter(f => f.fieldType === 'signature' || f.fieldType === 'initial');
   const completedCount = requiredSigFields.filter(f => capturedSignatures[f.id]).length;
+
+  // The Type tab starts from the name, but only on the person's own lines
+  const padName = (() => {
+    if (!activeField) return signerName;
+    if (!requiredSigFields.includes(activeField)) return '';
+    return activeField.fieldType === 'initial' ? initialsOf(signerName) : signerName;
+  })();
 
   return (
     <PageShell>
@@ -458,7 +480,7 @@ const ContractSigning: React.FC = () => {
                 {contract.existing_signatures.map((sig, i) => (
                   <div key={i} style={{ marginBottom: 4 }}>
                     <strong>{sig.signer_name}</strong>
-                    {sig.signer_role && ` (${sig.signer_role})`} —{' '}
+                    {sig.signer_role && ` (${humanize(sig.signer_role)})`} —{' '}
                     <Text type="secondary">{formatDate(sig.signed_at)}</Text>
                   </div>
                 ))}
@@ -623,9 +645,15 @@ const ContractSigning: React.FC = () => {
           <Paragraph type="secondary" style={{ marginBottom: 12 }}>
             Click on each signature/initial field on the document above, then submit.
           </Paragraph>
+          {otherSigners.length > 0 && (
+            <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+              Lines marked {otherSigners.join(' or ')} aren&apos;t yours to sign. Leave them blank unless that person is with you.
+            </Paragraph>
+          )}
           {signMutation.isError && (
             <Alert type="error" message="Signing failed. Please try again." style={{ marginBottom: 16, borderRadius: 8 }} closable />
           )}
+          <SignerNameField value={signerName} onChange={setSignerName} />
           <div style={{ marginBottom: 16, padding: '12px 16px', background: '#fafafa', borderRadius: 8, border: '1px solid #e8e8e8' }}>
             <Checkbox
               checked={consentChecked}
@@ -643,7 +671,7 @@ const ContractSigning: React.FC = () => {
             icon={<EditOutlined />}
             onClick={handleSubmitAll}
             loading={signMutation.isPending}
-            disabled={completedCount < requiredSigFields.length || !consentChecked}
+            disabled={completedCount < requiredSigFields.length || !signerName.trim() || !consentChecked}
             block
             style={{ height: 52, borderRadius: 8, fontSize: 16, fontWeight: 600 }}
           >
@@ -663,6 +691,7 @@ const ContractSigning: React.FC = () => {
           {signMutation.isError && (
             <Alert type="error" message="Signing failed. Please try again." style={{ marginBottom: 16, borderRadius: 8 }} closable />
           )}
+          <SignerNameField value={signerName} onChange={setSignerName} />
           <div style={{ marginBottom: 16, padding: '12px 16px', background: '#fafafa', borderRadius: 8, border: '1px solid #e8e8e8' }}>
             <Checkbox
               checked={consentChecked}
@@ -680,7 +709,7 @@ const ContractSigning: React.FC = () => {
             icon={<EditOutlined />}
             onClick={handleLegacySignClick}
             loading={signMutation.isPending}
-            disabled={!consentChecked}
+            disabled={!signerName.trim() || !consentChecked}
             block
             style={{ height: 52, borderRadius: 8, fontSize: 16, fontWeight: 600, marginTop: 8 }}
           >
@@ -697,9 +726,10 @@ const ContractSigning: React.FC = () => {
       {/* ── Signature Pad Modal ── */}
       <WMSignaturePad
         open={sigPadOpen}
+        title={activeField ? lineLabel(activeField) : undefined}
         onClose={() => { setSigPadOpen(false); setActiveFieldId(null); }}
         onSave={hasPositionedFields ? handleSignatureSave : handleLegacySignatureSave}
-        defaultName={signerName}
+        defaultName={padName}
         initialImage={activeFieldId ? capturedSignatures[activeFieldId] : undefined}
       />
     </PageShell>

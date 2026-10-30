@@ -310,6 +310,11 @@
   color: var(--color-neutral-900);
 }
 
+.message-row-link {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 13px;
+}
 .message-row-body.is-reply {
   color: var(--color-neutral-700);
   font-style: italic;

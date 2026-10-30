@@ -12,7 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 import ScreenChecklist from '../components/admin/ScreenChecklist';
 import ResetPasswordModal from '../components/admin/ResetPasswordModal';
 import CompanyMultiSelect, { useCompanyOptions } from '../components/company/CompanyMultiSelect';
-import { ALL_SCREEN_KEYS } from '../constants/screens';
+import { ALL_SCREEN_KEYS, HOME_CHOICES, HOME_TODOS } from '../constants/screens';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -54,6 +54,7 @@ interface User {
   must_change_password?: boolean;
   company_ids?: string[];
   all_companies?: boolean;
+  home_screen?: string | null;
 }
 
 const UserManagement: React.FC = () => {
@@ -151,6 +152,7 @@ const UserManagement: React.FC = () => {
       role: user.role,
       company_ids: user.company_ids ?? [],
       all_companies: !!user.all_companies,
+      home_screen: user.home_screen || HOME_TODOS,
       is_active: user.is_active,
       can_login: user.can_login
     });
@@ -177,11 +179,12 @@ const UserManagement: React.FC = () => {
           ...values,
           hire_date: new Date().toISOString()
         });
-        if (screen_access || values.company_ids?.length || values.all_companies) {
+        if (screen_access || values.company_ids?.length || values.all_companies || values.home_screen) {
           await authService.updateUser(created.id, {
             ...(screen_access ? { screen_access } : {}),
             company_ids: values.company_ids ?? [],
             all_companies: !!values.all_companies,
+            home_screen: values.home_screen,
           });
         }
         message.success('User created successfully');
@@ -583,6 +586,19 @@ const UserManagement: React.FC = () => {
                 />
               </Form.Item>
             </Space>
+          </Form.Item>
+
+          <Form.Item
+            name="home_screen"
+            label="Home screen"
+            initialValue={HOME_TODOS}
+            extra="What opens first when they start the app. They can change it in their profile. If they can't open it, they get Todos."
+          >
+            <Select
+              showSearch
+              optionFilterProp="label"
+              options={HOME_CHOICES.map(c => ({ value: c.key, label: c.label }))}
+            />
           </Form.Item>
 
           <Divider orientation="left" plain>Screens</Divider>

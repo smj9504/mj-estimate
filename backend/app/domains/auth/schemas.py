@@ -9,7 +9,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 
 from app.domains.staff.models import StaffRole
 
-from .screen_access import validate_screen_keys
+from .screen_access import validate_home_screen, validate_screen_keys
 
 
 class StaffBase(BaseModel):
@@ -43,6 +43,13 @@ class StaffUpdate(BaseModel):
     company_ids: Optional[List[UUID]] = None
     # Only admin can update: every company, including ones added later
     all_companies: Optional[bool] = None
+    # What "/" opens; a person can set their own, and an admin can set it for them
+    home_screen: Optional[str] = None
+
+    @field_validator("home_screen")
+    @classmethod
+    def _known_home_screen(cls, value):
+        return validate_home_screen(value)
 
     @field_validator("screen_access")
     @classmethod
@@ -96,6 +103,8 @@ class StaffResponse(BaseModel):
     # They belong to every company, including ones added later; company_ids
     # are then where new work of theirs goes by default
     all_companies: bool = False
+    # What "/" opens for them; None is the todo board
+    home_screen: Optional[str] = None
     # An admin reset the password; the app asks for a new one before going on
     must_change_password: Optional[bool] = False
 

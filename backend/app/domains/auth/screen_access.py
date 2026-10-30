@@ -19,6 +19,7 @@ from app.domains.staff.models import RoleScreenAccess, Staff, StaffRole
 # Keep in sync with SCREEN_GROUPS in frontend/src/constants/screens.ts
 SCREEN_KEYS: tuple = (
     # Jobs & Claims
+    "onsite_signing",
     "claims_lifecycle",
     "claim_followup",
     "water_mitigation",
@@ -60,6 +61,9 @@ SCREEN_KEYS: tuple = (
 
 ALL_SCREENS_ROLES = (StaffRole.admin, StaffRole.super_admin)
 
+# The todo board is open to everyone, so it isn't a screen to grant
+HOME_TODOS = "todos"
+
 
 def _session(db):
     return db._session if hasattr(db, "_session") else db
@@ -72,6 +76,13 @@ def validate_screen_keys(screens: Iterable[str]) -> List[str]:
     if unknown:
         raise ValueError(f"Unknown screen keys: {', '.join(sorted(unknown))}")
     return [key for key in SCREEN_KEYS if key in wanted]
+
+
+def validate_home_screen(value: Optional[str]) -> Optional[str]:
+    """What "/" may open: the todo board or any screen. None keeps the todo board."""
+    if value is None or value == HOME_TODOS or value in SCREEN_KEYS:
+        return value
+    raise ValueError(f"Unknown home screen: {value}")
 
 
 def _role_value(role) -> str:

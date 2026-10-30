@@ -9,7 +9,7 @@ import {
   TeamOutlined,
   UserAddOutlined,
 } from '@ant-design/icons';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { ChatMessage, Conversation, messageService } from '../services/messageService';
@@ -174,6 +174,7 @@ const Inbox: React.FC<{
 const MessageRow: React.FC<{ msg: ChatMessage; startsGroup: boolean; myId?: string }> = ({
   msg, startsGroup, myId,
 }) => {
+  const { canAccessPath } = useAuth();
   if (msg.kind === 'notice') {
     return <div className="message-notice">{msg.body} · {shortTime(msg.created_at)}</div>;
   }
@@ -206,6 +207,9 @@ const MessageRow: React.FC<{ msg: ChatMessage; startsGroup: boolean; myId?: stri
           >
             {body}
           </div>
+        )}
+        {msg.related_type === 'client' && msg.related_id && canAccessPath('/clients') && (
+          <Link className="message-row-link" to={`/clients/${msg.related_id}`}>Open client</Link>
         )}
       </div>
     </div>

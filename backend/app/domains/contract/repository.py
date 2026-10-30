@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
+from app.domains.contract.signature_lines import open_company_lines
 from app.domains.contract.models import (
     ClaimCompany,
     ContractInstance,
@@ -125,6 +126,9 @@ class ContractInstanceRepository(SQLAlchemyRepository):
         ).order_by(ContractSignature.signed_at).all()
         d['signatures'] = [self._convert_to_dict(s) for s in sigs]
         d['signature_count'] = len(sigs)
+        d['open_company_lines'] = open_company_lines(
+            d.get('field_mappings'), [s.signed_field_ids for s in sigs]
+        ) if d.get('status') == 'signed' else []
         return d
 
     def create_with_token(self, data: Dict[str, Any], expires_days: int = 30) -> Dict[str, Any]:

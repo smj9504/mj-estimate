@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, validator
 
+from app.domains.contract.onsite_signing import SIGNING_PURPOSES
+
 
 # ============================================================
 # ContractTemplate schemas
@@ -39,7 +41,14 @@ class ContractTemplateUpdate(BaseModel):
     description: Optional[str] = None
     requires_signature: Optional[bool] = None
     signature_roles: Optional[str] = None
+    signing_purpose: Optional[str] = None
     is_active: Optional[bool] = None
+
+    @validator('signing_purpose')
+    def validate_signing_purpose(cls, v):
+        if v is not None and v not in SIGNING_PURPOSES:
+            raise ValueError(f"signing_purpose must be one of {SIGNING_PURPOSES}")
+        return v
 
 
 class ContractTemplateResponse(BaseModel):
@@ -55,6 +64,7 @@ class ContractTemplateResponse(BaseModel):
     requires_signature: bool = True
     signature_roles: Optional[str] = None
     field_mappings: Optional[str] = None  # JSON string
+    signing_purpose: Optional[str] = None
     is_active: bool = True
     version: int = 1
     created_at: Optional[datetime] = None
@@ -162,7 +172,7 @@ class ContractInstanceResponse(BaseModel):
 class SigningRequest(BaseModel):
     """Public signing endpoint request"""
     signer_name: str = Field(
-        "", max_length=255
+        ..., max_length=255
     )
     signer_role: str = Field("homeowner")
     signature_image: str = Field(
@@ -189,6 +199,13 @@ class SigningRequest(BaseModel):
     consent_text: Optional[str] = Field(
         None, description="Consent clause text shown"
     )
+
+    @validator('signer_name')
+    def validate_signer_name(cls, v):
+        name = v.strip()
+        if not name:
+            raise ValueError("signer_name is required")
+        return name
 
     @validator('signer_role')
     def validate_role(cls, v):

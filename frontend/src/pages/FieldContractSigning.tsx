@@ -1,7 +1,7 @@
 /**
  * FieldContractSigning - iPad-optimized field contract signing page.
  *
- * Route: /field-sign (Public, no auth)
+ * Route: /field-sign (signed in; lists only the person's own companies)
  * Flow: Company Select -> Contract List -> Field Edit + PDF + Sign -> Email Send
  */
 
@@ -44,6 +44,7 @@ import type {
 } from '../types/contract';
 import WMSignaturePad from '../components/water-mitigation/pdf-annotator/WMSignaturePad';
 import ContractSignatureOverlay from '../components/contract/ContractSignatureOverlay';
+import { lineLabel, slotOf } from '../components/contract/signatureLines';
 import { usePdfRenderer } from '../components/contract/usePdfRenderer';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 
@@ -557,8 +558,8 @@ const FieldEditSignStep: React.FC<{
   const [signerName, setSignerName] = useState('');
   const [sigSuccess, setSigSuccess] = useState(false);
   const [capturedSignatures, setCapturedSignatures] = useState<Record<string, string>>({});
-  const [lastSignatureImage, setLastSignatureImage] = useState<string | null>(null);
-  const [lastInitialImage, setLastInitialImage] = useState<string | null>(null);
+  // The last mark per signer and kind, so later lines reuse a person's own and nobody else's
+  const [lastMarks, setLastMarks] = useState<Record<string, string>>({});
   const [consentChecked, setConsentChecked] = useState(false);
 
   // PDF
@@ -687,7 +688,7 @@ const FieldEditSignStep: React.FC<{
       setSigPadOpen(true);
       return;
     }
-    const previousImage = field?.fieldType === 'initial' ? lastInitialImage : lastSignatureImage;
+    const previousImage = field && lastMarks[slotOf(field)];
     if (previousImage) {
       setCapturedSignatures(prev => ({ ...prev, [fieldId]: previousImage }));
       return;
@@ -700,11 +701,7 @@ const FieldEditSignStep: React.FC<{
     setSigPadOpen(false);
     if (activeFieldId) {
       const field = sigFields.find(f => f.id === activeFieldId);
-      if (field?.fieldType === 'initial') {
-        setLastInitialImage(imageData);
-      } else {
-        setLastSignatureImage(imageData);
-      }
+      if (field) setLastMarks(prev => ({ ...prev, [slotOf(field)]: imageData }));
       setCapturedSignatures(prev => ({ ...prev, [activeFieldId]: imageData }));
       setActiveFieldId(null);
     }
@@ -766,6 +763,7 @@ const FieldEditSignStep: React.FC<{
 
   const requiredSigFields = sigFields.filter(f => f.fieldType === 'signature' || f.fieldType === 'initial');
   const completedCount = requiredSigFields.filter(f => capturedSignatures[f.id]).length;
+  const activeField = sigFields.find(f => f.id === activeFieldId);
 
   return (
     <>
@@ -953,6 +951,7 @@ const FieldEditSignStep: React.FC<{
       {/* Signature Pad Modal */}
       <WMSignaturePad
         open={sigPadOpen}
+        title={activeField ? lineLabel(activeField) : undefined}
         onClose={() => { setSigPadOpen(false); setActiveFieldId(null); }}
         onSave={handleSignatureSave}
       />

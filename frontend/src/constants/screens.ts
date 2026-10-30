@@ -24,6 +24,7 @@ export const SCREEN_GROUPS: ScreenGroup[] = [
   {
     label: 'Jobs & Claims',
     screens: [
+      { key: 'onsite_signing', label: 'On-site Signing', paths: ['/onsite-signing'] },
       { key: 'claims_lifecycle', label: 'Claims Dashboard', paths: ['/claims-lifecycle'] },
       { key: 'claim_followup', label: 'Follow-up', paths: ['/claim-followup'] },
       { key: 'water_mitigation', label: 'Water Mitigation', paths: ['/water-mitigation'] },
@@ -127,4 +128,28 @@ export function opensScreen(granted: string[], screen: string): boolean {
 export function hasLimitedScreen(granted: string[] | undefined, screen: string): boolean {
   if (!granted || granted.includes(screen)) return false;
   return LIMITED_GRANTS.some(g => g.limits === screen && granted.includes(g.key));
+}
+
+// ── What "/" opens ─────────────────────────────────
+
+export const HOME_TODOS = 'todos';
+
+export interface HomeChoice {
+  key: string;
+  label: string;
+  path: string;
+}
+
+/** The todo board, then every screen with a page of its own. Keys match validate_home_screen on the backend. */
+export const HOME_CHOICES: HomeChoice[] = [
+  { key: HOME_TODOS, label: 'Todos', path: '/todos' },
+  ...SCREEN_GROUPS.flatMap(g => g.screens)
+    .filter(s => s.paths.length > 0)
+    .map(s => ({ key: s.key, label: s.label, path: s.paths[0] })),
+];
+
+/** Where "/" takes this person; a screen they can no longer open falls back to the todo board */
+export function homePath(homeScreen: string | null | undefined, canOpen: (path: string) => boolean): string {
+  const choice = HOME_CHOICES.find(c => c.key === homeScreen);
+  return choice && canOpen(choice.path) ? choice.path : '/todos';
 }

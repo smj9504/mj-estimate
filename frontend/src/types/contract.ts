@@ -15,6 +15,22 @@ export type DocumentType =
   | 'change_order'
   | 'other';
 
+export type SigningPurpose = 'water_mitigation' | 'work_completion';
+
+// Keep in sync with SIGNING_PURPOSES in backend/app/domains/contract/onsite_signing.py
+export const SIGNING_PURPOSES: { value: SigningPurpose; label: string; description: string }[] = [
+  {
+    value: 'water_mitigation',
+    label: 'Water Mitigation',
+    description: 'Authorization to start, or sign-off when drying is done',
+  },
+  {
+    value: 'work_completion',
+    label: 'Work Completion',
+    description: 'The customer confirms the finished work',
+  },
+];
+
 export interface ContractTemplate {
   id: string;
   company_id: string;
@@ -29,6 +45,8 @@ export interface ContractTemplate {
   requires_signature: boolean;
   signature_roles?: string; // JSON string
   field_mappings?: string; // JSON string
+  /** The card it shows under on the On-site Signing screen; none keeps it off that screen */
+  signing_purpose?: SigningPurpose | null;
   is_active: boolean;
   version: number;
   created_at?: string;
@@ -98,6 +116,8 @@ export interface ContractAuditEntry {
 }
 
 export interface ContractInstance {
+  // The company's lines this signed contract is still waiting on
+  open_company_lines?: SignatureFieldPlacement[];
   id: string;
   template_id: string;
   claim_id: string;
@@ -248,4 +268,52 @@ export interface ClaimContractDashboardData {
   claim_id: string;
   companies: CompanyContractSummary[];
   total_contracts: number;
+}
+
+// ============================================================
+// On-site signing
+// ============================================================
+
+export interface OnsiteCompany {
+  id: string;
+  name: string;
+  templates: { id: string; name: string; document_type: DocumentType }[];
+}
+
+export type OnsiteQuestionKind = 'text' | 'date' | 'address' | 'phone' | 'email';
+
+export interface OnsiteQuestion {
+  key: string;
+  label: string;
+  kind: OnsiteQuestionKind;
+  value: string;
+}
+
+export interface OnsiteAddress {
+  street: string;
+  city?: string;
+  state?: string;
+  zipcode?: string;
+}
+
+export interface OnsiteForm {
+  template_id: string;
+  template_name: string;
+  questions: OnsiteQuestion[];
+  signature_fields: SignatureFieldPlacement[];
+}
+
+export interface OnsiteSignedContract {
+  contract_id: string;
+  contract_number?: string;
+  title?: string;
+  client_id: string;
+  client_name: string;
+  client_created: boolean;
+  client_email: string;
+  pdf_ready: boolean;
+  pdf_url: string;
+  office_notified: boolean;
+  /** Labels of the mapped fields left blank; a copy can only be emailed when there are none */
+  missing_fields: string[];
 }

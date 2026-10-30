@@ -2,8 +2,8 @@ import { defineConfig } from 'vitest/config';
 
 /**
  * Vitest setup for the sketch geometry layer, the bathroom and kitchen estimate helpers,
- * the claim follow-up helpers, the todo board helpers, the screen catalog
- * and the shared utils.
+ * the claim follow-up helpers, the todo board helpers, the screen catalog,
+ * the contract signature lines and the shared utils.
  *
  * Deliberately narrow for now. Two constraints shape this config:
  *
@@ -28,6 +28,7 @@ export default defineConfig({
     include: [
       'src/components/**/sketch/**/*.test.ts',
       'src/components/bathroom-estimate/**/*.test.ts',
+      'src/components/contract/**/*.test.ts',
       'src/components/cabinet-estimate/**/*.test.ts',
       'src/components/claim-followup/**/*.test.ts',
       'src/components/todo/**/*.test.ts',

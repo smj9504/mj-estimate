@@ -1,5 +1,7 @@
 """
-Field Signing API - Public (no auth) endpoints for iPad field signing flow.
+Field Signing API - Signed-in endpoints for the iPad field signing flow. Everyone
+sees only their own companies, as on On-site Signing. The customer's signature
+itself goes through the public signing route, by token.
 
 Provides:
 - Company listing (with active templates)
@@ -12,11 +14,16 @@ Provides:
 import json
 import logging
 from datetime import datetime
+from html import escape
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 
+from app.core.database_factory import get_db_session as get_db
+from app.domains.auth.company_scope import company_ids, require_document
+from app.domains.auth.dependencies import get_current_staff
+from app.domains.contract.models import ContractInstance, ContractTemplate
 from app.domains.contract.schemas import SignatureFieldPlacement
 
 logger = logging.getLogger(__name__)
@@ -29,6 +36,21 @@ def _get_services():
     from app.domains.contract.service import ContractInstanceService
     db = get_database()
     return ContractInstanceService(db), db
+
+
+def _require_company(db: Any, staff: Any, company_id: str) -> None:
+    """404 outside this person's companies, as for anything out of their scope"""
+    allowed = company_ids(db, staff)
+    if allowed is not None and str(company_id) not in allowed:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+
+def _require_contract(db: Any, staff: Any, token: str) -> None:
+    """404 unless the token's contract is one this person may see"""
+    row = db.query(ContractInstance.id).filter(ContractInstance.signing_token == token).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    require_document(db, staff, ContractInstance, row[0], "Contract")
 
 
 def _find_company_email_account(company_id):
@@ -74,8 +96,12 @@ class SendEmailRequest(BaseModel):
 
 
 @router.get("/companies")
-def get_companies_with_templates():
-    """List companies that have active contract templates."""
+def get_companies_with_templates(
+    staff: Any = Depends(get_current_staff),
+    scope_db: Any = Depends(get_db),
+):
+    """List this person's companies that have active contract templates."""
+    allowed = company_ids(scope_db, staff)
     try:
         from app.core.database_factory import get_database
         from sqlalchemy import text
@@ -97,6 +123,7 @@ def get_companies_with_templates():
                     "template_count": row[2],
                 }
                 for row in result.fetchall()
+                if allowed is None or str(row[0]) in allowed
             ]
             return {"companies": companies}
         finally:
@@ -107,8 +134,13 @@ def get_companies_with_templates():
 
 
 @router.get("/companies/{company_id}/contracts")
-def get_company_contracts(company_id: str):
+def get_company_contracts(
+    company_id: str,
+    staff: Any = Depends(get_current_staff),
+    db: Any = Depends(get_db),
+):
     """List existing contract instances for a company (for field signing)."""
+    _require_company(db, staff, company_id)
     try:
         service, _ = _get_services()
         contracts = service.get_contracts_by_company_for_field(company_id)
@@ -119,8 +151,13 @@ def get_company_contracts(company_id: str):
 
 
 @router.get("/companies/{company_id}/templates")
-def get_company_templates(company_id: str):
+def get_company_templates(
+    company_id: str,
+    staff: Any = Depends(get_current_staff),
+    db: Any = Depends(get_db),
+):
     """List active contract templates for a company."""
+    _require_company(db, staff, company_id)
     try:
         from app.core.database_factory import get_database
         from app.domains.contract.service import ContractTemplateService
@@ -141,11 +178,22 @@ class FieldContractCreateRequest(BaseModel):
 
 
 @router.post("/create")
-def create_field_contract(data: FieldContractCreateRequest):
+def create_field_contract(
+    data: FieldContractCreateRequest,
+    staff: Any = Depends(get_current_staff),
+    db: Any = Depends(get_db),
+):
     """
     Create a contract instance from a template for field signing.
     Does not require claim_id or client_id — fields are filled on-site.
     """
+    _require_company(db, staff, data.company_id)
+    template = db.query(ContractTemplate.id).filter(
+        ContractTemplate.id == data.template_id,
+        ContractTemplate.company_id == data.company_id,
+    ).first()
+    if template is None:
+        raise HTTPException(status_code=404, detail="Template not found")
     try:
         service, _ = _get_services()
 
@@ -166,11 +214,17 @@ def create_field_contract(data: FieldContractCreateRequest):
 
 
 @router.get("/{token}/view")
-def get_contract_for_field(token: str, request: Request):
+def get_contract_for_field(
+    token: str,
+    request: Request,
+    staff: Any = Depends(get_current_staff),
+    db: Any = Depends(get_db),
+):
     """
     Get contract data for field signing, including prefill_data and field_mappings.
     Similar to signing_api GET /{token} but with extra data for field editing.
     """
+    _require_contract(db, staff, token)
     try:
         service, _ = _get_services()
         contract = service.get_by_token(token)
@@ -273,8 +327,14 @@ def get_contract_for_field(token: str, request: Request):
 
 
 @router.put("/{token}/prefill")
-def update_prefill(token: str, data: PrefillUpdateRequest):
+def update_prefill(
+    token: str,
+    data: PrefillUpdateRequest,
+    staff: Any = Depends(get_current_staff),
+    db: Any = Depends(get_db),
+):
     """Update prefill data and regenerate filled PDF."""
+    _require_contract(db, staff, token)
     try:
         service, _ = _get_services()
         result = service.update_prefill_and_regenerate(token, data.prefill_data)
@@ -287,10 +347,16 @@ def update_prefill(token: str, data: PrefillUpdateRequest):
 
 
 @router.post("/{token}/send-email")
-def send_email_with_template(token: str, data: SendEmailRequest):
+def send_email_with_template(
+    token: str,
+    data: SendEmailRequest,
+    staff: Any = Depends(get_current_staff),
+    db: Any = Depends(get_db),
+):
     """
     Send signed PDF via email using EMAIL_TEMPLATES for document_type-specific content.
     """
+    _require_contract(db, staff, token)
     try:
         emails = [e.strip() for e in data.emails if e.strip() and '@' in e.strip()]
         if not emails:
@@ -301,95 +367,7 @@ def send_email_with_template(token: str, data: SendEmailRequest):
         if not contract:
             raise HTTPException(status_code=404, detail="Contract not found")
 
-        if contract.get('status') != 'signed':
-            raise HTTPException(status_code=400, detail="Contract has not been signed yet")
-
-        # Get signed PDF
-        signed_url = contract.get('signed_pdf_url') or contract.get('filled_pdf_url')
-        signed_provider = contract.get('signed_pdf_provider') or contract.get('filled_pdf_provider')
-        pdf_attachment = None
-        if signed_url:
-            from app.domains.contract.api import _resolve_contract_pdf
-            pdf_bytes = _resolve_contract_pdf(signed_url, signed_provider)
-            if pdf_bytes:
-                title_safe = (contract.get('title') or 'Contract').replace(' ', '_')
-                pdf_attachment = {
-                    'data': pdf_bytes,
-                    'filename': f"{title_safe}_Signed.pdf",
-                    'mime_type': 'application/pdf',
-                }
-
-        if not pdf_attachment:
-            raise HTTPException(status_code=404, detail="Signed PDF not available")
-
-        # Build email using EMAIL_TEMPLATES
-        company = contract.get('company_name', 'Our Company')
-        title = contract.get('title') or contract.get('template_name') or 'Contract'
-        client_name = contract.get('client_name', '')
-        document_type = contract.get('document_type', 'other')
-
-        from app.domains.contract.api import EMAIL_TEMPLATES
-        template = EMAIL_TEMPLATES.get(document_type, EMAIL_TEMPLATES.get('other', {}))
-
-        subject = f"Signed: {title} - {company}"
-        heading = template.get('heading', 'Signed Document')
-
-        body_html = _build_signed_email_html(
-            heading=heading,
-            title=title,
-            company=company,
-            client_name=client_name,
-            company_email=contract.get('company_email', ''),
-            company_phone=contract.get('company_phone', ''),
-        )
-
-        # Send
-        from app.domains.claim_followup.smtp_service import SmtpService
-        from app.core.config import settings
-
-        smtp = SmtpService()
-        company_email = contract.get('company_email', '')
-        company_id = contract.get('company_id')
-        account_id = _find_company_email_account(company_id)
-
-        if account_id:
-            smtp.send(
-                account_id=account_id,
-                from_address=company_email or '',
-                to_addresses=emails,
-                subject=subject,
-                body_html=body_html,
-                skip_signature=True,
-                attachments=[pdf_attachment],
-            )
-        else:
-            smtp_user = getattr(settings, 'SMTP_USER', '')
-            if not smtp_user:
-                raise HTTPException(status_code=500, detail="Email service not configured")
-            smtp.send(
-                account_id=None,
-                from_address=smtp_user,
-                to_addresses=emails,
-                subject=subject,
-                body_html=body_html,
-                reply_to=company_email or smtp_user,
-                skip_signature=True,
-                display_name_override=company,
-                attachments=[pdf_attachment],
-            )
-
-        # Audit: signed copy sent via field-sign
-        try:
-            service.append_audit_log(
-                str(contract['id']),
-                action='sent_copy',
-                detail={
-                    'recipients': emails,
-                    'source': 'field_signing',
-                },
-            )
-        except Exception:
-            pass
+        send_signed_contract(service, contract, emails, source='field_signing')
 
         return {
             "message": f"Signed contract sent to "
@@ -411,6 +389,99 @@ def send_email_with_template(token: str, data: SendEmailRequest):
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def send_signed_contract(service, contract: dict, emails: List[str], source: str) -> None:
+    """Email the signed PDF, with EMAIL_TEMPLATES wording for its document type."""
+    if contract.get('status') != 'signed':
+        raise HTTPException(status_code=400, detail="Contract has not been signed yet")
+
+    # Get signed PDF
+    signed_url = contract.get('signed_pdf_url') or contract.get('filled_pdf_url')
+    signed_provider = contract.get('signed_pdf_provider') or contract.get('filled_pdf_provider')
+    pdf_attachment = None
+    if signed_url:
+        from app.domains.contract.api import _resolve_contract_pdf
+        pdf_bytes = _resolve_contract_pdf(signed_url, signed_provider)
+        if pdf_bytes:
+            title_safe = (contract.get('title') or 'Contract').replace(' ', '_')
+            pdf_attachment = {
+                'data': pdf_bytes,
+                'filename': f"{title_safe}_Signed.pdf",
+                'mime_type': 'application/pdf',
+            }
+
+    if not pdf_attachment:
+        raise HTTPException(status_code=404, detail="Signed PDF not available")
+
+    # Build email using EMAIL_TEMPLATES
+    company = contract.get('company_name', 'Our Company')
+    title = contract.get('title') or contract.get('template_name') or 'Contract'
+    client_name = contract.get('client_name', '')
+    document_type = contract.get('document_type', 'other')
+
+    from app.domains.contract.api import EMAIL_TEMPLATES
+    template = EMAIL_TEMPLATES.get(document_type, EMAIL_TEMPLATES.get('other', {}))
+
+    subject = f"Signed: {title} - {company}"
+    heading = template.get('heading', 'Signed Document')
+
+    body_html = _build_signed_email_html(
+        heading=heading,
+        title=title,
+        company=company,
+        client_name=client_name,
+        company_email=contract.get('company_email', ''),
+        company_phone=contract.get('company_phone', ''),
+    )
+
+    # Send
+    from app.domains.claim_followup.smtp_service import SmtpService
+    from app.core.config import settings
+
+    smtp = SmtpService()
+    company_email = contract.get('company_email', '')
+    company_id = contract.get('company_id')
+    account_id = _find_company_email_account(company_id)
+
+    if account_id:
+        smtp.send(
+            account_id=account_id,
+            from_address=company_email or '',
+            to_addresses=emails,
+            subject=subject,
+            body_html=body_html,
+            skip_signature=True,
+            attachments=[pdf_attachment],
+        )
+    else:
+        smtp_user = getattr(settings, 'SMTP_USER', '')
+        if not smtp_user:
+            raise HTTPException(status_code=500, detail="Email service not configured")
+        smtp.send(
+            account_id=None,
+            from_address=smtp_user,
+            to_addresses=emails,
+            subject=subject,
+            body_html=body_html,
+            reply_to=company_email or smtp_user,
+            skip_signature=True,
+            display_name_override=company,
+            attachments=[pdf_attachment],
+        )
+
+    # Audit: signed copy sent
+    try:
+        service.append_audit_log(
+            str(contract['id']),
+            action='sent_copy',
+            detail={
+                'recipients': emails,
+                'source': source,
+            },
+        )
+    except Exception:
+        pass
 
 
 def _extract_signature_fields(mappings: list) -> list:
@@ -446,6 +517,10 @@ def _build_signed_email_html(
     company_phone: str = '',
 ) -> str:
     """Build HTML email for sending signed contract copy."""
+    heading, title, company, client_name = (
+        escape(v or '') for v in (heading, title, company, client_name)
+    )
+    company_email, company_phone = escape(company_email or ''), escape(company_phone or '')
     contact_parts = []
     if company_email:
         contact_parts.append(company_email)

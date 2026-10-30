@@ -39,7 +39,8 @@ import {
 } from '@ant-design/icons';
 import { contractTemplateService } from '../services/contractService';
 import { companyService } from '../services/companyService';
-import type { ContractTemplate, DocumentType } from '../types/contract';
+import { SIGNING_PURPOSES } from '../types/contract';
+import type { ContractTemplate, DocumentType, SigningPurpose } from '../types/contract';
 import { lazyWithRetry } from '../utils/lazyWithRetry';
 
 const FieldMappingEditor = lazyWithRetry(() => import('../components/contract/FieldMappingEditor'));
@@ -76,6 +77,7 @@ interface TemplateFormValues {
   company_id: string;
   name: string;
   document_type: DocumentType;
+  signing_purpose?: SigningPurpose | null;
   description?: string;
   requires_signature: boolean;
   is_active: boolean;
@@ -184,6 +186,7 @@ const ContractTemplateManagement: React.FC = () => {
       company_id: record.company_id,
       name: record.name,
       document_type: record.document_type,
+      signing_purpose: record.signing_purpose ?? undefined,
       description: record.description,
       requires_signature: record.requires_signature,
       is_active: record.is_active,
@@ -213,6 +216,7 @@ const ContractTemplateManagement: React.FC = () => {
           company_id: values.company_id,
           name: values.name,
           document_type: values.document_type,
+          signing_purpose: values.signing_purpose ?? null,
           description: values.description,
           requires_signature: values.requires_signature,
           is_active: values.is_active,
@@ -229,6 +233,7 @@ const ContractTemplateManagement: React.FC = () => {
       fd.append('company_id', values.company_id);
       fd.append('name', values.name);
       fd.append('document_type', values.document_type);
+      if (values.signing_purpose) fd.append('signing_purpose', values.signing_purpose);
       if (values.description) fd.append('description', values.description);
       fd.append('requires_signature', String(values.requires_signature));
       fd.append('is_active', String(values.is_active));
@@ -291,9 +296,17 @@ const ContractTemplateManagement: React.FC = () => {
       title: 'Document Type',
       dataIndex: 'document_type',
       key: 'document_type',
-      render: (dt: DocumentType) => (
-        <Tag color={DOCUMENT_TYPE_COLORS[dt]}>{DOCUMENT_TYPE_LABELS[dt]}</Tag>
-      ),
+      render: (dt: DocumentType, record) => {
+        const purpose = SIGNING_PURPOSES.find(p => p.value === record.signing_purpose);
+        return (
+          <Space direction="vertical" size={2}>
+            <Tag color={DOCUMENT_TYPE_COLORS[dt]}>{DOCUMENT_TYPE_LABELS[dt]}</Tag>
+            {purpose && (
+              <Text type="secondary" style={{ fontSize: 12 }}>On-site: {purpose.label}</Text>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: 'File',
@@ -510,6 +523,18 @@ const ContractTemplateManagement: React.FC = () => {
                 )
               )}
             </Select>
+          </Form.Item>
+
+          <Form.Item
+            label="On-site Signing"
+            name="signing_purpose"
+            extra="The card this document shows under on the On-site Signing screen. It also needs a signature field mapped."
+          >
+            <Select
+              allowClear
+              placeholder="Not offered on site"
+              options={SIGNING_PURPOSES.map(p => ({ value: p.value, label: p.label }))}
+            />
           </Form.Item>
 
           <Form.Item label="Description" name="description">

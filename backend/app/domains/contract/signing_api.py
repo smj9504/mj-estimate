@@ -6,6 +6,7 @@ Accessed via signing token URL.
 import json
 import logging
 from datetime import datetime
+from html import escape
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
@@ -366,6 +367,7 @@ def sign_contract(
         background_tasks.add_task(
             _send_signed_notification, service, token, data.signer_name
         )
+        background_tasks.add_task(service.ask_for_company_signature, token)
 
         return SigningResponse(
             contract_id=result.get('contract_instance_id', ''),
@@ -782,6 +784,9 @@ def _send_signed_notification(service, token: str, signer_name: str):
             signed_date = signed_at.strftime('%B %d, %Y at %I:%M %p')
         except Exception:
             signed_date = str(signed_at)
+
+    # Typed by whoever opened the public link
+    signer_name = escape(signer_name)
 
     subject = f"Signed: {title} — {company}"
     body_html = f"""
