@@ -4,7 +4,7 @@
  * Supports PDF annotation (text + signature) with re-editing capability
  */
 
-import React, { useState, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox, Grid, Radio, Table, Tag, Empty } from 'antd';
 import { FilePdfOutlined, PlusOutlined, UploadOutlined, RotateRightOutlined, CloseOutlined, EditOutlined, FormOutlined, ScissorOutlined } from '@ant-design/icons';
 import PerspectiveCropModal from './PerspectiveCropModal';
@@ -17,7 +17,6 @@ import WMPdfAnnotator from './pdf-annotator/WMPdfAnnotator';
 import type { PdfAnnotationData } from './pdf-annotator/types';
 import waterMitigationService from '../../services/waterMitigationService';
 import api from '../../services/api';
-import { useWaterMitigationPhotos } from '../../hooks/useWaterMitigationPhotos';
 
 const { Title, Text } = Typography;
 
@@ -124,12 +123,6 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     prevActiveRef.current = isActive;
   }, [isActive]);
 
-  // Load photos only when photo mode is active
-  const { data: allPhotos = [] } = useWaterMitigationPhotos(jobId, {
-    enabled: createModalVisible && createSource === 'photos',
-    pageSize: 200
-  });
-
   const handleCreateDocument = () => {
     const hasTemplates = companyId && contractTemplates.length > 0;
     setCreateModalVisible(true);
@@ -161,19 +154,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     });
   };
 
-  // Build photo thumbnail map for O(1) lookup
-  const photoThumbnailMap = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const p of allPhotos as any[]) {
-      const baseURL = api.defaults.baseURL || '';
-      const url = p.thumbnail_url || p.thumbnailUrl || `${baseURL}/api/water-mitigation/photos/${p.id}/preview?size=thumbnail`;
-      m.set(p.id, url);
-    }
-    return m;
-  }, [allPhotos]);
-
   const getPhotoThumbnail = (photoId: string) => {
-    return photoThumbnailMap.get(photoId) || `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photoId}/preview?size=thumbnail`;
+    return `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photoId}/preview?size=thumbnail`;
   };
 
   const getPhotoFullUrl = (photoId: string) => {
@@ -736,6 +718,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                   showSelectAll={false}  // Hide select all button in document creation modal
                   enableDateGrouping={false}
                   showBulkCategoryUpdate={false}  // Hide Set Category action in document creation modal
+                  enableInfiniteScroll={true}  // Same photo API as the Photos tab: real thumbnails, paged
+                  pageSize={20}
                 />
               )}
             </div>

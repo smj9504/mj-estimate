@@ -8,6 +8,7 @@ import asyncio
 import logging
 import math
 import os
+import threading
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -886,6 +887,11 @@ def _write_preview_cache(cache_file: Path, data: bytes) -> None:
     tmp_file.rename(cache_file)
 
 
+# A gallery page asks for its thumbnails all at once. Decoding them in parallel
+# on this small server spikes memory and starves every other request.
+_preview_render_slots = threading.BoundedSemaphore(3)
+
+
 def _render_preview_and_cache(source, max_size, quality, cache_file: Path, photo_id) -> bytes:
     """Optimize an image to WebP and save it to the preview disk cache.
 
@@ -899,14 +905,15 @@ def _render_preview_and_cache(source, max_size, quality, cache_file: Path, photo
 
     data = source.read_bytes() if isinstance(source, Path) else source
     optimizer = ImageOptimizer()
-    optimized_file, metadata = optimizer.optimize(
-        io.BytesIO(data),
-        max_size=max_size,
-        quality=quality,
-        format='WebP',
-        preserve_exif=False
-    )
-    optimized_bytes = optimized_file.read()
+    with _preview_render_slots:
+        optimized_file, metadata = optimizer.optimize(
+            io.BytesIO(data),
+            max_size=max_size,
+            quality=quality,
+            format='WebP',
+            preserve_exif=False
+        )
+        optimized_bytes = optimized_file.read()
 
     try:
         _write_preview_cache(cache_file, optimized_bytes)
@@ -953,6 +960,23 @@ async def preview_photo(
 
     # Handle CompanyCam photos - proxy the image to avoid CORS issues
     if source == 'companycam' and external_id:
+        # CDN URLs saved on the record need no CompanyCam API call (2-3s per photo)
+        if size == 'thumbnail':
+            stored_url = photo.get('storage_thumbnail_url') if isinstance(photo, dict) else photo.storage_thumbnail_url
+        elif size == 'web':
+            stored_url = photo.get('storage_web_url') if isinstance(photo, dict) else photo.storage_web_url
+        else:
+            stored_url = None
+        if stored_url and stored_url.startswith('http'):
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(
+                url=stored_url,
+                status_code=302,
+                headers={
+                    "Cache-Control": "public, max-age=86400"
+                }
+            )
+
         try:
             import io
 
@@ -1143,8 +1167,11 @@ async def preview_photo(
             # (Shared Drive / private GCS files aren't publicly accessible;
             #  GCS signed URL generation requires IAM signing which may not be
             #  available on non-GCP hosting like Render)
+            # B2 goes through here for web/thumbnail only: its signed URL points
+            # at the full-size object and changes on every request, so without
+            # this each grid thumbnail is a fresh 1-3MB download from B2.
             storage_file_id = photo.get('storage_file_id') if isinstance(photo, dict) else photo.storage_file_id
-            if storage_provider in ('gdrive', 'gcs') and hasattr(storage, 'download') and storage_file_id:
+            if storage_provider in ('gdrive', 'gcs', 'b2') and hasattr(storage, 'download') and storage_file_id:
                 import asyncio
 
                 from app.core.config import settings as app_settings_cache
@@ -1188,9 +1215,10 @@ async def preview_photo(
                             }
                         )
                     except Exception as e:
-                        logger.warning(f"GCS image optimization failed for photo {photo_id}: {e}, serving original")
+                        logger.warning(f"Cloud image optimization failed for photo {photo_id}: {e}, serving original")
                         # Fall through to unoptimized original below
 
+            if storage_provider in ('gdrive', 'gcs') and hasattr(storage, 'download') and storage_file_id:
                 # size=original: cache the raw downloaded bytes too, so
                 # reopening the same photo's detail modal doesn't re-hit GCS.
                 original_cache_dir = cache_base_dir / "original"
