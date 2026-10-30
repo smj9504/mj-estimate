@@ -5997,6 +5997,22 @@ def set_document_slot_override(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/jobs/{job_id}/email-attachments/{slot_key}", dependencies=[_job_access])
+def preview_email_attachment(job_id: UUID, slot_key: str):
+    """The file a send would attach for this slot, to check it before sending."""
+    service = get_adjuster_email_service()
+    try:
+        attachment = service.get_attachment_preview(str(job_id), slot_key)
+    except DocumentResourceError as e:
+        raise HTTPException(status_code=503, detail=str(e), headers={"Retry-After": "10"})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error previewing email attachment: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load the document")
+    return Response(content=attachment["data"], media_type=attachment["mime_type"])
+
+
 @router.post("/jobs/{job_id}/generate-adjuster-email", dependencies=[_job_access])
 def generate_adjuster_email(
     job_id: UUID,

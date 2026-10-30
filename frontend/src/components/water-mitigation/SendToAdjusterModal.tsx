@@ -14,6 +14,7 @@ import {
   CloseCircleFilled, MailOutlined,
 } from '@ant-design/icons';
 import RichTextEditor from '../editor/RichTextEditor';
+import AttachmentPreviewModal, { AttachmentLink, type AttachmentToPreview } from './AttachmentPreviewModal';
 import waterMitigationService, {
   adjusterEmailService,
   type AdjusterEmailInfo,
@@ -66,6 +67,8 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
   const [slotOverrides, setSlotOverrides] = useState<Record<string, SlotOverrideDocument>>({});
   const [mappingSlot, setMappingSlot] = useState<string | null>(null);
   const [savingSlot, setSavingSlot] = useState<string | null>(null);
+
+  const [previewing, setPreviewing] = useState<AttachmentToPreview | null>(null);
 
   // Load info when modal opens
   const loadInfo = useCallback(async () => {
@@ -580,16 +583,23 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
             </Text>
             <Space direction="vertical" size={2}>
               {selectedDocs.map(key => (
-                <Space key={key} size={4}>
-                  <FilePdfOutlined style={{ color: '#d44c47' }} />
-                  <Text style={{ fontSize: 12 }}>{DOC_LABELS[key]}</Text>
-                </Space>
+                <AttachmentLink
+                  key={key}
+                  label={DOC_LABELS[key]}
+                  icon={<FilePdfOutlined style={{ color: '#d44c47' }} />}
+                  onClick={() => setPreviewing({
+                    title: DOC_LABELS[key],
+                    load: () => adjusterEmailService.getAttachmentPreview(jobId, key),
+                  })}
+                />
               ))}
               {selectedDocs.length === 0 && (
                 <Text type="secondary">No documents selected</Text>
               )}
             </Space>
           </div>
+
+          <AttachmentPreviewModal attachment={previewing} onClose={() => setPreviewing(null)} />
         </div>
       ) : (
         <Alert type="error" message="Failed to load email info. Please try again." />

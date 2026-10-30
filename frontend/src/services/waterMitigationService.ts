@@ -77,6 +77,21 @@ import type {
 
 const BASE_URL = '/api/water-mitigation';
 
+// JSON errors also arrive as Blobs on a download endpoint. Surface the
+// safe-limit/busy message so the user knows what to do.
+const blobRequestError = async (error: unknown): Promise<unknown> => {
+  if (isAxiosError(error) && error.response?.data instanceof Blob) {
+    let detail: unknown;
+    try {
+      detail = JSON.parse(await error.response.data.text()).detail;
+    } catch {
+      // Proxies may return HTML instead of the API's JSON response.
+    }
+    if (typeof detail === 'string') return new Error(detail);
+  }
+  return error;
+};
+
 // ─── AI Classification Types ───
 
 export interface AIClassifyMetadata {
@@ -686,6 +701,19 @@ export const waterMitigationService = {
       saveAs(response.data, filename);
     },
 
+    // The saved file itself, to show it in the page
+    getBlob: async (documentId: string): Promise<Blob> => {
+      try {
+        const response = await api.get(`${BASE_URL}/documents/${documentId}/download`, {
+          responseType: 'blob',
+          timeout: 120000,
+        });
+        return response.data;
+      } catch (error) {
+        throw await blobRequestError(error);
+      }
+    },
+
     // Get document preview URL (opens in browser, includes backend base URL for production)
     getPreviewUrl: (documentId: string): string => {
       const base = api.defaults.baseURL || '';
@@ -863,18 +891,7 @@ export const waterMitigationService = {
         });
         return response.data;
       } catch (error) {
-        // JSON errors also arrive as Blobs for this download endpoint.
-        // Surface the safe-limit/busy message so the user knows what to do.
-        if (isAxiosError(error) && error.response?.data instanceof Blob) {
-          let detail: unknown;
-          try {
-            detail = JSON.parse(await error.response.data.text()).detail;
-          } catch {
-            // Proxies may return HTML instead of the API's JSON response.
-          }
-          if (typeof detail === 'string') throw new Error(detail);
-        }
-        throw error;
+        throw await blobRequestError(error);
       }
     }
   },
@@ -1808,6 +1825,20 @@ export const adjusterEmailService = {
       { document_id: documentId }
     );
     return response.data;
+  },
+
+  // The file a send would attach for this slot. Can render a sketch report
+  // that hasn't been saved yet, so it gets more than the default 30s.
+  getAttachmentPreview: async (jobId: string, slotKey: string): Promise<Blob> => {
+    try {
+      const response = await api.get(`${BASE_URL}/jobs/${jobId}/email-attachments/${slotKey}`, {
+        responseType: 'blob',
+        timeout: 120000,
+      });
+      return response.data;
+    } catch (error) {
+      throw await blobRequestError(error);
+    }
   },
 
   // Downloads every selected document from cloud storage, compresses the

@@ -13,7 +13,8 @@ import {
   SendOutlined, FilePdfOutlined, FileOutlined, MailOutlined, CloseOutlined,
 } from '@ant-design/icons';
 import RichTextEditor from '../editor/RichTextEditor';
-import {
+import AttachmentPreviewModal, { AttachmentLink, type AttachmentToPreview } from './AttachmentPreviewModal';
+import waterMitigationService, {
   adjusterEmailService,
   type AdjusterEmailInfo,
   type SendDocumentsPayload,
@@ -69,6 +70,7 @@ const SendDocumentsEmailModal: React.FC<SendDocumentsEmailModalProps> = ({
   const [emailContent, setEmailContent] = useState({ subject: '', body_html: '' });
   // The selection as opened; removing one here leaves the list's selection alone
   const [items, setItems] = useState<DocumentEmailAttachment[]>([]);
+  const [previewing, setPreviewing] = useState<AttachmentToPreview | null>(null);
 
   // Email addresses
   const [toEmails, setToEmails] = useState<string[]>([]);
@@ -330,12 +332,17 @@ const SendDocumentsEmailModal: React.FC<SendDocumentsEmailModalProps> = ({
             <Space direction="vertical" size={2} style={{ width: '100%' }}>
               {items.map(item => (
                 <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {item.filename.toLowerCase().endsWith('.pdf')
-                    ? <FilePdfOutlined style={{ color: '#d44c47' }} />
-                    : <FileOutlined style={{ color: '#787774' }} />}
-                  <Text style={{ fontSize: 12, minWidth: 0 }} ellipsis={{ tooltip: item.filename }}>
-                    {item.filename}
-                  </Text>
+                  <AttachmentLink
+                    label={item.filename}
+                    icon={item.filename.toLowerCase().endsWith('.pdf')
+                      ? <FilePdfOutlined style={{ color: '#d44c47' }} />
+                      : <FileOutlined style={{ color: '#787774' }} />}
+                    onClick={() => setPreviewing({
+                      title: item.filename,
+                      filename: item.filename,
+                      load: () => waterMitigationService.documents.getBlob(item.id),
+                    })}
+                  />
                   {!!item.size && (
                     <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>
                       {formatFileSize(item.size)}
@@ -370,6 +377,8 @@ const SendDocumentsEmailModal: React.FC<SendDocumentsEmailModalProps> = ({
               />
             )}
           </div>
+
+          <AttachmentPreviewModal attachment={previewing} onClose={() => setPreviewing(null)} />
         </div>
       ) : (
         <Alert type="error" message="Failed to load email info. Please try again." />

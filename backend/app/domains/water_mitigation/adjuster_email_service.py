@@ -1185,11 +1185,65 @@ class AdjusterEmailService:
             session.close()
 
     # ================================================================
+    # Attachment Preview
+    # ================================================================
+
+    @document_job
+    def get_attachment_preview(self, job_id: str, slot_key: str) -> Dict[str, Any]:
+        """The file a send would attach for this slot right now.
+
+        Goes through the send's own collection, so what's shown can't differ
+        from what goes out: the readiness check doesn't name the saved invoice
+        or company W-9 a send picks. Left uncompressed, since that only changes
+        image quality and would take minutes on a big report.
+
+        A sketch with no saved report is rendered and saved here, as a send
+        would, so the send then attaches this same file.
+        """
+        if slot_key not in self.SLOT_KEYS:
+            raise ValueError(
+                f"Unknown slot '{slot_key}'. "
+                f"Expected one of: {', '.join(self.SLOT_KEYS)}"
+            )
+
+        # The dialog only lists ready slots. A slot that isn't ready must not
+        # reach the collection, which would render a whole Photo Report.
+        if not self.get_document_readiness(job_id)[slot_key]["ready"]:
+            raise ValueError("This document isn't on the job yet.")
+
+        session = self._get_session()
+        try:
+            from .models import WaterMitigationJob
+
+            job = session.query(WaterMitigationJob).filter(
+                WaterMitigationJob.id == job_id
+            ).first()
+            if not job:
+                raise ValueError("Job not found")
+
+            attachments, failed_docs = self._collect_attachments(
+                session, job, [slot_key], compress=False
+            )
+            if failed_docs:
+                raise ValueError(
+                    "This document's file couldn't be read, so sending it would "
+                    "fail too. Check it in the Documents tab."
+                )
+
+            session.commit()
+            return attachments[0]
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    # ================================================================
     # Attachment Collection
     # ================================================================
 
     def _collect_attachments(
-        self, session, job, selected_docs: List[str]
+        self, session, job, selected_docs: List[str], compress: bool = True
     ) -> tuple:
         """Collect file attachments for email based on selected document types.
 
@@ -1208,7 +1262,8 @@ class AdjusterEmailService:
         def add_attachment(att):
             # Reduce one file before fetching the next. Never collect six
             # individually admissible files and only then check their sum.
-            self._compress_attachments_if_needed([att])
+            if compress:
+                self._compress_attachments_if_needed([att])
             check_size(sum(len(a['data']) for a in attachments) + len(att['data']),
                        self._MAX_COMPRESSIBLE_SIZE)
             attachments.append(att)

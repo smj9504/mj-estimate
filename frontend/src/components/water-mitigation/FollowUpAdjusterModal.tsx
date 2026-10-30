@@ -16,6 +16,7 @@ import {
 import dayjs from 'dayjs';
 import RichTextEditor from '../editor/RichTextEditor';
 import AdjusterEmailsPanel, { senderName } from './AdjusterEmails';
+import AttachmentPreviewModal, { AttachmentLink, type AttachmentToPreview } from './AttachmentPreviewModal';
 import {
   adjusterEmailService,
   type AdjusterEmailInfo,
@@ -82,6 +83,7 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
   // Document re-attachment (optional, default none)
   const [reattachDocs, setReattachDocs] = useState(false);
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
+  const [previewing, setPreviewing] = useState<AttachmentToPreview | null>(null);
 
   const loadInfo = useCallback(async () => {
     if (!jobId) return;
@@ -540,14 +542,21 @@ const FollowUpAdjusterModal: React.FC<FollowUpAdjusterModalProps> = ({
               </Text>
               <Space direction="vertical" size={2}>
                 {selectedDocs.map(key => (
-                  <Space key={key} size={4}>
-                    <FilePdfOutlined style={{ color: '#d44c47' }} />
-                    <Text style={{ fontSize: 12 }}>{DOC_LABELS[key]}</Text>
-                  </Space>
+                  <AttachmentLink
+                    key={key}
+                    label={DOC_LABELS[key]}
+                    icon={<FilePdfOutlined style={{ color: '#d44c47' }} />}
+                    onClick={() => setPreviewing({
+                      title: DOC_LABELS[key],
+                      load: () => adjusterEmailService.getAttachmentPreview(jobId, key),
+                    })}
+                  />
                 ))}
               </Space>
             </div>
           )}
+
+          <AttachmentPreviewModal attachment={previewing} onClose={() => setPreviewing(null)} />
         </div>
       ) : (
         <Alert type="error" message="Failed to load email info. Please try again." />
