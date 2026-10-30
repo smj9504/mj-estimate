@@ -354,8 +354,12 @@ class AdjusterEmailService:
     # Adjuster & PA Info
     # ================================================================
 
-    def get_adjuster_info(self, job_id: str) -> Dict[str, Any]:
-        """Get adjuster contact info and PA email for BCC."""
+    def get_adjuster_info(self, job_id: str, sender_email: Optional[str] = None) -> Dict[str, Any]:
+        """Get adjuster contact info and PA email for BCC.
+
+        sender_email is the logged-in staff member's address: their own
+        account comes first in email_accounts, which the send dialogs preselect.
+        """
         session = self._get_readonly_session()
         try:
             from .models import WaterMitigationJob, WMSheetPAMapping
@@ -513,7 +517,7 @@ class AdjusterEmailService:
 
             # Get email accounts for sender selection
             email_accounts = self._get_email_accounts(
-                session, company_id=job.company_id
+                session, company_id=job.company_id, sender_email=sender_email
             )
 
             # Reply-To / signature identity: the job's assigned company, not
@@ -575,9 +579,12 @@ class AdjusterEmailService:
             result["display_name"] = company.name or None
         return result
 
-    def _get_email_accounts(self, session, company_id=None) -> List[Dict[str, str]]:
+    def _get_email_accounts(
+        self, session, company_id=None, sender_email: Optional[str] = None
+    ) -> List[Dict[str, str]]:
         """Get available email accounts for sending.
-        Returns accounts matching company_id first, then others.
+        Returns the sender's own account first, then accounts matching
+        company_id, then others.
         """
         try:
             from app.domains.email_ingestion.models import EmailAccount
@@ -595,10 +602,15 @@ class AdjusterEmailService:
                     "company_id": str(a.company_id) if a.company_id else None,
                 })
 
-            # Sort: matching company_id first
-            if company_id:
-                company_id_str = str(company_id)
-                result.sort(key=lambda x: (0 if x.get("company_id") == company_id_str else 1))
+            # Sort: the sender's own account, then matching company_id. The
+            # address breaks ties, since the query's row order isn't stable.
+            own_email = (sender_email or "").strip().lower()
+            company_id_str = str(company_id) if company_id else None
+            result.sort(key=lambda x: (
+                0 if own_email and x["email_address"].lower() == own_email else 1,
+                0 if company_id_str and x.get("company_id") == company_id_str else 1,
+                x["email_address"].lower(),
+            ))
 
             return result
         except Exception:

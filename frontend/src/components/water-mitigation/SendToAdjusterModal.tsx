@@ -88,7 +88,7 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
         setBccEmails([data.pa.email]);
       }
 
-      // Pre-select email account (backend sorts matching company first)
+      // Pre-select email account (backend sorts the sender's own first, then matching company)
       if (data.email_accounts.length > 0) {
         setSelectedAccountId(data.email_accounts[0].id);
       }

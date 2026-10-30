@@ -5945,11 +5945,11 @@ def get_adjuster_email_service():
 
 
 @router.get("/jobs/{job_id}/adjuster-email-info", dependencies=[_job_access])
-def get_adjuster_email_info(job_id: UUID):
+def get_adjuster_email_info(job_id: UUID, current_staff=Depends(get_current_staff)):
     """Get adjuster/PA info, document readiness, and email accounts for sending."""
     service = get_adjuster_email_service()
     try:
-        info = service.get_adjuster_info(str(job_id))
+        info = service.get_adjuster_info(str(job_id), sender_email=current_staff.email)
         readiness = service.get_document_readiness(str(job_id))
         return {**info, "documents": readiness}
     except ValueError as e:
