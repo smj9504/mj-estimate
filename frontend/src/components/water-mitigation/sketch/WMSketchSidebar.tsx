@@ -219,7 +219,9 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
   const contentProtCount = (overlayData.content_protections ?? []).length;
   const contentManipCount = (overlayData.content_manipulations ?? []).length;
   const demoTotalSqft = useMemo(
-    () => summary.demolition_by_type.reduce((s, d) => s + d.total_sqft, 0),
+    () => summary.demolition_by_type
+      .filter((d) => d.unit === 'SF')
+      .reduce((s, d) => s + d.total_sqft, 0),
     [summary.demolition_by_type]
   );
 

@@ -369,9 +369,15 @@ _LF_DEMOLITION_MATERIALS = frozenset(
     {"baseboard", "baseboard_quarter_round", "quarter_round", "toe_kick"}
 )
 
-# EA (each) demolition types — trim, door, stair
+# EA (each) demolition types — trim, door, stair, recessed light
 _EA_DEMOLITION_MATERIALS = frozenset(
-    {"window_trim_demo", "door_trim_demo", "door_demo", "stair_demo"}
+    {
+        "window_trim_demo",
+        "door_trim_demo",
+        "door_demo",
+        "stair_demo",
+        "recessed_light_detach",
+    }
 )
 
 # Wall SF types drawn as lines when height is implicit (dimension2_ft == 0)
@@ -397,6 +403,7 @@ _DEMO_MATERIAL_LABELS: Dict[str, str] = {
     "door_trim_demo": "Door Trim Demo",
     "door_demo": "Door Demo",
     "stair_demo": "Stair Tread Demo",
+    "recessed_light_detach": "Recessed Light Detach",
 }
 
 # Wood floor sub-type display names for PDF
@@ -446,6 +453,7 @@ _DEMO_MATERIAL_UNITS: Dict[str, str] = {
     "door_trim_demo": "EA",
     "door_demo": "EA",
     "stair_demo": "EA",
+    "recessed_light_detach": "EA",
 }
 
 
@@ -1736,6 +1744,22 @@ class SketchPdfService:
                 '</g>',
             ]
             return parts
+
+        # Recessed lights print as the round "RL" marker the canvas draws, not
+        # a box sized from their 1 EA quantity
+        if mt == "recessed_light_detach":
+            radius = float(z.get("pixel_width") or 28) / 2
+            return [
+                f'<g transform="translate({x:.1f},{y:.1f})">',
+                f'<circle cx="{radius:.1f}" cy="{radius:.1f}" r="{radius:.1f}" '
+                f'fill="{color}" fill-opacity="0.85" '
+                f'stroke="{color}" stroke-width="1.5"/>',
+                f'<text x="{radius:.1f}" y="{radius + 3.5:.1f}" '
+                f'text-anchor="middle" font-size="{dls}" '
+                f'font-family="{ff}" fill="#ffffff" '
+                f'font-weight="700">RL</text>',
+                '</g>',
+            ]
 
         # Determine render mode from zone data or material type
         is_lf = mt in _LF_DEMOLITION_MATERIALS

@@ -10,7 +10,9 @@ import {
   calcContentProtectionSqft,
   pixelsToFeet,
   feetToPixels,
+  calcFloorTotals,
 } from './wmCalculations';
+import { EA_MATERIAL_IDS, type WMDemolitionZone, type WMOverlayData } from '../../../../types/wmSketch';
 
 /**
  * These functions are the shared vocabulary of the sketch editor: the canvas
@@ -156,5 +158,46 @@ describe('pixel / foot conversion', () => {
     // An uncalibrated sketch must not produce Infinity lengths.
     expect(pixelsToFeet(100, 0)).toBe(0);
     expect(pixelsToFeet(100, -5)).toBe(0);
+  });
+});
+
+describe('recessed light detach', () => {
+  const light = (id: string): WMDemolitionZone => ({
+    id,
+    floor_sketch_id: 'floor',
+    material_type: 'recessed_light_detach',
+    surface: 'ceiling',
+    color: '#00897B',
+    x: 0,
+    y: 0,
+    dimension1_ft: 1,
+    dimension2_ft: 0,
+    rotation: 0,
+    calculated_sqft: 1,
+    display_order: 0,
+  });
+  const overlay = (zones: WMDemolitionZone[]): WMOverlayData => ({
+    demolition_zones: zones,
+    equipment_placements: [],
+    containment_zones: [],
+    floor_protections: [],
+    content_protections: [],
+    content_manipulations: [],
+    text_annotations: [],
+  });
+
+  it('is placed with a click, one EA at a time', () => {
+    expect(EA_MATERIAL_IDS.has('recessed_light_detach')).toBe(true);
+  });
+
+  it('totals by count, in EA, under its own name', () => {
+    const [row] = calcFloorTotals(overlay([light('a'), light('b'), light('c')])).demolition_by_type;
+    expect(row).toMatchObject({
+      material_name: 'Recessed Light Detach',
+      surface: 'ceiling',
+      count: 3,
+      total_sqft: 3,
+      unit: 'EA',
+    });
   });
 });

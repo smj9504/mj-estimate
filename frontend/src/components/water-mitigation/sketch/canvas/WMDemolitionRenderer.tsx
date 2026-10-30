@@ -64,6 +64,7 @@ const EA_ABBREVIATIONS: Record<string, string> = {
   door_trim_demo: 'DT',
   door_demo: 'DR',
   stair_demo: 'STR',
+  recessed_light_detach: 'RL',
 };
 
 function resolveRenderSize(
@@ -268,7 +269,7 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
           strokeWidth={isEA ? 2 : 2}
           strokeScaleEnabled={false}
           dash={strokeDash}
-          cornerRadius={isEA ? widthPx / 6 : 2}
+          cornerRadius={zone.material_type === 'recessed_light_detach' ? widthPx / 2 : isEA ? widthPx / 6 : 2}
         />
 
         {/* Selection stroke overlay */}

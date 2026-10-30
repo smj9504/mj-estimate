@@ -202,6 +202,7 @@ export const EA_MATERIAL_IDS = new Set([
   'door_trim_demo',
   'door_demo',
   'stair_demo',
+  'recessed_light_detach',
 ]);
 
 /**
@@ -232,6 +233,9 @@ export const EA_ITEM_PIXEL_SIZES: Record<string, Record<string, { w: number; h: 
   },
   stair_demo: {
     '':       { w: 40, h: 40 },
+  },
+  recessed_light_detach: {
+    '':       { w: 28, h: 28 },
   },
 };
 
@@ -305,6 +309,7 @@ export const DEFAULT_DEMO_MATERIAL_TYPES: DemoMaterialType[] = [
   { id: 'door_trim_demo',         name: 'Door Trim Demo',            surface: 'wall',    color: '#E07C4F', unit: 'EA' },
   { id: 'door_demo',              name: 'Door Demo',                 surface: 'wall',    color: '#8B4513', unit: 'EA' },
   { id: 'stair_demo',             name: 'Stair Tread Demo',          surface: 'floor',   color: '#9B7653', unit: 'EA' },
+  { id: 'recessed_light_detach',  name: 'Recessed Light Detach',     surface: 'ceiling', color: '#00897B', unit: 'EA' },
 ];
 
 // ============================================================================

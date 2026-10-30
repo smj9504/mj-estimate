@@ -347,6 +347,7 @@ class SketchService:
         "door_trim_demo": "Door Trim Demo",
         "door_demo": "Door Demo",
         "stair_demo": "Stair Tread Demo",
+        "recessed_light_detach": "Recessed Light Detach",
     }
 
     # Wood floor sub-type display names
@@ -380,6 +381,10 @@ class SketchService:
         "wall_drywall", "wall_drywall_2ft", "wall_drywall_4ft",
         "ceiling", "wood_floor", "carpet", "tile",
     })
+
+    # Material IDs that are detached and set aside for reset, so they add no
+    # debris weight and need no material weight mapping
+    _NON_DEBRIS_MATERIAL_IDS = frozenset({"recessed_light_detach"})
 
     # Line item code used to price the auto-added antimicrobial scope item
     # (seeded by migration am01a2b3c4d5_seed_antimicrobial_line_item)
@@ -459,6 +464,7 @@ class SketchService:
         "door_trim_demo": "LF",
         "door_demo": "EA",
         "stair_demo": "EA",
+        "recessed_light_detach": "EA",
     }
 
     def generate_scope_from_sketch(
@@ -653,21 +659,22 @@ class SketchService:
                 unit = self._DEMOLITION_MATERIAL_UNITS.get(
                     material_type, "SF",
                 )
+                is_debris = material_type not in self._NON_DEBRIS_MATERIAL_IDS
                 # Auto-map material_weight_id from DB
                 mw_id = self._resolve_material_weight_id(
                     material_weight_map, name, material_type, sub_type,
-                )
+                ) if is_debris else None
                 item = WMScopeItem(
                     location_id=location.id,
                     item_type="demolition",
                     name=name,
                     quantity=Decimal(str(round(total_qty, 2))),
                     unit=unit,
-                    include_in_debris=True,
+                    include_in_debris=is_debris,
                     material_weight_id=mw_id,
                     display_order=item_order,
                 )
-                if not mw_id:
+                if is_debris and not mw_id:
                     warnings.append(
                         f"No material weight mapping found for '{name}'"
                     )
