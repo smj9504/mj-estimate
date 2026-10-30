@@ -519,6 +519,111 @@
   color: var(--color-neutral-600);
 }
 
+/* Load from a claim: the claims with packing photos, then the rooms of one */
+.pk-claim-search {
+  margin-bottom: 10px;
+}
+.pk-claim-search + .pk-note {
+  margin: 0 0 10px;
+}
+.pk-claim-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.pk-claim-row:hover {
+  background: var(--color-neutral-50);
+}
+.pk-claim-row:focus-visible {
+  outline: 2px solid var(--color-neutral-900);
+  outline-offset: -2px;
+}
+.pk-claim-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.pk-claim-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.pk-claim-picked {
+  display: flex;
+  padding: 0 4px 10px;
+}
+.pk-claim-picked + .pk-note {
+  margin: 0 0 10px;
+}
+.pk-claim-rooms {
+  max-height: 360px;
+}
+.pk-claim-room.ant-checkbox-wrapper {
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+}
+.pk-claim-room.ant-checkbox-wrapper > span:last-child {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding-inline-end: 0;
+}
+.pk-claim-thumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.pk-claim-thumbs img {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  background: var(--color-neutral-100);
+}
+.pk-claim-more {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.pk-claim-room-meta {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.pk-claim-analyze {
+  margin-top: 12px;
+}
+.pk-text-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-neutral-900);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 /* Rooms (calculator): each room a block between hairlines */
 .pk-count {
   margin-left: 6px;

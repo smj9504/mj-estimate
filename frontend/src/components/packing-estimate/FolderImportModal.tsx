@@ -85,7 +85,8 @@ export function defaultPhotoRoom(roomName: string): PhotoRoom {
   };
 }
 
-function resolveNameCollisions(names: string[], existing: string[]): string[] {
+/** Names that don't clash with the rooms already there: "Kitchen" becomes "Kitchen (2)" */
+export function resolveNameCollisions(names: string[], existing: string[]): string[] {
   const used = new Set(existing.map(n => n.toLowerCase()));
   return names.map(name => {
     let resolved = name;

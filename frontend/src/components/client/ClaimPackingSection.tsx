@@ -14,11 +14,10 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import ClaimSection from './ClaimSection';
-import { claimPackingPhotosKey } from './AddToPackingModal';
 import * as packingService from '../../services/packingEstimateService';
 import type { Claim, Client } from '../../types/client';
 import type { ClaimPackingPhoto } from '../../types/packing-estimate';
-import { AI_PHOTOS_PER_ROOM, apiUrl, groupPackingRooms } from '../packing-estimate/claimPhotos';
+import { AI_PHOTOS_PER_ROOM, apiUrl, claimPackingPhotosKey, groupPackingRooms } from '../packing-estimate/claimPhotos';
 import { PackStatusPill, formatMoney, modeLabel } from '../packing-estimate/packingUi';
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;

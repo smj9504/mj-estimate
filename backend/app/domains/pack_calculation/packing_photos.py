@@ -149,6 +149,125 @@ def list_photos(db: Session, claim_id: str) -> List[dict]:
     return [photo for photos in rooms.values() for photo in photos]
 
 
+def _live_photo_keys(db: Session, entries: List[PackingPhoto]) -> set:
+    """(claim_id, source, photo_id) of the entries whose photo is still on
+    its claim - _sources for many claims at once"""
+    from app.domains.file.models import File
+    from app.domains.water_mitigation.models import WaterMitigationJob, WMPhoto
+
+    claim_ids = list({str(e.claim_id) for e in entries})
+    wm_ids = [e.photo_id for e in entries if e.source == "wm" and _is_uuid(e.photo_id)]
+    file_ids = [e.photo_id for e in entries if e.source == "claim"]
+    live = set()
+    if wm_ids:
+        rows = db.query(WMPhoto.id, WaterMitigationJob.claim_id).join(
+            WaterMitigationJob, WMPhoto.job_id == WaterMitigationJob.id
+        ).filter(
+            WMPhoto.id.in_(wm_ids),
+            WaterMitigationJob.claim_id.in_(claim_ids),
+            WMPhoto.is_trashed.isnot(True),
+        ).all()
+        live.update((str(claim_id), "wm", str(pid)) for pid, claim_id in rows)
+    if file_ids:
+        rows = db.query(File.id, File.context_id, File.content_type).filter(
+            File.id.in_(file_ids),
+            File.context == "claim",
+            File.context_id.in_(claim_ids),
+            File.is_active.isnot(False),
+        ).all()
+        live.update(
+            (str(context_id), "claim", str(fid))
+            for fid, context_id, content_type in rows
+            if (content_type or "").startswith("image/")
+        )
+    return live
+
+
+def claims_with_photos(db: Session, condition, search: Optional[str] = None, limit: int = 50) -> List[dict]:
+    """Claims with packing photos, the most recently picked first, for the
+    builder to load from: each with its client, the company its pack-out goes
+    under and its rooms. condition limits them to the claims the staff
+    member may see (None: all)."""
+    from app.domains.auth.company_scope import scoped
+    from app.domains.client.claim_companies import companies_by_claim
+    from app.domains.client.models import Claim, Client
+
+    last_picked = func.max(func.coalesce(PackingPhoto.updated_at, PackingPhoto.created_at))
+    query = db.query(PackingPhoto.claim_id).join(
+        Claim, Claim.id == PackingPhoto.claim_id
+    ).join(
+        Client, Client.id == Claim.client_id
+    )
+    query = scoped(query, condition)
+    text = " ".join((search or "").split())
+    if text:
+        like = f"%{text}%"
+        query = query.filter(
+            Client.display_name.ilike(like)
+            | Claim.claim_number.ilike(like)
+            | Client.address.ilike(like)
+        )
+    claim_ids = [
+        str(claim_id) for (claim_id,) in
+        query.group_by(PackingPhoto.claim_id).order_by(last_picked.desc()).limit(limit).all()
+    ]
+    if not claim_ids:
+        return []
+
+    entries = db.query(PackingPhoto).filter(
+        PackingPhoto.claim_id.in_(claim_ids)
+    ).order_by(PackingPhoto.sort_order, PackingPhoto.created_at).all()
+    live = _live_photo_keys(db, entries)
+    rooms_by_claim: Dict[str, Dict[str, int]] = {}
+    for entry in entries:
+        claim_id = str(entry.claim_id)
+        if (claim_id, entry.source, entry.photo_id) not in live:
+            continue
+        rooms = rooms_by_claim.setdefault(claim_id, {})
+        rooms[entry.room_name] = rooms.get(entry.room_name, 0) + 1
+
+    claims = {
+        str(c.id): (c, cl) for c, cl in db.query(Claim, Client).join(
+            Client, Client.id == Claim.client_id
+        ).filter(Claim.id.in_(claim_ids)).all()
+    }
+    companies = companies_by_claim(db, claim_ids)
+
+    out = []
+    for claim_id in claim_ids:
+        rooms = rooms_by_claim.get(claim_id)
+        if not rooms or claim_id not in claims:
+            continue  # every photo it had was trashed or unlinked
+        claim, client = claims[claim_id]
+        out.append({
+            "claim_id": claim_id,
+            "claim_number": claim.claim_number,
+            "insurance_company": claim.insurance_company,
+            "client_id": str(client.id),
+            "client_name": client.display_name,
+            "project_address": ", ".join(
+                part for part in (client.address, client.city, client.state, client.zipcode) if part
+            ),
+            "company_id": _packing_company_id(claim, companies.get(claim_id, [])),
+            "photo_count": sum(rooms.values()),
+            "rooms": [{"room_name": name, "photo_count": n} for name, n in rooms.items()],
+        })
+    return out
+
+
+def _packing_company_id(claim, companies: List[dict]) -> Optional[str]:
+    """The company a claim's pack-out goes under: its moving company, else
+    its only company (as the claim page's Packing estimate section picks it)"""
+    moving = next((c["id"] for c in companies if c.get("role") == "moving"), None)
+    if moving:
+        return moving
+    if len(companies) == 1:
+        return companies[0]["id"]
+    if not companies and claim.company_id:
+        return str(claim.company_id)
+    return None
+
+
 # ── Changes ───────────────────────────────────
 
 def _existing_room_names(db: Session, claim_id: str) -> Dict[str, str]:

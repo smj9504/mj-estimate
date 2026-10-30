@@ -13,6 +13,7 @@ import type {
   RoomPreset,
   ClaimPackingPhoto,
   PackingPhotoRef,
+  PackingPhotoClaim,
 } from '../types/packing-estimate';
 
 const BASE = '/api/packing-estimate';
@@ -114,6 +115,14 @@ export function analyzeRoomBatch(
 }
 
 // ── Claim Packing Photos ──────────────────────
+
+/** Claims with packing photos, most recently picked first */
+export async function listClaimsWithPhotos(search?: string): Promise<PackingPhotoClaim[]> {
+  const { data } = await api.get(`${BASE}/claims/with-photos`, {
+    params: search ? { search } : undefined,
+  });
+  return data.claims;
+}
 
 export async function listClaimPhotos(claimId: string): Promise<ClaimPackingPhoto[]> {
   const { data } = await api.get(`${BASE}/claims/${claimId}/photos`);

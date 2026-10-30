@@ -174,13 +174,15 @@ const DetailsStep: React.FC<DetailsStepProps> = ({
 
   useEffect(() => {
     if (selectedClientId) {
+      let current = true;
       clientService.getById(selectedClientId).then((client: any) => {
+        if (!current) return;
         setClaims(client.claims || []);
         setSelectedClient(client);
-        if (!clientSearch) {
-          setClientSearch(client.display_name || '');
-        }
+        // Also when the client is switched from outside (From Claim)
+        setClientSearch(client.display_name || '');
       }).catch(() => {});
+      return () => { current = false; };
     } else {
       setClaims([]);
       setSelectedClaimId(null);

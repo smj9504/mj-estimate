@@ -15,6 +15,7 @@ from typing import Optional
 
 from app.core.database_factory import get_db
 from app.domains.auth.company_scope import (
+    claim_condition,
     document_condition,
     require_claim,
     require_document,
@@ -42,7 +43,7 @@ from . import packing_photos
 from .models import (
     PackCalculation, PackRoom, PackItem,
     PackEstimateMode, PackEstimateStatus,
-    PackingPrice,
+    PackingPrice, PackingPhoto,
 )
 from .presets import get_presets_by_category
 from .seed_prices import seed_packing_prices
@@ -224,6 +225,21 @@ def analyze_batch(
 def _require_packing_claim(db, staff, claim_id: str) -> None:
     require_claim(db, staff, claim_id)
     packing_photos.require_claim_row(db, claim_id)
+
+
+@router.get("/claims/with-photos")
+def list_claims_with_packing_photos(
+    search: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """Claims with packing photos, most recently picked first, for the
+    builder's Load from claim."""
+    condition = claim_condition(db, current_user, PackingPhoto.claim_id)
+    return {"claims": packing_photos.claims_with_photos(
+        db, condition, search, max(1, min(limit, 100)),
+    )}
 
 
 @router.get("/claims/{claim_id}/photos")

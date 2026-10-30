@@ -358,3 +358,17 @@ export interface PackingPhotoRef {
   /** This photo's own room; otherwise the request's room_name */
   room_name?: string;
 }
+
+/** A claim with packing photos, for the builder's Load from claim */
+export interface PackingPhotoClaim {
+  claim_id: string;
+  claim_number: string;
+  insurance_company?: string | null;
+  client_id: string;
+  client_name: string;
+  project_address: string;
+  /** The company its pack-out goes under: its moving company, else its only company */
+  company_id?: string | null;
+  photo_count: number;
+  rooms: { room_name: string; photo_count: number }[];
+}
