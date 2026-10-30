@@ -6,7 +6,7 @@
  * icon-only with tooltips for discoverability.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Button,
   Dropdown,
@@ -221,12 +221,18 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
   const isTouch = useIsCoarsePointer();
 
   /**
-   * These menus are long enough to exceed a phone viewport. Without a cap
-   * antd flips them above the trigger and the top items land off-screen,
-   * unreachable. Cap the height and let the menu scroll instead.
+   * These menus are long enough to run off a laptop or phone screen. Without
+   * a cap the bottom items are cut off, or antd flips the menu above the
+   * trigger and the top items land off-screen. Cap each menu at the room below
+   * its button when it opens, and let the menu itself scroll.
    */
-  const dropdownOverlayStyle: React.CSSProperties = {
-    maxHeight: '55vh',
+  const [menuMaxHeight, setMenuMaxHeight] = useState<number>();
+  const fitMenuBelowButton = (e: React.MouseEvent<HTMLElement>) => {
+    const room = window.innerHeight - e.currentTarget.getBoundingClientRect().bottom - 12;
+    setMenuMaxHeight(Math.max(240, room));
+  };
+  const dropdownMenuStyle: React.CSSProperties = {
+    maxHeight: menuMaxHeight,
     overflowY: 'auto',
     overscrollBehavior: 'contain',
   };
@@ -473,16 +479,16 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
               )}
             </Button>
           <Dropdown
-            menu={{ items: demoMenuItems }}
+            menu={{ items: demoMenuItems, style: dropdownMenuStyle }}
             trigger={['click']}
             placement="bottomLeft"
-            overlayStyle={dropdownOverlayStyle}
           >
             <Button
               type={toolButtonType('demolition')}
               size="small"
               icon={<DownOutlined style={{ fontSize: 10 }} />}
               style={{ padding: '0 6px' }}
+              onClick={fitMenuBelowButton}
             />
           </Dropdown>
         </SpaceCompact>
@@ -521,16 +527,16 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
               )}
             </Button>
           <Dropdown
-            menu={{ items: equipMenuItems }}
+            menu={{ items: equipMenuItems, style: dropdownMenuStyle }}
             trigger={['click']}
             placement="bottomLeft"
-            overlayStyle={dropdownOverlayStyle}
           >
             <Button
               type={toolButtonType('equipment')}
               size="small"
               icon={<DownOutlined style={{ fontSize: 10 }} />}
               style={{ padding: '0 6px' }}
+              onClick={fitMenuBelowButton}
             />
           </Dropdown>
         </SpaceCompact>
@@ -615,12 +621,12 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
               { type: 'divider' as const },
               { key: 'text', icon: <FontSizeOutlined />, label: 'Text (T)', onClick: () => onToolChange('text') },
             ],
+            style: dropdownMenuStyle,
           }}
           trigger={['click']}
           placement="bottomLeft"
-          overlayStyle={dropdownOverlayStyle}
         >
-          <Button size="small" aria-label="More tools" icon={<AppstoreOutlined />}>
+          <Button size="small" aria-label="More tools" icon={<AppstoreOutlined />} onClick={fitMenuBelowButton}>
             <span className="wm-tb-label">More</span>
             <DownOutlined style={{ fontSize: 10, marginLeft: 2 }} />
           </Button>
