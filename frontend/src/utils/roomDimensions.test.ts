@@ -197,6 +197,46 @@ describe('detectRoomFaces', () => {
     expect(result.areaPx).toBe(208 * 148);
   });
 
+  /** A plan whose dimension lines are as heavy as its walls: 8px lines 8px apart round a 520 × 400 room, lines all along */
+  function heavyPlan(): RgbaImage {
+    const img = blank(760, 640);
+    ring(img, 56, 56, 624, 504, 8, INK); // outside faces
+    ring(img, 72, 72, 608, 488, 8, INK); // inside faces: the room is 80…600 × 80…480
+    for (const [from, to] of [[120, 280], [360, 560]]) {
+      for (const y of [22, 106, 446, 530]) rect(img, from, y, to, y + 8, INK);
+    }
+    for (const [from, to] of [[120, 240], [320, 440]]) {
+      for (const x of [22, 106, 566, 650]) rect(img, x, from, x + 8, to, INK);
+    }
+    return img;
+  }
+
+  it('reads a wall from its two lines, not from a line and the wider paper to the dimension line along it', () => {
+    const result = detectRoomFaces(heavyPlan());
+    expect(result.wallThicknessPx).toBe(24);
+    expect(result.faces.map(f => Math.round(f.lengthPx))).toEqual([520, 400, 520, 400]);
+    expect(result.openings).toEqual([]);
+    expect(result.areaPx).toBe(520 * 400);
+  });
+
+  it('keeps a wall whole across a notch in one of its lines', () => {
+    const img = heavyPlan();
+    rect(img, 300, 496, 316, 504, [255, 255, 255]); // the notch in the outside line
+    rect(img, 292, 504, 324, 516, INK); // a door's arc closing it off from below
+    const result = detectRoomFaces(img);
+    expect(result.faces.map(f => Math.round(f.lengthPx))).toEqual([520, 400, 520, 400]);
+    expect(result.openings).toEqual([]);
+  });
+
+  it('keeps a wall whole past a dimension tick drawn across it', () => {
+    const img = heavyPlan();
+    for (let k = 0; k < 16; k++) {
+      rect(img, 72, 200 + k, 80 + Math.round(11 * Math.sin((Math.PI * (k + 0.5)) / 16)), 201 + k, INK);
+    }
+    const result = detectRoomFaces(img);
+    expect(result.faces.map(f => Math.round(f.lengthPx))).toEqual([520, 400, 520, 400]);
+  });
+
   it('reads single-line walls as walls even when the thinner dimension lines hold more ink', () => {
     const img = blank(340, 280);
     rect(img, 40, 40, 300, 50, INK); // 10px walls round a 240 × 180 room

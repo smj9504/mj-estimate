@@ -90,6 +90,10 @@ const RAY_ANGLES_DEG = [-75, -60, -45, -30, -15, 0, 15, 30, 45, 60, 75];
 const MAX_SAMPLES_PER_SIDE = 60;
 /** A hollow wall's gap is at most this many times as wide as its lines */
 const MAX_HOLLOW_GAP = 4;
+/** The gap is the narrowest width of paper running at least this share of the longest */
+const HOLLOW_GAP_SHARE = 0.5;
+/** Paper shut in by a wall's lines is at most this many wall thicknesses across its shorter side; a door's wedge is more */
+const MAX_POCKET_SIDE = 0.75;
 /** The strokes either side of a hollow wall's gap are this many times its line width (more when slanted) */
 const FLANK_MIN = 0.5;
 const FLANK_MAX = 1.6;
@@ -440,11 +444,10 @@ function bridgeLines(lines: Uint8Array, ink: Uint8Array, width: number, height: 
  *
  * This fills those strips so every wall becomes one solid band, as on a
  * room capture. A strip is paper between two strokes of the wall lines'
- * width, at the most common such gap on the plan, that keeps one width all
- * along, as paper between parallel lines does; the wedge between a door
- * leaf and its wall widens steadily instead, and text and dimension lines
- * are drawn thinner. The corners and junctions the strips leave shut in
- * are filled with them.
+ * width, at the narrowest gap that runs far on the plan, that keeps one width
+ * all along, as paper between parallel lines does; the wedge between a door
+ * leaf and its wall widens steadily instead, and text is drawn thinner. The
+ * corners and junctions the strips leave shut in are filled with them.
  *
  * Returns null when the plan has no hollow walls.
  */
@@ -457,18 +460,19 @@ function fillHollowWalls(mask: Uint8Array, width: number, height: number, line: 
   for (let i = 0; i < n; i++) {
     if (!mask[i] && widths[i] >= 2 && widths[i] <= maxGap) hist[widths[i]]++;
   }
+  // How far the paper of each width runs. Paper alone would favour the wider strip between a wall
+  // and the dimension line along it, which holds more of it over the same run.
+  const runs = new Float64Array(maxGap + 2);
+  for (let g = 2; g <= maxGap; g++) runs[g] = (hist[g] + 0.5 * (hist[g - 1] + hist[g + 1])) / g;
+  const longest = Math.max(...runs);
+  // A dimension line sits further from a wall than the wall's two lines are apart: the walls are the narrowest
   let gap = 0;
-  let best = 0;
-  for (let g = 2; g <= maxGap; g++) {
-    const s = hist[g] + 0.5 * (hist[g - 1] + hist[g + 1]);
-    if (s > best) {
-      best = s;
-      gap = g;
-    }
+  for (let g = 2; g <= maxGap && !gap; g++) {
+    if (runs[g] >= longest * HOLLOW_GAP_SHARE && runs[g] >= runs[g - 1] && runs[g] > runs[g + 1]) gap = g;
   }
   const band = 2 * line + gap;
   // Enough of it to run several wall thicknesses, as walls do
-  if (!gap || best < MIN_STROKE_ELONGATION * band * gap) return null;
+  if (!gap || runs[gap] < MIN_STROKE_ELONGATION * band) return null;
 
   const lo = gap * 0.7 - 1;
   const hi = gap * 1.5 + 1;
@@ -495,7 +499,8 @@ function fillHollowWalls(mask: Uint8Array, width: number, height: number, line: 
   const fresh = new Uint8Array(n);
   for (let i = 0; i < n; i++) if (strip[i] && steady[strips.labels[i]]) fresh[i] = filled[i] = 1;
 
-  // What the strips leave shut in by ink, nowhere wider than the gap: a wall's corners, junctions and ends
+  // What the strips leave shut in by ink: a wall's corners, junctions and ends. They are nowhere wider than
+  // the gap, or, where a strip turns a corner or a line has a notch, hold less than a stretch of the wall does.
   const paper = new Uint8Array(n);
   for (let i = 0; i < n; i++) paper[i] = filled[i] ? 0 : 1;
   const holes = labelComponents(paper, width, height);
@@ -517,7 +522,8 @@ function fillHollowWalls(mask: Uint8Array, width: number, height: number, line: 
       b.minY > 0 &&
       b.maxX < width - 1 &&
       b.maxY < height - 1 &&
-      widest[c] <= hi,
+      (widest[c] <= hi ||
+        (holes.sizes[c] < band * band && Math.min(b.maxX - b.minX, b.maxY - b.minY) < band * MAX_POCKET_SIDE)),
   );
   for (let i = 0; i < n; i++) if (paper[i] && shut[holes.labels[i]]) filled[i] = 1;
 
@@ -1284,6 +1290,8 @@ export function detectRoomFaces(img: RgbaImage): RoomDetection {
   let { wall: thickness, annotation } = strokeWidths(ink, width, height);
   if (!thickness) return EMPTY(img);
   ink = bridgeLines(ink, raw, width, height, thickness);
+  // A stub on a wall is as small as the lines drawing it, however thick the wall those lines make
+  const stubEps = Math.max(1.2, thickness * 0.2);
 
   // Walls drawn as two lines: fill between each pair, so a wall is one band whatever its lines' width
   const hollow = fillHollowWalls(ink, width, height, thickness);
@@ -1320,10 +1328,12 @@ export function detectRoomFaces(img: RgbaImage): RoomDetection {
   }
 
   const eps = Math.max(1.2, thickness * 0.2);
+  const clean = (points: Point[], tolerance: number) =>
+    flattenBumps(simplifyLoop(points, tolerance), thickness * MAX_BUMP_DEPTH, thickness * MAX_BUMP_WIDTH, tolerance);
   const outlines = () =>
     traceLoops(mask, labels, width, height).map(loop => ({
       component: loop.component,
-      points: flattenBumps(simplifyLoop(loop.points, eps), thickness * MAX_BUMP_DEPTH, thickness * MAX_BUMP_WIDTH, eps),
+      points: clean(clean(loop.points, stubEps), eps),
     }));
 
   // A wall drawn thinner than the rest (an inside wall) went with the dimension lines; bring back
