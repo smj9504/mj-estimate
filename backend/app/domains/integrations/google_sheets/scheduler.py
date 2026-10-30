@@ -1,14 +1,13 @@
 """
 Google Sheets 자동 동기화 스케줄러
 
-스케줄 전략:
-- 미국 시간 오전 9시 ~ 오후 6시 (근무 시간): 60분마다 동기화
-- 그 외 시간 (비근무 시간): 6시간마다 동기화
+매일 오전 8시 (미국 Eastern) 한 번 동기화한다. 근무 시작 전에 전날 입력분이
+반영되고, 그 사이에 바로 필요하면 화면의 동기화 버튼을 쓴다.
 """
 
 import asyncio
 
-from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime
 import logging
 import pytz
@@ -24,25 +23,13 @@ logger = logging.getLogger(__name__)
 US_EASTERN_TZ = pytz.timezone('America/New_York')
 
 
-def is_business_hours() -> bool:
-    """
-    미국 Eastern 시간대 기준 근무 시간 체크
-    오전 9시 ~ 오후 6시 (18시)
-    """
-    us_time = datetime.now(US_EASTERN_TZ)
-    return 9 <= us_time.hour < 18
-
-
 def _sync_sheets_blocking() -> dict:
     """Run the Google Sheets sync in a thread pool (blocking I/O + DB)."""
-    is_business = is_business_hours()
     us_time = datetime.now(US_EASTERN_TZ)
-    schedule_type = "business hours (1hr)" if is_business else "off-hours (6hr)"
     sheet_names = settings.water_mitigation_sheet_names
-    am_pm = "PM" if us_time.hour >= 12 else "AM"
     logger.info(
-        f"Starting scheduled Google Sheets sync [{schedule_type}] - "
-        f"US Time: {us_time.strftime('%I:%M')} {am_pm}, "
+        f"Starting scheduled Google Sheets sync - "
+        f"US Time: {us_time.strftime('%I:%M %p')}, "
         f"Sheets: {sheet_names}"
     )
 
@@ -59,7 +46,7 @@ def _sync_sheets_blocking() -> dict:
             skip_header=True
         ))
         logger.info(
-            f"Scheduled sync completed [{schedule_type}]: "
+            f"Scheduled sync completed: "
             f"sheets={len(sheet_names)}, "
             f"processed={stats['processed']}, "
             f"created={stats['created']}, "
@@ -72,18 +59,12 @@ def _sync_sheets_blocking() -> dict:
 
 
 async def sync_google_sheets_job():
-    """
-    정기 동기화 작업 (스레드풀에서 실행하여 이벤트 루프 블로킹 방지)
-    - 근무 시간 (9am-6pm ET): 1시간마다
-    - 비근무 시간: 6시간마다
-    """
+    """정기 동기화 작업 (스레드풀에서 실행하여 이벤트 루프 블로킹 방지)"""
     if not settings.GOOGLE_SHEETS_WATER_MITIGATION_ID:
         logger.warning("Google Sheets ID not configured, skipping sync")
         return
 
-    is_business = is_business_hours()
-    schedule_type = "business hours (60min)" if is_business else "off-hours (360min)"
-    logger.info(f"Google Sheets sync task started [{schedule_type}]")
+    logger.info("Google Sheets sync task started")
 
     try:
         loop = asyncio.get_running_loop()
@@ -91,66 +72,22 @@ async def sync_google_sheets_job():
     except Exception as e:
         logger.error(f"Background sync failed: {e}", exc_info=True)
 
-    # 다음 실행 스케줄 조정 (동적 변경)
-    _update_schedule_if_needed()
-
-
-def _update_schedule_if_needed():
-    """
-    시간대 변화에 따라 스케줄 동적 업데이트
-    - 근무 시간 전환: 60분 간격
-    - 비근무 시간 전환: 360분 간격
-    """
-    is_business = is_business_hours()
-    interval_minutes = 60 if is_business else 360
-
-    # 기존 job 가져오기
-    existing_job = scheduler.get_job('google_sheets_sync')
-    if existing_job:
-        current_interval = existing_job.trigger.interval.total_seconds() / 60
-
-        # 간격이 변경되었을 때만 업데이트
-        if current_interval != interval_minutes:
-            scheduler.reschedule_job(
-                'google_sheets_sync',
-                trigger=IntervalTrigger(minutes=interval_minutes)
-            )
-            schedule_type = "business hours (60min)" if is_business else "off-hours (360min)"
-            logger.info(f"Schedule updated to {schedule_type}")
-
 
 def start_scheduler():
-    """
-    스케줄러 시작
-    - 근무 시간 (9am-6pm ET): 60분마다 동기화
-    - 비근무 시간: 6시간(360분)마다 동기화
-    - 시간대 전환 시 자동으로 간격 조정
-    """
+    """스케줄러 시작 - 매일 오전 8시 (미국 Eastern) 동기화"""
     if not settings.GOOGLE_SHEETS_WATER_MITIGATION_ID:
         logger.warning("Google Sheets sync scheduler disabled (no Spreadsheet ID configured)")
         return
 
-    # 초기 실행 간격 결정
-    is_business = is_business_hours()
-    initial_interval = 60 if is_business else 360
-
     scheduler.add_job(
         sync_google_sheets_job,
-        trigger=IntervalTrigger(minutes=initial_interval),
+        trigger=CronTrigger(hour=8, minute=0, timezone=US_EASTERN_TZ),
         id='google_sheets_sync',
-        name='Google Sheets Sync (Smart Schedule)',
+        name='Google Sheets Daily Sync',
         replace_existing=True
     )
 
-    us_time = datetime.now(US_EASTERN_TZ)
-    tz_name = us_time.tzname() or "ET"
-    am_pm = "PM" if us_time.hour >= 12 else "AM"
-    schedule_info = "60min interval" if is_business else "360min interval"
-    logger.info(
-        f"Google Sheets sync job registered - "
-        f"US Time: {us_time.strftime('%I:%M')} {am_pm} {tz_name}, "
-        f"Current mode: {schedule_info}"
-    )
+    logger.info("Google Sheets sync job registered - runs daily at 8:00 AM ET")
 
 
 def stop_scheduler():

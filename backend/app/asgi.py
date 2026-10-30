@@ -9,6 +9,8 @@ bind the port in time.  This wrapper solves that:
   1. uvicorn loads THIS tiny module (< 0.1 s)  ->  port binds immediately
   2. /health responds "starting" while the real app loads in a thread
   3. Once loaded, every request is forwarded to the real FastAPI app
+  4. uvicorn's lifespan is answered at once and handed to the real app when it
+     has loaded: the scheduled jobs and startup work are registered there
 """
 
 import asyncio
@@ -45,8 +47,47 @@ class LauncherASGI:
         finally:
             self._loading = False
 
+    # ── lifespan ───────────────────────────────────────────────────
+    async def _lifespan(self, scope, receive, send):
+        # uvicorn binds the port only after startup completes, so answer now and
+        # run the real app's lifespan once it has loaded.
+        await receive()  # lifespan.startup
+        await send({"type": "lifespan.startup.complete"})
+
+        real_events = asyncio.Queue()
+        real_events.put_nowait({"type": "lifespan.startup"})
+        real_lifespan = asyncio.create_task(self._run_real_lifespan(scope, real_events))
+
+        await receive()  # lifespan.shutdown
+        if self._real_app is None:
+            real_lifespan.cancel()
+        else:
+            real_events.put_nowait({"type": "lifespan.shutdown"})
+        await asyncio.gather(real_lifespan, return_exceptions=True)
+        await send({"type": "lifespan.shutdown.complete"})
+
+    async def _run_real_lifespan(self, scope, events):
+        while self._loading:
+            await asyncio.sleep(0.5)
+        if self._real_app is None:
+            return
+
+        async def report(message):
+            if message["type"].endswith(".failed"):
+                print(f"[LAUNCHER] {message['type']}: {message.get('message')}")
+
+        try:
+            await self._real_app(scope, events.get, report)
+        except Exception as exc:
+            # Requests are already being served; they carry on without the jobs
+            print(f"[LAUNCHER] Real app lifespan stopped: {exc}")
+
     # ── ASGI interface ─────────────────────────────────────────────
     async def __call__(self, scope, receive, send):
+        if scope["type"] == "lifespan":
+            await self._lifespan(scope, receive, send)
+            return
+
         # If the real app is ready, delegate everything to it
         if self._real_app is not None:
             await self._real_app(scope, receive, send)

@@ -47,6 +47,15 @@ def _is_bounce_message(sender: Optional[str], subject: Optional[str]) -> bool:
     return bool(subject and _BOUNCE_SUBJECT_PATTERN.search(subject))
 
 
+def _closing_transaction_between(session, fetched_emails):
+    """Pass messages through, ending the transaction before the next one downloads.
+    Neon has dropped connections partway through a poll, and a slow attachment
+    shouldn't leave one idle in a transaction."""
+    for fetched_email in fetched_emails:
+        yield fetched_email
+        session.commit()
+
+
 def _load_sent_attachment_index(session) -> Tuple[Set[str], Set[str]]:
     """Index of everything we have emailed out: (sha256 set, filename set).
 
@@ -551,19 +560,19 @@ class EmailIngestionService:
 
             # Every message, with or without attachments: the ones matching
             # a claim are kept in received_emails, and the ones carrying
-            # files also go through the PDF pipeline below.
+            # files also go through the PDF pipeline below. These arrive one
+            # at a time, so only one message's attachments are in memory.
             all_emails = imap.fetch_emails(
                 since_date=since_date or account.get("last_synced_at"),
                 limit=limit,
                 unseen_only=unseen_only,
             )
-            emails = [e for e in all_emails if e.attachments]
 
             stats = {
                 "account_id": account_id,
                 "account_email": account["email_address"],
-                "emails_found": len(emails),
-                "emails_scanned": len(all_emails),
+                "emails_found": 0,
+                "emails_scanned": 0,
                 "emails_saved": 0,
                 "processed": 0,
                 "uploaded": 0,
@@ -581,7 +590,9 @@ class EmailIngestionService:
             from app.domains.water_mitigation.adjuster_inbox import JobMailIndex
             wm_index = JobMailIndex.load(session)
 
-            for fetched_email in all_emails:
+            for fetched_email in _closing_transaction_between(session, all_emails):
+                stats["emails_scanned"] += 1
+
                 try:
                     if self._save_received_email(
                         session, account_id, fetched_email,
@@ -595,7 +606,10 @@ class EmailIngestionService:
                     )
                     stats["errors"] += 1
 
-            for fetched_email in emails:
+                if not fetched_email.attachments:
+                    continue
+                stats["emails_found"] += 1
+
                 # A bounce is our own outbound mail coming back; skip the
                 # whole message rather than filtering its attachments one by
                 # one, since none of them are new inbound documents.

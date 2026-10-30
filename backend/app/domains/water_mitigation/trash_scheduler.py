@@ -5,6 +5,8 @@ Photos in trash for 30+ days are permanently deleted (storage + database).
 Runs once daily at 3:00 AM US Eastern time.
 """
 
+import asyncio
+
 from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime
 import logging
@@ -20,39 +22,40 @@ US_EASTERN_TZ = pytz.timezone('America/New_York')
 TRASH_RETENTION_DAYS = 30
 
 
+def _sync_cleanup_expired_trash() -> dict:
+    """Run the purge (called in thread pool). Every photo is a storage call, so on
+    the event loop a big batch would stop all requests, /health included."""
+    database = get_database()
+    db = database.get_session()
+
+    try:
+        from app.domains.water_mitigation.service import WaterMitigationService
+        service = WaterMitigationService(db)
+        result = service.cleanup_expired_trash(retention_days=TRASH_RETENTION_DAYS)
+        db.commit()
+        return result
+    finally:
+        db.close()
+
+
 async def cleanup_expired_trash_job():
     """
     Daily job to permanently delete photos in trash for 30+ days.
-    Deletes from cloud storage (GCS/GDrive) first, then removes DB records.
+    Deletes from cloud storage first, then removes DB records.
     """
-    import asyncio
-    asyncio.create_task(_run_cleanup_in_background())
-
-
-async def _run_cleanup_in_background():
-    """Run trash cleanup in background to avoid blocking"""
     try:
         us_time = datetime.now(US_EASTERN_TZ)
         logger.info(f"Starting trash cleanup job at {us_time.strftime('%Y-%m-%d %I:%M %p')} ET")
 
-        database = get_database()
-        db = database.get_session()
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, _sync_cleanup_expired_trash)
 
-        try:
-            from app.domains.water_mitigation.service import WaterMitigationService
-            service = WaterMitigationService(db)
-            result = service.cleanup_expired_trash(retention_days=TRASH_RETENTION_DAYS)
-            db.commit()
-
-            logger.info(
-                f"Trash cleanup completed: "
-                f"deleted={result['deleted_count']}, "
-                f"failed={result['failed_count']}, "
-                f"total_expired={result['total_expired']}"
-            )
-        finally:
-            db.close()
-
+        logger.info(
+            f"Trash cleanup completed: "
+            f"deleted={result['deleted_count']}, "
+            f"failed={result['failed_count']}, "
+            f"total_expired={result['total_expired']}"
+        )
     except Exception as e:
         logger.error(f"Trash cleanup job failed: {e}", exc_info=True)
 

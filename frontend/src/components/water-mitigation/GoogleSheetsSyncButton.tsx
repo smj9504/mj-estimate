@@ -130,7 +130,7 @@ const GoogleSheetsSyncButton: React.FC<GoogleSheetsSyncButtonProps> = ({
   };
 
   return (
-    <Tooltip title="Google Sheets의 데이터를 동기화합니다 (매 5분 자동 실행 중)">
+    <Tooltip title="Google Sheets의 데이터를 동기화합니다 (매일 오전 8시(ET) 자동 실행)">
       <Button
         type={type}
         size={size}

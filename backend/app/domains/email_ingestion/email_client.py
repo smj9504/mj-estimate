@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
-from typing import List, Optional, Tuple
+from typing import Iterator, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -236,9 +236,9 @@ class IMAPClient:
         since_date: Optional[datetime] = None,
         limit: int = 50,
         unseen_only: bool = False,
-    ) -> List[FetchedEmail]:
+    ) -> Iterator[FetchedEmail]:
         """
-        Fetch INBOX emails, with or without attachments.
+        Fetch INBOX emails, with or without attachments, one at a time.
 
         By default this scans regardless of the \\Seen flag: whether someone
         happened to open a message in Gmail says nothing about whether its
@@ -248,10 +248,12 @@ class IMAPClient:
         (message_id, attachment_hash) unique index, so re-scanning already
         processed mail is cheap and safe.
 
+        A generator, not a list: a poll catching up on weeks of mail would
+        otherwise hold every attachment in memory at once and could take the
+        server down. Finish with each message before asking for the next.
+
         Pass unseen_only=True to restore the old narrow behaviour.
         """
-        results = []
-
         try:
             self.connect()
             self._connection.select("INBOX")
@@ -270,28 +272,31 @@ class IMAPClient:
             status, message_ids = self._connection.search(None, search_query)
 
             if status != "OK" or not message_ids[0]:
-                return results
+                return
 
             ids = message_ids[0].split()
+            if len(ids) > limit:
+                logger.warning(
+                    f"{len(ids)} messages match {search_query}; "
+                    f"reading only the newest {limit}"
+                )
             # Process most recent first, limit count
             ids = ids[-limit:]
 
             for msg_id in ids:
                 try:
                     fetched = self._fetch_single(msg_id)
-                    if fetched:
-                        results.append(fetched)
                 except Exception as e:
                     logger.warning(f"Failed to fetch email {msg_id}: {e}")
                     continue
+                if fetched:
+                    yield fetched
 
         except Exception as e:
             logger.error(f"Error fetching emails: {e}")
             raise
         finally:
             self.disconnect()
-
-        return results
 
     def search_emails(
         self,
