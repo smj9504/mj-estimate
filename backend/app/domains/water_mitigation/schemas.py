@@ -6,7 +6,7 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_serializer, validator
 
 
 # Job Status enum values
@@ -258,6 +258,17 @@ class JobResponse(JobBase):
     approved_amount_auto: Optional[float] = None
     # Supplement requests on the linked claim, open ones first. Only the list fills it.
     supplements: Optional[List[JobSupplementBrief]] = None
+
+    @field_serializer(
+        'date_of_loss', 'mitigation_start_date', 'mitigation_end_date',
+        'inspection_date', 'documents_sent_date', 'check_date',
+        when_used='json',
+    )
+    def serialize_calendar_date(self, value):
+        """These are calendar days stored at midnight UTC. Sent with the time, a
+        browser in the US converts them to the evening before and shows the
+        wrong day, and saving that form writes the earlier day back."""
+        return value.date().isoformat() if isinstance(value, datetime) else value
 
     class Config:
         from_attributes = True

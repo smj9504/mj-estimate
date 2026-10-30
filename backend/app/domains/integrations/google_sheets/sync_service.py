@@ -20,6 +20,7 @@ from app.domains.integrations.google_sheets.utils import (
     parse_boolean_value,
     parse_date_value,
     parse_mitigation_period,
+    parse_month_day_value,
     parse_numeric_value,
 )
 from app.domains.water_mitigation.models import WaterMitigationJob, WMSyncLog
@@ -298,9 +299,6 @@ class GoogleSheetsSyncService:
                 return {"job": job, "created": False, "updated": False, "cleared": True}
             return None
 
-        # Prepare update data
-        update_data = self._prepare_job_data(row_data)
-
         # Step 1: Try to find job by google_sheet_row_number + sheet_name (most accurate)
         # This matches the exact row that was previously synced, regardless of active status
         existing_job = self._find_job_by_row_number(row_number, sheet_name)
@@ -321,6 +319,11 @@ class GoogleSheetsSyncService:
                     f"Linking pre-created job {existing_job.id} to row {row_number} "
                     f"(sheet {sheet_name}) by address match: {address}"
                 )
+
+        # Prepare update data. Dates typed without a year are placed relative to
+        # when the job first appeared, so they keep their year on every later sync.
+        anchor = (existing_job.created_at if existing_job else None) or datetime.utcnow()
+        update_data = self._prepare_job_data(row_data, anchor)
 
         # Step 3: Update existing job or create new one
         if existing_job:
@@ -484,7 +487,7 @@ class GoogleSheetsSyncService:
 
         return None
 
-    def _prepare_job_data(self, row_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _prepare_job_data(self, row_data: Dict[str, Any], anchor: datetime) -> Dict[str, Any]:
         """
         Prepare job data from row data with type conversion.
 
@@ -494,11 +497,13 @@ class GoogleSheetsSyncService:
 
         Args:
             row_data: Raw row data dictionary
+            anchor: When the job first appeared, for dates typed without a year
 
         Returns:
             Cleaned and typed job data (includes None for empty fields)
         """
         update_data = {}
+        anchor = anchor.replace(tzinfo=None)
 
         # String fields (direct mapping)
         # Empty strings are converted to None to clear DB fields
@@ -526,21 +531,36 @@ class GoogleSheetsSyncService:
         ]
         for field in date_fields:
             value = row_data.get(field)
-            parsed_date = parse_date_value(value) if value else None
-            update_data[field] = parsed_date
+            if not value or not str(value).strip():
+                update_data[field] = None
+                continue
+
+            parsed_date = parse_date_value(value)
+            if not parsed_date and field == "date_of_loss":
+                parsed_date = parse_month_day_value(value, anchor)
+
+            if parsed_date:
+                update_data[field] = parsed_date
+            else:
+                # Text we can't read ("TBD") isn't an emptied cell: the job keeps its value
+                logger.warning(f"Could not read {field} from sheet value '{value}'")
 
         # Parse mitigation_period string into start/end dates
         # This handles formats like "12/25-12/27 (3)" from Google Sheets
         if row_data.get("mitigation_period") and str(row_data["mitigation_period"]).strip():
             period_str = str(row_data["mitigation_period"]).strip()
 
-            # Determine reference year from date_of_loss if available
-            reference_year = None
-            if update_data.get("date_of_loss"):
-                reference_year = update_data["date_of_loss"].year
+            # The year comes from date_of_loss, or failing that from when the job appeared
+            reference = update_data.get("date_of_loss") or anchor
 
             # Parse the period string
-            start_date, end_date = parse_mitigation_period(period_str, reference_year)
+            start_date, end_date = parse_mitigation_period(period_str, reference.year)
+
+            # A December loss mitigated in January lands a year early on the first
+            # try, and December work on a job that appeared in January a year late
+            if start_date and abs((start_date - reference).days) > 180:
+                year = reference.year + (1 if start_date < reference else -1)
+                start_date, end_date = parse_mitigation_period(period_str, year)
 
             if start_date:
                 update_data["mitigation_start_date"] = start_date

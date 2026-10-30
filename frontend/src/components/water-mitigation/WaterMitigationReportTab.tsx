@@ -87,7 +87,9 @@ interface Photo {
 const formatDateDisplay = (dateStr?: string | null): string | null => {
   if (!dateStr) return null;
   try {
-    const date = new Date(dateStr);
+    // Pinned to UTC noon for the same reason as formatDatePdfStyle below
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? `${dateStr}T12:00:00Z` : dateStr;
+    const date = new Date(iso);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   } catch {
     return dateStr;
@@ -215,11 +217,9 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     // Replace {{start_date_plus_one}} with start date + 1 day
     if (mitigationStartDate) {
       try {
-        const startDate = new Date(mitigationStartDate);
-        const plusOneDate = new Date(startDate);
-        plusOneDate.setDate(plusOneDate.getDate() + 1);
-        const formattedPlusOne = formatDateDisplay(plusOneDate.toISOString());
-        result = result.replace(/\{\{start_date_plus_one\}\}/g, formattedPlusOne || plusOneDate.toLocaleDateString());
+        const plusOneDate = dayjs(mitigationStartDate).add(1, 'day').format('YYYY-MM-DD');
+        const formattedPlusOne = formatDateDisplay(plusOneDate);
+        result = result.replace(/\{\{start_date_plus_one\}\}/g, formattedPlusOne || plusOneDate);
       } catch (e) {
         console.warn('Failed to calculate start_date_plus_one:', e);
       }

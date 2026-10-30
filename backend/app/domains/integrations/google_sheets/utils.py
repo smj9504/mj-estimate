@@ -262,6 +262,44 @@ def parse_date_value(value: any) -> Optional[datetime]:
     return None
 
 
+def parse_month_day_value(value: any, anchor: datetime) -> Optional[datetime]:
+    """
+    Parse a date typed without a year, e.g. "10/02"
+
+    Takes the latest year that doesn't put the date more than a month past the
+    anchor. The anchor has to stay put (a job's created_at): every sync re-reads
+    every row, so anchoring on today would move "8/27" a year forward as soon as
+    that date came round again.
+
+    Args:
+        value: Date text
+        anchor: When the row first appeared
+
+    Returns:
+        datetime object or None
+    """
+    if not isinstance(value, str):
+        return None
+
+    match = re.fullmatch(r'(\d{1,2})/(\d{1,2})', value.strip())
+    if not match:
+        return None
+
+    month, day = int(match.group(1)), int(match.group(2))
+    latest = anchor.replace(tzinfo=None) + timedelta(days=31)
+
+    # Several years back so that 2/29 can reach a leap year
+    for year in range(latest.year, latest.year - 8, -1):
+        try:
+            candidate = datetime(year, month, day)
+        except ValueError:
+            continue
+        if candidate <= latest:
+            return candidate
+
+    return None
+
+
 def parse_boolean_value(value: any) -> bool:
     """
     Parse boolean from various formats
@@ -354,6 +392,9 @@ def parse_mitigation_period(period_str: str, reference_year: Optional[int] = Non
         try:
             start_date = datetime(reference_year, int(start_month), int(start_day))
             end_date = datetime(reference_year, int(end_month), int(end_day))
+            # "12/29-1/2" runs into the next year. A smaller backwards gap is a typo, left as typed.
+            if (start_date - end_date).days > 180:
+                end_date = end_date.replace(year=reference_year + 1)
             return (start_date, end_date)
         except ValueError:
             pass

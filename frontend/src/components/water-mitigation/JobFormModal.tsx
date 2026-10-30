@@ -120,16 +120,16 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
       // and re-derives any component the form left blank.
       const street = (values.property_address || '').trim();
 
-      // Convert dates to ISO strings
+      // These are calendar days, so send the day picked rather than its UTC instant
       const payload: JobCreateRequest = {
         ...values,
         property_street: street || undefined,
-        date_of_loss: values.date_of_loss ? values.date_of_loss.toISOString() : null,
-        mitigation_start_date: values.mitigation_start_date ? values.mitigation_start_date.toISOString() : null,
-        mitigation_end_date: values.mitigation_end_date ? values.mitigation_end_date.toISOString() : null,
-        inspection_date: values.inspection_date ? values.inspection_date.toISOString() : null,
-        documents_sent_date: values.documents_sent_date ? values.documents_sent_date.toISOString() : null,
-        check_date: values.check_date ? values.check_date.toISOString() : null,
+        date_of_loss: values.date_of_loss ? values.date_of_loss.format('YYYY-MM-DD') : null,
+        mitigation_start_date: values.mitigation_start_date ? values.mitigation_start_date.format('YYYY-MM-DD') : null,
+        mitigation_end_date: values.mitigation_end_date ? values.mitigation_end_date.format('YYYY-MM-DD') : null,
+        inspection_date: values.inspection_date ? values.inspection_date.format('YYYY-MM-DD') : null,
+        documents_sent_date: values.documents_sent_date ? values.documents_sent_date.format('YYYY-MM-DD') : null,
+        check_date: values.check_date ? values.check_date.format('YYYY-MM-DD') : null,
       };
 
       if (isEditing) {
