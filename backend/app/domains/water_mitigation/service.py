@@ -1117,12 +1117,16 @@ class WaterMitigationService:
         }
 
         try:
-            created_photo = self.photo_repo.create(photo_data)
+            created = self.photo_repo.create(photo_data)
             # Note: flush is now called per-batch in sync flow
             # (skip_duplicate_check=True), or per-photo for
             # direct calls (backward compatible)
             if not skip_duplicate_check:
                 self.session.flush()
+            # create() returns a dict; tag assignment and callers need the record
+            created_photo = self.session.query(WMPhoto).filter(
+                WMPhoto.id == created['id']
+            ).first()
             logger.info(
                 f"Created WMPhoto record for CompanyCam "
                 f"photo {companycam_photo_id}"
@@ -1267,25 +1271,42 @@ class WaterMitigationService:
         if not photo:
             return False
 
+        storage_provider = photo.get('storage_provider')
+        storage_file_id = photo.get('storage_file_id')
+        file_path = photo.get('file_path')
+
+        # Delete from database first, so a record that can't be removed keeps its file
+        record_deleted = self.photo_repo.delete(photo_id)
+
         # Delete file from storage provider
         try:
-            if photo.storage_provider and photo.storage_provider != 'local' and photo.storage_file_id:
+            if storage_provider and storage_provider != 'local' and storage_file_id:
+                if self._stored_file_in_use(storage_file_id):
+                    logger.info(f"Kept {storage_provider} file still in use: {storage_file_id}")
+                    return record_deleted
+
                 # Cloud storage deletion (gdrive, gcs, s3, etc.)
-                storage = StorageFactory.get_instance(photo.storage_provider)
-                deleted = storage.delete(photo.storage_file_id)
+                storage = StorageFactory.get_instance(storage_provider)
+                deleted = storage.delete(storage_file_id)
                 if deleted:
-                    logger.info(f"Deleted photo from {photo.storage_provider}: {photo.storage_file_id}")
+                    logger.info(f"Deleted photo from {storage_provider}: {storage_file_id}")
                 else:
-                    logger.warning(f"Failed to delete photo from {photo.storage_provider}: {photo.storage_file_id}")
-            elif photo.file_path and os.path.exists(photo.file_path):
+                    logger.warning(f"Failed to delete photo from {storage_provider}: {storage_file_id}")
+            elif file_path and os.path.exists(file_path):
                 # Local storage deletion
-                os.remove(photo.file_path)
-                logger.info(f"Deleted local photo file: {photo.file_path}")
+                os.remove(file_path)
+                logger.info(f"Deleted local photo file: {file_path}")
         except Exception as e:
             logger.error(f"Failed to delete photo file: {e}")
 
-        # Delete from database
-        return self.photo_repo.delete(photo_id)
+        return record_deleted
+
+    def _stored_file_in_use(self, storage_file_id: str) -> bool:
+        """Identical uploads share one stored file, so another record may still need it."""
+        for column in (WMPhoto.storage_file_id, WMDocument.storage_file_id):
+            if self.session.query(column).filter(column == storage_file_id).first():
+                return True
+        return False
 
     def trash_photo(self, photo_id: UUID, trashed_by_id: Optional[UUID] = None, reason: str = 'manual') -> bool:
         """Move photo to trash (soft delete)"""

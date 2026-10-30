@@ -4303,11 +4303,13 @@ async def ai_classify_photos(
                 continue
 
             # Image is already in hand - fingerprint it for the "Similar" sort
-            if not photo.visual_signature:
+            if not photo_dict.get('visual_signature'):
                 from .photo_similarity import compute_visual_signature
-                photo.visual_signature = await asyncio.to_thread(
+                signature = await asyncio.to_thread(
                     compute_visual_signature, image_data
                 )
+                if signature:
+                    service.photo_repo.update(photo_id, {'visual_signature': signature})
 
             # Classify photo
             result = await ai_classification_service.classify_photo_two_phase(

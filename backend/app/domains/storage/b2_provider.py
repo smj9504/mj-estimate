@@ -171,18 +171,20 @@ class B2Provider(StorageProvider):
                 if self._object_exists(dedup_meta_key):
                     existing_obj = self.client.get_object(Bucket=self.bucket_name, Key=dedup_meta_key)
                     existing_path = existing_obj['Body'].read().decode('utf-8')
-                    logger.info(f"Duplicate file detected: {opt_metadata.get('file_hash', 'unknown')}")
-                    return UploadResult(
-                        file_id=existing_path,
-                        file_path=existing_path,
-                        file_url=f"b2://{self.bucket_name}/{existing_path}",
-                        folder_path=existing_path.rsplit('/', 1)[0],
-                        storage_metadata={
-                            'deduplicated': True,
-                            'original_path': existing_path,
-                            'file_hash': opt_metadata.get('file_hash')
-                        }
-                    )
+                    # The reference outlives a deleted file - only reuse one that's still there
+                    if self._object_exists(existing_path):
+                        logger.info(f"Duplicate file detected: {opt_metadata.get('file_hash', 'unknown')}")
+                        return UploadResult(
+                            file_id=existing_path,
+                            file_path=existing_path,
+                            file_url=f"b2://{self.bucket_name}/{existing_path}",
+                            folder_path=existing_path.rsplit('/', 1)[0],
+                            storage_metadata={
+                                'deduplicated': True,
+                                'original_path': existing_path,
+                                'file_hash': opt_metadata.get('file_hash')
+                            }
+                        )
 
             blob_path = self._build_blob_path(
                 context, context_id, filename, category, metadata

@@ -166,18 +166,20 @@ class GCSProvider(StorageProvider):
                 dedup_blob = self.bucket.blob(f"_dedup/{dedup_key}.meta")
                 if dedup_blob.exists():
                     existing_path = dedup_blob.download_as_text()
-                    logger.info(f"Duplicate file detected: {opt_metadata.get('file_hash', 'unknown')}")
-                    return UploadResult(
-                        file_id=existing_path,
-                        file_path=existing_path,
-                        file_url=f"gs://{self.bucket_name}/{existing_path}",
-                        folder_path=existing_path.rsplit('/', 1)[0],
-                        storage_metadata={
-                            'deduplicated': True,
-                            'original_path': existing_path,
-                            'file_hash': opt_metadata.get('file_hash')
-                        }
-                    )
+                    # The reference outlives a deleted file - only reuse one that's still there
+                    if self.bucket.blob(existing_path).exists():
+                        logger.info(f"Duplicate file detected: {opt_metadata.get('file_hash', 'unknown')}")
+                        return UploadResult(
+                            file_id=existing_path,
+                            file_path=existing_path,
+                            file_url=f"gs://{self.bucket_name}/{existing_path}",
+                            folder_path=existing_path.rsplit('/', 1)[0],
+                            storage_metadata={
+                                'deduplicated': True,
+                                'original_path': existing_path,
+                                'file_hash': opt_metadata.get('file_hash')
+                            }
+                        )
 
             # Build blob path
             blob_path = self._build_blob_path(
