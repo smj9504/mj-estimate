@@ -174,6 +174,7 @@ const SupplementDetail: React.FC = () => {
 
   const [bidItemFile, setBidItemFile] = useState<{ id: string; name: string } | null>(null);
   const [bidItemFileUploading, setBidItemFileUploading] = useState(false);
+  const [uploadingBidPdfItemId, setUploadingBidPdfItemId] = useState<string | null>(null);
   const [bidItemType, setBidItemType] = useState<string>('');
   const [bidItemParsedAmounts, setBidItemParsedAmounts] = useState<{
     rcv_amount?: number; acv_amount?: number; depreciation_amount?: number; deductible?: number;
@@ -653,9 +654,11 @@ const SupplementDetail: React.FC = () => {
     });
   };
 
-  // Uploading a bid item PDF also tries to read its total so the amount fills itself
+  // Uploading a bid item PDF also tries to read its total so the amount fills itself.
+  // Replacing swaps the file in place, so a wrong upload doesn't mean re-creating the item.
   const uploadBidItemPdf = async (item: BidItemEstimate, file: File, isReplace: boolean) => {
     if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
+    setUploadingBidPdfItemId(item.id);
     try {
       const uploaded = await fileService.uploadFiles([file], 'supplement_bid_item', item.id, 'estimate_pdf');
       if (uploaded.length > 0) {
@@ -665,20 +668,26 @@ const SupplementDetail: React.FC = () => {
           const result = await supplementService.extractBidItemTotal(file);
           if (result?.total_amount && result.total_amount > 0) {
             mutData.custom_amount = result.total_amount;
-            message.success(`Extracted total: ${formatCurrency(result.total_amount)}`);
-          } else if (!isReplace) {
-            message.success('PDF uploaded');
           }
         } catch {
-          if (!isReplace) message.success('PDF uploaded');
+          // Silent fail - user can manually enter amount
         }
-        updateBidItemMutation.mutate({
+        await updateBidItemMutation.mutateAsync({
           supplementId: supplement.id,
           itemId: item.id,
           data: mutData,
         });
+        const done = isReplace ? 'PDF replaced' : 'PDF uploaded';
+        if (mutData.custom_amount) {
+          message.success(`${done}. Extracted total: ${formatCurrency(mutData.custom_amount)}`);
+        } else if (isReplace) {
+          message.success(`${done}. No total found in it, so check the amount.`);
+        } else {
+          message.success(done);
+        }
       }
-    } catch { message.error('Upload failed'); }
+    } catch { message.error(isReplace ? 'Failed to replace PDF' : 'Upload failed'); }
+    finally { setUploadingBidPdfItemId(null); }
     return false;
   };
 
@@ -844,6 +853,7 @@ const SupplementDetail: React.FC = () => {
       : item.pack_calculation_id ? 'packing'
       : null;
     const linkedId = item.bathroom_estimate_id || item.cabinet_estimate_id || item.pack_calculation_id || null;
+    const uploading = uploadingBidPdfItemId === item.id;
     return (
       <div className="sup-pdf-cell">
         {linkedType && linkedId && (
@@ -877,11 +887,15 @@ const SupplementDetail: React.FC = () => {
               accept=".pdf"
               maxCount={1}
               showUploadList={false}
+              disabled={uploading}
               beforeUpload={(file) => uploadBidItemPdf(item, file as unknown as File, true)}
             >
-              <Tooltip title="Replace uploaded PDF">
-                <Button type="text" size="small" className="ui-icon-btn" icon={<UploadOutlined />} aria-label="Replace uploaded PDF" />
-              </Tooltip>
+              <Button type="text" size="small" className="ui-icon-btn"
+                icon={uploading ? <LoadingOutlined /> : <UploadOutlined />}
+                disabled={uploading}
+                aria-label={`Replace ${item.custom_document_file_name || 'uploaded PDF'}`}>
+                {uploading ? 'Replacing...' : 'Replace'}
+              </Button>
             </Upload>
           </>
         ) : (
@@ -889,10 +903,11 @@ const SupplementDetail: React.FC = () => {
             accept=".pdf"
             maxCount={1}
             showUploadList={false}
+            disabled={uploading}
             beforeUpload={(file) => uploadBidItemPdf(item, file as unknown as File, false)}
           >
-            <Button size="small" icon={<UploadOutlined />}>
-              Upload
+            <Button size="small" icon={uploading ? <LoadingOutlined /> : <UploadOutlined />} disabled={uploading}>
+              {uploading ? 'Uploading...' : 'Upload'}
             </Button>
           </Upload>
         )}
@@ -1413,7 +1428,7 @@ const SupplementDetail: React.FC = () => {
                         title: 'In Xact', key: 'in_xact', width: 72, align: 'center' as const,
                         render: (_: any, item: BidItemEstimate) => renderInXact(item),
                       }] : []),
-                      { title: 'PDF', key: 'pdf', width: 120, align: 'center' as const,
+                      { title: 'PDF', key: 'pdf', width: 140, align: 'center' as const,
                         render: (_: any, item: BidItemEstimate) => renderBidPdf(item) },
                       { title: <span className="ui-sr-only">Delete</span>, key: 'del', width: 40, align: 'center' as const,
                         render: (_: any, item: BidItemEstimate) => renderBidDelete(item) },
