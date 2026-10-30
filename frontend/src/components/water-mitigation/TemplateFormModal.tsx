@@ -47,14 +47,14 @@ interface TemplateFormModalProps {
 }
 
 const DEFAULT_SECTIONS: Omit<TemplateSection, 'display_order'>[] = [
-  { title: 'Wet Area', summary: '', layout: 'two' },
-  { title: 'Pre-Mitigation Moving', summary: '', layout: 'two' },
-  { title: 'Demolition', summary: '', layout: 'two' },
-  { title: 'Containment', summary: '', layout: 'two' },
-  { title: 'Drying Process', summary: '', layout: 'two' },
-  { title: 'Monitoring - Day 1', summary: '', layout: 'two' },
-  { title: 'Monitoring - Day 2', summary: '', layout: 'two' },
-  { title: 'Monitoring - Day 3', summary: '', layout: 'two' }
+  { title: 'Wet Area', summary: '', layout: 'four' },
+  { title: 'Pre-Mitigation Moving', summary: '', layout: 'four' },
+  { title: 'Demolition', summary: '', layout: 'four' },
+  { title: 'Containment', summary: '', layout: 'four' },
+  { title: 'Drying Process', summary: '', layout: 'four' },
+  { title: 'Monitoring - Day 1', summary: '', layout: 'four' },
+  { title: 'Monitoring - Day 2', summary: '', layout: 'four' },
+  { title: 'Monitoring - Day 3', summary: '', layout: 'four' }
 ];
 
 const TemplateFormModal: React.FC<TemplateFormModalProps> = ({
@@ -124,7 +124,7 @@ const TemplateFormModal: React.FC<TemplateFormModalProps> = ({
       id: `section-${Date.now()}`,
       title: `Section ${sections.length + 1}`,
       summary: '',
-      layout: 'two',
+      layout: 'four',
       display_order: sections.length
     };
     setSections([...sections, newSection]);

@@ -267,7 +267,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
       // Also replace placeholders in summaries when loading config
       const normalizedSections = (config.sections || []).map((section: any) => ({
         ...section,
-        layout: section.layout || 'two', // Default layout if missing
+        layout: section.layout || 'four', // Default layout if missing
         photos: section.photos || [],
         summary: replacePlaceholders(section.summary || ''),  // Replace placeholders on load
         // Configs saved before section dates existed get the rule-derived
@@ -413,7 +413,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
       title,
       summary: '',
       photos: [],
-      layout: 'two',
+      layout: 'four',
       display_order: sections.length,
       section_date: deriveSectionDate(title)
     };
@@ -1174,7 +1174,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                   </Form.Item>
                   <Form.Item label="Photo Layout">
                     <Select
-                      value={currentSection.layout || 'two'}
+                      value={currentSection.layout || 'four'}
                       onChange={value => handleUpdateSection(currentSection.id, { layout: value })}
                       style={{ width: 200 }}
                     >
