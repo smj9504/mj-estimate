@@ -97,6 +97,7 @@ class SupplementRequestResponse(SupplementRequestBase):
     wm_company_name: Optional[str] = None
     rebuild_company_id: Optional[str] = None
     rebuild_company_name: Optional[str] = None
+    wm_jobs: List[Dict[str, Any]] = []
     bid_item_count: int = 0
     followup_count: int = 0
 

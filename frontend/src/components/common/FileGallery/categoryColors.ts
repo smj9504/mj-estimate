@@ -33,3 +33,23 @@ export const getCategoryColor = (category: string): string => {
   const key = category.trim().toLowerCase().replace(/\s+/g, '-');
   return CATEGORY_COLORS[key] || tagTones[toneFromKey(key)].text;
 };
+
+export const getCategoryLabel = (category: string): string => {
+  switch (category) {
+    case 'all':
+      return 'All Files';
+    case '':
+    case 'uncategorized':
+      return 'Uncategorized';
+    case 'wet-area':
+      return 'Wet Area';
+    case 'pre-mitigation-moving':
+      return 'Pre-Mitigation';
+    case 'drying-process':
+      return 'Drying';
+    default:
+      return category.split('-').map(word =>
+        word.charAt(0).toUpperCase() + word.slice(1)
+      ).join(' ');
+  }
+};

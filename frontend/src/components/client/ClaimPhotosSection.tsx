@@ -2,6 +2,8 @@ import React from 'react';
 import FileGallery from '../common/FileGallery/FileGallery';
 import type { FileGalleryProps } from '../common/FileGallery/types';
 
+export const CLAIM_PHOTO_CATEGORIES = ['before', 'during', 'after', 'completion', 'damage', 'general'];
+
 interface ClaimPhotosSectionProps {
   claimId: string;
   /** An extra action for the selected photos (Use for packing) */
@@ -16,7 +18,7 @@ const ClaimPhotosSection: React.FC<ClaimPhotosSectionProps> = ({ claimId, render
         mode="upload"
         contextId={claimId}
         fileCategory="image"
-        categories={['before', 'during', 'after', 'completion', 'damage', 'general']}
+        categories={CLAIM_PHOTO_CATEGORIES}
         allowUpload={true}
         allowMultiSelect={true}
         allowCategoryCreate={true}

@@ -44,6 +44,8 @@ export interface SupplementRequest {
   wm_company_name?: string;
   rebuild_company_id?: string;
   rebuild_company_name?: string;
+  /** The claim's water mitigation jobs; on a single supplement, not the list */
+  wm_jobs?: { id: string; property_address?: string; company_name?: string }[];
   bid_item_count: number;
   followup_count: number;
   bid_items: BidItemEstimate[];

@@ -1,0 +1,504 @@
+/*
+ * Claim photo viewer (cpv-*): the whole window, a white bar over a dark stage
+ * for the big photo and the white sheet for the cards. The stage is the one
+ * dark surface: a photo of a damaged room is judged by its colours, and white
+ * around it would be the brightest thing on the screen.
+ */
+
+.cpv-root {
+  --cpv-stage: #191816;
+  --cpv-on-stage: rgba(255, 255, 255, 0.88);
+  --cpv-on-stage-muted: rgba(255, 255, 255, 0.68);
+}
+.cpv-root .ant-modal-wrap {
+  overflow: hidden;
+}
+.cpv-root .ant-modal {
+  top: 0;
+  max-width: 100vw;
+  margin: 0;
+  padding: 0;
+}
+.cpv-root .ant-modal .ant-modal-content {
+  height: 100dvh;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.cpv-root .ant-modal .ant-modal-body {
+  height: 100%;
+}
+/* Names the dialog for screen readers; the bar below says the same on screen */
+.cpv-root .ant-modal .ant-modal-header {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.cpv {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-surface);
+  color: var(--color-neutral-900);
+}
+
+/* Bar */
+.cpv-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 6px 8px 6px 16px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+/* Gives way before the set tabs do */
+.cpv-title {
+  display: flex;
+  flex: 0 1000 auto;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.cpv-title strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.cpv-title-meta {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.cpv-tabs {
+  display: flex;
+  flex: 0 1 auto;
+  gap: 2px;
+  min-width: 0;
+  margin-left: 4px;
+  overflow-x: auto;
+}
+/* A long company name can't take the whole row from the other sets */
+.cpv-tabs .ant-btn {
+  flex: none;
+  max-width: 220px;
+}
+.cpv-tabs .ant-btn > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cpv-bar-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+.cpv-bar-actions .ant-btn {
+  height: 30px;
+  min-width: 30px;
+}
+
+/* Layout */
+.cpv-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(340px, 30vw, 560px);
+  min-height: 0;
+}
+.cpv-body.is-stage-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Stage */
+.cpv-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--cpv-stage);
+  color: var(--cpv-on-stage);
+}
+.cpv-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+.cpv-canvas.is-zoomed {
+  cursor: grab;
+}
+.cpv-canvas.is-zoomed:active {
+  cursor: grabbing;
+}
+.cpv-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  transform-origin: center;
+  -webkit-user-drag: none;
+}
+.cpv-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--cpv-on-stage-muted);
+}
+.cpv-placeholder strong {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--cpv-on-stage);
+}
+.cpv-placeholder .ant-btn {
+  margin-top: 8px;
+}
+
+.ant-btn.cpv-nav {
+  position: absolute;
+  top: calc((100% - 40px) / 2);
+  width: 44px;
+  height: 44px;
+  margin-top: -22px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 16px;
+}
+.ant-btn.cpv-nav:not(:disabled):hover {
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+}
+.cpv-nav--prev {
+  left: 12px;
+}
+.cpv-nav--next {
+  right: 12px;
+}
+
+.cpv-caption {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 0 8px 0 16px;
+  font-size: 13px;
+}
+.cpv-caption-info {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  white-space: nowrap;
+  color: var(--cpv-on-stage-muted);
+}
+.cpv-caption-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--cpv-on-stage);
+}
+.cpv-caption-category {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--cpv-on-stage);
+}
+.cpv-caption-date {
+  flex: none;
+}
+.cpv-caption-name,
+.cpv-caption-place {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The least of these: it only takes the width left over, so the room shows in full when it fits */
+.cpv-caption-name {
+  flex: 1 1 0;
+}
+.cpv-zoom {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+.cpv-stage .cpv-zoom .ant-btn {
+  height: 28px;
+  min-width: 28px;
+  color: var(--cpv-on-stage);
+}
+.cpv-stage .cpv-zoom .ant-btn:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+.cpv-stage .cpv-zoom .ant-btn:disabled {
+  color: rgba(255, 255, 255, 0.32);
+}
+.cpv-stage .cpv-zoom .cpv-zoom-level {
+  min-width: 52px;
+  padding: 0 4px;
+  font-variant-numeric: tabular-nums;
+}
+.cpv-stage .ant-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
+
+/* Cards */
+.cpv-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--color-neutral-200);
+  background: var(--color-surface);
+}
+.cpv-panel[hidden] {
+  display: none;
+}
+.cpv-filters {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.cpv-chip-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-neutral-600);
+}
+.cpv-cards {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  /* Plain auto rows crush the cards to fit, since they hide their overflow */
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 8px;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.cpv-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0 0 8px;
+  overflow: hidden;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg, 8px);
+  background: var(--color-surface);
+  color: var(--color-neutral-900);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  /* Hundreds of cards: the ones off screen cost nothing until scrolled to */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 220px;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.cpv-card:hover {
+  border-color: var(--color-neutral-400);
+  box-shadow: 0 1px 2px rgba(15, 15, 15, 0.06);
+}
+.cpv-card:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+}
+/* An outline, because the thumbnail would cover an inset shadow */
+.cpv-card.is-current {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+.cpv-card.is-current:focus-visible {
+  outline-offset: 1px;
+}
+.cpv-card-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  margin-bottom: 6px;
+  /* Without this a portrait photo stretches the box past its ratio */
+  overflow: hidden;
+  background: var(--color-neutral-100);
+}
+.cpv-card-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cpv-card-category {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.cpv-card-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cpv-card-meta {
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.cpv-card--skeleton {
+  cursor: default;
+  content-visibility: visible;
+}
+.cpv-card--skeleton:hover {
+  border-color: var(--color-neutral-200);
+  box-shadow: none;
+}
+.cpv-skeleton-line {
+  display: block;
+  height: 10px;
+  margin: 4px 8px;
+  border-radius: var(--radius-xs, 3px);
+  background: var(--color-neutral-100);
+}
+.cpv-skeleton-line--short {
+  width: 55%;
+}
+.cpv-cards-note {
+  grid-column: 1 / -1;
+  padding: 8px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.cpv-cards-note .ant-btn {
+  padding: 0;
+}
+
+/* Tall windows and phones: the photo above its cards */
+@media (max-aspect-ratio: 1/1), (max-width: 600px) {
+  .cpv-body,
+  .cpv-body.is-stage-only {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cpv-body {
+    grid-template-rows: minmax(0, 11fr) minmax(0, 9fr);
+  }
+  .cpv-body.is-stage-only {
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .cpv-panel {
+    border-left: 0;
+    border-top: 1px solid var(--color-neutral-200);
+  }
+  .cpv-cards {
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  }
+  .cpv-card {
+    contain-intrinsic-size: auto 160px;
+  }
+}
+
+/* One row of chips wherever height is short, so the cards keep it */
+@media (max-aspect-ratio: 1/1), (max-width: 600px), (max-height: 600px) {
+  .cpv-filters {
+    flex-wrap: nowrap;
+    padding: 8px 12px;
+    overflow-x: auto;
+  }
+  .cpv-filters .ant-tag {
+    flex: none;
+  }
+}
+
+/* A mouse needs the scrollbar to reach a clipped tab or chip; a finger just drags */
+.cpv-tabs,
+.cpv-filters {
+  scrollbar-width: thin;
+}
+@media (pointer: coarse) {
+  .cpv-tabs,
+  .cpv-filters {
+    scrollbar-width: none;
+  }
+  .cpv-tabs::-webkit-scrollbar,
+  .cpv-filters::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Icons with tooltips from here down, so the set tabs keep the width */
+@media (max-width: 1099.98px) {
+  .cpv-bar-action-label {
+    display: none;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .cpv-bar {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    padding: 4px 4px 4px 12px;
+  }
+  /* Truncates rather than pushing the buttons onto a row of their own */
+  .cpv-title {
+    flex: 1 1 0;
+  }
+  .cpv-bar-actions .ant-btn {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+  }
+  /* The tabs take their own row under the title */
+  .cpv-tabs {
+    order: 1;
+    width: 100%;
+    margin: 0 0 2px;
+  }
+  .cpv-tabs .ant-btn {
+    max-width: 70vw;
+    height: 32px;
+  }
+  .cpv-caption {
+    padding: 0 4px 0 12px;
+  }
+  .cpv-caption-name {
+    display: none;
+  }
+}
+
+/* A pinch does this on a phone, and the caption needs the width */
+@media (max-width: 480px) {
+  .cpv-zoom {
+    display: none;
+  }
+}

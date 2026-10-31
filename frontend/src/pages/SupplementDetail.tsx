@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button, Space, Modal, Form, Input, InputNumber,
@@ -8,7 +8,7 @@ import {
   Spin, Table, Grid,
 } from 'antd';
 import {
-  ArrowLeftOutlined, FileTextOutlined,
+  ArrowLeftOutlined, CameraOutlined, FileTextOutlined,
   SendOutlined, PhoneOutlined,
   FilePdfOutlined, SaveOutlined, UploadOutlined,
   LoadingOutlined, ThunderboltOutlined, PlusOutlined, DeleteOutlined,
@@ -28,6 +28,7 @@ import { companyService } from '../services/companyService';
 import { useBreadcrumbTitle } from '../contexts/BreadcrumbContext';
 import { PageHeader, Pill, PropertyList, humanize, useSheetModal, type TagTone } from '../components/common/ui';
 import { CompanyTag } from '../components/water-mitigation/paymentBoardShared';
+import ClaimPhotoViewer from '../components/client/photo-viewer/ClaimPhotoViewer';
 import {
   SupplementStatusPill, SUPPLEMENT_STATUSES, supplementStatusLabel,
   BID_TYPE_LABELS, REQUIRED_ESTIMATE_OPTIONS, formatCurrency, formatSignedCurrency,
@@ -147,6 +148,16 @@ const SupplementDetail: React.FC = () => {
   // Compact controls on desktop; full-size ones on phones so they can be tapped
   const controlSize = isMobile ? 'middle' : 'small';
   const { sheetProps } = useSheetModal();
+
+  // In the URL so a phone's Back closes the photos instead of leaving the page
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const photosOpen = searchParams.get('photos') === '1';
+  const openPhotos = () => setSearchParams({ photos: '1' }, { state: { photosPushed: true } });
+  const closePhotos = () => {
+    if ((location.state as { photosPushed?: boolean } | null)?.photosPushed) navigate(-1);
+    else setSearchParams({}, { replace: true });
+  };
 
   const [bidItemModalOpen, setBidItemModalOpen] = useState(false);
   const [followupModalOpen, setFollowupModalOpen] = useState(false);
@@ -958,6 +969,7 @@ const SupplementDetail: React.FC = () => {
               suffixIcon={<SwapOutlined />}
               aria-label="Supplement status"
             />
+            <Button icon={<CameraOutlined />} onClick={openPhotos}>Photos</Button>
             <Tooltip title={hasBidPdf ? undefined : 'Upload bid item PDFs first'}>
               <span>
                 <Button
@@ -2784,6 +2796,14 @@ const SupplementDetail: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      <ClaimPhotoViewer
+        open={photosOpen}
+        onClose={closePhotos}
+        claimId={supplement.claim_id}
+        wmJobs={supplement.wm_jobs ?? []}
+        subtitle={[supplement.homeowner_name, supplement.claim_number].filter(Boolean).join(' · ')}
+      />
     </div>
   );
 };

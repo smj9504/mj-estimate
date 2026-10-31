@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Space, Tag, Button, Input, message, Tooltip } from 'antd';
 import { PlusOutlined, LeftOutlined, RightOutlined, FilterOutlined, CheckOutlined } from '@ant-design/icons';
-import { getCategoryColor } from './categoryColors';
+import { getCategoryColor, getCategoryLabel } from './categoryColors';
 
 interface CategoryManagerProps {
   categories: string[];
@@ -123,26 +123,6 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
     return selectedCategory === category;
   };
 
-  const getCategoryDisplayName = (category: string) => {
-    switch (category) {
-      case 'all':
-        return 'All Files';
-      case '':
-      case 'uncategorized':
-        return 'Uncategorized';
-      case 'wet-area':
-        return 'Wet Area';
-      case 'pre-mitigation-moving':
-        return 'Pre-Mitigation';
-      case 'drying-process':
-        return 'Drying';
-      default:
-        return category.split('-').map(word =>
-          word.charAt(0).toUpperCase() + word.slice(1)
-        ).join(' ');
-    }
-  };
-
   // Count selected categories for badge display
   const getSelectedCount = (): number => {
     if (Array.isArray(selectedCategory)) {
@@ -232,7 +212,7 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
                 {category !== 'all' && (
                   <span className="ui-filter-chip-dot" style={{ background: color }} aria-hidden="true" />
                 )}
-                {getCategoryDisplayName(category)}
+                {getCategoryLabel(category)}
                 {multiSelect && selected && category !== 'all' && (
                   <CheckOutlined className="ui-filter-chip-check" aria-hidden="true" />
                 )}

@@ -78,7 +78,7 @@ import UnassignedContracts from '../components/contract/UnassignedContracts';
 import ClientDocumentHub from '../components/client/ClientDocumentHub';
 import ClaimNotes from '../components/client/ClaimNotes';
 import ClaimPhotosSection from '../components/client/ClaimPhotosSection';
-import ClaimWMPhotos from '../components/client/ClaimWMPhotos';
+import ClaimWMPhotos, { wmPhotoSetLabel } from '../components/client/ClaimWMPhotos';
 import ClaimPackingSection from '../components/client/ClaimPackingSection';
 import AddToPackingModal from '../components/client/AddToPackingModal';
 import type { FileItem } from '../components/common/FileGallery';
@@ -2478,9 +2478,7 @@ const ClaimPhotos: React.FC<{ claim: Claim }> = ({ claim }) => {
   const views = [
     ...wmJobs.map((job, i) => ({
       key: job.id,
-      label: wmJobs.length > 1
-        ? `WM · ${job.company_name || job.property_address || i + 1}`
-        : 'Water mitigation',
+      label: wmPhotoSetLabel(job, i, wmJobs.length),
     })),
     { key: COMPLETION_PHOTOS, label: 'Completion' },
   ];

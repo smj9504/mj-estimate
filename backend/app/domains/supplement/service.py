@@ -180,9 +180,30 @@ class SupplementService:
 
                 # Enrich with claim info
                 self._enrich_with_claim_info(session, result)
+                result['wm_jobs'] = self._wm_jobs_for_claim(session, result.get('claim_id'))
             return result
         finally:
             session.close()
+
+    def _wm_jobs_for_claim(self, session, claim_id) -> List[Dict[str, Any]]:
+        """The claim's water mitigation jobs, whose photos the supplement page shows"""
+        from app.domains.company.models import Company
+        from app.domains.water_mitigation.models import WaterMitigationJob
+
+        jobs = (
+            session.query(WaterMitigationJob, Company.name)
+            .outerjoin(Company, WaterMitigationJob.company_id == Company.id)
+            .filter(WaterMitigationJob.claim_id == claim_id)
+            .all()
+        )
+        return [
+            {
+                'id': str(job.id),
+                'property_address': job.property_address,
+                'company_name': company_name,
+            }
+            for job, company_name in jobs
+        ]
 
     def get_requests(self, params: Dict[str, Any], scope: Any = None) -> Tuple[List[Dict[str, Any]], int]:
         """scope: company condition from auth.company_scope (None = all)"""

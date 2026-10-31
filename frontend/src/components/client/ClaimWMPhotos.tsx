@@ -4,6 +4,31 @@ import FileGallery from '../common/FileGallery/FileGallery';
 import type { FileGalleryProps } from '../common/FileGallery/types';
 import waterMitigationService from '../../services/waterMitigationService';
 
+export const WM_PHOTO_CATEGORIES = [
+  'uncategorized',
+  'property-overview',
+  'wet-area',
+  'personal-properties',
+  'pre-mitigation-moving',
+  'demolition',
+  'containment',
+  'protection',
+  'drying-process',
+  'day-1',
+  'day-2',
+  'day-3',
+  'documentation',
+];
+
+// What a job's photos are called next to the claim's other photo sets
+export const wmPhotoSetLabel = (
+  job: { company_name?: string; property_address?: string },
+  index: number,
+  jobCount: number,
+): string => (jobCount > 1
+  ? `WM · ${job.company_name || job.property_address || index + 1}`
+  : 'Water mitigation');
+
 interface ClaimWMPhotosProps {
   jobId: string;
   /** An extra action for the selected photos (Use for packing) */
@@ -47,21 +72,7 @@ const ClaimWMPhotos: React.FC<ClaimWMPhotosProps> = ({ jobId, renderBulkExtraAct
       contextId={jobId}
       allowedTypes={['image/*']}
       fileCategory="image"
-      categories={[
-        'uncategorized',
-        'property-overview',
-        'wet-area',
-        'personal-properties',
-        'pre-mitigation-moving',
-        'demolition',
-        'containment',
-        'protection',
-        'drying-process',
-        'day-1',
-        'day-2',
-        'day-3',
-        'documentation',
-      ]}
+      categories={WM_PHOTO_CATEGORIES}
       allowUpload={true}
       onUpload={handleUpload}
       allowMultiSelect={true}
