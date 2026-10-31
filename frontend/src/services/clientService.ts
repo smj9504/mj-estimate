@@ -75,6 +75,11 @@ export const clientService = {
     return data;
   },
 
+  async getDeletePreview(id: string) {
+    const { data } = await api.get(`/api/clients/${id}/delete-preview`);
+    return data as { items: { label: string; count: number }[] };
+  },
+
   async delete(id: string) {
     const { data } = await api.delete(`/api/clients/${id}`);
     return data;

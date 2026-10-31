@@ -9,11 +9,11 @@ import tempfile
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
 
 from app.core.database_factory import get_db_session as get_db
 from app.domains.auth import company_scope
-from app.domains.auth.dependencies import get_current_staff
+from app.domains.auth.dependencies import get_current_staff, require_admin
 from app.domains.auth.document_access import can_access_document
 from app.domains.client.claim_paths import SameCompanyAsWMError
 from app.domains.client.schemas import (
@@ -305,34 +305,45 @@ def update_client(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{client_id}/delete-preview")
+def get_client_delete_preview(
+    client_id: str,
+    _admin=Depends(require_admin),
+    db=Depends(get_db),
+):
+    """What deleting a client would take with it"""
+    from app.domains.client.client_delete import linked_counts
+
+    items = linked_counts(db, client_id)
+    if items is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return {"items": items}
+
+
 @router.delete("/{client_id}")
 def delete_client(
     client_id: str,
+    background_tasks: BackgroundTasks,
+    _admin=Depends(require_admin),
     db=Depends(get_db),
-    current_staff=Depends(get_current_staff),
-    service: ClientService = Depends(_get_client_service),
 ):
-    """Delete a client"""
-    from app.domains.client.models import Claim
+    """Delete a client and everything linked to it"""
+    from app.domains.client.client_delete import delete_client_and_everything, delete_stored_files
 
-    # Deleting a client deletes its claims, so other companies' claims block it
-    claim_ids = [str(r[0]) for r in db.query(Claim.id).filter(Claim.client_id == client_id).all()]
-    visible = company_scope.visible_claim_id_set(db, current_staff, claim_ids)
-    if visible is not None and len(visible) < len(claim_ids):
-        raise HTTPException(
-            status_code=403,
-            detail="This client has claims of other companies, so only an admin can delete it",
-        )
     try:
-        success = service.delete(client_id)
-        if not success:
+        stored_files = delete_client_and_everything(db, client_id)
+        if stored_files is None:
             raise HTTPException(status_code=404, detail="Client not found")
-        return {"message": "Client deleted successfully"}
+        db.commit()
     except HTTPException:
         raise
     except Exception as e:
+        db.rollback()
         logger.error(f"Error deleting client: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+    background_tasks.add_task(delete_stored_files, stored_files)
+    return {"message": "Client deleted successfully"}
 
 
 # ============================================================

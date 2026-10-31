@@ -11,7 +11,6 @@ import {
   Input,
   Select,
   message,
-  Popconfirm,
   Typography,
   Row,
   Col,
@@ -360,7 +359,7 @@ const ClientList: React.FC = () => {
   const [source, setSource] = useState<ClientSourceFilter>('manual');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   // Outside admin roles a person sees only their companies' clients
   const noCompany = !!user && !['admin', 'super_admin'].includes(user.role)
     && !user.all_companies && !(user.company_ids?.length);
@@ -442,9 +441,31 @@ const ClientList: React.FC = () => {
     openEdit(client);
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    await deleteMutation.mutateAsync(id);
+  // There is no undoing this, so show what goes before asking
+  const confirmDelete = async (record: ClientListItem) => {
+    let items: { label: string; count: number }[];
+    try {
+      ({ items } = await clientService.getDeletePreview(record.id));
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || err.message || 'Failed to check this client.');
+      return;
+    }
+    Modal.confirm({
+      title: `Delete ${record.display_name}?`,
+      content: items.length > 0 ? (
+        <>
+          <p>This also permanently deletes everything linked to this client:</p>
+          <ul style={{ margin: 0, paddingLeft: 20 }}>
+            {items.map((item) => <li key={item.label}>{item.label}: {item.count}</li>)}
+          </ul>
+          <p style={{ margin: '8px 0 0' }}>This action cannot be undone.</p>
+        </>
+      ) : 'Nothing else is linked to this client. This action cannot be undone.',
+      okText: 'Delete',
+      okButtonProps: { danger: true },
+      cancelText: 'Cancel',
+      onOk: () => deleteMutation.mutateAsync(record.id),
+    });
   };
 
   const handleSubmit = async (values: ClientCreate) => {
@@ -539,22 +560,19 @@ const ClientList: React.FC = () => {
             size="small"
             onClick={(e) => handleEdit(record, e)}
           />
-          <Popconfirm
-            title="Delete this client?"
-            description="This action cannot be undone."
-            onConfirm={(e) => handleDelete(record.id, e as React.MouseEvent)}
-            okText="Delete"
-            okButtonProps={{ danger: true }}
-            cancelText="Cancel"
-          >
+          {isAdmin() && (
             <Button
               type="text"
               icon={<DeleteOutlined />}
               size="small"
               danger
-              onClick={(e) => e.stopPropagation()}
+              aria-label="Delete client"
+              onClick={(e) => {
+                e.stopPropagation();
+                confirmDelete(record);
+              }}
             />
-          </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -565,21 +583,12 @@ const ClientList: React.FC = () => {
   const rowMenu = (record: ClientListItem): MenuProps => ({
     items: [
       { key: 'edit', icon: <EditOutlined />, label: 'Edit' },
-      { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true },
+      ...(isAdmin() ? [{ key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true }] : []),
     ],
     onClick: ({ key, domEvent }) => {
       domEvent.stopPropagation();
       if (key === 'edit') openEdit(record);
-      if (key === 'delete') {
-        Modal.confirm({
-          title: 'Delete this client?',
-          content: 'This action cannot be undone.',
-          okText: 'Delete',
-          okButtonProps: { danger: true },
-          cancelText: 'Cancel',
-          onOk: () => deleteMutation.mutateAsync(record.id),
-        });
-      }
+      if (key === 'delete') confirmDelete(record);
     },
   });
 
