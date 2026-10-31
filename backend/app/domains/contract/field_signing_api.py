@@ -393,46 +393,54 @@ def send_email_with_template(
 
 def send_signed_contract(service, contract: dict, emails: List[str], source: str) -> None:
     """Email the signed PDF, with EMAIL_TEMPLATES wording for its document type."""
-    if contract.get('status') != 'signed':
-        raise HTTPException(status_code=400, detail="Contract has not been signed yet")
+    send_signed_contracts(service, [contract], emails, source)
 
-    # Get signed PDF
-    signed_url = contract.get('signed_pdf_url') or contract.get('filled_pdf_url')
-    signed_provider = contract.get('signed_pdf_provider') or contract.get('filled_pdf_provider')
-    pdf_attachment = None
-    if signed_url:
-        from app.domains.contract.api import _resolve_contract_pdf
-        pdf_bytes = _resolve_contract_pdf(signed_url, signed_provider)
-        if pdf_bytes:
-            title_safe = (contract.get('title') or 'Contract').replace(' ', '_')
-            pdf_attachment = {
-                'data': pdf_bytes,
-                'filename': f"{title_safe}_Signed.pdf",
-                'mime_type': 'application/pdf',
-            }
 
-    if not pdf_attachment:
-        raise HTTPException(status_code=404, detail="Signed PDF not available")
+def send_signed_contracts(service, contracts: List[dict], emails: List[str], source: str) -> None:
+    """Email signed PDFs of one company together, one attached per contract, with
+    EMAIL_TEMPLATES wording for their document type when they share one."""
+    from app.domains.contract.api import _resolve_contract_pdf
+
+    attachments = []
+    for contract in contracts:
+        if contract.get('status') != 'signed':
+            raise HTTPException(status_code=400, detail="Contract has not been signed yet")
+        signed_url = contract.get('signed_pdf_url') or contract.get('filled_pdf_url')
+        signed_provider = contract.get('signed_pdf_provider') or contract.get('filled_pdf_provider')
+        pdf_bytes = _resolve_contract_pdf(signed_url, signed_provider) if signed_url else None
+        if not pdf_bytes:
+            raise HTTPException(status_code=404, detail="Signed PDF not available")
+        title_safe = (contract.get('title') or 'Contract').replace(' ', '_')
+        attachments.append({
+            'data': pdf_bytes,
+            'filename': f"{title_safe}_Signed.pdf",
+            'mime_type': 'application/pdf',
+        })
 
     # Build email using EMAIL_TEMPLATES
-    company = contract.get('company_name', 'Our Company')
-    title = contract.get('title') or contract.get('template_name') or 'Contract'
-    client_name = contract.get('client_name', '')
-    document_type = contract.get('document_type', 'other')
+    first = contracts[0]
+    company = first.get('company_name', 'Our Company')
+    titles = [c.get('title') or c.get('template_name') or 'Contract' for c in contracts]
+    title = titles[0] if len(titles) == 1 else ', '.join(titles[:-1]) + ' and ' + titles[-1]
+    client_name = first.get('client_name', '')
+    document_types = {c.get('document_type', 'other') for c in contracts}
 
     from app.domains.contract.api import EMAIL_TEMPLATES
-    template = EMAIL_TEMPLATES.get(document_type, EMAIL_TEMPLATES.get('other', {}))
+    if len(document_types) == 1:
+        template = EMAIL_TEMPLATES.get(document_types.pop(), EMAIL_TEMPLATES.get('other', {}))
+        heading = template.get('heading', 'Signed Document')
+    else:
+        heading = 'Signed Documents'
 
     subject = f"Signed: {title} - {company}"
-    heading = template.get('heading', 'Signed Document')
 
     body_html = _build_signed_email_html(
         heading=heading,
         title=title,
         company=company,
         client_name=client_name,
-        company_email=contract.get('company_email', ''),
-        company_phone=contract.get('company_phone', ''),
+        company_email=first.get('company_email', ''),
+        company_phone=first.get('company_phone', ''),
     )
 
     # Send
@@ -440,8 +448,8 @@ def send_signed_contract(service, contract: dict, emails: List[str], source: str
     from app.core.config import settings
 
     smtp = SmtpService()
-    company_email = contract.get('company_email', '')
-    company_id = contract.get('company_id')
+    company_email = first.get('company_email', '')
+    company_id = first.get('company_id')
     account_id = _find_company_email_account(company_id)
 
     if account_id:
@@ -452,7 +460,7 @@ def send_signed_contract(service, contract: dict, emails: List[str], source: str
             subject=subject,
             body_html=body_html,
             skip_signature=True,
-            attachments=[pdf_attachment],
+            attachments=attachments,
         )
     else:
         smtp_user = getattr(settings, 'SMTP_USER', '')
@@ -467,21 +475,22 @@ def send_signed_contract(service, contract: dict, emails: List[str], source: str
             reply_to=company_email or smtp_user,
             skip_signature=True,
             display_name_override=company,
-            attachments=[pdf_attachment],
+            attachments=attachments,
         )
 
     # Audit: signed copy sent
-    try:
-        service.append_audit_log(
-            str(contract['id']),
-            action='sent_copy',
-            detail={
-                'recipients': emails,
-                'source': source,
-            },
-        )
-    except Exception:
-        pass
+    for contract in contracts:
+        try:
+            service.append_audit_log(
+                str(contract['id']),
+                action='sent_copy',
+                detail={
+                    'recipients': emails,
+                    'source': source,
+                },
+            )
+        except Exception:
+            pass
 
 
 def _extract_signature_fields(mappings: list) -> list:

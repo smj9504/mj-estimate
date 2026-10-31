@@ -445,7 +445,9 @@ class ClaimNote(Base, BaseModel):
 
 
 class ClaimTodo(Base, BaseModel):
-    """Todo on its owner's board: tied to a claim, to a client only, or to nothing"""
+    """Todo on its assignees' boards: tied to a claim, to a client only, or to nothing.
+    It is one todo however many people it's assigned to: its status and content
+    are shared, and each assignee keeps their own place for it on their board."""
     __tablename__ = "claim_todos"
     __table_args__ = (
         Index('ix_claim_todos_claim_id', 'claim_id'),
@@ -457,11 +459,15 @@ class ClaimTodo(Base, BaseModel):
 
     claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="CASCADE"), nullable=True)
     client_id = Column(UUIDType(), ForeignKey("clients.id", ondelete="SET NULL"), nullable=True)
-    # Whose board it is on. Todos from before the board have none and show on the client page only.
+    # Who it was made for, the first of its assignees. Todos from before the board
+    # have none and show on the client page only.
     owner_id = Column(UUIDType(), ForeignKey("staff.id", ondelete="SET NULL"), nullable=True)
     # A signed contract this todo is about, and what it asks: put it on a claim
     # (assign_claim) or sign for the company (company_signature). Doing that finishes the todo
     contract_id = Column(UUIDType(), ForeignKey("contract_instances.id", ondelete="CASCADE"), nullable=True, index=True)
+    # Every contract the todo is about, as a JSON list, when it is about several
+    # signed together; contract_id is the first. Putting them all on a claim finishes it
+    contract_ids = Column(Text)
     contract_task = Column(String(30))
     title = Column(String(500), nullable=False)
     description = Column(Text)
@@ -469,13 +475,28 @@ class ClaimTodo(Base, BaseModel):
     due_date = Column(DateTime(timezone=True))
     # Board column: todo | in_progress | done. is_completed mirrors done.
     status = Column(String(20), nullable=False, default="todo", server_default="todo")
-    # Order within the column; lower comes first (higher priority)
+    # Order within the column on the owner's board; each assignee's is on their row
     sort_order = Column(Integer, nullable=False, default=0, server_default="0")
     is_completed = Column(Boolean, default=False)
     completed_at = Column(DateTime(timezone=True))
 
     # Relationship
     claim = relationship("Claim", back_populates="claim_todos")
+    assignees = relationship("ClaimTodoAssignee", cascade="all, delete-orphan", lazy='select')
+
+
+class ClaimTodoAssignee(Base):
+    """Someone a todo is assigned to: it is on their board, at their own place in its column"""
+    __tablename__ = "claim_todo_assignees"
+    __table_args__ = (
+        Index('ix_claim_todo_assignees_staff_id', 'staff_id'),
+        {'extend_existing': True}
+    )
+
+    todo_id = Column(UUIDType(), ForeignKey("claim_todos.id", ondelete="CASCADE"), primary_key=True)
+    staff_id = Column(UUIDType(), ForeignKey("staff.id", ondelete="CASCADE"), primary_key=True)
+    # Order within the todo's column on this person's board; lower comes first
+    sort_order = Column(Integer, nullable=False, default=0, server_default="0")
 
 
 class ClaimActivity(Base, BaseModel):

@@ -679,7 +679,8 @@ class ClaimNoteService:
 
 
 class ClaimTodoService:
-    """Service for claim todos"""
+    """Service for claim todos. A todo may be assigned to several people: it is
+    one todo, with one status, on each of their boards at their own place."""
 
     def __init__(self, database=None):
         from app.core.database_factory import get_database
@@ -720,30 +721,63 @@ class ClaimTodoService:
             todo.completed_at = None
         todo.status = status
 
-    @staticmethod
-    def _owned_by(owner_id):
-        from app.domains.client.models import ClaimTodo
-        return ClaimTodo.owner_id.is_(None) if owner_id is None else ClaimTodo.owner_id == owner_id
-
     @classmethod
     def _top_sort_order(cls, session, status: str, owner_id, exclude_id=None) -> int:
-        """A sort_order that puts a todo above everything already in the column on its owner's board"""
+        """A sort_order that puts a todo above everything already in the column on
+        this person's board (or among the todos on nobody's, for none)"""
         from sqlalchemy import func as sa_func
-        from app.domains.client.models import ClaimTodo
-        query = session.query(sa_func.min(ClaimTodo.sort_order)).filter(
-            ClaimTodo.status == status, cls._owned_by(owner_id)
-        )
+        from app.domains.client.models import ClaimTodo, ClaimTodoAssignee
+        if owner_id is None:
+            query = session.query(sa_func.min(ClaimTodo.sort_order)).filter(
+                ClaimTodo.status == status, ClaimTodo.owner_id.is_(None)
+            )
+        else:
+            query = session.query(sa_func.min(ClaimTodoAssignee.sort_order)).join(
+                ClaimTodo, ClaimTodo.id == ClaimTodoAssignee.todo_id
+            ).filter(ClaimTodo.status == status, ClaimTodoAssignee.staff_id == str(owner_id))
         if exclude_id is not None:
             query = query.filter(ClaimTodo.id != exclude_id)
         lowest = query.scalar()
         return 0 if lowest is None else lowest - 1
+
+    @classmethod
+    def _to_top_everywhere(cls, session, todo) -> None:
+        """A todo that changed column goes to the top of it on every board it's on"""
+        from app.domains.client.models import ClaimTodoAssignee
+        todo.sort_order = cls._top_sort_order(session, todo.status, todo.owner_id, exclude_id=todo.id)
+        for row in session.query(ClaimTodoAssignee).filter(ClaimTodoAssignee.todo_id == todo.id).all():
+            row.sort_order = cls._top_sort_order(session, todo.status, row.staff_id, exclude_id=todo.id)
+
+    @classmethod
+    def _assignees_of(cls, session, todo_ids) -> Dict[str, List[Dict[str, Any]]]:
+        """Each todo's assignees, the one it was made for first, then by name"""
+        from app.domains.client.models import ClaimTodo, ClaimTodoAssignee
+        from app.domains.staff.models import Staff
+        ids = [str(i) for i in todo_ids]
+        if not ids:
+            return {}
+        rows = session.query(
+            ClaimTodoAssignee.todo_id, Staff.id, Staff.first_name, Staff.last_name, ClaimTodo.owner_id,
+        ).join(Staff, Staff.id == ClaimTodoAssignee.staff_id).join(
+            ClaimTodo, ClaimTodo.id == ClaimTodoAssignee.todo_id
+        ).filter(ClaimTodoAssignee.todo_id.in_(ids)).all()
+        found: Dict[str, List[Dict[str, Any]]] = {}
+        for todo_id, staff_id, first_name, last_name, owner_id in rows:
+            found.setdefault(str(todo_id), []).append({
+                'id': str(staff_id),
+                'name': cls._staff_name(first_name, last_name),
+                'first': str(staff_id) == str(owner_id),
+            })
+        for people in found.values():
+            people.sort(key=lambda a: (not a.pop('first'), (a['name'] or '').lower()))
+        return found
 
     @staticmethod
     def _staff_name(first_name, last_name) -> Optional[str]:
         return ' '.join(n for n in (first_name, last_name) if n) or None
 
     def _with_context(self, session, todo) -> Dict[str, Any]:
-        """The todo plus its client name, claim number and owner name"""
+        """The todo plus its client name, claim number, owner name and assignees"""
         from app.domains.client.models import Claim, Client
         from app.domains.staff.models import Staff
         result = self._to_dict(todo)
@@ -753,14 +787,22 @@ class ClaimTodoService:
         result['client_name'] = client.display_name if client else None
         result['claim_number'] = claim.claim_number if claim else None
         result['owner_name'] = self._staff_name(owner.first_name, owner.last_name) if owner else None
+        result['assignees'] = self._assignees_of(session, [todo.id]).get(str(todo.id), [])
         return result
 
     def create_todo(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """New todos go to the top of their column"""
+        """New todos go to the top of their column on each assignee's board. The
+        owner is assigned, and so is everyone in assignee_ids; without an owner,
+        the first of them is it."""
         session = self.database.get_session()
         try:
-            from app.domains.client.models import ClaimTodo, Claim
+            from app.domains.client.models import ClaimTodo, ClaimTodoAssignee, Claim
             status = data.pop('status', None) or 'todo'
+            people = [str(data['owner_id'])] if data.get('owner_id') else []
+            people += [str(i) for i in data.pop('assignee_ids', None) or [] if i]
+            people = list(dict.fromkeys(people))
+            if people and not data.get('owner_id'):
+                data['owner_id'] = people[0]
             if data.get('claim_id') and not data.get('client_id'):
                 claim = session.query(Claim).filter(Claim.id == data['claim_id']).first()
                 if claim:
@@ -768,7 +810,11 @@ class ClaimTodoService:
             todo = ClaimTodo(**data)
             self._apply_status(todo, status)
             todo.sort_order = self._top_sort_order(session, status, todo.owner_id)
+            places = {person: self._top_sort_order(session, status, person) for person in people}
             session.add(todo)
+            session.flush()
+            for person, place in places.items():
+                session.add(ClaimTodoAssignee(todo_id=todo.id, staff_id=person, sort_order=place))
             session.flush()
             result = self._with_context(session, todo)
             session.commit()
@@ -794,7 +840,7 @@ class ClaimTodoService:
                 status = 'done' if completed else 'todo'
             if status and status != todo.status:
                 self._apply_status(todo, status)
-                todo.sort_order = self._top_sort_order(session, status, todo.owner_id, exclude_id=todo.id)
+                self._to_top_everywhere(session, todo)
 
             # Another client (or none) takes the todo off the old client's claim
             if 'client_id' in data and 'claim_id' not in data:
@@ -842,15 +888,17 @@ class ClaimTodoService:
     ) -> List[Dict[str, Any]]:
         """Todos in board order: To do, In progress, Done, each in its drag order.
 
-        With an owner: that person's board. With a claim: that claim's todos and
-        the client's todos that are not tied to a claim, whoever owns them. With
-        only a client: all of the client's todos. With staff, todos on claims
-        that person may not see are left out.
+        With an owner: the todos assigned to that person, at their places on
+        their board. With a claim: that claim's todos and the client's todos
+        that are not tied to a claim, whoever they're assigned to, each once.
+        With only a client: all of the client's todos. With staff, todos on
+        claims that person may not see are left out. Each comes with its
+        assignees.
         """
         session = self.database.get_readonly_session()
         try:
             from sqlalchemy import and_, case, or_
-            from app.domains.client.models import ClaimTodo, Claim, Client
+            from app.domains.client.models import ClaimTodo, ClaimTodoAssignee, Claim, Client
             from app.domains.staff.models import Staff
 
             query = session.query(
@@ -862,8 +910,13 @@ class ClaimTodoService:
             ).outerjoin(
                 Staff, ClaimTodo.owner_id == Staff.id
             )
+            place = ClaimTodo.sort_order
             if owner_id:
-                query = query.filter(ClaimTodo.owner_id == owner_id)
+                query = query.join(ClaimTodoAssignee, and_(
+                    ClaimTodoAssignee.todo_id == ClaimTodo.id,
+                    ClaimTodoAssignee.staff_id == str(owner_id),
+                )).add_columns(ClaimTodoAssignee.sort_order)
+                place = ClaimTodoAssignee.sort_order
             if claim_id:
                 condition = ClaimTodo.claim_id == claim_id
                 if client_id:
@@ -885,35 +938,48 @@ class ClaimTodoService:
                 (ClaimTodo.status == 'done', 2),
                 else_=0,
             )
-            query = query.order_by(column_rank, ClaimTodo.sort_order, ClaimTodo.created_at.desc())
+            query = query.order_by(column_rank, place, ClaimTodo.created_at.desc())
 
+            rows = query.all()
+            assignees = self._assignees_of(session, [row[0].id for row in rows])
             todos = []
-            for todo, client_name, claim_number, first_name, last_name in query.all():
+            for todo, client_name, claim_number, first_name, last_name, *own_place in rows:
                 todo_dict = self._to_dict(todo)
+                if own_place:
+                    todo_dict['sort_order'] = own_place[0]
                 todo_dict['client_name'] = client_name
                 todo_dict['claim_number'] = claim_number
                 todo_dict['owner_name'] = self._staff_name(first_name, last_name)
+                todo_dict['assignees'] = assignees.get(str(todo.id), [])
                 todos.append(todo_dict)
             return todos
         finally:
             session.close()
 
     def reorder_todos(self, owner_id: str, status: str, ids: List[str]) -> int:
-        """Set one column of a person's board after a drop; a todo dragged in from another column changes status"""
+        """Set one column of a person's board after a drop; a todo dragged in from
+        another column changes status, and goes to the top of it on the other
+        boards it's on"""
         session = self.database.get_session()
         try:
-            from app.domains.client.models import ClaimTodo
-            todos = session.query(ClaimTodo).filter(
-                ClaimTodo.id.in_(ids), ClaimTodo.owner_id == owner_id
+            from app.domains.client.models import ClaimTodo, ClaimTodoAssignee
+            pairs = session.query(ClaimTodoAssignee, ClaimTodo).join(
+                ClaimTodo, ClaimTodo.id == ClaimTodoAssignee.todo_id
+            ).filter(
+                ClaimTodo.id.in_([str(i) for i in ids]), ClaimTodoAssignee.staff_id == str(owner_id)
             ).all()
-            by_id = {str(t.id): t for t in todos}
+            by_id = {str(todo.id): (row, todo) for row, todo in pairs}
             for index, todo_id in enumerate(ids):
-                todo = by_id.get(str(todo_id))
-                if not todo:
+                pair = by_id.get(str(todo_id))
+                if not pair:
                     continue
+                row, todo = pair
                 if todo.status != status:
                     self._apply_status(todo, status)
-                todo.sort_order = index
+                    self._to_top_everywhere(session, todo)
+                row.sort_order = index
+                if str(todo.owner_id) == str(owner_id):
+                    todo.sort_order = index
             session.commit()
             return len(by_id)
         except Exception as e:

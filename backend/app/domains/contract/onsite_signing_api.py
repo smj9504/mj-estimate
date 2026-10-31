@@ -4,6 +4,10 @@ address), picks what the document is for and which company it's from, fills in
 what the template maps, and has the customer sign. The contract and, if needed,
 the client are only created at that last step, so an abandoned visit leaves
 nothing behind. The office then decides which claim the contract belongs to.
+
+Some purposes sign every one of the company's documents for them at once (water
+mitigation: the authorization and the sign-off). Those are asked about once,
+signed in one go, and made into one contract each.
 """
 
 import base64
@@ -33,6 +37,7 @@ from app.domains.client.models import Client
 from app.domains.company.models import Company
 from app.domains.contract.models import ContractInstance, ContractTemplate
 from app.domains.contract.onsite_signing import (
+    SIGNED_TOGETHER,
     SIGNING_PURPOSES,
     build_questions,
     expand_answers,
@@ -40,6 +45,7 @@ from app.domains.contract.onsite_signing import (
     known_value,
     missing_fields,
     parse_mappings,
+    period_error,
     signature_mappings,
 )
 from app.domains.contract.service import ContractInstanceService
@@ -60,11 +66,15 @@ class OnsiteAddress(BaseModel):
     zipcode: Optional[str] = None
 
 
-class OnsiteForm(BaseModel):
-    template_id: UUID
+class OnsiteSubject(BaseModel):
     company_id: UUID
     client_id: Optional[UUID] = None
     address: Optional[OnsiteAddress] = None
+
+
+class OnsiteForm(OnsiteSubject):
+    # Every document being signed in this visit
+    template_ids: List[UUID]
 
 
 class OnsitePreview(BaseModel):
@@ -75,17 +85,23 @@ class OnsitePreview(BaseModel):
     today: Optional[str] = None
 
 
-class OnsiteContractCreate(OnsiteForm):
+class OnsiteDocumentSignatures(BaseModel):
+    template_id: UUID
+    # Mapping id -> signature or initials image (data URL), or the date for date_signed
+    signature_fields: Dict[str, str]
+
+
+class OnsiteContractCreate(OnsiteSubject):
+    documents: List[OnsiteDocumentSignatures]
     answers: Dict[str, Optional[str]] = {}
     today: Optional[str] = None
     signer_name: str
-    # Mapping id -> signature or initials image (data URL), or the date for date_signed
-    signature_fields: Dict[str, str]
     consent_agreed: bool = False
     consent_text: Optional[str] = None
 
 
 class OnsiteEmail(BaseModel):
+    contract_ids: List[str]
     emails: List[str]
 
 
@@ -113,6 +129,61 @@ def _require_template(db: Any, staff: Any, template_id: Any, company_id: Any) ->
     if row is None or (allowed is not None and str(company_id) not in allowed):
         raise HTTPException(status_code=404, detail="Template not found")
     return row[0], row[1]
+
+
+# Documents run in the order a job does: permission to start, then sign-offs
+_DOCUMENT_ORDER = (
+    'authorization', 'scope_of_work', 'change_order',
+    'certificate_of_completion', 'certificate_of_satisfaction', 'lien_waiver',
+)
+
+
+def _document_order(template: ContractTemplate) -> Tuple[int, str]:
+    kind = template.document_type
+    rank = _DOCUMENT_ORDER.index(kind) if kind in _DOCUMENT_ORDER else len(_DOCUMENT_ORDER)
+    return rank, (template.name or '').lower()
+
+
+def _signable(templates: List[ContractTemplate]) -> List[ContractTemplate]:
+    """Those with something to sign, in the order they're signed"""
+    usable = [t for t in templates if has_signature_field(parse_mappings(t.field_mappings))]
+    return sorted(usable, key=_document_order)
+
+
+def _is_water_mitigation(templates: List[ContractTemplate]) -> bool:
+    return any(t.signing_purpose == 'water_mitigation' for t in templates)
+
+
+def _require_documents(
+    db: Any, staff: Any, template_ids: List[Any], company_id: Any,
+) -> Tuple[List[ContractTemplate], Company]:
+    """The documents of one visit, in the order they're signed. A purpose signed
+    together takes every one of the company's documents for it, or none."""
+    if not template_ids:
+        raise HTTPException(status_code=400, detail="Pick a document to sign")
+    if len({str(t) for t in template_ids}) != len(template_ids):
+        raise HTTPException(status_code=400, detail="A document is listed twice")
+    chosen = [_require_template(db, staff, template_id, company_id) for template_id in template_ids]
+    templates, company = [row[0] for row in chosen], chosen[0][1]
+
+    for purpose in sorted({t.signing_purpose for t in templates} & set(SIGNED_TOGETHER)):
+        together = _signable(db.query(ContractTemplate).filter(
+            ContractTemplate.company_id == company.id,
+            ContractTemplate.is_active.is_(True),
+            ContractTemplate.signing_purpose == purpose,
+        ).all())
+        if {str(t.id) for t in together} != {str(t.id) for t in templates}:
+            raise HTTPException(
+                status_code=400,
+                detail="These documents are signed together: " + ', '.join(t.name for t in together),
+            )
+    return sorted(templates, key=_document_order), company
+
+
+def _allowed_answers(templates: List[ContractTemplate], known: Dict[str, Any]) -> List[str]:
+    """What this visit asks about: everything any of its documents does"""
+    mappings = [m for t in templates for m in parse_mappings(t.field_mappings)]
+    return [q['key'] for q in build_questions(mappings, known, _is_water_mitigation(templates))]
 
 
 def _full_address(address: OnsiteAddress) -> str:
@@ -185,8 +256,11 @@ def _is_image(value: str) -> bool:
         return False
 
 
-def _signature_fields(mappings: List[Dict[str, Any]], given: Dict[str, str], today: str) -> Dict[str, str]:
+def _signature_fields(
+    mappings: List[Dict[str, Any]], given: Dict[str, str], today: str, document: str = '',
+) -> Dict[str, str]:
     """Every signature and initials line must be signed; dates fill themselves"""
+    on = f" on {document}" if document else ''
     fields: Dict[str, str] = {}
     for mapping in signature_mappings(mappings):
         field_id, key = mapping.get('id', ''), mapping.get('fieldKey', '')
@@ -196,7 +270,7 @@ def _signature_fields(mappings: List[Dict[str, Any]], given: Dict[str, str], tod
         elif _is_image(value):
             fields[field_id] = value
         else:
-            raise HTTPException(status_code=400, detail=f"Missing: {mapping.get('label') or key}")
+            raise HTTPException(status_code=400, detail=f"Missing{on}: {mapping.get('label') or key}")
     return fields
 
 
@@ -251,15 +325,25 @@ def _find_or_create_client(
     return client, True
 
 
-def _tell_the_office(staff: Any, contract: Dict[str, Any], client: Client) -> bool:
-    """Every admin gets a todo to put the contract on a claim and a message about
-    it. Whoever signed it needn't message themselves. A failure here mustn't undo
-    a signature the customer has already given, so it is reported, not raised."""
+def _tell_the_office(staff: Any, contracts: List[Dict[str, Any]], client: Client) -> bool:
+    """One todo for the visit to put its contracts on a claim, assigned to whoever
+    collected the signature and every admin; it finishes, for all of them, once
+    the contracts all are. Every admin also gets a message about it, except the
+    one who signed. A failure here mustn't undo signatures the customer has
+    already given, so it is reported, not raised."""
     from app.domains.client.service import ClaimTodoService
     from app.domains.messaging.service import MessagingService
 
-    title = contract.get('title') or 'Contract'
+    titles = [contract.get('title') or 'Contract' for contract in contracts]
     where = client.address or client.display_name
+    if len(contracts) == 1:
+        task = f"Assign signed contract to a claim: {titles[0]}, {where}"
+        news = (f"Signed on site: {titles[0]} for {client.display_name} ({where}). "
+                "It needs to be assigned to a claim.")
+    else:
+        task = f"Assign {len(contracts)} signed contracts to a claim: {', '.join(titles)}, {where}"
+        news = (f"Signed on site: {', '.join(titles)} for {client.display_name} ({where}). "
+                "They need to be assigned to a claim.")
     database = get_database()
     session = database.get_session()
     try:
@@ -269,15 +353,15 @@ def _tell_the_office(staff: Any, contract: Dict[str, Any], client: Client) -> bo
             Staff.can_login.is_(True),
         ).all()]
 
-        todos = ClaimTodoService(database)
-        for admin_id in admins:
-            todos.create_todo({
-                'title': f"Assign signed contract to a claim: {title}, {where}",
-                'owner_id': admin_id,
-                'client_id': str(client.id),
-                'contract_id': str(contract['id']),
-                'contract_task': TASK_ASSIGN_CLAIM,
-            })
+        ClaimTodoService(database).create_todo({
+            'title': task[:500],
+            'owner_id': str(staff.id),
+            'assignee_ids': admins,
+            'client_id': str(client.id),
+            'contract_id': str(contracts[0]['id']),
+            'contract_ids': json.dumps([str(contract['id']) for contract in contracts]),
+            'contract_task': TASK_ASSIGN_CLAIM,
+        })
 
         messaging = MessagingService(session)
         for admin_id in admins:
@@ -287,8 +371,7 @@ def _tell_the_office(staff: Any, contract: Dict[str, Any], client: Client) -> bo
             messaging.post(
                 conversation,
                 staff.id,
-                f"Signed on site: {title} for {client.display_name} ({where}). "
-                "It needs to be assigned to a claim.",
+                news,
                 related_type='client',
                 related_id=client.id,
             )
@@ -296,8 +379,91 @@ def _tell_the_office(staff: Any, contract: Dict[str, Any], client: Client) -> bo
         return True
     except Exception as e:
         session.rollback()
-        logger.error(f"Could not tell the office about contract {contract.get('id')}: {e}", exc_info=True)
+        ids = ', '.join(str(contract.get('id')) for contract in contracts)
+        logger.error(f"Could not tell the office about contracts {ids}: {e}", exc_info=True)
         return False
+    finally:
+        session.close()
+
+
+def _sign_document(
+    service: ContractInstanceService,
+    template: ContractTemplate,
+    company: Company,
+    client: Client,
+    answers: Dict[str, Dict[str, str]],
+    today: str,
+    signatures: Dict[str, str],
+    primary_signature: str,
+    signer: Dict[str, Any],
+    actor_name: Optional[str],
+    made: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Make one document's contract and sign it, closed to its link. The contract
+    goes on `made` as soon as it exists, so a failure after can void it."""
+    contract = service.create_onsite_contract(
+        {
+            'template_id': str(template.id),
+            'company_id': str(company.id),
+            'client_id': str(client.id),
+            'title': template.name,
+        },
+        answers,
+        today,
+        actor_name=actor_name,
+    )
+    made.append(contract)
+    token = contract['signing_token']
+    ip, user_agent = signer['ip'], signer['user_agent']
+    service.sign_contract(
+        token,
+        {
+            'signer_name': signer['name'],
+            'signer_role': 'homeowner',
+            'signature_image': primary_signature,
+            'signature_type': 'drawn',
+            'signed_at': datetime.utcnow(),
+            'ip_address': ip,
+            'user_agent': user_agent,
+            'consent_agreed': True,
+            'consent_text': signer['consent_text'],
+        },
+        signature_fields=signatures,
+    )
+    signed = service.get_by_token(token)
+    contract_id = str(signed['id'])
+    detail = {'signer_name': signer['name'], 'signer_role': 'homeowner', 'source': 'onsite_signing'}
+    service.append_audit_log(contract_id, action='signer_name_entered', ip=ip, user_agent=user_agent, detail=detail)
+    service.append_audit_log(
+        contract_id, action='signed', ip=ip, user_agent=user_agent,
+        detail={**detail, 'collected_by': actor_name}, actor_name=signer['name'],
+    )
+    service.append_audit_log(contract_id, action='agreement_completed', ip=ip, user_agent=user_agent)
+    service.close_signing_link(contract_id)
+    return signed
+
+
+def _void_unfinished(service: ContractInstanceService, contracts: List[Dict[str, Any]]) -> None:
+    """Documents signed together stand or fall together: when one can't be made,
+    those made so far are voided, so signing again doesn't leave doubles or a
+    draft whose link still opens"""
+    for contract in contracts:
+        contract_id = str(contract['id'])
+        try:
+            service.update(contract_id, {'status': 'voided', 'voided_at': datetime.utcnow()})
+            service.close_signing_link(contract_id)
+            service.append_audit_log(
+                contract_id, action='voided',
+                detail={'reason': 'Another document signed with it on site could not be saved'},
+            )
+        except Exception as e:
+            logger.error(f"Could not void contract {contract_id} after a failed on-site signing: {e}")
+
+
+def _load_contract(service: ContractInstanceService, contract_id: str) -> Optional[Dict[str, Any]]:
+    session = service.database.get_readonly_session()
+    try:
+        return service._get_repository_instance(session).get_by_id_enriched(contract_id)
     finally:
         session.close()
 
@@ -326,18 +492,24 @@ def list_companies(
     if allowed is not None:
         query = query.filter(Company.id.in_(allowed))
 
-    companies: Dict[str, Dict[str, Any]] = {}
-    for company, template in query.order_by(Company.name, ContractTemplate.name).all():
+    found: Dict[str, Tuple[Company, List[ContractTemplate]]] = {}
+    for company, template in query.order_by(Company.name).all():
+        found.setdefault(str(company.id), (company, []))[1].append(template)
+
+    companies = []
+    for company, templates in found.values():
         # Without a signature line there is nothing to sign
-        if not has_signature_field(parse_mappings(template.field_mappings)):
+        signable = _signable(templates)
+        if not signable:
             continue
-        entry = companies.setdefault(str(company.id), {
-            'id': str(company.id), 'name': company.name, 'templates': [],
+        companies.append({
+            'id': str(company.id),
+            'name': company.name,
+            'templates': [
+                {'id': str(t.id), 'name': t.name, 'document_type': t.document_type} for t in signable
+            ],
         })
-        entry['templates'].append({
-            'id': str(template.id), 'name': template.name, 'document_type': template.document_type,
-        })
-    return {'companies': list(companies.values())}
+    return {'companies': companies}
 
 
 @router.post("/form")
@@ -346,17 +518,25 @@ def get_form(
     staff: Any = Depends(get_current_staff),
     db: Any = Depends(get_db),
 ):
-    """The questions to ask for this template, and the signature lines to sign"""
-    template, company = _require_template(db, staff, data.template_id, data.company_id)
+    """The questions to ask for these documents, once for all of them, and each
+    document's signature lines"""
+    templates, company = _require_documents(db, staff, data.template_ids, data.company_id)
     if data.client_id:
         require_client(db, staff, data.client_id)
-    mappings = parse_mappings(template.field_mappings)
     known = _known_values(db, company, data.client_id, data.address)
+    all_mappings = [m for t in templates for m in parse_mappings(t.field_mappings)]
     return {
-        'template_id': str(template.id),
-        'template_name': template.name,
-        'questions': build_questions(mappings, known),
-        'signature_fields': [signature_placement(m) for m in signature_mappings(mappings)],
+        'documents': [
+            {
+                'template_id': str(t.id),
+                'template_name': t.name,
+                'signature_fields': [
+                    signature_placement(m) for m in signature_mappings(parse_mappings(t.field_mappings))
+                ],
+            }
+            for t in templates
+        ],
+        'questions': build_questions(all_mappings, known, _is_water_mitigation(templates)),
     }
 
 
@@ -377,7 +557,7 @@ def preview_pdf(
 
     mappings = parse_mappings(template.field_mappings)
     known = _known_values(db, company, None, None)
-    allowed = [q['key'] for q in build_questions(mappings, known)]
+    allowed = _allowed_answers([template], known)
     today = _today(data.today)
     prefill = {
         **known,
@@ -398,9 +578,12 @@ def create_signed_contract(
     staff: Any = Depends(get_current_staff),
     db: Any = Depends(get_db),
 ):
-    """Sign: makes the client if needed, the contract, and the signed PDF, then
-    tells the office. An email is only offered if every mapped field was filled."""
-    template, company = _require_template(db, staff, data.template_id, data.company_id)
+    """Sign: makes the client if needed, a contract and signed PDF for each
+    document, then tells the office. Everything is checked before anything is
+    made. An email is only offered if every mapped field was filled."""
+    templates, company = _require_documents(
+        db, staff, [document.template_id for document in data.documents], data.company_id,
+    )
     if data.client_id:
         require_client(db, staff, data.client_id)
     elif not data.address or not data.address.street.strip():
@@ -413,13 +596,21 @@ def create_signed_contract(
         raise HTTPException(status_code=400, detail="The signer must agree to sign electronically")
 
     today = _today(data.today)
-    mappings = parse_mappings(template.field_mappings)
-    signatures = _signature_fields(mappings, data.signature_fields, today)
-    primary_signature = _primary_signature(mappings, signatures)
+    given = {str(document.template_id): document.signature_fields for document in data.documents}
+    signing = []
+    for template in templates:
+        mappings = parse_mappings(template.field_mappings)
+        name = template.name if len(templates) > 1 else ''
+        signatures = _signature_fields(mappings, given[str(template.id)], today, name)
+        signing.append((template, mappings, signatures, _primary_signature(mappings, signatures)))
 
     known = _known_values(db, company, data.client_id, data.address)
-    allowed = [q['key'] for q in build_questions(mappings, known)]
-    answers = expand_answers(data.answers, allowed)
+    allowed = set(_allowed_answers(templates, known))
+    asked = {key: value for key, value in data.answers.items() if key in allowed}
+    problem = period_error(asked)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+    answers = expand_answers(asked, allowed)
 
     if data.client_id:
         client = db.query(Client).filter(Client.id == str(data.client_id)).first()
@@ -430,98 +621,85 @@ def create_signed_contract(
 
     actor = db.query(Staff.first_name, Staff.last_name).filter(Staff.id == str(staff.id)).first()
     actor_name = f"{actor[0]} {actor[1]}".strip() if actor else None
+    signer = {
+        'name': signer_name,
+        'consent_text': data.consent_text,
+        'ip': request.client.host if request.client else None,
+        'user_agent': request.headers.get('user-agent', ''),
+    }
 
     service = _service()
-    contract = service.create_onsite_contract(
-        {
-            'template_id': str(template.id),
-            'company_id': str(company.id),
-            'client_id': str(client.id),
-            'title': template.name,
-        },
-        answers,
-        today,
-        actor_name=actor_name,
-    )
-    token = contract['signing_token']
+    made: List[Dict[str, Any]] = []
+    signed_contracts: List[Dict[str, Any]] = []
+    try:
+        for template, _, signatures, primary_signature in signing:
+            signed_contracts.append(_sign_document(
+                service, template, company, client, answers, today,
+                signatures, primary_signature, signer, actor_name, made,
+            ))
+    except Exception:
+        _void_unfinished(service, made)
+        raise
 
-    ip = request.client.host if request.client else None
-    user_agent = request.headers.get('user-agent', '')
-    service.sign_contract(
-        token,
-        {
-            'signer_name': signer_name,
-            'signer_role': 'homeowner',
-            'signature_image': primary_signature,
-            'signature_type': 'drawn',
-            'signed_at': datetime.utcnow(),
-            'ip_address': ip,
-            'user_agent': user_agent,
-            'consent_agreed': True,
-            'consent_text': data.consent_text,
-        },
-        signature_fields=signatures,
-    )
-    signed = service.get_by_token(token)
-    contract_id = str(signed['id'])
-    detail = {'signer_name': signer_name, 'signer_role': 'homeowner', 'source': 'onsite_signing'}
-    service.append_audit_log(contract_id, action='signer_name_entered', ip=ip, user_agent=user_agent, detail=detail)
-    service.append_audit_log(
-        contract_id, action='signed', ip=ip, user_agent=user_agent,
-        detail={**detail, 'collected_by': actor_name}, actor_name=signer_name,
-    )
-    service.append_audit_log(contract_id, action='agreement_completed', ip=ip, user_agent=user_agent)
-    service.close_signing_link(contract_id)
+    office_notified = _tell_the_office(staff, signed_contracts, client)
 
-    office_notified = _tell_the_office(staff, signed, client)
-
-    prefill = _prefill_of(signed)
-    missing = missing_fields(mappings, prefill)
-    pdf_ready = bool(signed.get('signed_pdf_url'))
+    contracts = []
+    for signed, (_, mappings, _, _) in zip(signed_contracts, signing):
+        contract_id = str(signed['id'])
+        contracts.append({
+            'contract_id': contract_id,
+            'contract_number': signed.get('contract_number'),
+            'title': signed.get('title'),
+            'pdf_ready': bool(signed.get('signed_pdf_url')),
+            'pdf_url': f"/api/contracts/contracts/{contract_id}/pdf",
+            'missing_fields': missing_fields(mappings, _prefill_of(signed)),
+        })
     return {
-        'contract_id': contract_id,
-        'contract_number': signed.get('contract_number'),
-        'title': signed.get('title'),
         'client_id': str(client.id),
         'client_name': client.display_name,
         'client_created': client_created,
-        'client_email': known_value(prefill, 'client.email'),
-        'pdf_ready': pdf_ready,
-        'pdf_url': f"/api/contracts/contracts/{contract_id}/pdf",
+        'client_email': known_value(_prefill_of(signed_contracts[0]), 'client.email'),
         'office_notified': office_notified,
-        'missing_fields': missing,
+        'contracts': contracts,
     }
 
 
-@router.post("/contracts/{contract_id}/email")
-def email_signed_contract(
-    contract_id: str,
+@router.post("/contracts/email")
+def email_signed_contracts(
     data: OnsiteEmail,
     staff: Any = Depends(get_current_staff),
     db: Any = Depends(get_db),
 ):
-    """Email the signed PDF. Only a contract with every mapped field filled goes out."""
-    from app.domains.contract.field_signing_api import send_signed_contract
+    """Email the signed PDFs of one visit together. They only go out when every
+    mapped field of every one of them was filled."""
+    from app.domains.contract.field_signing_api import send_signed_contracts
 
-    require_document(db, staff, ContractInstance, contract_id, "Contract")
+    contract_ids = list(dict.fromkeys(c.strip() for c in data.contract_ids if c.strip()))
+    if not contract_ids:
+        raise HTTPException(status_code=400, detail="Pick a contract to email")
+    for contract_id in contract_ids:
+        require_document(db, staff, ContractInstance, contract_id, "Contract")
     emails = [e.strip() for e in data.emails if e.strip() and '@' in e.strip()]
     if not emails:
         raise HTTPException(status_code=400, detail="Enter a valid email address")
 
     service = _service()
-    session = service.database.get_readonly_session()
-    try:
-        contract = service._get_repository_instance(session).get_by_id_enriched(contract_id)
-    finally:
-        session.close()
-    if not contract:
+    contracts = [_load_contract(service, contract_id) for contract_id in contract_ids]
+    if not all(contracts):
         raise HTTPException(status_code=404, detail="Contract not found")
+    if len({str(c.get('company_id')) for c in contracts}) > 1:
+        raise HTTPException(status_code=400, detail="Contracts from different companies go in separate emails")
 
-    missing = missing_fields(parse_mappings(contract.get('field_mappings')), _prefill_of(contract))
+    missing: List[str] = []
+    for contract in contracts:
+        for label in missing_fields(parse_mappings(contract.get('field_mappings')), _prefill_of(contract)):
+            if label not in missing:
+                missing.append(label)
     if missing:
         raise HTTPException(
             status_code=400,
             detail="Every field must be filled to email this contract. Missing: " + ', '.join(missing),
         )
-    send_signed_contract(service, contract, emails, source='onsite_signing')
-    return {'message': f"Signed contract sent to {len(emails)} recipient(s)", 'emails': emails}
+    send_signed_contracts(service, contracts, emails, source='onsite_signing')
+    noun = 'contract' if len(contracts) == 1 else 'contracts'
+    return {'message': f"Signed {noun} sent to {len(emails)} recipient(s)", 'emails': emails}

@@ -1042,21 +1042,33 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
             session.close()
 
     def assign_to_claim(self, contract_id: str, claim_id: str) -> Optional[Dict[str, Any]]:
-        """Put a contract on a claim and finish the todos asking for that"""
+        """Put a contract on a claim and finish the todos asking for that. A todo
+        about several contracts signed together is finished once all of them are
+        on a claim; until then it moves to this one."""
         session = self.database.get_session()
         try:
+            from sqlalchemy import or_
             from app.domains.client.models import ClaimTodo
             from app.domains.client.service import ClaimTodoService
+            from app.domains.contract.models import ContractInstance
 
             repo = self._get_repository_instance(session)
             repo.update(contract_id, {'claim_id': claim_id})
             todos = session.query(ClaimTodo).filter(
-                ClaimTodo.contract_id == contract_id,
+                or_(ClaimTodo.contract_id == contract_id, ClaimTodo.contract_ids.contains(str(contract_id))),
                 ClaimTodo.status != 'done',
             ).all()
             for todo in todos:
+                about = {str(i) for i in json.loads(todo.contract_ids or '[]')} - {str(contract_id)}
                 todo.claim_id = claim_id
-                if todo.contract_task == TASK_ASSIGN_CLAIM:
+                if todo.contract_task != TASK_ASSIGN_CLAIM:
+                    continue
+                waiting = session.query(ContractInstance.id).filter(
+                    ContractInstance.id.in_(list(about)),
+                    ContractInstance.claim_id.is_(None),
+                    ContractInstance.status == 'signed',
+                ).count() if about else 0
+                if not waiting:
                     ClaimTodoService._apply_status(todo, 'done')
             session.commit()
             return repo.get_by_id_enriched(contract_id)
@@ -1339,11 +1351,11 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                 Staff.can_login.is_(True),
             ).all()]
 
-            todos = ClaimTodoService(self.database)
-            for admin_id in admins:
-                todos.create_todo({
+            # One todo, on every admin's board; whoever signs finishes it for all
+            if admins:
+                ClaimTodoService(self.database).create_todo({
                     'title': f"Sign for the company: {title}" + (f", {where}" if where else ''),
-                    'owner_id': str(admin_id),
+                    'assignee_ids': [str(admin_id) for admin_id in admins],
                     'client_id': str(contract['client_id']) if contract.get('client_id') else None,
                     'claim_id': str(contract['claim_id']) if contract.get('claim_id') else None,
                     'contract_id': str(contract['id']),
