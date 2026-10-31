@@ -276,6 +276,13 @@
 .td-row .td-meta {
   margin-top: 3px;
 }
+/* A todo on several boards says who else has it */
+.td-shared {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
 .td-row .td-client-link {
   padding: 2px 0;
 }

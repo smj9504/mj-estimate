@@ -24,7 +24,7 @@ from app.common.base_repository import SQLAlchemyRepository
 from app.core import database_factory
 from app.core.database_factory import Base, SQLiteDatabase, get_db_session
 from app.domains.auth.dependencies import get_current_staff
-from app.domains.client.models import Claim, ClaimTodo, Client
+from app.domains.client.models import Claim, ClaimTodo, ClaimTodoAssignee, Client
 from app.domains.company.models import Company
 from app.domains.contract import api as contract_api
 from app.domains.contract import field_signing_api, signing_api
@@ -39,7 +39,7 @@ import app.main  # noqa: E402,F401
 sqlite3.register_adapter(uuid.UUID, str)
 
 TABLES = [
-    Staff, StaffCompany, Company, Client, Claim, ClaimTodo, ClaimCompany,
+    Staff, StaffCompany, Company, Client, Claim, ClaimTodo, ClaimTodoAssignee, ClaimCompany,
     ContractTemplate, ContractInstance, ContractSignature,
 ]
 

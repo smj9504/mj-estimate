@@ -1386,8 +1386,8 @@ def _check_todo_links(db, staff, client_id=None, claim_id=None) -> None:
 
 
 def _require_board_todo(db, staff, todo_id: str) -> None:
-    """Your own todo, or one on a claim (or claimless client) you may see"""
-    from app.domains.client.models import ClaimTodo
+    """A todo assigned to you, or one on a claim (or claimless client) you may see"""
+    from app.domains.client.models import ClaimTodo, ClaimTodoAssignee
 
     if company_scope.sees_everything(staff):
         return
@@ -1399,6 +1399,10 @@ def _require_board_todo(db, staff, todo_id: str) -> None:
     if todo is None:
         raise HTTPException(status_code=404, detail="Todo not found")
     if todo.owner_id and str(todo.owner_id) == str(staff.id):
+        return
+    if db.query(ClaimTodoAssignee.todo_id).filter(
+        ClaimTodoAssignee.todo_id == todo.id, ClaimTodoAssignee.staff_id == str(staff.id),
+    ).first():
         return
     if todo.claim_id:
         visible = company_scope.can_see_claim(db, staff, todo.claim_id)

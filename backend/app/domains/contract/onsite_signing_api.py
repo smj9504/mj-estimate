@@ -326,11 +326,11 @@ def _find_or_create_client(
 
 
 def _tell_the_office(staff: Any, contracts: List[Dict[str, Any]], client: Client) -> bool:
-    """One todo for the visit, on the board of whoever collected the signature,
-    to put its contracts on a claim; it finishes once they all are. Every admin
-    gets a message about it, except the one who signed. A failure here mustn't
-    undo signatures the customer has already given, so it is reported, not
-    raised."""
+    """One todo for the visit to put its contracts on a claim, assigned to whoever
+    collected the signature and every admin; it finishes, for all of them, once
+    the contracts all are. Every admin also gets a message about it, except the
+    one who signed. A failure here mustn't undo signatures the customer has
+    already given, so it is reported, not raised."""
     from app.domains.client.service import ClaimTodoService
     from app.domains.messaging.service import MessagingService
 
@@ -356,6 +356,7 @@ def _tell_the_office(staff: Any, contracts: List[Dict[str, Any]], client: Client
         ClaimTodoService(database).create_todo({
             'title': task[:500],
             'owner_id': str(staff.id),
+            'assignee_ids': admins,
             'client_id': str(client.id),
             'contract_id': str(contracts[0]['id']),
             'contract_ids': json.dumps([str(contract['id']) for contract in contracts]),

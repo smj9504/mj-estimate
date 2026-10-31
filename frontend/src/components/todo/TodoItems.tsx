@@ -7,11 +7,13 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, Input, Popconfirm } from 'antd';
-import { DeleteOutlined, HolderOutlined, UserOutlined } from '@ant-design/icons';
+import { DeleteOutlined, HolderOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Todo, TodoStatus, TodoUpdate } from '../../types/client';
 import ClientSearchSelect from '../common/ClientSearchSelect';
+import { useAuth } from '../../contexts/AuthContext';
+import { sharedWith } from './todoPeople';
 import { TodoStatusButton, TodoStatusIcon } from './todoUi';
 
 interface TodoItemProps {
@@ -22,9 +24,11 @@ interface TodoItemProps {
 
 const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
-/** The client (a link to its page) and the claim the todo is tied to */
+/** The client (a link to its page), the claim the todo is tied to, and who else it's assigned to */
 export const TodoMeta: React.FC<{ todo: Todo }> = ({ todo }) => {
-  if (!todo.client_name && !todo.claim_number) return null;
+  const { user } = useAuth();
+  const others = sharedWith(todo, user?.id);
+  if (!todo.client_name && !todo.claim_number && !others) return null;
   return (
     <div className="td-meta">
       {todo.client_id && todo.client_name && (
@@ -39,6 +43,11 @@ export const TodoMeta: React.FC<{ todo: Todo }> = ({ todo }) => {
         </Link>
       )}
       {todo.claim_number && <span>#{todo.claim_number}</span>}
+      {others && (
+        <span className="td-shared">
+          <TeamOutlined aria-hidden="true" /> With {others}
+        </span>
+      )}
     </div>
   );
 };

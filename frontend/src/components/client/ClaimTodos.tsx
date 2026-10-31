@@ -9,6 +9,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import type { ClaimTodoCreate, Todo, TodoPriority, TodoUpdate } from '../../types/client';
 import { Pill, humanize, type TagTone } from '../common/ui';
 import { TodoStatusButton } from '../todo/todoUi';
+import { assignedTo } from '../todo/todoPeople';
 import ClaimSection from './ClaimSection';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -200,9 +201,10 @@ const ClaimTodos: React.FC<ClaimTodosProps> = ({ clientId, claimId }) => {
               );
             }
 
+            const assigned = assignedTo(todo, user?.id);
             const meta = [
-              // Someone else's todo says whose; a client todo shows on every claim
-              todo.owner_name && todo.owner_id !== user?.id && todo.owner_name,
+              // A shared or someone else's todo says who it's assigned to; a client todo shows on every claim
+              assigned && `Assigned to ${assigned}`,
               claimId && !todo.claim_id && 'All claims',
               todo.status === 'in_progress' && 'In progress',
               todo.due_date && !todo.is_completed && !isOverdue && `Due ${dayjs(todo.due_date).format('MM/DD')}`,

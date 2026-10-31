@@ -12,14 +12,14 @@ import sqlalchemy as sa
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core import database_factory
 from app.core.database_factory import Base, SQLiteDatabase
-from app.domains.client.models import Claim, ClaimTodo, Client
+from app.domains.client.models import Claim, ClaimTodo, ClaimTodoAssignee, Client
 from app.domains.client.service import ClaimTodoService
 from app.domains.staff.models import Staff, StaffRole
 # SQLAlchemy configures every loaded model on first use, and models other test
 # files load name classes by string, so register them all as the app does
 import app.main  # noqa: E402,F401
 
-TABLES = [Staff, Client, Claim, ClaimTodo]
+TABLES = [Staff, Client, Claim, ClaimTodo, ClaimTodoAssignee]
 
 
 def make_staff(first, last):
@@ -191,3 +191,67 @@ def test_another_client_takes_the_todo_off_the_old_claim(env):
     # Saving the same client keeps the claim
     kept = service.create_todo({'title': 'Keep claim', 'claim_id': ids['claim'], 'owner_id': ids['me']})
     assert service.update_todo(kept['id'], {'client_id': ids['pat'], 'title': 'Kept'})['claim_id'] == ids['claim']
+
+
+# ── A todo for several people ────────────────────────────────────────────────
+
+
+def test_a_shared_todo_is_one_todo_on_each_assignees_board(env):
+    service, ids = env
+    shared = service.create_todo({
+        'title': 'Assign signed contracts', 'client_id': ids['pat'],
+        'owner_id': ids['me'], 'assignee_ids': [ids['teammate'], ids['me']],
+    })
+    assert [a['name'] for a in shared['assignees']] == ['Minjee Song', 'Alex Kim']
+
+    assert titles(service.list_todos(owner_id=ids['me'])) == ['Assign signed contracts']
+    assert titles(service.list_todos(owner_id=ids['teammate'])) == ['Assign signed contracts']
+    # The client page shows it once, with everyone it's assigned to
+    [listed] = service.list_todos(client_id=ids['pat'])
+    assert [a['id'] for a in listed['assignees']] == [ids['me'], ids['teammate']]
+
+
+def test_the_first_assignee_is_the_owner_when_none_is_given(env):
+    service, ids = env
+    todo = service.create_todo({'title': 'Sign for the company', 'assignee_ids': [ids['teammate'], ids['me']]})
+    assert todo['owner_id'] == ids['teammate']
+    assert [a['name'] for a in todo['assignees']] == ['Alex Kim', 'Minjee Song']
+
+
+def test_each_assignee_keeps_their_own_place_and_shares_the_status(env):
+    service, ids = env
+    me, teammate = ids['me'], ids['teammate']
+    shared = service.create_todo({'title': 'Shared', 'owner_id': me, 'assignee_ids': [teammate]})
+    mine = service.create_todo({'title': 'Mine', 'owner_id': me})
+    theirs = service.create_todo({'title': 'Theirs', 'owner_id': teammate})
+
+    # I put the shared one first; the teammate's board keeps their own order
+    service.reorder_todos(me, 'todo', [shared['id'], mine['id']])
+    assert titles(service.list_todos(owner_id=me)) == ['Shared', 'Mine']
+    assert titles(service.list_todos(owner_id=teammate)) == ['Theirs', 'Shared']
+
+    # The teammate finishes it from their board: done for me too, on top of Done
+    old = service.create_todo({'title': 'Old done', 'owner_id': me, 'status': 'done'})
+    assert service.reorder_todos(teammate, 'done', [shared['id']]) == 1
+    board = service.list_todos(owner_id=me)
+    assert titles(board, 'done') == ['Shared', 'Old done'] and old['id'] != shared['id']
+    assert next(t for t in board if t['id'] == shared['id'])['is_completed'] is True
+
+    # Reopened by an edit, it comes back on top of To do on both boards
+    service.update_todo(shared['id'], {'status': 'todo'})
+    assert titles(service.list_todos(owner_id=me), 'todo')[0] == 'Shared'
+    assert titles(service.list_todos(owner_id=teammate), 'todo')[0] == 'Shared'
+    assert theirs['id'] in [t['id'] for t in service.list_todos(owner_id=teammate)]
+
+
+def test_deleting_a_shared_todo_removes_it_from_every_board(env):
+    service, ids = env
+    shared = service.create_todo({'title': 'Shared', 'owner_id': ids['me'], 'assignee_ids': [ids['teammate']]})
+    assert service.delete_todo(shared['id']) is True
+    assert service.list_todos(owner_id=ids['me']) == []
+    assert service.list_todos(owner_id=ids['teammate']) == []
+    session = service.database.get_session()
+    try:
+        assert session.query(ClaimTodoAssignee).count() == 0
+    finally:
+        session.close()

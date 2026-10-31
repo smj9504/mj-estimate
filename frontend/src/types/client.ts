@@ -493,11 +493,18 @@ export interface ClaimTodo {
   updated_at?: string;
 }
 
+export interface TodoAssignee {
+  id: string;
+  name: string | null;
+}
+
 /** A todo as the board and the client page list it, with what it is tied to and whose it is */
 export interface Todo extends ClaimTodo {
   client_name?: string | null;
   claim_number?: string | null;
   owner_name?: string | null;
+  /** Everyone it's assigned to, the one it was made for first. One todo, on each of their boards */
+  assignees?: TodoAssignee[];
 }
 
 export interface TodoCreate extends ClaimTodoCreate {

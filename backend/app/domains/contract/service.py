@@ -1351,11 +1351,11 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                 Staff.can_login.is_(True),
             ).all()]
 
-            todos = ClaimTodoService(self.database)
-            for admin_id in admins:
-                todos.create_todo({
+            # One todo, on every admin's board; whoever signs finishes it for all
+            if admins:
+                ClaimTodoService(self.database).create_todo({
                     'title': f"Sign for the company: {title}" + (f", {where}" if where else ''),
-                    'owner_id': str(admin_id),
+                    'assignee_ids': [str(admin_id) for admin_id in admins],
                     'client_id': str(contract['client_id']) if contract.get('client_id') else None,
                     'claim_id': str(contract['claim_id']) if contract.get('claim_id') else None,
                     'contract_id': str(contract['id']),

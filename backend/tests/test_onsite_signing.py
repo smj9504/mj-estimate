@@ -25,7 +25,7 @@ from app.common.base_repository import SQLAlchemyRepository
 from app.core import database_factory
 from app.core.database_factory import Base, SQLiteDatabase, get_db_session
 from app.domains.auth.dependencies import get_current_staff
-from app.domains.client.models import Claim, ClaimTodo, Client
+from app.domains.client.models import Claim, ClaimTodo, ClaimTodoAssignee, Client
 from app.domains.company.models import Company
 from app.domains.contract import api as contract_api
 from app.domains.contract import onsite_signing_api
@@ -40,7 +40,7 @@ import app.main  # noqa: E402,F401
 sqlite3.register_adapter(uuid.UUID, str)
 
 TABLES = [
-    Staff, StaffCompany, Company, Client, Claim, ClaimTodo, ClaimCompany,
+    Staff, StaffCompany, Company, Client, Claim, ClaimTodo, ClaimTodoAssignee, ClaimCompany,
     ContractTemplate, ContractInstance, ContractSignature,
     Conversation, ConversationParticipant, Message,
 ]
@@ -555,6 +555,8 @@ def test_the_signer_gets_one_todo_for_the_visit_and_admins_a_message(env):
     [todo] = rows(env, ClaimTodo)
     assert str(todo.owner_id) == env.ids['field'] and todo.status == 'todo'
     assert str(todo.client_id) == result['client_id']
+    # One todo, assigned to the signer and every admin
+    assert {str(a.staff_id) for a in rows(env, ClaimTodoAssignee)} == {env.ids['field'], env.ids['admin']}
     ids = [c['contract_id'] for c in result['contracts']]
     assert str(todo.contract_id) == ids[0] and json.loads(todo.contract_ids) == ids
     assert todo.title.startswith('Assign 2 signed contracts to a claim')
@@ -573,6 +575,7 @@ def test_an_admin_signing_does_not_message_themselves(env):
     env.current['as'] = 'admin'
     env.http.post('/onsite/contracts', json=sign_payload(env))
     assert [str(t.owner_id) for t in rows(env, ClaimTodo)] == [env.ids['admin']]
+    assert [str(a.staff_id) for a in rows(env, ClaimTodoAssignee)] == [env.ids['admin']]
     assert rows(env, Message) == []
 
 
