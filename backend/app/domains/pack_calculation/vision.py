@@ -75,6 +75,10 @@ MAX_IMAGE_BYTES = 1_000_000   # 1 MB per image — 1024 px JPEG is sufficient
 MAX_IMAGE_DIM = 1024          # px — halving from 2048 cuts image tokens 4×
 MAX_IMAGES_PER_ROOM = 6       # hard cap after deduplication
 
+# A reply cut off at max_tokens comes back with an empty tool input: at 4096,
+# a room of about 20 items lost every packing detail in Pass 2.
+MAX_TOKENS_PER_PASS = 16000
+
 
 # ============================================
 # PASS 1 TOOL: Item Identification (Vision)
@@ -912,7 +916,7 @@ async def _analyze_room_with_claude(
         # and raises TypeError before any request is sent.
         pass1_msg = await client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=4096,
+            max_tokens=MAX_TOKENS_PER_PASS,
             tools=[PASS1_TOOL],
             tool_choice={"type": "tool", "name": "report_room_contents"},
             messages=[{"role": "user", "content": content}],
@@ -939,7 +943,7 @@ async def _analyze_room_with_claude(
 
         pass2_msg = await client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=4096,
+            max_tokens=MAX_TOKENS_PER_PASS,
             tools=[PASS2_TOOL],
             tool_choice={"type": "tool", "name": "enrich_packing_details"},
             messages=[{"role": "user", "content": pass2_prompt}],

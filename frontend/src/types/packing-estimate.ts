@@ -248,6 +248,8 @@ export interface PhotoRoom {
   items: DetectedContentItem[];
   analyzed: boolean;
   analyzing: boolean;
+  /** Why the last analysis failed, until the room is analyzed again */
+  analysis_error?: string;
   confidence_score?: number;
   room_size?: string;
   field_notes: string[];

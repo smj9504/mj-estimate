@@ -1,10 +1,13 @@
 /**
  * Turns picked photo files into the bare base64 strings a PhotoRoom keeps.
  * HEIC photos (iPhone) are converted to JPEG by the backend first, since
- * Chrome can't display them and the analysis needs a readable image.
+ * Chrome can't display them and the analysis needs a readable image. Other
+ * photos are shrunk here: a room's photos travel in one analysis request, and
+ * the analysis only reads them at 1024px.
  */
 import { message } from 'antd';
 import * as packingService from '../../services/packingEstimateService';
+import { compressIfNeeded } from '../../utils/imageCompressor';
 
 const HEIC_NAME = /\.(heic|heif)$/i;
 
@@ -49,7 +52,9 @@ async function convertHeic(file: File): Promise<string> {
 /** Base64 for each readable photo; reports the ones that couldn't be read */
 export async function photoFilesToBase64(files: File[]): Promise<string[]> {
   const results = await Promise.allSettled(
-    files.filter(isPhotoFile).map(f => (isHeic(f) ? convertHeic(f) : readBase64(f))),
+    files.filter(isPhotoFile).map(async f => (
+      isHeic(f) ? convertHeic(f) : readBase64(await compressIfNeeded(f))
+    )),
   );
   const failed = results.filter(r => r.status === 'rejected').length;
   if (failed > 0) {

@@ -372,6 +372,10 @@
   font-size: 13px;
   color: var(--color-neutral-600);
 }
+.pk-room-error {
+  font-size: 13px;
+  color: var(--tag-red-text);
+}
 .pk-notes {
   margin: 0;
   padding-left: 18px;

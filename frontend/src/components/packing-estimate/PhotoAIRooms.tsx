@@ -49,6 +49,15 @@ function toDataUri(base64: string): string {
   return `data:image/jpeg;base64,${base64}`;
 }
 
+/** Why an analysis failed, with what to do about it */
+function analysisErrorText(err: any): string {
+  const detail = err?.response?.data?.detail;
+  if (typeof detail === 'string' && detail) return detail;
+  if (err?.code === 'ECONNABORTED') return 'The analysis took too long. Try again.';
+  if (!err?.response) return "Couldn't reach the server. Check the connection and try again.";
+  return 'The analysis failed. Try again.';
+}
+
 const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
   rooms, setRooms, loading, autoAnalyzeKey, onLoadFromClaim,
 }) => {
@@ -132,7 +141,7 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
     const room = rooms.find(r => r.id === roomId);
     if (!room || room.photos.length === 0) return;
 
-    updateRoom(roomId, { analyzing: true });
+    updateRoom(roomId, { analyzing: true, analysis_error: undefined });
     try {
       const result = await packingService.analyzeRoom(
         room.room_name,
@@ -153,9 +162,11 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
       } : r));
       message.success(`${room.room_name}: ${result.items.length} items detected`);
     } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      message.error(detail || 'Failed to analyze room');
-      setRooms(roomsRef.current.map(r => r.id === roomId ? { ...r, analyzing: false } : r));
+      const reason = analysisErrorText(err);
+      message.error(`${room.room_name}: ${reason}`);
+      setRooms(roomsRef.current.map(r => r.id === roomId ? {
+        ...r, analyzing: false, analysis_error: reason,
+      } : r));
     }
   }, [rooms, updateRoom, setRooms]);
 
@@ -178,8 +189,10 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
     setBatchAnalyzing(true);
     // Mark all as analyzing
     setRooms(rooms.map(r =>
-      unanalyzedRooms.some(u => u.id === r.id) ? { ...r, analyzing: true } : r
+      unanalyzedRooms.some(u => u.id === r.id) ? { ...r, analyzing: true, analysis_error: undefined } : r
     ));
+
+    const failed: string[] = [];
 
     for (const room of unanalyzedRooms) {
       if (cancelBatchRef.current) {
@@ -205,15 +218,21 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
           analyzed: true,
           analyzing: false,
         } : r));
-      } catch {
+      } catch (err) {
+        failed.push(room.room_name);
         setRooms(roomsRef.current.map(r => r.id === room.id ? {
-          ...r, analyzing: false,
+          ...r, analyzing: false, analysis_error: analysisErrorText(err),
         } : r));
       }
     }
 
     setBatchAnalyzing(false);
-    if (cancelBatchRef.current) {
+    if (failed.length > 0) {
+      message.error({
+        content: `Couldn't analyze ${failed.join(', ')}. Each room shows why.`,
+        duration: 10,
+      });
+    } else if (cancelBatchRef.current) {
       message.warning('Analysis stopped');
     } else {
       message.success('Batch analysis complete');
@@ -497,7 +516,10 @@ const RoomCard: React.FC<RoomCardProps> = ({
             {!room.analyzing && room.analyzed && (
               <Pill tone="green" icon={<CheckOutlined />}>{room.items.length} items</Pill>
             )}
-            {!room.analyzing && !room.analyzed && room.photos.length > 0 && <Pill tone="gray">Not analyzed</Pill>}
+            {!room.analyzing && !room.analyzed && room.analysis_error && (
+              <Pill tone="red">Analysis failed</Pill>
+            )}
+            {!room.analyzing && !room.analyzed && !room.analysis_error && room.photos.length > 0 && <Pill tone="gray">Not analyzed</Pill>}
             {room.confidence_score ? (
               <Pill tone={confidenceTone(room.confidence_score)} title="AI confidence">
                 {Math.round(room.confidence_score * 100)}%
@@ -507,6 +529,9 @@ const RoomCard: React.FC<RoomCardProps> = ({
           <span className="pk-room-meta">
             {room.photos.length} photo{room.photos.length !== 1 ? 's' : ''}
           </span>
+          {!room.analyzing && !room.analyzed && room.analysis_error && (
+            <span className="pk-room-error">{room.analysis_error}</span>
+          )}
         </div>
         <div className="pk-room-actions">
           {!room.analyzed && room.photos.length > 0 && (

@@ -55,6 +55,11 @@ export async function analyzeRoom(
     room_name: roomName,
     images,
     existing_items: existingItems,
+  }, {
+    // Claude lists a whole room from its photos; a packed room can take minutes
+    timeout: 240000,
+    // The room shows its own failure; a retry from the alert wouldn't reach the room
+    suppressErrorNotification: true,
   });
   return data;
 }
