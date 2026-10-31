@@ -53,7 +53,7 @@ export const EstimationSettings: React.FC<{
     setSettings({ ...settings, ...patch });
 
   return (
-    <section className="ui-section" aria-label="Estimation Settings">
+    <section className="ui-section pk-form-section" aria-label="Estimation Settings">
       <div className="ui-section-head"><h2 className="ui-section-title">Estimation Settings</h2></div>
       <FormRow label="Crew Size" htmlFor="pk-crew">
         <InputNumber
@@ -225,7 +225,7 @@ const DetailsStep: React.FC<DetailsStepProps> = ({
 
   return (
     <div className="pk-details">
-      <section className="ui-section" aria-label="Company & Client">
+      <section className="ui-section pk-form-section" aria-label="Company & Client">
         <div className="ui-section-head"><h2 className="ui-section-title">Company &amp; Client</h2></div>
         <FormRow label="Company" htmlFor="pk-company" required>
           <Select

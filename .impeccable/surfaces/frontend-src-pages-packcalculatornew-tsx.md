@@ -19,7 +19,7 @@ OWN-WORLD: White Sheet only: white page, warm ink, hairline sections (16px/600 o
 
 STORY: The estimator fills the job, adds rooms, presses Calculate, and reads figures, sections and totals beside the inputs; changing anything afterwards marks the estimate out of date until recalculated; Open estimate goes to the saved record.
 
-FIRST VIEWPORT: PageHeader (name or "New packing estimate", meta: mode · rooms · last calculated) with Quick / Photo AI segmented and the primary Calculate on the right. Below, a two-column grid: input column ~520-560px (Company & Client, Rooms, Estimation Settings as hairline sections) and the Estimate column (sticky on desktop): figures, then sections with line items, then totals. Before the first calculation the Estimate column is a quiet empty state naming what is missing. One column under 1200px with the estimate after the inputs.
+FIRST VIEWPORT: PageHeader (name or "New packing estimate", meta: mode · rooms · last calculated) with Quick / Photo AI segmented and the primary Calculate on the right. Below, a two-column grid: input column of at least 600px taking the free width (Company & Client, Rooms, Estimation Settings as hairline sections) and the Estimate column (sticky on desktop): figures, then sections with line items, then totals. Before the first calculation the Estimate column is a quiet empty state naming what is missing. One column under 1200px with the estimate after the inputs.
 
 FORM: Builder: inputs left, estimate right. Position 5 on the ordered list of seven grounded structures, dealt lead. Raise from the gate-board challenger: a changed input after a calculation keeps an orange "Inputs changed" line and dims the figures until recalculated. seed:086248b5c1dd8503
 
