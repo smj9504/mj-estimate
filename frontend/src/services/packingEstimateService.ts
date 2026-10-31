@@ -6,6 +6,7 @@ import api from './api';
 import type {
   QuickEstimateRequest,
   ContentEstimateRequest,
+  DetectedContentItem,
   EstimateResponse,
   RoomAnalysisResponse,
   PackEstimateListResponse,
@@ -31,6 +32,17 @@ export async function contentEstimate(
   request: ContentEstimateRequest
 ): Promise<EstimateResponse> {
   const { data } = await api.post(`${BASE}/content-estimate`, request);
+  return data;
+}
+
+// ── Item Plan ─────────────────────────────────
+
+/** An item's packing method, materials and labor, from its attributes as they are now */
+export async function planItem(item: DetectedContentItem): Promise<DetectedContentItem> {
+  const { data } = await api.post(`${BASE}/item-plan`, item, {
+    // Only updates the hours on screen; Calculate works them out again
+    suppressErrorNotification: true,
+  });
   return data;
 }
 

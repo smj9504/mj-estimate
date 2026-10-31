@@ -6,6 +6,7 @@
  * Started from a claim (navigation state claimPhotos), it fills in the job,
  * loads the claim's packing photos as Photo AI rooms and analyzes them;
  * From Claim in Photo AI Rooms loads them from here, a claim and rooms picked
+ * Recalculating a saved Photo AI estimate brings back its rooms and item decisions
  */
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -19,6 +20,7 @@ import ClaimPhotosImportModal from '../components/packing-estimate/ClaimPhotosIm
 import QuickEstimateRooms from '../components/packing-estimate/QuickEstimateRooms';
 import { DEFAULT_SETTINGS } from '../components/packing-estimate/constants';
 import { loadClaimPhotoRooms } from '../components/packing-estimate/claimPhotos';
+import { isUnconfirmed, needsReview, withUids } from '../components/packing-estimate/itemEdits';
 import {
   EstimateBreakdown, Figures, estimateFigures, regionLabel, modeLabel, sectionsWithLines, packEstimateTitle,
 } from '../components/packing-estimate/packingUi';
@@ -69,7 +71,21 @@ const PackCalculatorNew: React.FC = () => {
 
   // Room state
   const [rooms, setRooms] = useState<PackingRoom[]>([]);
-  const [photoRooms, setPhotoRooms] = useState<PhotoRoom[]>([]);
+  const [photoRooms, setPhotoRooms] = useState<PhotoRoom[]>(() => (recalcState?.rooms || []).map((room: any, i: number): PhotoRoom => ({
+    id: `saved_room_${i}`,
+    room_name: room.room_name,
+    preset_id: room.preset_key || undefined,
+    floor: room.floor || '1st',
+    density: room.density || 'normal',
+    contamination: room.contamination || 'clean',
+    photos: [],
+    items: withUids(room.items || []),
+    analyzed: true,
+    analyzing: false,
+    field_notes: [],
+    special_items: [],
+    custom_special_items: [],
+  })));
 
   // Result state
   const [result, setResult] = useState<EstimateResponse | null>(null);
@@ -89,7 +105,9 @@ const PackCalculatorNew: React.FC = () => {
   // Show recalculation notice
   useEffect(() => {
     if (recalcState?.recalculateFrom) {
-      message.info('Settings loaded from previous estimate. Add rooms and recalculate.');
+      message.info(recalcState.rooms?.length
+        ? 'Rooms and items loaded from the previous estimate. Change what you need and recalculate.'
+        : 'Settings loaded from previous estimate. Add rooms and recalculate.');
     }
   }, []);
 
@@ -165,7 +183,8 @@ const PackCalculatorNew: React.FC = () => {
   const contentRooms: ContentRoomInput[] = useMemo(() => photoRooms.map(r => ({
     room_name: r.room_name,
     preset_id: r.preset_id,
-    items: r.items,
+    // A row just added and never named isn't an item yet
+    items: r.items.filter(i => i.name.trim()),
     density: r.density,
     floor: r.floor,
     contamination: r.contamination,
@@ -273,6 +292,10 @@ const PackCalculatorNew: React.FC = () => {
 
   // What the first calculation still needs, in the order the inputs ask for it
   const unanalyzedCount = mode === 'photo_ai' ? photoRooms.filter(r => !r.analyzed && !r.analyzing).length : 0;
+  const allItems = mode === 'photo_ai' ? photoRooms.flatMap(r => r.items) : [];
+  const toReviewCount = allItems.filter(needsReview).length;
+  const uncountedCount = allItems.filter(isUnconfirmed).length;
+  const reviewText = `${toReviewCount} item${toReviewCount === 1 ? '' : 's'} to review: the AI wasn't sure`;
   const checklist: { key: string; done: boolean; text: string }[] = [
     {
       key: 'company',
@@ -297,6 +320,7 @@ const PackCalculatorNew: React.FC = () => {
           ? `${unanalyzedCount} room${unanalyzedCount === 1 ? '' : 's'} not analyzed yet; analysis adds the detected items`
           : 'All rooms analyzed',
     }] : []),
+    ...(toReviewCount > 0 ? [{ key: 'review', done: false, text: reviewText }] : []),
   ];
 
   const foldable = result ? sectionsWithLines(result) : [];
@@ -421,6 +445,13 @@ const PackCalculatorNew: React.FC = () => {
               <Button size="small" onClick={handleCalculate} loading={calculating} disabled={!canCalculate}>
                 Recalculate
               </Button>
+            </div>
+          )}
+
+          {result && toReviewCount > 0 && (
+            <div className="pk-review-note" role="status">
+              {reviewText}. They&apos;re priced on the AI&apos;s answers
+              {uncountedCount > 0 ? `, except ${uncountedCount} it isn't sure ${uncountedCount === 1 ? 'is' : 'are'} there, which ${uncountedCount === 1 ? "isn't" : "aren't"} counted` : ''}.
             </div>
           )}
 

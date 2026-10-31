@@ -78,6 +78,42 @@ export const REGION_OPTIONS = [
   { value: 'southeast', label: 'Southeast (FL/GA)', description: '-20%' },
 ];
 
+// One unit of a content item; size and weight decide its packing method and labor
+export const ITEM_SIZE_OPTIONS = [
+  { value: 'small', label: 'Small', hint: 'Fits in a box' },
+  { value: 'medium', label: 'Medium', hint: 'One person carries it' },
+  { value: 'large', label: 'Large', hint: 'Two people carry it' },
+  { value: 'xlarge', label: 'X-Large', hint: 'Oversized' },
+];
+
+export const ITEM_WEIGHT_OPTIONS = [
+  { value: 'light', label: 'Light', hint: 'Under 20 lb' },
+  { value: 'medium', label: 'Medium', hint: '20-50 lb' },
+  { value: 'heavy', label: 'Heavy', hint: '50-150 lb, two-person lift' },
+  { value: 'very_heavy', label: 'Very heavy', hint: '150+ lb, dolly and 3+ people' },
+];
+
+// Mirrors METHODS in backend pack_calculation/item_plan.py
+export const PACKING_METHOD_OPTIONS = [
+  { value: 'box_standard', label: 'Box', hint: 'Everyday items' },
+  { value: 'box_padded', label: 'Padded box', hint: 'Electronics, small appliances' },
+  { value: 'box_fragile', label: 'Wrap & box', hint: 'Each piece wrapped, then boxed' },
+  { value: 'dish_pack', label: 'Dish pack', hint: 'Dishes and glassware' },
+  { value: 'book_box', label: 'Book box', hint: 'Books and media' },
+  { value: 'wardrobe_box', label: 'Wardrobe box', hint: 'Hanging clothes' },
+  { value: 'soft_pack', label: 'Soft goods box', hint: 'Folded clothes, bedding' },
+  { value: 'blanket_wrap', label: 'Blanket wrap', hint: 'Furniture' },
+  { value: 'cover_wrap', label: 'Cover & wrap', hint: 'Sofas and upholstered chairs' },
+  { value: 'mattress_bag', label: 'Mattress bag', hint: 'Mattresses' },
+  { value: 'tv_box', label: 'TV box', hint: 'TVs and large monitors' },
+  { value: 'mirror_box', label: 'Mirror/picture box', hint: 'Mirrors, frames, art' },
+  { value: 'lamp_box', label: 'Lamp box', hint: 'Lamps' },
+  { value: 'appliance_secure', label: 'Secure & dolly', hint: 'Large appliances' },
+  { value: 'rug_roll', label: 'Roll & wrap', hint: 'Rugs' },
+  { value: 'crate', label: 'Custom crate', hint: 'Large, fragile or valuable' },
+  { value: 'move_as_is', label: 'Move as is', hint: 'Already boxed or in a bin' },
+];
+
 // Special items
 export const SPECIAL_ITEMS = [
   { key: 'piano', label: 'Piano', price: 450.00 },

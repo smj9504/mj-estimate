@@ -12,6 +12,11 @@ from app.domains.pack_calculation.packing_schemas import (
     RoomItemSummary, StagingType, SupplementItem,
 )
 from sqlalchemy.orm import Session
+from app.domains.pack_calculation.item_plan import (
+    apply_plan,
+    method_label,
+    plan_item,
+)
 from app.domains.pack_calculation.models import PackingPrice
 from app.domains.pack_calculation.presets import ROOM_PRESETS
 from app.domains.pack_calculation.seed_prices import (
@@ -316,12 +321,33 @@ def get_storage_setup_fee(unit_sf: int) -> float:
     return STORAGE_SETUP_BY_SIZE.get(unit_sf, 85.85)
 
 
+def estimate_line(name: str, qty: float, unit: str, rate: float, detail: str = "") -> dict:
+    """One line of an estimate. Its amount is what the page shows, qty × rate to the
+    cent, and everything above it adds these up, so the numbers can't disagree."""
+    rate = round(rate, 2)
+    return {
+        "name": name,
+        "qty": qty,
+        "unit": unit,
+        "rate": rate,
+        "detail": detail,
+        "amount": round(qty * rate, 2),
+    }
+
+
+def section_totals(section_details: Dict[str, Any]) -> Dict[str, float]:
+    """A section's total is the sum of its lines."""
+    return {
+        name: round(sum(line["amount"] for line in detail["lines"]), 2)
+        for name, detail in section_details.items()
+    }
+
+
 def build_storage_section_detail(
     storage_sf: int,
     sf_rate: float,
     storage_months: int,
     setup_fee: float,
-    storage_cost: float,
 ) -> dict:
     """Build a section_detail dict for the Storage line item.
 
@@ -330,30 +356,18 @@ def build_storage_section_detail(
     """
     unit_label = STORAGE_UNIT_LABELS.get(storage_sf, f"{storage_sf} SF")
     monthly_sf_cost = round(storage_sf * sf_rate, 2)
-    lines = [
-        {
-            "name": f"Climate-Controlled Storage — {unit_label} unit ({storage_sf} SF)",
-            "qty": storage_months,
-            "unit": "MO",
-            "rate": monthly_sf_cost,
-            "detail": (
-                f"{storage_sf} SF × ${sf_rate:.2f}/SF/mo = ${monthly_sf_cost:.2f}/mo"
-            ),
-            "amount": round(storage_sf * sf_rate * storage_months, 2),
-        },
-        {
-            "name": "Storage Setup & Inventory Placement",
-            "qty": 1,
-            "unit": "EA",
-            "rate": round(setup_fee, 2),
-            "detail": (
-                f"Shelving, padlock, item placement & first-access coordination  "
-                f"({unit_label} unit)"
-            ),
-            "amount": round(setup_fee, 2),
-        },
-    ]
-    return {"lines": lines}
+    return {"lines": [
+        estimate_line(
+            f"Climate-Controlled Storage — {unit_label} unit ({storage_sf} SF)",
+            storage_months, "MO", monthly_sf_cost,
+            f"{storage_sf} SF × ${sf_rate:.2f}/SF/mo = ${monthly_sf_cost:.2f}/mo",
+        ),
+        estimate_line(
+            "Storage Setup & Inventory Placement",
+            1, "EA", setup_fee,
+            f"Shelving, padlock, item placement & first-access coordination  ({unit_label} unit)",
+        ),
+    ]}
 
 
 # Unit-based hints: materials per single piece (mirrors frontend HINT_UNIT_MATERIALS)
@@ -799,7 +813,7 @@ class EstimateCalculator:
                         and (item.is_high_value
                              or item.category in NOTABLE_CATEGORIES)):
                     packing_notes.append(
-                        f"{item.name}: {item.packing_method}"
+                        f"{item.name}: {method_label(item.packing_method)}"
                     )
 
             summaries.append(RoomItemSummary(
@@ -945,14 +959,52 @@ class EstimateCalculator:
 
         return materials
 
-    def calculate_material_cost(self, materials: Dict[str, int]) -> float:
-        """Calculate total material cost"""
-        total = 0
+    def _material_lines(self, materials: Dict[str, int], describe) -> Tuple[list, list]:
+        """The Materials section's lines and the material table, from one calculation."""
+        lines = []
+        material_details = []
         for mat_key, qty in materials.items():
             code = MATERIAL_CODES.get(mat_key)
-            if code:
-                total += self.get_price(code) * qty
-        return total
+            if not code or qty <= 0:
+                continue
+            unit_price = round(self.get_price(code), 2)
+            if unit_price <= 0:
+                continue
+            p = self.prices.get(code)
+            name = p.name if p else DEFAULT_PRICES.get(code, {}).get("name", mat_key)
+            unit = p.unit if p else DEFAULT_PRICES.get(code, {}).get("unit", "EA")
+            line = estimate_line(name, qty, unit, unit_price, describe(mat_key))
+            lines.append(line)
+            material_details.append({
+                "code": code,
+                "name": name,
+                "quantity": qty,
+                "unit": unit,
+                "unit_price": unit_price,
+                "total": line["amount"],
+                "detail": line["detail"],
+            })
+        return lines, material_details
+
+    @staticmethod
+    def _special_item_lines(request) -> list:
+        """Fixed-cost lines, not affected by region/density/floor.
+        Merges request-level + per-room special items."""
+        keys = set(getattr(request, 'special_items', []))
+        customs = list(getattr(request, 'custom_special_items', []))
+        for room_input in request.rooms:
+            keys.update(getattr(room_input, 'special_items', []))
+            customs.extend(getattr(room_input, 'custom_special_items', []))
+
+        note = "Fixed-cost specialty item — independent of density/floor/region"
+        lines = []
+        for key in sorted(keys):
+            spec = SPECIAL_ITEM_COSTS.get(key)
+            if spec:
+                lines.append(estimate_line(spec["name"], 1, spec["unit"], spec["price"], note))
+        for custom in customs:
+            lines.append(estimate_line(custom.name, 1, "EA", custom.price, note))
+        return lines
 
     def calculate_estimate(self, request: QuickEstimateRequest) -> EstimateResponse:
         """Main calculation method"""
@@ -995,30 +1047,20 @@ class EstimateCalculator:
 
         # Calculate materials
         materials = self.calculate_materials(request.rooms)
-        material_cost = self.calculate_material_cost(materials)
 
         # Transport & Storage costs depend on staging type
         is_on_site = request.staging_type == StagingType.ON_SITE
         quick_num_rooms = len(request.rooms)
         quick_loading_hours = max(2.0, quick_num_rooms * 0.5)
-        loading_cost = request.crew_size * quick_loading_hours * labor_rate
 
         # On-site: no truck, just crew moving contents within the property
         quick_on_site_hours = max(1.5, quick_num_rooms * 0.35)
-        on_site_moving_fee = request.crew_size * quick_on_site_hours * labor_rate
 
-        # Storage costs (per SF) - always calculate SF for display
+        # Storage (per SF) - always calculate SF for display
         storage_sf = self.estimate_storage_sf_from_rooms(
             request.rooms
         )
-        storage_cost = 0
-        if not is_on_site and request.storage_months > 0:
-            setup_fee = get_storage_setup_fee(storage_sf)
-            sf_rate = self.get_price("2840") or 2.20
-            storage_cost = (
-                storage_sf * sf_rate * request.storage_months
-                + setup_fee
-            )
+        has_storage = not is_on_site and request.storage_months > 0 and storage_sf > 0
 
         # Smart truck selection based on job size
         _, truck_rate = self.select_truck(storage_sf)
@@ -1027,70 +1069,14 @@ class EstimateCalculator:
             1, math.ceil(storage_sf / 500)
         ) if storage_sf > 0 else 1
 
-        # Special items (fixed cost, not affected by region/density/floor)
-        # Merge request-level + per-room special items
-        all_special = set(getattr(request, 'special_items', []))
-        all_custom_special = list(getattr(request, 'custom_special_items', []))
-        for room_input in request.rooms:
-            all_special.update(getattr(room_input, 'special_items', []))
-            all_custom_special.extend(getattr(room_input, 'custom_special_items', []))
-
-        special_item_cost = 0.0
-        special_item_lines = []
-        for item_key in all_special:
-            spec = SPECIAL_ITEM_COSTS.get(item_key)
-            if spec:
-                special_item_cost += spec["price"]
-                special_item_lines.append(spec)
-        for custom in all_custom_special:
-            special_item_cost += custom.price
-            special_item_lines.append({"name": custom.name, "unit": "EA", "price": custom.price})
-
-        # Build sections (Pack-Out Labor total is recalculated after section_details)
-        sections = {
-            "Pack-Out Labor": pack_out_hours * labor_rate,
-            "Materials": material_cost,
-        }
-
-        if is_on_site:
-            sections["On-Site Relocation"] = on_site_moving_fee
-        else:
-            sections["Transport Out"] = (truck_rate + loading_cost) * quick_truck_trips
-            if storage_cost > 0:
-                sections["Storage"] = storage_cost
-
-        if request.include_packback:
-            if is_on_site:
-                sections["On-Site Pack-Back Move"] = on_site_moving_fee
-            else:
-                sections["Transport Back"] = (truck_rate + loading_cost) * quick_truck_trips
-            sections["Pack-Back Labor"] = pack_back_hours * labor_rate
-
-        if special_item_cost > 0:
-            sections["Special Items"] = round(special_item_cost, 2)
-
-        # Initial totals (recalculated after section_details adjust sections)
-        subtotal = sum(sections.values())
-        op_amount = subtotal * (request.op_rate / 100) if request.include_op else 0
-
-        # Evaluate conditional supplements
-        supplements = self.evaluate_supplements(
-            request.rooms, subtotal,
-            overrides=getattr(request, 'supplement_overrides', None),
-        )
-        supplements_total = sum(s.amount for s in supplements if s.enabled)
-
-        # Legacy contingency (backwards compat, defaults off)
-        contingency_amount = subtotal * (request.contingency_rate / 100) if request.include_contingency else 0
-        grand_total = subtotal + op_amount + supplements_total + contingency_amount
-
         room_summaries = self._build_room_summaries_from_hints(
             request.rooms
         )
 
-        # Build section_details for notes/audit trail
+        # Every line of the estimate; each section's total is the sum of its lines
         section_details: Dict[str, Any] = {}
         crew = request.crew_size
+        specialty_rate = self.get_price("2912") or 127.74
 
         # Split Pack-Out Labor into sub-lines matching PDF format
         _po_std_hours = max(4, round(pack_out_hours * 0.6))
@@ -1103,48 +1089,66 @@ class EstimateCalculator:
         _po_specialized_hours = _po_fragile_hours + _po_specialty_hours
 
         section_details["Pack-Out Labor"] = {"lines": [
-            {"name": "Pack-Out Crew Labor", "qty": _po_crew_hours, "unit": "HR",
-             "rate": round(labor_rate, 2),
-             "detail": f"{crew}-person crew, professional packing of all contents including wrapping, boxing, labeling, and loading",
-             "amount": round(_po_crew_hours * labor_rate, 2)},
-            {"name": "Supervisor/Foreman", "qty": supervisor_hours, "unit": "HR",
-             "rate": round(supervisor_rate, 2),
-             "detail": f"On-site supervision across {len(request.rooms)} rooms, inventory documentation, quality control",
-             "amount": round(supervisor_hours * supervisor_rate, 2)},
-            {"name": "Specialized Handling", "qty": _po_specialized_hours, "unit": "HR",
-             "rate": round(self.get_price("2912") or 127.74, 2),
-             "detail": "Electronics, fragile items, artwork — includes extra care packaging and custom crating as needed",
-             "amount": round(_po_specialized_hours * (self.get_price("2912") or 127.74), 2)},
+            estimate_line(
+                "Pack-Out Crew Labor", _po_crew_hours, "HR", labor_rate,
+                f"{crew}-person crew, professional packing of all contents including wrapping, boxing, labeling, and loading",
+            ),
+            estimate_line(
+                "Supervisor/Foreman", supervisor_hours, "HR", supervisor_rate,
+                f"On-site supervision across {len(request.rooms)} rooms, inventory documentation, quality control",
+            ),
+            estimate_line(
+                "Specialized Handling", _po_specialized_hours, "HR", specialty_rate,
+                "Electronics, fragile items, artwork — includes extra care packaging and custom crating as needed",
+            ),
         ]}
-        # Recalculate Pack-Out Labor section total to match sub-lines
-        sections["Pack-Out Labor"] = sum(l["amount"] for l in section_details["Pack-Out Labor"]["lines"])
+
+        mat_lines, material_details = self._material_lines(
+            materials, lambda mat_key: MATERIAL_DETAIL.get(mat_key, "Packing supply"),
+        )
+        section_details["Materials"] = {"lines": mat_lines}
 
         def _rh(x):
             return round(x * 2) / 2
 
-        if not is_on_site:
-            _load_ph = _rh(quick_loading_hours * crew)
-            _t_lines = [
-                {"name": "26' Moving Van", "qty": quick_truck_trips, "unit": "DY",
-                 "rate": round(truck_rate, 2),
-                 "detail": f"{quick_truck_trips} trip{'s' if quick_truck_trips > 1 else ''}  (~500 SF capacity per trip)",
-                 "amount": round(truck_rate * quick_truck_trips, 2)},
-                {"name": "Loading / Unloading Labor", "qty": _load_ph, "unit": "HR",
-                 "rate": round(labor_rate, 2),
-                 "detail": f"{quick_loading_hours:.1f} elapsed hr · {crew}-person crew  (stage, load, secure, unload)",
-                 "amount": round(_load_ph * labor_rate, 2)},
-            ]
+        _on_site_ph = crew * quick_on_site_hours
+        _t_lines = [
+            estimate_line(
+                "26' Moving Van", quick_truck_trips, "DY", truck_rate,
+                f"{quick_truck_trips} trip{'s' if quick_truck_trips > 1 else ''}  (~500 SF capacity per trip)",
+            ),
+            estimate_line(
+                "Loading / Unloading Labor", _rh(quick_loading_hours * crew) * quick_truck_trips, "HR", labor_rate,
+                f"{quick_loading_hours:.1f} elapsed hr · {crew}-person crew  (stage, load, secure, unload)",
+            ),
+        ]
+
+        if is_on_site:
+            section_details["On-Site Relocation"] = {"lines": [
+                estimate_line(
+                    "Move Contents to Staging Area", _on_site_ph, "HR", labor_rate,
+                    f"{quick_on_site_hours:.1f} elapsed hr · {crew}-person crew  (move contents to the staging area on site)",
+                ),
+            ]}
+        else:
             section_details["Transport Out"] = {"lines": _t_lines}
-            if request.include_packback:
-                section_details["Transport Back"] = {"lines": _t_lines}
-            if storage_cost > 0:
-                _sf_rate = self.get_price("2840") or 2.20
-                _setup_fee = get_storage_setup_fee(storage_sf)
+            if has_storage:
                 section_details["Storage"] = build_storage_section_detail(
-                    storage_sf, _sf_rate, request.storage_months,
-                    _setup_fee, storage_cost,
+                    storage_sf, self.get_price("2840") or 2.20, request.storage_months,
+                    get_storage_setup_fee(storage_sf),
                 )
+
         if request.include_packback:
+            if is_on_site:
+                section_details["On-Site Pack-Back Move"] = {"lines": [
+                    estimate_line(
+                        "Move Contents Back from Staging Area", _on_site_ph, "HR", labor_rate,
+                        f"{quick_on_site_hours:.1f} elapsed hr · {crew}-person crew  (move contents back to the restored rooms)",
+                    ),
+                ]}
+            else:
+                section_details["Transport Back"] = {"lines": _t_lines}
+
             # Split Pack-Back into sub-lines matching PDF format
             _pb_crew_base = max(8, round(pack_back_hours * 0.65))
             _pb_reassembly = max(2, round(pack_back_hours * 0.12))
@@ -1154,94 +1158,42 @@ class EstimateCalculator:
             _pb_total_crew = _pb_crew_base + _pb_reassembly + _pb_appliance + _pb_waste
             _spec_ratio = _po_specialized_hours / max(1, _po_crew_hours + _po_specialized_hours)
             _pb_specialized = max(1, round(_pb_total_crew * _spec_ratio))
-            _specialty_rate = self.get_price("2912") or 127.74
 
-            pb_lines = [
-                {"name": "Pack-Back Crew Labor", "qty": _pb_total_crew, "unit": "HR",
-                 "rate": round(labor_rate, 2),
-                 "detail": f"{crew}-person crew, unloading, placement, furniture reassembly, and unpacking",
-                 "amount": round(_pb_total_crew * labor_rate, 2)},
-                {"name": "Supervisor/Foreman", "qty": _pb_supervisor, "unit": "HR",
-                 "rate": round(supervisor_rate, 2),
-                 "detail": "Pack-back oversight, quality control, client walkthrough",
-                 "amount": round(_pb_supervisor * supervisor_rate, 2)},
-                {"name": "Specialized Handling", "qty": _pb_specialized, "unit": "HR",
-                 "rate": round(_specialty_rate, 2),
-                 "detail": "Electronics, fragile items, artwork — careful unpacking and placement",
-                 "amount": round(_pb_specialized * _specialty_rate, 2)},
-            ]
-            section_details["Pack-Back Labor"] = {"lines": pb_lines}
-            # Recalculate Pack-Back Labor section total to match sub-lines
-            sections["Pack-Back Labor"] = sum(l["amount"] for l in pb_lines)
-
-        if special_item_lines:
-            section_details["Special Items"] = {"lines": [
-                {"name": s["name"], "qty": 1, "unit": s["unit"],
-                 "rate": s["price"],
-                 "detail": "Fixed-cost specialty item — independent of density/floor/region",
-                 "amount": s["price"]}
-                for s in special_item_lines
+            section_details["Pack-Back Labor"] = {"lines": [
+                estimate_line(
+                    "Pack-Back Crew Labor", _pb_total_crew, "HR", labor_rate,
+                    f"{crew}-person crew, unloading, placement, furniture reassembly, and unpacking",
+                ),
+                estimate_line(
+                    "Supervisor/Foreman", _pb_supervisor, "HR", supervisor_rate,
+                    "Pack-back oversight, quality control, client walkthrough",
+                ),
+                estimate_line(
+                    "Specialized Handling", _pb_specialized, "HR", specialty_rate,
+                    "Electronics, fragile items, artwork — careful unpacking and placement",
+                ),
             ]}
 
-        # Build Materials section_details and material_details from calculated materials
-        mat_lines = []
-        material_details = []
-        for mat_key, qty in materials.items():
-            if qty <= 0:
-                continue
-            code = MATERIAL_CODES.get(mat_key)
-            if not code:
-                continue
-            unit_price = round(self.get_price(code), 2)
-            if unit_price <= 0:
-                continue
-            p = self.prices.get(code)
-            name = p.name if p else DEFAULT_PRICES.get(code, {}).get("name", mat_key)
-            unit = p.unit if p else DEFAULT_PRICES.get(code, {}).get("unit", "EA")
-            mat_lines.append({
-                "name": name,
-                "qty": qty,
-                "unit": unit,
-                "rate": unit_price,
-                "detail": MATERIAL_DETAIL.get(mat_key, "Packing supply"),
-                "amount": round(unit_price * qty, 2),
-            })
-            material_details.append({
-                "code": code,
-                "name": name,
-                "quantity": qty,
-                "unit": unit,
-                "unit_price": unit_price,
-                "total": round(unit_price * qty, 2),
-            })
-        section_details["Materials"] = {"lines": mat_lines}
+        special_lines = self._special_item_lines(request)
+        if special_lines:
+            section_details["Special Items"] = {"lines": special_lines}
 
-        # Build Storage section_details when storage is included but cost is 0
-        if "Storage" not in section_details:
-            if not is_on_site and storage_sf > 0:
-                _sf_rate = self.get_price("2840") or 2.20
-                _setup_fee = get_storage_setup_fee(storage_sf)
-                section_details["Storage"] = build_storage_section_detail(
-                    storage_sf, _sf_rate, request.storage_months or 0,
-                    _setup_fee, storage_cost,
-                )
-            else:
-                section_details["Storage"] = {"lines": []}
+        section_details = {name: d for name, d in section_details.items() if d["lines"]}
+        sections = section_totals(section_details)
 
-        # Recalculate totals after section_details adjusted section amounts
-        subtotal = sum(sections.values())
-        op_amount = subtotal * (request.op_rate / 100) if request.include_op else 0
+        subtotal = round(sum(sections.values()), 2)
+        op_amount = round(subtotal * (request.op_rate / 100), 2) if request.include_op else 0
 
         # Evaluate conditional supplements
         supplements = self.evaluate_supplements(
             request.rooms, subtotal,
             overrides=getattr(request, 'supplement_overrides', None),
         )
-        supplements_total = sum(s.amount for s in supplements if s.enabled)
+        supplements_total = round(sum(s.amount for s in supplements if s.enabled), 2)
 
         # Legacy contingency (backwards compat, defaults off)
-        contingency_amount = subtotal * (request.contingency_rate / 100) if request.include_contingency else 0
-        grand_total = subtotal + op_amount + supplements_total + contingency_amount
+        contingency_amount = round(subtotal * (request.contingency_rate / 100), 2) if request.include_contingency else 0
+        grand_total = round(subtotal + op_amount + supplements_total + contingency_amount, 2)
 
         return EstimateResponse(
             total_rooms=len(request.rooms),
@@ -1271,61 +1223,16 @@ class EstimateCalculator:
     # ITEM-BASED CALCULATION (from room content lists)
     # ============================================
 
-    # Categories that use fragile labor rate
-    FRAGILE_CATEGORIES = {"Fragile", "Artwork", "Collectibles"}
-    # Categories that use specialty labor rate
-    SPECIALTY_CATEGORIES = {"Electronics"}
+    # ── Item-based labor estimation ──────────────────────────────────
+    # Each item's person-hours come from item_plan: what it is, its size and
+    # weight, fragile or not. Rooms add what a photo can't show and how hard the
+    # room is to work in.
 
-    # ── Room-based labor estimation ──────────────────────────────────
-    # Labor is driven by room characteristics, NOT individual item counts.
-    # Item analysis exists for packing MATERIALS — labor is about how long
-    # a crew spends in a room based on density, content type, and room size.
-    #
-    # Base = PERSON-HOURS (single-worker equivalent).
-    # A 4-person crew in a standard bedroom at normal density: 4.0 ph ÷ 4 = 1.0 elapsed hr.
-    # Reference: industry average 1-2 elapsed hours per standard room with 3-4 crew.
-    ROOM_BASE_PERSON_HOURS = {
-        "small": 2.0,    # bathroom, closet, pantry — ~30 min elapsed with 4 crew
-        "large": 5.5,    # standard bedroom, living room, kitchen — ~1.4 hr elapsed
-        "xlarge": 9.0,   # master bedroom, basement, garage — ~2.25 hr elapsed
-    }
+    # Contents the photos can't show (drawers, cabinets, closets), in person-hours
+    UNSEEN_CONTENT_HOURS = {"small": 0.75, "large": 1.5, "xlarge": 2.0}
 
-    CONTENT_TYPE_MODIFIERS = {
-        "fragile_heavy":    0.40,   # dishes, glass → careful wrapping adds ~40%
-        "furniture_heavy":  0.30,   # large furniture → disassembly, blanket wrap
-        "appliance_heavy":  0.25,   # appliances → disconnect, dolly
-        "electronics_heavy": 0.15,  # electronics → serial#, careful boxing
-        "clothing_dominant": -0.10, # mostly clothing → faster wardrobe-box packing
-    }
-
-    def _classify_room_content(self, items: List[Any]) -> Dict[str, bool]:
-        """Determine dominant content types in a room from its items."""
-        if not items:
-            return {}
-        total_lines = len(items)
-        cats: Dict[str, int] = {}
-        fragile_lines = 0
-        for item in items:
-            cat = getattr(item, "category", "Other")
-            cats[cat] = cats.get(cat, 0) + 1
-            if getattr(item, "is_fragile", False):
-                fragile_lines += 1
-
-        flags: Dict[str, bool] = {}
-        threshold = max(2, total_lines * 0.30)
-
-        if fragile_lines >= threshold or cats.get("Kitchenware", 0) + cats.get("Fragile", 0) >= threshold:
-            flags["fragile_heavy"] = True
-        if cats.get("Furniture", 0) >= threshold:
-            flags["furniture_heavy"] = True
-        if cats.get("Appliances", 0) >= threshold:
-            flags["appliance_heavy"] = True
-        if cats.get("Electronics", 0) >= threshold:
-            flags["electronics_heavy"] = True
-        if cats.get("Clothing", 0) >= total_lines * 0.50:
-            flags["clothing_dominant"] = True
-
-        return flags
+    # A crowded room slows each item; having more items is already counted
+    CROWDING_MULTIPLIERS = {"light": 1.0, "normal": 1.0, "dense": 1.1, "heavy": 1.2, "extreme": 1.35}
 
     def _get_room_size(self, room) -> str:
         """Resolve room size from preset_id or fallback to 'large'."""
@@ -1350,133 +1257,9 @@ class EstimateCalculator:
         "4th+":     2.40,  # carry DOWN three+ flights — eastern US brownstones/walkups
     }
 
-    # Base person-minutes to carry ONE AI-reported item-unit from its room to truck/staging.
-    # Covers: pick up → navigate hallway → stairs (if any) → place at loading position.
-    #
-    # IMPORTANT: AI reports item COUNTS, not box counts.
-    # e.g. "Books qty=30" = 30 individual books → packed into ~2 boxes → ~3 person-min total.
-    # Values are calibrated accordingly: boxes_per_item × 1.5 min/box.
-    #
-    # Large discrete items (Furniture, Appliances, Artwork) are 1 item ≈ 1 carry trip —
-    # values for those are kept higher to reflect dolly setup, 2-person lift, or careful carry.
-    BASE_CARRY_MINS: Dict[str, float] = {
-        "Furniture":    3.5,   # 1 item = 1 wrapped piece; dolly + 2-person = ~3-4 min
-        "Appliances":   5.0,   # heavy appliance; 2-person, dolly, disconnect checks = ~5 min
-        "Electronics":  1.2,   # 1 item ≈ 1 device (TV, monitor); padded carry = ~1-1.5 min
-        "Books":        0.10,  # ~15 books/box × 1.5 min/box → 0.10 min/book
-        "Fragile":      0.25,  # ~8 items/dish-pack × 2 min/box → 0.25 min/item
-        "Artwork":      2.5,   # 1 item = 1 framed piece / mirror; mirror box carry = ~2-3 min
-        "Kitchenware":  0.15,  # ~8-10 items/box × 1.2 min/box → 0.15 min/item
-        "Clothing":     0.10,  # ~15 items/wardrobe-box × 1.5 min/box → 0.10 min/item
-        "Collectibles": 0.30,  # ~6 items/box, handled carefully × 1.8 min/box → 0.30 min/item
-        "Tools":        0.20,  # ~10 items/toolbox × 2 min/box → 0.20 min/item
-        "Sports":       1.2,   # discrete items (bike, bag, equipment); ~1-1.5 min each
-        "Toys":         0.15,  # ~10 items/box × 1.5 min/box → 0.15 min/item
-        "Other":        0.20,  # ~8 items/box × 1.5 min/box → 0.20 min/item
-    }
-
     # Per-room carry overhead: navigate hallway, hold/prop doors, position dolly, clear path.
     # 8.0 min was too aggressive for a single room; 5.0 min is realistic.
     ROOM_CARRY_OVERHEAD_MINS: float = 5.0
-
-    # Packing method → material inference when required_materials is empty
-    PACKING_METHOD_MATERIALS = {
-        "bubble": ["bubble_12"],
-        "bubble wrap": ["bubble_12"],
-        "double box": ["box_medium", "box_large"],
-        "dish pack": ["box_dish", "packing_paper"],
-        "dish-pack": ["box_dish", "packing_paper"],
-        "wardrobe": ["box_wardrobe"],
-        "mirror box": ["box_mirror"],
-        "picture box": ["box_mirror"],
-        "tv box": ["box_tv"],
-        "blanket wrap": ["blanket", "shrink_wrap"],
-        "pad wrap": ["furniture_pad", "shrink_wrap"],
-        "chair cover": ["chair_cover"],
-        "sofa cover": ["sofa_cover"],
-        "couch cover": ["sofa_cover"],
-        "furniture cover": ["chair_cover", "sofa_cover"],
-        "plastic cover": ["chair_cover"],
-        "shrink wrap": ["shrink_wrap"],
-        "stretch wrap": ["shrink_wrap"],
-        "crate": ["box_xlarge", "bubble_24"],
-        "custom crate": ["box_xlarge", "bubble_24", "corner_protector"],
-    }
-
-    def _infer_materials_from_packing_method(self, packing_method: str) -> List[str]:
-        """Infer materials from packing_method description string."""
-        if not packing_method:
-            return []
-        method_lower = packing_method.lower()
-        inferred = []
-        for keyword, mats in self.PACKING_METHOD_MATERIALS.items():
-            if keyword in method_lower:
-                inferred.extend(mats)
-        # Deduplicate while preserving order
-        return list(dict.fromkeys(inferred))
-
-    # How many items fit per box/material unit (packing ratio)
-    ITEMS_PER_BOX = {
-        "box_small": 12, "box_medium": 12, "box_large": 6,
-        "box_xlarge": 4, "box_book": 20, "box_dish": 12,
-        "box_wardrobe": 24,       # standard wardrobe box holds 24 hanging garments
-        "box_wardrobe_small": 18,
-        "box_wardrobe_large": 30,
-        # Specialty boxes: 1 item per box
-        "box_tv": 1, "box_mirror": 1, "box_lamp": 1,
-        # Bubble wrap rolls: NOT 1:1 per item — 1 roll covers multiple items.
-        # 12" × 60ft roll: covers ~20 medium fragile items
-        # 24" × 30ft roll: covers ~8 large fragile items
-        "bubble_12": 20,
-        "bubble_24": 8,
-        # Corner protectors: sold in box of 100; ~16 furniture items use 1 box
-        "corner_protector": 16,
-        # Stretch wrap roll (20" × 1500ft): 1 roll wraps ~8 furniture pieces.
-        # AI encodes as "1 per item" but the Xactimate code 2936 is per ROLL.
-        "shrink_wrap": 8,
-        # Furniture pad (72" × 80"): large heavy-duty pad shared across ~2 items.
-        # 1:1 would over-count when qty > 1 per item entry.
-        "furniture_pad": 2,
-    }
-    # Wrapping materials: 1 unit per item.quantity (covers, mattress bags, blankets).
-    # shrink_wrap and furniture_pad excluded — they use ITEMS_PER_BOX ratio to avoid
-    # over-counting when item.quantity > 1 (e.g. 8 chairs → 1 roll, not 8 rolls).
-    WRAP_MATERIALS = {
-        "blanket",
-        "mattress_twin", "mattress_full", "mattress_queen", "mattress_king",
-        "chair_cover", "sofa_cover",
-    }
-
-    # Keywords indicating large furniture that needs extra wrapping materials
-    _LARGE_FURNITURE_KEYWORDS = {
-        "sectional", "l-shaped", "l shaped", "chaise", "sofa bed", "sleeper sofa",
-        "king", "armoire", "wardrobe", "large wardrobe", "3-door", "4-door",
-        "large bookcase", "tall bookcase", "6-shelf", "7-shelf", "8-shelf",
-        "entertainment center", "china cabinet", "hutch",
-    }
-    # Minimum blankets to assign for large furniture when AI under-specifies
-    _LARGE_FURNITURE_MIN_BLANKETS = 2
-
-    def _supplement_furniture_materials(
-        self, item: Any, mat_counts: Dict[str, int]
-    ) -> None:
-        """Ensure large furniture gets adequate wrapping materials.
-
-        When the AI returns required_materials, duplicates already encode
-        quantity. This method adds a safety-net floor for large furniture
-        that may have been under-specified — it will NOT reduce existing counts.
-        """
-        if item.category != "Furniture":
-            return
-        name_lower = (item.name or "").lower()
-        is_large = any(kw in name_lower for kw in self._LARGE_FURNITURE_KEYWORDS)
-        if not is_large:
-            return
-        # Ensure at least 2 blankets for large furniture
-        current_blankets = mat_counts.get("blanket", 0)
-        needed = self._LARGE_FURNITURE_MIN_BLANKETS * item.quantity
-        if current_blankets < needed:
-            mat_counts["blanket"] = needed
 
     def _calculate_relocation_hours(
         self, rooms: List[Any]
@@ -1506,10 +1289,9 @@ class EstimateCalculator:
             room_mins = self.ROOM_CARRY_OVERHEAD_MINS * mult
             room_raw_mins = self.ROOM_CARRY_OVERHEAD_MINS  # without floor mult
             for item in room.items:
-                qty = item.quantity or 1
-                base = self.BASE_CARRY_MINS.get(item.category, 2.0)
-                room_mins += base * qty * mult
-                room_raw_mins += base * qty
+                carry = plan_item(item).carry_minutes * (item.quantity or 1)
+                room_mins += carry * mult
+                room_raw_mins += carry
             floor_stats[floor]["raw_mins"] += room_raw_mins
 
             total_mins += room_mins
@@ -1537,84 +1319,26 @@ class EstimateCalculator:
         return person_hours, note
 
     def aggregate_item_materials(self, rooms: List[Any]) -> Dict[str, int]:
-        """Aggregate required_materials from all items across all rooms.
+        """Add up what every item's plan needs, room by room.
 
-        Boxes use a packing ratio (multiple items per box).
-        Wrapping materials scale 1:1 — the AI encodes quantity via duplicate
-        keys in the required_materials list (e.g. two "moving_blanket" entries
-        = 2 blankets for that item).
+        Items in a room share boxes and rolls, so amounts round up per room.
         Packing paper is accumulated as a raw item count across ALL items,
         then converted to 50-lb bundles once at the end.
         """
         materials: Dict[str, int] = {}
         packing_paper_raw = 0  # accumulate raw item count across all items
 
-        # Keywords that identify actual TVs/large monitors (32"+) vs other electronics
-        _TV_KEYWORDS = {"tv", "television", "flat screen", "flatscreen", "oled", "qled"}
-
         for room in rooms:
+            room_amounts: Dict[str, float] = {}
             for item in room.items:
-                item_mats = []
-                if item.required_materials:
-                    item_mats = list(item.required_materials)
-                elif hasattr(item, 'packing_method') and item.packing_method:
-                    item_mats = self._infer_materials_from_packing_method(item.packing_method)
-
-                # Guard: tv_box only for actual TVs/large monitors.
-                # Downgrade to medium_box for other electronics (consoles, routers, etc.)
-                if item.category == "Electronics" and item_mats:
-                    name_lower = (item.name or "").lower()
-                    is_actual_tv = any(kw in name_lower for kw in _TV_KEYWORDS) or "monitor" in name_lower
-                    if not is_actual_tv:
-                        item_mats = [("medium_box" if m in ("tv_box", "box_tv") else m) for m in item_mats]
-
-                # Track per-item material counts before merging into global dict
-                # so _supplement_furniture_materials can reason about this item's share.
-                item_mat_counts: Dict[str, int] = {}
-
-                # When AI lists multiple box types for one item (e.g. wardrobe_box + medium_box
-                # for clothing), each type should receive a proportional share of the item qty
-                # rather than the full qty — otherwise box counts inflate ~Nx.
-                item_box_types: set = set()
-                for mk in item_mats:
-                    n = self._normalize_material_key(mk)
-                    if n and n in self.ITEMS_PER_BOX and n.startswith("box_") and n not in ("box_tv", "box_mirror", "box_lamp"):
-                        item_box_types.add(n)
-                qty_per_box_type = (item.quantity / len(item_box_types)) if len(item_box_types) > 1 else item.quantity
-
-                for mat_key in item_mats:
-                    norm = self._normalize_material_key(mat_key)
-                    if not norm:
-                        continue
-                    if norm == "packing_paper":
-                        # Accumulate raw item count; convert to bundles after loop.
-                        packing_paper_raw += item.quantity
-                    elif norm in self.WRAP_MATERIALS:
-                        # Wrap materials: each occurrence = 1 unit per item.
-                        # AI uses duplicate keys to represent quantity
-                        # (e.g., 2× "moving_blanket" = 2 blankets per unit).
-                        # Multiply occurrence count by item.quantity (number of units).
-                        item_mat_counts[norm] = item_mat_counts.get(norm, 0) + item.quantity
-                    elif norm in self.ITEMS_PER_BOX:
-                        # Boxes: ceil(effective_qty / items_per_box) per occurrence.
-                        # For regular box types, use split qty when multiple box types are
-                        # listed for the same item (avoids Nx inflation).
-                        # Specialty single-item boxes (tv/mirror/lamp) always use full qty.
-                        per_box = self.ITEMS_PER_BOX[norm]
-                        is_specialty = norm in ("box_tv", "box_mirror", "box_lamp")
-                        eff_qty = item.quantity if is_specialty else qty_per_box_type
-                        boxes = math.ceil(eff_qty / per_box)
-                        item_mat_counts[norm] = item_mat_counts.get(norm, 0) + max(1, boxes)
+                for mat_key, per_unit in plan_item(item).materials.items():
+                    if mat_key == "packing_paper":
+                        packing_paper_raw += per_unit * item.quantity
                     else:
-                        # Unknown material: 1 per occurrence
-                        item_mat_counts[norm] = item_mat_counts.get(norm, 0) + 1
-
-                # Safety floor for large furniture
-                self._supplement_furniture_materials(item, item_mat_counts)
-
-                # Merge item-level counts into global totals
-                for norm, cnt in item_mat_counts.items():
-                    materials[norm] = materials.get(norm, 0) + cnt
+                        room_amounts[mat_key] = room_amounts.get(mat_key, 0) + per_unit * item.quantity
+            for mat_key, amount in room_amounts.items():
+                # Fractions of a box add up inexactly, so 1.0000001 boxes stays 1
+                materials[mat_key] = materials.get(mat_key, 0) + math.ceil(amount - 1e-9)
 
         # Count total boxes for paper and tape calculation
         box_keys = {k for k in materials if k.startswith("box_")}
@@ -1681,21 +1405,10 @@ class EstimateCalculator:
 
         for room in rooms:
             for item in room.items:
-                item_mats = []
-                if item.required_materials:
-                    item_mats = item.required_materials
-                elif hasattr(item, "packing_method") and item.packing_method:
-                    item_mats = self._infer_materials_from_packing_method(
-                        item.packing_method
-                    )
-                seen = set()
-                for mk in item_mats:
-                    norm = self._normalize_material_key(mk)
-                    if not norm or norm not in materials or norm in seen:
-                        continue
-                    seen.add(norm)
-                    cat = getattr(item, "category", None) or "General"
-                    mat_cats[norm].add(cat)
+                for mat_key in plan_item(item).materials:
+                    if mat_key in materials:
+                        cat = getattr(item, "category", None) or "General"
+                        mat_cats[mat_key].add(cat)
 
         results: Dict[str, str] = {}
         for mat_key in materials:
@@ -1720,54 +1433,22 @@ class EstimateCalculator:
 
         return results
 
-    @staticmethod
-    def _normalize_material_key(key: str) -> str | None:
-        """Map AI-returned material names to our internal keys."""
-        ALIASES = {
-            "moving_blanket": "blanket", "furniture_pad": "furniture_pad",
-            "stretch_wrap": "shrink_wrap", "wardrobe_box": "box_wardrobe",
-            "small_box": "box_small", "medium_box": "box_medium",
-            "large_box": "box_large", "dish_pack_box": "box_dish",
-            "book_box": "box_book", "tv_box": "box_tv", "mirror_box": "box_mirror",
-            "lamp_box": "box_lamp", "bubble_wrap_12": "bubble_12",
-            "bubble_wrap_24": "bubble_24", "packing_paper": "packing_paper",
-            "corner_protector": "corner_protector", "mattress_bag": "mattress_queen",
-            # New item aliases
-            "chair_cover": "chair_cover", "plastic_chair_cover": "chair_cover",
-            "sofa_cover": "sofa_cover", "couch_cover": "sofa_cover",
-            "plastic_sofa_cover": "sofa_cover", "plastic_couch_cover": "sofa_cover",
-            "wardrobe_box_small": "box_wardrobe_small",
-            "small_wardrobe_box": "box_wardrobe_small",
-            "wardrobe_box_large": "box_wardrobe_large",
-            "large_wardrobe_box": "box_wardrobe_large",
-            "box_wardrobe_small": "box_wardrobe_small",
-            "box_wardrobe_large": "box_wardrobe_large",
-            # Direct matches
-            "blanket": "blanket", "shrink_wrap": "shrink_wrap",
-            "box_small": "box_small", "box_medium": "box_medium",
-            "box_large": "box_large", "box_xlarge": "box_xlarge",
-            "box_dish": "box_dish", "box_wardrobe": "box_wardrobe",
-            "box_mirror": "box_mirror", "box_tv": "box_tv", "box_lamp": "box_lamp",
-            "box_book": "box_book", "bubble_12": "bubble_12", "bubble_24": "bubble_24",
-            "furniture_pad": "furniture_pad",
-        }
-        return ALIASES.get(key)
-
     def classify_labor_hours(
         self, rooms: List[Any]
     ) -> Dict[str, float]:
-        """Estimate labor hours per room based on density, content type, and size.
+        """Person-hours by labor tier across the job, from what's in each room.
 
-        This is a ROOM-LEVEL estimation. Item-level analysis is used only for
-        packing material calculations, not labor. A crew walks into a room and
-        the time depends on: how full it is, what kind of stuff is in it, and
-        how big the space is.
+        Each item brings its own hours, in the tier its handling calls for.
+        Floor and contamination slow everything in the room; density scales the
+        contents the photos can't show.
         """
-        standard_mins = 0.0
-        fragile_mins = 0.0
-        specialty_mins = 0.0
-        furniture_disassembly_mins = 0.0
-        appliance_mins = 0.0
+        hours = {
+            "standard": 0.0,
+            "fragile": 0.0,
+            "specialty": 0.0,
+            "furniture_disassembly": 0.0,
+            "appliance": 0.0,
+        }
 
         for room in rooms:
             density_mult = DENSITY_MULTIPLIERS.get(room.density, 1.0)
@@ -1775,55 +1456,17 @@ class EstimateCalculator:
             contamination_mult = CONTAMINATION_MULTIPLIERS.get(
                 getattr(room, 'contamination', 'clean'), 1.0
             )
+            room_mult = floor_mult * contamination_mult
 
-            # Base time for this room
-            room_size = self._get_room_size(room)
-            base_ph = self.ROOM_BASE_PERSON_HOURS.get(room_size, 2.5)
+            unseen = self.UNSEEN_CONTENT_HOURS.get(self._get_room_size(room), 1.0)
+            hours["standard"] += unseen * density_mult * room_mult
 
-            if room.density == "light" and room_size == "small":
-                base_ph = 0.5
+            item_mult = room_mult * self.CROWDING_MULTIPLIERS.get(room.density, 1.0)
+            for item in getattr(room, 'items', []):
+                for tier, tier_hours in plan_item(item).tier_hours.items():
+                    hours[tier] += tier_hours * item_mult
 
-            # Apply density, floor, contamination
-            room_ph = base_ph * density_mult * floor_mult * contamination_mult
-
-            # Content-type modifiers
-            items = getattr(room, 'items', [])
-            content_flags = self._classify_room_content(items)
-            content_modifier = 1.0
-            for flag, mod_value in self.CONTENT_TYPE_MODIFIERS.items():
-                if content_flags.get(flag):
-                    content_modifier += mod_value
-            room_ph *= content_modifier
-
-            room_mins = room_ph * 60
-
-            # Split into labor tiers based on content flags
-            if content_flags.get("fragile_heavy"):
-                fragile_mins += room_mins * 0.30
-                standard_mins += room_mins * 0.70
-            elif content_flags.get("furniture_heavy"):
-                furniture_disassembly_mins += room_mins * 0.25
-                standard_mins += room_mins * 0.75
-            elif content_flags.get("appliance_heavy"):
-                appliance_mins += room_mins * 0.30
-                standard_mins += room_mins * 0.70
-            else:
-                standard_mins += room_mins
-
-            # High-value items → small specialty surcharge
-            hv_count = sum(1 for i in items if getattr(i, 'is_high_value', False))
-            if hv_count > 0:
-                specialty_mins += min(hv_count * 10, room_mins * 0.20)
-
-        return {
-            "standard": round(standard_mins / 60, 1),
-            "fragile": round(fragile_mins / 60, 1),
-            "specialty": round(specialty_mins / 60, 1),
-            "furniture_disassembly": round(
-                furniture_disassembly_mins / 60, 1
-            ),
-            "appliance": round(appliance_mins / 60, 1),
-        }
+        return {tier: round(value, 1) for tier, value in hours.items()}
 
     @staticmethod
     def recommend_crew_size(num_rooms: int, total_hours: float) -> int:
@@ -1841,12 +1484,19 @@ class EstimateCalculator:
     def calculate_estimate_from_content(self, request: RoomsEstimateRequest) -> EstimateResponse:
         """Calculate estimate using per-item content data from AI analysis."""
 
+        for room in request.rooms:
+            # The AI wasn't sure these are there; they count once someone keeps them
+            room.items = [i for i in room.items if "presence" not in i.uncertain_fields]
+            # The price comes from the item's attributes, whatever the screen last showed
+            for item in room.items:
+                apply_plan(item)
+
         total_items = sum(item.quantity for room in request.rooms for item in room.items)
 
-        # --- Materials: aggregate from per-item required_materials ---
+        # --- Materials: aggregate from each item's plan ---
         materials = self.aggregate_item_materials(request.rooms)
 
-        # Fallback: if no required_materials at all, use hint-based calculation
+        # Fallback: if no materials at all, use hint-based calculation
         if not materials:
             hint_rooms = []
             for room in request.rooms:
@@ -1860,15 +1510,12 @@ class EstimateCalculator:
                 ))
             materials = self.calculate_materials(hint_rooms)
 
-        material_cost = self.calculate_material_cost(materials)
-
         # --- Labor tiers ---
         # classify_labor_hours returns PERSON-HOURS (single-worker equivalent).
         # Divide by crew_size to get ELAPSED hours (crew works in parallel).
         person_hours = self.classify_labor_hours(request.rooms)
         crew = request.crew_size
-        labor_hours = {k: round(v / crew, 1) for k, v in person_hours.items()}
-        total_labor_hours = sum(labor_hours.values())
+        total_labor_hours = sum(person_hours.values()) / crew
 
         labor_rate = self.get_price("2825") or 59.03      # Standard (per person/hr)
         fragile_rate = self.get_price("2911") or 89.75     # Fragile / Supervisor
@@ -1881,68 +1528,36 @@ class EstimateCalculator:
         fragile_rate_adj = fragile_rate * region_mult
         specialty_rate_adj = specialty_rate * region_mult
 
-        # Cost multiplier: elapsed hours × crew members × rate = person-hours × rate
-        crew_cost = crew  # each elapsed hour costs crew × rate
-
-        # Special items (fixed cost — not affected by region/contamination/density)
-        # Merge request-level + per-room special items
-        all_special = set(getattr(request, 'special_items', []))
-        all_custom_special = list(getattr(request, 'custom_special_items', []))
-        for room_input in request.rooms:
-            all_special.update(getattr(room_input, 'special_items', []))
-            all_custom_special.extend(getattr(room_input, 'custom_special_items', []))
-
-        special_item_cost = 0.0
-        special_item_lines = []
-        for item_key in all_special:
-            spec = SPECIAL_ITEM_COSTS.get(item_key)
-            if spec:
-                special_item_cost += spec["price"]
-                special_item_lines.append(spec)
-        for custom in all_custom_special:
-            special_item_cost += custom.price
-            special_item_lines.append({"name": custom.name, "unit": "EA", "price": custom.price})
-
         # Pack-out / pack-back split
         # Pack-out is more labor-intensive: inventory, assessment, wrapping, packing, documenting
         # Pack-back is simpler: unload, place, unpack (no inventory/wrapping needed)
         packout_fraction = 0.62 if request.include_packback else 0.85
         packback_fraction = 0.38 if request.include_packback else 0.0
 
-        po_standard = labor_hours["standard"] * packout_fraction
-        po_fragile = labor_hours["fragile"] * packout_fraction
-        po_specialty = labor_hours["specialty"] * packout_fraction
-        po_furniture = labor_hours["furniture_disassembly"] * packout_fraction
-        po_appliance = labor_hours["appliance"] * packout_fraction
-
         def rh(x):
             """Round to nearest 0.5."""
             return round(x * 2) / 2
+
+        def tier_ph(tier, fraction):
+            """A tier's share of person-hours to the quarter hour, so one item's
+            hours still show; a tier with any work keeps at least that."""
+            return max(0.25, round(person_hours[tier] * fraction * 4) / 4) if person_hours[tier] > 0 else 0
+
+        def elapsed(ph):
+            """Hours on the clock for this crew."""
+            return round(ph / crew, 1)
 
         # Inventory & documentation: 1 person does this, not full crew
         inventory_hours = rh(total_labor_hours * 0.09) if total_labor_hours > 2 else 0.5
         # Supervisor: 1 person, not full crew
         supervisor_hours = rh(total_labor_hours * 0.15) if total_labor_hours > 2 else 0.5
 
-        # Pack-out elapsed hours — no artificial minimums that inflate small jobs
-        po_standard_hrs = max(0.5, rh(po_standard))
-        po_fragile_hrs = rh(po_fragile) if labor_hours["fragile"] > 0 else 0
-        po_specialty_hrs = rh(po_specialty) if labor_hours["specialty"] > 0 else 0
-        po_furniture_hrs = rh(po_furniture) if labor_hours["furniture_disassembly"] > 0 else 0
-        po_appliance_hrs = rh(po_appliance) if labor_hours["appliance"] > 0 else 0
-
-        # Cost = elapsed hours × crew × rate (for crew tasks)
-        # Inventory & supervisor are single-person tasks (× 1, not × crew)
-        # Region multiplier applied via adjusted rates
-        pack_out_labor = (
-            po_standard_hrs * crew_cost * labor_rate_adj
-            + po_fragile_hrs * crew_cost * fragile_rate_adj
-            + po_specialty_hrs * crew_cost * specialty_rate_adj
-            + po_furniture_hrs * crew_cost * labor_rate_adj
-            + po_appliance_hrs * crew_cost * labor_rate_adj
-            + inventory_hours * labor_rate_adj          # 1 person
-            + supervisor_hours * fragile_rate_adj       # 1 person
-        )
+        # Pack-out person-hours per tier
+        po_standard_ph = max(0.5, tier_ph("standard", packout_fraction))
+        po_fragile_ph = tier_ph("fragile", packout_fraction)
+        po_specialty_ph = tier_ph("specialty", packout_fraction)
+        po_furniture_ph = tier_ph("furniture_disassembly", packout_fraction)
+        po_appliance_ph = tier_ph("appliance", packout_fraction)
 
         # Transport & Storage costs depend on staging type
         is_on_site = request.staging_type == StagingType.ON_SITE
@@ -1952,26 +1567,12 @@ class EstimateCalculator:
         carry_person_hours, carry_floor_note = self._calculate_relocation_hours(request.rooms)
         # Truck loading/securing on top (flat add: position items, strap, fill gaps)
         truck_load_person_hours = rh(max(1.0, num_rooms * 0.5))
-        # Total person-hours for the full relocation operation
-        loading_person_hours = carry_person_hours + truck_load_person_hours
-        loading_cost = loading_person_hours * labor_rate_adj  # region-adjusted rate
-
-        # On-site staging: same carry labor (no truck loading overhead)
-        on_site_person_hours = carry_person_hours
-        on_site_moving_fee = on_site_person_hours * labor_rate_adj
 
         # Storage (per SF based on content volume)
         storage_sf = self.estimate_storage_sf_from_items(
             request.rooms
         )
-        storage_cost = 0
-        if not is_on_site and request.storage_months > 0:
-            setup_fee = get_storage_setup_fee(storage_sf)
-            sf_rate = self.get_price("2840") or 2.20
-            storage_cost = (
-                storage_sf * sf_rate * request.storage_months
-                + setup_fee
-            )
+        has_storage = not is_on_site and request.storage_months > 0 and storage_sf > 0
 
         # Smart truck selection based on job size
         _, truck_rate = self.select_truck(storage_sf)
@@ -1990,7 +1591,6 @@ class EstimateCalculator:
         # Boxes dominate volume; each packing paper bundle ≈ 3 boxes of debris volume
         debris_unit_equiv = disposable_box_qty + packing_paper_qty * 3
         debris_hours = max(0.5, round(debris_unit_equiv / 75 * 2) / 2)  # round to 0.5
-        debris_cost = debris_hours * labor_rate_adj
         # Build description for section_details
         _debris_desc_parts = []
         if disposable_box_qty:
@@ -2001,57 +1601,156 @@ class EstimateCalculator:
             (", ".join(_debris_desc_parts) + "  ·  ") if _debris_desc_parts else ""
         ) + "flatten, bundle & haul spent packing materials post-pack-out"
 
-        # Build sections
-        sections = {
-            "Pack-Out Labor": round(pack_out_labor, 2),
-            "Materials": round(material_cost, 2),
-        }
-
         # Truck trips: 26' van holds ~500 SF worth of contents
         truck_trips = max(1, math.ceil(storage_sf / 500)) if storage_sf > 0 else 1
 
-        if is_on_site:
-            sections["On-Site Relocation"] = round(on_site_moving_fee, 2)
-        else:
-            sections["Transport Out"] = round((truck_rate + loading_cost) * truck_trips, 2)
-            sections["Storage"] = round(storage_cost, 2)
+        # total_hours = elapsed time (what the crew actually spends on site)
+        total_hours_calc = total_labor_hours + supervisor_hours + inventory_hours + debris_hours
 
-        sections["Debris Hauling"] = round(debris_cost, 2)
+        room_summaries = self._build_room_summaries(request.rooms)
+
+        # Every line of the estimate, at the rate charged: labor carries the region's
+        # multiplier; the truck, materials, storage and special items don't.
+        # Each section's total is the sum of its lines.
+        section_details: Dict[str, Any] = {}
+
+        def crew_line(name, ph, rate, work):
+            return estimate_line(
+                name, ph, "HR", rate, f"{elapsed(ph)} elapsed hr · {crew}-person crew  ({work})",
+            )
+
+        po_lines = []
+        if po_standard_ph > 0:
+            po_lines.append(crew_line("Standard Pack-Out", po_standard_ph, labor_rate_adj, "wrap, box, label, stage"))
+        if po_fragile_ph > 0:
+            po_lines.append(crew_line(
+                "Fragile / High-Care Items", po_fragile_ph, fragile_rate_adj,
+                "individual wrap, double-box, condition photo",
+            ))
+        if po_specialty_ph > 0:
+            po_lines.append(crew_line(
+                "Specialty / High-Value Items", po_specialty_ph, specialty_rate_adj,
+                "serial# record, custom pack, high-value documentation",
+            ))
+        if po_furniture_ph > 0:
+            po_lines.append(crew_line(
+                "Furniture Disassembly", po_furniture_ph, labor_rate_adj,
+                "disassemble, blanket-wrap, shrink-wrap",
+            ))
+        if po_appliance_ph > 0:
+            po_lines.append(crew_line(
+                "Appliance Handling", po_appliance_ph, labor_rate_adj,
+                "disconnect, secure internals, dolly",
+            ))
+        # Inventory & supervisor are single-person tasks
+        if inventory_hours > 0:
+            po_lines.append(estimate_line(
+                "Inventory & Documentation", float(inventory_hours), "HR", labor_rate_adj,
+                f"{inventory_hours} hr · 1 person  (photo log, written inventory per item)",
+            ))
+        if supervisor_hours > 0:
+            po_lines.append(estimate_line(
+                "Supervision", float(supervisor_hours), "HR", fragile_rate_adj,
+                f"{supervisor_hours} hr · 1 supervisor  (quality control, crew coordination)",
+            ))
+        section_details["Pack-Out Labor"] = {"lines": po_lines}
+
+        mat_detail_strs = self.build_material_detail_strings(request.rooms, materials)
+        mat_lines, material_details = self._material_lines(
+            materials, lambda mat_key: mat_detail_strs.get(mat_key, ""),
+        )
+        section_details["Materials"] = {"lines": mat_lines}
+
+        def transport_lines():
+            return [
+                estimate_line(
+                    "26' Moving Van", truck_trips, "DY", truck_rate,
+                    f"{truck_trips} trip{'s' if truck_trips > 1 else ''}  (~500 SF capacity per trip)",
+                ),
+                estimate_line(
+                    "Content Carry-Out (floor-weighted)", carry_person_hours * truck_trips, "HR",
+                    labor_rate_adj, carry_floor_note,
+                ),
+                estimate_line(
+                    "Truck Loading & Securing", truck_load_person_hours * truck_trips, "HR", labor_rate_adj,
+                    f"{truck_load_person_hours:.1f} person-hrs  (position items, strap, fill gaps)",
+                ),
+            ]
+
+        if is_on_site:
+            # On-site staging: same carry labor (no truck loading overhead)
+            section_details["On-Site Relocation"] = {"lines": [
+                estimate_line(
+                    "Content Carry to Staging Area (floor-weighted)", carry_person_hours, "HR",
+                    labor_rate_adj, carry_floor_note,
+                ),
+            ]}
+        else:
+            section_details["Transport Out"] = {"lines": transport_lines()}
+            if has_storage:
+                section_details["Storage"] = build_storage_section_detail(
+                    storage_sf, self.get_price("2840") or 2.20, request.storage_months,
+                    get_storage_setup_fee(storage_sf),
+                )
+
+        # Debris Hauling section_details — show exactly what drove the charge
+        section_details["Debris Hauling"] = {"lines": [
+            estimate_line("Debris Hauling", debris_hours, "HR", labor_rate_adj, _debris_desc),
+        ]}
 
         if request.include_packback:
-            pb_standard = labor_hours["standard"] * packback_fraction
-            pb_furniture = labor_hours["furniture_disassembly"] * packback_fraction
-            pb_appliance = labor_hours["appliance"] * packback_fraction
+            if is_on_site:
+                section_details["On-Site Pack-Back Move"] = {"lines": [
+                    estimate_line(
+                        "Content Carry Back from Staging Area (floor-weighted)", carry_person_hours, "HR",
+                        labor_rate_adj, carry_floor_note,
+                    ),
+                ]}
+            else:
+                section_details["Transport Back"] = {"lines": transport_lines()}
+
             pb_supervisor = rh(total_labor_hours * packback_fraction * 0.10) if total_labor_hours > 2 else 0.5
 
-            # Pack-back is simpler: unload, unpack, place — no wrapping/inventory needed
-            pb_standard_hrs = max(0.5, rh(pb_standard))
-            pb_appliance_hrs = rh(pb_appliance) if labor_hours["appliance"] > 0 else 0
+            # Pack-back is simpler: unload, unpack, place — no wrapping/inventory needed,
+            # so fragile and high-value items unpack at the standard rate
+            unpacking_hours = person_hours["standard"] + person_hours["fragile"] + person_hours["specialty"]
+            pb_standard_ph = max(0.5, round(unpacking_hours * packback_fraction * 4) / 4)
+            pb_appliance_ph = tier_ph("appliance", packback_fraction)
             # Furniture assembly is separate from standard pack-back
-            pb_furniture_hrs = rh(pb_furniture) if labor_hours["furniture_disassembly"] > 0 else 0
+            pb_furniture_ph = tier_ph("furniture_disassembly", packback_fraction)
 
-            pack_back_labor = (
-                pb_standard_hrs * crew_cost * labor_rate_adj
-                + pb_appliance_hrs * crew_cost * labor_rate_adj
-                + pb_supervisor * fragile_rate_adj        # 1 person
-                # Note: debris/waste removal is covered by the dedicated Debris Hauling section
-            )
-            # Furniture assembly as separate cost (crew task)
-            furniture_assembly_cost = pb_furniture_hrs * crew_cost * labor_rate_adj
+            pb_lines = [crew_line(
+                "Standard Pack-Back", pb_standard_ph, labor_rate_adj,
+                "unpack, place, remove packing material",
+            )]
+            if pb_appliance_ph > 0:
+                pb_lines.append(crew_line(
+                    "Appliance Reconnection", pb_appliance_ph, labor_rate_adj,
+                    "reconnect utilities, test operation",
+                ))
+            # Note: debris/waste removal is covered by the dedicated Debris Hauling section
+            if pb_supervisor > 0:
+                pb_lines.append(estimate_line(
+                    "Supervision", float(pb_supervisor), "HR", fragile_rate_adj,
+                    f"{pb_supervisor} hr · 1 supervisor  (placement verification, damage check)",
+                ))
+            section_details["Pack-Back Labor"] = {"lines": pb_lines}
 
-            if is_on_site:
-                sections["On-Site Pack-Back Move"] = round(on_site_moving_fee, 2)
-            else:
-                sections["Transport Back"] = round((truck_rate + loading_cost) * truck_trips, 2)
-            sections["Pack-Back Labor"] = round(pack_back_labor, 2)
-            if furniture_assembly_cost > 0:
-                sections["Furniture Assembly"] = round(furniture_assembly_cost, 2)
+            if pb_furniture_ph > 0:
+                section_details["Furniture Assembly"] = {"lines": [crew_line(
+                    "Furniture Reassembly", pb_furniture_ph, labor_rate_adj,
+                    "reassemble disassembled pieces",
+                )]}
 
-        if special_item_cost > 0:
-            sections["Special Items"] = round(special_item_cost, 2)
+        special_lines = self._special_item_lines(request)
+        if special_lines:
+            section_details["Special Items"] = {"lines": special_lines}
 
-        subtotal = sum(sections.values())
-        op_amount = subtotal * (request.op_rate / 100) if request.include_op else 0
+        section_details = {name: d for name, d in section_details.items() if d["lines"]}
+        sections = section_totals(section_details)
+
+        subtotal = round(sum(sections.values()), 2)
+        op_amount = round(subtotal * (request.op_rate / 100), 2) if request.include_op else 0
 
         # Evaluate conditional supplements with item-level context
         hv_count = sum(
@@ -2064,181 +1763,11 @@ class EstimateCalculator:
             overrides=getattr(request, 'supplement_overrides', None),
             context={"high_value_count": hv_count},
         )
-        supplements_total = sum(s.amount for s in supplements if s.enabled)
+        supplements_total = round(sum(s.amount for s in supplements if s.enabled), 2)
 
         # Legacy contingency support
-        contingency_amount = subtotal * (request.contingency_rate / 100) if request.include_contingency else 0
-        grand_total = subtotal + op_amount + supplements_total + contingency_amount
-
-        # total_hours = elapsed time (what the crew actually spends on site)
-        total_hours_calc = total_labor_hours + supervisor_hours + inventory_hours + debris_hours
-
-        # Build material_details for export/line-item rendering
-        mat_detail_strs = self.build_material_detail_strings(request.rooms, materials)
-        material_details = []
-        for mat_key, qty in materials.items():
-            code = MATERIAL_CODES.get(mat_key)
-            if code:
-                p = self.prices.get(code)
-                unit_price = self.get_price(code)
-                name = p.name if p else DEFAULT_PRICES.get(code, {}).get("name", mat_key)
-                unit = p.unit if p else DEFAULT_PRICES.get(code, {}).get("unit", "EA")
-                material_details.append({
-                    "code": code,
-                    "name": name,
-                    "quantity": qty,
-                    "unit": unit,
-                    "unit_price": unit_price,
-                    "total": round(unit_price * qty, 2),
-                    "detail": mat_detail_strs.get(mat_key, ""),
-                })
-
-        room_summaries = self._build_room_summaries(request.rooms)
-
-        # Build section_details: per-line breakdown for Pack-Out Labor and Transport
-        section_details = {}
-
-        def person_hrs(elapsed, c):
-            """Convert elapsed hours × crew to total person-hours, rounded to 0.5."""
-            return rh(elapsed * c)
-
-        po_lines = []
-        if po_standard_hrs > 0:
-            ph = person_hrs(po_standard_hrs, crew)
-            po_lines.append({
-                "name": "Standard Pack-Out", "qty": ph, "unit": "HR",
-                "rate": round(labor_rate, 2),
-                "detail": f"{po_standard_hrs} elapsed hr · {crew}-person crew  (wrap, box, label, stage)",
-                "amount": round(ph * labor_rate, 2),
-            })
-        if po_fragile_hrs > 0:
-            ph = person_hrs(po_fragile_hrs, crew)
-            po_lines.append({
-                "name": "Fragile / High-Care Items", "qty": ph, "unit": "HR",
-                "rate": round(fragile_rate, 2),
-                "detail": f"{po_fragile_hrs} elapsed hr · {crew}-person crew  (individual wrap, double-box, condition photo)",
-                "amount": round(ph * fragile_rate, 2),
-            })
-        if po_specialty_hrs > 0:
-            ph = person_hrs(po_specialty_hrs, crew)
-            po_lines.append({
-                "name": "Specialty / High-Value Items", "qty": ph, "unit": "HR",
-                "rate": round(specialty_rate, 2),
-                "detail": f"{po_specialty_hrs} elapsed hr · {crew}-person crew  (serial# record, custom pack, high-value documentation)",
-                "amount": round(ph * specialty_rate, 2),
-            })
-        if po_furniture_hrs > 0:
-            ph = person_hrs(po_furniture_hrs, crew)
-            po_lines.append({
-                "name": "Furniture Disassembly", "qty": ph, "unit": "HR",
-                "rate": round(labor_rate, 2),
-                "detail": f"{po_furniture_hrs} elapsed hr · {crew}-person crew  (disassemble, blanket-wrap, shrink-wrap)",
-                "amount": round(ph * labor_rate, 2),
-            })
-        if po_appliance_hrs > 0:
-            ph = person_hrs(po_appliance_hrs, crew)
-            po_lines.append({
-                "name": "Appliance Handling", "qty": ph, "unit": "HR",
-                "rate": round(labor_rate, 2),
-                "detail": f"{po_appliance_hrs} elapsed hr · {crew}-person crew  (disconnect, secure internals, dolly)",
-                "amount": round(ph * labor_rate, 2),
-            })
-        if inventory_hours > 0:
-            po_lines.append({
-                "name": "Inventory & Documentation", "qty": float(inventory_hours), "unit": "HR",
-                "rate": round(labor_rate, 2),
-                "detail": f"{inventory_hours} hr · 1 person  (photo log, written inventory per item)",
-                "amount": round(inventory_hours * labor_rate, 2),
-            })
-        if supervisor_hours > 0:
-            po_lines.append({
-                "name": "Supervision", "qty": float(supervisor_hours), "unit": "HR",
-                "rate": round(fragile_rate, 2),
-                "detail": f"{supervisor_hours} hr · 1 supervisor  (quality control, crew coordination)",
-                "amount": round(supervisor_hours * fragile_rate, 2),
-            })
-        if po_lines:
-            section_details["Pack-Out Labor"] = {"lines": po_lines}
-
-        def _transport_lines(trips, t_rate):
-            return [
-                {"name": "26' Moving Van", "qty": trips, "unit": "DY",
-                 "rate": round(t_rate, 2),
-                 "detail": f"{trips} trip{'s' if trips > 1 else ''}  (~500 SF capacity per trip)",
-                 "amount": round(t_rate * trips, 2)},
-                {"name": "Content Carry-Out (floor-weighted)", "qty": carry_person_hours, "unit": "HR",
-                 "rate": round(labor_rate, 2),
-                 "detail": carry_floor_note,
-                 "amount": round(carry_person_hours * labor_rate, 2)},
-                {"name": "Truck Loading & Securing", "qty": truck_load_person_hours, "unit": "HR",
-                 "rate": round(labor_rate, 2),
-                 "detail": f"{truck_load_person_hours:.1f} person-hrs  (position items, strap, fill gaps)",
-                 "amount": round(truck_load_person_hours * labor_rate, 2)},
-            ]
-
-        if not is_on_site:
-            section_details["Transport Out"] = {"lines": _transport_lines(truck_trips, truck_rate)}
-            if "Transport Back" in sections:
-                section_details["Transport Back"] = {"lines": _transport_lines(truck_trips, truck_rate)}
-            if storage_cost > 0:
-                _sf_rate = self.get_price("2840") or 2.20
-                _setup_fee = get_storage_setup_fee(storage_sf)
-                section_details["Storage"] = build_storage_section_detail(
-                    storage_sf, _sf_rate, request.storage_months,
-                    _setup_fee, storage_cost,
-                )
-
-        if is_on_site:
-            section_details["On-Site Relocation"] = {"lines": [
-                {"name": "Content Carry to Staging Area (floor-weighted)", "qty": on_site_person_hours, "unit": "HR",
-                 "rate": round(labor_rate, 2),
-                 "detail": carry_floor_note,
-                 "amount": round(on_site_person_hours * labor_rate, 2)},
-            ]}
-
-        if request.include_packback:
-            pb_lines = []
-            if pb_standard_hrs > 0:
-                ph = person_hrs(pb_standard_hrs, crew)
-                pb_lines.append({
-                    "name": "Standard Pack-Back", "qty": ph, "unit": "HR",
-                    "rate": round(labor_rate, 2),
-                    "detail": f"{pb_standard_hrs} elapsed hr · {crew}-person crew  (unpack, place, remove packing material)",
-                    "amount": round(ph * labor_rate, 2),
-                })
-            if pb_appliance_hrs > 0:
-                ph = person_hrs(pb_appliance_hrs, crew)
-                pb_lines.append({
-                    "name": "Appliance Reconnection", "qty": ph, "unit": "HR",
-                    "rate": round(labor_rate, 2),
-                    "detail": f"{pb_appliance_hrs} elapsed hr · {crew}-person crew  (reconnect utilities, test operation)",
-                    "amount": round(ph * labor_rate, 2),
-                })
-            if pb_supervisor > 0:
-                pb_lines.append({
-                    "name": "Supervision", "qty": float(pb_supervisor), "unit": "HR",
-                    "rate": round(fragile_rate, 2),
-                    "detail": f"{pb_supervisor} hr · 1 supervisor  (placement verification, damage check)",
-                    "amount": round(pb_supervisor * fragile_rate, 2),
-                })
-            if pb_lines:
-                section_details["Pack-Back Labor"] = {"lines": pb_lines}
-            if furniture_assembly_cost > 0:
-                ph = person_hrs(pb_furniture_hrs, crew)
-                section_details["Furniture Assembly"] = {"lines": [
-                    {"name": "Furniture Reassembly", "qty": ph, "unit": "HR",
-                     "rate": round(labor_rate, 2),
-                     "detail": f"{pb_furniture_hrs} elapsed hr · {crew}-person crew  (reassemble disassembled pieces)",
-                     "amount": round(ph * labor_rate, 2)},
-                ]}
-
-        # Debris Hauling section_details — show exactly what drove the charge
-        section_details["Debris Hauling"] = {"lines": [
-            {"name": "Debris Hauling", "qty": debris_hours, "unit": "HR",
-             "rate": round(labor_rate_adj, 2),
-             "detail": _debris_desc,
-             "amount": round(debris_cost, 2)},
-        ]}
+        contingency_amount = round(subtotal * (request.contingency_rate / 100), 2) if request.include_contingency else 0
+        grand_total = round(subtotal + op_amount + supplements_total + contingency_amount, 2)
 
         return EstimateResponse(
             total_rooms=len(request.rooms),

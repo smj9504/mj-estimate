@@ -28,6 +28,15 @@ export type ContentHint =
   | 'holiday_decor' | 'instruments' | 'baby_items'
   | 'outdoor_furniture' | 'plants' | 'chemicals';
 
+/** One unit of a content item */
+export type ItemSize = 'small' | 'medium' | 'large' | 'xlarge';
+export type ItemWeight = 'light' | 'medium' | 'heavy' | 'very_heavy';
+
+/** What the analysis couldn't settle and leaves to the estimator */
+export type ItemReviewField =
+  | 'presence' | 'name' | 'quantity' | 'category'
+  | 'size' | 'weight' | 'fragile' | 'disassembly';
+
 export const ITEM_CATEGORIES = [
   'Furniture', 'Electronics', 'Books', 'Kitchenware',
   'Clothing', 'Fragile', 'Artwork', 'Collectibles',
@@ -163,8 +172,17 @@ export interface DetectedContentItem {
   estimated_value?: string;
   is_fragile: boolean;
   needs_disassembly: boolean;
-  packing_method?: string;
-  required_materials?: string[];
+  size?: ItemSize | null;
+  weight?: ItemWeight | null;
+  /** A key of PACKING_METHOD_OPTIONS; older estimates hold the AI's own words */
+  packing_method?: string | null;
+  /** The estimator chose packing_method; otherwise it follows the attributes */
+  packing_locked?: boolean;
+  uncertain_fields?: ItemReviewField[];
+  review_note?: string | null;
+  /** Its place on screen; not part of the estimate */
+  uid?: string;
+  required_materials?: string[] | null;
   base_labor_hours?: number;
   per_unit_labor_hours?: number;
   estimated_labor_hours?: number;

@@ -663,11 +663,14 @@ def normalize_items_list(items: list[dict]) -> list[dict]:
     Each dict should have at least 'name' and 'category' keys.
     Adds '_original_name' to track what the AI originally said.
     Adds '_match_confidence' to indicate match quality.
+    Adds '_taxonomy_review' naming what the match leaves in doubt.
 
     When a taxonomy match is found, overrides AI's is_high_value
-    and is_fragile with the taxonomy's ground-truth defaults.
-    This prevents the AI from marking ordinary items as high-value
-    (e.g., Bed Frame) or missing fragility on glass items.
+    with the taxonomy's ground-truth default, which prevents the AI
+    from marking ordinary items as high-value (e.g., Bed Frame).
+    Fragile takes either source's yes: a Glass Vase is always fragile,
+    and a Coffee Table the AI saw is glass may be. Only the second is
+    in doubt, so that's the one the estimator decides.
     """
     for item in items:
         original = item.get("name", "")
@@ -678,15 +681,21 @@ def normalize_items_list(items: list[dict]) -> list[dict]:
         item["_original_name"] = original
         item["_match_confidence"] = round(confidence, 2)
         item["name"] = canonical_name
+        review = []
         # Only override category if we had a confident match
         if confidence >= 0.65:
             item["category"] = canonical_cat
-        # Override high-value and fragile flags from taxonomy
-        # when we have a confident match. Taxonomy knows that
-        # a Bed Frame is NOT high-value and a Glass Vase IS fragile.
+            # A loose match may have renamed it into the wrong thing
+            if matched and confidence < 0.85:
+                review.append("name")
+                if canonical_cat != category:
+                    review.append("category")
         if matched and confidence >= 0.65:
             item["is_high_value"] = matched.is_high_value_default
-            item["is_fragile"] = matched.is_fragile
+            if item.get("is_fragile") and not matched.is_fragile:
+                review.append("fragile")
+            item["is_fragile"] = bool(item.get("is_fragile")) or matched.is_fragile
+        item["_taxonomy_review"] = review
     return items
 
 

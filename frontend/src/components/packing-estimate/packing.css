@@ -796,8 +796,10 @@
 .pk-items-caret.is-open {
   transform: rotate(90deg);
 }
-.pk-items-table {
-  margin-top: 6px;
+.pk-items-hours {
+  margin-left: 6px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Add a room: a quiet row that opens an inline composer */
@@ -1403,24 +1405,137 @@
   border-top: 1px solid var(--color-neutral-200);
 }
 .pk-item-row {
-  padding: 8px 0 10px;
+  padding: 4px 0;
   border-bottom: 1px solid var(--color-neutral-200);
 }
-.pk-item-row-main {
+
+/* An item as one line: what it is, then its quantity and labor in their own columns */
+.pk-item-line {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: 4px;
 }
-.pk-item-row-controls {
+.pk-item-toggle {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px;
+  grid-template-columns: 12px minmax(0, 1fr) 40px 64px;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 4px 4px 4px 2px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--color-neutral-900);
+  cursor: pointer;
+}
+.pk-item-toggle:hover {
+  background: var(--color-ink-hover);
+}
+.pk-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.pk-item-meta {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.pk-item-figure {
+  font-size: 13px;
+  text-align: right;
+  color: var(--color-neutral-700);
+  font-variant-numeric: tabular-nums;
+}
+.pk-item-row.is-unconfirmed .pk-item-figure,
+.pk-item-row.is-unconfirmed .pk-item-meta {
+  color: var(--color-neutral-500);
+}
+
+/* The item opened: every attribute that prices it */
+.pk-item-editor {
+  padding: 4px 0 10px 20px;
+}
+.pk-item-review {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 6px 8px 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--tag-yellow-bg);
+  color: var(--tag-yellow-text);
+  font-size: 13px;
+}
+.pk-item-review .ant-btn {
+  flex-shrink: 0;
+}
+.pk-item-fields {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
 }
-.pk-item-row-controls .ant-select,
-.pk-item-row-controls .ant-input-number-group-wrapper {
+.pk-item-fields .pk-field {
+  grid-column: span 2;
+}
+.pk-item-fields .pk-item-field--name {
+  grid-column: span 4;
+}
+.pk-item-fields .pk-item-field--method {
+  grid-column: span 6;
+}
+.pk-item-fields .ant-input-number {
   width: 100%;
+}
+.pk-item-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+}
+.pk-item-check.is-unsure {
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: var(--tag-yellow-bg);
+}
+.pk-option {
+  display: flex;
+  flex-direction: column;
+}
+.pk-option-hint {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+.pk-add-row.pk-add-item {
+  margin-top: 2px;
+  padding-left: 2px;
+}
+@media (max-width: 576px) {
+  .pk-item-fields .pk-field {
+    grid-column: span 3;
+  }
+  .pk-item-fields .pk-item-field--name,
+  .pk-item-fields .pk-item-field--method {
+    grid-column: span 6;
+  }
+  .pk-item-review {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+/* Items still to decide, beside the estimate that assumed the AI's answers */
+.pk-review-note {
+  margin: 8px 0 4px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--tag-yellow-bg);
+  color: var(--tag-yellow-text);
+  font-size: 13px;
 }
 
 /* A setting's multiplier beside its name in a closed select: "Dense 1.3×" */

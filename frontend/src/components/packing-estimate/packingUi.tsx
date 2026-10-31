@@ -8,9 +8,11 @@ import React from 'react';
 import { RightOutlined } from '@ant-design/icons';
 import { Pill, humanize, toneFromKey, type TagTone } from '../common/ui';
 import { tagTones } from '../../styles/tokens';
+import { estimateSectionNames } from './estimateSections';
 import type { EstimateResponse } from '../../types/packing-estimate';
 import {
-  CONTAMINATION_OPTIONS, DENSITY_OPTIONS, FLOOR_OPTIONS, REGION_OPTIONS,
+  CONTAMINATION_OPTIONS, DENSITY_OPTIONS, FLOOR_OPTIONS, ITEM_SIZE_OPTIONS, ITEM_WEIGHT_OPTIONS,
+  PACKING_METHOD_OPTIONS, REGION_OPTIONS,
 } from './constants';
 import './packing.css';
 
@@ -54,6 +56,12 @@ export const floorLabel = (v?: string | null) => optionLabel(FLOOR_OPTIONS, v);
 export const densityLabel = (v?: string | null) => plainLabel(optionLabel(DENSITY_OPTIONS, v));
 export const regionLabel = (v?: string | null) => optionLabel(REGION_OPTIONS, v);
 export const contaminationLabel = (v?: string | null) => plainLabel(optionLabel(CONTAMINATION_OPTIONS, v));
+export const itemSizeLabel = (v?: string | null) => optionLabel(ITEM_SIZE_OPTIONS, v);
+export const itemWeightLabel = (v?: string | null) => optionLabel(ITEM_WEIGHT_OPTIONS, v);
+
+/** A method's name; older estimates saved the AI's own words here, shown as they are */
+export const packingMethodLabel = (v?: string | null) =>
+  PACKING_METHOD_OPTIONS.find(o => o.value === v)?.label || v || '';
 
 /** Clean water carries nothing to flag; category 2 and 3 water do */
 const CONTAMINATION_TONES: Record<string, TagTone> = {
@@ -161,9 +169,7 @@ export const EstimateBreakdown: React.FC<{
 }> = ({ estimate, collapsed, onToggleSection }) => {
   const collapsible = !!onToggleSection;
   const details = estimate.section_details || {};
-  const sectionNames = Object.keys(details).length > 0
-    ? Object.keys(details)
-    : Object.keys(estimate.sections || {});
+  const sectionNames = estimateSectionNames(estimate);
   const hasLines = sectionNames.some(s => (details[s]?.lines || []).length > 0);
 
   return (

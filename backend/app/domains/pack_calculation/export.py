@@ -563,6 +563,13 @@ def get_line_items_from_estimate(
     return sections
 
 
+def _item_total(item: Dict) -> float:
+    """What a line comes to: the amount the estimate saved for it, so the PDF
+    prints what the estimate charged instead of working it out again."""
+    amount = item.get('amount')
+    return amount if amount is not None else round(item['qty'] * item['price'], 2)
+
+
 # ============================================
 # SECTION DETAILS → LINE ITEMS CONVERTER
 # ============================================
@@ -601,6 +608,7 @@ def _section_details_to_line_items(
                     'qty': m.get('quantity', 1),
                     'unit': m.get('unit', 'EA'),
                     'price': m.get('unit_price', 0),
+                    'amount': m.get('total'),
                 })
             if items:
                 result.append({'title': section_name, 'items': items})
@@ -623,6 +631,7 @@ def _section_details_to_line_items(
                 'qty': line.get('qty', 1),
                 'unit': line.get('unit', 'HR'),
                 'price': line.get('rate', 0),
+                'amount': line.get('amount'),
             })
         result.append({'title': section_name, 'items': items})
 
@@ -641,6 +650,7 @@ def _section_details_to_line_items(
                 'qty': line.get('qty', 1),
                 'unit': line.get('unit', 'HR'),
                 'price': line.get('rate', 0),
+                'amount': line.get('amount'),
             })
         result.append({'title': section_name, 'items': items})
 
@@ -695,11 +705,11 @@ def generate_estimate_pdf(
     op_rate = estimate_data.get('op_rate', 10)
     include_contingency = estimate_data.get('include_contingency', False)
     contingency_rate = estimate_data.get('contingency_rate', 5)
-    subtotal = sum(
-        item['qty'] * item['price']
+    subtotal = round(sum(
+        _item_total(item)
         for section in sections
         for item in section['items']
-    )
+    ), 2)
     # Respect the include flags — if disabled, force 0 regardless of saved value
     op_amount = 0
     if include_op:
@@ -915,7 +925,7 @@ Estimate date: {estimate_date}</font>""",
         ]]
 
         for item in section['items']:
-            total = item['qty'] * item['price']
+            total = _item_total(item)
 
             # Build item cell with number, name, and detail
             if item.get('detail'):
@@ -926,7 +936,7 @@ Estimate date: {estimate_date}</font>""",
             else:
                 item_cell = Paragraph(f"<b>{item_number}. {item['name']}</b>", style_normal)
 
-            qty_str = str(int(item['qty'])) if item['qty'] == int(item['qty']) else f"{item['qty']:.1f}"
+            qty_str = f"{item['qty']:g}"
             table_data.append([
                 item_cell,
                 Paragraph(qty_str, style_right),
@@ -937,7 +947,7 @@ Estimate date: {estimate_date}</font>""",
             item_number += 1
 
         # Section subtotal
-        section_subtotal = sum(item['qty'] * item['price'] for item in section['items'])
+        section_subtotal = sum(_item_total(item) for item in section['items'])
         table_data.append([
             '', '', '',
             Paragraph('<b>Subtotal:</b>', style_right_bold),

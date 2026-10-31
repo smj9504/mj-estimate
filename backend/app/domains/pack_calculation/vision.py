@@ -11,11 +11,11 @@ Two public service functions:
     build_master_content_list(rooms)
         -> MasterContentResponse
 
-Both rely on a two-pass Claude API strategy:
-    Pass 1 (vision + tool use): Identify every packable item with constrained
-        category enums and typed fields. Normalize names via taxonomy.
-    Pass 2 (text + tool use): Enrich items with packing method, materials
-        (constrained to valid keys), labor estimates, and flags.
+The analysis is one Claude vision call with tool use: it identifies every
+packable item with its category, quantity, size, weight and fragility, and says
+what the photo can't settle. Names are normalized via the taxonomy, then
+item_plan works out each item's packing method, materials and labor from those
+attributes, the same way it does when the estimator changes one by hand.
 
 Graceful degradation: if anthropic is not installed or ANTHROPIC_API_KEY is
 not set, both public functions raise HTTPException(503) with a clear message.
@@ -33,6 +33,7 @@ from typing import List, Optional
 from fastapi import HTTPException
 
 from app.core.config import settings
+from app.domains.pack_calculation.item_plan import SIZES, WEIGHTS, apply_plan
 from app.domains.pack_calculation.packing_schemas import (
     DetectedContentItem,
     ExistingItem,
@@ -75,13 +76,13 @@ MAX_IMAGE_BYTES = 1_000_000   # 1 MB per image — 1024 px JPEG is sufficient
 MAX_IMAGE_DIM = 1024          # px — halving from 2048 cuts image tokens 4×
 MAX_IMAGES_PER_ROOM = 6       # hard cap after deduplication
 
-# A reply cut off at max_tokens comes back with an empty tool input: at 4096,
-# a room of about 20 items lost every packing detail in Pass 2.
-MAX_TOKENS_PER_PASS = 16000
+# A reply cut off at max_tokens comes back with an empty tool input, and each
+# item now reports more: at 4096, a room of about 20 items would lose them all.
+MAX_ANALYSIS_TOKENS = 16000
 
 
 # ============================================
-# PASS 1 TOOL: Item Identification (Vision)
+# ANALYSIS TOOL: Item Identification (Vision)
 # ============================================
 
 ITEM_CATEGORIES = [
@@ -93,23 +94,20 @@ ITEM_CATEGORIES = [
 DENSITY_VALUES = ["light", "normal", "dense", "heavy"]
 ROOM_SIZE_VALUES = ["small", "large", "xlarge"]
 
-MATERIAL_KEYS = [
-    "wardrobe_box", "wardrobe_box_small", "wardrobe_box_large",
-    "small_box", "medium_box", "large_box",
-    "dish_pack_box", "book_box", "tv_box", "mirror_box", "lamp_box",
-    "bubble_wrap_12", "bubble_wrap_24", "packing_paper",
-    "moving_blanket", "furniture_pad",
-    "stretch_wrap", "corner_protector",
-    "mattress_bag",
-    "chair_cover", "sofa_cover",
+# What the AI can leave for the estimator to decide. Whether an item is there
+# at all comes from its item_confidence: it decides whether the item is priced,
+# so it needs the number, not a passing doubt.
+REVIEW_FIELDS = [
+    "name", "quantity", "category",
+    "size", "weight", "fragile", "disassembly",
 ]
 
-ESTIMATOR_FLAGS = [
-    "HEAVY", "HIGH_VALUE", "FRAGILE", "CHECK_MOISTURE",
-    "LIQUID_ITEMS", "DOCUMENTS", "VERIFY_CONTENTS", "DISASSEMBLY",
-]
+# Below this it's a guess, not an item
+MIN_ITEM_CONFIDENCE = 0.5
+# Below this it may not be there: shown to the estimator, not priced until kept
+SURE_ITEM_CONFIDENCE = 0.8
 
-PASS1_TOOL = {
+ANALYSIS_TOOL = {
     "name": "report_room_contents",
     "description": (
         "Report all packable items visible in the room photo(s). "
@@ -143,7 +141,11 @@ PASS1_TOOL = {
                 ),
                 "items": {
                     "type": "object",
-                    "required": ["name", "category", "quantity", "is_high_value", "is_fragile", "item_confidence"],
+                    "required": [
+                        "name", "category", "quantity", "size", "weight",
+                        "is_high_value", "is_fragile", "needs_disassembly",
+                        "item_confidence", "uncertain",
+                    ],
                     "properties": {
                         "name": {
                             "type": "string",
@@ -169,6 +171,27 @@ PASS1_TOOL = {
                                 "For unique large items: 1."
                             ),
                         },
+                        "size": {
+                            "type": "string",
+                            "enum": list(SIZES),
+                            "description": (
+                                "Size of ONE unit. "
+                                "small: fits in a box, carried in one hand (vase, toaster, book). "
+                                "medium: one person carries it (nightstand, dining chair, 40-inch TV, microwave). "
+                                "large: two people carry it (sofa, dresser, queen mattress, refrigerator). "
+                                "xlarge: oversized (armoire, china cabinet, king mattress, treadmill)."
+                            ),
+                        },
+                        "weight": {
+                            "type": "string",
+                            "enum": list(WEIGHTS),
+                            "description": (
+                                "Weight of ONE unit, with whatever stays inside it. "
+                                "light: under 20 lb. medium: 20-50 lb, one person lifts it. "
+                                "heavy: 50-150 lb, two-person lift. "
+                                "very_heavy: over 150 lb, dolly and 3+ people (upright piano, safe, solid wood armoire)."
+                            ),
+                        },
                         "is_high_value": {
                             "type": "boolean",
                             "description": "True if replacement value > $500",
@@ -181,6 +204,10 @@ PASS1_TOOL = {
                             "type": "boolean",
                             "description": "True if breakable or requires delicate handling",
                         },
+                        "needs_disassembly": {
+                            "type": "boolean",
+                            "description": "True only if it needs tools to come apart before it can leave the room or ride safely (bed frame, bunk bed, large desk, sectional hardware). False for dressers, chairs, lamps, or anything that only needs drawers or a shade taken off.",
+                        },
                         "item_confidence": {
                             "type": "number",
                             "minimum": 0.0,
@@ -190,8 +217,29 @@ PASS1_TOOL = {
                                 "in the photo. 1.0 = clearly visible, unambiguous. "
                                 "0.8 = fairly certain but slightly obscured. "
                                 "0.5 = partially visible or uncertain. "
-                                "Only include items you are at least 0.8 confident about."
+                                "Leave out anything below 0.5."
                             ),
+                        },
+                        "uncertain": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": REVIEW_FIELDS},
+                            "description": (
+                                "Which answers for this item the photo can't settle, so an estimator should "
+                                "decide them. List a field only when another estimator looking at the same "
+                                "photo could reasonably answer differently. Empty when it's clear."
+                            ),
+                        },
+                        "uncertainty_note": {
+                            "type": ["string", "null"],
+                            "description": (
+                                "One short sentence an estimator can act on, saying what you can't tell. "
+                                "E.g. 'Can't tell solid wood from particle board, so it could be medium or heavy.' "
+                                "Null when uncertain is empty."
+                            ),
+                        },
+                        "special_instructions": {
+                            "type": ["string", "null"],
+                            "description": "Field note only if something on site matters. E.g. 'Keep cables with item', 'Check moisture at the base'",
                         },
                     },
                 },
@@ -223,121 +271,6 @@ PASS1_TOOL = {
                 "minimum": 0.0,
                 "maximum": 1.0,
                 "description": "Confidence in the overall analysis (0.0-1.0)",
-            },
-        },
-    },
-}
-
-
-# ============================================
-# PASS 2 TOOL: Packing Enrichment (Text-only)
-# ============================================
-
-PASS2_TOOL = {
-    "name": "enrich_packing_details",
-    "description": (
-        "Add packing details (method, materials, labor, instructions) "
-        "to each previously identified item. Return the complete enriched list."
-    ),
-    "input_schema": {
-        "type": "object",
-        "required": ["items"],
-        "properties": {
-            "items": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": [
-                        "name", "category", "quantity",
-                        "is_high_value", "is_fragile",
-                        "needs_disassembly", "packing_method",
-                        "required_materials",
-                        "base_labor_hours", "per_unit_labor_hours",
-                    ],
-                    "properties": {
-                        "name": {"type": "string"},
-                        "category": {
-                            "type": "string",
-                            "enum": ITEM_CATEGORIES,
-                        },
-                        "quantity": {"type": "integer", "minimum": 1},
-                        "is_high_value": {"type": "boolean"},
-                        "estimated_value": {"type": ["string", "null"]},
-                        "is_fragile": {"type": "boolean"},
-                        "needs_disassembly": {
-                            "type": "boolean",
-                            "description": "True only if disassembly is required for transport",
-                        },
-                        "packing_method": {
-                            "type": "string",
-                            "description": (
-                                "Step-by-step packing instruction. Be specific. "
-                                "E.g. 'Empty all drawers; wrap body in moving blanket; "
-                                "tape drawers shut with painter's tape; pad corners'"
-                            ),
-                        },
-                        "required_materials": {
-                            "type": "array",
-                            "items": {
-                                "type": "string",
-                                "enum": MATERIAL_KEYS,
-                            },
-                            "description": (
-                                "Materials needed. REPEAT a key to indicate quantity: "
-                                "['sofa_cover','moving_blanket','moving_blanket','stretch_wrap'] "
-                                "means 1 sofa cover + 2 blankets + 1 stretch wrap. "
-                                "Scale with item size — large furniture needs more blankets."
-                            ),
-                        },
-                        "base_labor_hours": {
-                            "type": "number",
-                            "minimum": 0.0,
-                            "maximum": 1.0,
-                            "description": (
-                                "Fixed SETUP time (hours) for ONE person, "
-                                "independent of quantity. "
-                                "Includes: preparing workspace, "
-                                "gathering materials, setting up station. "
-                                "Single furniture: 0.05-0.15h. "
-                                "Batch items (books, clothing): 0.15-0.30h. "
-                                "Large appliance: 0.15-0.25h. "
-                                "Small single item: 0.02-0.05h."
-                            ),
-                        },
-                        "per_unit_labor_hours": {
-                            "type": "number",
-                            "minimum": 0.0,
-                            "maximum": 2.0,
-                            "description": (
-                                "MARGINAL packing time per single unit "
-                                "for ONE person. "
-                                "total = base_labor_hours + "
-                                "(per_unit_labor_hours * quantity). "
-                                "Book (batch boxing): 0.01-0.02h/book. "
-                                "Clothing (batch folding): 0.005-0.015h/pc. "
-                                "Dish/glass (wrap each): 0.03-0.05h/pc. "
-                                "Photo frame: 0.04-0.06h/each. "
-                                "Sectional section: 0.5-0.6h/section. "
-                                "Dining chair: 0.2-0.35h/chair. "
-                                "Single sofa (qty=1): 0.7-0.9h. "
-                                "Large wardrobe (qty=1): 1.0-1.8h. "
-                                "Small decor (qty=1): 0.05-0.15h."
-                            ),
-                        },
-                        "special_instructions": {
-                            "type": ["string", "null"],
-                            "description": "Field notes. E.g. 'Heavy - 2-man lift', 'Keep cables with item'",
-                        },
-                        "estimator_flags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string",
-                                "enum": ESTIMATOR_FLAGS,
-                            },
-                            "description": "Applicable flags for this item",
-                        },
-                    },
-                },
             },
         },
     },
@@ -490,12 +423,12 @@ def _get_room_context_note(room_name: str) -> str:
 # PROMPT BUILDERS
 # ============================================
 
-def _build_pass1_tool_prompt(
+def _build_analysis_prompt(
     room_name: str,
     num_images: int,
     existing_items: Optional[List[ExistingItem]] = None,
 ) -> str:
-    """Build the Pass 1 prompt for use with the report_room_contents tool."""
+    """Build the prompt for use with the report_room_contents tool."""
     multi_note = ""
     if num_images > 1:
         multi_note = (
@@ -548,7 +481,7 @@ RULES:
    - Cabinet: if it looks built into the wall (flush, no gap, no legs) → EXCLUDE. If it's freestanding with visible sides/legs → INCLUDE.
    - Shelving: if brackets are screwed into wall with no way to remove shelf as a unit → EXCLUDE. If it's a standalone unit → INCLUDE.
 
-3. ONLY list items you can visually confirm with at least 80% confidence (item_confidence ≥ 0.8). If you are unsure whether something is truly present — it is blurry, barely visible, or you are inferring it — DO NOT include it. For each item, assign an honest item_confidence score (0.0–1.0) and OMIT any item where your confidence is below 0.8.
+3. Give each item an honest item_confidence score (0.0–1.0) that it is truly present. If it is blurry or barely visible, still list it with a score of 0.5–0.8 and an estimator will decide. OMIT anything below 0.5, and anything you are only inferring from the kind of room.
 4. NAME items for PACKING: type + material + size. NO colors, patterns, brands, characters, or location info.
    - INCLUDE size/configuration info that AFFECTS PACKING: "3-Section Sectional Sofa", "6-Shelf Tall Bookcase", "4-Drawer Dresser", "King Bed Frame"
    - GOOD: "3-Section L-Shaped Sofa", "Tall 5-Shelf Wooden Bookcase", "Queen Bed Frame", "Large 3-Door Wardrobe"
@@ -573,71 +506,21 @@ SOFA/SEATING SIZE RULES (affects material quantity significantly):
 - Sectional sofa with 3+ pieces: quantity = 3 (or more), name = "3-Section Sectional Sofa"
 - Each section = separate packing unit requiring its own cover and blankets
 
+SIZE AND WEIGHT DECIDE HOW IT IS PACKED AND HOW LONG IT TAKES:
+- Both describe ONE unit, never the whole line: "Book Collection" qty 80 is size small, weight light.
+- Judge weight from the material you can see, with what stays inside. A solid oak dresser is heavier than a laminate one of the same size.
+
+SAY WHAT YOU CAN'T TELL — an estimator reads this and decides, so don't guess silently:
+- Weight: can't tell solid wood from particle board, or whether a cabinet is full → uncertain "weight".
+- Size: partly hidden or nothing nearby to judge scale by → uncertain "size".
+- Quantity: books or clothes counted roughly from a shelf or closet → uncertain "quantity".
+- Fragile: a vase that could be ceramic or plastic, a table top that could be glass → uncertain "fragile".
+- Category or name: could be two different things → uncertain "category" or "name".
+- Disassembly: can't see whether it comes apart or fits through the door → uncertain "disassembly".
+- Whether it's there at all: say so with item_confidence, not here.
+When you list anything in uncertain, say why in uncertainty_note. When an answer is clear, leave it out: most items should have an empty uncertain list.
+
 Use the report_room_contents tool to submit your findings."""
-
-
-def _build_pass2_tool_prompt(items_json: str) -> str:
-    """Build the Pass 2 prompt for use with the enrich_packing_details tool."""
-    return f"""You are a professional Content Pack-Out Estimator. Add packing details to these items:
-
-{items_json}
-
-For EACH item, determine:
-- needs_disassembly: true only if disassembly is required for transport
-- packing_method: step-by-step packing instruction (be specific)
-- required_materials: list of material keys needed — REPEAT a key multiple times to indicate quantity needed
-- base_labor_hours: fixed setup time (preparing materials, workspace) — does NOT scale with quantity
-- per_unit_labor_hours: marginal packing time for EACH single unit
-- special_instructions: field notes if needed (null otherwise)
-- estimator_flags: applicable flags
-
-CRITICAL — MATERIAL QUANTITY via REPETITION:
-Include each material key once per unit needed. Examples:
-- Standard sofa (1 piece): ["sofa_cover", "moving_blanket", "moving_blanket", "stretch_wrap"]
-  → 1 sofa cover, 2 blankets, 1 stretch wrap
-- 3-section sectional sofa (quantity=3, each section is one item):
-  → each section gets: ["sofa_cover", "moving_blanket", "moving_blanket", "stretch_wrap"]
-- Large armchair: ["chair_cover", "moving_blanket", "stretch_wrap"]
-- Large 5-shelf bookcase (the shelf unit itself, books listed separately):
-  ["moving_blanket", "moving_blanket", "stretch_wrap"]  → 2 blankets for a tall unit
-- Small 2-shelf bookcase: ["moving_blanket", "stretch_wrap"]
-- King/Queen bed frame (disassembly required): ["moving_blanket", "moving_blanket", "moving_blanket", "stretch_wrap"]
-- Large 3-door wardrobe: ["moving_blanket", "moving_blanket", "moving_blanket", "stretch_wrap"]
-- Dresser (4+ drawers): ["moving_blanket", "moving_blanket", "stretch_wrap"]
-- TV / large monitor (32"+): ["tv_box", "bubble_wrap_12", "bubble_wrap_12"]
-  IMPORTANT: tv_box is ONLY for actual TVs or monitors 32" and larger.
-  Do NOT use tv_box for: gaming consoles, routers, small monitors, speakers, printers, or other electronics.
-  For small/medium electronics use: ["medium_box", "bubble_wrap_12"] instead.
-- Book collection (100 books): set quantity=100 in item, use ["book_box"] once — calculator divides by 15 books/box automatically
-- Glass/dish items: ["dish_pack_box", "packing_paper", "packing_paper"]
-
-LABOR MODEL — base_labor_hours + per_unit_labor_hours:
-total = base_labor_hours + (per_unit_labor_hours × quantity)
-
-base_labor_hours = fixed setup (preparing materials, workspace). Does NOT scale with quantity.
-per_unit_labor_hours = marginal time to pack EACH unit.
-
-| Item                     | base  | per_unit | qty | total  |
-|--------------------------|-------|----------|-----|--------|
-| Book collection          | 0.25  | 0.02    | 80  | 1.85h  |
-| Clothing items           | 0.20  | 0.01    | 30  | 0.50h  |
-| Dishes/glassware set     | 0.20  | 0.04    | 15  | 0.80h  |
-| Photo frames             | 0.10  | 0.05    |  5  | 0.35h  |
-| 3-section sectional      | 0.10  | 0.55    |  3  | 1.75h  |
-| Single standard sofa     | 0.10  | 0.75    |  1  | 0.85h  |
-| Dining chairs            | 0.10  | 0.30    |  6  | 1.90h  |
-| Large wardrobe           | 0.20  | 1.50    |  1  | 1.70h  |
-| King bed frame           | 0.15  | 1.00    |  1  | 1.15h  |
-| Small lamp               | 0.02  | 0.10    |  1  | 0.12h  |
-| Large appliance          | 0.20  | 0.90    |  1  | 1.10h  |
-| Fragile glassware set    | 0.20  | 0.05    | 15  | 0.95h  |
-
-KEY: BATCH items (books, clothing, small kitchenware) → LOW per_unit, HIGHER base.
-     INDIVIDUAL items (furniture, each wrapped separately) → LOW base, HIGHER per_unit.
-
-Keep all original fields (name, category, quantity, is_high_value, estimated_value, is_fragile) unchanged.
-
-Use the enrich_packing_details tool to submit the enriched items."""
 
 
 # ============================================
@@ -874,23 +757,16 @@ async def _analyze_room_with_claude(
     room_name: str,
     existing_items: Optional[List[ExistingItem]] = None,
 ) -> Optional[dict]:
-    """Hybrid 2-pass room analysis using Claude tool use.
+    """Room analysis using Claude vision and tool use.
 
-    Pass 1 (vision + tool use):
-        Send images with the report_room_contents tool schema. Claude returns
-        structured output with constrained category enums and typed fields.
-        Item names are then normalized via the packing taxonomy.
+    Sends the images with the report_room_contents tool schema. Claude returns
+    structured output with constrained enums and typed fields, then item names
+    are normalized via the packing taxonomy.
 
-    Pass 2 (text + tool use):
-        Send the normalized item list with the enrich_packing_details tool.
-        Claude returns packing method, materials (constrained to valid keys),
-        labor estimates, and flags.
-
-    Returns the merged result dict, or None on failure.
+    Returns the result dict, or None on failure.
     """
     async with _anthropic_module.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY) as client:
 
-        # ── Pass 1: Vision + Tool Use ──────────────────────────────────────
         per_image_limit = MAX_IMAGE_BYTES // max(len(images), 1)
         per_image_limit = max(per_image_limit, 1_000_000)
 
@@ -909,15 +785,17 @@ async def _analyze_room_with_claude(
                 },
             })
 
-        pass1_prompt = _build_pass1_tool_prompt(room_name, len(images), existing_items)
-        content.append({"type": "text", "text": pass1_prompt})
+        content.append({
+            "type": "text",
+            "text": _build_analysis_prompt(room_name, len(images), existing_items),
+        })
 
         # No `temperature`: anthropic>=1.15 dropped it from messages.create
         # and raises TypeError before any request is sent.
-        pass1_msg = await client.messages.create(
+        msg = await client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=MAX_TOKENS_PER_PASS,
-            tools=[PASS1_TOOL],
+            max_tokens=MAX_ANALYSIS_TOKENS,
+            tools=[ANALYSIS_TOOL],
             tool_choice={"type": "tool", "name": "report_room_contents"},
             messages=[{"role": "user", "content": content}],
         )
@@ -925,45 +803,53 @@ async def _analyze_room_with_claude(
         # Release large base64 image data immediately after the API call
         del content
 
-        pass1_result = _extract_tool_result(pass1_msg)
-        del pass1_msg
+        result = _extract_tool_result(msg)
+        del msg
 
-        if not pass1_result or not pass1_result.get("items"):
-            return pass1_result
+    if result and result.get("items") and _TAXONOMY_AVAILABLE and normalize_items_list is not None:
+        # Deterministic, no API cost
+        normalize_items_list(result["items"])
 
-        # ── Taxonomy Normalization (deterministic, no API cost) ────────────
-        if _TAXONOMY_AVAILABLE and normalize_items_list is not None:
-            normalize_items_list(pass1_result["items"])
+    return result
 
-        # ── Pass 2: Text-only + Tool Use ───────────────────────────────────
-        # Compact JSON (no indent) saves ~15 % input tokens vs indent=2.
-        items_json = json.dumps(pass1_result["items"])
-        pass2_prompt = _build_pass2_tool_prompt(items_json)
-        del items_json
 
-        pass2_msg = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=MAX_TOKENS_PER_PASS,
-            tools=[PASS2_TOOL],
-            tool_choice={"type": "tool", "name": "enrich_packing_details"},
-            messages=[{"role": "user", "content": pass2_prompt}],
-        )
+def _choice(value, allowed) -> Optional[str]:
+    return value if value in allowed else None
 
-        pass2_result = _extract_tool_result(pass2_msg)
-        del pass2_msg
 
-    # ── Merge: Pass 1 metadata + Pass 2 enriched items ────────────────────
-    if pass2_result and pass2_result.get("items"):
-        return {
-            "items": pass2_result["items"],
-            "density": pass1_result.get("density", "normal"),
-            "room_size": pass1_result.get("room_size", "large"),
-            "confidence": pass1_result.get("confidence", 0.7),
-        }
+def _review_of(item_data: dict, item: DetectedContentItem) -> tuple:
+    """What the estimator should decide about an item, and why.
 
-    # Pass 2 failed — return Pass 1 items (already normalized, just missing
-    # packing details).
-    return pass1_result
+    The AI's own doubts, plus what the checks here can see: a low confidence that
+    it's there, a loose taxonomy match, an answer missing, or a size and weight
+    that don't go together.
+    """
+    taxonomy_review = item_data.get("_taxonomy_review") or []
+    fields = [f for f in item_data.get("uncertain") or [] if f in REVIEW_FIELDS] + taxonomy_review
+    notes = []
+    if item_data.get("uncertainty_note"):
+        notes.append(item_data["uncertainty_note"].strip())
+
+    confidence = item_data.get("item_confidence")
+    if confidence is not None and confidence < SURE_ITEM_CONFIDENCE:
+        fields.append("presence")
+
+    if "name" in taxonomy_review and item_data.get("_original_name"):
+        notes.append(f'The AI called this "{item_data["_original_name"]}".')
+    if "fragile" in taxonomy_review:
+        notes.append("Items like this usually aren't fragile, but this one looked it, so it's marked fragile until you say.")
+
+    if item.size is None:
+        fields.append("size")
+    if item.weight is None:
+        fields.append("weight")
+    if (item.size == "small" and item.weight in ("heavy", "very_heavy")) or (
+        item.size == "xlarge" and item.weight == "light"
+    ):
+        fields.append("weight")
+        notes.append("That size and weight don't usually go together.")
+
+    return list(dict.fromkeys(fields)), " ".join(notes) or None
 
 
 def _build_room_analysis_response(
@@ -977,39 +863,14 @@ def _build_room_analysis_response(
     high_value_count = 0
     field_notes: List[str] = []
 
-    MIN_ITEM_CONFIDENCE = 0.8
-
     for item_data in result.get("items", []):
         item_conf = item_data.get("item_confidence")
         if item_conf is not None and item_conf < MIN_ITEM_CONFIDENCE:
             continue
 
-        qty = item_data.get("quantity", 1)
-
-        # New split model: base + per_unit * qty
-        base_h = item_data.get("base_labor_hours")
-        per_unit_h = item_data.get("per_unit_labor_hours")
-        legacy_labor = item_data.get("estimated_labor_hours")
-
-        if base_h is not None and per_unit_h is not None:
-            computed_total = base_h + (per_unit_h * qty)
-            total_labor += computed_total
-        elif legacy_labor is not None:
-            computed_total = float(legacy_labor)
-            # Legacy: already total, do NOT multiply by qty
-            total_labor += computed_total
-        else:
-            computed_total = None
-
+        qty = max(1, int(item_data.get("quantity") or 1))
         is_frag = item_data.get("is_fragile", False)
         is_hv = item_data.get("is_high_value", False)
-
-        if is_frag:
-            fragile_count += qty
-        if is_hv:
-            high_value_count += qty
-
-        flags = item_data.get("estimator_flags") or []
         instructions = item_data.get("special_instructions")
 
         if instructions and any(
@@ -1020,7 +881,7 @@ def _build_room_analysis_response(
                 f"{item_data.get('name', 'Unknown')}: {instructions}"
             )
 
-        items.append(DetectedContentItem(
+        item = DetectedContentItem(
             name=item_data.get("name", "Unknown"),
             category=item_data.get("category", "Other"),
             quantity=qty,
@@ -1028,18 +889,25 @@ def _build_room_analysis_response(
             estimated_value=item_data.get("estimated_value"),
             is_fragile=is_frag,
             needs_disassembly=item_data.get("needs_disassembly", False),
-            packing_method=item_data.get("packing_method"),
-            required_materials=item_data.get("required_materials"),
-            base_labor_hours=(
-                float(base_h) if base_h is not None else None
-            ),
-            per_unit_labor_hours=(
-                float(per_unit_h) if per_unit_h is not None else None
-            ),
-            estimated_labor_hours=computed_total,
+            size=_choice(item_data.get("size"), SIZES),
+            weight=_choice(item_data.get("weight"), WEIGHTS),
             special_instructions=instructions,
-            estimator_flags=flags if flags else None,
-        ))
+            match_confidence=item_data.get("_match_confidence"),
+        )
+        item.uncertain_fields, item.review_note = _review_of(item_data, item)
+        plan = apply_plan(item)
+        items.append(item)
+
+        # An item that may not be there isn't priced, so it doesn't count yet
+        if "presence" not in item.uncertain_fields:
+            total_labor += plan.total_hours
+            if is_frag:
+                fragile_count += qty
+            if is_hv:
+                high_value_count += qty
+
+    # What needs a decision comes first, in the order the AI found it
+    items.sort(key=lambda i: not i.uncertain_fields)
 
     return RoomAnalysisResponse(
         room_name=room_name,

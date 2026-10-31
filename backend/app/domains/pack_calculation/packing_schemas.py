@@ -6,7 +6,7 @@ Integrated from packing_tool_export.
 """
 
 from pydantic import BaseModel, Field, model_validator
-from typing import Optional, Dict, List, Any
+from typing import Literal, Optional, Dict, List, Any
 from datetime import datetime
 from enum import Enum
 
@@ -14,6 +14,11 @@ from enum import Enum
 # ============================================
 # ENUMS
 # ============================================
+
+# One unit of a content item
+ItemSize = Literal["small", "medium", "large", "xlarge"]
+ItemWeight = Literal["light", "medium", "heavy", "very_heavy"]
+
 
 class RoomSize(str, Enum):
     SMALL = "small"
@@ -256,14 +261,29 @@ class DetectedContentItem(BaseModel):
     estimated_value: Optional[str] = Field(default=None)
     is_fragile: bool = Field(default=False)
     needs_disassembly: bool = Field(default=False)
-    packing_method: Optional[str] = Field(default=None)
+    size: Optional[ItemSize] = Field(default=None, description="Size of one unit")
+    weight: Optional[ItemWeight] = Field(default=None, description="Weight class of one unit")
+    packing_method: Optional[str] = Field(default=None, description="Key in item_plan.METHODS")
+    packing_locked: bool = Field(
+        default=False,
+        description="The estimator chose packing_method; otherwise it follows the item's attributes",
+    )
+    uncertain_fields: List[str] = Field(
+        default_factory=list,
+        description=(
+            "What the analysis couldn't settle and the estimator should decide: "
+            "presence, name, quantity, category, size, weight, fragile, disassembly. "
+            "An item with presence here isn't priced until someone keeps it."
+        ),
+    )
+    review_note: Optional[str] = Field(default=None, description="Why it couldn't be settled")
     required_materials: Optional[List[str]] = Field(default=None)
     base_labor_hours: Optional[float] = Field(
-        default=None, ge=0, le=1.0,
+        default=None, ge=0,
         description="Fixed setup/teardown time in hours, independent of quantity",
     )
     per_unit_labor_hours: Optional[float] = Field(
-        default=None, ge=0, le=2.0,
+        default=None, ge=0,
         description="Marginal packing time per additional unit in hours",
     )
     estimated_labor_hours: Optional[float] = Field(

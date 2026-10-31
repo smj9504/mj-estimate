@@ -9,6 +9,7 @@ client/company DB integration.
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 import asyncio
+import json
 import logging
 from sqlalchemy.orm import Session, joinedload
 from typing import Optional
@@ -36,10 +37,21 @@ from .packing_schemas import (
     SubmitCorrectionsRequest,
     SubmitCorrectionsResponse,
     AddPackingPhotosRequest,
+    DetectedContentItem,
     MovePackingPhotosRequest,
     RemovePackingPhotosRequest,
 )
 from . import packing_photos
+from .item_plan import (
+    METHODS,
+    SIZES,
+    WEIGHT_CLASS_LB,
+    apply_plan,
+    default_method,
+    flags_for_storage,
+    flags_from_storage,
+    weight_class_from_lb,
+)
 from .models import (
     PackCalculation, PackRoom, PackItem,
     PackEstimateMode, PackEstimateStatus,
@@ -117,6 +129,22 @@ def content_estimate(
     return result
 
 
+# ── Item Plan ─────────────────────────────────
+
+@router.post(
+    "/item-plan",
+    response_model=DetectedContentItem,
+)
+def plan_content_item(
+    item: DetectedContentItem,
+    current_user: Staff = Depends(get_current_user),
+):
+    """What an item's attributes mean for its packing method, materials and
+    labor, after the estimator changes one by hand."""
+    apply_plan(item)
+    return item
+
+
 # ── Room Photo Analysis ───────────────────────
 
 @router.post(
@@ -157,8 +185,6 @@ def analyze_batch(
 ):
     """Batch analyze multiple rooms with SSE streaming."""
     from .vision import analyze_room_photos
-    import json
-    import asyncio
 
     async def generate():
         succeeded = 0
@@ -661,6 +687,7 @@ _CONTAMINATION_DB = {
     "clean": "clean", "gray_water": "gray_water",
     "black_water": "black_water",
 }
+_FLOOR_FROM_DB = {db: floor for floor, db in _FLOOR_DB.items()}
 
 
 def _save_calculation(
@@ -778,6 +805,8 @@ def _save_calculation(
                         item_name=item.name,
                         item_category=item.category,
                         quantity=item.quantity,
+                        size_category=item.size,
+                        estimated_weight_lb=WEIGHT_CLASS_LB.get(item.weight),
                         detected_by='AI_VISION',
                         fragile=item.is_fragile,
                         is_high_value=item.is_high_value,
@@ -787,7 +816,7 @@ def _save_calculation(
                         base_labor_hours=getattr(item, 'base_labor_hours', None),
                         per_unit_labor_hours=getattr(item, 'per_unit_labor_hours', None),
                         estimated_labor_hours=getattr(item, 'estimated_labor_hours', None),
-                        estimator_flags=getattr(item, 'estimator_flags', None),
+                        estimator_flags=flags_for_storage(item.estimator_flags, item.uncertain_fields),
                         special_notes=getattr(item, 'special_instructions', None),
                     )
                     db.add(pack_item)
@@ -843,6 +872,11 @@ def _calc_to_summary(calc: PackCalculation) -> dict:
             if calc.created_at else None
         ),
     }
+
+
+def _json_list(value) -> Optional[list]:
+    """A JSON column read with raw SQL: Postgres parses it, SQLite hands back text."""
+    return json.loads(value) if isinstance(value, str) else value
 
 
 def _calc_to_detail(calc: PackCalculation, db=None) -> dict:
@@ -901,7 +935,8 @@ def _calc_to_detail(calc: PackCalculation, db=None) -> dict:
                         "required_materials, base_labor_hours, "
                         "per_unit_labor_hours, "
                         "estimated_labor_hours, "
-                        "estimator_flags, special_notes "
+                        "estimator_flags, special_notes, "
+                        "size_category, estimated_weight_lb "
                         "FROM pack_items "
                         "WHERE room_id = :rid "
                         "ORDER BY created_at"
@@ -909,24 +944,42 @@ def _calc_to_detail(calc: PackCalculation, db=None) -> dict:
 
                     items_data = []
                     for ir in item_rows:
+                        flags, uncertain_fields = flags_from_storage(_json_list(ir[11]))
+                        # The older pack calculator wrote its own values here
+                        size = ir[13] if ir[13] in SIZES else None
+                        weight = weight_class_from_lb(ir[14])
+                        is_fragile = bool(ir[3])
+                        is_high_value = bool(ir[4])
                         items_data.append({
                             "name": ir[0],
                             "category": ir[1],
                             "quantity": ir[2] or 1,
-                            "is_fragile": ir[3] or False,
-                            "is_high_value": ir[4] or False,
-                            "needs_disassembly": ir[5] or False,
+                            "is_fragile": is_fragile,
+                            "is_high_value": is_high_value,
+                            "needs_disassembly": bool(ir[5]),
+                            "size": size,
+                            "weight": weight,
                             "packing_method": ir[6],
-                            "required_materials": ir[7],
+                            # A method that isn't what the item would get on its
+                            # own was chosen by hand, and stays when recalculated
+                            "packing_locked": (
+                                ir[6] in METHODS
+                                and bool(size and weight)
+                                and ir[6] != default_method(
+                                    ir[0], ir[1], size, weight, is_fragile, is_high_value,
+                                )
+                            ),
+                            "required_materials": _json_list(ir[7]),
                             "base_labor_hours": ir[8],
                             "per_unit_labor_hours": ir[9],
                             "estimated_labor_hours": ir[10],
-                            "estimator_flags": ir[11],
+                            "estimator_flags": flags,
+                            "uncertain_fields": uncertain_fields,
                             "special_instructions": ir[12],
                         })
                     rooms_data.append({
                         "room_name": rr[1],
-                        "floor": rr[2],
+                        "floor": _FLOOR_FROM_DB.get(rr[2], "1st"),
                         "density": rr[3],
                         "contamination": rr[4],
                         "preset_key": rr[5],

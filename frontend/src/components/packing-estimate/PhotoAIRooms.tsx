@@ -4,8 +4,8 @@
  */
 import React, { useState, useRef, useCallback } from 'react';
 import {
-  Button, Select, Input, Tooltip, message, Upload, InputNumber,
-  Popconfirm, Image, Table, Grid,
+  Button, Select, Input, Tooltip, message, Upload,
+  Popconfirm, Image,
 } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, ScanOutlined, LoadingOutlined,
@@ -16,18 +16,27 @@ import * as packingService from '../../services/packingEstimateService';
 import type {
   PhotoRoom, DetectedContentItem, RoomPreset,
 } from '../../types/packing-estimate';
-import { ITEM_CATEGORIES } from '../../types/packing-estimate';
 import {
   DENSITY_OPTIONS, FLOOR_OPTIONS, CONTAMINATION_OPTIONS,
 } from './constants';
+import DetectedItemRow from './DetectedItemRow';
 import FolderImportModal from './FolderImportModal';
 import { Pill, type TagTone } from '../common/ui';
-import { contaminationSelectLabel, multiplierSelectLabel } from './packingUi';
+import {
+  confirmItem, countedHours, editItem, mergePlan, needsPlan, newItem, planSignature, reviewCount, withUids,
+} from './itemEdits';
+import { contaminationSelectLabel, plainLabel } from './packingUi';
 import { PHOTO_ACCEPT, photoFilesToBase64 } from './photoFiles';
 import './packing.css';
 
 const { Option } = Select;
 const { Dragger } = Upload;
+
+/**
+ * Rooms Analyze All runs at once. Claude's limits leave plenty of room, but each
+ * analysis can hold one of the server's 10 DB connections until it finishes.
+ */
+const PARALLEL_ANALYSES = 3;
 
 interface PhotoAIRoomsProps {
   rooms: PhotoRoom[];
@@ -91,6 +100,13 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
     setRooms(rooms.filter(r => r.id !== id));
   }, [rooms, setRooms]);
 
+  // Analyses finish at their own times: each result goes on top of the last one,
+  // not on the last render, or a result landing between renders would be lost
+  const applyToRoom = useCallback((id: string, change: (room: PhotoRoom) => PhotoRoom) => {
+    roomsRef.current = roomsRef.current.map(r => r.id === id ? change(r) : r);
+    setRooms(roomsRef.current);
+  }, [setRooms]);
+
   // ── Add Room ───────────────────────────────
 
   const handleAddRoom = useCallback(() => {
@@ -150,25 +166,27 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
           ? room.items.map(i => ({ name: i.name, quantity: i.quantity }))
           : undefined,
       );
-      setRooms(roomsRef.current.map(r => r.id === roomId ? {
+      // Told to skip what's already listed, it reports only what's new, so the
+      // items and the decisions made on them stay
+      applyToRoom(roomId, r => ({
         ...r,
-        items: result.items,
+        items: [...r.items, ...withUids(result.items)],
         density: (result.density as PhotoRoom['density']) ?? room.density,
         room_size: result.room_size,
         confidence_score: result.confidence_score,
         field_notes: result.field_notes,
         analyzed: true,
         analyzing: false,
-      } : r));
-      message.success(`${room.room_name}: ${result.items.length} items detected`);
+      }));
+      message.success(room.items.length > 0
+        ? `${room.room_name}: ${result.items.length} more items detected`
+        : `${room.room_name}: ${result.items.length} items detected`);
     } catch (err: any) {
       const reason = analysisErrorText(err);
       message.error(`${room.room_name}: ${reason}`);
-      setRooms(roomsRef.current.map(r => r.id === roomId ? {
-        ...r, analyzing: false, analysis_error: reason,
-      } : r));
+      applyToRoom(roomId, r => ({ ...r, analyzing: false, analysis_error: reason }));
     }
-  }, [rooms, updateRoom, setRooms]);
+  }, [rooms, updateRoom, applyToRoom]);
 
   // ── Batch Analysis ─────────────────────────
 
@@ -176,7 +194,7 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
 
   const handleStopBatch = useCallback(() => {
     cancelBatchRef.current = true;
-    message.info('Stopping after current room completes...');
+    message.info('Stopping after the rooms in progress finish...');
   }, []);
 
   const handleBatchAnalyze = useCallback(async () => {
@@ -193,38 +211,41 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
     ));
 
     const failed: string[] = [];
+    const waiting = [...unanalyzedRooms];
 
-    for (const room of unanalyzedRooms) {
-      if (cancelBatchRef.current) {
-        // Reset all remaining rooms still in analyzing state
-        setRooms(roomsRef.current.map(r =>
-          r.analyzing && !r.analyzed ? { ...r, analyzing: false } : r
-        ));
-        break;
+    const analyzeNext = async () => {
+      while (waiting.length > 0 && !cancelBatchRef.current) {
+        const room = waiting.shift() as PhotoRoom;
+        try {
+          const result = await packingService.analyzeRoom(
+            room.room_name,
+            room.photos,
+            room.items.length > 0
+              ? room.items.map(i => ({ name: i.name, quantity: i.quantity }))
+              : undefined,
+          );
+          applyToRoom(room.id, r => ({
+            ...r,
+            items: [...r.items, ...withUids(result.items)],
+            density: (result.density as PhotoRoom['density']) ?? r.density,
+            room_size: result.room_size,
+            confidence_score: result.confidence_score,
+            field_notes: result.field_notes,
+            analyzed: true,
+            analyzing: false,
+          }));
+        } catch (err) {
+          failed.push(room.room_name);
+          applyToRoom(room.id, r => ({
+            ...r, analyzing: false, analysis_error: analysisErrorText(err),
+          }));
+        }
       }
+    };
+    await Promise.all(Array.from({ length: PARALLEL_ANALYSES }, analyzeNext));
 
-      try {
-        const result = await packingService.analyzeRoom(
-          room.room_name,
-          room.photos,
-        );
-        setRooms(roomsRef.current.map(r => r.id === room.id ? {
-          ...r,
-          items: result.items,
-          density: (result.density as PhotoRoom['density']) ?? r.density,
-          room_size: result.room_size,
-          confidence_score: result.confidence_score,
-          field_notes: result.field_notes,
-          analyzed: true,
-          analyzing: false,
-        } : r));
-      } catch (err) {
-        failed.push(room.room_name);
-        setRooms(roomsRef.current.map(r => r.id === room.id ? {
-          ...r, analyzing: false, analysis_error: analysisErrorText(err),
-        } : r));
-      }
-    }
+    // Stopped: the rooms that never started are back to not analyzed
+    waiting.forEach(room => applyToRoom(room.id, r => ({ ...r, analyzing: false })));
 
     setBatchAnalyzing(false);
     if (failed.length > 0) {
@@ -237,7 +258,7 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
     } else {
       message.success('Batch analysis complete');
     }
-  }, [unanalyzedRooms, rooms, setRooms]);
+  }, [unanalyzedRooms, rooms, setRooms, applyToRoom]);
 
   // Rooms loaded from a claim go straight into the analysis, once per load
   const autoAnalyzedRef = useRef<number | undefined>();
@@ -260,20 +281,49 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
 
   // ── Item editing ───────────────────────────
 
-  const updateItem = useCallback((roomId: string, idx: number, patch: Partial<DetectedContentItem>) => {
-    const room = rooms.find(r => r.id === roomId);
-    if (!room) return;
-    const newItems = [...room.items];
-    newItems[idx] = { ...newItems[idx], ...patch };
-    updateRoom(roomId, { items: newItems });
-  }, [rooms, updateRoom]);
+  const changeItem = useCallback((
+    roomId: string,
+    uid: string,
+    change: (item: DetectedContentItem) => DetectedContentItem,
+  ) => {
+    applyToRoom(roomId, r => ({
+      ...r,
+      items: r.items.map(i => i.uid === uid ? change(i) : i),
+    }));
+  }, [applyToRoom]);
 
-  const removeItem = useCallback((roomId: string, idx: number) => {
-    const room = rooms.find(r => r.id === roomId);
-    if (!room) return;
-    const newItems = room.items.filter((_, i) => i !== idx);
-    updateRoom(roomId, { items: newItems });
-  }, [rooms, updateRoom]);
+  // Works out the item's packing method and labor again; the price itself is
+  // worked out at Calculate, so a failed request here only leaves the hours stale
+  const planItem = useCallback((roomId: string, item: DetectedContentItem) => {
+    const signature = planSignature(item);
+    packingService.planItem(item)
+      .then(planned => changeItem(roomId, item.uid as string, current => mergePlan(current, signature, planned)))
+      .catch(() => {});
+  }, [changeItem]);
+
+  const updateItem = useCallback((roomId: string, uid: string, patch: Partial<DetectedContentItem>) => {
+    const item = roomsRef.current.find(r => r.id === roomId)?.items.find(i => i.uid === uid);
+    if (!item) return;
+    const edited = editItem(item, patch);
+    changeItem(roomId, uid, () => edited);
+    if (needsPlan(patch)) planItem(roomId, edited);
+  }, [changeItem, planItem]);
+
+  const removeItem = useCallback((roomId: string, uid: string) => {
+    applyToRoom(roomId, r => ({
+      ...r,
+      items: r.items.filter(i => i.uid !== uid),
+    }));
+  }, [applyToRoom]);
+
+  const addItem = useCallback((roomId: string) => {
+    const item = newItem();
+    applyToRoom(roomId, r => ({
+      ...r,
+      items: [...r.items, item],
+    }));
+    planItem(roomId, item);
+  }, [applyToRoom, planItem]);
 
   // ── Bulk Room Import (from folder) ─────────
 
@@ -361,8 +411,10 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
             onRemove={() => removeRoom(room.id)}
             onUpdate={(patch) => updateRoom(room.id, patch)}
             onAddPhotos={(files) => handleAddPhotosToRoom(room.id, files)}
-            onUpdateItem={(idx, patch) => updateItem(room.id, idx, patch)}
-            onRemoveItem={(idx) => removeItem(room.id, idx)}
+            onUpdateItem={(uid, patch) => updateItem(room.id, uid, patch)}
+            onConfirmItem={(uid) => changeItem(room.id, uid, confirmItem)}
+            onRemoveItem={(uid) => removeItem(room.id, uid)}
+            onAddItem={() => addItem(room.id)}
           />
         ))}
       </div>
@@ -480,8 +532,10 @@ interface RoomCardProps {
   onRemove: () => void;
   onUpdate: (patch: Partial<PhotoRoom>) => void;
   onAddPhotos: (files: FileList | File[]) => void;
-  onUpdateItem: (idx: number, patch: Partial<DetectedContentItem>) => void;
-  onRemoveItem: (idx: number) => void;
+  onUpdateItem: (uid: string, patch: Partial<DetectedContentItem>) => void;
+  onConfirmItem: (uid: string) => void;
+  onRemoveItem: (uid: string) => void;
+  onAddItem: () => void;
 }
 
 /** How sure the AI is about the room, as a tone: sure is green, unsure is red */
@@ -493,13 +547,11 @@ const confidenceTone = (s: number): TagTone => {
 
 const RoomCard: React.FC<RoomCardProps> = ({
   room, presets, onAnalyze, onRemove, onUpdate, onAddPhotos,
-  onUpdateItem, onRemoveItem,
+  onUpdateItem, onConfirmItem, onRemoveItem, onAddItem,
 }) => {
   const [showItems, setShowItems] = useState(room.analyzed);
   const fileRef = useRef<HTMLInputElement>(null);
-  // Phones stack each detected item instead of clipping a four-column table
-  const screens = Grid.useBreakpoint();
-  const stackItems = !screens.sm;
+  const toReview = reviewCount(room.items);
 
   // Open the items the first time an analysis lands
   React.useEffect(() => {
@@ -516,6 +568,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
             {!room.analyzing && room.analyzed && (
               <Pill tone="green" icon={<CheckOutlined />}>{room.items.length} items</Pill>
             )}
+            {toReview > 0 && <Pill tone="yellow">{toReview} to review</Pill>}
             {!room.analyzing && !room.analyzed && room.analysis_error && (
               <Pill tone="red">Analysis failed</Pill>
             )}
@@ -544,7 +597,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
               Analyze
             </Button>
           )}
-          {room.analyzed && (
+          {room.analyzed && room.photos.length > 0 && (
             <Button size="small" type="text" icon={<ScanOutlined />} onClick={onAnalyze} loading={room.analyzing}>
               Re-analyze
             </Button>
@@ -598,8 +651,9 @@ const RoomCard: React.FC<RoomCardProps> = ({
         </label>
         <label className="pk-field">
           <span className="pk-field-label">Density</span>
-          <Select size="small" value={room.density} onChange={v => onUpdate({ density: v })} labelRender={multiplierSelectLabel} popupMatchSelectWidth={false}>
-            {DENSITY_OPTIONS.map(o => <Option key={o.value} value={o.value}>{o.label}</Option>)}
+          {/* Priced item by item, so density weighs only what the photos can't show */}
+          <Select size="small" value={room.density} onChange={v => onUpdate({ density: v })} popupMatchSelectWidth={false}>
+            {DENSITY_OPTIONS.map(o => <Option key={o.value} value={o.value}>{plainLabel(o.label)}</Option>)}
           </Select>
         </label>
         <label className="pk-field">
@@ -618,7 +672,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
       )}
 
       {/* Detected items */}
-      {room.analyzed && room.items.length > 0 && (
+      {room.analyzed && (
         <>
           <button
             type="button"
@@ -628,98 +682,29 @@ const RoomCard: React.FC<RoomCardProps> = ({
           >
             <RightOutlined className={`pk-items-caret${showItems ? ' is-open' : ''}`} aria-hidden="true" />
             Detected Items ({room.items.length})
+            {room.items.length > 0 && (
+              <span className="pk-items-hours" title="Labor for these items, pack-out and pack-back">
+                {countedHours(room.items).toFixed(1)} hr
+              </span>
+            )}
           </button>
-          {showItems && stackItems && (
-            <ul className="pk-item-rows">
-              {room.items.map((item, idx) => (
-                <li className="pk-item-row" key={`${room.id}_m_${idx}`}>
-                  <div className="pk-item-row-main">
-                    <span className="pk-item-name">
-                      {item.name}
-                      {item.is_fragile && <Pill tone="orange">Fragile</Pill>}
-                      {item.is_high_value && <Pill tone="yellow">High Value</Pill>}
-                    </span>
-                    <Button
-                      size="small" type="text"
-                      className="ui-icon-btn ui-icon-btn--danger"
-                      icon={<DeleteOutlined />}
-                      onClick={() => onRemoveItem(idx)}
-                      aria-label={`Remove ${item.name}`}
-                    />
-                  </div>
-                  <div className="pk-item-row-controls">
-                    <Select
-                      size="small" value={item.category}
-                      onChange={v => onUpdateItem(idx, { category: v })}
-                      aria-label={`${item.name} category`}
-                    >
-                      {ITEM_CATEGORIES.map(c => <Option key={c} value={c}>{c}</Option>)}
-                    </Select>
-                    <InputNumber
-                      size="small" min={1} value={item.quantity}
-                      onChange={v => onUpdateItem(idx, { quantity: v || 1 })}
-                      addonBefore="Qty"
-                      aria-label={`${item.name} quantity`}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-          {showItems && !stackItems && (
-            <Table
-              className="pk-quiet-table pk-items-table"
-              dataSource={room.items.map((item, i) => ({ ...item, _idx: i }))}
-              rowKey={(_, i) => `${room.id}_${i}`}
-              size="small"
-              pagination={false}
-              scroll={{ x: 460 }}
-              columns={[
-                {
-                  title: 'Item', dataIndex: 'name', key: 'name',
-                  render: (name: string, record: any) => (
-                    <span className="pk-item-name">
-                      {name}
-                      {record.is_fragile && <Pill tone="orange">Fragile</Pill>}
-                      {record.is_high_value && <Pill tone="yellow">High Value</Pill>}
-                    </span>
-                  ),
-                },
-                {
-                  title: 'Category', dataIndex: 'category', key: 'category', width: 128,
-                  render: (cat: string, record: any) => (
-                    <Select
-                      size="small" value={cat} style={{ width: '100%' }} variant="borderless"
-                      onChange={v => onUpdateItem(record._idx, { category: v })}
-                    >
-                      {ITEM_CATEGORIES.map(c => <Option key={c} value={c}>{c}</Option>)}
-                    </Select>
-                  ),
-                },
-                {
-                  title: 'Qty', dataIndex: 'quantity', key: 'quantity', width: 72,
-                  render: (qty: number, record: any) => (
-                    <InputNumber
-                      size="small" min={1} value={qty}
-                      onChange={v => onUpdateItem(record._idx, { quantity: v || 1 })}
-                      style={{ width: '100%' }}
-                    />
-                  ),
-                },
-                {
-                  title: <span className="ui-sr-only">Remove</span>, key: 'actions', width: 40,
-                  render: (_: any, record: any) => (
-                    <Button
-                      size="small" type="text"
-                      className="ui-icon-btn ui-icon-btn--danger"
-                      icon={<DeleteOutlined />}
-                      onClick={() => onRemoveItem(record._idx)}
-                      aria-label={`Remove ${record.name}`}
-                    />
-                  ),
-                },
-              ]}
-            />
+          {showItems && (
+            <>
+              <ul className="pk-item-rows">
+                {room.items.map(item => (
+                  <DetectedItemRow
+                    key={item.uid}
+                    item={item}
+                    onChange={patch => onUpdateItem(item.uid as string, patch)}
+                    onConfirm={() => onConfirmItem(item.uid as string)}
+                    onRemove={() => onRemoveItem(item.uid as string)}
+                  />
+                ))}
+              </ul>
+              <button type="button" className="pk-add-row pk-add-item" onClick={onAddItem}>
+                <PlusOutlined aria-hidden="true" /> Add an item the photos missed...
+              </button>
+            </>
           )}
         </>
       )}

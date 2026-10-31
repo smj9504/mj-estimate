@@ -24,6 +24,7 @@ import {
   PACK_STATUSES, PackStatusPill, packStatusLabel, CompanyName, ContaminationPill,
   EstimateBreakdown, Figures, estimateFigures, formatMoney, modeLabel,
   floorLabel, densityLabel, regionLabel, packEstimateTitle,
+  itemSizeLabel, itemWeightLabel, packingMethodLabel,
 } from '../components/packing-estimate/packingUi';
 
 interface DetectedItem {
@@ -33,9 +34,13 @@ interface DetectedItem {
   is_fragile: boolean;
   is_high_value: boolean;
   needs_disassembly: boolean;
+  size?: string | null;
+  weight?: string | null;
   packing_method?: string;
+  packing_locked?: boolean;
   estimated_labor_hours?: number;
   estimator_flags?: string[];
+  uncertain_fields?: string[];
   special_instructions?: string;
 }
 
@@ -44,6 +49,7 @@ interface RoomDetail {
   floor: string | null;
   density: string | null;
   contamination: string | null;
+  preset_key?: string | null;
   items: DetectedItem[];
 }
 
@@ -73,6 +79,9 @@ const ItemFlags: React.FC<{ item: DetectedItem }> = ({ item }) => (
     {item.is_fragile && <Pill tone="orange">Fragile</Pill>}
     {item.is_high_value && <Pill tone="yellow">High Value</Pill>}
     {item.needs_disassembly && <Pill tone="purple">Disassembly</Pill>}
+    {(item.uncertain_fields?.length ?? 0) > 0 && (
+      <Pill tone="yellow" title={`Priced on the AI's answer: ${item.uncertain_fields?.join(', ')}`}>Not reviewed</Pill>
+    )}
   </>
 );
 
@@ -183,6 +192,7 @@ const PackCalculatorNewDetail: React.FC = () => {
         clientId: estimate.client_id,
         companyId: estimate.company_id,
         claimId: estimate.claim_id,
+        rooms: estimate.mode === 'photo_ai' ? estimate.rooms : undefined,
       },
     });
   }, [id, estimate, navigate]);
@@ -314,7 +324,7 @@ const PackCalculatorNewDetail: React.FC = () => {
             rowKey={(_, idx) => `item-${i}-${idx}`}
             pagination={false}
             size="small"
-            scroll={{ x: 640 }}
+            scroll={{ x: 800 }}
             columns={[
               {
                 title: 'Item', dataIndex: 'name', key: 'name',
@@ -323,6 +333,8 @@ const PackCalculatorNewDetail: React.FC = () => {
                 ),
               },
               { title: 'Category', dataIndex: 'category', key: 'category', width: 120, render: (v: string) => <span className="pk-muted">{v}</span> },
+              { title: 'Size', dataIndex: 'size', key: 'size', width: 80, render: (v: string | null) => <span className="pk-muted">{itemSizeLabel(v) || '-'}</span> },
+              { title: 'Weight', dataIndex: 'weight', key: 'weight', width: 90, render: (v: string | null) => <span className="pk-muted">{itemWeightLabel(v) || '-'}</span> },
               { title: 'Qty', dataIndex: 'quantity', key: 'quantity', width: 60, align: 'right' as const, render: (v: number) => <span className="pk-money">{v}</span> },
               {
                 title: 'Labor (hrs)', dataIndex: 'estimated_labor_hours', key: 'labor', width: 96, align: 'right' as const,
@@ -330,7 +342,7 @@ const PackCalculatorNewDetail: React.FC = () => {
               },
               {
                 title: 'Packing Method', dataIndex: 'packing_method', key: 'method', ellipsis: true,
-                render: (v: string | null) => <span className="pk-muted">{v || '-'}</span>,
+                render: (v: string | null) => <span className="pk-muted">{packingMethodLabel(v) || '-'}</span>,
               },
             ]}
           />
