@@ -5,7 +5,7 @@
  *
  * Some purposes (water mitigation) sign every one of the company's documents
  * for them in one go: no document is picked, the fields are asked once for all
- * of them, and the customer signs them together.
+ * of them, and the customer is taken through each one to sign it.
  *
  * The step lives in the URL so a phone's back gesture steps back through the
  * flow instead of leaving it, and the state lives here so going back keeps what
@@ -200,7 +200,7 @@ const OnsiteSigning: React.FC = () => {
   const backRow = isPhone ? <div className="os-actions"><Button onClick={back}>Back</Button></div> : null;
 
   // Each screen starts at the top; a long document leaves the page far down
-  const screenKey = `${result ? 'done' : step}:${params.get('q') ?? ''}`;
+  const screenKey = `${result ? 'done' : step}:${params.get('q') ?? ''}:${params.get('doc') ?? ''}`;
   const lastScreen = useRef(screenKey);
   useEffect(() => {
     if (lastScreen.current === screenKey) return;
@@ -265,6 +265,8 @@ const OnsiteSigning: React.FC = () => {
           <SignStep
             leading={backButton}
             onBack={back}
+            docIndex={Number(params.get('doc') ?? 0) || 0}
+            onDoc={index => go('sign', { doc: String(index) })}
             form={form.data}
             companyId={(company as OnsiteCompany).id}
             clientId={clientId}

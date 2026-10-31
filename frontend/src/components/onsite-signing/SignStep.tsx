@@ -1,14 +1,19 @@
 /**
  * The customer reads the filled-in documents and signs them. Nothing is saved
  * until they submit; that one step makes the client and a contract and signed
- * PDF per document. A visit can carry several documents (water mitigation signs
- * the authorization and the sign-off together), shown one after the other.
+ * PDF per document.
+ *
+ * A visit can carry several contracts (water mitigation signs the authorization
+ * and the sign-off together). They are taken one per screen, with a step list
+ * on top showing what each still needs, and a bar that stays in view and always
+ * offers the next thing to do: the next line to sign, then the next contract,
+ * then signing. Nothing can be submitted until every line of every contract is
+ * signed, so none is left behind.
  *
  * A signature is drawn once per signer and kind: the first line tapped opens
- * the pad, and every other line of that signer's then takes the same mark with
- * a tap. The list under the documents shows how many lines are left and goes to
- * the next one, which is easier on a phone where the lines are small. Lines are
- * grouped by who signs them, since the device is in the customer's hands.
+ * the pad, and every other line of that signer's, on any contract, then takes
+ * the same mark with a tap. Lines are grouped by who signs them, since the
+ * device is in the customer's hands.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -30,14 +35,16 @@ const isDate = (fieldType: string) => fieldType === 'date_signed';
 /** A line on one of the visit's documents; ids are only unique within a template */
 const lineKey = (document: OnsiteDocument, field: SignatureFieldPlacement) => `${document.template_id}:${field.id}`;
 const lineDomId = (key: string) => `os-line-${key.replace(/[^A-Za-z0-9_-]/g, '-')}`;
+/** The lines someone has to sign on a document, in page order */
+const signLines = (document: OnsiteDocument) => document.signature_fields
+  .filter(field => !isDate(field.fieldType))
+  .sort((a, b) => a.pageIndex - b.pageIndex || a.y - b.y || a.x - b.x);
 
 interface Slot {
   key: string;
   role: string;
   isInitials: boolean;
   label: string;
-  /** Every line that takes this mark, in document order */
-  lines: string[];
 }
 
 type PreviewState = 'loading' | 'ready' | 'failed';
@@ -46,7 +53,7 @@ type PreviewState = 'loading' | 'ready' | 'failed';
 
 const DocumentPages: React.FC<{
   document: OnsiteDocument;
-  heading?: string;
+  active: boolean;
   companyId: string;
   answers: Answers;
   today: string;
@@ -55,7 +62,7 @@ const DocumentPages: React.FC<{
   disabled: boolean;
   onLine: (field: SignatureFieldPlacement) => void;
   onState: (state: PreviewState) => void;
-}> = ({ document, heading, companyId, answers, today, markOf, flash, disabled, onLine, onState }) => {
+}> = ({ document, active, companyId, answers, today, markOf, flash, disabled, onLine, onState }) => {
   const { pages, loading: rendering, render, reset } = usePdfRenderer();
   const [previewState, setPreviewState] = useState<PreviewState>('loading');
   const [widths, setWidths] = useState<number[]>([]);
@@ -86,25 +93,25 @@ const DocumentPages: React.FC<{
   const renderFailed = previewState === 'ready' && !rendering && pages.length === 0;
   const shown = pages.length > 0 && !rendering;
   useEffect(() => {
-    report.current(renderFailed ? 'failed' : shown ? 'ready' : previewState === 'failed' ? 'failed' : 'loading');
+    report.current(renderFailed || previewState === 'failed' ? 'failed' : shown ? 'ready' : 'loading');
   }, [previewState, renderFailed, shown]);
 
-  // The signature lines sit on the page image at its displayed size
+  // The signature lines sit on the page image at its displayed size, which a
+  // hidden document doesn't have until it's shown
   useEffect(() => {
-    if (pages.length === 0) return undefined;
+    if (pages.length === 0 || !active) return undefined;
     const measure = () => setWidths(pageRefs.current.map(el => el?.clientWidth || 0));
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, [pages]);
+  }, [pages, active]);
 
   return (
-    <section className="os-doc">
-      {heading && <h2 className="os-doc-title">{heading}</h2>}
+    <section className="os-doc" hidden={!active}>
       {(previewState === 'loading' || rendering) && <Skeleton active paragraph={{ rows: 10 }} />}
       {(previewState === 'failed' || renderFailed) && (
         <div className="os-error" role="alert">
-          Couldn&apos;t load {heading ? document.template_name : 'the document'}.
+          Couldn&apos;t load {document.template_name}.
           <Button size="small" onClick={loadPreview}>Try again</Button>
         </div>
       )}
@@ -146,6 +153,9 @@ const DocumentPages: React.FC<{
 interface SignStepProps {
   leading: React.ReactNode;
   form: OnsiteForm;
+  /** Which of several contracts is on screen; it lives in the URL so Back steps through them */
+  docIndex: number;
+  onDoc: (index: number) => void;
   companyId: string;
   clientId?: string;
   address?: OnsiteAddress;
@@ -156,11 +166,16 @@ interface SignStepProps {
 }
 
 const SignStep: React.FC<SignStepProps> = ({
-  leading, form, companyId, clientId, address, answers, today, onBack, onSigned,
+  leading, form, docIndex, onDoc, companyId, clientId, address, answers, today, onBack, onSigned,
 }) => {
   const { isPhone } = useSheetModal();
   const documents = form.documents;
   const several = documents.length > 1;
+  const current = Math.min(Math.max(docIndex, 0), documents.length - 1);
+  const currentDoc = documents[current];
+  const isLast = current === documents.length - 1;
+  // What the signer agrees to is stored as shown
+  const consentText = several ? `${CONSENT_TEXT} This covers all ${documents.length} contracts.` : CONSENT_TEXT;
 
   const [states, setStates] = useState<Record<string, PreviewState>>({});
   const [signerName, setSignerName] = useState(answers['client.display_name'] ?? '');
@@ -176,44 +191,36 @@ const SignStep: React.FC<SignStepProps> = ({
   // One mark per signer and kind, across every document
   const slots = useMemo(() => {
     const seen = new Map<string, Slot>();
-    documents.forEach(document => {
-      document.signature_fields.filter(f => !isDate(f.fieldType)).forEach(field => {
-        const key = slotOf(field);
-        if (!seen.has(key)) {
-          seen.set(key, {
-            key,
-            role: field.signerRole,
-            isInitials: field.fieldType === 'initial',
-            label: lineLabel(field),
-            lines: [],
-          });
-        }
-        seen.get(key)?.lines.push(lineKey(document, field));
-      });
-    });
+    documents.forEach(document => signLines(document).forEach(field => {
+      const key = slotOf(field);
+      if (!seen.has(key)) {
+        seen.set(key, {
+          key, role: field.signerRole, isInitials: field.fieldType === 'initial', label: lineLabel(field),
+        });
+      }
+    }));
     return [...seen.values()];
   }, [documents]);
   const slotByKey = useMemo(() => new Map(slots.map(slot => [slot.key, slot])), [slots]);
 
-  // The customer's lines first, then anyone else's
-  const groups = useMemo(() => {
-    const roles = [...new Set(slots.map(slot => slot.role))]
-      .sort((a, b) => Number(b === 'homeowner') - Number(a === 'homeowner'));
-    return roles.map(role => ({ role, slots: slots.filter(slot => slot.role === role) }));
-  }, [slots]);
-
+  // What each document still needs, in page order
+  const left = (document: OnsiteDocument) => signLines(document).filter(f => !placed[lineKey(document, f)]);
+  const leftHere = left(currentDoc);
+  const firstUnfinished = documents.findIndex(document => left(document).length > 0);
+  const allSigned = firstUnfinished === -1;
+  const currentShown = states[currentDoc.template_id] === 'ready';
   const allShown = documents.every(document => states[document.template_id] === 'ready');
-  const left = (slot: Slot) => slot.lines.filter(line => !placed[line]);
-  const unsigned = slots.filter(slot => left(slot).length > 0);
-  const ready = allShown && unsigned.length === 0 && !!signerName.trim() && consent;
-  const stillNeeded = [
-    ...unsigned.map(slot => {
-      const count = left(slot).length;
-      return `${slot.label} (${count} ${count === 1 ? 'line' : 'lines'})`;
-    }),
-    ...(signerName.trim() ? [] : ['the full name']),
-    ...(consent ? [] : ['agreement to sign electronically']),
-  ];
+  const ready = allShown && allSigned && !!signerName.trim() && consent;
+
+  // The customer's lines first, then anyone else's; only those on this document
+  const groups = useMemo(() => {
+    const here = new Set(signLines(currentDoc).map(slotOf));
+    const shown = slots.filter(slot => here.has(slot.key));
+    const roles = [...new Set(shown.map(slot => slot.role))]
+      .sort((a, b) => Number(b === 'homeowner') - Number(a === 'homeowner'));
+    return roles.map(role => ({ role, slots: shown.filter(slot => slot.role === role) }));
+  }, [slots, currentDoc]);
+  const signerRole = slots.find(slot => slot.role === 'homeowner')?.role ?? slots[0]?.role ?? 'homeowner';
 
   // The Type tab starts from the name, but only on the person's own lines
   const padName = (() => {
@@ -238,11 +245,9 @@ const SignStep: React.FC<SignStepProps> = ({
 
   const flashTimer = useRef<number>();
   useEffect(() => () => window.clearTimeout(flashTimer.current), []);
-  const goToNext = (slot: Slot) => {
-    const next = left(slot)[0];
-    if (!next) return;
-    window.document.getElementById(lineDomId(next))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    setFlash(next);
+  const showLine = (key: string) => {
+    window.document.getElementById(lineDomId(key))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlash(key);
     window.clearTimeout(flashTimer.current);
     flashTimer.current = window.setTimeout(() => setFlash(null), 1600);
   };
@@ -266,7 +271,7 @@ const SignStep: React.FC<SignStepProps> = ({
         today,
         signer_name: signerName.trim(),
         consent_agreed: true,
-        consent_text: CONSENT_TEXT,
+        consent_text: consentText,
       });
       onSigned(signed, signerName.trim());
     } catch (err: any) {
@@ -275,16 +280,84 @@ const SignStep: React.FC<SignStepProps> = ({
     }
   };
 
+  const toSign = (count: number) => `${count} ${count === 1 ? 'line' : 'lines'} to sign`;
+  const which = several ? 'this contract' : 'this document';
+
+  // The one thing to do next, kept in view under the thumb
+  const guide = (() => {
+    if (!currentShown) return null;
+    if (leftHere.length > 0) {
+      const next = lineKey(currentDoc, leftHere[0]);
+      return {
+        text: `${toSign(leftHere.length)} on ${which}`,
+        button: <Button type="primary" disabled={submitting} onClick={() => showLine(next)}>Next line</Button>,
+      };
+    }
+    if (!isLast) {
+      return {
+        text: `Signed. Next: ${documents[current + 1].template_name}`,
+        button: <Button type="primary" onClick={() => onDoc(current + 1)}>Next contract</Button>,
+      };
+    }
+    if (!allSigned) {
+      const behind = documents[firstUnfinished];
+      return {
+        text: `${behind.template_name} still has ${toSign(left(behind).length)}`,
+        button: <Button type="primary" onClick={() => onDoc(firstUnfinished)}>Go to contract {firstUnfinished + 1}</Button>,
+      };
+    }
+    const missing = [
+      ...(signerName.trim() ? [] : ['the full name']),
+      ...(consent ? [] : ['agreement to sign electronically']),
+    ];
+    return {
+      text: missing.length > 0 ? `Still needed: ${missing.join(' and ')}` : (several ? 'Every contract is signed' : ''),
+      button: (
+        <Button type="primary" disabled={!ready} loading={submitting} onClick={submit}>
+          {several ? `Sign and create ${documents.length} contracts` : 'Sign and create contract'}
+        </Button>
+      ),
+    };
+  })();
+
   return (
     <>
       <PageHeader
         leading={leading}
-        title={several ? 'Read and sign each document' : 'Read and sign'}
-        meta={several ? `${documents.length} documents` : documents[0]?.template_name}
+        title={several ? `Contract ${current + 1} of ${documents.length}` : 'Read and sign'}
+        meta={currentDoc.template_name}
       />
-      {allShown && (
+
+      {several && (
+        <ol className="os-steps" aria-label="Contracts to sign">
+          {documents.map((document, index) => {
+            const count = left(document).length;
+            const done = count === 0;
+            return (
+              <li key={document.template_id}>
+                <button
+                  type="button"
+                  className={`os-step${index === current ? ' is-current' : ''}${done ? ' is-done' : ''}`}
+                  aria-current={index === current ? 'step' : undefined}
+                  onClick={() => onDoc(index)}
+                >
+                  <span className="os-step-mark" aria-hidden="true">{done ? <CheckOutlined /> : index + 1}</span>
+                  <span className="os-step-body">
+                    <span className="os-step-name">{document.template_name}</span>
+                    <span className="os-step-meta">{done ? 'Signed' : toSign(count)}</span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      {currentShown && (
         <p className="os-lead">
-          Tap a marked line to sign. After the first one, tapping a line puts the same signature on it.
+          {several
+            ? 'Tap a marked line to sign. After the first one, tapping any line on any of the contracts puts the same signature on it.'
+            : 'Tap a marked line to sign. After the first one, tapping a line puts the same signature on it.'}
         </p>
       )}
 
@@ -292,7 +365,7 @@ const SignStep: React.FC<SignStepProps> = ({
         <DocumentPages
           key={document.template_id}
           document={document}
-          heading={several ? `${index + 1} of ${documents.length} · ${document.template_name}` : undefined}
+          active={index === current}
           companyId={companyId}
           answers={answers}
           today={today}
@@ -306,39 +379,40 @@ const SignStep: React.FC<SignStepProps> = ({
         />
       ))}
 
-      {allShown && (
+      {currentShown && (
         <div className="os-sign">
-          {groups.map((group, groupIndex) => (
+          {groups.map(group => (
             <section key={group.role} className="ui-section">
               <div className="ui-section-head">
                 <h2 className="ui-section-title">{humanize(group.role)} signs</h2>
               </div>
               {group.slots.map(slot => {
                 const mark = marks[slot.key];
-                const remaining = left(slot).length;
-                const done = slot.lines.length - remaining;
+                const lines = signLines(currentDoc).filter(f => slotOf(f) === slot.key);
+                const done = lines.filter(f => placed[lineKey(currentDoc, f)]).length;
+                const firstOpen = lines.find(f => !placed[lineKey(currentDoc, f)]);
                 return (
                   <div key={slot.key} className="os-sign-row">
                     <span className="os-sign-label">
                       {slot.isInitials ? 'Initials' : 'Signature'}
                       <span className="os-sign-meta">
-                        {done} of {slot.lines.length} {slot.lines.length === 1 ? 'line' : 'lines'} signed
+                        {done} of {lines.length} {lines.length === 1 ? 'line' : 'lines'} signed
                       </span>
                     </span>
                     {mark && <img className="os-sign-image" src={mark} alt={`${slot.label} as signed`} />}
                     <span className="os-sign-actions">
                       {!mark && (
-                        <Button disabled={submitting} onClick={() => setPad({ slot, line: slot.lines[0] })}>
+                        <Button
+                          disabled={submitting}
+                          onClick={() => setPad({ slot, line: firstOpen && lineKey(currentDoc, firstOpen) })}
+                        >
                           Sign
                         </Button>
-                      )}
-                      {mark && remaining > 0 && (
-                        <Button disabled={submitting} onClick={() => goToNext(slot)}>Next line</Button>
                       )}
                       {mark && (
                         <Button
                           type="text"
-                          icon={remaining === 0 ? <CheckOutlined /> : undefined}
+                          icon={done === lines.length ? <CheckOutlined /> : undefined}
                           disabled={submitting}
                           onClick={() => setPad({ slot })}
                         >
@@ -349,47 +423,45 @@ const SignStep: React.FC<SignStepProps> = ({
                   </div>
                 );
               })}
-              {groupIndex === 0 && (
-                <>
-                  <div className="os-field os-signer">
-                    <label className="os-field-label" htmlFor="os-signer-name">
-                      {humanize(group.role)}&apos;s full name
-                    </label>
-                    <Input
-                      id="os-signer-name"
-                      value={signerName}
-                      onChange={e => setSignerName(e.target.value)}
-                      autoComplete="off"
-                      disabled={submitting}
-                    />
-                  </div>
-                  <Checkbox
-                    className="os-consent"
-                    checked={consent}
-                    onChange={e => setConsent(e.target.checked)}
-                    disabled={submitting}
-                  >
-                    {CONSENT_TEXT}
-                  </Checkbox>
-                </>
-              )}
             </section>
           ))}
 
+          {isLast && (
+            <section className="os-signer">
+              <div className="os-field">
+                <label className="os-field-label" htmlFor="os-signer-name">
+                  {humanize(signerRole)}&apos;s full name
+                </label>
+                <Input
+                  id="os-signer-name"
+                  value={signerName}
+                  onChange={e => setSignerName(e.target.value)}
+                  autoComplete="off"
+                  disabled={submitting}
+                />
+              </div>
+              <Checkbox
+                className="os-consent"
+                checked={consent}
+                onChange={e => setConsent(e.target.checked)}
+                disabled={submitting}
+              >
+                {consentText}
+              </Checkbox>
+            </section>
+          )}
+
           {submitError && <div className="os-error" role="alert">{submitError}</div>}
-          {stillNeeded.length > 0 && <p className="os-note">Still needed: {stillNeeded.join(', ')}.</p>}
         </div>
       )}
 
-      <div className="os-actions">
-        {isPhone && <Button disabled={submitting} onClick={onBack}>Back</Button>}
-        {allShown && (
-          <div className="os-actions-end">
-            <Button type="primary" disabled={!ready} loading={submitting} onClick={submit}>
-              {several ? `Sign and create ${documents.length} contracts` : 'Sign and create contract'}
-            </Button>
-          </div>
-        )}
+      {/* Stays in view at the bottom with the next thing to do */}
+      <div className="os-guide">
+        <p className="os-guide-text" aria-live="polite">{guide?.text}</p>
+        <div className="os-actions">
+          {isPhone && <Button disabled={submitting} onClick={onBack}>Back</Button>}
+          {guide && <div className="os-actions-end">{guide.button}</div>}
+        </div>
       </div>
 
       <WMSignaturePad

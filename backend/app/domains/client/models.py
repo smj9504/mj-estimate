@@ -462,6 +462,9 @@ class ClaimTodo(Base, BaseModel):
     # A signed contract this todo is about, and what it asks: put it on a claim
     # (assign_claim) or sign for the company (company_signature). Doing that finishes the todo
     contract_id = Column(UUIDType(), ForeignKey("contract_instances.id", ondelete="CASCADE"), nullable=True, index=True)
+    # Every contract the todo is about, as a JSON list, when it is about several
+    # signed together; contract_id is the first. Putting them all on a claim finishes it
+    contract_ids = Column(Text)
     contract_task = Column(String(30))
     title = Column(String(500), nullable=False)
     description = Column(Text)

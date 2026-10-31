@@ -94,7 +94,8 @@ const DoneStep: React.FC<{
       />
       {result.office_notified && (
         <p className="os-note">
-          The office has been asked to assign {several ? 'these contracts' : 'this contract'} to a claim.
+          A todo to put {several ? 'these contracts' : 'this contract'} on a claim is on your board,
+          and the office has been told.
         </p>
       )}
 

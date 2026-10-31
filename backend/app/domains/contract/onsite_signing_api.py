@@ -326,19 +326,22 @@ def _find_or_create_client(
 
 
 def _tell_the_office(staff: Any, contracts: List[Dict[str, Any]], client: Client) -> bool:
-    """Every admin gets a todo for each contract to put it on a claim, and one
-    message about the visit. Whoever signed needn't message themselves. A failure
-    here mustn't undo signatures the customer has already given, so it is
-    reported, not raised."""
+    """One todo for the visit, on the board of whoever collected the signature,
+    to put its contracts on a claim; it finishes once they all are. Every admin
+    gets a message about it, except the one who signed. A failure here mustn't
+    undo signatures the customer has already given, so it is reported, not
+    raised."""
     from app.domains.client.service import ClaimTodoService
     from app.domains.messaging.service import MessagingService
 
     titles = [contract.get('title') or 'Contract' for contract in contracts]
     where = client.address or client.display_name
     if len(contracts) == 1:
+        task = f"Assign signed contract to a claim: {titles[0]}, {where}"
         news = (f"Signed on site: {titles[0]} for {client.display_name} ({where}). "
                 "It needs to be assigned to a claim.")
     else:
+        task = f"Assign {len(contracts)} signed contracts to a claim: {', '.join(titles)}, {where}"
         news = (f"Signed on site: {', '.join(titles)} for {client.display_name} ({where}). "
                 "They need to be assigned to a claim.")
     database = get_database()
@@ -350,16 +353,14 @@ def _tell_the_office(staff: Any, contracts: List[Dict[str, Any]], client: Client
             Staff.can_login.is_(True),
         ).all()]
 
-        todos = ClaimTodoService(database)
-        for contract, title in zip(contracts, titles):
-            for admin_id in admins:
-                todos.create_todo({
-                    'title': f"Assign signed contract to a claim: {title}, {where}",
-                    'owner_id': admin_id,
-                    'client_id': str(client.id),
-                    'contract_id': str(contract['id']),
-                    'contract_task': TASK_ASSIGN_CLAIM,
-                })
+        ClaimTodoService(database).create_todo({
+            'title': task[:500],
+            'owner_id': str(staff.id),
+            'client_id': str(client.id),
+            'contract_id': str(contracts[0]['id']),
+            'contract_ids': json.dumps([str(contract['id']) for contract in contracts]),
+            'contract_task': TASK_ASSIGN_CLAIM,
+        })
 
         messaging = MessagingService(session)
         for admin_id in admins:

@@ -1,6 +1,6 @@
 """On-site signing: the questions a template asks, and the whole visit from
-picking a company to the signed PDFs, the new client, the office's todos and
-message, and putting a contract on a claim, on a throwaway SQLite database.
+picking a company to the signed PDFs, the new client, the signer's todo and the
+office's message, and putting the contracts on a claim, on a throwaway SQLite database.
 Water mitigation signs the company's authorization and sign-off together."""
 
 from datetime import datetime
@@ -549,14 +549,16 @@ def test_consent_and_a_name_are_required(env):
 # ── The office ───────────────────────────────────────────────────────────────
 
 
-def test_admins_get_a_todo_per_contract_and_one_message(env):
+def test_the_signer_gets_one_todo_for_the_visit_and_admins_a_message(env):
     result = env.http.post('/onsite/contracts', json=sign_payload(env)).json()
 
-    todos = rows(env, ClaimTodo)
-    assert [str(t.owner_id) for t in todos] == [env.ids['admin']] * 2
-    assert {str(t.client_id) for t in todos} == {result['client_id']}
-    assert {str(t.contract_id) for t in todos} == {c['contract_id'] for c in result['contracts']}
-    assert all('Assign signed contract to a claim' in t.title and t.status == 'todo' for t in todos)
+    [todo] = rows(env, ClaimTodo)
+    assert str(todo.owner_id) == env.ids['field'] and todo.status == 'todo'
+    assert str(todo.client_id) == result['client_id']
+    ids = [c['contract_id'] for c in result['contracts']]
+    assert str(todo.contract_id) == ids[0] and json.loads(todo.contract_ids) == ids
+    assert todo.title.startswith('Assign 2 signed contracts to a claim')
+    assert 'Water Mitigation EWA' in todo.title and 'A Water Mitigation COS' in todo.title
 
     [message] = rows(env, Message)
     assert str(message.sender_id) == env.ids['field'] and message.kind == 'text'
@@ -570,7 +572,7 @@ def test_admins_get_a_todo_per_contract_and_one_message(env):
 def test_an_admin_signing_does_not_message_themselves(env):
     env.current['as'] = 'admin'
     env.http.post('/onsite/contracts', json=sign_payload(env))
-    assert [str(t.owner_id) for t in rows(env, ClaimTodo)] == [env.ids['admin']] * 2
+    assert [str(t.owner_id) for t in rows(env, ClaimTodo)] == [env.ids['admin']]
     assert rows(env, Message) == []
 
 
@@ -587,7 +589,7 @@ def test_a_failure_telling_the_office_does_not_lose_the_signature(env, monkeypat
     assert [c.status for c in rows(env, ContractInstance)] == ['signed', 'signed']
 
 
-def test_putting_it_on_a_claim_finishes_every_admins_todo(env):
+def test_the_todo_is_done_once_every_contract_is_on_a_claim(env):
     env.http.post('/onsite/contracts', json=sign_payload(env, client_id=env.ids['pat'], address=None))
     contract = by_title(env)['Water Mitigation EWA']
     other = by_title(env)['A Water Mitigation COS']
@@ -600,13 +602,33 @@ def test_putting_it_on_a_claim_finishes_every_admins_todo(env):
     assert response.status_code == 200
 
     assert str(by_title(env)['Water Mitigation EWA'].claim_id) == env.ids['claim']
-    todos = {str(t.contract_id): t for t in rows(env, ClaimTodo)}
-    todo = todos[str(contract.id)]
-    assert todo.status == 'done' and todo.is_completed is True and str(todo.claim_id) == env.ids['claim']
-    # The other contract's todo waits for its own claim
-    assert todos[str(other.id)].status == 'todo'
+    # The other contract still waits, so the todo does too, now on that claim
+    [todo] = rows(env, ClaimTodo)
+    assert todo.status == 'todo' and str(todo.claim_id) == env.ids['claim']
     listed = env.http.get(f"/contracts/clients/{env.ids['pat']}/unassigned").json()
     assert [c['id'] for c in listed['contracts']] == [str(other.id)]
+
+    response = env.http.put(f'/contracts/contracts/{other.id}/claim', json={'claim_id': env.ids['claim']})
+    assert response.status_code == 200
+    [todo] = rows(env, ClaimTodo)
+    assert todo.status == 'done' and todo.is_completed is True
+    assert env.http.get(f"/contracts/clients/{env.ids['pat']}/unassigned").json()['contracts'] == []
+
+
+def test_one_contract_signed_on_its_own_finishes_its_todo(env):
+    session = env.database.get_session()
+    template_id = str(session.query(ContractTemplate).filter_by(name='Other EWA').first().id)
+    session.close()
+    env.current['as'] = 'admin'
+    result = env.http.post('/onsite/contracts', json=sign_payload(
+        env, company_id=env.ids['other'], client_id=env.ids['pat'], address=None,
+        documents=[{'template_id': template_id, 'signature_fields': {'s-home': SIGNATURE, 's-init': SIGNATURE}}],
+    )).json()
+    [todo] = rows(env, ClaimTodo)
+    assert todo.title.startswith('Assign signed contract to a claim: Other EWA')
+    contract_id = result['contracts'][0]['contract_id']
+    env.http.put(f'/contracts/contracts/{contract_id}/claim', json={'claim_id': env.ids['claim']})
+    assert rows(env, ClaimTodo)[0].status == 'done'
 
 
 def test_a_contract_cannot_go_on_another_clients_claim(env):
