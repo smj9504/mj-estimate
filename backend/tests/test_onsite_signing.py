@@ -1,6 +1,7 @@
 """On-site signing: the questions a template asks, and the whole visit from
-picking a company to the signed PDF, the new client, the office's todo and
-message, and putting the contract on a claim, on a throwaway SQLite database."""
+picking a company to the signed PDFs, the new client, the office's todos and
+message, and putting a contract on a claim, on a throwaway SQLite database.
+Water mitigation signs the company's authorization and sign-off together."""
 
 from datetime import datetime
 from io import BytesIO
@@ -29,7 +30,7 @@ from app.domains.company.models import Company
 from app.domains.contract import api as contract_api
 from app.domains.contract import onsite_signing_api
 from app.domains.contract.models import ClaimCompany, ContractInstance, ContractSignature, ContractTemplate
-from app.domains.contract.onsite_signing import build_questions, expand_answers, missing_fields
+from app.domains.contract.onsite_signing import build_questions, expand_answers, missing_fields, period_error
 from app.domains.messaging.models import Conversation, ConversationParticipant, Message
 from app.domains.staff.models import Staff, StaffCompany, StaffRole
 # SQLAlchemy configures every loaded model on first use, and models other test
@@ -61,6 +62,18 @@ MAPPINGS = [
     {'id': 's-home', 'fieldKey': 'signature.homeowner', 'label': 'Homeowner Signature', 'pageIndex': 0, 'x': 0.1, 'y': 0.7},
     {'id': 's-init', 'fieldKey': 'initial.homeowner', 'label': 'Initials', 'pageIndex': 0, 'x': 0.5, 'y': 0.7},
     {'id': 's-date', 'fieldKey': 'date_signed.homeowner', 'label': 'Date Signed', 'pageIndex': 0, 'x': 0.1, 'y': 0.8},
+]
+
+# The sign-off signed with the authorization: the days it ran, and the customer's signature
+COS_MAPPINGS = [
+    {'id': 'c-name', 'fieldKey': 'wm_job.homeowner_name', 'label': 'Homeowner', 'pageIndex': 0, 'x': 0.1, 'y': 0.1},
+    {'id': 'c-period', 'fieldKey': 'wm_job.mitigation_period', 'label': 'Mitigation Period',
+     'pageIndex': 0, 'x': 0.1, 'y': 0.2, 'width': 0.6},
+    {'id': 'c-next', 'fieldKey': 'wm_job.date_of_loss_plus_1', 'label': 'Day After Loss',
+     'pageIndex': 0, 'x': 0.1, 'y': 0.3},
+    {'id': 'c-sign', 'fieldKey': 'signature.homeowner', 'label': 'Homeowner Signature',
+     'pageIndex': 0, 'x': 0.1, 'y': 0.7},
+    {'id': 'c-date', 'fieldKey': 'date_signed.homeowner', 'label': 'Date Signed', 'pageIndex': 0, 'x': 0.1, 'y': 0.8},
 ]
 
 
@@ -137,17 +150,19 @@ def env(tmp_path, monkeypatch):
     session.flush()
     pat.company_id = bethany.id
 
-    def template(company, name, purpose, mappings=MAPPINGS):
+    def template(company, name, purpose, mappings=MAPPINGS, document_type='authorization'):
         row = ContractTemplate(
-            company_id=company.id, name=name, document_type='authorization',
+            company_id=company.id, name=name, document_type=document_type,
             file_url=str(template_pdf), storage_provider='local',
             field_mappings=json.dumps(mappings), signing_purpose=purpose, is_active=True,
         )
         session.add(row)
         return row
 
+    # Named so that by name the sign-off would come first; the authorization still does
+    cos = template(bethany, 'A Water Mitigation COS', 'water_mitigation', COS_MAPPINGS, 'certificate_of_satisfaction')
     ewa = template(bethany, 'Water Mitigation EWA', 'water_mitigation')
-    template(bethany, 'COS', 'work_completion')
+    completion = template(bethany, 'COS', 'work_completion')
     template(plumber, 'Not a contractor', 'water_mitigation')
     template(other, 'Other EWA', 'water_mitigation')
     template(no_template, 'No signature line', 'water_mitigation', [MAPPINGS[1]])
@@ -159,8 +174,8 @@ def env(tmp_path, monkeypatch):
 
     ids = {
         'admin': str(admin.id), 'field': str(field.id), 'outsider': str(outsider.id),
-        'bethany': str(bethany.id), 'ewa': str(ewa.id), 'pat': str(pat.id), 'claim': str(claim.id),
-        'other': str(other.id),
+        'bethany': str(bethany.id), 'ewa': str(ewa.id), 'cos': str(cos.id), 'pat': str(pat.id),
+        'claim': str(claim.id), 'other': str(other.id), 'completion': str(completion.id),
     }
     roles = {'admin': StaffRole.admin, 'field': StaffRole.contractor, 'outsider': StaffRole.contractor}
     session.close()
@@ -191,24 +206,36 @@ def env(tmp_path, monkeypatch):
     )
 
 
+def both_documents(env, ewa=None):
+    return [
+        {'template_id': env.ids['ewa'], 'signature_fields': ewa or {'s-home': SIGNATURE, 's-init': SIGNATURE}},
+        {'template_id': env.ids['cos'], 'signature_fields': {'c-sign': SIGNATURE}},
+    ]
+
+
 def sign_payload(env, **over):
     payload = {
-        'template_id': env.ids['ewa'],
         'company_id': env.ids['bethany'],
+        'documents': both_documents(env),
         'address': {'street': '12 New Rd', 'city': 'Fairfax', 'state': 'VA', 'zipcode': '22030'},
         'answers': {
             'client.display_name': 'Sam Homeowner',
             'client.full_address': '12 New Rd, Fairfax, VA 22030',
             'client.phone': '555-0002',
             'claim.date_of_loss': '10/01/2026',
+            'wm_job.mitigation_start_date': '10/02/2026',
+            'wm_job.mitigation_end_date': '10/04/2026',
         },
         'today': '10/30/2026',
         'signer_name': 'Sam Homeowner',
-        'signature_fields': {'s-home': SIGNATURE, 's-init': SIGNATURE},
         'consent_agreed': True,
     }
     payload.update(over)
     return payload
+
+
+def by_title(env):
+    return {c.title: c for c in rows(env, ContractInstance)}
 
 
 def rows(env, model):
@@ -255,6 +282,54 @@ def test_an_answer_fills_every_key_of_its_fact_and_only_what_was_asked():
     assert prefill == {'client': {'display_name': 'Sam'}, 'wm_job': {'homeowner_name': 'Sam'}}
 
 
+def test_water_mitigation_asks_the_loss_then_the_days_it_ran():
+    questions = build_questions([MAPPINGS[1], MAPPINGS[4]], {}, water_mitigation=True)
+    assert [q['key'] for q in questions] == [
+        'client.display_name', 'client.phone',
+        'claim.date_of_loss', 'wm_job.mitigation_start_date', 'wm_job.mitigation_end_date',
+    ]
+    assert {q['kind'] for q in questions[2:]} == {'date'}
+
+
+def test_dates_that_follow_from_others_are_never_asked():
+    period = build_questions([COS_MAPPINGS[1]], {})
+    assert [q['key'] for q in period] == [
+        'claim.date_of_loss', 'wm_job.mitigation_start_date', 'wm_job.mitigation_end_date',
+    ]
+    day_after = build_questions([COS_MAPPINGS[2]], {})
+    assert [q['key'] for q in day_after] == ['claim.date_of_loss']
+    assert build_questions([MAPPINGS[1]], {}) == [
+        {'key': 'client.display_name', 'label': 'Client Name', 'kind': 'text', 'value': ''},
+    ]
+
+
+def test_the_loss_dates_fill_what_follows_from_them():
+    allowed = ['claim.date_of_loss', 'wm_job.mitigation_start_date', 'wm_job.mitigation_end_date']
+    prefill = expand_answers({
+        'claim.date_of_loss': '12/31/2026',
+        'wm_job.mitigation_start_date': '01/01/2027',
+        'wm_job.mitigation_end_date': '01/03/2027',
+    }, allowed)
+    assert prefill['wm_job'] == {
+        'date_of_loss': '12/31/2026',
+        'date_of_loss_plus_1': '01/01/2027',
+        'mitigation_start_date': '01/01/2027',
+        'mitigation_end_date': '01/03/2027',
+        'mitigation_period': '01/01/2027 - 01/03/2027',
+    }
+    # A forged derived value isn't taken
+    assert 'mitigation_period' not in expand_answers({'wm_job.mitigation_period': 'x'}, allowed).get('wm_job', {})
+
+
+def test_the_mitigation_runs_after_the_loss_and_forwards():
+    assert period_error({'wm_job.mitigation_start_date': '10/04/2026', 'wm_job.mitigation_end_date': '10/02/2026'})
+    assert period_error({'claim.date_of_loss': '10/05/2026', 'wm_job.mitigation_start_date': '10/02/2026'})
+    assert period_error({
+        'claim.date_of_loss': '10/01/2026',
+        'wm_job.mitigation_start_date': '10/02/2026', 'wm_job.mitigation_end_date': '10/02/2026',
+    }) is None
+
+
 def test_missing_fields_names_each_fact_once():
     prefill = {'client': {'phone': '555'}, 'meta': {'current_date': 'x'}, 'company': {'name': 'B'}}
     assert missing_fields(MAPPINGS, prefill) == ['Date of Loss', 'Client Name', 'Property Address']
@@ -267,7 +342,8 @@ def test_companies_are_contractors_with_something_to_sign_for_this_purpose(env):
     env.current['as'] = 'admin'
     data = env.http.get('/onsite/companies', params={'purpose': 'water_mitigation'}).json()
     assert [c['name'] for c in data['companies']] == ['Bethany', 'Other Co']
-    assert [t['name'] for t in data['companies'][0]['templates']] == ['Water Mitigation EWA']
+    # Permission to start comes before the sign-off
+    assert [t['name'] for t in data['companies'][0]['templates']] == ['Water Mitigation EWA', 'A Water Mitigation COS']
 
 
 def test_staff_only_see_their_own_companies(env):
@@ -275,27 +351,68 @@ def test_staff_only_see_their_own_companies(env):
     assert [c['name'] for c in data['companies']] == ['Bethany']
 
 
+def form_request(env, **over):
+    return {
+        'template_ids': [env.ids['ewa'], env.ids['cos']], 'company_id': env.ids['bethany'],
+        'address': {'street': '1 A St'}, **over,
+    }
+
+
 def test_someone_elses_template_is_not_found(env):
-    response = env.http.post('/onsite/form', json={
-        'template_id': env.ids['ewa'], 'company_id': env.ids['bethany'], 'address': {'street': '1 A St'},
-    })
-    assert response.status_code == 200
+    assert env.http.post('/onsite/form', json=form_request(env)).status_code == 200
     env.current['as'] = 'outsider'
-    response = env.http.post('/onsite/form', json={
-        'template_id': env.ids['ewa'], 'company_id': env.ids['bethany'], 'address': {'street': '1 A St'},
-    })
-    assert response.status_code == 404
+    assert env.http.post('/onsite/form', json=form_request(env)).status_code == 404
 
 
 def test_the_form_starts_from_the_client_on_file(env):
-    form = env.http.post('/onsite/form', json={
-        'template_id': env.ids['ewa'], 'company_id': env.ids['bethany'], 'client_id': env.ids['pat'],
-    }).json()
+    form = env.http.post('/onsite/form', json=form_request(env, client_id=env.ids['pat'], address=None)).json()
     values = {q['key']: q['value'] for q in form['questions']}
     assert values['client.display_name'] == 'Pat Client'
     assert values['client.phone'] == '555-0001'
     assert values['client.full_address'] == '9 Oak St, 22030'
-    assert {f['id'] for f in form['signature_fields']} == {'s-home', 's-init', 's-date'}
+    ewa, cos = form['documents']
+    assert {f['id'] for f in ewa['signature_fields']} == {'s-home', 's-init', 's-date'}
+    assert {f['id'] for f in cos['signature_fields']} == {'c-sign', 'c-date'}
+
+
+def test_water_mitigation_asks_once_for_every_document_in_order(env):
+    form = env.http.post('/onsite/form', json=form_request(env, template_ids=[env.ids['cos'], env.ids['ewa']])).json()
+    assert [d['template_name'] for d in form['documents']] == ['Water Mitigation EWA', 'A Water Mitigation COS']
+    keys = [q['key'] for q in form['questions']]
+    assert keys == [
+        'client.display_name', 'client.full_address', 'client.phone',
+        'claim.date_of_loss', 'wm_job.mitigation_start_date', 'wm_job.mitigation_end_date',
+    ]
+
+
+def test_water_mitigation_documents_are_signed_together(env):
+    alone = env.http.post('/onsite/form', json=form_request(env, template_ids=[env.ids['ewa']]))
+    assert alone.status_code == 400 and 'signed together' in alone.json()['detail']
+    response = env.http.post('/onsite/contracts', json=sign_payload(env, documents=both_documents(env)[:1]))
+    assert response.status_code == 400 and 'A Water Mitigation COS' in response.json()['detail']
+    mixed = form_request(env, template_ids=[env.ids['ewa'], env.ids['cos'], env.ids['completion']])
+    assert env.http.post('/onsite/form', json=mixed).status_code == 400
+    twice = form_request(env, template_ids=[env.ids['ewa'], env.ids['ewa'], env.ids['cos']])
+    assert env.http.post('/onsite/form', json=twice).status_code == 400
+    assert rows(env, ContractInstance) == [] and len(rows(env, Client)) == 1
+
+
+def test_other_purposes_sign_one_document(env):
+    form = env.http.post('/onsite/form', json=form_request(env, template_ids=[env.ids['completion']])).json()
+    assert [d['template_name'] for d in form['documents']] == ['COS']
+    assert 'wm_job.mitigation_start_date' not in [q['key'] for q in form['questions']]
+
+
+def test_preview_draws_the_days_the_mitigation_ran(env):
+    response = env.http.post('/onsite/preview', json={
+        'template_id': env.ids['cos'], 'company_id': env.ids['bethany'], 'today': '10/30/2026',
+        'answers': {
+            'claim.date_of_loss': '10/01/2026',
+            'wm_job.mitigation_start_date': '10/02/2026', 'wm_job.mitigation_end_date': '10/04/2026',
+        },
+    })
+    text = PdfReader(BytesIO(response.content)).pages[0].extract_text()
+    assert '10/02/2026 - 10/04/2026' in text and '10/02/2026' in text
 
 
 def test_preview_draws_the_answers_and_saves_nothing(env):
@@ -313,11 +430,12 @@ def test_preview_draws_the_answers_and_saves_nothing(env):
 # ── Signing ──────────────────────────────────────────────────────────────────
 
 
-def test_signing_makes_the_client_the_contract_and_the_signed_pdf(env):
+def test_signing_makes_the_client_the_contracts_and_the_signed_pdfs(env):
     result = env.http.post('/onsite/contracts', json=sign_payload(env)).json()
 
     assert result['client_created'] is True and result['client_name'] == 'Sam Homeowner'
-    assert result['pdf_ready'] is True and result['missing_fields'] == []
+    assert [c['title'] for c in result['contracts']] == ['Water Mitigation EWA', 'A Water Mitigation COS']
+    assert all(c['pdf_ready'] and c['missing_fields'] == [] for c in result['contracts'])
     assert result['office_notified'] is True
 
     client = next(c for c in rows(env, Client) if str(c.id) == result['client_id'])
@@ -325,16 +443,23 @@ def test_signing_makes_the_client_the_contract_and_the_signed_pdf(env):
     assert str(client.company_id) == env.ids['bethany']
     assert client.owners[0] == {'name': 'Sam Homeowner', 'phone': '555-0002', 'email': None, 'is_primary': True}
 
-    contract = rows(env, ContractInstance)[0]
-    assert contract.status == 'signed' and contract.claim_id is None
-    assert str(contract.client_id) == result['client_id']
+    contracts = by_title(env)
+    assert len(contracts) == 2
+    for contract in contracts.values():
+        assert contract.status == 'signed' and contract.claim_id is None
+        assert str(contract.client_id) == result['client_id']
 
-    text = PdfReader(contract.signed_pdf_url).pages[0].extract_text()
+    text = PdfReader(contracts['Water Mitigation EWA'].signed_pdf_url).pages[0].extract_text()
     for expected in ('Sam Homeowner', '12 New Rd', '555-0002', '10/01/2026', 'Bethany', '10/30/2026'):
         assert expected in text
-    signature = rows(env, ContractSignature)[0]
-    assert signature.signer_name == 'Sam Homeowner' and signature.signature_image == SIGNATURE
-    assert signature.consent_agreed is True
+    text = PdfReader(contracts['A Water Mitigation COS'].signed_pdf_url).pages[0].extract_text()
+    for expected in ('Sam Homeowner', '10/02/2026 - 10/04/2026', '10/30/2026'):
+        assert expected in text
+    signatures = rows(env, ContractSignature)
+    assert len(signatures) == 2
+    for signature in signatures:
+        assert signature.signer_name == 'Sam Homeowner' and signature.signature_image == SIGNATURE
+        assert signature.consent_agreed is True
 
 
 def test_a_contract_signed_on_site_stays_off_the_field_signing_list(env):
@@ -366,23 +491,53 @@ def test_a_client_out_of_reach_is_not_found_by_address(env):
     template_id = str(session.query(ContractTemplate).filter_by(name='Other EWA').first().id)
     session.close()
     result = env.http.post('/onsite/contracts', json=sign_payload(
-        env, template_id=template_id, company_id=env.ids['other'],
+        env, company_id=env.ids['other'],
+        documents=[{'template_id': template_id, 'signature_fields': {'s-home': SIGNATURE, 's-init': SIGNATURE}}],
         address={'street': '9 Oak St', 'zipcode': '22030'},
     )).json()
     assert result['client_id'] != env.ids['pat'] and result['client_created'] is True
 
 
 def test_every_signature_line_must_be_signed(env):
-    response = env.http.post('/onsite/contracts', json=sign_payload(env, signature_fields={'s-home': SIGNATURE}))
-    assert response.status_code == 400 and 'Initials' in response.json()['detail']
+    response = env.http.post('/onsite/contracts', json=sign_payload(
+        env, documents=both_documents(env, ewa={'s-home': SIGNATURE}),
+    ))
+    detail = response.json()['detail']
+    assert response.status_code == 400 and 'Initials' in detail and 'Water Mitigation EWA' in detail
     assert rows(env, ContractInstance) == [] and len(rows(env, Client)) == 1
 
 
 def test_a_signature_must_be_an_image(env):
     response = env.http.post('/onsite/contracts', json=sign_payload(
-        env, signature_fields={'s-home': 'not an image', 's-init': SIGNATURE},
+        env, documents=both_documents(env, ewa={'s-home': 'not an image', 's-init': SIGNATURE}),
     ))
     assert response.status_code == 400
+
+
+def test_a_mitigation_cannot_end_before_it_starts(env):
+    payload = sign_payload(env)
+    payload['answers'] = {**payload['answers'], 'wm_job.mitigation_end_date': '09/30/2026'}
+    response = env.http.post('/onsite/contracts', json=payload)
+    assert response.status_code == 400 and 'end before it starts' in response.json()['detail']
+    assert rows(env, ContractInstance) == []
+
+
+def test_one_document_failing_voids_the_ones_made_with_it(env, monkeypatch):
+    service_class = onsite_signing_api.ContractInstanceService
+    original = service_class.create_onsite_contract
+    calls = []
+
+    def second_fails(self, *args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError('database went away')
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(service_class, 'create_onsite_contract', second_fails)
+    with pytest.raises(RuntimeError):
+        env.http.post('/onsite/contracts', json=sign_payload(env))
+    assert [c.status for c in rows(env, ContractInstance)] == ['voided']
+    assert rows(env, ClaimTodo) == []
 
 
 def test_consent_and_a_name_are_required(env):
@@ -394,18 +549,19 @@ def test_consent_and_a_name_are_required(env):
 # ── The office ───────────────────────────────────────────────────────────────
 
 
-def test_admins_get_a_todo_and_a_message(env):
+def test_admins_get_a_todo_per_contract_and_one_message(env):
     result = env.http.post('/onsite/contracts', json=sign_payload(env)).json()
 
     todos = rows(env, ClaimTodo)
-    assert [str(t.owner_id) for t in todos] == [env.ids['admin']]
-    assert str(todos[0].client_id) == result['client_id']
-    assert str(todos[0].contract_id) == result['contract_id']
-    assert 'Assign signed contract to a claim' in todos[0].title and todos[0].status == 'todo'
+    assert [str(t.owner_id) for t in todos] == [env.ids['admin']] * 2
+    assert {str(t.client_id) for t in todos} == {result['client_id']}
+    assert {str(t.contract_id) for t in todos} == {c['contract_id'] for c in result['contracts']}
+    assert all('Assign signed contract to a claim' in t.title and t.status == 'todo' for t in todos)
 
-    message = rows(env, Message)[0]
+    [message] = rows(env, Message)
     assert str(message.sender_id) == env.ids['field'] and message.kind == 'text'
     assert 'Sam Homeowner' in message.body and message.related_type == 'client'
+    assert 'Water Mitigation EWA' in message.body and 'A Water Mitigation COS' in message.body
     assert str(message.related_id) == result['client_id']
     members = {str(p.staff_id) for p in rows(env, ConversationParticipant)}
     assert members == {env.ids['field'], env.ids['admin']}
@@ -414,7 +570,7 @@ def test_admins_get_a_todo_and_a_message(env):
 def test_an_admin_signing_does_not_message_themselves(env):
     env.current['as'] = 'admin'
     env.http.post('/onsite/contracts', json=sign_payload(env))
-    assert [str(t.owner_id) for t in rows(env, ClaimTodo)] == [env.ids['admin']]
+    assert [str(t.owner_id) for t in rows(env, ClaimTodo)] == [env.ids['admin']] * 2
     assert rows(env, Message) == []
 
 
@@ -428,24 +584,29 @@ def test_a_failure_telling_the_office_does_not_lose_the_signature(env, monkeypat
     response = env.http.post('/onsite/contracts', json=sign_payload(env))
     assert response.status_code == 200
     assert response.json()['office_notified'] is False
-    assert rows(env, ContractInstance)[0].status == 'signed'
+    assert [c.status for c in rows(env, ContractInstance)] == ['signed', 'signed']
 
 
 def test_putting_it_on_a_claim_finishes_every_admins_todo(env):
     env.http.post('/onsite/contracts', json=sign_payload(env, client_id=env.ids['pat'], address=None))
-    contract = rows(env, ContractInstance)[0]
+    contract = by_title(env)['Water Mitigation EWA']
+    other = by_title(env)['A Water Mitigation COS']
     env.current['as'] = 'admin'
 
     listed = env.http.get(f"/contracts/clients/{env.ids['pat']}/unassigned").json()
-    assert [c['id'] for c in listed['contracts']] == [str(contract.id)]
+    assert {c['id'] for c in listed['contracts']} == {str(contract.id), str(other.id)}
 
     response = env.http.put(f'/contracts/contracts/{contract.id}/claim', json={'claim_id': env.ids['claim']})
     assert response.status_code == 200
 
-    assert str(rows(env, ContractInstance)[0].claim_id) == env.ids['claim']
-    todo = rows(env, ClaimTodo)[0]
+    assert str(by_title(env)['Water Mitigation EWA'].claim_id) == env.ids['claim']
+    todos = {str(t.contract_id): t for t in rows(env, ClaimTodo)}
+    todo = todos[str(contract.id)]
     assert todo.status == 'done' and todo.is_completed is True and str(todo.claim_id) == env.ids['claim']
-    assert env.http.get(f"/contracts/clients/{env.ids['pat']}/unassigned").json()['contracts'] == []
+    # The other contract's todo waits for its own claim
+    assert todos[str(other.id)].status == 'todo'
+    listed = env.http.get(f"/contracts/clients/{env.ids['pat']}/unassigned").json()
+    assert [c['id'] for c in listed['contracts']] == [str(other.id)]
 
 
 def test_a_contract_cannot_go_on_another_clients_claim(env):
@@ -454,7 +615,7 @@ def test_a_contract_cannot_go_on_another_clients_claim(env):
     env.current['as'] = 'admin'
     response = env.http.put(f'/contracts/contracts/{contract.id}/claim', json={'claim_id': env.ids['claim']})
     assert response.status_code == 400
-    assert rows(env, ContractInstance)[0].claim_id is None
+    assert all(c.claim_id is None for c in rows(env, ContractInstance))
 
 
 # ── Email ────────────────────────────────────────────────────────────────────
@@ -469,27 +630,40 @@ def test_email_goes_out_only_with_every_field_filled(env, monkeypatch):
     monkeypatch.setattr(smtp_service.SmtpService, 'send', lambda self, **kw: sent.append(kw))
     monkeypatch.setattr(settings, 'SMTP_USER', 'office@example.com', raising=False)
 
-    skipped = sign_payload(env)
-    skipped['answers'] = {**skipped['answers'], 'client.phone': ''}
-    result = env.http.post('/onsite/contracts', json=skipped).json()
-    assert result['missing_fields'] == ['Phone']
+    def email(result):
+        return env.http.post('/onsite/contracts/email', json={
+            'contract_ids': [c['contract_id'] for c in result['contracts']], 'emails': ['a@example.com'],
+        })
 
-    refused = env.http.post(f"/onsite/contracts/{result['contract_id']}/email", json={'emails': ['a@example.com']})
-    assert refused.status_code == 400 and 'Phone' in refused.json()['detail']
+    skipped = sign_payload(env)
+    skipped['answers'] = {**skipped['answers'], 'client.phone': '', 'wm_job.mitigation_end_date': ''}
+    result = env.http.post('/onsite/contracts', json=skipped).json()
+    assert [c['missing_fields'] for c in result['contracts']] == [['Phone'], ['Mitigation Period']]
+
+    refused = email(result)
+    assert refused.status_code == 400
+    assert 'Phone' in refused.json()['detail'] and 'Mitigation Period' in refused.json()['detail']
     assert sent == []
 
     full = env.http.post('/onsite/contracts', json=sign_payload(env)).json()
-    assert full['missing_fields'] == []
-    response = env.http.post(f"/onsite/contracts/{full['contract_id']}/email", json={'emails': ['a@example.com']})
+    response = email(full)
     assert response.status_code == 200
-    assert sent[0]['to_addresses'] == ['a@example.com']
-    assert sent[0]['attachments'][0]['data'].startswith(b'%PDF')
+    # One email with both signed PDFs
+    [message] = sent
+    assert message['to_addresses'] == ['a@example.com']
+    assert 'Water Mitigation EWA and A Water Mitigation COS' in message['subject']
+    assert [a['filename'] for a in message['attachments']] == [
+        'Water_Mitigation_EWA_Signed.pdf', 'A_Water_Mitigation_COS_Signed.pdf',
+    ]
+    assert all(a['data'].startswith(b'%PDF') for a in message['attachments'])
 
 
 def test_someone_elses_contract_cannot_be_emailed(env):
     result = env.http.post('/onsite/contracts', json=sign_payload(env)).json()
     env.current['as'] = 'outsider'
-    response = env.http.post(f"/onsite/contracts/{result['contract_id']}/email", json={'emails': ['a@example.com']})
+    response = env.http.post('/onsite/contracts/email', json={
+        'contract_ids': [result['contracts'][0]['contract_id']], 'emails': ['a@example.com'],
+    })
     assert response.status_code == 404
 
 

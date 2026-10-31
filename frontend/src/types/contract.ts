@@ -17,12 +17,19 @@ export type DocumentType =
 
 export type SigningPurpose = 'water_mitigation' | 'work_completion';
 
-// Keep in sync with SIGNING_PURPOSES in backend/app/domains/contract/onsite_signing.py
-export const SIGNING_PURPOSES: { value: SigningPurpose; label: string; description: string }[] = [
+// Keep in sync with SIGNING_PURPOSES and SIGNED_TOGETHER in backend/app/domains/contract/onsite_signing.py
+export const SIGNING_PURPOSES: {
+  value: SigningPurpose;
+  label: string;
+  description: string;
+  /** Every one of the company's documents for it is signed in the same visit */
+  signedTogether?: boolean;
+}[] = [
   {
     value: 'water_mitigation',
     label: 'Water Mitigation',
-    description: 'Authorization to start, or sign-off when drying is done',
+    description: 'The authorization and the sign-off, signed together',
+    signedTogether: true,
   },
   {
     value: 'work_completion',
@@ -296,24 +303,34 @@ export interface OnsiteAddress {
   zipcode?: string;
 }
 
-export interface OnsiteForm {
+export interface OnsiteDocument {
   template_id: string;
   template_name: string;
-  questions: OnsiteQuestion[];
   signature_fields: SignatureFieldPlacement[];
 }
 
-export interface OnsiteSignedContract {
+/** What a visit asks, once for all its documents, and each document's lines */
+export interface OnsiteForm {
+  documents: OnsiteDocument[];
+  questions: OnsiteQuestion[];
+}
+
+export interface OnsiteSignedDocument {
   contract_id: string;
   contract_number?: string;
   title?: string;
+  pdf_ready: boolean;
+  pdf_url: string;
+  /** Labels of the mapped fields left blank; a copy can only be emailed when there are none */
+  missing_fields: string[];
+}
+
+export interface OnsiteSignedContract {
   client_id: string;
   client_name: string;
   client_created: boolean;
   client_email: string;
-  pdf_ready: boolean;
-  pdf_url: string;
   office_notified: boolean;
-  /** Labels of the mapped fields left blank; a copy can only be emailed when there are none */
-  missing_fields: string[];
+  /** One per document, in the order they were signed */
+  contracts: OnsiteSignedDocument[];
 }

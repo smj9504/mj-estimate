@@ -171,6 +171,34 @@
   width: 100%;
 }
 
+/* The water mitigation period, under the date of loss it was set from */
+.os-period {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.os-period-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.os-period-title {
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.os-period-days {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.os-period-dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .os-count {
   font-variant-numeric: tabular-nums;
 }
@@ -244,7 +272,16 @@
   color: var(--tag-orange-text);
 }
 
-/* The document, then what the customer does about it */
+/* The documents, one after the other, then what the customer does about them */
+.os-doc + .os-doc {
+  margin-top: 24px;
+}
+.os-doc-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
 .os-pdf-page {
   position: relative;
   margin-bottom: 12px;
@@ -261,16 +298,44 @@
 }
 .os-sign-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px 12px;
   min-height: 56px;
   padding: 8px 0;
   border-bottom: 1px solid var(--color-neutral-200);
 }
 .os-sign-label {
-  flex: 1;
+  flex: 1 1 120px;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+/* The buttons go under the signature when the row runs out of room */
+.os-sign-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.os-sign-meta {
+  display: block;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+/* The line "Next line" went to, so a small box is easy to find */
+.os-line-flash {
+  animation: os-line-flash 0.8s ease-in-out 2;
+}
+@keyframes os-line-flash {
+  50% {
+    box-shadow: 0 0 0 4px rgba(245, 34, 45, 0.35);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .os-line-flash {
+    animation: none;
+    box-shadow: 0 0 0 3px rgba(245, 34, 45, 0.35);
+  }
 }
 .os-sign-image {
   flex: none;

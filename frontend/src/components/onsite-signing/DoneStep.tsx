@@ -1,7 +1,8 @@
 /**
- * After signing: the PDF, where it landed, and emailing it. Email is only
- * offered when every mapped field was filled; otherwise it says what was skipped
- * instead of offering something that would be refused.
+ * After signing: the PDFs, where they landed, and emailing them, all of a
+ * visit's contracts in one email. Email is only offered when every mapped field
+ * was filled; otherwise it says what was skipped instead of offering something
+ * that would be refused.
  */
 
 import React, { useState } from 'react';
@@ -25,6 +26,11 @@ const DoneStep: React.FC<{
   const [sentTo, setSentTo] = useState<string[] | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
 
+  const { contracts } = result;
+  const several = contracts.length > 1;
+  const noPdf = contracts.filter(c => !c.pdf_ready);
+  const missing = [...new Set(contracts.flatMap(c => c.missing_fields))];
+
   const send = async () => {
     const emails = email.split(/[,;\s]+/).map(e => e.trim()).filter(e => e.includes('@'));
     if (emails.length === 0) {
@@ -34,9 +40,9 @@ const DoneStep: React.FC<{
     setSending(true);
     setEmailError(null);
     try {
-      const sent = await onsiteSigningService.email(result.contract_id, emails);
+      const sent = await onsiteSigningService.email(contracts.map(c => c.contract_id), emails);
       setSentTo(sent.emails);
-      message.success('Signed contract sent');
+      message.success(several ? 'Signed contracts sent' : 'Signed contract sent');
     } catch (err: any) {
       setEmailError(err.response?.data?.detail || "Couldn't send the email. Try again.");
     } finally {
@@ -46,16 +52,20 @@ const DoneStep: React.FC<{
 
   return (
     <>
-      <PageHeader title="Signed" meta={result.title} />
+      <PageHeader title="Signed" meta={several ? `${contracts.length} contracts` : contracts[0]?.title} />
 
-      {!result.pdf_ready && (
+      {noPdf.length > 0 && (
         <div className="os-warning" role="alert">
-          The signature is saved, but the PDF couldn&apos;t be made. Let the office know.
+          {several
+            ? `The signatures are saved, but the PDF for ${noPdf.map(c => c.title).join(', ')} couldn't be made.`
+            : 'The signature is saved, but the PDF couldn’t be made.'}
+          {' '}Let the office know.
         </div>
       )}
       {!result.office_notified && (
         <div className="os-warning" role="alert">
-          The office wasn&apos;t notified automatically. Let them know this contract needs a claim.
+          The office wasn&apos;t notified automatically.
+          {' '}Let them know {several ? 'these contracts need' : 'this contract needs'} a claim.
         </div>
       )}
 
@@ -75,40 +85,48 @@ const DoneStep: React.FC<{
             ),
           },
           { key: 'signer', label: 'Signed by', value: signerName },
-          { key: 'number', label: 'Contract', value: result.contract_number },
+          ...contracts.map((contract, index) => ({
+            key: contract.contract_id,
+            label: several ? `Contract ${index + 1}` : 'Contract',
+            value: several ? `${contract.contract_number ?? ''} · ${contract.title ?? ''}` : contract.contract_number,
+          })),
         ]}
       />
       {result.office_notified && (
-        <p className="os-note">The office has been asked to assign this contract to a claim.</p>
+        <p className="os-note">
+          The office has been asked to assign {several ? 'these contracts' : 'this contract'} to a claim.
+        </p>
       )}
 
       <div className="os-done-actions">
-        {result.pdf_ready && (
+        {contracts.filter(c => c.pdf_ready).map(contract => (
           <Button
+            key={contract.contract_id}
             icon={<FilePdfOutlined />}
-            href={`${api.defaults.baseURL || ''}${result.pdf_url}`}
+            href={`${api.defaults.baseURL || ''}${contract.pdf_url}`}
             target="_blank"
           >
-            View signed PDF
+            {several ? contract.title : 'View signed PDF'}
           </Button>
-        )}
+        ))}
         <Button onClick={onStartOver}>Start another</Button>
       </div>
 
       <section className="ui-section os-email">
         <div className="ui-section-head">
-          <h2 className="ui-section-title">Email a copy</h2>
+          <h2 className="ui-section-title">{several ? 'Email copies' : 'Email a copy'}</h2>
         </div>
-        {result.missing_fields.length > 0 ? (
+        {missing.length > 0 ? (
           <p className="os-note">
-            Email is only available when every field is filled. Skipped: {result.missing_fields.join(', ')}.
+            Email is only available when every field is filled. Skipped: {missing.join(', ')}.
           </p>
-        ) : !result.pdf_ready ? (
-          <p className="os-note">Email will be available once the PDF is made.</p>
+        ) : noPdf.length > 0 ? (
+          <p className="os-note">Email will be available once the PDFs are made.</p>
         ) : sentTo ? (
           <p className="os-note">Sent to {sentTo.join(', ')}.</p>
         ) : (
           <>
+            {several && <p className="os-lead">The {contracts.length} signed PDFs go in one email.</p>}
             <div className="os-email-row">
               <Input
                 type="email"

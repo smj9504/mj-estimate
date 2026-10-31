@@ -21,10 +21,13 @@ interface Props {
   capturedImage?: string;
   onClick: () => void;
   disabled?: boolean;
+  /** For a screen to scroll to the line, or mark it */
+  id?: string;
+  className?: string;
 }
 
 const ContractSignatureOverlay: React.FC<Props> = ({
-  field, containerWidth, containerHeight, capturedImage, onClick, disabled,
+  field, containerWidth, containerHeight, capturedImage, onClick, disabled, id, className,
 }) => {
   const left = field.x * containerWidth;
   const top = field.y * containerHeight;
@@ -41,6 +44,8 @@ const ContractSignatureOverlay: React.FC<Props> = ({
 
   return (
     <div
+      id={id}
+      className={className}
       style={{
         position: 'absolute',
         left, top, width, height,

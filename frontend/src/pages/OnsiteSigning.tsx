@@ -3,6 +3,10 @@
  * document is for and which company it's from, fill in what the template maps,
  * and have the customer sign. Nothing is saved before that last step.
  *
+ * Some purposes (water mitigation) sign every one of the company's documents
+ * for them in one go: no document is picked, the fields are asked once for all
+ * of them, and the customer signs them together.
+ *
  * The step lives in the URL so a phone's back gesture steps back through the
  * flow instead of leaving it, and the state lives here so going back keeps what
  * was entered. The visit is drafted to this tab's storage so a reload or a
@@ -20,6 +24,7 @@ import DoneStep from '../components/onsite-signing/DoneStep';
 import FieldsStep, { type Answers } from '../components/onsite-signing/FieldsStep';
 import { ClientStep, CompanyStep, DocumentStep, LoadError, PurposeStep } from '../components/onsite-signing/PickSteps';
 import SignStep from '../components/onsite-signing/SignStep';
+import { presetPeriod } from '../components/onsite-signing/lossDates';
 import { useSheetModal } from '../components/common/ui';
 import '../components/onsite-signing/onsite.css';
 import { onsiteSigningService } from '../services/contractService';
@@ -38,7 +43,7 @@ interface Draft {
   subject: Subject | null;
   purpose: SigningPurpose | null;
   company: OnsiteCompany | null;
-  templateId: string | null;
+  templateIds: string[];
   answers: Answers;
 }
 
@@ -71,7 +76,9 @@ const OnsiteSigning: React.FC = () => {
   const [subject, setSubject] = useState<Subject | null>(draft.subject ?? null);
   const [purpose, setPurpose] = useState<SigningPurpose | null>(draft.purpose ?? null);
   const [company, setCompany] = useState<OnsiteCompany | null>(draft.company ?? null);
-  const [templateId, setTemplateId] = useState<string | null>(draft.templateId ?? null);
+  const [templateIds, setTemplateIds] = useState<string[]>(
+    Array.isArray(draft.templateIds) ? draft.templateIds : [],
+  );
   const [answers, setAnswers] = useState<Answers>(draft.answers ?? {});
   const [result, setResult] = useState<OnsiteSignedContract | null>(null);
   const [signerName, setSignerName] = useState('');
@@ -79,8 +86,8 @@ const OnsiteSigning: React.FC = () => {
   const today = useMemo(() => dayjs().format('MM/DD/YYYY'), []);
 
   useEffect(() => {
-    writeDraft(subject && !result ? { subject, purpose, company, templateId, answers } : null);
-  }, [subject, purpose, company, templateId, answers, result]);
+    writeDraft(subject && !result ? { subject, purpose, company, templateIds, answers } : null);
+  }, [subject, purpose, company, templateIds, answers, result]);
 
   const blocker = useBlocker(({ currentLocation, nextLocation }) => (
     !!subject && !result && currentLocation.pathname !== nextLocation.pathname
@@ -90,13 +97,14 @@ const OnsiteSigning: React.FC = () => {
   const address = subject?.kind === 'address' ? subject.address : undefined;
 
   const requested = (params.get('step') as Step | null) ?? 'client';
+  const chosen = templateIds.length > 0;
   const available: Record<Step, boolean> = {
     client: true,
     purpose: !!subject,
     company: !!subject && !!purpose,
     document: !!subject && !!company,
-    fields: !!subject && !!templateId,
-    sign: !!subject && !!templateId,
+    fields: !!subject && chosen,
+    sign: !!subject && chosen,
   };
   const step: Step = available[requested] ? requested : 'client';
 
@@ -104,23 +112,26 @@ const OnsiteSigning: React.FC = () => {
   const back = () => navigate(-1);
 
   const form = useQuery({
-    queryKey: ['onsite-form', templateId, company?.id, clientId, address],
+    queryKey: ['onsite-form', templateIds, company?.id, clientId, address],
     queryFn: () => onsiteSigningService.getForm({
-      template_id: templateId as string,
+      template_ids: templateIds,
       company_id: (company as OnsiteCompany).id,
       client_id: clientId,
       address,
     }),
-    enabled: !!templateId && !!company && !!subject,
+    enabled: chosen && !!company && !!subject,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
 
-  // Start from what's on record, keeping anything already typed for this visit
+  // Start from what's on record, keeping anything already typed for this visit.
+  // A date of loss on record sets the mitigation period, if it's asked
   const questions = form.data?.questions;
   useEffect(() => {
     if (!questions) return;
-    setAnswers(prev => Object.fromEntries(questions.map(q => [q.key, prev[q.key] ?? q.value ?? ''])));
+    setAnswers(prev => presetPeriod(
+      Object.fromEntries(questions.map(q => [q.key, prev[q.key] ?? q.value ?? ''])),
+    ));
   }, [questions]);
 
   const pickClient = (client: ClientListItem) => {
@@ -136,21 +147,22 @@ const OnsiteSigning: React.FC = () => {
   const pickPurpose = (next: SigningPurpose) => {
     setPurpose(next);
     setCompany(null);
-    setTemplateId(null);
+    setTemplateIds([]);
     go('company');
   };
   const pickCompany = (next: OnsiteCompany) => {
     setCompany(next);
-    if (next.templates.length === 1) {
-      setTemplateId(next.templates[0].id);
+    const together = SIGNING_PURPOSES.find(p => p.value === purpose)?.signedTogether;
+    if (together || next.templates.length === 1) {
+      setTemplateIds(next.templates.map(t => t.id));
       go('fields');
     } else {
-      setTemplateId(null);
+      setTemplateIds([]);
       go('document');
     }
   };
   const pickTemplate = (id: string) => {
-    setTemplateId(id);
+    setTemplateIds([id]);
     go('fields');
   };
 
@@ -158,7 +170,7 @@ const OnsiteSigning: React.FC = () => {
     setSubject(null);
     setPurpose(null);
     setCompany(null);
-    setTemplateId(null);
+    setTemplateIds([]);
     setAnswers({});
     setResult(null);
     setSignerName('');
@@ -167,7 +179,9 @@ const OnsiteSigning: React.FC = () => {
 
   // What's been chosen so far, so the person can see they're on the right visit
   const subjectLabel = subject?.kind === 'client' ? subject.client.display_name : subject?.address.street;
-  const templateName = company?.templates.find(t => t.id === templateId)?.name;
+  const templateName = templateIds.length > 1
+    ? `${templateIds.length} documents`
+    : company?.templates.find(t => t.id === templateIds[0])?.name;
   const trail = (
     <span className="os-trail">
       {[

@@ -327,9 +327,10 @@ export const fieldSigningService = {
 // On-site signing (signed in, from the field)
 // ============================================================
 
-interface OnsiteTemplateChoice {
-  template_id: string;
+interface OnsiteSubject {
   company_id: string;
+  client_id?: string;
+  address?: OnsiteAddress;
 }
 
 export const onsiteSigningService = {
@@ -338,23 +339,27 @@ export const onsiteSigningService = {
     return data as { companies: OnsiteCompany[] };
   },
 
-  async getForm(payload: OnsiteTemplateChoice & { client_id?: string; address?: OnsiteAddress }) {
+  async getForm(payload: OnsiteSubject & { template_ids: string[] }) {
     const { data } = await api.post('/api/onsite-signing/form', payload);
     return data as OnsiteForm;
   },
 
-  async preview(payload: OnsiteTemplateChoice & { answers: Record<string, string>; today: string }) {
+  async preview(payload: {
+    template_id: string;
+    company_id: string;
+    answers: Record<string, string>;
+    today: string;
+  }) {
     const { data } = await api.post('/api/onsite-signing/preview', payload, { responseType: 'blob' });
     return data as Blob;
   },
 
-  async sign(payload: OnsiteTemplateChoice & {
-    client_id?: string;
-    address?: OnsiteAddress;
+  async sign(payload: OnsiteSubject & {
+    /** Each document's lines: mapping id -> signature or initials image, or the date */
+    documents: { template_id: string; signature_fields: Record<string, string> }[];
     answers: Record<string, string>;
     today: string;
     signer_name: string;
-    signature_fields: Record<string, string>;
     consent_agreed: boolean;
     consent_text: string;
   }) {
@@ -362,8 +367,9 @@ export const onsiteSigningService = {
     return data as OnsiteSignedContract;
   },
 
-  async email(contractId: string, emails: string[]) {
-    const { data } = await api.post(`/api/onsite-signing/contracts/${contractId}/email`, { emails });
+  /** One email with every contract of the visit attached */
+  async email(contractIds: string[], emails: string[]) {
+    const { data } = await api.post('/api/onsite-signing/contracts/email', { contract_ids: contractIds, emails });
     return data as { message: string; emails: string[] };
   },
 };
