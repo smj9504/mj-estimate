@@ -123,6 +123,9 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
   // Endpoint drag — changes both length and angle
   const handleEndpointDrag = useCallback(
     (e: Konva.KonvaEventObject<DragEvent>) => {
+      // Otherwise the Group's onDragEnd also fires, with this handle as
+      // e.target, and stores the handle's local x/y as the line's position.
+      e.cancelBubble = true;
       if (!onTransformEnd) return;
       const handle = e.target;
       const stage = handle.getStage();

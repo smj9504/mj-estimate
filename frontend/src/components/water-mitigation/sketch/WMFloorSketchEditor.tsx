@@ -2749,8 +2749,10 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           const isLF = mat.unit === 'LF';
           const wallHeight = zone.height_ft ?? 8;
 
-          // If this zone is part of a group, rotate the entire group
-          if (zone.group_id) {
+          // A line's rotation handle reports its length unchanged and turns the
+          // entire group. An end-handle drag changes the length, and resizes
+          // only this line below.
+          if (zone.group_id && lengthFt === zone.dimension1_ft) {
             const deltaAngle = rot - (zone.rotation || 0);
             if (Math.abs(deltaAngle) > 0.01) {
               // Compute group centroid as pivot

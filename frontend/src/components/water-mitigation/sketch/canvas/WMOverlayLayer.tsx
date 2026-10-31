@@ -965,8 +965,10 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
             groupId={activeGroupId}
             zones={groupZones}
             scalePixelsPerFoot={scalePixelsPerFoot}
+            selectedIds={selectedIds}
             onMoveGroup={onMoveGroup ?? (() => {})}
             onRotateGroup={onRotateGroup ?? (() => {})}
+            onResizeLine={transformDemoHandler}
           />
         );
       })()}

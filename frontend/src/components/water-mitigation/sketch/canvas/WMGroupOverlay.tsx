@@ -4,19 +4,24 @@
  * of demolition zones that share the same group_id.
  * - Draggable: moves all group members together
  * - Rotation handle: rotates all group members around centroid
+ * - End handle on each selected line: resizes that line alone
  */
 
 import React, { useRef, useState, useCallback, useMemo } from 'react';
 import { Group, Rect, Line, Circle, Text } from 'react-konva';
 import Konva from 'konva';
 import type { WMDemolitionZone } from '../../../../types/wmSketch';
+import { useTouchTargetSizes } from '../hooks/useWMResponsive';
 
 export interface WMGroupOverlayProps {
   groupId: string;
   zones: WMDemolitionZone[];
   scalePixelsPerFoot: number;
+  selectedIds: Set<string>;
   onMoveGroup: (groupId: string, dx: number, dy: number) => void;
   onRotateGroup: (groupId: string, pivotX: number, pivotY: number, deltaDeg: number) => void;
+  /** An end handle was dragged — provides the line's new length (ft) and rotation (deg) */
+  onResizeLine: (id: string, lengthFt: number, rotationDeg: number) => void;
 }
 
 const ROTATE_OFFSET = 30;
@@ -26,9 +31,12 @@ const WMGroupOverlay: React.FC<WMGroupOverlayProps> = ({
   groupId,
   zones,
   scalePixelsPerFoot,
+  selectedIds,
   onMoveGroup,
   onRotateGroup,
+  onResizeLine,
 }) => {
+  const touchSizes = useTouchTargetSizes();
   const groupRef = useRef<Konva.Group>(null);
   const [isRotating, setIsRotating] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -124,6 +132,19 @@ const WMGroupOverlay: React.FC<WMGroupOverlayProps> = ({
       onRotateGroup(groupId, centroid.x, centroid.y, deltaDeg);
     }
   }, [groupId, centroid, bbox.y, onRotateGroup]);
+
+  // --- End handle of a selected line ---
+  const handleLineEndDragEnd = useCallback(
+    (zone: WMDemolitionZone, e: Konva.KonvaEventObject<DragEvent>) => {
+      e.cancelBubble = true;
+      // This overlay stays at the canvas origin, so the handle's x/y are canvas coordinates
+      const dx = e.target.x() - zone.x;
+      const dy = e.target.y() - zone.y;
+      const lengthFt = Math.sqrt(dx * dx + dy * dy) / scalePixelsPerFoot;
+      onResizeLine(zone.id, Math.max(0.5, lengthFt), Math.atan2(dy, dx) * (180 / Math.PI));
+    },
+    [scalePixelsPerFoot, onResizeLine],
+  );
 
   // Label
   const unit = zones[0]?.surface === 'wall' && zones[0]?.height_ft ? 'SF' : 'LF';
@@ -238,6 +259,37 @@ const WMGroupOverlay: React.FC<WMGroupOverlayProps> = ({
           if (s) s.container().style.cursor = '';
         }}
       />
+
+      {/* End handles — drawn here because the bounding box covers the lines' own */}
+      {zones.filter((z) => selectedIds.has(z.id) && z.dimension1_ft > 0).map((z) => {
+        const rad = ((z.rotation || 0) * Math.PI) / 180;
+        const lengthPx = z.dimension1_ft * scalePixelsPerFoot;
+        return (
+          <Circle
+            key={z.id}
+            x={z.x + lengthPx * Math.cos(rad)}
+            y={z.y + lengthPx * Math.sin(rad)}
+            radius={5}
+            fill={z.color}
+            stroke="#ffffff"
+            strokeWidth={2}
+            hitStrokeWidth={touchSizes.hitStrokeWidth}
+            draggable
+            onDragStart={(e) => {
+              e.cancelBubble = true;
+            }}
+            onDragEnd={(e) => handleLineEndDragEnd(z, e)}
+            onMouseEnter={(e) => {
+              const s = e.target.getStage();
+              if (s) s.container().style.cursor = 'grab';
+            }}
+            onMouseLeave={(e) => {
+              const s = e.target.getStage();
+              if (s) s.container().style.cursor = '';
+            }}
+          />
+        );
+      })}
     </Group>
   );
 };
