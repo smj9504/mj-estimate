@@ -776,9 +776,15 @@ class WaterMitigationService:
         - Google Drive (production)
         """
         # Verify job exists
-        job = self.job_repo.get_by_id(job_id)
+        # DB work stays off the event loop: waiting for a free connection there
+        # stops the very requests that could hand one back.
+        job = await asyncio.to_thread(self.job_repo.get_by_id, job_id)
         if not job:
             raise ValueError(f"Job {job_id} not found")
+
+        # Nothing to write until storage is done, and that takes seconds. End the
+        # read so the connection goes back to the small pool in the meantime.
+        await asyncio.to_thread(self.session.commit)
 
         # Get storage provider
         storage = StorageFactory.get_instance()
@@ -787,7 +793,7 @@ class WaterMitigationService:
         # Read file content
         file_content = await file.read()
         file_size = len(file_content)
-        
+
         # Determine file type
         is_image = file.content_type and file.content_type.startswith('image/')
         file_type = 'photo' if is_image else 'video'
@@ -853,7 +859,7 @@ class WaterMitigationService:
             'storage_folder_path': upload_result.folder_path
         }
 
-        created_photo = self.photo_repo.create(photo_data)
+        created_photo = await asyncio.to_thread(self.photo_repo.create, photo_data)
         logger.info(f"Photo uploaded to job {job_id}: {file.filename}")
 
         return created_photo

@@ -891,6 +891,25 @@ def _write_preview_cache(cache_file: Path, data: bytes) -> None:
 # on this small server spikes memory and starves every other request.
 _preview_render_slots = threading.BoundedSemaphore(3)
 
+# The same burst on the way in: a cold preview holds its whole original in memory
+# from download to render. Waiting here takes no thread, so an upload doesn't
+# queue behind a page of thumbnails for one.
+_preview_download_slots = asyncio.Semaphore(4)
+
+
+def _read_photo_and_release(service: WaterMitigationService, photo_id: UUID):
+    """Read a photo record and hand its DB connection straight back.
+
+    Previews and downloads need nothing more from the DB, but the request's session
+    would keep the connection through the seconds spent on storage, and a page of
+    thumbnails drains the pool that way. Call this on a worker thread: waiting for a
+    connection on the event loop stops the very requests that could hand one back.
+    """
+    try:
+        return service.photo_repo.get_by_id(str(photo_id))
+    finally:
+        service.session.close()
+
 
 def _render_preview_and_cache(source, max_size, quality, cache_file: Path, photo_id) -> bytes:
     """Optimize an image to WebP and save it to the preview disk cache.
@@ -943,8 +962,8 @@ async def preview_photo(
     import base64
 
     from app.core.cache import get_cache
-    
-    photo = service.photo_repo.get_by_id(str(photo_id))
+
+    photo = await asyncio.to_thread(_read_photo_and_release, service, photo_id)
 
     if photo is None:
         logger.warning(f"Photo not found in database for ID: {photo_id}")
@@ -1200,11 +1219,12 @@ async def preview_photo(
                         )
 
                     try:
-                        photo_bytes = await asyncio.to_thread(storage.download, storage_file_id)
-                        optimized_bytes = await asyncio.to_thread(
-                            _render_preview_and_cache,
-                            photo_bytes, max_size, quality, cache_file, photo_id,
-                        )
+                        async with _preview_download_slots:
+                            photo_bytes = await asyncio.to_thread(storage.download, storage_file_id)
+                            optimized_bytes = await asyncio.to_thread(
+                                _render_preview_and_cache,
+                                photo_bytes, max_size, quality, cache_file, photo_id,
+                            )
 
                         return Response(
                             content=optimized_bytes,
@@ -1363,7 +1383,7 @@ async def download_photo(
     import io
     from fastapi.responses import StreamingResponse
 
-    photo = service.photo_repo.get_by_id(str(photo_id))
+    photo = await asyncio.to_thread(_read_photo_and_release, service, photo_id)
     if photo is None:
         raise HTTPException(status_code=404, detail="Photo not found")
 
