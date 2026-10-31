@@ -511,6 +511,8 @@ export interface TodoCreate extends ClaimTodoCreate {
   client_id?: string | null;
   claim_id?: string | null;
   status?: TodoStatus;
+  /** Who it's for; without it, the person adding it */
+  assignee_ids?: string[];
 }
 
 export type TodoUpdate = Partial<TodoCreate & { is_completed: boolean }>;

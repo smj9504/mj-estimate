@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { assignedTo, sharedWith } from './todoPeople';
+import { addedText, assignedTo, assigneeOptions, isMine, sharedWith } from './todoPeople';
 
 const me = { id: 'me', name: 'Minjee Song' };
 const alex = { id: 'alex', name: 'Alex Kim' };
@@ -32,5 +32,36 @@ describe('sharedWith', () => {
     expect(sharedWith({ assignees: [me] }, 'me')).toBeNull();
     expect(sharedWith({ assignees: [alex] }, 'me')).toBeNull();
     expect(sharedWith({}, 'me')).toBeNull();
+  });
+});
+
+describe('assigneeOptions', () => {
+  it('puts the viewer first as You, then everyone by name', () => {
+    const people = [{ id: 'sam', name: 'Sam Lee' }, { id: 'me', name: 'Minjee Song' }, { id: 'alex', name: 'Alex Kim' }];
+    expect(assigneeOptions(people, 'me')).toEqual([
+      { value: 'me', label: 'You' },
+      { value: 'alex', label: 'Alex Kim' },
+      { value: 'sam', label: 'Sam Lee' },
+    ]);
+  });
+
+  it('keeps the viewer pickable before the list has loaded', () => {
+    expect(assigneeOptions([], 'me', ['me'])).toEqual([{ value: 'me', label: 'You' }]);
+  });
+});
+
+describe('isMine and addedText', () => {
+  it('knows a todo only for others is not on the viewer\u2019s board', () => {
+    expect(isMine({ assignees: [alex] }, 'me')).toBe(false);
+    expect(isMine({ assignees: [alex, me] }, 'me')).toBe(true);
+    expect(isMine({ owner_id: 'me' }, 'me')).toBe(true);
+  });
+
+  it('says who else a new todo went to', () => {
+    expect(addedText({ assignees: [me] }, 'me')).toBe('Todo added');
+    expect(addedText({ assignees: [alex] }, 'me')).toBe('Todo added for Alex Kim');
+    expect(addedText({ assignees: [me, alex] }, 'me')).toBe('Todo added for you and Alex Kim');
+    expect(addedText({ assignees: [me, alex, sam] }, 'me')).toBe('Todo added for you, Alex Kim and Sam Lee');
+    expect(addedText({ assignees: [alex, sam] }, 'me')).toBe('Todo added for Alex Kim and Sam Lee');
   });
 });

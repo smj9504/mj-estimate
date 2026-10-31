@@ -8,7 +8,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { message } from 'antd';
 import { CLIENT_TODOS_KEY, TODO_BOARD_KEY, todoService } from '../../services/todoService';
 import type { Todo, TodoCreate, TodoStatus, TodoUpdate } from '../../types/client';
+import { useAuth } from '../../contexts/AuthContext';
 import { topOf } from './todoColumns';
+import { addedText, isMine } from './todoPeople';
 
 
 interface UpdateVars {
@@ -20,6 +22,7 @@ interface UpdateVars {
 
 export const useTodoBoard = () => {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const query = useQuery({ queryKey: TODO_BOARD_KEY, queryFn: () => todoService.list() });
 
   const patch = (fn: (todos: Todo[]) => Todo[]) =>
@@ -33,7 +36,9 @@ export const useTodoBoard = () => {
   const createMutation = useMutation({
     mutationFn: (payload: TodoCreate) => todoService.create(payload),
     onSuccess: created => {
-      patch(todos => [created, ...todos]);
+      // A todo only for others goes on their boards, not this one
+      if (isMine(created, user?.id)) patch(todos => [created, ...todos]);
+      else message.success(addedText(created, user?.id));
       refreshClientPages();
     },
     onError: () => message.error("Couldn't add the todo. Try again."),

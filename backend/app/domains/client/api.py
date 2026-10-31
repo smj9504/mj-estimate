@@ -1385,6 +1385,31 @@ def _check_todo_links(db, staff, client_id=None, claim_id=None) -> None:
         company_scope.require_client(db, staff, client_id)
 
 
+def _board_assignees(db, staff, assignee_ids, client_id=None, claim_id=None) -> List[str]:
+    """Who a new todo is for: the person adding it, unless they pick others. Each
+    must be able to sign in and to see the client or claim the todo is tied to.
+    The person adding it comes first when they're on it, so it counts as theirs."""
+    from app.domains.staff.models import Staff
+
+    picked = [staff.id] if assignee_ids is None else assignee_ids
+    ids = list(dict.fromkeys(str(i) for i in picked if i))
+    if not ids:
+        raise HTTPException(status_code=400, detail="Pick who the todo is for")
+    people = {str(person.id): person for person in db.query(Staff).filter(
+        Staff.id.in_(ids), Staff.is_active.is_(True), Staff.can_login.is_(True),
+    ).all()}
+    if set(ids) - set(people):
+        raise HTTPException(status_code=400, detail="Some of the people picked can't be given todos")
+    for person_id in ids:
+        person = people[person_id]
+        if claim_id and not company_scope.can_see_claim(db, person, claim_id):
+            raise HTTPException(status_code=400, detail=f"{person.full_name} can't see this claim")
+        if client_id and not claim_id and not company_scope.can_see_client(db, person, client_id):
+            raise HTTPException(status_code=400, detail=f"{person.full_name} can't see this client")
+    ids.sort(key=lambda person_id: person_id != str(staff.id))
+    return ids
+
+
 def _require_board_todo(db, staff, todo_id: str) -> None:
     """A todo assigned to you, or one on a claim (or claimless client) you may see"""
     from app.domains.client.models import ClaimTodo, ClaimTodoAssignee
@@ -1440,10 +1465,13 @@ def create_board_todo(
     db=Depends(get_db),
     service: ClaimTodoService = Depends(_get_todo_service),
 ):
-    """Add a todo at the top of its column on your board"""
+    """Add a todo at the top of its column on the board of each person it's for:
+    yours, unless you pick others"""
     _check_todo_links(db, staff, data.client_id, data.claim_id)
-    todo_data = data.dict()
-    todo_data['owner_id'] = staff.id
+    people = _board_assignees(db, staff, data.assignee_ids, data.client_id, data.claim_id)
+    todo_data = data.dict(exclude={'assignee_ids'})
+    todo_data['owner_id'] = people[0]
+    todo_data['assignee_ids'] = people
     try:
         return service.create_todo(todo_data)
     except Exception as e:
