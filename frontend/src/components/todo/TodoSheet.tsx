@@ -3,8 +3,10 @@ import { Button, Form, Input, Modal, Popconfirm, Segmented } from 'antd';
 import type { TextAreaRef } from 'antd/es/input/TextArea';
 import { DeleteOutlined } from '@ant-design/icons';
 import type { Todo, TodoStatus } from '../../types/client';
+import { useAuth } from '../../contexts/AuthContext';
 import ClientSearchSelect from '../common/ClientSearchSelect';
 import { useSheetModal } from '../common/ui';
+import AssigneeSelect from './AssigneeSelect';
 import { TODO_STATUSES, TODO_STATUS_LABELS } from './todoUi';
 
 export interface TodoSheetValues {
@@ -12,6 +14,8 @@ export interface TodoSheetValues {
   client_id: string | null;
   client_name: string | null;
   status: TodoStatus;
+  /** Who a new todo is for */
+  assignee_ids: string[];
 }
 
 interface TodoSheetProps {
@@ -26,12 +30,15 @@ interface TodoSheetProps {
   onClose: () => void;
 }
 
-/** Add or edit a todo in a phone sheet: title, client, and (when editing) its column */
+/** Add or edit a todo in a phone sheet: title, client, who a new one is for (you, to start with), and (when editing) its column */
 const TodoSheet: React.FC<TodoSheetProps> = ({
   open, todo, presetClient, saving, onSubmit, onDelete, onClose,
 }) => {
   const { sheetProps } = useSheetModal();
+  const { user } = useAuth();
   const [form] = Form.useForm();
+  const [people, setPeople] = useState<string[]>([]);
+  const [peopleError, setPeopleError] = useState(false);
   // The client is kept here rather than in the form so its name can show before a search
   const [client, setClient] = useState<{ id: string | null; name: string | null }>({ id: null, name: null });
   const titleRef = useRef<TextAreaRef>(null);
@@ -44,14 +51,23 @@ const TodoSheet: React.FC<TodoSheetProps> = ({
     setClient(todo
       ? { id: todo.client_id ?? null, name: todo.client_name ?? null }
       : { id: presetClient?.id ?? null, name: presetClient?.name ?? null });
-  }, [open, todo, presetClient, form]);
+    setPeople(user?.id ? [user.id] : []);
+    setPeopleError(false);
+  }, [open, todo, presetClient, form, user?.id]);
 
-  const submit = () => form.validateFields().then(values => onSubmit({
-    title: values.title.trim(),
-    client_id: client.id,
-    client_name: client.name,
-    status: values.status ?? 'todo',
-  }));
+  const submit = () => form.validateFields().then(values => {
+    if (!todo && people.length === 0) {
+      setPeopleError(true);
+      return;
+    }
+    onSubmit({
+      title: values.title.trim(),
+      client_id: client.id,
+      client_name: client.name,
+      status: values.status ?? 'todo',
+      assignee_ids: people,
+    });
+  });
 
   return (
     <Modal
@@ -117,6 +133,22 @@ const TodoSheet: React.FC<TodoSheetProps> = ({
             onChange={(id, picked) => setClient({ id: id ?? null, name: picked?.display_name ?? null })}
           />
         </Form.Item>
+        {!todo && (
+          <Form.Item
+            label="For"
+            validateStatus={peopleError ? 'error' : undefined}
+            help={peopleError ? 'Pick who the todo is for' : undefined}
+          >
+            <AssigneeSelect
+              className="td-sheet-people"
+              value={people}
+              onChange={ids => {
+                setPeople(ids);
+                if (ids.length > 0) setPeopleError(false);
+              }}
+            />
+          </Form.Item>
+        )}
         {todo?.claim_number && client.id === (todo.client_id ?? null) && (
           <div className="td-sheet-claim">Claim #{todo.claim_number}</div>
         )}

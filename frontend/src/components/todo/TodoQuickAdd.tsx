@@ -4,6 +4,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { message } from 'antd';
 import { CLIENT_TODOS_KEY, TODO_BOARD_KEY, todoService } from '../../services/todoService';
 import type { Client, TodoCreate } from '../../types/client';
+import { useAuth } from '../../contexts/AuthContext';
+import { addedText } from './todoPeople';
 import TodoSheet from './TodoSheet';
 
 interface TodoQuickAddProps {
@@ -15,6 +17,7 @@ interface TodoQuickAddProps {
 const TodoQuickAdd: React.FC<TodoQuickAddProps> = ({ open, onClose }) => {
   const location = useLocation();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const clientId = matchPath('/clients/:id', location.pathname)?.params.id;
   const clientName = clientId ? queryClient.getQueryData<Client>(['client', clientId])?.display_name : undefined;
   const presetClient = useMemo(
@@ -24,10 +27,10 @@ const TodoQuickAdd: React.FC<TodoQuickAddProps> = ({ open, onClose }) => {
 
   const create = useMutation({
     mutationFn: (payload: TodoCreate) => todoService.create(payload),
-    onSuccess: () => {
+    onSuccess: created => {
       queryClient.invalidateQueries({ queryKey: TODO_BOARD_KEY });
       queryClient.invalidateQueries({ queryKey: [CLIENT_TODOS_KEY] });
-      message.success('Todo added');
+      message.success(addedText(created, user?.id));
       onClose();
     },
     onError: () => message.error("Couldn't add the todo. Try again."),
@@ -39,7 +42,9 @@ const TodoQuickAdd: React.FC<TodoQuickAddProps> = ({ open, onClose }) => {
       presetClient={presetClient}
       saving={create.isPending}
       onClose={onClose}
-      onSubmit={values => create.mutate({ title: values.title, client_id: values.client_id })}
+      onSubmit={values => create.mutate({
+        title: values.title, client_id: values.client_id, assignee_ids: values.assignee_ids,
+      })}
     />
   );
 };

@@ -204,8 +204,16 @@
   flex: 1;
   min-width: 0;
 }
+/* Who it's for, between the title and the client */
+.td-composer-people {
+  display: flex;
+  /* A multiple select pads its prefix 4px more than the client's single one */
+  margin: 0 6px 0 -1px;
+}
 .td-composer-client .ant-select-prefix,
-.td-editor-client .ant-select-prefix {
+.td-composer-people .ant-select-prefix,
+.td-editor-client .ant-select-prefix,
+.td-sheet-people .ant-select-prefix {
   color: var(--color-neutral-600);
 }
 

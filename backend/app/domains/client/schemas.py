@@ -584,10 +584,12 @@ def _check_priority(v):
 
 
 class TodoCreate(BaseModel):
-    """A board todo: a client and claim are both optional"""
+    """A board todo: a client and claim are both optional. It is for the person
+    adding it unless they pick who it's for (themselves among them, or not)."""
     title: str
     client_id: Optional[UUID] = None
     claim_id: Optional[UUID] = None
+    assignee_ids: Optional[List[UUID]] = None
     description: Optional[str] = None
     priority: str = "normal"
     due_date: Optional[datetime] = None
