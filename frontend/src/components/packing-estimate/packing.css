@@ -376,6 +376,28 @@
   font-size: 13px;
   color: var(--tag-red-text);
 }
+/* An analysis under way: the step and a running clock, in the room and above the rooms */
+.pk-room-progress {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.pk-analysis-status {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 0;
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+}
+.pk-analysis-clock {
+  margin-left: 8px;
+  color: var(--color-neutral-600);
+}
+.pk-analysis-note {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
 .pk-notes {
   margin: 0;
   padding-left: 18px;

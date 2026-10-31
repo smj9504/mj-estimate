@@ -64,7 +64,9 @@ export async function convertPhoto(file: File): Promise<string> {
 export async function analyzeRoom(
   roomName: string,
   images: string[],
-  existingItems?: { name: string; quantity: number }[]
+  existingItems?: { name: string; quantity: number }[],
+  /** The photos have all been sent; from here it's the server's work */
+  onUploaded?: () => void,
 ): Promise<RoomAnalysisResponse> {
   const { data } = await api.post(`${BASE}/analyze-room`, {
     room_name: roomName,
@@ -75,6 +77,9 @@ export async function analyzeRoom(
     timeout: 240000,
     // The room shows its own failure; a retry from the alert wouldn't reach the room
     suppressErrorNotification: true,
+    onUploadProgress: (e) => {
+      if (!e.total || e.loaded >= e.total) onUploaded?.();
+    },
   });
   return data;
 }

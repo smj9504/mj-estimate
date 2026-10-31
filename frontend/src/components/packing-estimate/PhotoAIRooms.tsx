@@ -16,6 +16,7 @@ import * as packingService from '../../services/packingEstimateService';
 import type {
   PhotoRoom, DetectedContentItem, RoomPreset,
 } from '../../types/packing-estimate';
+import { BatchAnalysisProgress, RoomAnalysisProgress, type AnalysisBatch } from './AnalysisProgress';
 import {
   DENSITY_OPTIONS, FLOOR_OPTIONS, CONTAMINATION_OPTIONS,
 } from './constants';
@@ -77,7 +78,8 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
   const [newRoomPreset, setNewRoomPreset] = useState<string | undefined>();
   const [useCustomName, setUseCustomName] = useState(false);
   const [pendingPhotos, setPendingPhotos] = useState<string[]>([]);
-  const [batchAnalyzing, setBatchAnalyzing] = useState(false);
+  const [batch, setBatch] = useState<AnalysisBatch | null>(null);
+  const batchAnalyzing = !!batch;
   const [folderModalOpen, setFolderModalOpen] = useState(false);
 
   // Keep a ref to latest rooms for batch analysis callbacks
@@ -152,13 +154,13 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
     setPendingPhotos(prev => [...prev, ...base64List]);
   }, []);
 
-  // ── Single Room Analysis ───────────────────
+  // ── Room Analysis ──────────────────────────
 
-  const handleAnalyzeRoom = useCallback(async (roomId: string) => {
-    const room = rooms.find(r => r.id === roomId);
-    if (!room || room.photos.length === 0) return;
-
-    updateRoom(roomId, { analyzing: true, analysis_error: undefined });
+  // One room from sending its photos to the outcome on its card
+  const analyzeOne = useCallback(async (room: PhotoRoom): Promise<{ detected?: number; error?: string }> => {
+    applyToRoom(room.id, r => ({
+      ...r, analysis_stage: 'uploading', analysis_started_at: Date.now(),
+    }));
     try {
       const result = await packingService.analyzeRoom(
         room.room_name,
@@ -166,28 +168,52 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
         room.items.length > 0
           ? room.items.map(i => ({ name: i.name, quantity: i.quantity }))
           : undefined,
+        () => applyToRoom(room.id, r => (
+          r.analysis_stage === 'uploading' ? { ...r, analysis_stage: 'reading' } : r
+        )),
       );
       // Told to skip what's already listed, it reports only what's new, so the
       // items and the decisions made on them stay
-      applyToRoom(roomId, r => ({
+      applyToRoom(room.id, r => ({
         ...r,
         items: [...r.items, ...withUids(result.items)],
-        density: (result.density as PhotoRoom['density']) ?? room.density,
+        density: (result.density as PhotoRoom['density']) ?? r.density,
         room_size: result.room_size,
         confidence_score: result.confidence_score,
         field_notes: result.field_notes,
         analyzed: true,
         analyzing: false,
+        analysis_stage: undefined,
+        analysis_started_at: undefined,
       }));
-      message.success(room.items.length > 0
-        ? `${room.room_name}: ${result.items.length} more items detected`
-        : `${room.room_name}: ${result.items.length} items detected`);
-    } catch (err: any) {
-      const reason = analysisErrorText(err);
-      message.error(`${room.room_name}: ${reason}`);
-      applyToRoom(roomId, r => ({ ...r, analyzing: false, analysis_error: reason }));
+      return { detected: result.items.length };
+    } catch (err) {
+      const error = analysisErrorText(err);
+      applyToRoom(room.id, r => ({
+        ...r,
+        analyzing: false,
+        analysis_stage: undefined,
+        analysis_started_at: undefined,
+        analysis_error: error,
+      }));
+      return { error };
     }
-  }, [rooms, updateRoom, applyToRoom]);
+  }, [applyToRoom]);
+
+  const handleAnalyzeRoom = useCallback(async (roomId: string) => {
+    const room = rooms.find(r => r.id === roomId);
+    if (!room || room.photos.length === 0) return;
+
+    applyToRoom(roomId, r => ({ ...r, analyzing: true, analysis_error: undefined }));
+    const { detected, error } = await analyzeOne(room);
+    if (error) {
+      message.error(`${room.room_name}: ${error}`);
+    } else {
+      message.success(room.items.length > 0
+        ? `${room.room_name}: ${detected} more items detected`
+        : `${room.room_name}: ${detected} items detected`);
+    }
+  }, [rooms, applyToRoom, analyzeOne]);
 
   // ── Batch Analysis ─────────────────────────
 
@@ -195,8 +221,13 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
 
   const handleStopBatch = useCallback(() => {
     cancelBatchRef.current = true;
+    setBatch(b => b && { ...b, stopping: true });
+    // The rooms still queued won't start, so they stop saying they're waiting
+    roomsRef.current
+      .filter(r => r.analysis_stage === 'waiting')
+      .forEach(r => applyToRoom(r.id, w => ({ ...w, analyzing: false, analysis_stage: undefined })));
     message.info('Stopping after the rooms in progress finish...');
-  }, []);
+  }, [applyToRoom]);
 
   const handleBatchAnalyze = useCallback(async () => {
     if (unanalyzedRooms.length === 0) {
@@ -205,11 +236,10 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
     }
 
     cancelBatchRef.current = false;
-    setBatchAnalyzing(true);
-    // Mark all as analyzing
-    setRooms(rooms.map(r =>
-      unanalyzedRooms.some(u => u.id === r.id) ? { ...r, analyzing: true, analysis_error: undefined } : r
-    ));
+    setBatch({ ids: unanalyzedRooms.map(r => r.id), startedAt: Date.now(), stopping: false });
+    unanalyzedRooms.forEach(u => applyToRoom(u.id, r => ({
+      ...r, analyzing: true, analysis_error: undefined, analysis_stage: 'waiting',
+    })));
 
     const failed: string[] = [];
     const waiting = [...unanalyzedRooms];
@@ -217,38 +247,13 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
     const analyzeNext = async () => {
       while (waiting.length > 0 && !cancelBatchRef.current) {
         const room = waiting.shift() as PhotoRoom;
-        try {
-          const result = await packingService.analyzeRoom(
-            room.room_name,
-            room.photos,
-            room.items.length > 0
-              ? room.items.map(i => ({ name: i.name, quantity: i.quantity }))
-              : undefined,
-          );
-          applyToRoom(room.id, r => ({
-            ...r,
-            items: [...r.items, ...withUids(result.items)],
-            density: (result.density as PhotoRoom['density']) ?? r.density,
-            room_size: result.room_size,
-            confidence_score: result.confidence_score,
-            field_notes: result.field_notes,
-            analyzed: true,
-            analyzing: false,
-          }));
-        } catch (err) {
-          failed.push(room.room_name);
-          applyToRoom(room.id, r => ({
-            ...r, analyzing: false, analysis_error: analysisErrorText(err),
-          }));
-        }
+        const { error } = await analyzeOne(room);
+        if (error) failed.push(room.room_name);
       }
     };
     await Promise.all(Array.from({ length: PARALLEL_ANALYSES }, analyzeNext));
 
-    // Stopped: the rooms that never started are back to not analyzed
-    waiting.forEach(room => applyToRoom(room.id, r => ({ ...r, analyzing: false })));
-
-    setBatchAnalyzing(false);
+    setBatch(null);
     if (failed.length > 0) {
       message.error({
         content: `Couldn't analyze ${failed.join(', ')}. Each room shows why.`,
@@ -259,7 +264,7 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
     } else {
       message.success('Batch analysis complete');
     }
-  }, [unanalyzedRooms, rooms, setRooms, applyToRoom]);
+  }, [unanalyzedRooms, applyToRoom, analyzeOne]);
 
   // Rooms loaded from a claim go straight into the analysis, once per load
   const autoAnalyzedRef = useRef<number | undefined>();
@@ -386,6 +391,8 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
             : "Loading the claim's packing photos..."}
         </p>
       )}
+
+      {batch && <BatchAnalysisProgress batch={batch} rooms={rooms} parallel={PARALLEL_ANALYSES} />}
 
       {rooms.length === 0 && !showAddRoom && !loading && (
         <p className="pk-empty-line">
@@ -567,7 +574,12 @@ const RoomCard: React.FC<RoomCardProps> = ({
         <div className="pk-room-head">
           <span className="pk-room-title">
             {room.room_name}
-            {room.analyzing && <Pill tone="blue" icon={<LoadingOutlined />}>Analyzing...</Pill>}
+            {room.analyzing && room.analysis_stage === 'waiting' && <Pill tone="gray">Waiting</Pill>}
+            {room.analyzing && room.analysis_stage !== 'waiting' && (
+              <Pill tone="blue" icon={<LoadingOutlined />}>
+                {room.analysis_stage === 'uploading' ? 'Sending photos' : 'Analyzing'}
+              </Pill>
+            )}
             {!room.analyzing && room.analyzed && (
               <Pill tone="green" icon={<CheckOutlined />}>{room.items.length} items</Pill>
             )}
@@ -588,6 +600,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
           {!room.analyzing && !room.analyzed && room.analysis_error && (
             <span className="pk-room-error">{room.analysis_error}</span>
           )}
+          {room.analyzing && <RoomAnalysisProgress room={room} />}
         </div>
         <div className="pk-room-actions">
           {!room.analyzed && room.photos.length > 0 && (
@@ -595,7 +608,8 @@ const RoomCard: React.FC<RoomCardProps> = ({
               size="small"
               icon={<ScanOutlined />}
               onClick={onAnalyze}
-              loading={room.analyzing}
+              loading={room.analyzing && room.analysis_stage !== 'waiting'}
+              disabled={room.analysis_stage === 'waiting'}
             >
               Analyze
             </Button>

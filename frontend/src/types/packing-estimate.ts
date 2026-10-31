@@ -284,6 +284,10 @@ export interface PhotoRoom {
   items: DetectedContentItem[];
   analyzed: boolean;
   analyzing: boolean;
+  /** While analyzing: queued behind other rooms, sending its photos, or with the AI */
+  analysis_stage?: 'waiting' | 'uploading' | 'reading';
+  /** When this room's own request started, for the clock on its card */
+  analysis_started_at?: number;
   /** Why the last analysis failed, until the room is analyzed again */
   analysis_error?: string;
   confidence_score?: number;
