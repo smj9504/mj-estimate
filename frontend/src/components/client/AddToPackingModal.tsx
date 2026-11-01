@@ -15,13 +15,9 @@ import type { FileItem } from '../common/FileGallery';
 import * as packingService from '../../services/packingEstimateService';
 import type { PackingPhotoCategory, PackingPhotoRef, PackingPhotoSource } from '../../types/packing-estimate';
 import {
-  PACKING_CATEGORIES, claimPackingPhotosKey, defaultPackingCategory, groupPackingRooms, packingCategoryLabel,
+  COMMON_ROOMS, PACKING_CATEGORIES, claimPackingPhotosKey, defaultPackingCategory, groupPackingRooms,
+  packingCategoryLabel, roomNameOptions,
 } from '../packing-estimate/claimPhotos';
-
-const COMMON_ROOMS = [
-  'Kitchen', 'Living Room', 'Family Room', 'Dining Room', 'Master Bedroom', 'Bedroom',
-  'Bathroom', 'Office', 'Laundry Room', 'Basement', 'Garage', 'Closet',
-];
 
 interface AddToPackingModalProps {
   open: boolean;
@@ -72,18 +68,11 @@ const AddToPackingModal: React.FC<AddToPackingModalProps> = ({
   const needsRoom = !keepTags || untaggedCount > 0;
 
   // The category's rooms in the packing set first, then the photos' tags, then common rooms
-  const seen = new Set<string>();
-  const typed = roomName.trim().toLowerCase();
-  const roomOptions = [
+  const roomOptions = roomNameOptions([
     ...groupPackingRooms(packingPhotos).filter(g => g.category === category).map(g => g.room_name),
     ...tagRooms.map(([room]) => room),
     ...COMMON_ROOMS,
-  ].filter(name => {
-    const key = name.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return !typed || key.includes(typed);
-  }).map(name => ({ value: name }));
+  ], roomName);
 
   const addMutation = useMutation({
     mutationFn: () => {

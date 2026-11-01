@@ -6,19 +6,25 @@
  * opens straight to its rooms. A pack-out/in estimate is for one category, so
  * only one category's rooms start ticked: the estimate's own when it is for
  * one, else the first that has rooms to load.
+ *
+ * A room's Move sorts its photos before loading: tap the photos, then pick
+ * another room of its category or type a new one (ClaimRoomPhotoMover). The
+ * change is to the claim's packing photos, so the claim page shows it too.
+ * Photos moved out of a ticked room keep being loaded, in their new room.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Checkbox, Input, Modal, Spin } from 'antd';
-import { ExclamationCircleOutlined, PictureOutlined, RightOutlined } from '@ant-design/icons';
-import { useQuery } from '@tanstack/react-query';
+import { Button, Checkbox, Input, Modal, Spin, message } from 'antd';
+import { ExclamationCircleOutlined, PictureOutlined, RightOutlined, SwapOutlined } from '@ant-design/icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSheetModal } from '../common/ui';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import * as packingService from '../../services/packingEstimateService';
-import type { PackingPhotoCategory, PackingPhotoClaim } from '../../types/packing-estimate';
+import type { ClaimPackingPhoto, PackingPhotoCategory, PackingPhotoClaim } from '../../types/packing-estimate';
 import {
   AI_PHOTOS_PER_ROOM, type PackingRoomGroup, apiUrl, claimPackingPhotosKey, groupPackingCategories,
   packingCategoryLabel, packingRoomKey,
 } from './claimPhotos';
+import ClaimRoomPhotoMover from './ClaimRoomPhotoMover';
 import './packing.css';
 
 /** Thumbnails shown per room, enough to tell the rooms apart */
@@ -42,12 +48,15 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
   open, onClose, currentClaimId, existingRoomNames, currentCategory, onLoad,
 }) => {
   const { sheetProps } = useSheetModal('tall');
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search.trim(), 300);
   // undefined until the list first loads: the estimate's claim, or none
   const [picked, setPicked] = useState<PackingPhotoClaim | null | undefined>(undefined);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [analyze, setAnalyze] = useState(true);
+  // The room whose photos are being moved (packingRoomKey)
+  const [moving, setMoving] = useState<string | null>(null);
   const selectionFor = useRef<string | null>(null);
 
   // Start over each time it opens
@@ -57,6 +66,7 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
     setPicked(undefined);
     setSelected(new Set());
     setAnalyze(true);
+    setMoving(null);
     selectionFor.current = null;
   }, [open]);
 
@@ -119,7 +129,27 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
   const pickClaim = (claim: PackingPhotoClaim | null) => {
     selectionFor.current = null;
     setSelected(new Set());
+    setMoving(null);
     setPicked(claim);
+  };
+
+  // Photos moved out of a ticked room stay ticked in their new room; a room
+  // left empty is gone
+  const handleMoved = (fromKey: string, updated: ClaimPackingPhoto[], movedIds: string[]) => {
+    if (!picked) return;
+    queryClient.setQueryData(claimPackingPhotosKey(picked.claim_id), updated);
+    queryClient.invalidateQueries({ queryKey: ['packing-photo-claims'] });
+    const dest = updated.find(p => p.id === movedIds[0]);
+    const emptied = !updated.some(p => packingRoomKey(p) === fromKey);
+    setSelected(prev => {
+      if (!prev.has(fromKey) || !dest) return prev;
+      const next = new Set(prev);
+      next.add(packingRoomKey(dest));
+      if (emptied) next.delete(fromKey);
+      return next;
+    });
+    if (emptied) setMoving(null);
+    if (dest) message.success(`${plural(movedIds.length, 'photo')} moved to ${dest.room_name}`);
   };
 
   const handleLoad = () => {
@@ -202,7 +232,8 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
         </div>
       )}
 
-      <div className="pk-folder-list pk-claim-rooms">
+      {/* Moving photos, the list grows with the sheet instead of scrolling in a box */}
+      <div className={`pk-folder-list pk-claim-rooms${moving ? ' is-moving' : ''}`}>
         {photosQuery.isLoading ? (
           <div className="pk-folder-empty"><Spin size="small" /></div>
         ) : photosQuery.isError ? (
@@ -216,31 +247,54 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
           ...group.rooms.map(room => {
           const key = packingRoomKey(room);
           const on = selected.has(key);
+          const isMoving = moving === key;
           return (
-            <div key={key} className={`pk-folder-row${on ? '' : ' is-off'}`}>
-              {/* The whole row is the checkbox's label */}
-              <Checkbox
-                className="pk-claim-room"
-                checked={on}
-                onChange={() => toggleRoom(key)}
-                aria-label={`${room.room_name}, ${group.label}`}
-              >
-                <span className="pk-claim-main">
-                  <span className="pk-folder-name">{room.room_name}</span>
-                  <span className="pk-claim-thumbs" aria-hidden="true">
-                    {room.photos.slice(0, ROOM_THUMBS).map(photo => (
-                      <img key={photo.id} src={apiUrl(photo.thumbnail_url)} alt="" loading="lazy" />
-                    ))}
-                    {room.photos.length > ROOM_THUMBS && (
-                      <span className="pk-claim-more">+{room.photos.length - ROOM_THUMBS}</span>
-                    )}
+            <div key={key} className={`pk-claim-room-block${isMoving ? ' is-moving' : ''}`}>
+              <div className={`pk-folder-row${on ? '' : ' is-off'}`}>
+                {/* The room's name and photos are the checkbox's label */}
+                <Checkbox
+                  className="pk-claim-room"
+                  checked={on}
+                  onChange={() => toggleRoom(key)}
+                  aria-label={`${room.room_name}, ${group.label}`}
+                >
+                  <span className="pk-claim-main">
+                    <span className="pk-folder-name">{room.room_name}</span>
+                    <span className="pk-claim-thumbs" aria-hidden="true">
+                      {room.photos.slice(0, ROOM_THUMBS).map(photo => (
+                        <img key={photo.id} src={apiUrl(photo.thumbnail_url)} alt="" loading="lazy" />
+                      ))}
+                      {room.photos.length > ROOM_THUMBS && (
+                        <span className="pk-claim-more">+{room.photos.length - ROOM_THUMBS}</span>
+                      )}
+                    </span>
                   </span>
-                </span>
+                </Checkbox>
                 <span className="pk-claim-room-meta">
                   <span className="pk-folder-photos">{plural(room.photos.length, 'photo')}</span>
                   {inEstimate(room.room_name) && <span className="pk-claim-meta">In this estimate</span>}
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<SwapOutlined />}
+                    className="pk-claim-room-move"
+                    aria-expanded={isMoving}
+                    aria-label={`Move photos of ${room.room_name} to another room`}
+                    onClick={() => setMoving(isMoving ? null : key)}
+                  >
+                    Move
+                  </Button>
                 </span>
-              </Checkbox>
+              </div>
+              {isMoving && (
+                <ClaimRoomPhotoMover
+                  claimId={picked.claim_id}
+                  room={room}
+                  otherRooms={group.rooms.filter(r => r !== room).map(r => r.room_name)}
+                  onMoved={(updated, ids) => handleMoved(key, updated, ids)}
+                  onDone={() => setMoving(null)}
+                />
+              )}
             </div>
           );
           }),

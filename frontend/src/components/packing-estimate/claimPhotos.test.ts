@@ -10,6 +10,7 @@ vi.mock('./FolderImportModal', () => ({ defaultPhotoRoom: vi.fn(), resolveNameCo
 // eslint-disable-next-line import/first
 import {
   defaultPackingCategory, groupPackingCategories, groupPackingRooms, packingCategoryLabel, packingRoomKey,
+  roomNameOptions,
 } from './claimPhotos';
 
 let next = 0;
@@ -58,6 +59,13 @@ describe('claim packing photos by category, then room', () => {
     expect(groupPackingCategories([photo('work_completion', 'Den')]).map(g => g.category))
       .toEqual(['work_completion']);
     expect(groupPackingCategories([])).toEqual([]);
+  });
+
+  it('offers each room name once, not the room itself, matching what is typed', () => {
+    const names = ['Basement', 'Den', 'Kitchen', 'basement', 'Living Room', 'Kitchen'];
+    expect(roomNameOptions(names, '', 'den').map(o => o.value)).toEqual(['Basement', 'Kitchen', 'Living Room']);
+    expect(roomNameOptions(names, ' KIT').map(o => o.value)).toEqual(['Kitchen']);
+    expect(roomNameOptions(names, 'Storage')).toEqual([]);
   });
 
   it('starts a photo set under its own category', () => {

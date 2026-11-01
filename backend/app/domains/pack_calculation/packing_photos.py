@@ -380,7 +380,8 @@ def move_photos(
 ) -> None:
     """Move photos to a room: of category, else of the category each is in.
     Moving every photo of a room to a new name (or category) moves the room
-    as it is, in its place; photos joining a room go to its end."""
+    as it is, in its place. Photos joining a room go to its end, and some of
+    a room's photos moved to a new room start it after the others."""
     room = clean_room_name(room_name)
     if not room:
         raise HTTPException(status_code=400, detail="Room name is required")
@@ -390,17 +391,33 @@ def move_photos(
     entries = db.query(PackingPhoto).filter(
         PackingPhoto.claim_id == str(claim_id),
         PackingPhoto.id.in_([i for i in ids if _is_uuid(i)]),
-    ).all()
+    ).order_by(PackingPhoto.sort_order, PackingPhoto.created_at).all()
+    # (category, room) -> its photo count, to tell a whole room from part of one
+    room_sizes: Dict[Tuple[str, str], int] = {}
+    for cat, name, n in db.query(
+        PackingPhoto.category, PackingPhoto.room_name, func.count(PackingPhoto.id)
+    ).filter(PackingPhoto.claim_id == str(claim_id)).group_by(
+        PackingPhoto.category, PackingPhoto.room_name
+    ).all():
+        key = (cat or DEFAULT_CATEGORY, name)
+        room_sizes[key] = room_sizes.get(key, 0) + n
+    moving: Dict[Tuple[str, str], int] = {}
+    for entry in entries:
+        key = (_category(entry), entry.room_name)
+        moving[key] = moving.get(key, 0) + 1
+
     order = _next_sort_order(db, claim_id)
     for entry in entries:
         target = category or _category(entry)
         joining = (target, room.lower()) in known
         name = known.get((target, room.lower()), room)
+        source = (_category(entry), entry.room_name)
         if entry.room_name == name and _category(entry) == target:
             continue
+        whole_room = moving[source] == room_sizes.get(source)
         entry.category = target
         entry.room_name = name
-        if joining:
+        if joining or not whole_room:
             entry.sort_order = order
             order += 1
     db.commit()

@@ -316,6 +316,27 @@ def test_a_room_moves_to_the_other_category(env):
     assert api.patch(url, json={'ids': [entry['den.jpg']], 'room_name': 'Den', 'category': 'attic'}).status_code == 422
 
 
+def test_some_of_a_rooms_photos_move_to_a_new_room_after_it(env):
+    api, database, tmp_path, _ = env
+    ids = _seed(database, tmp_path)
+    url = f"/api/packing-estimate/claims/{ids.claim}/photos"
+    photos = api.post(url, json={'category': WM, 'photos': [
+        {'source': 'wm', 'photo_id': ids.kitchen, 'room_name': 'Basement'},
+        {'source': 'wm', 'photo_id': ids.living, 'room_name': 'Basement'},
+        {'source': 'claim', 'photo_id': ids.claim_photo, 'room_name': 'Basement'},
+    ]}).json()['photos']
+    entry = {p['file_name']: p['id'] for p in photos}
+    assert _rooms(api.get(url).json()['photos']) == [('Basement', ['kitchen.jpg', 'living.jpg', 'den.jpg'])]
+
+    # The first and last photo start a new room, listed after Basement
+    resp = api.patch(url, json={'ids': [entry['den.jpg'], entry['kitchen.jpg']], 'room_name': 'Office'})
+    assert _rooms(resp.json()['photos']) == [('Basement', ['living.jpg']), ('Office', ['kitchen.jpg', 'den.jpg'])]
+
+    # The rest of Basement renamed stays where Basement was
+    resp = api.patch(url, json={'ids': [entry['living.jpg']], 'room_name': 'Storage'})
+    assert _rooms(resp.json()['photos']) == [('Storage', ['living.jpg']), ('Office', ['kitchen.jpg', 'den.jpg'])]
+
+
 def test_the_builder_gets_each_photo_as_a_jpeg_sized_for_the_ai(env):
     api, database, tmp_path, _ = env
     ids = _seed(database, tmp_path)

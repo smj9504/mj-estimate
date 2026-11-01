@@ -15,6 +15,27 @@ import { defaultPhotoRoom, resolveNameCollisions } from './FolderImportModal';
 /** react-query key of a claim's packing photos */
 export const claimPackingPhotosKey = (claimId: string) => ['claim-packing-photos', claimId];
 
+/** Room names offered after a category's own rooms when filing or moving photos */
+export const COMMON_ROOMS = [
+  'Kitchen', 'Living Room', 'Family Room', 'Dining Room', 'Master Bedroom', 'Bedroom',
+  'Bathroom', 'Office', 'Laundry Room', 'Basement', 'Garage', 'Closet',
+];
+
+/**
+ * Room names to offer, without repeats (any case) or `exclude`, matching
+ * what has been typed
+ */
+export function roomNameOptions(names: string[], typed: string, exclude?: string): { value: string }[] {
+  const seen = new Set<string>(exclude ? [exclude.trim().toLowerCase()] : []);
+  const text = typed.trim().toLowerCase();
+  return names.filter(name => {
+    const key = name.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return !text || key.includes(text);
+  }).map(name => ({ value: name }));
+}
+
 /** The analysis looks at this many photos of a room, the most different ones */
 export const AI_PHOTOS_PER_ROOM = 6;
 
