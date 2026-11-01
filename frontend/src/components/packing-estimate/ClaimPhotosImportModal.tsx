@@ -13,8 +13,8 @@
  * Photos moved out of a ticked room keep being loaded, in their new room.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Checkbox, Input, Modal, Spin, message } from 'antd';
-import { ExclamationCircleOutlined, PictureOutlined, RightOutlined, SwapOutlined } from '@ant-design/icons';
+import { Button, Checkbox, Input, Modal, Spin } from 'antd';
+import { DragOutlined, ExclamationCircleOutlined, PictureOutlined, RightOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSheetModal } from '../common/ui';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
@@ -149,7 +149,6 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
       return next;
     });
     if (emptied) setMoving(null);
-    if (dest) message.success(`${plural(movedIds.length, 'photo')} moved to ${dest.room_name}`);
   };
 
   const handleLoad = () => {
@@ -276,7 +275,7 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
                   <Button
                     type="text"
                     size="small"
-                    icon={<SwapOutlined />}
+                    icon={<DragOutlined />}
                     className="pk-claim-room-move"
                     aria-expanded={isMoving}
                     aria-label={`Move photos of ${room.room_name} to another room`}

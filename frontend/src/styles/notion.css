@@ -3850,6 +3850,18 @@ a.cl-contact-line:hover {
 .cl-packing-photos.pk-photos {
   margin-bottom: 8px;
 }
+/* A room's Move: its label stays so it reads apart from the icon actions */
+.cl-row-actions .ant-btn.cl-packing-move {
+  color: var(--color-neutral-700);
+}
+.cl-row-actions .ant-btn.cl-packing-move.is-on {
+  background: var(--color-ink-selected);
+  color: var(--color-neutral-900);
+}
+.cl-packing-room .pk-mover {
+  margin-bottom: 10px;
+  border-bottom: none;
+}
 .cl-packing-estimates {
   margin: 4px 0 0;
 }
@@ -4295,6 +4307,9 @@ a.cl-contact-line:hover {
   }
 
   /* Row icon buttons grow to a thumb-sized target */
+  .cl-row-actions .ant-btn.cl-packing-move {
+    height: 36px;
+  }
   .ant-btn.cl-touch-icon,
   .cl-row-actions .ant-btn.ui-icon-btn.cl-touch-icon,
   .cl-touch-link.sup-pdf-link {

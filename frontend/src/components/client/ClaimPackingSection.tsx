@@ -5,12 +5,16 @@
  * by room within each, and the claim's packing estimates. A category's
  * Pack-out/in estimate opens the packing estimate builder with the job filled
  * in; it loads that category's rooms and runs the AI item analysis on them.
+ * A room's Move moves some of its photos to another room of its category or
+ * to a new one (ClaimRoomPhotoMover); ⇄ moves the whole room to the other
+ * category.
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Image, Input, Popconfirm, Tooltip, message } from 'antd';
 import {
-  CheckOutlined, CloseOutlined, DeleteOutlined, EditOutlined, PlusOutlined, SwapOutlined, ThunderboltOutlined,
+  CheckOutlined, CloseOutlined, DeleteOutlined, DragOutlined, EditOutlined, PlusOutlined, SwapOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -22,6 +26,7 @@ import {
   AI_PHOTOS_PER_ROOM, PACKING_CATEGORIES, apiUrl, claimPackingPhotosKey, groupPackingCategories,
   packingCategoryLabel, packingRoomKey,
 } from '../packing-estimate/claimPhotos';
+import ClaimRoomPhotoMover from '../packing-estimate/ClaimRoomPhotoMover';
 import { PackStatusPill, formatMoney, modeLabel } from '../packing-estimate/packingUi';
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -59,6 +64,8 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
   const photosKey = claimPackingPhotosKey(claim.id);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
+  // The room whose photos are being moved (packingRoomKey)
+  const [moving, setMoving] = useState<string | null>(null);
 
   const { data: photos = [], isLoading } = useQuery({
     queryKey: photosKey,
@@ -98,6 +105,12 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
     },
     onError: failed('Failed to move the room'),
   });
+
+  // A room left with no photos is gone, and so is its Move
+  const photosMoved = (fromKey: string, updated: ClaimPackingPhoto[]) => {
+    saved(updated);
+    if (!updated.some(p => packingRoomKey(p) === fromKey)) setMoving(null);
+  };
 
   const saveRename = (ids: string[]) => {
     const name = draftName.trim();
@@ -160,6 +173,7 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
               const ids = room.photos.map(p => p.id);
               const key = packingRoomKey(room);
               const isRenaming = renaming === key;
+              const isMoving = moving === key;
               const others = PACKING_CATEGORIES.filter(c => c.value !== room.category);
               return (
                 <li key={key} className="cl-packing-room">
@@ -202,6 +216,17 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
                         </>
                       ) : (
                         <>
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<DragOutlined />}
+                            className={`cl-packing-move${isMoving ? ' is-on' : ''}`}
+                            aria-expanded={isMoving}
+                            aria-label={`Move photos of ${room.room_name} to another room`}
+                            onClick={() => setMoving(isMoving ? null : key)}
+                          >
+                            Move
+                          </Button>
                           {others.map(other => (
                             <Tooltip key={other.value} title={`Move to ${other.label}`}>
                               <Button type="text" size="small" className="ui-icon-btn cl-touch-icon"
@@ -213,7 +238,7 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
                           <Tooltip title="Rename room">
                             <Button type="text" size="small" className="ui-icon-btn cl-touch-icon"
                               aria-label={`Rename ${room.room_name}`} icon={<EditOutlined />}
-                              onClick={() => { setRenaming(key); setDraftName(room.room_name); }} />
+                              onClick={() => { setRenaming(key); setDraftName(room.room_name); setMoving(null); }} />
                           </Tooltip>
                           <Popconfirm
                             title={`Take ${room.room_name} (${group.label}) out of packing?`}
@@ -229,29 +254,39 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
                       )}
                     </div>
                   </div>
-                  <Image.PreviewGroup>
-                    <div className="pk-photos cl-packing-photos">
-                      {room.photos.map(photo => (
-                        <div key={photo.id} className="pk-photo">
-                          <Image
-                            src={apiUrl(photo.thumbnail_url)}
-                            preview={{ src: apiUrl(photo.preview_url) }}
-                            width={72}
-                            height={72}
-                            alt={photo.file_name || room.room_name}
-                          />
-                          <button
-                            type="button"
-                            className="pk-photo-remove"
-                            onClick={() => removeMutation.mutate([photo.id])}
-                            aria-label="Take this photo out of packing"
-                          >
-                            <CloseOutlined />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </Image.PreviewGroup>
+                  {isMoving ? (
+                    <ClaimRoomPhotoMover
+                      claimId={claim.id}
+                      room={room}
+                      otherRooms={group.rooms.filter(r => r !== room).map(r => r.room_name)}
+                      onMoved={updated => photosMoved(key, updated)}
+                      onDone={() => setMoving(null)}
+                    />
+                  ) : (
+                    <Image.PreviewGroup>
+                      <div className="pk-photos cl-packing-photos">
+                        {room.photos.map(photo => (
+                          <div key={photo.id} className="pk-photo">
+                            <Image
+                              src={apiUrl(photo.thumbnail_url)}
+                              preview={{ src: apiUrl(photo.preview_url) }}
+                              width={72}
+                              height={72}
+                              alt={photo.file_name || room.room_name}
+                            />
+                            <button
+                              type="button"
+                              className="pk-photo-remove"
+                              onClick={() => removeMutation.mutate([photo.id])}
+                              aria-label="Take this photo out of packing"
+                            >
+                              <CloseOutlined />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </Image.PreviewGroup>
+                  )}
                 </li>
               );
             })}

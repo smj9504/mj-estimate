@@ -2,7 +2,8 @@
  * ClaimRoomPhotoMover - moves photos of one of a claim's packing rooms to
  * another room of its category: one already there, or a new one by typing
  * its name. Tap the photos to move, then pick or type the room. Moving all
- * of a room's photos to a new name renames the room.
+ * of a room's photos to a new name renames the room. Used on the claim
+ * page's Packing estimate and in the builder's Load Photos from a Claim.
  */
 import React, { useState } from 'react';
 import { AutoComplete, Button, message } from 'antd';
@@ -11,6 +12,7 @@ import { useMutation } from '@tanstack/react-query';
 import * as packingService from '../../services/packingEstimateService';
 import type { ClaimPackingPhoto } from '../../types/packing-estimate';
 import { COMMON_ROOMS, type PackingRoomGroup, apiUrl, roomNameOptions } from './claimPhotos';
+import './packing.css';
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -48,6 +50,8 @@ const ClaimRoomPhotoMover: React.FC<ClaimRoomPhotoMoverProps> = ({
     onSuccess: (updated, { ids }) => {
       setChosen(new Set());
       setTarget('');
+      const dest = updated.find(p => p.id === ids[0]);
+      if (dest) message.success(`${plural(ids.length, 'photo')} moved to ${dest.room_name}`);
       onMoved(updated, ids);
     },
     onError: (err: any) => {
