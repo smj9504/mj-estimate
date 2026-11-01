@@ -431,45 +431,12 @@ class ExportRequest(BaseModel):
     tax_rate: float = Field(default=0.0, ge=0, le=100)
 
 
-class ReportRoomPhoto(BaseModel):
-    """A single photo to include in the report for a specific room."""
-    image: str = Field(..., description="Base64 encoded image (JPEG/PNG)")
-    caption: Optional[str] = None
-    is_damage: bool = Field(default=False, description="Mark as pre-existing damage photo")
-
-
-class ReportRoomData(BaseModel):
-    """Per-room data for the report."""
-    room_name: str
-    photos: List[ReportRoomPhoto] = Field(default_factory=list)
-    items: Optional[List[DetectedContentItem]] = Field(
-        default=None, description="Inventory items for this room"
-    )
-    labor_hours: Optional[float] = None
-    labor_notes: Optional[str] = None
-    field_notes: List[str] = Field(default_factory=list)
-
-
-class ReportSections(BaseModel):
-    """Toggle which sections to include in the report."""
-    inventory_list: bool = Field(default=True, description="Include room-by-room inventory list")
-    damage_photos: bool = Field(default=False, description="Include pre-existing damage photos")
-    labor_log: bool = Field(default=False, description="Include labor log per room")
-    room_photos: bool = Field(default=True, description="Include room photos")
-    estimate_summary: bool = Field(default=True, description="Include estimate summary totals")
-
-
-class ReportExportRequest(BaseModel):
-    """Request body for POST /export/report."""
-    session_id: str
-    sections: ReportSections = Field(default_factory=ReportSections)
-    rooms: List[ReportRoomData] = Field(default_factory=list)
-    company_override: Optional[CompanyInfoOverride] = None
-    tax_rate: float = Field(default=0.0, ge=0, le=100)
-    notes: Optional[str] = Field(default=None, description="Additional notes for the report")
-    include_signature_page: bool = Field(default=False, description="Add signature page at end")
-    image_quality: int = Field(default=60, ge=20, le=90, description="JPEG quality for photos (lower = smaller file)")
-    max_image_width: int = Field(default=800, ge=400, le=1200, description="Max image width in pixels")
+class PackingReportRequest(BaseModel):
+    """What a saved estimate's report shows: its contents list, its room
+    photos, or both"""
+    contents_list: bool = Field(default=True, description="Each room's items")
+    photos: bool = Field(default=True, description="The claim's packing photos of each room")
+    estimate_total: bool = Field(default=False, description="The estimate's grand total in the summary")
 
 
 # ============================================

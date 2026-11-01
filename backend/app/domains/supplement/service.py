@@ -463,50 +463,14 @@ class SupplementService:
 
             elif item.pack_calculation_id:
                 from app.domains.pack_calculation.models import PackCalculation
-                from app.domains.pack_calculation.export import (
-                    generate_estimate_pdf as generate_pack_pdf,
-                    build_company_info,
-                )
+                from app.domains.pack_calculation.export import saved_estimate_pdf
                 calc = session.query(PackCalculation).filter(
                     PackCalculation.id == item.pack_calculation_id
                 ).first()
                 if calc:
-                    estimate_data = {
-                        "sections": calc.sections or {},
-                        "section_details": calc.section_details or {},
-                        "materials_summary": calc.materials_summary or {},
-                        "material_details": calc.material_details or [],
-                        "supplements": calc.supplements or [],
-                        "subtotal": calc.subtotal or 0,
-                        "op_amount": calc.op_amount or 0,
-                        "contingency_amount": calc.contingency_amount or 0,
-                        "supplements_total": calc.supplements_total or 0,
-                        "grand_total": calc.grand_total or 0,
-                        "include_op": calc.include_op,
-                        "op_rate": calc.op_rate,
-                        "include_contingency": calc.include_contingency,
-                        "contingency_rate": calc.contingency_rate,
-                        "crew_size": calc.crew_size,
-                        "storage_months": calc.storage_months,
-                        "staging_type": calc.staging_type,
-                        "include_packback": calc.include_packback,
-                        "storage_sf": calc.storage_sf or 0,
-                        "total_hours": calc.total_hours or 0,
-                        "room_summaries": calc.room_summaries or [],
-                        "special_items": calc.special_items or [],
-                        "custom_special_items": calc.custom_special_items or [],
-                    }
-                    client_name = calc.client.display_name if calc.client else None
-                    company_info = build_company_info(calc.company) if calc.company else None
-                    pdf_bytes = generate_pack_pdf(
-                        estimate_data=estimate_data,
-                        client_name=client_name,
-                        property_address=calc.project_address,
-                        company_info=company_info,
-                    )
                     return {
                         "filename": f"Packing_Estimate_{str(item.pack_calculation_id)[:8]}.pdf",
-                        "data": pdf_bytes if isinstance(pdf_bytes, bytes) else pdf_bytes.getvalue(),
+                        "data": saved_estimate_pdf(calc),
                         "mime_type": "application/pdf",
                     }
 
