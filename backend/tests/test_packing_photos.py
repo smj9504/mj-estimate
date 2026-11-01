@@ -336,6 +336,14 @@ def test_some_of_a_rooms_photos_move_to_a_new_room_after_it(env):
     resp = api.patch(url, json={'ids': [entry['living.jpg']], 'room_name': 'Storage'})
     assert _rooms(resp.json()['photos']) == [('Storage', ['living.jpg']), ('Office', ['kitchen.jpg', 'den.jpg'])]
 
+    # One of Office's photos is of the other stage: it goes to that category's room
+    resp = api.patch(url, json={'ids': [entry['den.jpg']], 'room_name': 'Office', 'category': DONE})
+    assert _groups(resp.json()['photos']) == [
+        ((WM, 'Storage'), ['living.jpg']),
+        ((WM, 'Office'), ['kitchen.jpg']),
+        ((DONE, 'Office'), ['den.jpg']),
+    ]
+
 
 def test_the_builder_gets_each_photo_as_a_jpeg_sized_for_the_ai(env):
     api, database, tmp_path, _ = env

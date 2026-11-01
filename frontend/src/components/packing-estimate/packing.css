@@ -689,9 +689,19 @@
   font-size: 18px;
   color: var(--color-primary);
 }
+.pk-mover-to {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-bottom: 8px;
+}
 .pk-mover-bar {
   display: flex;
   gap: 8px;
+}
+.pk-mover-foot .pk-claim-meta {
+  white-space: normal;
 }
 .pk-mover-target {
   flex: 1;

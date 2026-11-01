@@ -8,7 +8,7 @@
  * one, else the first that has rooms to load.
  *
  * A room's Move sorts its photos before loading: tap the photos, then pick
- * another room of its category or type a new one (ClaimRoomPhotoMover). The
+ * the category and another room or type a new one (ClaimRoomPhotoMover). The
  * change is to the claim's packing photos, so the claim page shows it too.
  * Photos moved out of a ticked room keep being loaded, in their new room.
  */
@@ -289,7 +289,7 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
                 <ClaimRoomPhotoMover
                   claimId={picked.claim_id}
                   room={room}
-                  otherRooms={group.rooms.filter(r => r !== room).map(r => r.room_name)}
+                  rooms={rooms}
                   onMoved={(updated, ids) => handleMoved(key, updated, ids)}
                   onDone={() => setMoving(null)}
                 />

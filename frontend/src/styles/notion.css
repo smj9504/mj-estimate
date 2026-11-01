@@ -3885,6 +3885,14 @@ a.cl-contact-line:hover {
 .cl-packing-tags.ant-checkbox-wrapper {
   margin-bottom: 4px;
 }
+/* The two categories side by side, the full width; nothing picked to start */
+.cl-packing-category-pick.ant-radio-group {
+  display: flex;
+}
+.cl-packing-category-pick .ant-radio-button-wrapper {
+  flex: 1;
+  text-align: center;
+}
 .cl-packing-tag-list {
   display: block;
 }

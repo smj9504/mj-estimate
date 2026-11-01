@@ -9,8 +9,7 @@ vi.mock('./FolderImportModal', () => ({ defaultPhotoRoom: vi.fn(), resolveNameCo
 
 // eslint-disable-next-line import/first
 import {
-  defaultPackingCategory, groupPackingCategories, groupPackingRooms, packingCategoryLabel, packingRoomKey,
-  roomNameOptions,
+  groupPackingCategories, groupPackingRooms, packingCategoryLabel, packingRoomKey, roomNameOptions,
 } from './claimPhotos';
 
 let next = 0;
@@ -68,9 +67,8 @@ describe('claim packing photos by category, then room', () => {
     expect(roomNameOptions(names, 'Storage')).toEqual([]);
   });
 
-  it('starts a photo set under its own category', () => {
-    expect(defaultPackingCategory('wm')).toBe('water_mitigation');
-    expect(defaultPackingCategory('claim')).toBe('work_completion');
+  it('names the categories', () => {
+    expect(packingCategoryLabel('water_mitigation')).toBe('Water mitigation');
     expect(packingCategoryLabel('work_completion')).toBe('Work completion');
   });
 });

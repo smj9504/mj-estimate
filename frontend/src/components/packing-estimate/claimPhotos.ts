@@ -8,7 +8,7 @@
 import api from '../../services/api';
 import * as packingService from '../../services/packingEstimateService';
 import type {
-  ClaimPackingPhoto, Floor, PackingPhotoCategory, PackingPhotoSource, PhotoRoom,
+  ClaimPackingPhoto, Floor, PackingPhotoCategory, PhotoRoom,
 } from '../../types/packing-estimate';
 import { defaultPhotoRoom, resolveNameCollisions } from './FolderImportModal';
 
@@ -49,14 +49,6 @@ export const PACKING_CATEGORIES: { value: PackingPhotoCategory; label: string }[
 
 export const packingCategoryLabel = (category: PackingPhotoCategory): string =>
   PACKING_CATEGORIES.find(c => c.value === category)?.label ?? category;
-
-/**
- * The category a photo set's photos most likely go under: a water
- * mitigation job's photos under water mitigation, the claim's Completion
- * photos under work completion
- */
-export const defaultPackingCategory = (source: PackingPhotoSource): PackingPhotoCategory =>
-  (source === 'wm' ? 'water_mitigation' : 'work_completion');
 
 export interface PackingRoomGroup {
   category: PackingPhotoCategory;

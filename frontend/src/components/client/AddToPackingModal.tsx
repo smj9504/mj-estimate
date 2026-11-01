@@ -2,21 +2,22 @@
  * AddToPackingModal - files the photos selected in a claim photo gallery for
  * the claim's packing estimate: first under a category (the stage of the job
  * they are for: water mitigation, work completion), then under a room in it.
- * The category starts as the photo set's own (a WM job's photos: water
- * mitigation; the claim's Completion photos: work completion). Photos tagged
- * with a room (water mitigation location tags) can keep their own room. A
- * photo already in the packing set moves to the category and room picked here.
+ * Nothing is picked to start with: a photo set doesn't tell the stage (a WM
+ * job's photos, synced from CompanyCam, cover the whole job), and the room
+ * waits for the category. Photos tagged with a room (water mitigation
+ * location tags) can keep their own room. A photo already in the packing set
+ * moves to the category and room picked here.
  */
 import React, { useEffect, useState } from 'react';
-import { AutoComplete, Button, Checkbox, Modal, Segmented, message } from 'antd';
+import { AutoComplete, Button, Checkbox, Modal, Radio, message } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSheetModal } from '../common/ui';
 import type { FileItem } from '../common/FileGallery';
 import * as packingService from '../../services/packingEstimateService';
 import type { PackingPhotoCategory, PackingPhotoRef, PackingPhotoSource } from '../../types/packing-estimate';
 import {
-  COMMON_ROOMS, PACKING_CATEGORIES, claimPackingPhotosKey, defaultPackingCategory, groupPackingRooms,
-  packingCategoryLabel, roomNameOptions,
+  COMMON_ROOMS, PACKING_CATEGORIES, claimPackingPhotosKey, groupPackingRooms, packingCategoryLabel,
+  roomNameOptions,
 } from '../packing-estimate/claimPhotos';
 
 interface AddToPackingModalProps {
@@ -36,7 +37,7 @@ const AddToPackingModal: React.FC<AddToPackingModalProps> = ({
 }) => {
   const { sheetProps, isPhone } = useSheetModal();
   const queryClient = useQueryClient();
-  const [category, setCategory] = useState<PackingPhotoCategory>(() => defaultPackingCategory(source));
+  const [category, setCategory] = useState<PackingPhotoCategory | null>(null);
   const [roomName, setRoomName] = useState('');
   const [useTags, setUseTags] = useState(true);
 
@@ -48,11 +49,11 @@ const AddToPackingModal: React.FC<AddToPackingModalProps> = ({
 
   useEffect(() => {
     if (open) {
-      setCategory(defaultPackingCategory(source));
+      setCategory(null);
       setRoomName('');
       setUseTags(true);
     }
-  }, [open, source]);
+  }, [open]);
 
   const tagged = photos.filter(p => p.locationRoom?.trim());
   const untaggedCount = photos.length - tagged.length;
@@ -75,17 +76,17 @@ const AddToPackingModal: React.FC<AddToPackingModalProps> = ({
   ], roomName);
 
   const addMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: (to: PackingPhotoCategory) => {
       const refs: PackingPhotoRef[] = photos.map(p => ({
         source,
         photo_id: p.id,
         room_name: keepTags ? p.locationRoom?.trim() || undefined : undefined,
       }));
-      return packingService.addClaimPhotos(claimId, category, refs, roomName.trim() || undefined);
+      return packingService.addClaimPhotos(claimId, to, refs, roomName.trim() || undefined);
     },
-    onSuccess: (updated) => {
+    onSuccess: (updated, to) => {
       queryClient.setQueryData(claimPackingPhotosKey(claimId), updated);
-      message.success(`${plural(photos.length, 'photo')} added to ${packingCategoryLabel(category)} for packing`);
+      message.success(`${plural(photos.length, 'photo')} added to ${packingCategoryLabel(to)} for packing`);
       onAdded();
       onClose();
     },
@@ -94,7 +95,7 @@ const AddToPackingModal: React.FC<AddToPackingModalProps> = ({
     },
   });
 
-  const canSave = photos.length > 0 && (!needsRoom || roomName.trim().length > 0);
+  const canSave = photos.length > 0 && !!category && (!needsRoom || roomName.trim().length > 0);
   const size = isPhone ? 'large' : 'middle';
 
   return (
@@ -110,7 +111,7 @@ const AddToPackingModal: React.FC<AddToPackingModalProps> = ({
           key="add"
           type="primary"
           size={size}
-          onClick={() => addMutation.mutate()}
+          onClick={() => category && addMutation.mutate(category)}
           loading={addMutation.isPending}
           disabled={!canSave}
         >
@@ -125,22 +126,27 @@ const AddToPackingModal: React.FC<AddToPackingModalProps> = ({
 
       <div className="cl-packing-field">
         <span className="cl-packing-label" id="packing-category-label">1. Category</span>
-        <Segmented
-          block
+        <Radio.Group
           size={size}
           value={category}
-          onChange={v => setCategory(v as PackingPhotoCategory)}
+          onChange={e => setCategory(e.target.value)}
+          optionType="button"
+          buttonStyle="solid"
           options={PACKING_CATEGORIES}
+          className="cl-packing-category-pick"
           aria-labelledby="packing-category-label"
         />
       </div>
 
-      <div className="cl-packing-field">
-        <span className="cl-packing-label">2. Room</span>
+      <div className={`cl-packing-field${category ? '' : ' is-waiting'}`}>
+        <span className="cl-packing-label">
+          2. Room{!category && <span className="cl-meta"> · pick the category first</span>}
+        </span>
         {tagged.length > 0 && (
           <Checkbox
             className="cl-packing-tags"
             checked={useTags}
+            disabled={!category}
             onChange={e => setUseTags(e.target.checked)}
           >
             Keep each photo's room tag
@@ -162,6 +168,7 @@ const AddToPackingModal: React.FC<AddToPackingModalProps> = ({
               value={roomName}
               onChange={setRoomName}
               options={roomOptions}
+              disabled={!category}
               placeholder="e.g. Master Bedroom"
               style={{ width: '100%' }}
               aria-label="Room"
