@@ -76,6 +76,8 @@ def test_copy_without_insurance_is_saved_as_the_jobs_sketch_report(monkeypatch):
 
     def upload(file_bytes, **kwargs):
         calls['uploaded'] = file_bytes
+        # Its one document is updated in place, so nothing would point at the old file
+        assert kwargs['replace'] is True
         return {'file_path': 'p', 'file_size': len(file_bytes),
                 'storage_provider': 'local', 'storage_file_id': 'f'}
 

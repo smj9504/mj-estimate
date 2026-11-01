@@ -887,6 +887,7 @@ def generate_sketch_report(
             context="water-mitigation",
             context_id=str(job_id),
             category="documents",
+            replace=True,
         )
 
         # Upsert: find existing sketch_report document for this job

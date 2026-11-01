@@ -8,8 +8,17 @@ from typing import BinaryIO, Optional, List, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
+
+
+def unique_object_name(filename: str) -> str:
+    """The name to store an upload under in cloud storage. A key there is its folder
+    and name, so a second file called IMG_0001.jpg would replace the first."""
+    stem, dot, extension = filename.rpartition('.')
+    token = uuid.uuid4().hex[:12]
+    return f"{stem}_{token}.{extension}" if dot else f"{filename}_{token}"
 
 
 @dataclass
@@ -105,7 +114,8 @@ class StorageProvider(ABC):
         category: Optional[str] = None,
         content_type: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        optimize: bool = True
+        optimize: bool = True,
+        replace: bool = False
     ) -> UploadResult:
         """
         Upload file to storage
@@ -118,6 +128,10 @@ class StorageProvider(ABC):
             category: File category (e.g., 'before', 'after')
             content_type: MIME type
             metadata: Additional metadata
+            replace: This is a new version of a document whose one record is updated
+                in place: it takes over the key of the same name, so the old version
+                isn't left with nothing pointing at it. Every other upload gets a key
+                of its own.
 
         Returns:
             UploadResult with file_id, urls, and metadata

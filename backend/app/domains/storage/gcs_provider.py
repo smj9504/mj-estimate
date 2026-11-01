@@ -15,7 +15,7 @@ from google.cloud import storage
 from google.oauth2 import service_account
 from google.api_core import exceptions
 
-from .base import StorageProvider, UploadResult, FileMetadata
+from .base import StorageProvider, UploadResult, FileMetadata, unique_object_name
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +141,8 @@ class GCSProvider(StorageProvider):
         category: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         content_type: Optional[str] = None,
-        optimize: bool = True
+        optimize: bool = True,
+        replace: bool = False
     ) -> UploadResult:
         """Upload file to GCS with optional optimization"""
         try:
@@ -159,8 +160,9 @@ class GCSProvider(StorageProvider):
                     filename = filename.rsplit('.', 1)[0] + '.webp'
                 logger.info(f"Image optimized: {img_opt.get('compression_ratio', '0%')} reduction")
 
-            # Check deduplication
-            dedup_key = opt_metadata.get('dedup_key')
+            # Check deduplication. A key that gets replaced can't be reused by content:
+            # a reference to it would soon hold a different file
+            dedup_key = None if replace else opt_metadata.get('dedup_key')
             if dedup_key:
                 # Check if file already exists (dedup)
                 dedup_blob = self.bucket.blob(f"_dedup/{dedup_key}.meta")
@@ -183,7 +185,7 @@ class GCSProvider(StorageProvider):
 
             # Build blob path
             blob_path = self._build_blob_path(
-                context, context_id, filename, category, metadata
+                context, context_id, filename if replace else unique_object_name(filename), category, metadata
             )
 
             logger.info(f"Uploading to GCS: {blob_path}")

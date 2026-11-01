@@ -46,9 +46,10 @@ class LocalStorageProvider(StorageProvider):
         category: Optional[str] = None,
         content_type: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        optimize: bool = True
+        optimize: bool = True,
+        replace: bool = False
     ) -> UploadResult:
-        """Upload file to local filesystem"""
+        """Upload file to local filesystem (each under its own uuid, replace or not)"""
         try:
             # Generate unique file ID
             file_extension = Path(filename).suffix.lower()

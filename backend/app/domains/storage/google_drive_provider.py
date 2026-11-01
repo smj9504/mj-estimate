@@ -100,9 +100,10 @@ class GoogleDriveProvider(StorageProvider):
         category: Optional[str] = None,
         content_type: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        optimize: bool = True
+        optimize: bool = True,
+        replace: bool = False
     ) -> UploadResult:
-        """Upload file to Google Drive with hierarchical structure"""
+        """Upload file to Google Drive with hierarchical structure (Drive gives each its own id)"""
         try:
             # 1. Get or create context folder (e.g., "water-mitigation")
             context_folder_id = self._get_or_create_folder(

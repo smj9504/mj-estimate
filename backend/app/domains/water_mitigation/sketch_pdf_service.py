@@ -721,6 +721,7 @@ class SketchPdfService:
             context="water-mitigation",
             context_id=str(job_id),
             category="documents",
+            replace=True,
         )
 
         doc_repo = WMDocumentRepository(self.db)

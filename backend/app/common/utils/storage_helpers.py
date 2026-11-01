@@ -26,6 +26,7 @@ def upload_bytes_to_storage(
     context_id: str,
     category: str = "documents",
     content_type: str = "application/pdf",
+    replace: bool = False,
 ) -> Dict[str, Any]:
     """Upload raw bytes to the configured storage provider.
 
@@ -36,6 +37,8 @@ def upload_bytes_to_storage(
         context_id: Entity ID (e.g., job_id, template_id)
         category: Sub-category (e.g., "documents", "reports", "filled")
         content_type: MIME type
+        replace: A new version of a document whose one record is updated in place
+            (see StorageProvider.upload)
 
     Returns:
         Dict with keys:
@@ -61,6 +64,7 @@ def upload_bytes_to_storage(
         context_id=context_id,
         category=category,
         content_type=content_type,
+        replace=replace,
     )
 
     logger.info(
