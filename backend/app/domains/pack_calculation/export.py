@@ -606,8 +606,10 @@ def _section_details_to_line_items(
 
     processed = set()
     for section_name in section_order:
-        # Materials section: use material_details (not in section_details)
-        if section_name == 'Materials' and material_details:
+        # Materials: the lines the estimate shows (itemized or grouped); older
+        # Photo AI estimates kept them only in material_details
+        has_material_lines = bool((section_details.get('Materials') or {}).get('lines'))
+        if section_name == 'Materials' and material_details and not has_material_lines:
             processed.add(section_name)
             items = []
             for m in material_details:

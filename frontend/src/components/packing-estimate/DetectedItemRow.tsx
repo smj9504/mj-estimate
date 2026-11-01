@@ -46,12 +46,14 @@ const categoryOptions = ITEM_CATEGORIES.map(c => ({ value: c, label: c }));
 
 interface DetectedItemRowProps {
   item: DetectedContentItem;
+  /** Its labor among the room's items packed the same way */
+  hours?: number;
   onChange: (patch: Partial<DetectedContentItem>) => void;
   onConfirm: () => void;
   onRemove: () => void;
 }
 
-const DetectedItemRow: React.FC<DetectedItemRowProps> = ({ item, onChange, onConfirm, onRemove }) => {
+const DetectedItemRow: React.FC<DetectedItemRowProps> = ({ item, hours, onChange, onConfirm, onRemove }) => {
   const uncertain = item.uncertain_fields ?? [];
   const unconfirmed = isUnconfirmed(item);
   const [open, setOpen] = useState(needsReview(item) || !item.name);
@@ -98,7 +100,7 @@ const DetectedItemRow: React.FC<DetectedItemRowProps> = ({ item, onChange, onCon
           </span>
           <span className="pk-item-figure">×{item.quantity}</span>
           <span className="pk-item-figure pk-item-hours">
-            {unconfirmed || item.estimated_labor_hours == null ? '-' : `${item.estimated_labor_hours.toFixed(2)} hr`}
+            {unconfirmed || hours == null ? '-' : `${hours.toFixed(2)} hr`}
           </span>
         </button>
         <Button

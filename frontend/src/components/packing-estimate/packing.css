@@ -1683,3 +1683,10 @@
   color: var(--color-neutral-600);
   font-variant-numeric: tabular-nums;
 }
+
+/* Detail Materials tab, grouped: each lump's materials under it */
+.pk-material-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}

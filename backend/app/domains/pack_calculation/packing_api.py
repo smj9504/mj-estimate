@@ -52,6 +52,7 @@ from .item_plan import (
     default_method,
     flags_for_storage,
     flags_from_storage,
+    quantity_exponent,
     weight_class_from_lb,
 )
 from .models import (
@@ -59,6 +60,7 @@ from .models import (
     PackEstimateMode, PackEstimateStatus,
     PackingPrice, PackingPhoto,
 )
+from .packing_service import MATERIAL_DISPLAYS, material_group, material_section_lines
 from .presets import get_presets_by_category
 from .seed_prices import seed_packing_prices
 
@@ -560,6 +562,13 @@ def update_estimate(
     if update.get("claim_id") and str(update["claim_id"]) != str(calc.claim_id or ""):
         require_claim(db, current_user, update["claim_id"])
 
+    # The page sends a status's value ('completed'); the column stores the member
+    if isinstance(update.get("status"), str):
+        try:
+            update["status"] = PackEstimateStatus(update["status"].lower())
+        except ValueError:
+            raise HTTPException(422, f"Unknown status: {update['status']}")
+
     updatable = [
         "calculation_name", "status", "notes",
         "sections", "section_details", "supplements",
@@ -570,10 +579,46 @@ def update_estimate(
     for field in updatable:
         if field in update:
             setattr(calc, field, update[field])
+    if "material_display" in update:
+        _set_material_display(calc, update["material_display"])
 
     calc.updated_by_id = current_user.id
     db.commit()
     return {"id": str(calc.id), "updated": True}
+
+
+def _set_material_display(calc: PackCalculation, display) -> None:
+    """Show a saved estimate's materials itemized or grouped. Its Materials lines
+    are made again from its material table, so the total stays where it is."""
+    if display not in MATERIAL_DISPLAYS:
+        raise HTTPException(422, f"material_display must be one of {', '.join(MATERIAL_DISPLAYS)}")
+    if display == (calc.material_display or "itemized"):
+        return
+    table = calc.material_details or []
+    if table:
+        section_details = dict(calc.section_details or {})
+        lines = (section_details.get("Materials") or {}).get("lines") or []
+        table_total = round(sum(m.get("total") or 0 for m in table), 2)
+        if abs(table_total - round((calc.sections or {}).get("Materials") or 0, 2)) > 0.01:
+            raise HTTPException(
+                409,
+                "This estimate's materials don't add up to its Materials section yet. "
+                "Recalculate it to change how its materials show.",
+            )
+        # Older tables don't keep each material's description (its line does) or group
+        described = {line.get("name"): line.get("detail") or "" for line in lines}
+        table = [
+            {
+                **m,
+                "detail": m.get("detail") or described.get(m.get("name"), ""),
+                "group": m.get("group") or material_group(m.get("code", "")),
+            }
+            for m in table
+        ]
+        section_details["Materials"] = {"lines": material_section_lines(table, display)}
+        calc.material_details = table
+        calc.section_details = section_details
+    calc.material_display = display
 
 
 @router.delete("/{calc_id}")
@@ -811,6 +856,7 @@ def _save_calculation(
         contingency_rate=getattr(
             request, 'contingency_rate', 0
         ),
+        material_display=result.material_display,
         sections=result.sections,
         section_details=result.section_details,
         materials_summary=result.materials,
@@ -973,6 +1019,7 @@ def _calc_to_detail(calc: PackCalculation, db=None) -> dict:
         "op_rate": calc.op_rate,
         "include_contingency": calc.include_contingency,
         "contingency_rate": calc.contingency_rate,
+        "material_display": calc.material_display or "itemized",
         "sections": calc.sections,
         "section_details": calc.section_details,
         "materials": calc.materials_summary,
@@ -1052,6 +1099,7 @@ def _calc_to_detail(calc: PackCalculation, db=None) -> dict:
                             "required_materials": _json_list(ir[7]),
                             "base_labor_hours": ir[8],
                             "per_unit_labor_hours": ir[9],
+                            "quantity_exponent": quantity_exponent(ir[6], size),
                             "estimated_labor_hours": ir[10],
                             "estimator_flags": flags,
                             "uncertain_fields": uncertain_fields,

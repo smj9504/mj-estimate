@@ -10,8 +10,8 @@ import AddressAutocomplete from '../common/AddressAutocomplete';
 import { companyService } from '../../services/companyService';
 import { clientService } from '../../services/clientService';
 import type { Company } from '../../types';
-import type { PackingSettings, Region } from '../../types/packing-estimate';
-import { REGION_OPTIONS } from './constants';
+import type { MaterialDisplay, PackingSettings, Region } from '../../types/packing-estimate';
+import { MATERIAL_DISPLAY_OPTIONS, REGION_OPTIONS } from './constants';
 import './packing.css';
 
 const { Option } = Select;
@@ -128,6 +128,17 @@ export const EstimationSettings: React.FC<{
               aria-label="O&P rate"
             />
           ) : <span className="pk-toggle-text">Off</span>}
+        </span>
+      </FormRow>
+      <FormRow label="Materials">
+        <Segmented
+          value={settings.material_display}
+          onChange={v => patchSettings({ material_display: v as MaterialDisplay })}
+          options={MATERIAL_DISPLAY_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
+          aria-label="How materials show on the estimate"
+        />
+        <span className="pk-form-meta">
+          {MATERIAL_DISPLAY_OPTIONS.find(o => o.value === settings.material_display)?.hint}
         </span>
       </FormRow>
       <FormRow label="Contingency" htmlFor="pk-contingency">

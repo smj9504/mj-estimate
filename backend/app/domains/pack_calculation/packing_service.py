@@ -13,9 +13,10 @@ from app.domains.pack_calculation.packing_schemas import (
 )
 from sqlalchemy.orm import Session
 from app.domains.pack_calculation.item_plan import (
-    apply_plan,
+    apply_room_plan,
     method_label,
     plan_item,
+    plan_room,
 )
 from app.domains.pack_calculation.models import PackingPrice
 from app.domains.pack_calculation.presets import ROOM_PRESETS
@@ -496,6 +497,69 @@ MATERIAL_CODES = {
     "corner_protector": "3022",
 }
 
+# Materials can go on the estimate a line per material ("itemized") or as these
+# lumps ("grouped"): one line each, its amount the sum of its materials' lines,
+# so the Materials total is the same either way. Every material is in one group.
+MATERIAL_DISPLAYS = ("itemized", "grouped")
+MATERIAL_GROUPS = (
+    ("Packing Boxes", (
+        "box_small", "box_medium", "box_large", "box_xlarge", "box_book",
+    )),
+    ("Specialty Cartons & Bags", (
+        "box_dish", "box_wardrobe", "box_wardrobe_small", "box_wardrobe_large",
+        "box_mirror", "box_tv", "box_lamp",
+        "mattress_twin", "mattress_full", "mattress_queen", "mattress_king",
+    )),
+    ("Furniture Protection", (
+        "blanket", "furniture_pad", "chair_cover", "sofa_cover", "shrink_wrap", "corner_protector",
+    )),
+    ("Wrapping & Sealing Supplies", (
+        "bubble_12", "bubble_24", "packing_paper", "packing_tape",
+    )),
+)
+MATERIAL_GROUP_NAMES = tuple(group for group, _ in MATERIAL_GROUPS)
+MATERIAL_GROUP_OF = {key: group for group, keys in MATERIAL_GROUPS for key in keys}
+MATERIAL_KEY_OF_CODE = {code: key for key, code in MATERIAL_CODES.items()}
+
+
+def material_group(code: str) -> str:
+    """The group a material line goes under, from its price code."""
+    return MATERIAL_GROUP_OF.get(MATERIAL_KEY_OF_CODE.get(code, ""), "Wrapping & Sealing Supplies")
+
+
+def _short_material_name(name: str) -> str:
+    """'Small Box (1.5 cu ft)' reads 'Small Box' in a group's list."""
+    return name.split(" (")[0].strip()
+
+
+def material_section_lines(material_details: List[dict], display: str) -> list:
+    """The Materials section's lines from the material table: one per material, or
+    one per group with what it holds listed and no counts."""
+    if display != "grouped":
+        return [
+            estimate_line(
+                m["name"], m["quantity"], m["unit"], m["unit_price"], m.get("detail") or "",
+            )
+            for m in material_details
+        ]
+    def group_of(m):
+        return m.get("group") if m.get("group") in MATERIAL_GROUP_NAMES else material_group(m.get("code", ""))
+
+    lines = []
+    for group in MATERIAL_GROUP_NAMES:
+        members = [m for m in material_details if group_of(m) == group]
+        if not members:
+            continue
+        amount = round(sum(m["total"] for m in members), 2)
+        names = []
+        for m in members:
+            short = _short_material_name(m["name"])
+            if short not in names:
+                names.append(short)
+        lines.append(estimate_line(group, 1, "LS", amount, ", ".join(names)))
+    return lines
+
+
 # Human-readable descriptions for each material (shown in estimate detail)
 MATERIAL_DETAIL = {
     "box_small": "Small/heavy items: books, cans, tools",
@@ -959,9 +1023,9 @@ class EstimateCalculator:
 
         return materials
 
-    def _material_lines(self, materials: Dict[str, int], describe) -> Tuple[list, list]:
-        """The Materials section's lines and the material table, from one calculation."""
-        lines = []
+    def _material_lines(self, materials: Dict[str, int], describe, display: str = "itemized") -> Tuple[list, list]:
+        """The Materials section's lines and the material table, from one calculation.
+        The table always lists every material; the lines are itemized or grouped."""
         material_details = []
         for mat_key, qty in materials.items():
             code = MATERIAL_CODES.get(mat_key)
@@ -974,7 +1038,6 @@ class EstimateCalculator:
             name = p.name if p else DEFAULT_PRICES.get(code, {}).get("name", mat_key)
             unit = p.unit if p else DEFAULT_PRICES.get(code, {}).get("unit", "EA")
             line = estimate_line(name, qty, unit, unit_price, describe(mat_key))
-            lines.append(line)
             material_details.append({
                 "code": code,
                 "name": name,
@@ -983,8 +1046,9 @@ class EstimateCalculator:
                 "unit_price": unit_price,
                 "total": line["amount"],
                 "detail": line["detail"],
+                "group": MATERIAL_GROUP_OF.get(mat_key, "Wrapping & Sealing Supplies"),
             })
-        return lines, material_details
+        return material_section_lines(material_details, display), material_details
 
     @staticmethod
     def _special_item_lines(request) -> list:
@@ -1105,6 +1169,7 @@ class EstimateCalculator:
 
         mat_lines, material_details = self._material_lines(
             materials, lambda mat_key: MATERIAL_DETAIL.get(mat_key, "Packing supply"),
+            request.material_display,
         )
         section_details["Materials"] = {"lines": mat_lines}
 
@@ -1204,6 +1269,7 @@ class EstimateCalculator:
             section_details=section_details,
             materials=materials,
             material_details=material_details,
+            material_display=request.material_display,
             storage_sf=storage_sf if not is_on_site else 0,
             staging_type=request.staging_type,
             room_summaries=room_summaries,
@@ -1462,8 +1528,8 @@ class EstimateCalculator:
             hours["standard"] += unseen * density_mult * room_mult
 
             item_mult = room_mult * self.CROWDING_MULTIPLIERS.get(room.density, 1.0)
-            for item in getattr(room, 'items', []):
-                for tier, tier_hours in plan_item(item).tier_hours.items():
+            for plan in plan_room(getattr(room, 'items', [])):
+                for tier, tier_hours in plan.tier_hours.items():
                     hours[tier] += tier_hours * item_mult
 
         return {tier: round(value, 1) for tier, value in hours.items()}
@@ -1487,9 +1553,9 @@ class EstimateCalculator:
         for room in request.rooms:
             # The AI wasn't sure these are there; they count once someone keeps them
             room.items = [i for i in room.items if "presence" not in i.uncertain_fields]
-            # The price comes from the item's attributes, whatever the screen last showed
-            for item in room.items:
-                apply_plan(item)
+            # The price comes from the item's attributes, whatever the screen last showed,
+            # each item among the room's packed the same way
+            apply_room_plan(room.items)
 
         total_items = sum(item.quantity for room in request.rooms for item in room.items)
 
@@ -1658,6 +1724,7 @@ class EstimateCalculator:
         mat_detail_strs = self.build_material_detail_strings(request.rooms, materials)
         mat_lines, material_details = self._material_lines(
             materials, lambda mat_key: mat_detail_strs.get(mat_key, ""),
+            request.material_display,
         )
         section_details["Materials"] = {"lines": mat_lines}
 
@@ -1778,6 +1845,7 @@ class EstimateCalculator:
             section_details=section_details,
             materials=materials,
             material_details=material_details,
+            material_display=request.material_display,
             materials_detail=mat_detail_strs,
             storage_sf=storage_sf if not is_on_site else 0,
             staging_type=request.staging_type,

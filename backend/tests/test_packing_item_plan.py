@@ -26,6 +26,7 @@ from app.domains.pack_calculation.item_plan import (  # noqa: E402
     flags_from_storage,
     method_label,
     plan_item,
+    plan_room,
     weight_class_from_lb,
 )
 from app.domains.pack_calculation.packing_schemas import (  # noqa: E402
@@ -213,11 +214,88 @@ def test_fragile_moves_the_hours_to_the_fragile_tier_and_adds_cushioning():
     assert 'bubble_24' in fragile.materials and 'bubble_24' not in plain.materials
 
 
-def test_quantity_scales_per_unit_and_keeps_one_setup():
+def test_more_of_the_same_add_less_than_their_count_and_keep_one_setup():
     one = plan_item(item('Dish Set', 'Kitchenware', 1, 'small', 'light', is_fragile=True))
     forty = plan_item(item('Dish Set', 'Kitchenware', 40, 'small', 'light', is_fragile=True))
     assert forty.base_hours == one.base_hours
-    assert forty.total_hours == pytest.approx(one.base_hours + one.per_unit_hours * 40)
+    assert forty.total_hours == pytest.approx(one.base_hours + one.per_unit_hours * 40 ** forty.repeat, abs=1e-3)
+    assert forty.total_hours < one.base_hours + one.per_unit_hours * 40
+
+
+@pytest.mark.parametrize('name, category, size, weight, fragile', [
+    ('Book Collection', 'Books', 'small', 'light', False),
+    ('Clothing Items', 'Clothing', 'small', 'light', False),
+    ('Dish Set', 'Kitchenware', 'small', 'light', True),
+    ('Toys', 'Other', 'small', 'light', False),
+])
+def test_a_rough_count_barely_moves_the_hours(name, category, size, weight, fragile):
+    forty = plan_item(item(name, category, 40, size, weight, is_fragile=fragile)).total_hours
+    eighty = plan_item(item(name, category, 80, size, weight, is_fragile=fragile)).total_hours
+    # Twice the count is well under twice the hours, and still more
+    assert forty < eighty < forty * 1.5
+
+
+def test_pieces_repeat_less_than_small_things_packed_together():
+    def growth(name, category, size, weight):
+        one = plan_item(item(name, category, 1, size, weight)).per_unit_hours
+        return plan_item(item(name, category, 10, size, weight)).unit_times, one
+    chairs, _ = growth('Dining Chair', 'Furniture', 'medium', 'medium')
+    books, _ = growth('Book Collection', 'Books', 'small', 'light')
+    assert books < chairs < 10
+
+
+def test_what_an_item_is_outweighs_how_many_there_are():
+    fridge = plan_item(item('Refrigerator', 'Appliances', 1, 'xlarge', 'very_heavy')).total_hours
+    utensils = plan_item(item('Utensils', 'Kitchenware', 30, 'small', 'light')).total_hours
+    sofa = plan_item(item('Sofa', 'Furniture', 1, 'xlarge', 'heavy')).total_hours
+    clothes = plan_item(item('Clothing Items', 'Clothing', 50, 'small', 'light')).total_hours
+    assert fridge > 3 * utensils
+    assert sofa > 2 * clothes
+
+
+def test_a_count_split_across_lines_costs_only_the_extra_setup():
+    """The AI may list plates and bowls apart or together; the room's units of
+    one size packed the same way share the same rhythm either way."""
+    calc = calculator()
+    together = calc.classify_labor_hours([room([
+        item('Dish Set', 'Kitchenware', 40, 'small', 'light', is_fragile=True),
+    ], name='Kitchen')])
+    apart = calc.classify_labor_hours([room([
+        item('Plates', 'Kitchenware', 20, 'small', 'light', is_fragile=True),
+        item('Bowls', 'Kitchenware', 20, 'small', 'light', is_fragile=True),
+    ], name='Kitchen')])
+    setup = plan_item(item('Plates', 'Kitchenware', 1, 'small', 'light', is_fragile=True)).base_hours
+    assert sum(apart.values()) - sum(together.values()) == pytest.approx(setup, abs=0.15)
+
+
+def test_only_units_of_one_size_packed_one_way_share_their_time():
+    alone = plan_item(item('Queen Bed Frame', 'Furniture', 1, 'large', 'heavy')).total_hours
+    [frame, _] = plan_room([
+        item('Queen Bed Frame', 'Furniture', 1, 'large', 'heavy'),
+        item('Nightstand', 'Furniture', 2, 'medium', 'medium'),
+    ])
+    assert frame.total_hours == alone
+    [first, second] = plan_room([
+        item('Dining Chair', 'Furniture', 3, 'medium', 'medium'),
+        item('Dining Chair', 'Furniture', 3, 'medium', 'medium'),
+    ])
+    six = plan_item(item('Dining Chair', 'Furniture', 6, 'medium', 'medium'))
+    assert first.unit_times + second.unit_times == pytest.approx(six.unit_times)
+
+
+def test_the_estimate_saves_each_items_hours_as_its_room_priced_them():
+    result, request = estimate([room([
+        item('Plates', 'Kitchenware', 20, 'small', 'light', is_fragile=True),
+        item('Bowls', 'Kitchenware', 20, 'small', 'light', is_fragile=True),
+    ], name='Kitchen')])
+    plates, bowls = request.rooms[0].items
+    on_its_own = plan_item(item('Plates', 'Kitchenware', 20, 'small', 'light', is_fragile=True)).total_hours
+    assert plates.estimated_labor_hours < on_its_own
+    hours = calculator().classify_labor_hours(request.rooms)
+    unseen = calculator().UNSEEN_CONTENT_HOURS['large']
+    assert sum(hours.values()) == pytest.approx(
+        unseen + plates.estimated_labor_hours + bowls.estimated_labor_hours, abs=0.15,
+    )
 
 
 def test_a_piece_of_a_batch_is_not_slowed_by_weight():
@@ -566,3 +644,61 @@ def test_saving_and_reading_back_keeps_every_decision(env):
     # An open question stays open, and isn't shown as an ordinary flag
     assert saved['Chair']['uncertain_fields'] == ['weight']
     assert not any('REVIEW' in f for f in saved['Chair']['estimator_flags'])
+
+
+def test_a_saved_estimate_can_switch_how_its_materials_show(env):
+    client = env[0]
+    payload = RoomsEstimateRequest(rooms=[room(bedroom_items())]).model_dump(mode='json')
+    estimate_id = client.post('/api/packing-estimate/content-estimate', json=payload).json()['id']
+    before = client.get(f'/api/packing-estimate/{estimate_id}').json()
+    assert before['material_display'] == 'itemized'
+    itemized_lines = before['section_details']['Materials']['lines']
+
+    res = client.put(f'/api/packing-estimate/{estimate_id}', json={'material_display': 'grouped'})
+    assert res.status_code == 200, res.text
+    grouped = client.get(f'/api/packing-estimate/{estimate_id}').json()
+    assert grouped['material_display'] == 'grouped'
+    lines = grouped['section_details']['Materials']['lines']
+    assert len(lines) < len(itemized_lines) and {l['unit'] for l in lines} == {'LS'}
+    assert round(sum(l['amount'] for l in lines), 2) == before['sections']['Materials']
+    assert grouped['sections'] == before['sections']
+    assert grouped['grand_total'] == before['grand_total']
+    # The material table keeps every material for the office to see
+    assert len(grouped['material_details']) == len(before['material_details'])
+
+    pdf = client.get(f'/api/packing-estimate/{estimate_id}/export/pdf')
+    assert pdf.status_code == 200
+
+    client.put(f'/api/packing-estimate/{estimate_id}', json={'material_display': 'itemized'})
+    back = client.get(f'/api/packing-estimate/{estimate_id}').json()
+    assert back['section_details']['Materials']['lines'] == itemized_lines
+
+
+def test_an_unknown_material_display_is_refused(env):
+    client = env[0]
+    payload = RoomsEstimateRequest(rooms=[room(bedroom_items())]).model_dump(mode='json')
+    estimate_id = client.post('/api/packing-estimate/content-estimate', json=payload).json()['id']
+    assert client.put(f'/api/packing-estimate/{estimate_id}', json={'material_display': 'lumped'}).status_code == 422
+
+
+def test_saved_items_come_back_with_how_their_units_add_up(env):
+    client = env[0]
+    payload = RoomsEstimateRequest(rooms=[room([
+        item('Book Collection', 'Books', 60, 'small', 'light'),
+    ])]).model_dump(mode='json')
+    estimate_id = client.post('/api/packing-estimate/content-estimate', json=payload).json()['id']
+    [saved] = client.get(f'/api/packing-estimate/{estimate_id}').json()['rooms'][0]['items']
+    plan = plan_item(item('Book Collection', 'Books', 60, 'small', 'light'))
+    assert saved['quantity_exponent'] == plan.repeat
+    assert saved['estimated_labor_hours'] == pytest.approx(plan.total_hours)
+
+
+def test_a_status_saved_from_the_page_reads_back(env):
+    client = env[0]
+    payload = RoomsEstimateRequest(rooms=[room(bedroom_items())]).model_dump(mode='json')
+    estimate_id = client.post('/api/packing-estimate/content-estimate', json=payload).json()['id']
+    res = client.put(f'/api/packing-estimate/{estimate_id}', json={'status': 'completed', 'notes': 'Walked through'})
+    assert res.status_code == 200, res.text
+    saved = client.get(f'/api/packing-estimate/{estimate_id}').json()
+    assert saved['status'] == 'completed' and saved['notes'] == 'Walked through'
+    assert client.put(f'/api/packing-estimate/{estimate_id}', json={'status': 'done'}).status_code == 422

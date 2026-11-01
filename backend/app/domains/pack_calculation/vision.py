@@ -33,7 +33,7 @@ from typing import List, Optional
 from fastapi import HTTPException
 
 from app.core.config import settings
-from app.domains.pack_calculation.item_plan import SIZES, WEIGHTS, apply_plan
+from app.domains.pack_calculation.item_plan import SIZES, WEIGHTS, apply_plan, apply_room_plan
 from app.domains.pack_calculation.packing_schemas import (
     DetectedContentItem,
     ExistingItem,
@@ -858,7 +858,6 @@ def _build_room_analysis_response(
 ) -> RoomAnalysisResponse:
     """Convert raw Claude result dict into a RoomAnalysisResponse."""
     items: List[DetectedContentItem] = []
-    total_labor = 0.0
     fragile_count = 0
     high_value_count = 0
     field_notes: List[str] = []
@@ -895,16 +894,20 @@ def _build_room_analysis_response(
             match_confidence=item_data.get("_match_confidence"),
         )
         item.uncertain_fields, item.review_note = _review_of(item_data, item)
-        plan = apply_plan(item)
+        # An item that may not be there is priced on its own until someone keeps it
+        apply_plan(item)
         items.append(item)
 
         # An item that may not be there isn't priced, so it doesn't count yet
         if "presence" not in item.uncertain_fields:
-            total_labor += plan.total_hours
             if is_frag:
                 fragile_count += qty
             if is_hv:
                 high_value_count += qty
+
+    # What counts is priced among the room's items packed the same way
+    counted = [i for i in items if "presence" not in i.uncertain_fields]
+    total_labor = sum(plan.total_hours for plan in apply_room_plan(counted))
 
     # What needs a decision comes first, in the order the AI found it
     items.sort(key=lambda i: not i.uncertain_fields)
@@ -1029,16 +1032,14 @@ def build_master_content_list(
                 entry["is_fragile"] = True
             for flag in item.get("estimator_flags") or []:
                 entry["estimator_flags"].add(flag)
+            # The hours its room priced it at; otherwise worked out from its parts
+            _hours = item.get("estimated_labor_hours")
             _bh = item.get("base_labor_hours")
             _puh = item.get("per_unit_labor_hours")
-            _qty = item.get("quantity", 1)
-            if _bh is not None and _puh is not None:
-                entry["total_labor_hours"] += _bh + (_puh * _qty)
-            else:
-                # Legacy: already total for all units
-                entry["total_labor_hours"] += (
-                    item.get("estimated_labor_hours") or 0.0
-                )
+            if _hours is None and _bh is not None and _puh is not None:
+                _qty = item.get("quantity", 1)
+                _hours = _bh + _puh * _qty ** (item.get("quantity_exponent") or 1)
+            entry["total_labor_hours"] += _hours or 0.0
 
     items: List[MasterContentItem] = []
     flag_summary: dict = defaultdict(int)

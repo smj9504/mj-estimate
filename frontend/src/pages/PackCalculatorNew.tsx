@@ -246,6 +246,7 @@ const PackCalculatorNew: React.FC = () => {
           region: settings.region,
           special_items: settings.special_items,
           custom_special_items: settings.custom_special_items,
+          material_display: settings.material_display,
         });
       } else {
         response = await packingService.contentEstimate({
@@ -266,6 +267,7 @@ const PackCalculatorNew: React.FC = () => {
           region: settings.region,
           special_items: settings.special_items,
           custom_special_items: settings.custom_special_items,
+          material_display: settings.material_display,
         });
       }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DetectedContentItem } from '../../types/packing-estimate';
 import {
   confirmItem, countedHours, editItem, isUnconfirmed, mergePlan, needsPlan, needsReview,
-  newItem, planSignature, reviewCount, withUids,
+  newItem, planSignature, reviewCount, roomItemHours, withUids,
 } from './itemEdits';
 
 const item = (fields: Partial<DetectedContentItem> = {}): DetectedContentItem => ({
@@ -54,6 +54,12 @@ describe('editItem', () => {
     expect(needsPlan({ quantity: 4 })).toBe(false);
   });
 
+  it('adds less for each one more of the same', () => {
+    const edited = editItem(item({ quantity_exponent: 0.85 }), { quantity: 4 });
+    // 0.13 + 0.98 x 4^0.85, not 0.13 + 0.98 x 4
+    expect(edited.estimated_labor_hours).toBe(3.31);
+  });
+
   it('asks the server when an attribute changes', () => {
     expect(needsPlan({ size: 'small' })).toBe(true);
     expect(needsPlan({ is_fragile: true })).toBe(true);
@@ -87,6 +93,12 @@ describe('mergePlan', () => {
     expect(mergePlan(current, planSignature(sent), planned).estimated_labor_hours).toBe(4.23);
   });
 
+  it('keeps how the units add up', () => {
+    const current = item({ size: 'xlarge' });
+    const merged = mergePlan(current, planSignature(current), { ...planned, quantity_exponent: 0.85 });
+    expect(merged.quantity_exponent).toBe(0.85);
+  });
+
   it('ignores a late answer to an older edit', () => {
     const sent = item({ size: 'small' });
     const current = item({ size: 'xlarge', packing_method: 'blanket_wrap' });
@@ -97,6 +109,36 @@ describe('mergePlan', () => {
 describe('room figures', () => {
   it('counts what needs a decision', () => {
     expect(reviewCount([item(), item({ uncertain_fields: ['size'] }), item({ uncertain_fields: ['presence'] })])).toBe(2);
+  });
+
+  const plates = (quantity: number, fields: Partial<DetectedContentItem> = {}) => item({
+    name: 'Plates', category: 'Kitchenware', size: 'small', weight: 'light', is_fragile: true,
+    packing_method: 'dish_pack', quantity, base_labor_hours: 0.33, per_unit_labor_hours: 0.23,
+    quantity_exponent: 0.55, ...fields,
+  });
+
+  it('prices units of one size packed the same way together, as the estimate does', () => {
+    const [split1, split2] = roomItemHours([plates(20), plates(20, { name: 'Bowls' })]);
+    const [together] = roomItemHours([plates(40)]);
+    // Two lines are one more setup than one line, and no more
+    expect((split1 as number) + (split2 as number) - (together as number)).toBeCloseTo(0.33, 1);
+    const [alone] = roomItemHours([plates(20)]);
+    expect(split1).toBeLessThan(alone as number);
+  });
+
+  it('does not pool a different size or method', () => {
+    const [alone] = roomItemHours([plates(20)]);
+    const [withOthers] = roomItemHours([
+      plates(20), plates(20, { size: 'medium' }), plates(20, { packing_method: 'box_fragile' }),
+    ]);
+    expect(withOthers).toBe(alone);
+  });
+
+  it('prices one that may not be there on its own and keeps older saved hours', () => {
+    const [counted, unsure] = roomItemHours([plates(20), plates(20, { uncertain_fields: ['presence'] })]);
+    expect(counted).toBe(roomItemHours([plates(20)])[0]);
+    expect(unsure).toBe(counted);
+    expect(roomItemHours([item({ estimated_labor_hours: 7.5 })])).toEqual([7.5]);
   });
 
   it('leaves unconfirmed items out of the hours', () => {

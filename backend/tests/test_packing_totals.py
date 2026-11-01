@@ -230,3 +230,46 @@ def test_the_pdf_shows_quarter_hours_as_they_are_billed():
     )
     *_, text = pdf_totals(result, request)
     assert f"{quarter['qty']:g}" in text
+
+
+# ── Materials itemized or grouped ─────────────
+
+def test_every_material_goes_under_one_group():
+    from app.domains.pack_calculation.packing_service import MATERIAL_CODES, MATERIAL_GROUPS
+    placed = [key for _, keys in MATERIAL_GROUPS for key in keys]
+    assert sorted(placed) == sorted(MATERIAL_CODES)
+    assert 3 <= len(MATERIAL_GROUPS) <= 4
+
+
+@pytest.mark.parametrize('build, request_for', [
+    (lambda c, r: c.calculate_estimate_from_content(r), photo_request),
+    (lambda c, r: c.calculate_estimate(r), quick_request),
+])
+def test_grouped_materials_cost_what_itemized_ones_do(build, request_for):
+    itemized = build(calculator(), request_for('mid_atlantic', 'off_site', True))
+    grouped = build(calculator(), request_for('mid_atlantic', 'off_site', True, material_display='grouped'))
+    assert_adds_up(grouped)
+    assert grouped.material_display == 'grouped'
+    assert grouped.sections['Materials'] == itemized.sections['Materials']
+    assert grouped.grand_total == itemized.grand_total
+
+    lines = grouped.section_details['Materials']['lines']
+    assert len(lines) <= 4 < len(itemized.section_details['Materials']['lines'])
+    assert {l['unit'] for l in lines} == {'LS'} and {l['qty'] for l in lines} == {1}
+    # What a lump holds is listed, without counts; the table still has every material
+    boxes = next(l for l in lines if l['name'] == 'Packing Boxes')
+    in_it = [m for m in grouped.material_details if m.group == 'Packing Boxes']
+    assert boxes['detail'] == ', '.join(m.name.split(' (')[0] for m in in_it)
+    assert boxes['amount'] == round(sum(m.total for m in in_it), 2)
+    assert [m.code for m in grouped.material_details] == [m.code for m in itemized.material_details]
+    assert all(m.group for m in grouped.material_details)
+
+
+def test_the_pdf_shows_materials_the_way_the_estimate_does():
+    request = photo_request('northeast', 'off_site', True, material_display='grouped')
+    result = calculator().calculate_estimate_from_content(request)
+    total, subtotal, text = pdf_totals(result, request)
+    assert total == result.grand_total and subtotal == result.subtotal
+    assert 'Furniture Protection' in text and 'Packing Boxes' in text
+    # One line a lump, not a line a material
+    assert 'Medium Box (3.0 cu ft)' not in text

@@ -8,6 +8,12 @@ over the one picked here.
 
 Size and weight describe ONE unit. Labor is person-hours across the whole job,
 packing out and packing back; the calculator splits it between the two.
+
+What an item is to pack (its size, weight and packing method) sets its labor;
+how many there are matters less. The first unit takes its full time, and the
+more a room has packed the same way, the less each one adds: a closet of
+clothes or a shelf of books goes into boxes at a rhythm, so an AI's rough count
+of 40 or 80 moves the hours far less than the count does.
 """
 
 from __future__ import annotations
@@ -35,12 +41,20 @@ _FALLBACK_DEFAULTS = ("small", "light")
 
 # METHODS below hold hands-on time. Over a whole job a crew also sets up, labels,
 # walks between rooms and comes back to unpack. Tuned so a sample seven-room house
-# totals about what the room-based estimate gave it (55 person-hours), and the
-# one number to change if estimates run high or low overall.
-JOB_HOURS_FACTOR = 1.3
+# totals about what it did when every unit counted in full (about 59 person-hours
+# of item labor), and the one number to change if estimates run high or low overall.
+JOB_HOURS_FACTOR = 1.65
 
 # Handling one unit gets slower once it needs two people or a dolly
-WEIGHT_LABOR_MULT = {"light": 1.0, "medium": 1.0, "heavy": 1.25, "very_heavy": 1.6}
+WEIGHT_LABOR_MULT = {"light": 0.9, "medium": 1.0, "heavy": 1.35, "very_heavy": 1.8}
+
+# More of the same go faster. A room's units of one size packed one way take
+# (their count) ** exponent unit-times, not their count: each of a room's 40
+# folded clothes adds a fraction of the first one's time, each of its 6 dining
+# chairs most of one. A piece handled on its own or in its own box repeats
+# least; small things packed many to a box, most. So a count that's off by half
+# moves an item's hours by about a third, and what the item is to pack sets them.
+REPEAT_EXPONENT = {"own": 0.85, "few_to_a_box": 0.75, "many_to_a_box": 0.55}
 
 # Wrapping something fragile that its method doesn't already treat with care
 FRAGILE_LABOR_MULT = 1.3
@@ -66,6 +80,14 @@ class PackingMethod:
     piece: bool = False  # carried as its own piece, not in a box
     tier: str = "standard"
 
+    def repeat(self, size_index: int) -> float:
+        """How a room's units of this size packed this way add up: their hours grow
+        as units ** repeat. The more of them share a box, the less each adds."""
+        boxes = sum(amount for key, amount in self.materials[size_index].items() if key.startswith("box_"))
+        if self.piece or boxes >= 1:
+            return REPEAT_EXPONENT["own"]
+        return REPEAT_EXPONENT["many_to_a_box" if boxes <= 1 / 4 else "few_to_a_box"]
+
 
 def _same(materials: dict) -> Tuple[dict, dict, dict, dict]:
     return (materials, materials, materials, materials)
@@ -76,7 +98,7 @@ def _same(materials: dict) -> Tuple[dict, dict, dict, dict]:
 # units share boxes and rolls.
 METHODS: Dict[str, PackingMethod] = {
     "box_standard": PackingMethod(
-        "Box", 0.10, (0.03, 0.08, 0.15, 0.25),
+        "Box", 0.10, (0.08, 0.14, 0.18, 0.25),
         ({"box_small": 1 / 8}, {"box_medium": 1 / 4}, {"box_large": 1 / 2}, {"box_xlarge": 1}),
     ),
     "box_padded": PackingMethod(
@@ -89,7 +111,7 @@ METHODS: Dict[str, PackingMethod] = {
         ),
     ),
     "box_fragile": PackingMethod(
-        "Wrap & box", 0.15, (0.05, 0.10, 0.25, 0.40),
+        "Wrap & box", 0.15, (0.12, 0.12, 0.25, 0.40),
         (
             {"box_small": 1 / 4, "bubble_12": 1 / 20, "packing_paper": 1},
             {"box_medium": 1 / 2, "bubble_12": 1 / 10, "packing_paper": 1},
@@ -99,7 +121,7 @@ METHODS: Dict[str, PackingMethod] = {
         careful=True,
     ),
     "dish_pack": PackingMethod(
-        "Dish pack", 0.20, (0.04, 0.05, 0.08, 0.10),
+        "Dish pack", 0.20, (0.14, 0.18, 0.28, 0.35),
         (
             {"box_dish": 1 / 12, "packing_paper": 1},
             {"box_dish": 1 / 6, "packing_paper": 1},
@@ -109,12 +131,12 @@ METHODS: Dict[str, PackingMethod] = {
         careful=True, batch=True,
     ),
     "book_box": PackingMethod(
-        "Book box", 0.25, (0.02, 0.02, 0.03, 0.03),
+        "Book box", 0.25, (0.07, 0.07, 0.10, 0.10),
         ({"box_book": 1 / 20}, {"box_book": 1 / 15}, {"box_book": 1 / 10}, {"box_book": 1 / 5}),
         batch=True,
     ),
     "wardrobe_box": PackingMethod(
-        "Wardrobe box", 0.20, (0.01, 0.01, 0.02, 0.02),
+        "Wardrobe box", 0.20, (0.035, 0.035, 0.07, 0.07),
         (
             {"box_wardrobe": 1 / 24}, {"box_wardrobe": 1 / 24},
             {"box_wardrobe": 1 / 12}, {"box_wardrobe": 1 / 8},
@@ -122,7 +144,7 @@ METHODS: Dict[str, PackingMethod] = {
         batch=True,
     ),
     "soft_pack": PackingMethod(
-        "Soft goods box", 0.15, (0.01, 0.02, 0.05, 0.08),
+        "Soft goods box", 0.15, (0.035, 0.07, 0.17, 0.28),
         ({"box_medium": 1 / 12}, {"box_large": 1 / 6}, {"box_large": 1 / 3}, {"box_xlarge": 1 / 2}),
         batch=True,
     ),
@@ -157,7 +179,7 @@ METHODS: Dict[str, PackingMethod] = {
         careful=True,
     ),
     "mirror_box": PackingMethod(
-        "Mirror/picture box", 0.10, (0.05, 0.10, 0.25, 0.40),
+        "Mirror/picture box", 0.10, (0.10, 0.10, 0.25, 0.40),
         (
             {"box_mirror": 1 / 4, "bubble_12": 1 / 20},
             {"box_mirror": 1 / 2, "bubble_12": 1 / 20},
@@ -279,12 +301,21 @@ class ItemPlan:
     weight: str
     method: str
     base_hours: float
-    per_unit_hours: float
+    per_unit_hours: float  # the first unit's hours; more of them add less (repeat)
+    repeat: float  # a room's units of this size and method count as units ** repeat
+    unit_times: float  # what this line's units count as, among the room's units packed this way
     total_hours: float
     tier_hours: Dict[str, float]  # labor tier -> hours for the whole line
     materials: Dict[str, float]  # material -> amount for one unit
     carry_minutes: float  # person-minutes to carry one unit out
     flags: List[str]
+
+
+def quantity_exponent(method: Optional[str], size: Optional[str]) -> Optional[float]:
+    """How a saved item's units add up, from its method and size, when both are known."""
+    if method not in METHODS or size not in SIZES:
+        return None
+    return METHODS[method].repeat(SIZES.index(size))
 
 
 def method_label(method: Optional[str]) -> str:
@@ -297,19 +328,43 @@ def default_size_weight(category: str) -> Tuple[str, str]:
     return _CATEGORY_DEFAULTS.get(category, _FALLBACK_DEFAULTS)
 
 
-def plan_item(item) -> ItemPlan:
-    """Work out the packing method, materials and labor from an item's attributes."""
+def unit_times(quantity: float, pooled: float, repeat: float) -> float:
+    """What `quantity` units count as when the room has `pooled` units packed the
+    same way: the pool counts as pooled ** repeat, shared out by quantity."""
+    if quantity <= 0:
+        return 0.0
+    pooled = max(pooled, quantity)
+    return quantity * pooled ** (repeat - 1)
+
+
+def _method_key(item, size: str, weight: str) -> str:
+    chosen = item.packing_method if item.packing_locked and item.packing_method in METHODS else None
+    return chosen or default_method(
+        item.name, item.category, size, weight, item.is_fragile, item.is_high_value,
+    )
+
+
+def _size_weight(item) -> Tuple[str, str]:
     default_size, default_weight = default_size_weight(item.category)
     size = item.size if item.size in SIZES else default_size
     weight = item.weight if item.weight in WEIGHTS else default_weight
+    return size, weight
+
+
+def plan_item(item, pooled_quantity: Optional[float] = None) -> ItemPlan:
+    """Work out the packing method, materials and labor from an item's attributes.
+
+    pooled_quantity is how many units its room has packed the same way, this
+    item's among them; without it the item is taken on its own.
+    """
+    size, weight = _size_weight(item)
     size_index = SIZES.index(size)
     quantity = item.quantity or 1
 
-    chosen = item.packing_method if item.packing_locked and item.packing_method in METHODS else None
-    key = chosen or default_method(
-        item.name, item.category, size, weight, item.is_fragile, item.is_high_value,
-    )
+    key = _method_key(item, size, weight)
     method = METHODS[key]
+    repeat = method.repeat(size_index)
+    units = unit_times(quantity, pooled_quantity or quantity, repeat)
 
     weight_mult = 1.0 if method.batch else WEIGHT_LABOR_MULT[weight]
     surcharged = item.is_fragile and not method.careful and not method.batch and key != "move_as_is"
@@ -336,11 +391,11 @@ def plan_item(item) -> ItemPlan:
         tier = method.tier
     else:
         tier = "fragile" if item.is_fragile or method.careful else "standard"
-    tier_hours = {tier: base_hours + packing_hours * quantity}
+    tier_hours = {tier: base_hours + packing_hours * units}
     if disassembly_hours:
-        tier_hours["furniture_disassembly"] = disassembly_hours * quantity
+        tier_hours["furniture_disassembly"] = disassembly_hours * units
     if high_value_hours:
-        tier_hours["specialty"] = high_value_hours * quantity
+        tier_hours["specialty"] = high_value_hours * units
 
     if method.piece:
         carry_minutes = CARRY_MINS_PER_PIECE[size] * WEIGHT_CARRY_MULT[weight]
@@ -364,7 +419,9 @@ def plan_item(item) -> ItemPlan:
         method=key,
         base_hours=round(base_hours, 4),
         per_unit_hours=round(per_unit_hours, 4),
-        total_hours=round(round(base_hours, 4) + round(per_unit_hours, 4) * quantity, 4),
+        repeat=repeat,
+        unit_times=units,
+        total_hours=round(round(base_hours, 4) + round(per_unit_hours, 4) * units, 4),
         tier_hours=tier_hours,
         materials=materials,
         carry_minutes=carry_minutes,
@@ -372,15 +429,40 @@ def plan_item(item) -> ItemPlan:
     )
 
 
+def plan_room(items) -> List[ItemPlan]:
+    """Every item's plan, each among the room's units of its size packed the same
+    way: a room's plates and bowls, or its six dining chairs, but not its bed frame
+    with its nightstands. Give it the items that count: one the AI isn't sure is
+    there shares nothing."""
+    keys = []
+    pooled: Dict[Tuple[str, str], float] = {}
+    for item in items:
+        size, weight = _size_weight(item)
+        key = (_method_key(item, size, weight), size)
+        keys.append(key)
+        pooled[key] = pooled.get(key, 0) + (item.quantity or 1)
+    return [plan_item(item, pooled[key]) for item, key in zip(items, keys)]
+
+
 def apply_plan(item) -> ItemPlan:
-    """Write an item's plan onto it, so what's shown and saved matches what's priced."""
-    plan = plan_item(item)
+    """Write an item's plan, taken on its own, onto it, so what's shown and saved
+    matches what's priced."""
+    return _write_plan(item, plan_item(item))
+
+
+def apply_room_plan(items) -> List[ItemPlan]:
+    """Write each item's plan, among its room's, onto it."""
+    return [_write_plan(item, plan) for item, plan in zip(items, plan_room(items))]
+
+
+def _write_plan(item, plan: ItemPlan) -> ItemPlan:
     item.size = plan.size
     item.weight = plan.weight
     item.packing_method = plan.method
     item.required_materials = sorted(plan.materials)
     item.base_labor_hours = plan.base_hours
     item.per_unit_labor_hours = plan.per_unit_hours
+    item.quantity_exponent = plan.repeat
     item.estimated_labor_hours = plan.total_hours
     item.estimator_flags = plan.flags
     return plan

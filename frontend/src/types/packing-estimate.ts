@@ -16,6 +16,8 @@ export type ContaminationLevel = 'clean' | 'gray_water' | 'black_water';
 export type StagingType = 'off_site' | 'on_site';
 export type PackingMode = 'quick' | 'photo_ai';
 export type PackEstimateStatus = 'draft' | 'completed' | 'approved';
+/** Materials on the estimate: a line per material, or a few grouped lumps */
+export type MaterialDisplay = 'itemized' | 'grouped';
 
 export type ContentHint =
   | 'clothing_hanging' | 'clothing_folded' | 'bedding'
@@ -94,6 +96,7 @@ export interface QuickEstimateRequest {
   region: Region;
   special_items: string[];
   custom_special_items: CustomSpecialItem[];
+  material_display?: MaterialDisplay;
 }
 
 // ── Estimate Response ────────────────────────
@@ -114,6 +117,9 @@ export interface MaterialItem {
   unit: string;
   unit_price: number;
   total: number;
+  detail?: string;
+  /** Its lump when materials are grouped */
+  group?: string | null;
 }
 
 export interface RoomItemSummary {
@@ -147,6 +153,7 @@ export interface EstimateResponse {
   materials: Record<string, number>;
   material_details?: MaterialItem[];
   materials_detail?: Record<string, string>;
+  material_display?: MaterialDisplay;
   storage_sf: number;
   staging_type: StagingType;
   room_summaries?: RoomItemSummary[];
@@ -184,7 +191,10 @@ export interface DetectedContentItem {
   uid?: string;
   required_materials?: string[] | null;
   base_labor_hours?: number;
+  /** The first unit's hours; more of the same add less */
   per_unit_labor_hours?: number;
+  /** A room's units of one size packed one way take (their count) ** this unit-times */
+  quantity_exponent?: number | null;
   estimated_labor_hours?: number;
   special_instructions?: string;
   estimator_flags?: string[];
@@ -234,6 +244,7 @@ export interface ContentEstimateRequest {
   region: Region;
   special_items: string[];
   custom_special_items: CustomSpecialItem[];
+  material_display?: MaterialDisplay;
 }
 
 // ── Packing Room State ───────────────────────
@@ -289,6 +300,7 @@ export interface PackingSettings {
   region: Region;
   special_items: string[];
   custom_special_items: CustomSpecialItem[];
+  material_display: MaterialDisplay;
 }
 
 // ── Pricing ──────────────────────────────────

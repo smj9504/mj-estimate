@@ -132,7 +132,22 @@ export const DEFAULT_SETTINGS = {
   region: 'mid_atlantic' as const,
   special_items: [] as string[],
   custom_special_items: [] as Array<{ name: string; price: number }>,
+  material_display: 'itemized' as const,
 };
+
+// Materials on the estimate. The lumps of a grouped one, in order; mirrors
+// MATERIAL_GROUPS in backend pack_calculation/packing_service.py
+export const MATERIAL_GROUPS = [
+  'Packing Boxes',
+  'Specialty Cartons & Bags',
+  'Furniture Protection',
+  'Wrapping & Sealing Supplies',
+] as const;
+
+export const MATERIAL_DISPLAY_OPTIONS = [
+  { value: 'itemized', label: 'Itemized', hint: 'A line per material, with quantities' },
+  { value: 'grouped', label: 'Grouped', hint: 'Boxes, specialty cartons, furniture protection and wrapping supplies, one lump each' },
+] as const;
 
 // Preset category labels (no emojis)
 export const PRESET_CATEGORY_ICONS: Record<string, string> = {

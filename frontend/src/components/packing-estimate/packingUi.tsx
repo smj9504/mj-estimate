@@ -9,10 +9,10 @@ import { RightOutlined } from '@ant-design/icons';
 import { Pill, humanize, toneFromKey, type TagTone } from '../common/ui';
 import { tagTones } from '../../styles/tokens';
 import { estimateSectionNames } from './estimateSections';
-import type { EstimateResponse } from '../../types/packing-estimate';
+import type { EstimateResponse, MaterialItem } from '../../types/packing-estimate';
 import {
   CONTAMINATION_OPTIONS, DENSITY_OPTIONS, FLOOR_OPTIONS, ITEM_SIZE_OPTIONS, ITEM_WEIGHT_OPTIONS,
-  PACKING_METHOD_OPTIONS, REGION_OPTIONS,
+  MATERIAL_DISPLAY_OPTIONS, MATERIAL_GROUPS, PACKING_METHOD_OPTIONS, REGION_OPTIONS,
 } from './constants';
 import './packing.css';
 
@@ -58,6 +58,21 @@ export const regionLabel = (v?: string | null) => optionLabel(REGION_OPTIONS, v)
 export const contaminationLabel = (v?: string | null) => plainLabel(optionLabel(CONTAMINATION_OPTIONS, v));
 export const itemSizeLabel = (v?: string | null) => optionLabel(ITEM_SIZE_OPTIONS, v);
 export const itemWeightLabel = (v?: string | null) => optionLabel(ITEM_WEIGHT_OPTIONS, v);
+
+export const materialDisplayLabel = (v?: string | null) =>
+  MATERIAL_DISPLAY_OPTIONS.find(o => o.value === v)?.label || 'Itemized';
+
+/** Materials by the lump they go under on a grouped estimate, in the estimate's order */
+export const groupMaterials = (materials: MaterialItem[]): [string, MaterialItem[]][] => {
+  const order: string[] = [...MATERIAL_GROUPS];
+  const byGroup = new Map<string, MaterialItem[]>();
+  materials.forEach(m => {
+    const group = m.group || 'Other materials';
+    if (!order.includes(group)) order.push(group);
+    byGroup.set(group, [...(byGroup.get(group) || []), m]);
+  });
+  return order.filter(g => byGroup.has(g)).map(g => [g, byGroup.get(g) as MaterialItem[]]);
+};
 
 /** A method's name; older estimates saved the AI's own words here, shown as they are */
 export const packingMethodLabel = (v?: string | null) =>

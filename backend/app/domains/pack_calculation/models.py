@@ -120,6 +120,9 @@ class PackCalculation(Base, BaseModel):
     include_contingency = Column(Boolean, default=False)
     contingency_rate = Column(Integer, default=0)
 
+    # Materials on the estimate: 'itemized' (a line each) or 'grouped' (a few lumps)
+    material_display = Column(String(20), default="itemized", server_default="itemized", nullable=False)
+
     # Xactimate integration (legacy, kept for backward compat)
     xactimate_pack_out_materials = Column(JSONB)
     xactimate_pack_out_labor = Column(JSONB)

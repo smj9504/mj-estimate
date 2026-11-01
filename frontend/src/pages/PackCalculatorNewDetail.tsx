@@ -16,8 +16,9 @@ import {
 import * as packingService from '../services/packingEstimateService';
 import PackingReportModal from '../components/packing-estimate/PackingReportModal';
 import type {
-  EstimateResponse, MaterialItem, SupplementItem,
+  EstimateResponse, MaterialDisplay, MaterialItem, SupplementItem,
 } from '../types/packing-estimate';
+import { MATERIAL_DISPLAY_OPTIONS } from '../components/packing-estimate/constants';
 import { formatDate } from '../utils/formatters';
 import { PageHeader, Pill, PropertyList } from '../components/common/ui';
 import type { PropertyItem } from '../components/common/ui';
@@ -25,7 +26,7 @@ import {
   PACK_STATUSES, PackStatusPill, packStatusLabel, CompanyName, ContaminationPill,
   EstimateBreakdown, Figures, estimateFigures, formatMoney, modeLabel,
   floorLabel, densityLabel, regionLabel, packEstimateTitle,
-  itemSizeLabel, itemWeightLabel, packingMethodLabel,
+  itemSizeLabel, itemWeightLabel, packingMethodLabel, materialDisplayLabel, groupMaterials,
 } from '../components/packing-estimate/packingUi';
 
 interface DetectedItem {
@@ -97,6 +98,7 @@ const PackCalculatorNewDetail: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [editStatus, setEditStatus] = useState('');
   const [editNotes, setEditNotes] = useState('');
+  const [editMaterialDisplay, setEditMaterialDisplay] = useState<MaterialDisplay>('itemized');
 
   // PDF export state
   const [exporting, setExporting] = useState(false);
@@ -128,6 +130,7 @@ const PackCalculatorNewDetail: React.FC = () => {
     if (!estimate) return;
     setEditStatus(estimate.status || 'draft');
     setEditNotes(estimate.notes || '');
+    setEditMaterialDisplay(estimate.material_display || 'itemized');
     setEditing(true);
   }, [estimate]);
 
@@ -142,16 +145,20 @@ const PackCalculatorNewDetail: React.FC = () => {
       await packingService.updateEstimate(id, {
         status: editStatus,
         notes: editNotes,
+        // Its Materials lines are made again on the server; the total stays
+        ...(editMaterialDisplay !== (estimate?.material_display || 'itemized')
+          ? { material_display: editMaterialDisplay }
+          : {}),
       });
       message.success('Saved successfully');
       setEditing(false);
       await loadEstimate(id);
-    } catch {
-      message.error('Failed to save changes');
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Failed to save changes');
     } finally {
       setSaving(false);
     }
-  }, [id, editStatus, editNotes]);
+  }, [id, editStatus, editNotes, editMaterialDisplay, estimate?.material_display]);
 
   // ── PDF Export ──────────────────────────────
 
@@ -189,6 +196,7 @@ const PackCalculatorNewDetail: React.FC = () => {
           region: estimate.region,
           special_items: estimate.special_items || [],
           custom_special_items: estimate.custom_special_items || [],
+          material_display: estimate.material_display || 'itemized',
         },
         projectAddress: estimate.project_address,
         clientId: estimate.client_id,
@@ -247,6 +255,19 @@ const PackCalculatorNewDetail: React.FC = () => {
     { key: 'storage', label: 'Storage', value: estimate.storage_months > 0 ? `${estimate.storage_months} month${estimate.storage_months === 1 ? '' : 's'}` : 'None' },
     { key: 'packback', label: 'Pack-Back', value: estimate.include_packback ? 'Included' : 'Not included' },
     {
+      key: 'materials',
+      label: 'Materials',
+      value: editing ? (
+        <Select
+          value={editMaterialDisplay}
+          onChange={setEditMaterialDisplay}
+          style={{ width: '100%', maxWidth: 220 }}
+          options={MATERIAL_DISPLAY_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
+          aria-label="How materials show on the estimate and its PDF"
+        />
+      ) : materialDisplayLabel(estimate.material_display),
+    },
+    {
       key: 'notes',
       label: 'Notes',
       value: editing ? (
@@ -266,10 +287,10 @@ const PackCalculatorNewDetail: React.FC = () => {
     ? <EstimateBreakdown estimate={estimate} />
     : <Empty description="No section data available" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
 
-  const materialsTab = estimate.material_details && estimate.material_details.length > 0 ? (
+  const materialTable = (rows: MaterialItem[], totalLabel: string) => (
     <Table
       className="pk-quiet-table"
-      dataSource={estimate.material_details}
+      dataSource={rows}
       rowKey={(record, i) => `mat-${record.code}-${i}`}
       pagination={false}
       size="small"
@@ -282,15 +303,28 @@ const PackCalculatorNewDetail: React.FC = () => {
         { title: 'Unit Price', dataIndex: 'unit_price', key: 'unit_price', align: 'right' as const, width: 110, render: (v: number) => <span className="pk-money">{formatMoney(v)}</span> },
         { title: 'Total', dataIndex: 'total', key: 'total', align: 'right' as const, width: 120, render: (v: number) => <span className="pk-money">{formatMoney(v)}</span> },
       ]}
-      summary={(rows) => (
+      summary={(shown) => (
         <Table.Summary.Row>
-          <Table.Summary.Cell index={0} colSpan={5}><strong>Materials total</strong></Table.Summary.Cell>
+          <Table.Summary.Cell index={0} colSpan={5}><strong>{totalLabel}</strong></Table.Summary.Cell>
           <Table.Summary.Cell index={5} align="right">
-            <strong className="pk-money">{formatMoney((rows as readonly MaterialItem[]).reduce((s, r) => s + (r.total || 0), 0))}</strong>
+            <strong className="pk-money">{formatMoney((shown as readonly MaterialItem[]).reduce((s, r) => s + (r.total || 0), 0))}</strong>
           </Table.Summary.Cell>
         </Table.Summary.Row>
       )}
     />
+  );
+
+  // Grouped on the estimate: each lump with the materials it holds, so the office sees the counts
+  const materialsTab = estimate.material_details && estimate.material_details.length > 0 ? (
+    estimate.material_display === 'grouped' ? (
+      <div className="pk-material-groups">
+        {groupMaterials(estimate.material_details).map(([group, rows]) => (
+          <section className="pk-material-group" key={group} aria-label={group}>
+            {materialTable(rows, group)}
+          </section>
+        ))}
+      </div>
+    ) : materialTable(estimate.material_details, 'Materials total')
   ) : estimate.materials && Object.keys(estimate.materials).length > 0 ? (
     <PropertyList
       items={Object.entries(estimate.materials).map(([code, qty]) => ({

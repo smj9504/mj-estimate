@@ -18,6 +18,7 @@ from enum import Enum
 # One unit of a content item
 ItemSize = Literal["small", "medium", "large", "xlarge"]
 ItemWeight = Literal["light", "medium", "heavy", "very_heavy"]
+MaterialDisplay = Literal["itemized", "grouped"]
 
 
 class RoomSize(str, Enum):
@@ -166,6 +167,8 @@ class QuickEstimateRequest(BaseModel):
     region: Region = Field(default=Region.MID_ATLANTIC)
     special_items: List[str] = Field(default_factory=list)
     custom_special_items: List[CustomSpecialItem] = Field(default_factory=list)
+    # Materials on the estimate: a line per material, or a few grouped lumps
+    material_display: MaterialDisplay = "itemized"
 
 
 class MaterialItem(BaseModel):
@@ -175,6 +178,9 @@ class MaterialItem(BaseModel):
     unit: str
     unit_price: float
     total: float
+    detail: str = ""
+    # Its lump when materials are grouped (MATERIAL_GROUPS)
+    group: Optional[str] = None
 
 
 class SectionBreakdown(BaseModel):
@@ -218,6 +224,7 @@ class EstimateResponse(BaseModel):
     materials: Dict[str, int]
     material_details: Optional[List[MaterialItem]] = None
     materials_detail: Optional[Dict[str, str]] = None
+    material_display: MaterialDisplay = "itemized"
     storage_sf: int = 0
     staging_type: StagingType = StagingType.OFF_SITE
     room_summaries: Optional[List[RoomItemSummary]] = None
@@ -284,11 +291,21 @@ class DetectedContentItem(BaseModel):
     )
     per_unit_labor_hours: Optional[float] = Field(
         default=None, ge=0,
-        description="Marginal packing time per additional unit in hours",
+        description="Packing time of the first unit in hours; more of them add less",
+    )
+    quantity_exponent: Optional[float] = Field(
+        default=None, gt=0, le=1,
+        description=(
+            "How a room's units packed the same way add up: they take "
+            "(their count) ** quantity_exponent unit-times"
+        ),
     )
     estimated_labor_hours: Optional[float] = Field(
         default=None, ge=0,
-        description="Total labor hours (auto-computed from base + per_unit * qty when available)",
+        description=(
+            "Total labor hours: base + per_unit * quantity ** quantity_exponent on its own, "
+            "less once the room has more units packed the same way"
+        ),
     )
     special_instructions: Optional[str] = Field(default=None)
     estimator_flags: Optional[List[str]] = Field(default=None)
@@ -297,8 +314,9 @@ class DetectedContentItem(BaseModel):
     @model_validator(mode="after")
     def compute_total_labor(self):
         if self.base_labor_hours is not None and self.per_unit_labor_hours is not None:
+            units = self.quantity ** (self.quantity_exponent or 1)
             self.estimated_labor_hours = round(
-                self.base_labor_hours + (self.per_unit_labor_hours * self.quantity), 4
+                self.base_labor_hours + (self.per_unit_labor_hours * units), 4
             )
         return self
 
@@ -353,6 +371,8 @@ class RoomsEstimateRequest(BaseModel):
     region: Region = Field(default=Region.MID_ATLANTIC)
     special_items: List[str] = Field(default_factory=list)
     custom_special_items: List[CustomSpecialItem] = Field(default_factory=list)
+    # Materials on the estimate: a line per material, or a few grouped lumps
+    material_display: MaterialDisplay = "itemized"
 
 
 # ============================================

@@ -23,7 +23,8 @@ import DetectedItemRow from './DetectedItemRow';
 import FolderImportModal from './FolderImportModal';
 import { Pill, type TagTone } from '../common/ui';
 import {
-  confirmItem, countedHours, editItem, mergePlan, needsPlan, newItem, planSignature, reviewCount, withUids,
+  confirmItem, countedHours, editItem, mergePlan, needsPlan, newItem, planSignature, reviewCount,
+  roomItemHours, withUids,
 } from './itemEdits';
 import { contaminationSelectLabel, plainLabel } from './packingUi';
 import { PHOTO_ACCEPT, photoFilesToBase64 } from './photoFiles';
@@ -552,6 +553,8 @@ const RoomCard: React.FC<RoomCardProps> = ({
   const [showItems, setShowItems] = useState(room.analyzed);
   const fileRef = useRef<HTMLInputElement>(null);
   const toReview = reviewCount(room.items);
+  // Each item's hours among the room's packed the same way, as the estimate prices them
+  const itemHours = roomItemHours(room.items);
 
   // Open the items the first time an analysis lands
   React.useEffect(() => {
@@ -691,10 +694,11 @@ const RoomCard: React.FC<RoomCardProps> = ({
           {showItems && (
             <>
               <ul className="pk-item-rows">
-                {room.items.map(item => (
+                {room.items.map((item, i) => (
                   <DetectedItemRow
                     key={item.uid}
                     item={item}
+                    hours={itemHours[i]}
                     onChange={patch => onUpdateItem(item.uid as string, patch)}
                     onConfirm={() => onConfirmItem(item.uid as string)}
                     onRemove={() => onRemoveItem(item.uid as string)}

@@ -18,7 +18,7 @@ const REVIEW_FIELD_OF: Partial<Record<keyof DetectedContentItem, ItemReviewField
   needs_disassembly: 'disassembly',
 };
 
-/** The attributes the server's plan depends on; quantity only multiplies it */
+/** The attributes the server's plan depends on; quantity is worked out here */
 const PLANNED_FIELDS: (keyof DetectedContentItem)[] = [
   'name', 'category', 'size', 'weight', 'is_fragile', 'is_high_value',
   'needs_disassembly', 'packing_method', 'packing_locked',
@@ -55,9 +55,50 @@ export const isUnconfirmed = (item: DetectedContentItem) => !!item.uncertain_fie
 
 export const reviewCount = (items: DetectedContentItem[]) => items.filter(needsReview).length;
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * What `quantity` units count as when the room has `pooled` units of their size
+ * packed the same way: more of the same add less (item_plan.unit_times).
+ */
+const unitTimes = (quantity: number, pooled: number, exponent: number) =>
+  quantity * Math.max(pooled, quantity) ** (exponent - 1);
+
+const canPool = (item: DetectedContentItem) =>
+  item.base_labor_hours != null && item.per_unit_labor_hours != null && item.quantity_exponent != null;
+
+/** An item's hours on its own: its setup, then its units, each one more adding less */
+const ownHours = (item: DetectedContentItem, quantity: number) => round2(
+  (item.base_labor_hours ?? 0)
+  + (item.per_unit_labor_hours ?? 0) * quantity ** (item.quantity_exponent ?? 1),
+);
+
+/**
+ * Each item's labor as the estimate prices it: a room's units of one size packed
+ * the same way share their time, so its 40 plates and 20 bowls go faster than
+ * either alone. One the AI isn't sure is there is priced on its own, and an item
+ * saved before this was worked out keeps the hours it was saved with.
+ */
+export function roomItemHours(items: DetectedContentItem[]): (number | undefined)[] {
+  const poolKey = (item: DetectedContentItem) => `${item.packing_method ?? ''}|${item.size ?? ''}`;
+  const pooled = new Map<string, number>();
+  items.forEach(item => {
+    if (isUnconfirmed(item) || !canPool(item)) return;
+    pooled.set(poolKey(item), (pooled.get(poolKey(item)) ?? 0) + item.quantity);
+  });
+  return items.map(item => {
+    if (!canPool(item)) return item.estimated_labor_hours;
+    if (isUnconfirmed(item)) return ownHours(item, item.quantity);
+    const units = unitTimes(item.quantity, pooled.get(poolKey(item)) ?? item.quantity, item.quantity_exponent as number);
+    return round2((item.base_labor_hours ?? 0) + (item.per_unit_labor_hours ?? 0) * units);
+  });
+}
+
 /** Labor of the items that count, whole job */
-export const countedHours = (items: DetectedContentItem[]) =>
-  items.reduce((sum, item) => sum + (isUnconfirmed(item) ? 0 : item.estimated_labor_hours ?? 0), 0);
+export const countedHours = (items: DetectedContentItem[]) => {
+  const hours = roomItemHours(items);
+  return items.reduce((sum, item, i) => sum + (isUnconfirmed(item) ? 0 : hours[i] ?? 0), 0);
+};
 
 export const needsPlan = (patch: Partial<DetectedContentItem>) =>
   PLANNED_FIELDS.some(field => field in patch);
@@ -72,9 +113,7 @@ export function editItem(item: DetectedContentItem, patch: Partial<DetectedConte
     review_note: open.length > 0 ? item.review_note : null,
   };
   if ('quantity' in patch && item.base_labor_hours != null && item.per_unit_labor_hours != null) {
-    next.estimated_labor_hours = Math.round(
-      (item.base_labor_hours + item.per_unit_labor_hours * next.quantity) * 100,
-    ) / 100;
+    next.estimated_labor_hours = ownHours(item, next.quantity);
   }
   return next;
 }
@@ -107,10 +146,9 @@ export function mergePlan(
     required_materials: planned.required_materials,
     base_labor_hours: planned.base_labor_hours,
     per_unit_labor_hours: planned.per_unit_labor_hours,
+    quantity_exponent: planned.quantity_exponent,
     // The answer priced the quantity it was sent; it may have changed since
-    estimated_labor_hours: Math.round(
-      ((planned.base_labor_hours ?? 0) + (planned.per_unit_labor_hours ?? 0) * current.quantity) * 100,
-    ) / 100,
+    estimated_labor_hours: ownHours(planned, current.quantity),
     estimator_flags: planned.estimator_flags,
   };
 }
