@@ -1,11 +1,15 @@
 /**
  * A claim's packing photos: the claim photos picked for its packing estimate,
- * filed by room. Grouping for the claim page, and the Photo AI rooms the
- * builder makes from them (each photo fetched as a JPEG sized for the AI).
+ * filed under a category (the stage of the job: water mitigation, work
+ * completion), then a room. Grouping for the claim page, and the Photo AI
+ * rooms the builder makes from them (each photo fetched as a JPEG sized for
+ * the AI).
  */
 import api from '../../services/api';
 import * as packingService from '../../services/packingEstimateService';
-import type { ClaimPackingPhoto, Floor, PhotoRoom } from '../../types/packing-estimate';
+import type {
+  ClaimPackingPhoto, Floor, PackingPhotoCategory, PackingPhotoSource, PhotoRoom,
+} from '../../types/packing-estimate';
 import { defaultPhotoRoom, resolveNameCollisions } from './FolderImportModal';
 
 /** react-query key of a claim's packing photos */
@@ -16,18 +20,61 @@ export const AI_PHOTOS_PER_ROOM = 6;
 
 const PARALLEL_FETCHES = 4;
 
+/** The categories a packing photo is filed under before its room, in the order they are listed */
+export const PACKING_CATEGORIES: { value: PackingPhotoCategory; label: string }[] = [
+  { value: 'water_mitigation', label: 'Water mitigation' },
+  { value: 'work_completion', label: 'Work completion' },
+];
+
+export const packingCategoryLabel = (category: PackingPhotoCategory): string =>
+  PACKING_CATEGORIES.find(c => c.value === category)?.label ?? category;
+
+/**
+ * The category a photo set's photos most likely go under: a water
+ * mitigation job's photos under water mitigation, the claim's Completion
+ * photos under work completion
+ */
+export const defaultPackingCategory = (source: PackingPhotoSource): PackingPhotoCategory =>
+  (source === 'wm' ? 'water_mitigation' : 'work_completion');
+
 export interface PackingRoomGroup {
+  category: PackingPhotoCategory;
   room_name: string;
   photos: ClaimPackingPhoto[];
 }
 
-/** Photos room by room, in the order the server returns them */
+export interface PackingCategoryGroup {
+  category: PackingPhotoCategory;
+  label: string;
+  rooms: PackingRoomGroup[];
+  photoCount: number;
+}
+
+/** A room's key: the same room name can be in more than one category */
+export const packingRoomKey = (room: { category: PackingPhotoCategory; room_name: string }): string =>
+  `${room.category}/${room.room_name}`;
+
+/** Photos room by room, in the order the server returns them (category by category) */
 export function groupPackingRooms(photos: ClaimPackingPhoto[]): PackingRoomGroup[] {
-  const rooms = new Map<string, ClaimPackingPhoto[]>();
+  const rooms = new Map<string, PackingRoomGroup>();
   for (const p of photos) {
-    rooms.set(p.room_name, [...(rooms.get(p.room_name) ?? []), p]);
+    const key = packingRoomKey(p);
+    const room = rooms.get(key);
+    if (room) room.photos.push(p);
+    else rooms.set(key, { category: p.category, room_name: p.room_name, photos: [p] });
   }
-  return Array.from(rooms, ([room_name, list]) => ({ room_name, photos: list }));
+  return Array.from(rooms.values());
+}
+
+/** Rooms category by category, the categories that have photos */
+export function groupPackingCategories(photos: ClaimPackingPhoto[]): PackingCategoryGroup[] {
+  const rooms = groupPackingRooms(photos);
+  return PACKING_CATEGORIES.flatMap(({ value, label }) => {
+    const inCategory = rooms.filter(r => r.category === value);
+    if (inCategory.length === 0) return [];
+    const photoCount = inCategory.reduce((n, r) => n + r.photos.length, 0);
+    return [{ category: value, label, rooms: inCategory, photoCount }];
+  });
 }
 
 /** An API path as a URL an <img> can load */
@@ -79,19 +126,21 @@ async function mapLimited<T, R>(items: T[], limit: number, fn: (item: T) => Prom
 }
 
 /**
- * Photo AI rooms from the claim's packing photos: all its rooms, or only
- * `roomNames`. A room named like one in `existingNames` (already in the
- * builder) is loaded as "Kitchen (2)". Photos that can't be loaded are left
- * out and counted in `failed`; a room left with no photos is dropped.
+ * Photo AI rooms from the claim's packing photos: all its rooms, the rooms
+ * of one `category`, or only the rooms in `roomKeys` (packingRoomKey). A room
+ * named like one in `existingNames` (already in the builder) is loaded as
+ * "Kitchen (2)". Photos that can't be loaded are left out and counted in
+ * `failed`; a room left with no photos is dropped.
  */
 export async function loadClaimPhotoRooms(
   claimId: string,
   onProgress?: (done: number, total: number) => void,
-  options: { roomNames?: string[]; existingNames?: string[] } = {},
+  options: { category?: PackingPhotoCategory; roomKeys?: string[]; existingNames?: string[] } = {},
 ): Promise<{ rooms: PhotoRoom[]; failed: number }> {
-  const { roomNames, existingNames = [] } = options;
+  const { category, roomKeys, existingNames = [] } = options;
   const groups = groupPackingRooms(await packingService.listClaimPhotos(claimId))
-    .filter(g => !roomNames || roomNames.includes(g.room_name));
+    .filter(g => !category || g.category === category)
+    .filter(g => !roomKeys || roomKeys.includes(packingRoomKey(g)));
   const all = groups.flatMap(g => g.photos);
   let done = 0;
   onProgress?.(0, all.length);

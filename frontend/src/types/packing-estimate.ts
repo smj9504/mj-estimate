@@ -357,11 +357,15 @@ export interface BatchCompleteEvent {
 /** Where a claim photo lives: a water mitigation job photo or a claim photo */
 export type PackingPhotoSource = 'wm' | 'claim';
 
-/** A claim photo picked for the packing estimate, filed under a room */
+/** What a packing photo is for, above its room: the stage of the job */
+export type PackingPhotoCategory = 'water_mitigation' | 'work_completion';
+
+/** A claim photo picked for the packing estimate, filed under a category, then a room */
 export interface ClaimPackingPhoto {
   id: string;
   source: PackingPhotoSource;
   photo_id: string;
+  category: PackingPhotoCategory;
   room_name: string;
   file_name?: string;
   /** API paths; prefix with the API base URL */
@@ -390,5 +394,5 @@ export interface PackingPhotoClaim {
   /** The company its pack-out goes under: its moving company, else its only company */
   company_id?: string | null;
   photo_count: number;
-  rooms: { room_name: string; photo_count: number }[];
+  rooms: { category: PackingPhotoCategory; room_name: string; photo_count: number }[];
 }

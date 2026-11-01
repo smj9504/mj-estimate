@@ -539,6 +539,13 @@ class PackingPhotoSource(str, Enum):
     CLAIM = "claim"   # a claim photo (files.id)
 
 
+class PackingPhotoCategory(str, Enum):
+    """What a packing photo is for, above its room: the stage of the job.
+    The order here is the order the claim page lists them in."""
+    WATER_MITIGATION = "water_mitigation"
+    WORK_COMPLETION = "work_completion"
+
+
 class PackingPhotoRef(BaseModel):
     source: PackingPhotoSource
     photo_id: str
@@ -549,6 +556,7 @@ class PackingPhotoRef(BaseModel):
 
 
 class AddPackingPhotosRequest(BaseModel):
+    category: PackingPhotoCategory
     room_name: Optional[str] = None
     photos: List[PackingPhotoRef] = Field(..., min_length=1)
 
@@ -556,6 +564,10 @@ class AddPackingPhotosRequest(BaseModel):
 class MovePackingPhotosRequest(BaseModel):
     ids: List[str] = Field(..., min_length=1)
     room_name: str
+    category: Optional[PackingPhotoCategory] = Field(
+        default=None,
+        description="Move them to this category too; otherwise each keeps its own",
+    )
 
 
 class RemovePackingPhotosRequest(BaseModel):

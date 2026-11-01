@@ -28,6 +28,8 @@ from app.domains.water_mitigation.models import WaterMitigationJob, WMPhoto  # n
 from app.main import app  # noqa: E402
 
 ADMIN_ID = '00000000-0000-0000-0000-0000000000ad'
+WM = 'water_mitigation'
+DONE = 'work_completion'
 
 
 @compiles(JSONB, 'sqlite')
@@ -159,6 +161,7 @@ def test_photos_are_filed_by_room_and_keep_their_tags(env):
     assert api.get(url).json() == {'photos': []}
 
     resp = api.post(url, json={
+        'category': WM,
         'room_name': 'Den',
         'photos': [
             {'source': 'wm', 'photo_id': ids.kitchen, 'room_name': 'Kitchen'},
@@ -177,7 +180,7 @@ def test_photos_are_filed_by_room_and_keep_their_tags(env):
     assert photos[2]['thumbnail_url'] == f"/api/files/preview/{ids.claim_photo}"
 
     # A different spelling joins the room already there; a filed photo moves
-    resp = api.post(url, json={'room_name': 'kitchen', 'photos': [{'source': 'claim', 'photo_id': ids.claim_photo}]})
+    resp = api.post(url, json={'category': WM, 'room_name': 'kitchen', 'photos': [{'source': 'claim', 'photo_id': ids.claim_photo}]})
     assert _rooms(resp.json()['photos']) == [
         ('Kitchen', ['kitchen.jpg', 'den.jpg']), ('Living Room', ['living.jpg']),
     ]
@@ -194,10 +197,10 @@ def test_only_the_claims_own_live_photos_can_be_filed(env):
         {'source': 'claim', 'photo_id': ids.claim_pdf},  # not a photo
         {'source': 'claim', 'photo_id': ids.kitchen},    # wrong source
     ):
-        resp = api.post(url, json={'room_name': 'Den', 'photos': [ref]})
+        resp = api.post(url, json={'category': WM, 'room_name': 'Den', 'photos': [ref]})
         assert resp.status_code == 400, ref
     # Every photo needs a room
-    resp = api.post(url, json={'photos': [{'source': 'wm', 'photo_id': ids.kitchen}]})
+    resp = api.post(url, json={'category': WM, 'photos': [{'source': 'wm', 'photo_id': ids.kitchen}]})
     assert resp.status_code == 400
     assert api.get(url).json() == {'photos': []}
 
@@ -208,7 +211,7 @@ def test_rename_keeps_the_room_in_place_and_remove_leaves_the_photo(env):
     api, database, tmp_path, _ = env
     ids = _seed(database, tmp_path)
     url = f"/api/packing-estimate/claims/{ids.claim}/photos"
-    photos = api.post(url, json={'photos': [
+    photos = api.post(url, json={'category': WM, 'photos': [
         {'source': 'wm', 'photo_id': ids.kitchen, 'room_name': 'Kitchen'},
         {'source': 'wm', 'photo_id': ids.living, 'room_name': 'Living Room'},
     ]}).json()['photos']
@@ -233,11 +236,91 @@ def test_rename_keeps_the_room_in_place_and_remove_leaves_the_photo(env):
     assert api.get(url).json() == {'photos': []}
 
 
+def _groups(photos):
+    """(category, room) -> file names, in the order listed"""
+    groups = {}
+    for p in photos:
+        groups.setdefault((p['category'], p['room_name']), []).append(p['file_name'])
+    return list(groups.items())
+
+
+def test_photos_are_filed_under_a_category_then_a_room(env):
+    api, database, tmp_path, _ = env
+    ids = _seed(database, tmp_path)
+    url = f"/api/packing-estimate/claims/{ids.claim}/photos"
+
+    # The category comes first: no category, or one that isn't, is refused
+    for body in (
+        {'room_name': 'Den', 'photos': [{'source': 'claim', 'photo_id': ids.claim_photo}]},
+        {'category': 'storage', 'room_name': 'Den', 'photos': [{'source': 'claim', 'photo_id': ids.claim_photo}]},
+    ):
+        assert api.post(url, json=body).status_code == 422
+    assert api.get(url).json() == {'photos': []}
+
+    # Work completion picked first still lists after water mitigation
+    api.post(url, json={'category': DONE, 'room_name': 'Kitchen', 'photos': [
+        {'source': 'claim', 'photo_id': ids.claim_photo}]})
+    resp = api.post(url, json={'category': WM, 'room_name': 'kitchen', 'photos': [
+        {'source': 'wm', 'photo_id': ids.kitchen},
+        {'source': 'wm', 'photo_id': ids.living, 'room_name': 'Living Room'},
+    ]})
+    photos = resp.json()['photos']
+    # "kitchen" joins no room of the other category: it starts its own
+    assert _groups(photos) == [
+        ((WM, 'kitchen'), ['kitchen.jpg']),
+        ((WM, 'Living Room'), ['living.jpg']),
+        ((DONE, 'Kitchen'), ['den.jpg']),
+    ]
+    assert [p['category'] for p in photos] == [WM, WM, DONE]
+
+    # Filed again under the other category, a photo moves there
+    resp = api.post(url, json={'category': DONE, 'room_name': 'KITCHEN', 'photos': [
+        {'source': 'wm', 'photo_id': ids.living}]})
+    assert _groups(resp.json()['photos']) == [
+        ((WM, 'kitchen'), ['kitchen.jpg']),
+        ((DONE, 'Kitchen'), ['den.jpg', 'living.jpg']),
+    ]
+
+
+def test_a_room_moves_to_the_other_category(env):
+    api, database, tmp_path, _ = env
+    ids = _seed(database, tmp_path)
+    url = f"/api/packing-estimate/claims/{ids.claim}/photos"
+    api.post(url, json={'category': WM, 'photos': [
+        {'source': 'wm', 'photo_id': ids.kitchen, 'room_name': 'Kitchen'},
+        {'source': 'wm', 'photo_id': ids.living, 'room_name': 'Living Room'},
+    ]})
+    photos = api.post(url, json={'category': DONE, 'room_name': 'Den', 'photos': [
+        {'source': 'claim', 'photo_id': ids.claim_photo}]}).json()['photos']
+    entry = {p['file_name']: p['id'] for p in photos}
+
+    # A rename keeps the room in its category
+    resp = api.patch(url, json={'ids': [entry['den.jpg']], 'room_name': 'Family Room'})
+    assert _groups(resp.json()['photos'])[-1] == ((DONE, 'Family Room'), ['den.jpg'])
+
+    # The whole room moves, under its own name
+    resp = api.patch(url, json={'ids': [entry['living.jpg']], 'room_name': 'Living Room', 'category': DONE})
+    assert _groups(resp.json()['photos']) == [
+        ((WM, 'Kitchen'), ['kitchen.jpg']),
+        ((DONE, 'Living Room'), ['living.jpg']),
+        ((DONE, 'Family Room'), ['den.jpg']),
+    ]
+
+    # Into a room the category has, it joins it at the end
+    resp = api.patch(url, json={'ids': [entry['kitchen.jpg']], 'room_name': 'family room', 'category': DONE})
+    assert _groups(resp.json()['photos']) == [
+        ((DONE, 'Living Room'), ['living.jpg']),
+        ((DONE, 'Family Room'), ['den.jpg', 'kitchen.jpg']),
+    ]
+
+    assert api.patch(url, json={'ids': [entry['den.jpg']], 'room_name': 'Den', 'category': 'attic'}).status_code == 422
+
+
 def test_the_builder_gets_each_photo_as_a_jpeg_sized_for_the_ai(env):
     api, database, tmp_path, _ = env
     ids = _seed(database, tmp_path)
     url = f"/api/packing-estimate/claims/{ids.claim}/photos"
-    photos = api.post(url, json={'room_name': 'Den', 'photos': [
+    photos = api.post(url, json={'category': WM, 'room_name': 'Den', 'photos': [
         {'source': 'wm', 'photo_id': ids.kitchen},
         {'source': 'claim', 'photo_id': ids.claim_photo},
     ]}).json()['photos']
@@ -261,7 +344,7 @@ def test_staff_outside_the_claims_companies_see_nothing(env):
     staff['role'] = StaffRole.staff
     url = f"/api/packing-estimate/claims/{ids.claim}/photos"
     assert api.get(url).status_code == 404
-    assert api.post(url, json={'room_name': 'Den', 'photos': [
+    assert api.post(url, json={'category': WM, 'room_name': 'Den', 'photos': [
         {'source': 'wm', 'photo_id': ids.kitchen}]}).status_code == 404
 
 
@@ -289,10 +372,13 @@ def test_the_builder_lists_the_claims_with_packing_photos(env):
 
     assert api.get(url).json() == {'claims': []}
 
-    api.post(f"/api/packing-estimate/claims/{ids.claim}/photos", json={'photos': [
+    photos_url = f"/api/packing-estimate/claims/{ids.claim}/photos"
+    api.post(photos_url, json={'category': DONE, 'photos': [
+        {'source': 'claim', 'photo_id': ids.claim_photo, 'room_name': 'Kitchen'},
+    ]})
+    api.post(photos_url, json={'category': WM, 'photos': [
         {'source': 'wm', 'photo_id': ids.kitchen, 'room_name': 'Kitchen'},
         {'source': 'wm', 'photo_id': ids.living, 'room_name': 'Living Room'},
-        {'source': 'claim', 'photo_id': ids.claim_photo, 'room_name': 'Kitchen'},
     ]})
     claims = api.get(url).json()['claims']
     assert claims == [{
@@ -305,9 +391,11 @@ def test_the_builder_lists_the_claims_with_packing_photos(env):
         # The pack-out goes under the claim's moving company
         'company_id': mover_id,
         'photo_count': 3,
+        # Category by category, though work completion's room came first
         'rooms': [
-            {'room_name': 'Kitchen', 'photo_count': 2},
-            {'room_name': 'Living Room', 'photo_count': 1},
+            {'category': WM, 'room_name': 'Kitchen', 'photo_count': 1},
+            {'category': WM, 'room_name': 'Living Room', 'photo_count': 1},
+            {'category': DONE, 'room_name': 'Kitchen', 'photo_count': 1},
         ],
     }]
 
@@ -321,7 +409,10 @@ def test_the_builder_lists_the_claims_with_packing_photos(env):
     s = database.get_session()
     s.query(WMPhoto).filter(WMPhoto.id == ids.living).update({'is_trashed': True})
     s.commit()
-    assert api.get(url).json()['claims'][0]['rooms'] == [{'room_name': 'Kitchen', 'photo_count': 2}]
+    assert api.get(url).json()['claims'][0]['rooms'] == [
+        {'category': WM, 'room_name': 'Kitchen', 'photo_count': 1},
+        {'category': DONE, 'room_name': 'Kitchen', 'photo_count': 1},
+    ]
     s.query(WMPhoto).filter(WMPhoto.id == ids.kitchen).update({'is_trashed': True})
     s.query(File).filter(File.id == ids.claim_photo).update({'is_active': False})
     s.commit()
@@ -336,7 +427,7 @@ def test_staff_see_only_their_companies_claims_with_packing_photos(env):
 
     api, database, tmp_path, staff = env
     ids = _seed(database, tmp_path)
-    api.post(f"/api/packing-estimate/claims/{ids.claim}/photos", json={'room_name': 'Den', 'photos': [
+    api.post(f"/api/packing-estimate/claims/{ids.claim}/photos", json={'category': WM, 'room_name': 'Den', 'photos': [
         {'source': 'wm', 'photo_id': ids.kitchen}]})
     url = '/api/packing-estimate/claims/with-photos'
 

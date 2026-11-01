@@ -1,17 +1,22 @@
 /**
- * AddToPackingModal - files the photos selected in a claim photo gallery under
- * a packing room, for the claim's packing estimate. Photos tagged with a room
- * (water mitigation location tags) can keep their own room. A photo already
- * in the packing set moves to the room picked here.
+ * AddToPackingModal - files the photos selected in a claim photo gallery for
+ * the claim's packing estimate: first under a category (the stage of the job
+ * they are for: water mitigation, work completion), then under a room in it.
+ * The category starts as the photo set's own (a WM job's photos: water
+ * mitigation; the claim's Completion photos: work completion). Photos tagged
+ * with a room (water mitigation location tags) can keep their own room. A
+ * photo already in the packing set moves to the category and room picked here.
  */
 import React, { useEffect, useState } from 'react';
-import { AutoComplete, Button, Checkbox, Modal, message } from 'antd';
+import { AutoComplete, Button, Checkbox, Modal, Segmented, message } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSheetModal } from '../common/ui';
 import type { FileItem } from '../common/FileGallery';
 import * as packingService from '../../services/packingEstimateService';
-import type { PackingPhotoRef, PackingPhotoSource } from '../../types/packing-estimate';
-import { claimPackingPhotosKey, groupPackingRooms } from '../packing-estimate/claimPhotos';
+import type { PackingPhotoCategory, PackingPhotoRef, PackingPhotoSource } from '../../types/packing-estimate';
+import {
+  PACKING_CATEGORIES, claimPackingPhotosKey, defaultPackingCategory, groupPackingRooms, packingCategoryLabel,
+} from '../packing-estimate/claimPhotos';
 
 const COMMON_ROOMS = [
   'Kitchen', 'Living Room', 'Family Room', 'Dining Room', 'Master Bedroom', 'Bedroom',
@@ -35,6 +40,7 @@ const AddToPackingModal: React.FC<AddToPackingModalProps> = ({
 }) => {
   const { sheetProps, isPhone } = useSheetModal();
   const queryClient = useQueryClient();
+  const [category, setCategory] = useState<PackingPhotoCategory>(() => defaultPackingCategory(source));
   const [roomName, setRoomName] = useState('');
   const [useTags, setUseTags] = useState(true);
 
@@ -46,10 +52,11 @@ const AddToPackingModal: React.FC<AddToPackingModalProps> = ({
 
   useEffect(() => {
     if (open) {
+      setCategory(defaultPackingCategory(source));
       setRoomName('');
       setUseTags(true);
     }
-  }, [open]);
+  }, [open, source]);
 
   const tagged = photos.filter(p => p.locationRoom?.trim());
   const untaggedCount = photos.length - tagged.length;
@@ -64,11 +71,11 @@ const AddToPackingModal: React.FC<AddToPackingModalProps> = ({
   // Every photo already has its room when they all keep their tags
   const needsRoom = !keepTags || untaggedCount > 0;
 
-  // Rooms already in the packing set first, then the photos' tags, then common rooms
+  // The category's rooms in the packing set first, then the photos' tags, then common rooms
   const seen = new Set<string>();
   const typed = roomName.trim().toLowerCase();
   const roomOptions = [
-    ...groupPackingRooms(packingPhotos).map(g => g.room_name),
+    ...groupPackingRooms(packingPhotos).filter(g => g.category === category).map(g => g.room_name),
     ...tagRooms.map(([room]) => room),
     ...COMMON_ROOMS,
   ].filter(name => {
@@ -85,11 +92,11 @@ const AddToPackingModal: React.FC<AddToPackingModalProps> = ({
         photo_id: p.id,
         room_name: keepTags ? p.locationRoom?.trim() || undefined : undefined,
       }));
-      return packingService.addClaimPhotos(claimId, refs, roomName.trim() || undefined);
+      return packingService.addClaimPhotos(claimId, category, refs, roomName.trim() || undefined);
     },
     onSuccess: (updated) => {
       queryClient.setQueryData(claimPackingPhotosKey(claimId), updated);
-      message.success(`${plural(photos.length, 'photo')} added to the packing estimate`);
+      message.success(`${plural(photos.length, 'photo')} added to ${packingCategoryLabel(category)} for packing`);
       onAdded();
       onClose();
     },
@@ -124,39 +131,55 @@ const AddToPackingModal: React.FC<AddToPackingModalProps> = ({
       destroyOnHidden
     >
       <p className="cl-packing-intro">
-        The packing estimate analyzes these photos room by room. Photos already in a packing room move to the room you pick.
+        Pick what the photos are for, then their room. The pack-out/in estimate is made for one category's rooms. Photos already picked for packing move to the category and room you pick.
       </p>
 
-      {tagged.length > 0 && (
-        <Checkbox
-          className="cl-packing-tags"
-          checked={useTags}
-          onChange={e => setUseTags(e.target.checked)}
-        >
-          Keep each photo's room tag
-          <span className="cl-meta cl-packing-tag-list">
-            {tagRooms.map(([room, n]) => `${room} ${n}`).join(' · ')}
-          </span>
-        </Checkbox>
-      )}
+      <div className="cl-packing-field">
+        <span className="cl-packing-label" id="packing-category-label">1. Category</span>
+        <Segmented
+          block
+          size={size}
+          value={category}
+          onChange={v => setCategory(v as PackingPhotoCategory)}
+          options={PACKING_CATEGORIES}
+          aria-labelledby="packing-category-label"
+        />
+      </div>
 
-      {needsRoom && (
-        <label className="cl-packing-room-field">
-          <span className="cl-packing-label">
-            {keepTags ? `Room for the ${plural(untaggedCount, 'untagged photo')}` : 'Room'}
-          </span>
-          <AutoComplete
-            size={size}
-            value={roomName}
-            onChange={setRoomName}
-            options={roomOptions}
-            placeholder="e.g. Master Bedroom"
-            style={{ width: '100%' }}
-            autoFocus
-            aria-label="Room"
-          />
-        </label>
-      )}
+      <div className="cl-packing-field">
+        <span className="cl-packing-label">2. Room</span>
+        {tagged.length > 0 && (
+          <Checkbox
+            className="cl-packing-tags"
+            checked={useTags}
+            onChange={e => setUseTags(e.target.checked)}
+          >
+            Keep each photo's room tag
+            <span className="cl-meta cl-packing-tag-list">
+              {tagRooms.map(([room, n]) => `${room} ${n}`).join(' · ')}
+            </span>
+          </Checkbox>
+        )}
+
+        {needsRoom && (
+          <label className="cl-packing-room-field">
+            {keepTags && (
+              <span className="cl-packing-label">
+                {`Room for the ${plural(untaggedCount, 'untagged photo')}`}
+              </span>
+            )}
+            <AutoComplete
+              size={size}
+              value={roomName}
+              onChange={setRoomName}
+              options={roomOptions}
+              placeholder="e.g. Master Bedroom"
+              style={{ width: '100%' }}
+              aria-label="Room"
+            />
+          </label>
+        )}
+      </div>
     </Modal>
   );
 };

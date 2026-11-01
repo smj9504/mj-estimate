@@ -4,8 +4,10 @@
  * Supports Quick Estimate and Photo AI modes
  * Supports recalculation from existing estimate via navigation state
  * Started from a claim (navigation state claimPhotos), it fills in the job,
- * loads the claim's packing photos as Photo AI rooms and analyzes them;
- * From Claim in Photo AI Rooms loads them from here, a claim and rooms picked
+ * loads the claim's packing photos of one category (claimPhotoCategory:
+ * water mitigation or work completion) as Photo AI rooms and analyzes them,
+ * the estimate named for the category; From Claim in Photo AI Rooms loads
+ * them from here, a claim and rooms picked
  * Recalculating a saved Photo AI estimate brings back its rooms and item decisions
  */
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
@@ -19,7 +21,9 @@ import PhotoAIRooms from '../components/packing-estimate/PhotoAIRooms';
 import ClaimPhotosImportModal from '../components/packing-estimate/ClaimPhotosImportModal';
 import QuickEstimateRooms from '../components/packing-estimate/QuickEstimateRooms';
 import { DEFAULT_SETTINGS } from '../components/packing-estimate/constants';
-import { loadClaimPhotoRooms } from '../components/packing-estimate/claimPhotos';
+import {
+  PACKING_CATEGORIES, type PackingRoomGroup, loadClaimPhotoRooms, packingCategoryLabel, packingRoomKey,
+} from '../components/packing-estimate/claimPhotos';
 import { isUnconfirmed, needsReview, withUids } from '../components/packing-estimate/itemEdits';
 import {
   EstimateBreakdown, Figures, estimateFigures, regionLabel, modeLabel, sectionsWithLines, packEstimateTitle,
@@ -29,7 +33,7 @@ import * as packingService from '../services/packingEstimateService';
 import type {
   PackingSettings, PackingRoom, PhotoRoom,
   RoomInput, EstimateResponse, PackingMode,
-  ContentRoomInput, PackingPhotoClaim,
+  ContentRoomInput, PackingPhotoCategory, PackingPhotoClaim,
 } from '../types/packing-estimate';
 
 const timeFormat = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
@@ -68,6 +72,12 @@ const PackCalculatorNew: React.FC = () => {
   const [projectAddress, setProjectAddress] = useState(
     recalcState?.projectAddress || ''
   );
+  // Named for the category of claim packing photos it is made from
+  // (Water mitigation, Work completion), when its rooms are all from one
+  const [calculationName, setCalculationName] = useState<string | null>(
+    recalcState?.calculationName || null
+  );
+  const nameCategory = PACKING_CATEGORIES.find(c => c.label === calculationName)?.value;
 
   // Room state
   const [rooms, setRooms] = useState<PackingRoom[]>([]);
@@ -111,10 +121,10 @@ const PackCalculatorNew: React.FC = () => {
     }
   }, []);
 
-  // A claim's packing photos (all its rooms, or roomNames) become Photo AI rooms
+  // A claim's packing photos (all its rooms, a category's or roomKeys) become Photo AI rooms
   const loadClaimPhotos = useCallback((
     claimId: string,
-    opts: { roomNames?: string[]; existingNames?: string[]; analyze: boolean },
+    opts: { category?: PackingPhotoCategory; roomKeys?: string[]; existingNames?: string[]; analyze: boolean },
   ) => {
     setClaimPhotoLoad({ done: 0, total: 0 });
     loadClaimPhotoRooms(claimId, (done, total) => setClaimPhotoLoad({ done, total }), opts)
@@ -147,12 +157,18 @@ const PackCalculatorNew: React.FC = () => {
     // A reload keeps the job but doesn't import and analyze the photos again
     const rest = { ...recalcState };
     delete rest.claimPhotos;
+    delete rest.claimPhotoCategory;
     navigate(location.pathname, { replace: true, state: rest });
-    loadClaimPhotos(claimId, { analyze: true });
+    loadClaimPhotos(claimId, { category: recalcState?.claimPhotoCategory, analyze: true });
   }, []);
 
-  // From Claim: the estimate goes on the claim the photos come from
-  const handleLoadFromClaim = useCallback((claim: PackingPhotoClaim, roomNames: string[], analyze: boolean) => {
+  // From Claim: the estimate goes on the claim the photos come from, named
+  // for their category while all its rooms are from one
+  const handleLoadFromClaim = useCallback((claim: PackingPhotoClaim, picked: PackingRoomGroup[], analyze: boolean) => {
+    const loaded = new Set(picked.map(r => r.category));
+    const loadedName = loaded.size === 1 ? packingCategoryLabel(Array.from(loaded)[0]) : null;
+    const fresh = claim.claim_id !== selectedClaimId || photoRooms.length === 0;
+    setCalculationName(prev => (fresh || prev === loadedName ? loadedName : null));
     if (claim.claim_id !== selectedClaimId) {
       setSelectedClientId(claim.client_id);
       setSelectedClaimId(claim.claim_id);
@@ -162,7 +178,7 @@ const PackCalculatorNew: React.FC = () => {
     }
     if (!selectedCompanyId && claim.company_id) setSelectedCompanyId(claim.company_id);
     loadClaimPhotos(claim.claim_id, {
-      roomNames,
+      roomKeys: picked.map(packingRoomKey),
       existingNames: photoRooms.map(r => r.room_name),
       analyze,
     });
@@ -216,6 +232,7 @@ const PackCalculatorNew: React.FC = () => {
           client_id: selectedClientId || undefined,
           company_id: selectedCompanyId || undefined,
           claim_id: selectedClaimId || undefined,
+          calculation_name: calculationName || undefined,
           project_address: projectAddress || undefined,
           rooms: roomInputs,
           crew_size: settings.crew_size,
@@ -235,6 +252,7 @@ const PackCalculatorNew: React.FC = () => {
           client_id: selectedClientId || undefined,
           company_id: selectedCompanyId || undefined,
           claim_id: selectedClaimId || undefined,
+          calculation_name: calculationName || undefined,
           project_address: projectAddress || undefined,
           rooms: contentRooms,
           crew_size: settings.crew_size,
@@ -267,7 +285,7 @@ const PackCalculatorNew: React.FC = () => {
     } finally {
       setCalculating(false);
     }
-  }, [mode, roomInputs, contentRooms, settings, selectedClientId, selectedCompanyId, selectedClaimId, projectAddress, inputsKey]);
+  }, [mode, roomInputs, contentRooms, settings, selectedClientId, selectedCompanyId, selectedClaimId, calculationName, projectAddress, inputsKey]);
 
   const roomCount = mode === 'quick' ? rooms.length : photoRooms.length;
   const canCalculate = roomCount > 0;
@@ -395,6 +413,7 @@ const PackCalculatorNew: React.FC = () => {
             onClose={() => setClaimImportOpen(false)}
             currentClaimId={selectedClaimId}
             existingRoomNames={photoRooms.map(r => r.room_name)}
+            currentCategory={nameCategory}
             onLoad={handleLoadFromClaim}
           />
 

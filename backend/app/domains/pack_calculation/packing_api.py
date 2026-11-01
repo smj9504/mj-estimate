@@ -274,7 +274,8 @@ def list_claim_packing_photos(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_user),
 ):
-    """The claim's photos picked for its packing estimate, room by room."""
+    """The claim's photos picked for its packing estimate, category by
+    category and room by room."""
     _require_packing_claim(db, current_user, claim_id)
     return {"photos": packing_photos.list_photos(db, claim_id)}
 
@@ -286,10 +287,11 @@ def add_claim_packing_photos(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_user),
 ):
-    """File claim photos under packing rooms (moves ones already filed)."""
+    """File claim photos under a packing category and rooms in it (moves
+    ones already filed)."""
     _require_packing_claim(db, current_user, claim_id)
     packing_photos.add_photos(
-        db, claim_id, request.room_name, request.photos, current_user.id,
+        db, claim_id, request.category, request.room_name, request.photos, current_user.id,
     )
     return {"photos": packing_photos.list_photos(db, claim_id)}
 
@@ -301,9 +303,10 @@ def move_claim_packing_photos(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_user),
 ):
-    """Move packing photos to a room; moving a whole room renames it."""
+    """Move packing photos to a room (and category); moving a whole room
+    renames it or moves it to the category."""
     _require_packing_claim(db, current_user, claim_id)
-    packing_photos.move_photos(db, claim_id, request.ids, request.room_name)
+    packing_photos.move_photos(db, claim_id, request.ids, request.room_name, request.category)
     return {"photos": packing_photos.list_photos(db, claim_id)}
 
 

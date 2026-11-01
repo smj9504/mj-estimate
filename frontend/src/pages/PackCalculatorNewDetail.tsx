@@ -192,6 +192,7 @@ const PackCalculatorNewDetail: React.FC = () => {
         clientId: estimate.client_id,
         companyId: estimate.company_id,
         claimId: estimate.claim_id,
+        calculationName: estimate.calculation_name,
         rooms: estimate.mode === 'photo_ai' ? estimate.rooms : undefined,
       },
     });

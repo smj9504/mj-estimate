@@ -1,8 +1,11 @@
 /**
  * ClaimPhotosImportModal - load a claim's packing photos into the builder.
  * Photos picked for packing on a claim (Use for packing in the claim's
- * Photos) are filed by room; pick the claim, then the rooms to load. The
- * estimate's own claim opens straight to its rooms.
+ * Photos) are filed by category (water mitigation, work completion), then by
+ * room; pick the claim, then the rooms to load. The estimate's own claim
+ * opens straight to its rooms. A pack-out/in estimate is for one category, so
+ * only one category's rooms start ticked: the estimate's own when it is for
+ * one, else the first that has rooms to load.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Checkbox, Input, Modal, Spin } from 'antd';
@@ -11,8 +14,11 @@ import { useQuery } from '@tanstack/react-query';
 import { useSheetModal } from '../common/ui';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import * as packingService from '../../services/packingEstimateService';
-import type { PackingPhotoClaim } from '../../types/packing-estimate';
-import { AI_PHOTOS_PER_ROOM, apiUrl, claimPackingPhotosKey, groupPackingRooms } from './claimPhotos';
+import type { PackingPhotoCategory, PackingPhotoClaim } from '../../types/packing-estimate';
+import {
+  AI_PHOTOS_PER_ROOM, type PackingRoomGroup, apiUrl, claimPackingPhotosKey, groupPackingCategories,
+  packingCategoryLabel, packingRoomKey,
+} from './claimPhotos';
 import './packing.css';
 
 /** Thumbnails shown per room, enough to tell the rooms apart */
@@ -27,11 +33,13 @@ interface ClaimPhotosImportModalProps {
   currentClaimId: string | null;
   /** Rooms already in the builder; a room of the same name starts unticked */
   existingRoomNames: string[];
-  onLoad: (claim: PackingPhotoClaim, roomNames: string[], analyze: boolean) => void;
+  /** The category the estimate is for, if it is for one: its rooms start ticked */
+  currentCategory?: PackingPhotoCategory;
+  onLoad: (claim: PackingPhotoClaim, rooms: PackingRoomGroup[], analyze: boolean) => void;
 }
 
 const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
-  open, onClose, currentClaimId, existingRoomNames, onLoad,
+  open, onClose, currentClaimId, existingRoomNames, currentCategory, onLoad,
 }) => {
   const { sheetProps } = useSheetModal('tall');
   const [search, setSearch] = useState('');
@@ -71,7 +79,8 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
     enabled: open && !!picked,
     staleTime: 0,
   });
-  const rooms = useMemo(() => groupPackingRooms(photosQuery.data ?? []), [photosQuery.data]);
+  const categories = useMemo(() => groupPackingCategories(photosQuery.data ?? []), [photosQuery.data]);
+  const rooms = useMemo(() => categories.flatMap(c => c.rooms), [categories]);
 
   const existing = useMemo(
     () => new Set(existingRoomNames.map(n => n.trim().toLowerCase())),
@@ -79,22 +88,33 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
   );
   const inEstimate = (name: string) => existing.has(name.trim().toLowerCase());
 
-  // Tick the rooms not in the estimate yet, once per claim each time it opens
+  // Tick one category's rooms not in the estimate yet - the estimate's
+  // category when it is for one, else the first with any - once per claim
+  // each time it opens
   useEffect(() => {
     if (!open || !picked || !photosQuery.isSuccess || selectionFor.current === picked.claim_id) return;
     selectionFor.current = picked.claim_id;
-    setSelected(new Set(rooms.filter(r => !inEstimate(r.room_name)).map(r => r.room_name)));
+    const fresh = (group: typeof categories[number]) => group.rooms.filter(r => !inEstimate(r.room_name));
+    const group = currentCategory
+      ? categories.find(c => c.category === currentCategory)
+      : categories.find(c => fresh(c).length > 0);
+    setSelected(new Set(group ? fresh(group).map(packingRoomKey) : []));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, picked, photosQuery.isSuccess, rooms]);
+  }, [open, picked, photosQuery.isSuccess, categories]);
 
-  const toggleRoom = (name: string) => setSelected(prev => {
+  const toggleRoom = (key: string) => setSelected(prev => {
     const next = new Set(prev);
-    if (next.has(name)) next.delete(name); else next.add(name);
+    if (next.has(key)) next.delete(key); else next.add(key);
     return next;
   });
 
-  const chosenRooms = rooms.filter(r => selected.has(r.room_name));
+  const chosenRooms = rooms.filter(r => selected.has(packingRoomKey(r)));
   const chosenPhotos = chosenRooms.reduce((sum, r) => sum + r.photos.length, 0);
+  const chosenCategories = new Set(chosenRooms.map(r => r.category));
+  // Rooms of another category than the estimate's, or of more than one
+  const intoOtherCategory = !!currentCategory && existingRoomNames.length > 0
+    && chosenRooms.some(r => r.category !== currentCategory);
+  const mixesCategories = intoOtherCategory || chosenCategories.size > 1;
 
   const pickClaim = (claim: PackingPhotoClaim | null) => {
     selectionFor.current = null;
@@ -104,7 +124,7 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
 
   const handleLoad = () => {
     if (!picked || chosenRooms.length === 0) return;
-    onLoad(picked, chosenRooms.map(r => r.room_name), analyze);
+    onLoad(picked, chosenRooms, analyze);
     onClose();
   };
 
@@ -189,12 +209,22 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
           <div className="pk-folder-empty">Couldn't load this claim's packing photos.</div>
         ) : rooms.length === 0 ? (
           <div className="pk-folder-empty">This claim has no packing photos left.</div>
-        ) : rooms.map(room => {
-          const on = selected.has(room.room_name);
+        ) : categories.flatMap(group => [
+          <div key={group.category} className="pk-claim-category">
+            {group.label}
+          </div>,
+          ...group.rooms.map(room => {
+          const key = packingRoomKey(room);
+          const on = selected.has(key);
           return (
-            <div key={room.room_name} className={`pk-folder-row${on ? '' : ' is-off'}`}>
+            <div key={key} className={`pk-folder-row${on ? '' : ' is-off'}`}>
               {/* The whole row is the checkbox's label */}
-              <Checkbox className="pk-claim-room" checked={on} onChange={() => toggleRoom(room.room_name)}>
+              <Checkbox
+                className="pk-claim-room"
+                checked={on}
+                onChange={() => toggleRoom(key)}
+                aria-label={`${room.room_name}, ${group.label}`}
+              >
                 <span className="pk-claim-main">
                   <span className="pk-folder-name">{room.room_name}</span>
                   <span className="pk-claim-thumbs" aria-hidden="true">
@@ -213,8 +243,20 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
               </Checkbox>
             </div>
           );
-        })}
+          }),
+        ])}
       </div>
+
+      {mixesCategories && (
+        <div className="pk-note pk-note--warn">
+          <ExclamationCircleOutlined aria-hidden="true" />
+          <span>
+            {intoOtherCategory
+              ? `This estimate is for ${packingCategoryLabel(currentCategory!)}. A pack-out/in estimate is usually for one category's rooms.`
+              : "These rooms are from more than one category. A pack-out/in estimate is usually for one category's rooms."}
+          </span>
+        </div>
+      )}
 
       {chosenRooms.some(r => r.photos.length > AI_PHOTOS_PER_ROOM) && (
         <div className="pk-note">
@@ -261,7 +303,7 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
       destroyOnHidden
     >
       <p className="pk-folder-intro">
-        Photos picked for packing on a claim (Use for packing in the claim's Photos) load here room by room.
+        Photos picked for packing on a claim (Use for packing in the claim's Photos) load here by category, room by room.
       </p>
       {picked === undefined && !claimsQuery.isError
         ? <div className="pk-folder-empty"><Spin size="small" /></div>
