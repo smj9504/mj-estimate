@@ -9,12 +9,13 @@ water mitigation jobs ('wm') or a claim photo ('claim') - so nothing is
 copied, and a photo trashed or unlinked there drops out here too.
 
 The packing estimate builder loads the rooms and fetches each photo as a
-JPEG sized for the AI item analysis. A saved estimate's report shows each
-of its rooms with the photos of the claim's room of that name.
+JPEG sized for the AI item analysis.
 
 A Photo AI estimate also keeps its rooms' own photos: the builder saves each
 as a file (context ROOM_PHOTO_CONTEXT) when it calculates, the estimate's rooms
-hold the file ids, and recalculating fetches them back the same way.
+hold the file ids, and recalculating fetches them back the same way. Its report
+shows those; an estimate from before rooms kept theirs shows each room with the
+photos of the claim's room of that name.
 """
 
 import asyncio
@@ -658,6 +659,35 @@ def saved_room_photos(db: Session, file_ids: List[str]) -> List[str]:
         ).all()
     }
     return [file_id for file_id in file_ids if file_id in known]
+
+
+async def report_saved_images(db: Session, file_ids: List[str]) -> List[Optional[bytes]]:
+    """Photos saved with an estimate as JPEGs sized for the report, a few at a
+    time; None for one that can't be loaded"""
+    from app.domains.file.models import File
+
+    if not file_ids:
+        return []
+    records = {
+        str(r.id): r for r in db.query(File).filter(
+            File.id.in_(file_ids), File.context == ROOM_PHOTO_CONTEXT,
+        ).all()
+    }
+    gate = asyncio.Semaphore(REPORT_PARALLEL_FETCHES)
+
+    async def one(file_id: str) -> Optional[bytes]:
+        record = records.get(file_id)
+        if record is None:
+            return None
+        async with gate:
+            try:
+                data = await asyncio.to_thread(_stored_file_bytes, record)
+            except Exception as e:
+                logger.warning(f"Estimate photo {file_id} could not be loaded: {e}")
+                return None
+            return await asyncio.to_thread(_report_jpeg, data) if data else None
+
+    return await asyncio.gather(*(one(file_id) for file_id in file_ids))
 
 
 def estimate_photo_ids(db: Session, calc_id: str) -> List[str]:

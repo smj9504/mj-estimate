@@ -730,14 +730,16 @@ def export_estimate_pdf(
 
 def _report_rooms(db: Session, calc: PackCalculation) -> list:
     """The estimate's rooms for its report, each with its items (a quick
-    estimate keeps only a count and its notable items) and the claim's
-    packing photos of it"""
+    estimate keeps only a count and its notable items) and its photos: the
+    ones saved with the estimate, or for an estimate from before rooms kept
+    theirs, the claim's packing photos of the room"""
     rooms = _calc_to_detail(calc, db).get("rooms")
     if rooms:
         out = [{
             "room_name": r["room_name"],
             "floor": r.get("floor"),
             "items": r.get("items") or [],
+            "saved_photos": packing_photos.saved_room_photos(db, r.get("photos") or []),
         } for r in rooms]
     else:
         out = [{
@@ -746,13 +748,14 @@ def _report_rooms(db: Session, calc: PackCalculation) -> list:
             "items": [],
             "item_count": s.get("item_count") or 0,
             "notable_items": s.get("notable_items") or [],
+            "saved_photos": [],
         } for i, s in enumerate(calc.room_summaries or [])]
 
     photos = (
         packing_photos.estimate_room_photos(
             db, str(calc.claim_id), [r["room_name"] for r in out],
             packing_photos.category_named(calc.calculation_name),
-        ) if calc.claim_id else [[] for _ in out]
+        ) if calc.claim_id and not any(r["saved_photos"] for r in out) else [[] for _ in out]
     )
     for room, entries in zip(out, photos):
         room["photo_entries"] = entries
@@ -762,6 +765,10 @@ def _report_rooms(db: Session, calc: PackCalculation) -> list:
 def _room_item_count(room: dict) -> int:
     items = room["items"]
     return sum(int(i.get("quantity") or 1) for i in items) if items else int(room.get("item_count") or 0)
+
+
+def _room_photo_count(room: dict) -> int:
+    return len(room["saved_photos"]) + len(room["photo_entries"])
 
 
 @router.get("/{calc_id}/claim-room-photos")
@@ -785,8 +792,7 @@ def get_report_options(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_user),
 ):
-    """What the estimate's report can show: each room's items, and the
-    claim's packing photos of it"""
+    """What the estimate's report can show: each room's items and photos"""
     calc = _load_estimate(db, current_user, calc_id)
     rooms = _report_rooms(db, calc)
     return {
@@ -794,10 +800,10 @@ def get_report_options(
         "rooms": [{
             "room_name": r["room_name"],
             "item_count": _room_item_count(r),
-            "photo_count": len(r["photo_entries"]),
+            "photo_count": _room_photo_count(r),
         } for r in rooms],
         "item_count": sum(_room_item_count(r) for r in rooms),
-        "photo_count": sum(len(r["photo_entries"]) for r in rooms),
+        "photo_count": sum(_room_photo_count(r) for r in rooms),
     }
 
 
@@ -818,7 +824,7 @@ async def export_report_pdf(
     rooms = _report_rooms(db, calc)
 
     if request.photos:
-        if not any(r["photo_entries"] for r in rooms):
+        if not any(_room_photo_count(r) for r in rooms):
             raise HTTPException(
                 400,
                 "The claim has no packing photos of this estimate's rooms"
@@ -826,8 +832,12 @@ async def export_report_pdf(
             )
         entries = [e for r in rooms for e in r["photo_entries"]]
         images = iter(await packing_photos.report_images(db, str(calc.claim_id), entries))
+        saved = iter(await packing_photos.report_saved_images(
+            db, [file_id for r in rooms for file_id in r["saved_photos"]],
+        ))
         for room in rooms:
             loaded = [next(images) for _ in room["photo_entries"]]
+            loaded += [next(saved) for _ in room["saved_photos"]]
             room["photos"] = [img for img in loaded if img]
         if not any(r["photos"] for r in rooms) and not request.contents_list:
             raise HTTPException(404, "None of the photos could be loaded")

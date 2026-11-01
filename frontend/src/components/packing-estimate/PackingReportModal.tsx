@@ -1,10 +1,10 @@
 /**
  * PackingReportModal - download a saved estimate's report, what an adjuster
  * asks for besides the estimate: its contents list, its room photos, or both,
- * room by room. A room's photos are the claim's packing photos filed under
- * the room of the same name (the ones the builder loaded it from), so an
- * estimate that isn't on a claim, or whose rooms have none, has only its
- * contents list.
+ * room by room. A room's photos are the ones saved with the estimate. One from
+ * before rooms kept theirs shows the claim's packing photos filed under the
+ * room of the same name, so if it isn't on a claim, or the claim has none of
+ * its rooms, it has only its contents list.
  */
 import React, { useState } from 'react';
 import { Button, Checkbox, Modal, Radio, Spin, message } from 'antd';
@@ -87,7 +87,7 @@ const PackingReportModal: React.FC<PackingReportModalProps> = ({ open, onClose, 
       <span>
         {options.has_claim
           ? "The claim has no packing photos of these rooms. A room's photos are the ones filed for packing under the same room name on the claim."
-          : "This estimate isn't on a claim, so it has no photos to add."}
+          : "This estimate has no saved photos and isn't on a claim, so it has no photos to add."}
       </span>
     </div>
   );

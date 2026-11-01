@@ -365,3 +365,55 @@ def test_a_quick_estimates_contents_list_shows_its_notable_items(env):
     if summary['notable_items']:
         assert summary['notable_items'][0] in text
     assert _pdf(api.get(f"{BASE}/{calc_id}/export/pdf"))
+
+
+def _saved_photo(database, tmp_path, name, color=(10, 120, 200)):
+    s = database.get_session()
+    record = File(filename=name, original_name=name, content_type='image/jpeg', size=1,
+                  url=_jpeg(tmp_path / name, color), storage_provider='local',
+                  context='packing-estimate', context_id='unassigned', category='general')
+    s.add(record)
+    s.commit()
+    file_id = str(record.id)
+    s.close()
+    return file_id
+
+
+def test_a_report_shows_the_photos_saved_with_the_estimate(env):
+    api, database, tmp_path = env
+    ids, photos = _seed(database, tmp_path)
+    # The claim has photos of these rooms too; the estimate's own are what it shows
+    _file_photos(api, ids, photos)
+    # Different pictures: a PDF stores identical ones once
+    first = _saved_photo(database, tmp_path, 'a.jpg')
+    second = _saved_photo(database, tmp_path, 'b.jpg', (200, 200, 30))
+    calc_id = _photo_estimate(api, ids, rooms=[
+        {'room_name': 'Kitchen', 'photo_ids': [first, second], 'items': [_item('Table')]},
+        {'room_name': 'Den', 'items': [_item('Sofa')]},
+    ])
+
+    options = api.get(f"{BASE}/{calc_id}/report").json()
+    assert [(r['room_name'], r['photo_count']) for r in options['rooms']] == [('Kitchen', 2), ('Den', 0)]
+    assert options['photo_count'] == 2
+    report = _pdf(api.post(f"{BASE}/{calc_id}/export/report", json={'contents_list': False}))
+    assert _image_count(report) == 2
+
+    # A file gone from storage is left out, and the rest still come
+    (tmp_path / 'b.jpg').unlink()
+    report = _pdf(api.post(f"{BASE}/{calc_id}/export/report", json={'contents_list': False}))
+    assert _image_count(report) == 1
+
+
+def test_a_report_shows_saved_photos_on_no_claim_too(env):
+    api, database, tmp_path = env
+    _seed(database, tmp_path)
+    photo = _saved_photo(database, tmp_path, 'office.jpg')
+    calc_id = api.post(f"{BASE}/content-estimate", json={
+        'project_address': '5 Elm St',
+        'rooms': [{'room_name': 'Office', 'photo_ids': [photo], 'items': [_item('Desk')]}],
+    }).json()['id']
+
+    options = api.get(f"{BASE}/{calc_id}/report").json()
+    assert options['has_claim'] is False and options['photo_count'] == 1
+    report = _pdf(api.post(f"{BASE}/{calc_id}/export/report", json={'contents_list': False}))
+    assert _image_count(report) == 1
