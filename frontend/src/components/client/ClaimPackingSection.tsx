@@ -6,8 +6,8 @@
  * Pack-out/in estimate opens the packing estimate builder with the job filled
  * in; it loads that category's rooms and runs the AI item analysis on them.
  * A room's Move moves some of its photos to another room, of either
- * category, or to a new one (ClaimRoomPhotoMover); ⇄ moves the whole room to
- * the other category.
+ * category, or to a new one, or takes them out of packing
+ * (ClaimRoomPhotoMover); ⇄ moves the whole room to the other category.
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -107,7 +107,7 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
   });
 
   // A room left with no photos is gone, and so is its Move
-  const photosMoved = (fromKey: string, updated: ClaimPackingPhoto[]) => {
+  const photosChanged = (fromKey: string, updated: ClaimPackingPhoto[]) => {
     saved(updated);
     if (!updated.some(p => packingRoomKey(p) === fromKey)) setMoving(null);
   };
@@ -259,7 +259,7 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
                       claimId={claim.id}
                       room={room}
                       rooms={categories.flatMap(c => c.rooms)}
-                      onMoved={updated => photosMoved(key, updated)}
+                      onChanged={updated => photosChanged(key, updated)}
                       onDone={() => setMoving(null)}
                     />
                   ) : (

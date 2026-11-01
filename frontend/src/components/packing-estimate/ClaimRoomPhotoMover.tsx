@@ -3,12 +3,14 @@
  * another room: of its own category or the other one (a room's photos can
  * be of more than one stage), a room already there or a new one by typing
  * its name. Tap the photos, pick the category, then pick or type the room.
- * Moving all of a room's photos to a new name renames the room. Used on the
- * claim page's Packing estimate and in the builder's Load Photos from a Claim.
+ * Moving all of a room's photos to a new name renames the room. The chosen
+ * photos can instead be taken out of packing: they leave the packing set and
+ * stay in the claim's photos. Used on the claim page's Packing estimate and
+ * in the builder's Load Photos from a Claim.
  */
 import React, { useId, useState } from 'react';
-import { AutoComplete, Button, Segmented, message } from 'antd';
-import { CheckCircleFilled } from '@ant-design/icons';
+import { AutoComplete, Button, Popconfirm, Segmented, message } from 'antd';
+import { CheckCircleFilled, MinusCircleOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import * as packingService from '../../services/packingEstimateService';
 import type { ClaimPackingPhoto, PackingPhotoCategory } from '../../types/packing-estimate';
@@ -24,13 +26,13 @@ interface ClaimRoomPhotoMoverProps {
   room: PackingRoomGroup;
   /** The claim's rooms: those of the category moved to are offered first */
   rooms: { category: PackingPhotoCategory; room_name: string }[];
-  /** The claim's packing photos after the move, and the ones moved */
-  onMoved: (updated: ClaimPackingPhoto[], movedIds: string[]) => void;
+  /** The claim's packing photos after photos were moved or taken out, and which */
+  onChanged: (updated: ClaimPackingPhoto[], ids: string[]) => void;
   onDone: () => void;
 }
 
 const ClaimRoomPhotoMover: React.FC<ClaimRoomPhotoMoverProps> = ({
-  claimId, room, rooms, onMoved, onDone,
+  claimId, room, rooms, onChanged, onDone,
 }) => {
   const [chosen, setChosen] = useState<Set<string>>(() => new Set());
   const [category, setCategory] = useState<PackingPhotoCategory>(room.category);
@@ -64,20 +66,36 @@ const ClaimRoomPhotoMover: React.FC<ClaimRoomPhotoMoverProps> = ({
           ? dest.room_name : `${dest.room_name} · ${packingCategoryLabel(dest.category)}`;
         message.success(`${plural(ids.length, 'photo')} moved to ${where}`);
       }
-      onMoved(updated, ids);
+      onChanged(updated, ids);
     },
     onError: (err: any) => {
       message.error(err?.response?.data?.detail || 'Failed to move the photos');
     },
   });
 
+  // Out of the packing set only; the photos stay in the claim's photos
+  const takeOutMutation = useMutation({
+    mutationFn: (ids: string[]) => packingService.removeClaimPhotos(claimId, ids),
+    onSuccess: (updated, ids) => {
+      setChosen(new Set());
+      message.success(`${plural(ids.length, 'photo')} taken out of packing`);
+      onChanged(updated, ids);
+    },
+    onError: (err: any) => {
+      message.error(err?.response?.data?.detail || 'Failed to take the photos out');
+    },
+  });
+
   const canMove = chosenIds.length > 0 && !!name && !sameRoom;
+  const hint = sameRoom && name ? 'The photos are in this room already'
+    : isNew ? `${name} will be a new room${otherCategory ? ` in ${packingCategoryLabel(category)}` : ''}`
+      : '';
 
   return (
     <div className="pk-mover" role="group" aria-label={`Move photos of ${room.room_name}`}>
       <div className="pk-mover-head">
         <span className="pk-claim-meta">
-          {chosenIds.length > 0 ? `${plural(chosenIds.length, 'photo')} selected` : 'Tap the photos to move'}
+          {chosenIds.length > 0 ? `${plural(chosenIds.length, 'photo')} selected` : 'Tap photos to move or take out'}
         </span>
         <Button
           type="text"
@@ -137,12 +155,26 @@ const ClaimRoomPhotoMover: React.FC<ClaimRoomPhotoMoverProps> = ({
           {chosenIds.length > 0 ? `Move ${chosenIds.length}` : 'Move'}
         </Button>
       </div>
+      {hint && <div className="pk-claim-meta pk-mover-hint">{hint}</div>}
       <div className="pk-mover-foot">
-        <span className="pk-claim-meta">
-          {sameRoom && name ? 'The photos are in this room already'
-            : isNew ? `${name} will be a new room${otherCategory ? ` in ${packingCategoryLabel(category)}` : ''}`
-              : ''}
-        </span>
+        <Popconfirm
+          title={`Take ${plural(chosenIds.length, 'photo')} out of packing?`}
+          description="They stay in the claim's photos."
+          okText="Take out"
+          onConfirm={() => takeOutMutation.mutate(chosenIds)}
+          disabled={chosenIds.length === 0}
+        >
+          <Button
+            type="text"
+            size="small"
+            icon={<MinusCircleOutlined />}
+            className="pk-mover-takeout"
+            loading={takeOutMutation.isPending}
+            disabled={chosenIds.length === 0}
+          >
+            {chosenIds.length > 0 ? `Take ${chosenIds.length} out of packing` : 'Take out of packing'}
+          </Button>
+        </Popconfirm>
         <Button type="text" size="small" onClick={onDone}>Done</Button>
       </div>
     </div>

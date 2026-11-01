@@ -700,8 +700,16 @@
   display: flex;
   gap: 8px;
 }
-.pk-mover-foot .pk-claim-meta {
+.pk-mover-hint {
+  margin-top: 4px;
   white-space: normal;
+}
+.pk-mover-foot {
+  margin-top: 4px;
+}
+.pk-mover-foot .ant-btn.pk-mover-takeout {
+  margin-left: -7px;
+  color: var(--color-neutral-700);
 }
 .pk-mover-target {
   flex: 1;

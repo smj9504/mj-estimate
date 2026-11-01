@@ -8,7 +8,8 @@
  * one, else the first that has rooms to load.
  *
  * A room's Move sorts its photos before loading: tap the photos, then pick
- * the category and another room or type a new one (ClaimRoomPhotoMover). The
+ * the category and another room or type a new one, or take them out of
+ * packing (ClaimRoomPhotoMover). The
  * change is to the claim's packing photos, so the claim page shows it too.
  * Photos moved out of a ticked room keep being loaded, in their new room.
  */
@@ -133,18 +134,18 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
     setPicked(claim);
   };
 
-  // Photos moved out of a ticked room stay ticked in their new room; a room
-  // left empty is gone
-  const handleMoved = (fromKey: string, updated: ClaimPackingPhoto[], movedIds: string[]) => {
+  // Photos moved out of a ticked room stay ticked in their new room (taken
+  // out, they are gone); a room left empty is gone
+  const handleChanged = (fromKey: string, updated: ClaimPackingPhoto[], ids: string[]) => {
     if (!picked) return;
     queryClient.setQueryData(claimPackingPhotosKey(picked.claim_id), updated);
     queryClient.invalidateQueries({ queryKey: ['packing-photo-claims'] });
-    const dest = updated.find(p => p.id === movedIds[0]);
+    const dest = updated.find(p => p.id === ids[0]);
     const emptied = !updated.some(p => packingRoomKey(p) === fromKey);
     setSelected(prev => {
-      if (!prev.has(fromKey) || !dest) return prev;
+      if (!prev.has(fromKey)) return prev;
       const next = new Set(prev);
-      next.add(packingRoomKey(dest));
+      if (dest) next.add(packingRoomKey(dest));
       if (emptied) next.delete(fromKey);
       return next;
     });
@@ -290,7 +291,7 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
                   claimId={picked.claim_id}
                   room={room}
                   rooms={rooms}
-                  onMoved={(updated, ids) => handleMoved(key, updated, ids)}
+                  onChanged={(updated, ids) => handleChanged(key, updated, ids)}
                   onDone={() => setMoving(null)}
                 />
               )}
