@@ -341,6 +341,10 @@ class RoomContentInput(BaseModel):
     room_name: str
     preset_id: Optional[str] = None
     items: List[DetectedContentItem]
+    photo_ids: List[str] = Field(
+        default_factory=list,
+        description="The room's photos as files saved from the builder, kept with the estimate",
+    )
     density: str = "normal"
     floor: str = "1st"
     contamination: str = "clean"

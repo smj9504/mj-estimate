@@ -199,6 +199,39 @@ export async function getClaimPhotoImage(claimId: string, entryId: string): Prom
   return data.image;
 }
 
+// ── Photos Saved with an Estimate ─────────────
+
+/** Save a room's photo (bare base64) as a file for the estimate to keep; gives its id */
+export async function saveRoomPhoto(image: string, contextId: string): Promise<string> {
+  const bytes = Uint8Array.from(atob(image), c => c.charCodeAt(0));
+  const formData = new FormData();
+  formData.append('files', new File([bytes], 'room-photo.jpg', { type: 'image/jpeg' }));
+  formData.append('context', 'packing-estimate');
+  formData.append('context_id', contextId);
+  const { data } = await api.post('/api/files/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    // The builder says how many couldn't be saved
+    suppressErrorNotification: true,
+  });
+  return data.data[0].id;
+}
+
+/** One photo saved with an estimate as bare base64 JPEG */
+export async function getEstimatePhotoImage(estimateId: string, fileId: string): Promise<string> {
+  const { data } = await api.get(`${BASE}/${estimateId}/photos/${fileId}/image`, {
+    suppressErrorNotification: true,
+  });
+  return data.image;
+}
+
+/** An estimate that kept no photos: each room's packing photos on its claim, as ids */
+export async function getEstimateClaimRoomPhotos(estimateId: string): Promise<string[][]> {
+  const { data } = await api.get(`${BASE}/${estimateId}/claim-room-photos`, {
+    suppressErrorNotification: true,
+  });
+  return data.rooms;
+}
+
 // ── Presets ───────────────────────────────────
 
 export async function getPresets(): Promise<Record<string, (RoomPreset & { key: string })[]>> {

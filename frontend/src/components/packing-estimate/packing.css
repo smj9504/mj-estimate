@@ -894,6 +894,12 @@
   background: var(--color-neutral-50);
   color: var(--color-neutral-900);
 }
+.pk-photos-note {
+  flex: 1 1 200px;
+  align-self: center;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
 
 /* Room settings: three labelled selects in a row, wrapping when narrow */
 .pk-room-settings {

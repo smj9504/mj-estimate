@@ -43,7 +43,7 @@ const PARALLEL_ANALYSES = 3;
 interface PhotoAIRoomsProps {
   rooms: PhotoRoom[];
   setRooms: (rooms: PhotoRoom[]) => void;
-  /** A claim's packing photos still loading into rooms */
+  /** Photos still loading into rooms: a claim's packing photos or a saved estimate's */
   loading?: { done: number; total: number } | null;
   /** Runs Analyze All once each time it changes (rooms just loaded from a claim) */
   autoAnalyzeKey?: number;
@@ -386,9 +386,7 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
       {loading && (
         <p className="pk-empty-line pk-loading-line" role="status">
           <LoadingOutlined aria-hidden="true" />
-          {loading.total > 0
-            ? `Loading the claim's packing photos... ${loading.done} of ${loading.total}`
-            : "Loading the claim's packing photos..."}
+          {loading.total > 0 ? `Loading photos... ${loading.done} of ${loading.total}` : 'Loading photos...'}
         </p>
       )}
 
@@ -415,6 +413,7 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
             key={room.id}
             room={room}
             presets={allPresets}
+            photosLoading={!!loading}
             onAnalyze={() => handleAnalyzeRoom(room.id)}
             onRemove={() => removeRoom(room.id)}
             onUpdate={(patch) => updateRoom(room.id, patch)}
@@ -536,6 +535,7 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({
 interface RoomCardProps {
   room: PhotoRoom;
   presets: (RoomPreset & { key: string })[];
+  photosLoading: boolean;
   onAnalyze: () => void;
   onRemove: () => void;
   onUpdate: (patch: Partial<PhotoRoom>) => void;
@@ -554,7 +554,7 @@ const confidenceTone = (s: number): TagTone => {
 };
 
 const RoomCard: React.FC<RoomCardProps> = ({
-  room, presets, onAnalyze, onRemove, onUpdate, onAddPhotos,
+  room, presets, photosLoading, onAnalyze, onRemove, onUpdate, onAddPhotos,
   onUpdateItem, onConfirmItem, onRemoveItem, onAddItem,
 }) => {
   const [showItems, setShowItems] = useState(room.analyzed);
@@ -656,6 +656,10 @@ const RoomCard: React.FC<RoomCardProps> = ({
           ref={fileRef} type="file" accept={PHOTO_ACCEPT} multiple hidden
           onChange={e => { if (e.target.files) onAddPhotos(e.target.files); e.target.value = ''; }}
         />
+        {/* Analyzed with no photos: a saved estimate from before photos were kept */}
+        {room.analyzed && room.photos.length === 0 && !photosLoading && (
+          <span className="pk-photos-note">No photos were saved with this estimate. Add them to analyze this room again.</span>
+        )}
       </div>
 
       {/* Room settings */}

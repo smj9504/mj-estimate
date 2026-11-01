@@ -11,6 +11,10 @@ copied, and a photo trashed or unlinked there drops out here too.
 The packing estimate builder loads the rooms and fetches each photo as a
 JPEG sized for the AI item analysis. A saved estimate's report shows each
 of its rooms with the photos of the claim's room of that name.
+
+A Photo AI estimate also keeps its rooms' own photos: the builder saves each
+as a file (context ROOM_PHOTO_CONTEXT) when it calculates, the estimate's rooms
+hold the file ids, and recalculating fetches them back the same way.
 """
 
 import asyncio
@@ -25,7 +29,7 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .models import PackingPhoto
+from .models import PackingPhoto, PackRoom
 from .packing_schemas import PackingPhotoCategory
 
 logger = logging.getLogger(__name__)
@@ -33,6 +37,9 @@ logger = logging.getLogger(__name__)
 # Long side of the JPEG handed to the builder: sharp enough to zoom in the
 # photo preview, while the analysis shrinks it to 1024px anyway
 ANALYSIS_PHOTO_DIM = 1600
+
+# files.context of a room photo saved from the builder with its estimate
+ROOM_PHOTO_CONTEXT = "packing-estimate"
 
 
 def _not_found(label: str) -> HTTPException:
@@ -470,7 +477,7 @@ async def _wm_photo_bytes(photo) -> Optional[bytes]:
     })
 
 
-def _claim_file_bytes(record) -> Optional[bytes]:
+def _stored_file_bytes(record) -> Optional[bytes]:
     from app.domains.storage.factory import StorageFactory
 
     url = record.url or ""
@@ -483,7 +490,10 @@ def _claim_file_bytes(record) -> Optional[bytes]:
     if is_cloud:
         return StorageFactory.get_instance(provider).download(url)
     path = Path(url)
-    return path.read_bytes() if path.exists() else None
+    if path.exists():
+        return path.read_bytes()
+    # A local upload's url is relative to the storage folder
+    return StorageFactory.get_instance("local").download(url)
 
 
 async def _photo_bytes(entry: PackingPhoto, record) -> Optional[bytes]:
@@ -491,7 +501,7 @@ async def _photo_bytes(entry: PackingPhoto, record) -> Optional[bytes]:
     try:
         if entry.source == "wm":
             return await _wm_photo_bytes(record)
-        return await asyncio.to_thread(_claim_file_bytes, record)
+        return await asyncio.to_thread(_stored_file_bytes, record)
     except Exception as e:
         logger.warning(f"Packing photo {entry.id} could not be loaded: {e}")
         return None
@@ -628,3 +638,76 @@ async def report_images(db: Session, claim_id: str, entries: List[PackingPhoto])
             return await asyncio.to_thread(_report_jpeg, data)
 
     return await asyncio.gather(*(one(e) for e in entries))
+
+
+# ── Photos saved with an estimate ─────────────
+
+def saved_room_photos(db: Session, file_ids: List[str]) -> List[str]:
+    """Of the ids a calculation sent, the photos really saved from the builder:
+    an estimate's photos can be read by whoever can read the estimate, so it
+    can't be made to point at just any file"""
+    from app.domains.file.models import File
+
+    if not file_ids:
+        return []
+    known = {
+        str(file_id) for (file_id,) in db.query(File.id).filter(
+            File.id.in_(file_ids),
+            File.context == ROOM_PHOTO_CONTEXT,
+            File.is_active.isnot(False),
+        ).all()
+    }
+    return [file_id for file_id in file_ids if file_id in known]
+
+
+def estimate_photo_ids(db: Session, calc_id: str) -> List[str]:
+    rows = db.query(PackRoom.photos).filter(PackRoom.calculation_id == str(calc_id)).all()
+    return [file_id for (photos,) in rows for file_id in photos or []]
+
+
+async def load_room_photo(db: Session, calc_id: str, file_id: str) -> str:
+    """One photo saved with an estimate as base64 JPEG for the builder"""
+    from app.domains.file.models import File
+
+    from .vision import convert_photo_to_jpeg
+
+    if file_id not in estimate_photo_ids(db, calc_id):
+        raise _not_found("Photo")
+    record = db.query(File).filter(
+        File.id == file_id,
+        File.context == ROOM_PHOTO_CONTEXT,
+        File.is_active.isnot(False),
+    ).first()
+    if record is None:
+        raise _not_found("Photo")
+
+    try:
+        data = await asyncio.to_thread(_stored_file_bytes, record)
+    except Exception as e:
+        logger.warning(f"Estimate photo {file_id} could not be loaded: {e}")
+        data = None
+    if not data:
+        raise HTTPException(status_code=404, detail="Photo file is not available")
+    return await asyncio.to_thread(convert_photo_to_jpeg, data, ANALYSIS_PHOTO_DIM)
+
+
+def delete_unused_room_photos(db: Session, file_ids: List[str]) -> None:
+    """After an estimate is deleted, remove its photos that no other estimate
+    uses: recalculating saves a new estimate on the same photos."""
+    from app.domains.client.client_delete import StoredFile, _not_used_elsewhere, delete_stored_files
+    from app.domains.file.models import File
+
+    if not file_ids:
+        return
+    in_use = set()
+    for (photos,) in db.query(PackRoom.photos).filter(PackRoom.photos.isnot(None)).all():
+        in_use.update(photos or [])
+    records = db.query(File).filter(
+        File.id.in_([file_id for file_id in set(file_ids) if file_id not in in_use]),
+        File.context == ROOM_PHOTO_CONTEXT,
+    ).all()
+    stored = [StoredFile(r.storage_provider, r.url) for r in records if r.storage_provider and r.url]
+    for record in records:
+        db.delete(record)
+    db.commit()
+    delete_stored_files(_not_used_elsewhere(db, stored))

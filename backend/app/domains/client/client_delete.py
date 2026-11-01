@@ -34,7 +34,7 @@ from app.domains.file.models import File
 from app.domains.integrations.models import CompanyCamPhoto
 from app.domains.invoice.models import Invoice
 from app.domains.material_order.models import MaterialOrder
-from app.domains.pack_calculation.models import PackCalculation, PackingPhoto
+from app.domains.pack_calculation.models import PackCalculation, PackingPhoto, PackRoom
 from app.domains.payment.models import BillingSchedule, Payment, PaymentRefund
 from app.domains.plumber_report.models import PlumberReport
 from app.domains.plumber_report.templates.models import PlumberReportTemplateUsage
@@ -182,6 +182,10 @@ def _file_row_condition(db: Any, client_id: str, linked: _Linked) -> Any:
         SupplementFollowUp.supplement_id.in_(linked.supplements)
     ).all():
         file_ids.update(strs(attachment_ids or []))
+    for (photo_ids,) in db.query(PackRoom.photos).filter(
+        PackRoom.calculation_id.in_(linked.pack_calculations)
+    ).all():
+        file_ids.update(strs(photo_ids or []))
 
     return or_(
         File.id.in_(list(file_ids)),
@@ -426,4 +430,4 @@ def delete_stored_files(files: List[StoredFile]) -> None:
         except Exception as e:
             failed += 1
             logger.warning(f"Could not delete stored file {stored.provider}:{stored.key}: {e}")
-    logger.info(f"Client delete removed {len(files) - failed} stored files, {failed} not removed")
+    logger.info(f"Removed {len(files) - failed} stored files, {failed} not removed")

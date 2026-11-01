@@ -125,7 +125,7 @@ function roomFloor(photos: ClaimPackingPhoto[]): Floor {
 }
 
 /** Run fn over items, a few at a time */
-async function mapLimited<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+export async function mapLimited<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let next = 0;
   const worker = async () => {

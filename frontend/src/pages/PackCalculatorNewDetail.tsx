@@ -52,6 +52,8 @@ interface RoomDetail {
   density: string | null;
   contamination: string | null;
   preset_key?: string | null;
+  /** The file ids of the photos saved with the room */
+  photos?: string[];
   items: DetectedItem[];
 }
 

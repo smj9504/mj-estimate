@@ -262,7 +262,9 @@ def seed_client(session, label, shared_report_id=None):
     add(SidingEstimate, claim_id=claim.id)
     add(MaterialOrderItem, order_id=add(MaterialOrder, claim_id=claim.id).id)
     pack = add(PackCalculation, claim_id=claim.id, client_id=client.id)
-    add(PackItem, room_id=add(PackRoom, calculation_id=pack.id).id)
+    pack_photo, pack_photo_key = stored_file('packing-estimate', 'unassigned')
+    keys.append(pack_photo_key)
+    add(PackItem, room_id=add(PackRoom, calculation_id=pack.id, photos=[str(pack_photo.id)]).id)
 
     add(ReceivedEmail, matched_client_id=client.id, message_id=f'{label}-m1')
     add(ReceivedEmail, matched_wm_job_id=job.id, message_id=f'{label}-m2')

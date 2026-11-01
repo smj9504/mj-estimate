@@ -225,6 +225,8 @@ export interface ContentRoomInput {
   room_name: string;
   preset_id?: string;
   items: DetectedContentItem[];
+  /** The room's photos as saved files, kept with the estimate */
+  photo_ids?: string[];
   density: Density;
   floor: Floor;
   contamination: ContaminationLevel;

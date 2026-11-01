@@ -8,7 +8,7 @@
  * water mitigation or work completion) as Photo AI rooms and analyzes them,
  * the estimate named for the category; From Claim in Photo AI Rooms loads
  * them from here, a claim and rooms picked
- * Recalculating a saved Photo AI estimate brings back its rooms and item decisions
+ * Recalculating a saved Photo AI estimate brings back its rooms, item decisions and photos
  */
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -24,6 +24,7 @@ import { DEFAULT_SETTINGS } from '../components/packing-estimate/constants';
 import {
   PACKING_CATEGORIES, type PackingRoomGroup, loadClaimPhotoRooms, packingCategoryLabel, packingRoomKey,
 } from '../components/packing-estimate/claimPhotos';
+import { loadSavedPhotos, saveRoomPhotos, type SavedPhotos } from '../components/packing-estimate/savedPhotos';
 import { isUnconfirmed, needsReview, withUids } from '../components/packing-estimate/itemEdits';
 import { supplementSignals } from '../components/packing-estimate/supplements';
 import {
@@ -113,6 +114,13 @@ const PackCalculatorNew: React.FC = () => {
   const claimPhotosStarted = useRef(false);
   const [claimImportOpen, setClaimImportOpen] = useState(false);
 
+  // The photos the estimate being recalculated kept, loading back into its rooms
+  const [savedPhotoLoad, setSavedPhotoLoad] = useState<{ done: number; total: number } | null>(
+    () => (recalcState?.rooms?.length ? { done: 0, total: 0 } : null)
+  );
+  const savedPhotosStarted = useRef(false);
+  const savedPhotos = useRef<SavedPhotos>(new Map());
+
   // Show recalculation notice
   useEffect(() => {
     if (recalcState?.recalculateFrom) {
@@ -120,6 +128,30 @@ const PackCalculatorNew: React.FC = () => {
         ? 'Rooms and items loaded from the previous estimate. Change what you need and recalculate.'
         : 'Settings loaded from previous estimate. Add rooms and recalculate.');
     }
+  }, []);
+
+  // Recalculating: the rooms come back with the photos they were analyzed from
+  useEffect(() => {
+    const savedRooms = recalcState?.rooms;
+    if (!savedRooms?.length || savedPhotosStarted.current) return;
+    savedPhotosStarted.current = true;
+    loadSavedPhotos(
+      recalcState.recalculateFrom,
+      savedRooms,
+      recalcState.claimId,
+      savedPhotos.current,
+      (done, total) => setSavedPhotoLoad({ done, total }),
+    ).then(({ photos, failed }) => {
+      if (failed > 0) {
+        message.warning(`${failed} saved photo${failed === 1 ? '' : 's'} couldn't be loaded and ${failed === 1 ? 'was' : 'were'} left out`);
+      }
+      // By id, and ahead of anything added while they loaded
+      const byRoom = new Map(photos.map((list, i) => [`saved_room_${i}`, list]));
+      setPhotoRooms(prev => prev.map(room => ({
+        ...room,
+        photos: [...(byRoom.get(room.id) ?? []), ...room.photos],
+      })));
+    }).finally(() => setSavedPhotoLoad(null));
   }, []);
 
   // A claim's packing photos (all its rooms, a category's or roomKeys) become Photo AI rooms
@@ -220,12 +252,14 @@ const PackCalculatorNew: React.FC = () => {
   const inputsKey = useMemo(() => JSON.stringify({
     mode,
     rooms: mode === 'quick' ? roomInputs : contentRooms,
+    // The estimate keeps the photos; their sizes are enough to tell they changed
+    photos: mode === 'quick' ? [] : photoRooms.map(r => r.photos.map(p => p.length)),
     settings,
     selectedCompanyId,
     selectedClientId,
     selectedClaimId,
     projectAddress,
-  }), [mode, roomInputs, contentRooms, settings, selectedCompanyId, selectedClientId, selectedClaimId, projectAddress]);
+  }), [mode, roomInputs, contentRooms, photoRooms, settings, selectedCompanyId, selectedClientId, selectedClaimId, projectAddress]);
 
   const isStale = !!result && calculatedInputs !== null && calculatedInputs !== inputsKey;
 
@@ -258,13 +292,26 @@ const PackCalculatorNew: React.FC = () => {
           supplement_choices: settings.supplement_choices,
         });
       } else {
+        // The estimate keeps its rooms' photos; the ones not saved yet go up first
+        const { photoIds, failed } = await saveRoomPhotos(
+          photoRooms,
+          savedPhotos.current,
+          selectedClaimId || selectedClientId || 'unassigned',
+          (done, total) => message.loading({
+            content: `Saving photos... ${done} of ${total}`, key: 'pk-save-photos', duration: 0,
+          }),
+        );
+        message.destroy('pk-save-photos');
+        if (failed > 0) {
+          message.warning(`${failed} photo${failed === 1 ? '' : 's'} couldn't be saved with this estimate`);
+        }
         response = await packingService.contentEstimate({
           client_id: selectedClientId || undefined,
           company_id: selectedCompanyId || undefined,
           claim_id: selectedClaimId || undefined,
           calculation_name: calculationName || undefined,
           project_address: projectAddress || undefined,
-          rooms: contentRooms,
+          rooms: contentRooms.map((room, i) => ({ ...room, photo_ids: photoIds[i] })),
           crew_size: settings.crew_size,
           storage_months: settings.storage_months,
           staging_type: settings.staging_type,
@@ -297,10 +344,11 @@ const PackCalculatorNew: React.FC = () => {
     } finally {
       setCalculating(false);
     }
-  }, [mode, roomInputs, contentRooms, settings, selectedClientId, selectedCompanyId, selectedClaimId, calculationName, projectAddress, inputsKey]);
+  }, [mode, roomInputs, contentRooms, photoRooms, settings, selectedClientId, selectedCompanyId, selectedClaimId, calculationName, projectAddress, inputsKey]);
 
   const roomCount = mode === 'quick' ? rooms.length : photoRooms.length;
-  const canCalculate = roomCount > 0;
+  // A calculation now would save the new estimate without the photos still on their way
+  const canCalculate = roomCount > 0 && !(mode === 'photo_ai' && savedPhotoLoad);
   const analyzingCount = mode === 'photo_ai' ? photoRooms.filter(r => r.analyzing).length : 0;
 
   const calculateButton = (props: { block?: boolean } = {}) => (
@@ -414,7 +462,7 @@ const PackCalculatorNew: React.FC = () => {
               <PhotoAIRooms
                 rooms={photoRooms}
                 setRooms={setPhotoRooms}
-                loading={claimPhotoLoad}
+                loading={claimPhotoLoad ?? savedPhotoLoad}
                 autoAnalyzeKey={autoAnalyzeKey}
                 onLoadFromClaim={() => setClaimImportOpen(true)}
               />

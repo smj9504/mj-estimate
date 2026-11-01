@@ -662,10 +662,29 @@ def delete_estimate(
     if not calc:
         raise HTTPException(404, "Estimate not found")
 
+    photo_ids = packing_photos.estimate_photo_ids(db, calc_id)
     db.delete(calc)
     db.commit()
+    try:
+        packing_photos.delete_unused_room_photos(db, photo_ids)
+    except Exception as e:
+        # The estimate is gone; a photo left behind isn't worth failing over
+        logger.warning(f"Failed to remove the photos of estimate {calc_id}: {e}")
+        db.rollback()
     return {"deleted": True}
 
+
+@router.get("/{calc_id}/photos/{file_id}/image")
+async def get_estimate_photo_image(
+    calc_id: str,
+    file_id: str,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """One photo saved with the estimate as base64 JPEG, sized for the AI analysis."""
+    _require_estimate(db, current_user, calc_id)
+    image = await packing_photos.load_room_photo(db, calc_id, file_id)
+    return {"image": image}
 
 # ── Export ────────────────────────────────────
 
@@ -738,6 +757,21 @@ def _report_rooms(db: Session, calc: PackCalculation) -> list:
 def _room_item_count(room: dict) -> int:
     items = room["items"]
     return sum(int(i.get("quantity") or 1) for i in items) if items else int(room.get("item_count") or 0)
+
+
+@router.get("/{calc_id}/claim-room-photos")
+def get_estimate_claim_room_photos(
+    calc_id: str,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """For an estimate from before rooms kept their photos: each room's packing
+    photos on its claim, the same ones its report shows, as lists of their ids."""
+    calc = _load_estimate(db, current_user, calc_id)
+    return {"rooms": [
+        [str(entry.id) for entry in room["photo_entries"]]
+        for room in _report_rooms(db, calc)
+    ]}
 
 
 @router.get("/{calc_id}/report")
@@ -948,6 +982,7 @@ def _save_calculation(
                     density=_DENSITY_DB.get(density_str, 'normal'),
                     contamination=_CONTAMINATION_DB.get(contam_str, 'clean'),
                     input_method='IMAGE',
+                    photos=packing_photos.saved_room_photos(db, room_input.photo_ids),
                 )
                 db.add(pack_room)
                 db.flush()
@@ -1073,7 +1108,7 @@ def _calc_to_detail(calc: PackCalculation, db=None) -> dict:
             calc_id_str = str(calc.id)
             room_rows = db.execute(text(
                 "SELECT id, room_name, floor_level, density, "
-                "contamination, preset_key "
+                "contamination, preset_key, photos "
                 "FROM pack_rooms WHERE calculation_id = :cid "
                 "ORDER BY created_at"
             ), {"cid": calc_id_str}).fetchall()
@@ -1138,6 +1173,7 @@ def _calc_to_detail(calc: PackCalculation, db=None) -> dict:
                         "density": rr[3],
                         "contamination": rr[4],
                         "preset_key": rr[5],
+                        "photos": _json_list(rr[6]) or [],
                         "items": items_data,
                     })
                 base["rooms"] = rooms_data

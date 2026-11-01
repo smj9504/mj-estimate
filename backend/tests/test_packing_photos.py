@@ -472,3 +472,170 @@ def test_staff_see_only_their_companies_claims_with_packing_photos(env):
     s.commit()
     s.close()
     assert [c['claim_id'] for c in api.get(url).json()['claims']] == [ids.claim]
+
+
+# ── Photos saved with an estimate ─────────────
+
+def _room_photo(database, tmp_path, name, context='packing-estimate'):
+    s = database.get_session()
+    record = File(filename=name, original_name=name, content_type='image/jpeg', size=1,
+                  url=_jpeg(tmp_path / name, (800, 600)), storage_provider='local',
+                  context=context, context_id='unassigned', category='general')
+    s.add(record)
+    s.commit()
+    file_id = str(record.id)
+    s.close()
+    return file_id
+
+
+def _photo_estimate(api, rooms, **job):
+    resp = api.post('/api/packing-estimate/content-estimate', json={**job, 'rooms': [
+        {
+            'room_name': name,
+            'photo_ids': photo_ids,
+            'items': [{'name': 'Dresser', 'category': 'Furniture', 'size': 'large', 'weight': 'heavy'}],
+        }
+        for name, photo_ids in rooms.items()
+    ]})
+    assert resp.status_code == 200
+    return resp.json()['id']
+
+
+def _file_exists(database, file_id):
+    s = database.get_session()
+    found = s.query(File).filter(File.id == file_id).count() == 1
+    s.close()
+    return found
+
+
+def test_an_estimate_keeps_its_rooms_photos_and_gives_them_back(env):
+    api, database, tmp_path, _ = env
+    first = _room_photo(database, tmp_path, 'first.jpg')
+    second = _room_photo(database, tmp_path, 'second.jpg')
+    third = _room_photo(database, tmp_path, 'third.jpg')
+
+    calc_id = _photo_estimate(api, {'Kitchen': [first, second], 'Den': [third], 'Attic': []})
+
+    rooms = api.get(f'/api/packing-estimate/{calc_id}').json()['rooms']
+    assert [(r['room_name'], r['photos']) for r in rooms] == [
+        ('Kitchen', [first, second]), ('Den', [third]), ('Attic', []),
+    ]
+    resp = api.get(f'/api/packing-estimate/{calc_id}/photos/{second}/image')
+    assert resp.status_code == 200
+    img = Image.open(io.BytesIO(base64.b64decode(resp.json()['image'])))
+    assert img.format == 'JPEG' and img.size == (800, 600)
+
+
+def test_an_estimate_can_only_hand_out_photos_saved_with_it(env):
+    api, database, tmp_path, staff = env
+    ids = _seed(database, tmp_path)
+    mine = _room_photo(database, tmp_path, 'mine.jpg')
+    other = _room_photo(database, tmp_path, 'other.jpg')
+
+    # A claim's file isn't a room photo, whatever a calculation says
+    calc_id = _photo_estimate(api, {'Kitchen': [mine, ids.claim_photo, 'not-a-file']})
+    other_id = _photo_estimate(api, {'Den': [other]})
+    assert api.get(f'/api/packing-estimate/{calc_id}').json()['rooms'][0]['photos'] == [mine]
+
+    for file_id in (ids.claim_photo, other):
+        assert api.get(f'/api/packing-estimate/{calc_id}/photos/{file_id}/image').status_code == 404
+    assert api.get(f'/api/packing-estimate/{other_id}/photos/{other}/image').status_code == 200
+
+    # Staff outside its companies don't get them either
+    staff['role'] = StaffRole.staff
+    assert api.get(f'/api/packing-estimate/{calc_id}/photos/{mine}/image').status_code == 404
+
+
+def test_deleting_an_estimate_removes_only_the_photos_no_other_estimate_uses(env, monkeypatch):
+    from app.domains.client import client_delete
+
+    api, database, tmp_path, _ = env
+    removed = []
+    monkeypatch.setattr(
+        client_delete, 'delete_stored_files', lambda files: removed.extend(Path(f.key).name for f in files),
+    )
+    shared = _room_photo(database, tmp_path, 'shared.jpg')
+    own = _room_photo(database, tmp_path, 'own.jpg')
+
+    # Recalculating saves a new estimate on the same photos
+    original = _photo_estimate(api, {'Kitchen': [shared, own]})
+    recalculated = _photo_estimate(api, {'Kitchen': [shared]})
+
+    assert api.delete(f'/api/packing-estimate/{original}').status_code == 200
+    assert not _file_exists(database, own)
+    assert removed == ['own.jpg']
+    assert _file_exists(database, shared)
+    assert api.get(f'/api/packing-estimate/{recalculated}/photos/{shared}/image').status_code == 200
+
+    assert api.delete(f'/api/packing-estimate/{recalculated}').status_code == 200
+    assert not _file_exists(database, shared)
+    assert removed == ['own.jpg', 'shared.jpg']
+
+
+
+def test_room_photos_go_through_cloud_storage_and_come_back(env, monkeypatch):
+    """The real upload endpoint on the B2 provider as deployed, images to WebP and
+    identical files shared, with only the bucket faked"""
+    from test_storage_same_name_uploads import b2_provider, jpeg, optimizing, png
+
+    from app.domains.client import client_delete
+    from app.domains.file import api as file_api, service as file_service
+    from app.domains.storage.factory import StorageFactory
+
+    api, database, _, _ = env
+    objects = {}
+    provider = optimizing(b2_provider(objects))
+    monkeypatch.setattr(file_service, '_storage_provider', provider)
+    monkeypatch.setattr(file_api, 'get_database', lambda: database)
+    monkeypatch.setattr(StorageFactory, 'get_instance', lambda *a: provider)
+    monkeypatch.setattr(StorageFactory, 'create', lambda *a: provider)
+    monkeypatch.setattr(client_delete.StorageFactory, 'create', lambda *a: provider)
+
+    def save(content):
+        resp = api.post('/api/files/upload', data={
+            'context': 'packing-estimate', 'context_id': 'unassigned',
+        }, files={'files': ('room-photo.jpg', content, 'image/jpeg')})
+        assert resp.status_code == 200, resp.text
+        return resp.json()['data'][0]['id']
+
+    # Every photo the builder saves has the same name and says it's a JPEG. A small
+    # PNG really is one and gets stored as WebP; it comes back as a JPEG all the same
+    red, blue = save(jpeg((200, 30, 30))), save(png((30, 30, 200)))
+    stored = sorted(k for k in objects if k.startswith('packing-estimate/'))
+    assert len(stored) == 2
+    assert {Path(k).suffix for k in stored} == {'.jpg', '.webp'}
+
+    calc_id = _photo_estimate(api, {'Kitchen': [red, blue]})
+
+    def shown(file_id):
+        resp = api.get(f'/api/packing-estimate/{calc_id}/photos/{file_id}/image')
+        assert resp.status_code == 200, resp.text
+        img = Image.open(io.BytesIO(base64.b64decode(resp.json()['image'])))
+        assert img.format == 'JPEG' and img.size == (400, 300)
+        return img.convert('RGB').getpixel((10, 10))
+
+    assert shown(red)[0] > 150 and shown(red)[2] < 100
+    assert shown(blue)[2] > 150 and shown(blue)[0] < 100
+
+    assert api.delete(f'/api/packing-estimate/{calc_id}').status_code == 200
+    assert not [k for k in objects if k.startswith('packing-estimate/')]
+    assert not _file_exists(database, red) and not _file_exists(database, blue)
+
+
+def test_an_older_estimate_finds_its_rooms_photos_on_its_claim(env):
+    api, database, tmp_path, _ = env
+    ids = _seed(database, tmp_path)
+    filed = api.post(f"/api/packing-estimate/claims/{ids.claim}/photos", json={'category': WM, 'photos': [
+        {'source': 'wm', 'photo_id': ids.kitchen, 'room_name': 'Kitchen'},
+        {'source': 'wm', 'photo_id': ids.living, 'room_name': 'Kitchen'},
+    ]}).json()['photos']
+
+    # Saved with no photos of its own, in the rooms' order
+    calc_id = _photo_estimate(api, {'Attic': [], 'kitchen': []}, claim_id=ids.claim)
+    assert api.get(f'/api/packing-estimate/{calc_id}/claim-room-photos').json() == {
+        'rooms': [[], [filed[0]['id'], filed[1]['id']]],
+    }
+
+    # One on no claim has nowhere to look
+    alone = _photo_estimate(api, {'Kitchen': []})
+    assert api.get(f'/api/packing-estimate/{alone}/claim-room-photos').json() == {'rooms': [[]]}
