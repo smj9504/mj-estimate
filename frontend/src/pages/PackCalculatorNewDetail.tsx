@@ -15,6 +15,8 @@ import {
 } from '@ant-design/icons';
 import * as packingService from '../services/packingEstimateService';
 import PackingReportModal from '../components/packing-estimate/PackingReportModal';
+import { companyService } from '../services/companyService';
+import type { Company } from '../types';
 import type {
   EstimateResponse, MaterialDisplay, MaterialItem, SupplementItem,
 } from '../types/packing-estimate';
@@ -103,6 +105,8 @@ const PackCalculatorNewDetail: React.FC = () => {
   const [editMaterialDisplay, setEditMaterialDisplay] = useState<MaterialDisplay>('itemized');
   // Each saved supplement on or off, at its amount
   const [editSupplements, setEditSupplements] = useState<Record<string, { enabled: boolean; amount: number }>>({});
+  const [editCompanyId, setEditCompanyId] = useState<string | null>(null);
+  const [companies, setCompanies] = useState<Company[]>([]);
 
   // PDF export state
   const [exporting, setExporting] = useState(false);
@@ -138,7 +142,9 @@ const PackCalculatorNewDetail: React.FC = () => {
     setEditSupplements(Object.fromEntries((estimate.supplements || []).map(sup => [
       sup.key, { enabled: sup.enabled, amount: sup.amount },
     ])));
+    setEditCompanyId(estimate.company_id);
     setEditing(true);
+    companyService.getCompanies().then(setCompanies).catch(() => {});
   }, [estimate]);
 
   const cancelEdit = useCallback(() => {
@@ -157,6 +163,7 @@ const PackCalculatorNewDetail: React.FC = () => {
       await packingService.updateEstimate(id, {
         status: editStatus,
         notes: editNotes,
+        company_id: editCompanyId,
         // Its Materials lines are made again on the server; the total stays
         ...(editMaterialDisplay !== (estimate?.material_display || 'itemized')
           ? { material_display: editMaterialDisplay }
@@ -174,7 +181,7 @@ const PackCalculatorNewDetail: React.FC = () => {
     } finally {
       setSaving(false);
     }
-  }, [id, editStatus, editNotes, editMaterialDisplay, estimate?.material_display, editSupplements, supplementsChanged]);
+  }, [id, editStatus, editNotes, editCompanyId, editMaterialDisplay, estimate?.material_display, editSupplements, supplementsChanged]);
 
   // ── PDF Export ──────────────────────────────
 
@@ -252,6 +259,12 @@ const PackCalculatorNewDetail: React.FC = () => {
 
   // ── Sections ────────────────────────────────
 
+  // Its current company has a name to show before the list arrives
+  const companyOptions = companies.map(c => ({ value: c.id, label: c.name }));
+  if (estimate.company_id && !companies.some(c => c.id === estimate.company_id)) {
+    companyOptions.unshift({ value: estimate.company_id, label: estimate.company_name || '' });
+  }
+
   const detailItems: PropertyItem[] = [
     ...(editing ? [{
       key: 'status',
@@ -266,7 +279,27 @@ const PackCalculatorNewDetail: React.FC = () => {
       ),
     }] : []),
     { key: 'client', label: 'Client', value: estimate.client_name },
-    { key: 'company', label: 'Company', value: estimate.company_name && <CompanyName id={estimate.company_id} name={estimate.company_name} /> },
+    {
+      key: 'company',
+      label: 'Company',
+      value: editing ? (
+        <>
+          <Select
+            value={editCompanyId || undefined}
+            onChange={setEditCompanyId}
+            placeholder="Select company"
+            showSearch
+            optionFilterProp="label"
+            options={companyOptions}
+            style={{ width: '100%', maxWidth: 220 }}
+            aria-label="Company"
+          />
+          {editCompanyId !== estimate.company_id && (
+            <span className="ui-cell-meta">The amounts stay as they are. Recalculate to use this company&apos;s prices.</span>
+          )}
+        </>
+      ) : estimate.company_name && <CompanyName id={estimate.company_id} name={estimate.company_name} />,
+    },
     { key: 'address', label: 'Project Address', value: estimate.project_address },
     { key: 'created', label: 'Created', value: estimate.created_at && formatDate(estimate.created_at) },
     { key: 'crew', label: 'Crew Size', value: estimate.crew_size },

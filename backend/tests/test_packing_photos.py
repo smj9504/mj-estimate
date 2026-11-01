@@ -572,6 +572,41 @@ def test_deleting_an_estimate_removes_only_the_photos_no_other_estimate_uses(env
     assert removed == ['own.jpg', 'shared.jpg']
 
 
+def test_an_estimates_company_can_be_changed_without_losing_sight_of_it(env):
+    from app.domains.company.models import Company
+    from app.domains.staff.models import StaffCompany
+
+    api, database, tmp_path, staff = env
+    s = database.get_session()
+    ours, theirs = Company(name='Our Co'), Company(name='Their Co')
+    s.add(ours)
+    s.add(theirs)
+    s.flush()
+    ours_id, theirs_id = str(ours.id), str(theirs.id)
+    s.add(StaffCompany(staff_id=ADMIN_ID, company_id=ours.id))
+    s.commit()
+    s.close()
+
+    calc_id = _photo_estimate(api, {'Kitchen': []})
+    url = f'/api/packing-estimate/{calc_id}'
+    before = api.get(url).json()['grand_total']
+
+    # An admin can move it anywhere; the amounts stay as calculated
+    assert api.put(url, json={'company_id': theirs_id}).status_code == 200
+    moved = api.get(url).json()
+    assert (moved['company_id'], moved['company_name']) == (theirs_id, 'Their Co')
+    assert moved['grand_total'] == before
+    assert api.put(url, json={'company_id': ours_id}).status_code == 200
+
+    # Staff can't move it out of their own sight, and nothing changes
+    staff['role'] = StaffRole.staff
+    resp = api.put(url, json={'company_id': theirs_id})
+    assert resp.status_code == 400
+    assert api.get(url).json()['company_id'] == ours_id
+    # Sending the company it already has is fine
+    assert api.put(url, json={'company_id': ours_id, 'notes': 'kept'}).status_code == 200
+
+
 
 def test_room_photos_go_through_cloud_storage_and_come_back(env, monkeypatch):
     """The real upload endpoint on the B2 provider as deployed, images to WebP and

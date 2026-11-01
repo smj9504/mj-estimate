@@ -17,6 +17,7 @@ from typing import Optional
 
 from app.core.database_factory import get_db
 from app.domains.auth.company_scope import (
+    can_see_document,
     claim_condition,
     document_condition,
     require_claim,
@@ -561,6 +562,10 @@ def update_estimate(
     # Moving it onto another claim needs that claim to be visible
     if update.get("claim_id") and str(update["claim_id"]) != str(calc.claim_id or ""):
         require_claim(db, current_user, update["claim_id"])
+    # Moving it under another company mustn't take it out of their own sight
+    if update.get("company_id") and str(update["company_id"]) != str(calc.company_id or ""):
+        if not can_see_document(db, current_user, update.get("claim_id", calc.claim_id), update["company_id"]):
+            raise HTTPException(400, "You can only move this estimate to a company you belong to")
 
     # The page sends a status's value ('completed'); the column stores the member
     if isinstance(update.get("status"), str):
