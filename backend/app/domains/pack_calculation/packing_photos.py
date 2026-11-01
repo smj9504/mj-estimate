@@ -9,11 +9,14 @@ water mitigation jobs ('wm') or a claim photo ('claim') - so nothing is
 copied, and a photo trashed or unlinked there drops out here too.
 
 The packing estimate builder loads the rooms and fetches each photo as a
-JPEG sized for the AI item analysis.
+JPEG sized for the AI item analysis. A saved estimate's report shows each
+of its rooms with the photos of the claim's room of that name.
 """
 
 import asyncio
+import io
 import logging
+import re
 import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -483,6 +486,17 @@ def _claim_file_bytes(record) -> Optional[bytes]:
     return path.read_bytes() if path.exists() else None
 
 
+async def _photo_bytes(entry: PackingPhoto, record) -> Optional[bytes]:
+    """The photo file an entry points at, as stored; None when it can't be had"""
+    try:
+        if entry.source == "wm":
+            return await _wm_photo_bytes(record)
+        return await asyncio.to_thread(_claim_file_bytes, record)
+    except Exception as e:
+        logger.warning(f"Packing photo {entry.id} could not be loaded: {e}")
+        return None
+
+
 async def load_image(db: Session, claim_id: str, entry_id: str) -> str:
     """One packing photo as base64 JPEG for the builder"""
     from .vision import convert_photo_to_jpeg
@@ -499,16 +513,118 @@ async def load_image(db: Session, claim_id: str, entry_id: str) -> str:
     if record is None:
         raise _not_found("Photo")
 
-    try:
-        if entry.source == "wm":
-            data = await _wm_photo_bytes(record)
-        else:
-            data = await asyncio.to_thread(_claim_file_bytes, record)
-    except Exception as e:
-        logger.warning(f"Packing photo {entry_id} could not be loaded: {e}")
-        data = None
+    data = await _photo_bytes(entry, record)
     if not data:
         raise HTTPException(status_code=404, detail="Photo file is not available")
 
     # Pillow decode/re-encode is CPU-bound; keep it off the event loop
     return await asyncio.to_thread(convert_photo_to_jpeg, data, ANALYSIS_PHOTO_DIM)
+
+
+# ── An estimate's room photos ─────────────────
+
+# The name the estimate builder gives an estimate made from one category's rooms
+CATEGORY_LABELS = {
+    PackingPhotoCategory.WATER_MITIGATION.value: "Water mitigation",
+    PackingPhotoCategory.WORK_COMPLETION.value: "Work completion",
+}
+
+# "Kitchen (2)": the builder's name for a second room loaded as "Kitchen"
+_REPEAT_SUFFIX = re.compile(r"^(.*\S)\s+\((\d+)\)$")
+
+# Long side of a photo in the report: sharp when zoomed in, small in the PDF
+REPORT_PHOTO_DIM = 1200
+REPORT_PHOTO_QUALITY = 72
+REPORT_PARALLEL_FETCHES = 4
+
+
+def category_named(name: Optional[str]) -> Optional[str]:
+    """The category an estimate is for when it is named for one (as the
+    builder names an estimate made from one category's rooms)"""
+    text = (name or "").strip().lower()
+    return next((c for c, label in CATEGORY_LABELS.items() if label.lower() == text), None)
+
+
+def estimate_room_photos(
+    db: Session, claim_id: str, room_names: List[str], category: Optional[str] = None,
+) -> List[List[PackingPhoto]]:
+    """The claim's packing photos of each of an estimate's rooms, in the
+    order they are on the claim: the room of the same name (any case), in
+    `category` when the estimate is for one. The builder loads a second
+    "Kitchen" as "Kitchen (2)", so that one gets the next Kitchen, in the
+    category after. A room the claim has no photos of gets none."""
+    entries = db.query(PackingPhoto).filter(
+        PackingPhoto.claim_id == str(claim_id)
+    ).order_by(PackingPhoto.sort_order, PackingPhoto.created_at).all()
+    live = _sources(db, claim_id, [(e.source, e.photo_id) for e in entries])
+
+    rooms: Dict[Tuple[str, str], List[PackingPhoto]] = {}
+    for entry in entries:
+        if (entry.source, entry.photo_id) not in live:
+            continue  # trashed, deleted or no longer on this claim
+        rooms.setdefault((_category(entry), entry.room_name), []).append(entry)
+    claim_rooms = [
+        key for key, _ in _by_category(rooms) if category is None or key[0] == category
+    ]
+
+    taken = set()
+
+    def match(name: str) -> Optional[Tuple[str, str]]:
+        return next(
+            (key for key in claim_rooms if key not in taken and key[1].lower() == name.lower()),
+            None,
+        )
+
+    out = []
+    for room_name in room_names:
+        name = " ".join((room_name or "").split())
+        key = match(name)
+        repeat = _REPEAT_SUFFIX.match(name)
+        if key is None and repeat:
+            key = match(repeat.group(1))
+        if key is not None:
+            taken.add(key)
+        out.append(rooms[key] if key is not None else [])
+    return out
+
+
+def _report_jpeg(data: bytes) -> Optional[bytes]:
+    """A photo as a JPEG sized for the report; None for a file that isn't a
+    photo Pillow can read"""
+    from PIL import Image, ImageOps
+
+    try:
+        with io.BytesIO(data) as source:
+            img = Image.open(source)
+            img.load()
+        img = ImageOps.exif_transpose(img)
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        img.thumbnail((REPORT_PHOTO_DIM, REPORT_PHOTO_DIM), Image.LANCZOS)
+        with io.BytesIO() as out:
+            img.save(out, format="JPEG", quality=REPORT_PHOTO_QUALITY, optimize=True)
+            return out.getvalue()
+    except Exception as e:
+        logger.warning(f"Packing photo could not be read for the report: {e}")
+        return None
+
+
+async def report_images(db: Session, claim_id: str, entries: List[PackingPhoto]) -> List[Optional[bytes]]:
+    """Each entry's photo as a JPEG sized for the report, a few at a time so
+    a big claim doesn't hold all its originals at once; None for a photo that
+    can't be loaded"""
+    found = _sources(db, claim_id, [(e.source, e.photo_id) for e in entries])
+    gate = asyncio.Semaphore(REPORT_PARALLEL_FETCHES)
+
+    async def one(entry: PackingPhoto) -> Optional[bytes]:
+        record = found.get((entry.source, entry.photo_id))
+        if record is None:
+            return None
+        async with gate:
+            data = await _photo_bytes(entry, record)
+            if not data:
+                return None
+            # Pillow decode/re-encode is CPU-bound; keep it off the event loop
+            return await asyncio.to_thread(_report_jpeg, data)
+
+    return await asyncio.gather(*(one(e) for e in entries))

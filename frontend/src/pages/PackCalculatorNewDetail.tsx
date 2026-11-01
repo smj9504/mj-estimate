@@ -11,9 +11,10 @@ import {
   Button, Table, message, Spin, Tabs, Empty, Input, Select, Tooltip, Collapse,
 } from 'antd';
 import {
-  ArrowLeftOutlined, EditOutlined, DownloadOutlined, ReloadOutlined,
+  ArrowLeftOutlined, EditOutlined, DownloadOutlined, ReloadOutlined, FileTextOutlined,
 } from '@ant-design/icons';
 import * as packingService from '../services/packingEstimateService';
+import PackingReportModal from '../components/packing-estimate/PackingReportModal';
 import type {
   EstimateResponse, MaterialItem, SupplementItem,
 } from '../types/packing-estimate';
@@ -99,6 +100,7 @@ const PackCalculatorNewDetail: React.FC = () => {
 
   // PDF export state
   const [exporting, setExporting] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
 
   useEffect(() => {
     if (id) loadEstimate(id);
@@ -159,8 +161,8 @@ const PackCalculatorNewDetail: React.FC = () => {
     try {
       await packingService.exportPdf(id);
       message.success('PDF downloaded');
-    } catch {
-      message.error('Failed to export PDF');
+    } catch (err) {
+      message.error((await packingService.downloadErrorDetail(err)) || 'Failed to export PDF');
     } finally {
       setExporting(false);
     }
@@ -459,6 +461,9 @@ const PackCalculatorNewDetail: React.FC = () => {
             <Tooltip title="Re-estimate with current settings">
               <Button icon={<ReloadOutlined />} onClick={handleRecalculate}>Recalculate</Button>
             </Tooltip>
+            <Tooltip title="The contents list, room photos, or both">
+              <Button icon={<FileTextOutlined />} onClick={() => setReportOpen(true)}>Report</Button>
+            </Tooltip>
             <Button type="primary" icon={<DownloadOutlined />} onClick={handleDownload} loading={exporting}>
               Export PDF
             </Button>
@@ -486,6 +491,8 @@ const PackCalculatorNewDetail: React.FC = () => {
           </section>
         </aside>
       </div>
+
+      {id && <PackingReportModal open={reportOpen} onClose={() => setReportOpen(false)} estimateId={id} />}
     </div>
   );
 };

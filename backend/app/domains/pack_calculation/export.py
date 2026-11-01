@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 import random
 import string
+from xml.sax.saxutils import escape as _esc
 
 # PDF Generation
 from reportlab.lib.pagesizes import letter
@@ -23,7 +24,7 @@ from reportlab.lib.enums import TA_RIGHT, TA_CENTER, TA_LEFT
 from reportlab.lib import colors
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    PageBreak, HRFlowable, KeepTogether, BaseDocTemplate, Frame, PageTemplate
+    BaseDocTemplate, Frame, PageTemplate
 )
 from reportlab.pdfgen import canvas
 
@@ -37,6 +38,14 @@ from openpyxl.utils import get_column_letter
 # SCOPEIT COMPANY INFO HELPER
 # ============================================
 
+def _company_address(company) -> str:
+    """The company's street, then "City, ST 12345", one per line"""
+    street = (company.address or "").strip()
+    state_zip = " ".join(p for p in (company.state, company.zipcode) if p)
+    city_line = ", ".join(p for p in (company.city, state_zip) if p)
+    return "\n".join(p for p in (street, city_line) if p)
+
+
 def build_company_info(company, override=None) -> dict:
     """Build company info dict from ScopeIt Company model with optional overrides.
 
@@ -44,9 +53,9 @@ def build_company_info(company, override=None) -> dict:
     """
     info = {
         "name": company.name if company else "",
-        "address": f"{company.address_line1 or ''}, {company.city or ''}, {company.state or ''} {company.zipcode or ''}".strip(", ") if company else "",
-        "phone": company.phone if company else "",
-        "email": company.email if company else "",
+        "address": _company_address(company) if company else "",
+        "phone": (company.phone or "") if company else "",
+        "email": (company.email or "") if company else "",
     }
     if override:
         # Handle both dict and Pydantic model
@@ -809,14 +818,14 @@ def generate_estimate_pdf(
     company_email = company_info.get('email', '') if company_info else ''
 
     # Build company info
-    company_lines = [f"<b>{company_name}</b>"]
+    company_lines = [f"<b>{_esc(company_name)}</b>"]
     if company_addr:
         for line in company_addr.split('\n'):
-            company_lines.append(line)
+            company_lines.append(_esc(line))
     if company_phone:
-        company_lines.append(company_phone)
+        company_lines.append(_esc(company_phone))
     if company_email:
-        company_lines.append(company_email)
+        company_lines.append(_esc(company_email))
 
     estimate_date = datetime.now().strftime("%B %d, %Y")
 
@@ -841,14 +850,14 @@ Estimate date: {estimate_date}</font>""",
     # ========== PREPARED FOR ==========
     story.append(Paragraph("<b>Prepared for</b>", style_bold))
     if client_name:
-        story.append(Paragraph(client_name, style_normal))
+        story.append(Paragraph(_esc(client_name), style_normal))
     if client_phone:
-        story.append(Paragraph(client_phone, style_normal))
+        story.append(Paragraph(_esc(client_phone), style_normal))
     if client_email:
-        story.append(Paragraph(client_email, style_normal))
+        story.append(Paragraph(_esc(client_email), style_normal))
     if property_address:
         for line in property_address.split('\n'):
-            story.append(Paragraph(line, style_normal))
+            story.append(Paragraph(_esc(line), style_normal))
     else:
         story.append(Paragraph("—", style_normal))
     story.append(Spacer(1, 0.2*inch))
@@ -930,11 +939,12 @@ Estimate date: {estimate_date}</font>""",
             # Build item cell with number, name, and detail
             if item.get('detail'):
                 item_cell = Paragraph(
-                    f"<b>{item_number}. {item['name']}</b><br/><font color='#666666'>{item['detail']}</font>",
+                    f"<b>{item_number}. {_esc(str(item['name']))}</b><br/>"
+                    f"<font color='#666666'>{_esc(str(item['detail']))}</font>",
                     style_normal
                 )
             else:
-                item_cell = Paragraph(f"<b>{item_number}. {item['name']}</b>", style_normal)
+                item_cell = Paragraph(f"<b>{item_number}. {_esc(str(item['name']))}</b>", style_normal)
 
             qty_str = f"{item['qty']:g}"
             table_data.append([
@@ -993,10 +1003,10 @@ Estimate date: {estimate_date}</font>""",
         ])
     for supp in supplements:
         if supp.get('enabled', True) and supp.get('amount', 0) > 0:
-            supp_label = supp['name']
-            supp_reason = supp.get('reason', '').strip()
+            supp_label = _esc(supp.get('name') or '')
+            supp_reason = (supp.get('reason') or '').strip()
             if supp_reason:
-                supp_label += f"<br/><font size=7 color='#666666'>{supp_reason}</font>"
+                supp_label += f"<br/><font size=7 color='#666666'>{_esc(supp_reason)}</font>"
             totals_data.append([
                 Paragraph(supp_label, style_right),
                 Paragraph(f"${supp['amount']:,.2f}", style_right),
@@ -1096,6 +1106,46 @@ Estimate date: {estimate_date}</font>""",
     doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
+
+
+def saved_estimate_pdf(calc) -> bytes:
+    """A saved packing estimate (PackCalculation) as its PDF, the same one
+    wherever it is downloaded or attached"""
+    estimate_data = {
+        "sections": calc.sections or {},
+        "section_details": calc.section_details or {},
+        "materials_summary": calc.materials_summary or {},
+        "material_details": calc.material_details or [],
+        "supplements": calc.supplements or [],
+        "subtotal": calc.subtotal or 0,
+        "op_amount": calc.op_amount or 0,
+        "contingency_amount": calc.contingency_amount or 0,
+        "supplements_total": calc.supplements_total or 0,
+        "grand_total": calc.grand_total or 0,
+        "include_op": calc.include_op,
+        "op_rate": calc.op_rate,
+        "include_contingency": calc.include_contingency,
+        "contingency_rate": calc.contingency_rate,
+        "crew_size": calc.crew_size,
+        "storage_months": calc.storage_months,
+        "staging_type": calc.staging_type,
+        "include_packback": calc.include_packback,
+        "storage_sf": calc.storage_sf or 0,
+        "total_hours": calc.total_hours or 0,
+        "room_summaries": calc.room_summaries or [],
+        "special_items": calc.special_items or [],
+        "custom_special_items": calc.custom_special_items or [],
+    }
+    client = calc.client
+    return generate_estimate_pdf(
+        estimate_data=estimate_data,
+        client_name=client.display_name if client else None,
+        client_phone=client.phone if client else None,
+        client_email=client.email if client else None,
+        property_address=calc.project_address,
+        notes=calc.notes,
+        company_info=build_company_info(calc.company) if calc.company else None,
+    )
 
 
 # ============================================
@@ -1698,621 +1748,3 @@ def _room_prefix(room_name: str) -> str:
     # Fallback: first 2 chars
     clean = re.sub(r'[^A-Z]', '', name)
     return clean[:2] or "RM"
-
-
-# ============================================
-# REPORT PDF EXPORT
-# ============================================
-
-def _compress_image_bytes(
-    img_data: bytes,
-    max_width: int = 800,
-    max_height: int = 800,
-    quality: int = 60,
-) -> bytes:
-    """Compress an image to JPEG with size limits for small PDF output."""
-    from PIL import Image
-    img = Image.open(io.BytesIO(img_data))
-
-    # Convert RGBA/P to RGB for JPEG
-    if img.mode in ("RGBA", "P"):
-        bg = Image.new("RGB", img.size, (255, 255, 255))
-        if img.mode == "P":
-            img = img.convert("RGBA")
-        bg.paste(img, mask=img.split()[3] if img.mode == "RGBA" else None)
-        img = bg
-    elif img.mode != "RGB":
-        img = img.convert("RGB")
-
-    # Resize if width OR height exceeds limits
-    if img.width > max_width or img.height > max_height:
-        ratio = min(max_width / img.width, max_height / img.height)
-        new_w = max(1, int(img.width * ratio))
-        new_h = max(1, int(img.height * ratio))
-        img = img.resize((new_w, new_h), Image.LANCZOS)
-
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=quality, optimize=True)
-    return buf.getvalue()
-
-
-def _b64_to_compressed_image(
-    b64_str: str,
-    max_width: int = 800,
-    max_height: int = 800,
-    quality: int = 60,
-) -> bytes:
-    """Decode base64 image and compress it."""
-    import base64
-    # Strip data URI prefix if present
-    if "," in b64_str:
-        b64_str = b64_str.split(",", 1)[1]
-    raw = base64.b64decode(b64_str)
-    return _compress_image_bytes(
-        raw, max_width=max_width, max_height=max_height,
-        quality=quality,
-    )
-
-
-def generate_report_pdf(
-    session_data: Dict[str, Any],
-    rooms_data: List[Dict[str, Any]],
-    sections_config: Dict[str, bool],
-    client_name: Optional[str] = None,
-    client_phone: Optional[str] = None,
-    client_email: Optional[str] = None,
-    property_address: Optional[str] = None,
-    company_info: Optional[Dict] = None,
-    tax_rate: float = 0,
-    notes: Optional[str] = None,
-    include_signature_page: bool = False,
-    image_quality: int = 60,
-    max_image_width: int = 800,
-) -> bytes:
-    """Generate a clean, professional packing report PDF.
-
-    Sections are toggled via ``sections_config``:
-      - inventory_list: room-by-room item inventory
-      - damage_photos: pre-existing damage photos
-      - labor_log: labor hours per room
-      - room_photos: general room photos
-      - estimate_summary: estimate totals
-    """
-    buffer = io.BytesIO()
-    estimate_data = session_data.get("result") or session_data
-    settings = session_data.get("settings", {})
-    estimate_data = {**settings, **estimate_data}
-
-    report_number = generate_estimate_number().replace("EST-", "RPT-")
-    report_date = datetime.now().strftime("%B %d, %Y")
-
-    # --- Document setup ---
-    class ReportDocTemplate(BaseDocTemplate):
-        def __init__(self, filename, **kwargs):
-            self.report_number = kwargs.pop("report_number", "")
-            self.property_address = kwargs.pop("property_address", "")
-            BaseDocTemplate.__init__(self, filename, **kwargs)
-            frame = Frame(
-                0.5 * inch, 0.6 * inch,
-                letter[0] - 1 * inch, letter[1] - 1.1 * inch,
-                id="normal",
-            )
-            template = PageTemplate(
-                id="report", frames=frame, onPage=self._page_elements,
-            )
-            self.addPageTemplates([template])
-
-        def _page_elements(self, cvs, doc):
-            cvs.saveState()
-            footer_y = 0.35 * inch
-            cvs.setFont("Helvetica", 8)
-            cvs.setFillColor(colors.Color(0.4, 0.4, 0.4))
-            cvs.drawString(0.5 * inch, footer_y, f"Page {doc.page}")
-            cvs.drawRightString(
-                letter[0] - 0.5 * inch, footer_y,
-                f"Report #{self.report_number}",
-            )
-            if doc.page > 1 and self.property_address:
-                addr = self.property_address.replace("\n", ", ")
-                if len(addr) > 60:
-                    addr = addr[:57] + "..."
-                cvs.drawCentredString(letter[0] / 2, footer_y, addr)
-            cvs.restoreState()
-
-    doc = ReportDocTemplate(
-        buffer,
-        pagesize=letter,
-        rightMargin=0.5 * inch,
-        leftMargin=0.5 * inch,
-        topMargin=0.5 * inch,
-        bottomMargin=0.6 * inch,
-        report_number=report_number,
-        property_address=property_address or "",
-    )
-
-    # --- Styles ---
-    style_normal = ParagraphStyle("RN", fontSize=9, leading=12)
-    style_small = ParagraphStyle(
-        "RS", fontSize=8, leading=10,
-        textColor=colors.Color(0.4, 0.4, 0.4),
-    )
-    style_bold = ParagraphStyle(
-        "RB", fontSize=9, fontName="Helvetica-Bold", leading=12,
-    )
-    style_section = ParagraphStyle(
-        "RSec", fontSize=11, fontName="Helvetica-Bold",
-        textColor=colors.Color(0.15, 0.15, 0.15),
-        spaceBefore=14, spaceAfter=6,
-    )
-    style_room_header = ParagraphStyle(
-        "RRoom", fontSize=10, fontName="Helvetica-Bold",
-        textColor=colors.Color(0.2, 0.2, 0.2),
-        spaceBefore=10, spaceAfter=4,
-    )
-    style_right = ParagraphStyle(
-        "RR", fontSize=9, alignment=TA_RIGHT, leading=12,
-    )
-    story = []
-
-    # ========== HEADER ==========
-    co_name = company_info.get("name", "Company") if company_info else "Company"
-    co_addr = company_info.get("address", "") if company_info else ""
-    co_phone = company_info.get("phone", "") if company_info else ""
-    co_email = company_info.get("email", "") if company_info else ""
-
-    co_lines = [f"<b>{co_name}</b>"]
-    if co_addr:
-        for line in co_addr.split("\n"):
-            co_lines.append(line)
-    if co_phone:
-        co_lines.append(co_phone)
-    if co_email:
-        co_lines.append(co_email)
-
-    header_left = Paragraph("<br/>".join(co_lines), style_normal)
-    header_right = Paragraph(
-        f'<font size="16"><b>Packing Report</b></font><br/><br/>'
-        f'<font size="9">Report #: {report_number}<br/>'
-        f"Date: {report_date}</font>",
-        style_right,
-    )
-    header_table = Table(
-        [[header_left, header_right]],
-        colWidths=[4 * inch, 3.5 * inch],
-        hAlign="LEFT",
-    )
-    header_table.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
-        ("LEFTPADDING", (0, 0), (0, 0), 0),
-    ]))
-    story.append(header_table)
-    story.append(Spacer(1, 0.2 * inch))
-
-    # ========== CLIENT INFO ==========
-    story.append(Paragraph("<b>Prepared for</b>", style_bold))
-    if client_name:
-        story.append(Paragraph(client_name, style_normal))
-    if client_phone:
-        story.append(Paragraph(client_phone, style_normal))
-    if client_email:
-        story.append(Paragraph(client_email, style_normal))
-    if property_address:
-        for line in property_address.split("\n"):
-            story.append(Paragraph(line, style_normal))
-    story.append(Spacer(1, 0.15 * inch))
-
-    # Divider
-    story.append(HRFlowable(
-        width="100%", thickness=0.5,
-        color=colors.Color(0.8, 0.8, 0.8),
-    ))
-    story.append(Spacer(1, 0.1 * inch))
-
-    # ========== ESTIMATE SUMMARY ==========
-    show_summary = sections_config.get("estimate_summary", True)
-    if show_summary:
-        grand_total = estimate_data.get("grand_total", 0)
-        subtotal = estimate_data.get("subtotal", 0)
-        total_rooms = estimate_data.get("total_rooms", 0)
-        total_hours = estimate_data.get("total_hours", 0)
-        crew_size = estimate_data.get("crew_size", 4)
-
-        story.append(Paragraph("Estimate Summary", style_section))
-
-        summary_data = [
-            ["Rooms", "Hours", "Crew", "Subtotal", "Grand Total"],
-            [
-                str(total_rooms),
-                str(round(total_hours, 1)),
-                str(crew_size),
-                f"${subtotal:,.2f}",
-                f"${grand_total:,.2f}",
-            ],
-        ]
-        summary_table = Table(
-            summary_data,
-            colWidths=[1.1 * inch] * 5,
-            hAlign="LEFT",
-        )
-        summary_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.Color(0.93, 0.93, 0.93)),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.Color(0.85, 0.85, 0.85)),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ]))
-        story.append(summary_table)
-        story.append(Spacer(1, 0.15 * inch))
-
-    # ========== ROOM-BY-ROOM SECTIONS ==========
-    show_inventory = sections_config.get("inventory_list", True)
-    show_damage = sections_config.get("damage_photos", False)
-    show_labor = sections_config.get("labor_log", False)
-    show_photos = sections_config.get("room_photos", True)
-
-    if rooms_data and (show_inventory or show_damage or show_photos or show_labor):
-        for room_idx, room in enumerate(rooms_data):
-            room_name = room.get("room_name", f"Room {room_idx + 1}")
-
-            story.append(Paragraph(room_name, style_room_header))
-            story.append(HRFlowable(
-                width="100%", thickness=0.3,
-                color=colors.Color(0.85, 0.85, 0.85),
-            ))
-            story.append(Spacer(1, 4))
-
-            # -- Inventory List --
-            items = room.get("items") or []
-            if show_inventory and items:
-                inv_header = ["#", "Item", "Category", "Qty", "Notes"]
-                inv_rows = [inv_header]
-                for i, item in enumerate(items, 1):
-                    flags = []
-                    if item.get("is_fragile"):
-                        flags.append("Fragile")
-                    if item.get("is_high_value"):
-                        flags.append("High Value")
-                    if item.get("needs_disassembly"):
-                        flags.append("Disassembly")
-                    notes_str = ", ".join(flags) if flags else ""
-                    inv_rows.append([
-                        str(i),
-                        Paragraph(item.get("name", ""), style_normal),
-                        item.get("category", ""),
-                        str(item.get("quantity", 1)),
-                        Paragraph(notes_str, style_small),
-                    ])
-
-                inv_table = Table(
-                    inv_rows,
-                    colWidths=[0.35 * inch, 2.5 * inch, 1.3 * inch, 0.5 * inch, 2.35 * inch],
-                    hAlign="LEFT",
-                    repeatRows=1,
-                )
-                inv_table.setStyle(TableStyle([
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.Color(0.95, 0.95, 0.95)),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 8),
-                    ("ALIGN", (0, 0), (0, -1), "CENTER"),
-                    ("ALIGN", (3, 0), (3, -1), "CENTER"),
-                    ("GRID", (0, 0), (-1, -1), 0.3, colors.Color(0.88, 0.88, 0.88)),
-                    ("TOPPADDING", (0, 0), (-1, -1), 2),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ]))
-                story.append(KeepTogether([
-                    Paragraph(f"<b>Inventory ({len(items)} items)</b>", style_bold),
-                    Spacer(1, 3),
-                    inv_table,
-                ]))
-                story.append(Spacer(1, 8))
-
-            # -- Labor Log --
-            if show_labor:
-                labor_hours = room.get("labor_hours") or 0
-                labor_notes = room.get("labor_notes") or ""
-                if labor_hours > 0 or labor_notes:
-                    labor_data = [
-                        ["Labor Hours", "Notes"],
-                        [
-                            f"{labor_hours:.1f} hrs",
-                            Paragraph(labor_notes, style_small),
-                        ],
-                    ]
-                    labor_table = Table(
-                        labor_data,
-                        colWidths=[1.2 * inch, 5.8 * inch],
-                        hAlign="LEFT",
-                    )
-                    labor_table.setStyle(TableStyle([
-                        ("BACKGROUND", (0, 0), (-1, 0), colors.Color(0.95, 0.95, 0.95)),
-                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                        ("FONTSIZE", (0, 0), (-1, -1), 8),
-                        ("GRID", (0, 0), (-1, -1), 0.3, colors.Color(0.88, 0.88, 0.88)),
-                        ("TOPPADDING", (0, 0), (-1, -1), 3),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ]))
-                    story.append(KeepTogether([
-                        Paragraph("<b>Labor</b>", style_bold),
-                        Spacer(1, 3),
-                        labor_table,
-                    ]))
-                    story.append(Spacer(1, 8))
-
-            # -- Room Photos & Damage Photos --
-            photos = room.get("photos") or []
-            general_photos = [p for p in photos if not p.get("is_damage")]
-            damage_photos = [p for p in photos if p.get("is_damage")]
-
-            if show_photos and general_photos:
-                story.append(Paragraph("<b>Room Photos</b>", style_bold))
-                story.append(Spacer(1, 3))
-                _add_photo_grid(
-                    story, general_photos, style_small,
-                    max_width=max_image_width, quality=image_quality,
-                )
-                story.append(Spacer(1, 8))
-
-            if show_damage and damage_photos:
-                story.append(Paragraph(
-                    "<b>Pre-Existing Damage</b>", style_bold,
-                ))
-                story.append(Spacer(1, 3))
-                _add_photo_grid(
-                    story, damage_photos, style_small,
-                    max_width=max_image_width, quality=image_quality,
-                )
-                story.append(Spacer(1, 8))
-
-            # -- Field Notes --
-            field_notes = room.get("field_notes") or []
-            if field_notes:
-                notes_text = " | ".join(field_notes)
-                story.append(Paragraph(
-                    f"<i>Notes: {notes_text}</i>", style_small,
-                ))
-                story.append(Spacer(1, 6))
-
-    # ========== ADDITIONAL NOTES ==========
-    if notes:
-        story.append(Spacer(1, 0.1 * inch))
-        story.append(HRFlowable(
-            width="100%", thickness=0.5,
-            color=colors.Color(0.8, 0.8, 0.8),
-        ))
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("<b>Additional Notes</b>", style_bold))
-        story.append(Spacer(1, 3))
-        story.append(Paragraph(notes, style_normal))
-
-    # ========== PAYMENT SCHEDULE ==========
-    story.append(Spacer(1, 16))
-    story.append(HRFlowable(
-        width="100%", thickness=0.5,
-        color=colors.Color(0.8, 0.8, 0.8),
-    ))
-    story.append(Spacer(1, 6))
-    story.append(Paragraph(
-        "<b>Payment Schedule</b>", style_bold,
-    ))
-    story.append(Spacer(1, 4))
-
-    dep_pct, prog_pct, fin_pct = 0.33, 0.50, 0.17
-    dep_amt = round(grand_total * dep_pct, 2)
-    prog_amt = round(grand_total * prog_pct, 2)
-    fin_amt = round(
-        grand_total - dep_amt - prog_amt, 2,
-    )
-    pay_items = [
-        f"{dep_pct*100:.0f}% (${dep_amt:,.2f}) "
-        f"\u2014 Upon contract signing",
-        f"{prog_pct*100:.0f}% (${prog_amt:,.2f}) "
-        f"\u2014 Upon work start",
-        f"{fin_pct*100:.0f}% (${fin_amt:,.2f}) "
-        f"\u2014 Upon completion & approval",
-    ]
-    for p in pay_items:
-        story.append(Paragraph(
-            f"\u2022 {p}", style_normal,
-        ))
-
-    # ========== SIGNATURE PAGE ==========
-    if include_signature_page:
-        story.append(PageBreak())
-        story.append(Spacer(1, 0.5 * inch))
-        story.append(Paragraph(
-            "<b>Acknowledgment & Authorization</b>",
-            ParagraphStyle(
-                "SigTitle", fontSize=14, fontName="Helvetica-Bold",
-                alignment=TA_CENTER, spaceBefore=20, spaceAfter=10,
-            ),
-        ))
-        story.append(Spacer(1, 0.2 * inch))
-
-        ack_text = (
-            "I acknowledge that I have reviewed this packing report and the "
-            "inventory of contents listed herein. I understand that this report "
-            "documents the condition and contents of the property at the time "
-            "of the pack-out. I authorize the listed company to proceed with "
-            "the packing, transport, and storage of the contents as described."
-        )
-        story.append(Paragraph(ack_text, style_normal))
-        story.append(Spacer(1, 0.6 * inch))
-
-        # Signature lines
-        sig_data = [
-            [
-                Paragraph("<b>Customer Signature</b>", style_bold),
-                "",
-                Paragraph("<b>Date</b>", style_bold),
-            ],
-            [
-                "",
-                "",
-                "",
-            ],
-            [
-                "________________________________________",
-                "",
-                "____________________",
-            ],
-        ]
-        sig_table = Table(
-            sig_data,
-            colWidths=[3.5 * inch, 0.5 * inch, 2.5 * inch],
-            hAlign="LEFT",
-        )
-        sig_table.setStyle(TableStyle([
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
-        ]))
-        story.append(sig_table)
-        story.append(Spacer(1, 0.5 * inch))
-
-        # Company rep signature
-        rep_data = [
-            [
-                Paragraph("<b>Company Representative</b>", style_bold),
-                "",
-                Paragraph("<b>Date</b>", style_bold),
-            ],
-            ["", "", ""],
-            [
-                "________________________________________",
-                "",
-                "____________________",
-            ],
-        ]
-        rep_table = Table(
-            rep_data,
-            colWidths=[3.5 * inch, 0.5 * inch, 2.5 * inch],
-            hAlign="LEFT",
-        )
-        rep_table.setStyle(TableStyle([
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
-        ]))
-        story.append(rep_table)
-
-        if client_name:
-            story.append(Spacer(1, 0.3 * inch))
-            story.append(Paragraph(
-                f"<b>Customer:</b> {client_name}", style_normal,
-            ))
-        if property_address:
-            story.append(Paragraph(
-                f"<b>Property:</b> {property_address}", style_normal,
-            ))
-
-    # Build
-    doc.build(story)
-    return buffer.getvalue()
-
-
-def _add_photo_grid(
-    story: list,
-    photos: List[Dict],
-    caption_style,
-    max_width: int = 800,
-    quality: int = 60,
-    cols: int = 2,
-):
-    """Add photos in a grid layout to the story.
-
-    Each photo dict has 'image' (base64) and optional 'caption'.
-    Photos are compressed before embedding.
-    """
-    from reportlab.platypus import Image as RLImage
-    from reportlab.lib.utils import ImageReader
-
-    cell_width = (7.0 * inch) / cols
-    img_display_w = cell_width - 0.2 * inch
-    max_img_h = 2.2 * inch
-
-    row_cells = []
-    rows = []
-
-    for photo in photos:
-        b64 = photo.get("image", "")
-        if not b64 or len(b64) < 100:
-            continue
-        try:
-            compressed = _b64_to_compressed_image(
-                b64, max_width=max_width, quality=quality,
-            )
-            img_reader = ImageReader(io.BytesIO(compressed))
-            iw, ih = img_reader.getSize()
-
-            # Guard against corrupt / zero dimensions
-            if iw <= 0 or ih <= 0 or iw > 20000 or ih > 20000:
-                continue
-
-            # Scale to fit cell with hard caps
-            ratio = min(
-                img_display_w / iw,
-                max_img_h / ih,
-                1.0,
-            )
-            display_w = min(iw * ratio, img_display_w)
-            display_h = min(ih * ratio, max_img_h)
-
-            # Absolute safety cap (should never trigger)
-            if display_w <= 0 or display_h <= 0:
-                continue
-            if display_h > 300:
-                display_h = 300
-                display_w = display_h * (iw / ih)
-
-            img = RLImage(
-                io.BytesIO(compressed),
-                width=display_w,
-                height=display_h,
-            )
-
-            caption = photo.get("caption", "")
-            if caption:
-                # Use a plain list — KeepTogether inside Table
-                # cells causes ReportLab to report infinite height
-                cell = [
-                    img,
-                    Spacer(1, 2),
-                    Paragraph(caption, caption_style),
-                ]
-            else:
-                cell = img
-
-            row_cells.append(cell)
-
-            if len(row_cells) == cols:
-                rows.append(row_cells)
-                row_cells = []
-        except Exception:
-            continue
-
-    if row_cells:
-        while len(row_cells) < cols:
-            row_cells.append("")
-        rows.append(row_cells)
-
-    if rows:
-        photo_table = Table(
-            rows,
-            colWidths=[cell_width] * cols,
-            hAlign="LEFT",
-        )
-        photo_table.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ("LEFTPADDING", (0, 0), (-1, -1), 2),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-        ]))
-        story.append(photo_table)

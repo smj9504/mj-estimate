@@ -16,6 +16,8 @@ import type {
   PackingPhotoCategory,
   PackingPhotoRef,
   PackingPhotoClaim,
+  PackingReportOptions,
+  PackingReportRequest,
 } from '../types/packing-estimate';
 
 const BASE = '/api/packing-estimate';
@@ -257,16 +259,54 @@ export async function deleteEstimate(id: string): Promise<void> {
 
 // ── Export ──────────────────────────────────
 
-export async function exportPdf(id: string): Promise<void> {
-  const response = await api.get(`${BASE}/${id}/export/pdf`, {
-    responseType: 'blob',
-  });
-  const url = window.URL.createObjectURL(new Blob([response.data]));
+function saveFile(data: BlobPart, filename: string): void {
+  const url = window.URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
   const link = document.createElement('a');
   link.href = url;
-  link.setAttribute('download', `packing_estimate_${id.substring(0, 8)}.pdf`);
+  link.setAttribute('download', filename);
   document.body.appendChild(link);
   link.click();
   link.remove();
   window.URL.revokeObjectURL(url);
+}
+
+/**
+ * The reason the server gave for a failed download: a blob request gets its
+ * JSON error back as a Blob too
+ */
+export async function downloadErrorDetail(err: any): Promise<string | undefined> {
+  const data = err?.response?.data;
+  try {
+    const body = data instanceof Blob ? JSON.parse(await data.text()) : data;
+    return typeof body?.detail === 'string' ? body.detail : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function exportPdf(id: string): Promise<void> {
+  const response = await api.get(`${BASE}/${id}/export/pdf`, {
+    responseType: 'blob',
+    timeout: 60000,
+  });
+  saveFile(response.data, `packing_estimate_${id.substring(0, 8)}.pdf`);
+}
+
+/** What the estimate's report can show: each room's items and photos */
+export async function getReportOptions(id: string): Promise<PackingReportOptions> {
+  const { data } = await api.get(`${BASE}/${id}/report`);
+  return data;
+}
+
+/** The estimate's report: its contents list, its room photos, or both */
+export async function exportReport(id: string, request: PackingReportRequest): Promise<void> {
+  const response = await api.post(`${BASE}/${id}/export/report`, request, {
+    responseType: 'blob',
+    // Every room photo is fetched and sized on the server first
+    timeout: request.photos ? 240000 : 60000,
+  });
+  const kind = request.contents_list && request.photos
+    ? 'contents_report'
+    : request.contents_list ? 'contents_list' : 'photo_report';
+  saveFile(response.data, `packing_${kind}_${id.substring(0, 8)}.pdf`);
 }

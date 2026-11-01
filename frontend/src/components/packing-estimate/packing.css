@@ -523,6 +523,39 @@
   color: var(--color-neutral-600);
 }
 
+/* Report: what it shows, then the rooms it shows */
+.pk-report-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.pk-report-choice .ant-radio-wrapper {
+  align-items: flex-start;
+  margin: 0;
+}
+.pk-report-choice-label {
+  display: block;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.pk-report-choice .ant-radio-wrapper-disabled .pk-report-choice-label {
+  color: var(--color-neutral-600);
+}
+.pk-report-choice-hint {
+  display: block;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.pk-report-rooms {
+  margin-top: 16px;
+}
+.pk-report-hint {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+
 /* Load from a claim: the claims with packing photos, then the rooms of one */
 .pk-claim-search {
   margin-bottom: 10px;

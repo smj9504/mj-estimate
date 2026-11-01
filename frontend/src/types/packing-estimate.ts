@@ -396,3 +396,25 @@ export interface PackingPhotoClaim {
   photo_count: number;
   rooms: { category: PackingPhotoCategory; room_name: string; photo_count: number }[];
 }
+
+// ── Report ───────────────────────────────────
+
+/**
+ * What a saved estimate's report can show, room by room: its items, and the
+ * claim's packing photos of the room of the same name
+ */
+export interface PackingReportOptions {
+  /** Photos come from the estimate's claim; without one there are none */
+  has_claim: boolean;
+  rooms: { room_name: string; item_count: number; photo_count: number }[];
+  item_count: number;
+  photo_count: number;
+}
+
+/** The report shows the contents list, the photos, or both */
+export interface PackingReportRequest {
+  contents_list: boolean;
+  photos: boolean;
+  /** The estimate's grand total in the report's summary */
+  estimate_total: boolean;
+}

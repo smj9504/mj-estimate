@@ -9,6 +9,7 @@ client/company DB integration.
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 import asyncio
+import io
 import json
 import logging
 from sqlalchemy.orm import Session, joinedload
@@ -40,6 +41,7 @@ from .packing_schemas import (
     DetectedContentItem,
     MovePackingPhotosRequest,
     RemovePackingPhotosRequest,
+    PackingReportRequest,
 )
 from . import packing_photos
 from .item_plan import (
@@ -593,6 +595,28 @@ def delete_estimate(
     return {"deleted": True}
 
 
+# ── Export ────────────────────────────────────
+
+def _load_estimate(db: Session, staff, calc_id: str) -> PackCalculation:
+    _require_estimate(db, staff, calc_id)
+    calc = db.query(PackCalculation).options(
+        joinedload(PackCalculation.client),
+        joinedload(PackCalculation.company),
+        joinedload(PackCalculation.claim),
+    ).filter(PackCalculation.id == calc_id).first()
+    if not calc:
+        raise HTTPException(404, "Estimate not found")
+    return calc
+
+
+def _pdf_response(data: bytes, filename: str) -> StreamingResponse:
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/{calc_id}/export/pdf")
 def export_estimate_pdf(
     calc_id: str,
@@ -600,75 +624,128 @@ def export_estimate_pdf(
     current_user: Staff = Depends(get_current_user),
 ):
     """Export a packing estimate as PDF."""
-    _require_estimate(db, current_user, calc_id)
-    import io
-    from .export import generate_estimate_pdf, build_company_info
+    from .export import saved_estimate_pdf
 
-    calc = db.query(PackCalculation).filter(
-        PackCalculation.id == calc_id
-    ).first()
-    if not calc:
-        raise HTTPException(404, "Estimate not found")
+    calc = _load_estimate(db, current_user, calc_id)
+    return _pdf_response(saved_estimate_pdf(calc), f"packing_estimate_{str(calc.id)[:8]}.pdf")
 
-    # Build estimate data dict from stored calculation
-    estimate_data = {
-        "sections": calc.sections or {},
-        "section_details": calc.section_details or {},
-        "materials_summary": calc.materials_summary or {},
-        "material_details": calc.material_details or [],
-        "supplements": calc.supplements or [],
-        "subtotal": calc.subtotal or 0,
-        "op_amount": calc.op_amount or 0,
-        "contingency_amount": calc.contingency_amount or 0,
-        "supplements_total": calc.supplements_total or 0,
-        "grand_total": calc.grand_total or 0,
-        "include_op": calc.include_op,
-        "op_rate": calc.op_rate,
-        "include_contingency": calc.include_contingency,
-        "contingency_rate": calc.contingency_rate,
-        "crew_size": calc.crew_size,
-        "storage_months": calc.storage_months,
-        "staging_type": calc.staging_type,
-        "include_packback": calc.include_packback,
-        "storage_sf": calc.storage_sf or 0,
-        "total_hours": calc.total_hours or 0,
-        "room_summaries": calc.room_summaries or [],
-        "special_items": calc.special_items or [],
-        "custom_special_items": calc.custom_special_items or [],
+
+# ── Report ────────────────────────────────────
+
+def _report_rooms(db: Session, calc: PackCalculation) -> list:
+    """The estimate's rooms for its report, each with its items (a quick
+    estimate keeps only a count and its notable items) and the claim's
+    packing photos of it"""
+    rooms = _calc_to_detail(calc, db).get("rooms")
+    if rooms:
+        out = [{
+            "room_name": r["room_name"],
+            "floor": r.get("floor"),
+            "items": r.get("items") or [],
+        } for r in rooms]
+    else:
+        out = [{
+            "room_name": s.get("room_name") or f"Room {i + 1}",
+            "floor": None,
+            "items": [],
+            "item_count": s.get("item_count") or 0,
+            "notable_items": s.get("notable_items") or [],
+        } for i, s in enumerate(calc.room_summaries or [])]
+
+    photos = (
+        packing_photos.estimate_room_photos(
+            db, str(calc.claim_id), [r["room_name"] for r in out],
+            packing_photos.category_named(calc.calculation_name),
+        ) if calc.claim_id else [[] for _ in out]
+    )
+    for room, entries in zip(out, photos):
+        room["photo_entries"] = entries
+    return out
+
+
+def _room_item_count(room: dict) -> int:
+    items = room["items"]
+    return sum(int(i.get("quantity") or 1) for i in items) if items else int(room.get("item_count") or 0)
+
+
+@router.get("/{calc_id}/report")
+def get_report_options(
+    calc_id: str,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """What the estimate's report can show: each room's items, and the
+    claim's packing photos of it"""
+    calc = _load_estimate(db, current_user, calc_id)
+    rooms = _report_rooms(db, calc)
+    return {
+        "has_claim": bool(calc.claim_id),
+        "rooms": [{
+            "room_name": r["room_name"],
+            "item_count": _room_item_count(r),
+            "photo_count": len(r["photo_entries"]),
+        } for r in rooms],
+        "item_count": sum(_room_item_count(r) for r in rooms),
+        "photo_count": sum(len(r["photo_entries"]) for r in rooms),
     }
 
-    # Client info
-    client_name = None
-    client_phone = None
-    client_email = None
-    if calc.client:
-        client_name = calc.client.display_name
-        client_phone = calc.client.phone
-        client_email = calc.client.email
 
-    # Company info
+@router.post("/{calc_id}/export/report")
+async def export_report_pdf(
+    calc_id: str,
+    request: PackingReportRequest,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """The estimate's report as PDF: its contents list, its room photos, or
+    both, room by room"""
+    from .report_pdf import generate_report_pdf
+
+    if not request.contents_list and not request.photos:
+        raise HTTPException(400, "Choose the contents list, the photos, or both")
+    calc = _load_estimate(db, current_user, calc_id)
+    rooms = _report_rooms(db, calc)
+
+    if request.photos:
+        if not any(r["photo_entries"] for r in rooms):
+            raise HTTPException(
+                400,
+                "The claim has no packing photos of this estimate's rooms"
+                if calc.claim_id else "This estimate isn't on a claim, so it has no photos",
+            )
+        entries = [e for r in rooms for e in r["photo_entries"]]
+        images = iter(await packing_photos.report_images(db, str(calc.claim_id), entries))
+        for room in rooms:
+            loaded = [next(images) for _ in room["photo_entries"]]
+            room["photos"] = [img for img in loaded if img]
+        if not any(r["photos"] for r in rooms) and not request.contents_list:
+            raise HTTPException(404, "None of the photos could be loaded")
+
+    client = calc.client
+    claim = calc.claim
     company_info = None
     if calc.company:
+        from .export import build_company_info
         company_info = build_company_info(calc.company)
 
-    pdf_bytes = generate_estimate_pdf(
-        estimate_data=estimate_data,
-        client_name=client_name,
-        client_phone=client_phone,
-        client_email=client_email,
-        property_address=calc.project_address,
-        notes=calc.notes,
+    # ReportLab is CPU-bound; keep it off the event loop
+    pdf = await asyncio.to_thread(
+        generate_report_pdf,
+        rooms,
+        contents_list=request.contents_list,
+        photos=request.photos,
         company_info=company_info,
+        client_name=client.display_name if client else None,
+        client_phone=client.phone if client else None,
+        property_address=calc.project_address,
+        claim_number=claim.claim_number if claim else None,
+        insurance_company=claim.insurance_company if claim else None,
+        estimate_total=(calc.grand_total or 0) if request.estimate_total else None,
     )
-
-    filename = f"packing_estimate_{str(calc.id)[:8]}.pdf"
-    return StreamingResponse(
-        io.BytesIO(pdf_bytes),
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
-        },
+    kind = "contents_report" if request.contents_list and request.photos else (
+        "contents_list" if request.contents_list else "photo_report"
     )
+    return _pdf_response(pdf, f"packing_{kind}_{str(calc.id)[:8]}.pdf")
 
 
 # ── Helpers ───────────────────────────────────
