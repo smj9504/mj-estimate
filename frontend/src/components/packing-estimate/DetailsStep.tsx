@@ -4,14 +4,15 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Select, Input, InputNumber, Switch, AutoComplete, Segmented,
+  Select, Input, InputNumber, Switch, AutoComplete, Segmented, Checkbox,
 } from 'antd';
 import AddressAutocomplete from '../common/AddressAutocomplete';
 import { companyService } from '../../services/companyService';
 import { clientService } from '../../services/clientService';
 import type { Company } from '../../types';
 import type { MaterialDisplay, PackingSettings, Region } from '../../types/packing-estimate';
-import { MATERIAL_DISPLAY_OPTIONS, REGION_OPTIONS } from './constants';
+import { MATERIAL_DISPLAY_OPTIONS, REGION_OPTIONS, SUPPLEMENT_OPTIONS } from './constants';
+import { formatMoney } from './packingUi';
 import './packing.css';
 
 const { Option } = Select;
@@ -48,9 +49,17 @@ const FormRow: React.FC<{ label: React.ReactNode; htmlFor?: string; required?: b
 export const EstimationSettings: React.FC<{
   settings: PackingSettings;
   setSettings: (s: PackingSettings) => void;
-}> = ({ settings, setSettings }) => {
+  /** Per supplement: what in this job it would be for, or null */
+  supplementSignals?: Record<string, string | null>;
+}> = ({ settings, setSettings, supplementSignals }) => {
   const patchSettings = (patch: Partial<PackingSettings>) =>
     setSettings({ ...settings, ...patch });
+  const choices = settings.supplement_choices || {};
+  const chooseSupplement = (key: string, on: boolean) => {
+    const next = { ...choices };
+    if (on) next[key] = null; else delete next[key];
+    patchSettings({ supplement_choices: next });
+  };
 
   return (
     <section className="ui-section pk-form-section" aria-label="Estimation Settings">
@@ -140,6 +149,44 @@ export const EstimationSettings: React.FC<{
         <span className="pk-form-meta">
           {MATERIAL_DISPLAY_OPTIONS.find(o => o.value === settings.material_display)?.hint}
         </span>
+      </FormRow>
+      <FormRow label="Supplements">
+        <span className="pk-form-meta">
+          Added only when you tick one: labor already counts floors, density, contamination and
+          high-value items. Each prints with what in this job it&apos;s for.
+        </span>
+        <ul className="pk-supplements">
+          {SUPPLEMENT_OPTIONS.map(option => {
+            const chosen = option.key in choices;
+            const signal = supplementSignals?.[option.key];
+            return (
+              <li key={option.key} className={`pk-supplement${chosen ? ' is-chosen' : ''}`}>
+                <Checkbox checked={chosen} onChange={e => chooseSupplement(option.key, e.target.checked)}>
+                  {option.name}
+                </Checkbox>
+                {chosen ? (
+                  <InputNumber
+                    size="small"
+                    min={0}
+                    step={5}
+                    precision={2}
+                    prefix="$"
+                    value={choices[option.key] ?? option.amount}
+                    onChange={v => patchSettings({ supplement_choices: { ...choices, [option.key]: v ?? 0 } })}
+                    aria-label={`${option.name} amount`}
+                    style={{ width: 116 }}
+                  />
+                ) : (
+                  <span className="pk-supplement-amount">{formatMoney(option.amount)}</span>
+                )}
+                <span className="pk-supplement-why">
+                  {signal ? <span className="pk-supplement-signal">This job: {signal}</span> : `For: ${option.when}`}
+                  {' · '}{option.covers}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
       </FormRow>
       <FormRow label="Contingency" htmlFor="pk-contingency">
         <span className="pk-toggle">

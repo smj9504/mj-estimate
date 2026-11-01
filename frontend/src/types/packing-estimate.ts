@@ -97,6 +97,8 @@ export interface QuickEstimateRequest {
   special_items: string[];
   custom_special_items: CustomSpecialItem[];
   material_display?: MaterialDisplay;
+  /** Supplements the estimator adds: key -> amount (null for the usual one) */
+  supplement_choices?: Record<string, number | null>;
 }
 
 // ── Estimate Response ────────────────────────
@@ -136,8 +138,12 @@ export interface SupplementItem {
   name: string;
   description: string;
   amount: number;
+  /** The job shows what it's for */
   triggered: boolean;
   enabled: boolean;
+  /** The estimator added it; older estimates added every triggered one themselves */
+  chosen?: boolean;
+  /** What in this job it's for, printed under it */
   reason?: string;
 }
 
@@ -245,6 +251,7 @@ export interface ContentEstimateRequest {
   special_items: string[];
   custom_special_items: CustomSpecialItem[];
   material_display?: MaterialDisplay;
+  supplement_choices?: Record<string, number | null>;
 }
 
 // ── Packing Room State ───────────────────────
@@ -301,6 +308,7 @@ export interface PackingSettings {
   special_items: string[];
   custom_special_items: CustomSpecialItem[];
   material_display: MaterialDisplay;
+  supplement_choices: Record<string, number | null>;
 }
 
 // ── Pricing ──────────────────────────────────

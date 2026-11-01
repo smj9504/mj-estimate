@@ -569,11 +569,11 @@ def update_estimate(
         except ValueError:
             raise HTTPException(422, f"Unknown status: {update['status']}")
 
+    # Supplements are set below, with the totals they move
     updatable = [
         "calculation_name", "status", "notes",
-        "sections", "section_details", "supplements",
+        "sections", "section_details",
         "subtotal", "op_amount", "contingency_amount",
-        "supplements_total", "grand_total",
         "client_id", "company_id", "claim_id",
     ]
     for field in updatable:
@@ -581,10 +581,37 @@ def update_estimate(
             setattr(calc, field, update[field])
     if "material_display" in update:
         _set_material_display(calc, update["material_display"])
+    if "supplements" in update:
+        _set_supplements(calc, update["supplements"])
 
     calc.updated_by_id = current_user.id
     db.commit()
     return {"id": str(calc.id), "updated": True}
+
+
+def _set_supplements(calc: PackCalculation, changes) -> None:
+    """Turn a saved estimate's supplements off or on, or change their amounts; the
+    supplements total and the grand total follow. Adding one is a recalculation,
+    since its reason comes from the rooms."""
+    if not isinstance(changes, list):
+        raise HTTPException(422, "supplements must be a list")
+    by_key = {c.get("key"): c for c in changes if isinstance(c, dict)}
+    supplements = []
+    for saved in calc.supplements or []:
+        change = by_key.get(saved.get("key"))
+        if change is not None:
+            amount = change.get("amount", saved.get("amount", 0))
+            if not isinstance(amount, (int, float)) or amount < 0:
+                raise HTTPException(422, f"{saved.get('name')}: the amount can't be negative")
+            saved = {**saved, "amount": round(float(amount), 2), "enabled": bool(change.get("enabled", True))}
+        supplements.append(saved)
+    calc.supplements = supplements
+    calc.supplements_total = round(sum(s.get("amount") or 0 for s in supplements if s.get("enabled")), 2)
+    calc.grand_total = round(
+        (calc.subtotal or 0) + (calc.op_amount or 0)
+        + calc.supplements_total + (calc.contingency_amount or 0),
+        2,
+    )
 
 
 def _set_material_display(calc: PackCalculation, display) -> None:

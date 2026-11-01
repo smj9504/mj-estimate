@@ -5,7 +5,7 @@ Core calculation logic for pack-out estimates.
 Integrated from packing_tool_export.
 """
 
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any
 from app.domains.pack_calculation.packing_schemas import (
     RoomInput, QuickEstimateRequest, EstimateResponse,
     RoomsEstimateRequest, DetectedContentItem,
@@ -663,7 +663,12 @@ class EstimateCalculator:
         return default["price"] if default else 0
 
     # ============================================
-    # CONDITIONAL SUPPLEMENTS
+    # SUPPLEMENTS
+    # Flat charges the estimator adds by hand; none is added on its own. Labor
+    # already grows with a room's floor, density and contamination and with each
+    # high-value item, so charging a supplement on top is the estimator's call,
+    # and each one says on the estimate what in this job it is for. The packing
+    # company sets its own: what a water mitigation contractor charges isn't it.
     # 2026-08: +3% (labor-tier increase — these are all additional
     # handling/staging time charges; see seed_prices.py header)
     # ============================================
@@ -671,15 +676,15 @@ class EstimateCalculator:
     SUPPLEMENT_DEFINITIONS = [
         {
             "key": "hidden_damage",
-            "name": "Unforeseen Conditions — Concealed Contamination",
-            "description": "Per IICRC S500 §12.3 — additional handling for concealed water/mold damage",
+            "name": "Contaminated Contents Handling",
+            "description": "PPE, bagging and keeping contents from gray or black water rooms apart",
             "flat_amount": 154.50,
             "trigger": "contamination",
         },
         {
             "key": "high_value_documentation",
             "name": "High-Value Contents Documentation",
-            "description": "Serial number recording, appraisal photo, condition report — flat fee per job",
+            "description": "Serial numbers, appraisal photos and a condition report for the claim",
             "flat_amount": 87.55,
             "trigger": "high_value",
             "min_items": 3,
@@ -687,94 +692,98 @@ class EstimateCalculator:
         {
             "key": "difficult_access",
             "name": "Difficult Access Supplement",
-            "description": "Narrow stairwell / no elevator — additional carry time",
+            "description": "Narrow stairwell or no elevator: extra carry time",
             "flat_amount": 123.60,
             "trigger": "upper_floor",
         },
         {
             "key": "heavy_contents",
             "name": "Heavy Contents Supplement",
-            "description": "Above-average contents volume requiring additional sort/stage time",
+            "description": "Above-average contents needing extra sort and stage time",
             "flat_amount": 97.85,
             "trigger": "heavy_density",
         },
     ]
 
-    def evaluate_supplements(
-        self,
-        rooms,
-        subtotal,
-        overrides=None,
-        context=None,
-    ) -> List[SupplementItem]:
-        """Evaluate all supplement conditions and return triggered items.
+    _CONTAMINATION_LABELS = {"gray_water": "gray water", "black_water": "black water"}
+    _UPPER_FLOORS = {"3rd": "3rd floor", "4th+": "4th floor or higher"}
+    _HEAVY_DENSITIES = {"heavy": "heavy contents", "extreme": "extreme contents"}
 
-        Supplements use fixed amounts — not percentages or per-item rates —
-        so they stay reasonable regardless of estimate size.
-        Users can toggle each supplement and edit the amount in the frontend.
-        """
-        overrides = overrides or {}
-        ctx = context or {}
+    def _room_label(self, room) -> str:
+        name = getattr(room, "room_name", None)
+        if name:
+            return name
+        preset = self.presets.get(getattr(room, "preset", ""))
+        return preset.name if preset else "Room"
 
-        # Build context from rooms
-        if "has_contamination" not in ctx:
-            ctx["has_contamination"] = any(
-                getattr(r, "contamination", "clean")
-                not in ("clean", "Clean")
-                for r in rooms
-            )
-        if "high_value_count" not in ctx:
-            hv = 0
-            for r in rooms:
-                for item in getattr(r, "items", []):
-                    if getattr(item, "is_high_value", False):
-                        hv += 1
-            ctx["high_value_count"] = hv
-        if "has_upper_floor" not in ctx:
-            upper = {"3rd", "4th+"}
-            ctx["has_upper_floor"] = any(
-                str(getattr(r, "floor", "1st")) in upper
-                for r in rooms
-            )
-        if "has_heavy_density" not in ctx:
-            heavy = {"heavy", "extreme"}
-            ctx["has_heavy_density"] = any(
-                str(getattr(r, "density", "normal")) in heavy
-                for r in rooms
-            )
+    def supplement_basis(self, rooms) -> Dict[str, Tuple[bool, str]]:
+        """For each supplement: whether this job shows what it's for, and what that is
+        ("Kitchen (gray water)", "4 high-value items: ..."), so a charge on the
+        estimate carries its reason."""
+        def value(x):
+            return getattr(x, "value", x)
 
+        def listed(trigger, labels):
+            hits = [
+                f"{self._room_label(r)} ({labels[value(getattr(r, trigger))]})"
+                for r in rooms if value(getattr(r, trigger, None)) in labels
+            ]
+            return bool(hits), ", ".join(hits)
+
+        high_value = [
+            (item.name, item.quantity or 1)
+            for r in rooms for item in getattr(r, "items", [])
+            if getattr(item, "is_high_value", False)
+        ]
+        hv_count = sum(q for _, q in high_value)
+        names = ", ".join(n if q == 1 else f"{n} ×{q}" for n, q in high_value[:6])
+        if len(high_value) > 6:
+            names += ", …"
+        hv_basis = f"{hv_count} high-value item{'s' if hv_count != 1 else ''}: {names}" if hv_count else ""
+
+        return {
+            "hidden_damage": listed("contamination", self._CONTAMINATION_LABELS),
+            "high_value_documentation": (hv_count >= 3, hv_basis),
+            "difficult_access": listed("floor", self._UPPER_FLOORS),
+            "heavy_contents": listed("density", self._HEAVY_DENSITIES),
+        }
+
+    @staticmethod
+    def supplement_choices(request) -> Dict[str, Optional[float]]:
+        """The supplements the estimator chose: key -> amount (None: the usual one).
+        supplement_overrides is the older way of asking: True chose one."""
+        known = {d["key"] for d in EstimateCalculator.SUPPLEMENT_DEFINITIONS}
+        choices = {
+            key: None
+            for key, on in (getattr(request, "supplement_overrides", None) or {}).items()
+            if on and key in known
+        }
+        for key, amount in (getattr(request, "supplement_choices", None) or {}).items():
+            if key in known:
+                choices[key] = amount
+        return choices
+
+    def evaluate_supplements(self, rooms, choices: Dict[str, Optional[float]]) -> List[SupplementItem]:
+        """The supplements the estimator chose, each at its amount and with what in
+        this job it's for, or what it covers when the job doesn't show it."""
+        basis = self.supplement_basis(rooms)
         supplements = []
-
         for defn in self.SUPPLEMENT_DEFINITIONS:
             key = defn["key"]
-            triggered = False
-
-            if defn["trigger"] == "contamination":
-                triggered = ctx["has_contamination"]
-            elif defn["trigger"] == "high_value":
-                triggered = (
-                    ctx["high_value_count"]
-                    >= defn.get("min_items", 3)
-                )
-            elif defn["trigger"] == "upper_floor":
-                triggered = ctx["has_upper_floor"]
-            elif defn["trigger"] == "heavy_density":
-                triggered = ctx["has_heavy_density"]
-
-            if not triggered:
+            if key not in choices:
                 continue
-
-            amount = defn.get("flat_amount", 0)
-            enabled = overrides.get(key, True)
+            amount = choices[key] if choices[key] is not None else defn["flat_amount"]
+            applies, why = basis.get(key, (False, ""))
             supplements.append(SupplementItem(
                 key=key,
                 name=defn["name"],
                 description=defn["description"],
                 amount=round(amount, 2),
-                triggered=True,
-                enabled=enabled,
+                triggered=applies,
+                enabled=True,
+                chosen=True,
+                reason=why or defn["description"],
             ))
-
         return supplements
 
     def select_truck(self, storage_sf: int) -> tuple:
@@ -1249,11 +1258,8 @@ class EstimateCalculator:
         subtotal = round(sum(sections.values()), 2)
         op_amount = round(subtotal * (request.op_rate / 100), 2) if request.include_op else 0
 
-        # Evaluate conditional supplements
-        supplements = self.evaluate_supplements(
-            request.rooms, subtotal,
-            overrides=getattr(request, 'supplement_overrides', None),
-        )
+        # The supplements the estimator chose
+        supplements = self.evaluate_supplements(request.rooms, self.supplement_choices(request))
         supplements_total = round(sum(s.amount for s in supplements if s.enabled), 2)
 
         # Legacy contingency (backwards compat, defaults off)
@@ -1819,17 +1825,8 @@ class EstimateCalculator:
         subtotal = round(sum(sections.values()), 2)
         op_amount = round(subtotal * (request.op_rate / 100), 2) if request.include_op else 0
 
-        # Evaluate conditional supplements with item-level context
-        hv_count = sum(
-            item.quantity for room in request.rooms
-            for item in room.items
-            if getattr(item, "is_high_value", False)
-        )
-        supplements = self.evaluate_supplements(
-            request.rooms, subtotal,
-            overrides=getattr(request, 'supplement_overrides', None),
-            context={"high_value_count": hv_count},
-        )
+        # The supplements the estimator chose
+        supplements = self.evaluate_supplements(request.rooms, self.supplement_choices(request))
         supplements_total = round(sum(s.amount for s in supplements if s.enabled), 2)
 
         # Legacy contingency support

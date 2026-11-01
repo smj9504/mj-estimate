@@ -133,7 +133,33 @@ export const DEFAULT_SETTINGS = {
   special_items: [] as string[],
   custom_special_items: [] as Array<{ name: string; price: number }>,
   material_display: 'itemized' as const,
+  supplement_choices: {} as Record<string, number | null>,
 };
+
+// Flat charges the estimator adds by hand; none is added on its own. Mirrors
+// SUPPLEMENT_DEFINITIONS in backend pack_calculation/packing_service.py
+export const SUPPLEMENT_OPTIONS = [
+  {
+    key: 'hidden_damage', name: 'Contaminated Contents Handling', amount: 154.50,
+    covers: 'PPE, bagging and keeping contents from gray or black water rooms apart',
+    when: 'A room with gray or black water',
+  },
+  {
+    key: 'high_value_documentation', name: 'High-Value Contents Documentation', amount: 87.55,
+    covers: 'Serial numbers, appraisal photos and a condition report for the claim',
+    when: '3 or more high-value items',
+  },
+  {
+    key: 'difficult_access', name: 'Difficult Access Supplement', amount: 123.60,
+    covers: 'Narrow stairwell or no elevator: extra carry time',
+    when: 'A room on the 3rd floor or higher',
+  },
+  {
+    key: 'heavy_contents', name: 'Heavy Contents Supplement', amount: 97.85,
+    covers: 'Above-average contents needing extra sort and stage time',
+    when: 'A room with heavy or extreme contents',
+  },
+];
 
 // Materials on the estimate. The lumps of a grouped one, in order; mirrors
 // MATERIAL_GROUPS in backend pack_calculation/packing_service.py

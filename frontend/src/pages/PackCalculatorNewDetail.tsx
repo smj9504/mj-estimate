@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Button, Table, message, Spin, Tabs, Empty, Input, Select, Tooltip, Collapse,
+  Button, Table, message, Spin, Tabs, Empty, Input, InputNumber, Select, Switch, Tooltip, Collapse,
 } from 'antd';
 import {
   ArrowLeftOutlined, EditOutlined, DownloadOutlined, ReloadOutlined, FileTextOutlined,
@@ -99,6 +99,8 @@ const PackCalculatorNewDetail: React.FC = () => {
   const [editStatus, setEditStatus] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [editMaterialDisplay, setEditMaterialDisplay] = useState<MaterialDisplay>('itemized');
+  // Each saved supplement on or off, at its amount
+  const [editSupplements, setEditSupplements] = useState<Record<string, { enabled: boolean; amount: number }>>({});
 
   // PDF export state
   const [exporting, setExporting] = useState(false);
@@ -131,12 +133,20 @@ const PackCalculatorNewDetail: React.FC = () => {
     setEditStatus(estimate.status || 'draft');
     setEditNotes(estimate.notes || '');
     setEditMaterialDisplay(estimate.material_display || 'itemized');
+    setEditSupplements(Object.fromEntries((estimate.supplements || []).map(sup => [
+      sup.key, { enabled: sup.enabled, amount: sup.amount },
+    ])));
     setEditing(true);
   }, [estimate]);
 
   const cancelEdit = useCallback(() => {
     setEditing(false);
   }, []);
+
+  const supplementsChanged = (estimate?.supplements || []).some(sup => {
+    const edit = editSupplements[sup.key];
+    return !!edit && (edit.enabled !== sup.enabled || edit.amount !== sup.amount);
+  });
 
   const handleSave = useCallback(async () => {
     if (!id) return;
@@ -149,6 +159,10 @@ const PackCalculatorNewDetail: React.FC = () => {
         ...(editMaterialDisplay !== (estimate?.material_display || 'itemized')
           ? { material_display: editMaterialDisplay }
           : {}),
+        // The server works out the supplements total and the grand total again
+        ...(supplementsChanged
+          ? { supplements: Object.entries(editSupplements).map(([key, v]) => ({ key, ...v })) }
+          : {}),
       });
       message.success('Saved successfully');
       setEditing(false);
@@ -158,7 +172,7 @@ const PackCalculatorNewDetail: React.FC = () => {
     } finally {
       setSaving(false);
     }
-  }, [id, editStatus, editNotes, editMaterialDisplay, estimate?.material_display]);
+  }, [id, editStatus, editNotes, editMaterialDisplay, estimate?.material_display, editSupplements, supplementsChanged]);
 
   // ── PDF Export ──────────────────────────────
 
@@ -197,6 +211,10 @@ const PackCalculatorNewDetail: React.FC = () => {
           special_items: estimate.special_items || [],
           custom_special_items: estimate.custom_special_items || [],
           material_display: estimate.material_display || 'itemized',
+          // The ones the estimator added; older estimates added theirs on their own
+          supplement_choices: Object.fromEntries((estimate.supplements || [])
+            .filter(sup => sup.chosen && sup.enabled)
+            .map(sup => [sup.key, sup.amount])),
         },
         projectAddress: estimate.project_address,
         clientId: estimate.client_id,
@@ -442,20 +460,49 @@ const PackCalculatorNewDetail: React.FC = () => {
               render: (name: string, record: SupplementItem) => (
                 <div>
                   <span>{name}</span>
-                  {record.description && <span className="ui-cell-meta">{record.description}</span>}
+                  {/* What in this job it's for, as the PDF prints it */}
+                  {(record.reason || record.description) && (
+                    <span className="ui-cell-meta">{record.reason || record.description}</span>
+                  )}
+                  {!record.chosen && (
+                    <span className="ui-cell-meta">Added on its own before supplements were chosen by hand</span>
+                  )}
                 </div>
               ),
             },
             {
-              title: 'Status', key: 'status', width: 110,
+              title: 'Charged', key: 'status', width: 110,
               render: (_: any, record: SupplementItem) => (
-                record.enabled ? <Pill tone="green">Enabled</Pill> : <Pill tone="gray">Disabled</Pill>
+                editing ? (
+                  <Switch
+                    size="small"
+                    checked={editSupplements[record.key]?.enabled ?? record.enabled}
+                    onChange={on => setEditSupplements(prev => ({
+                      ...prev, [record.key]: { amount: prev[record.key]?.amount ?? record.amount, enabled: on },
+                    }))}
+                    aria-label={`Charge ${record.name}`}
+                  />
+                ) : record.enabled ? <Pill tone="green">Charged</Pill> : <Pill tone="gray">Off</Pill>
               ),
             },
             {
-              title: 'Amount', dataIndex: 'amount', key: 'amount', align: 'right' as const, width: 120,
+              title: 'Amount', dataIndex: 'amount', key: 'amount', align: 'right' as const, width: 132,
               render: (v: number, record: SupplementItem) => (
-                record.enabled ? <span className="pk-money">{formatMoney(v)}</span> : <span className="pk-muted">-</span>
+                editing ? (
+                  <InputNumber
+                    size="small"
+                    min={0}
+                    step={5}
+                    precision={2}
+                    prefix="$"
+                    value={editSupplements[record.key]?.amount ?? v}
+                    onChange={amount => setEditSupplements(prev => ({
+                      ...prev, [record.key]: { enabled: prev[record.key]?.enabled ?? record.enabled, amount: amount ?? 0 },
+                    }))}
+                    aria-label={`${record.name} amount`}
+                    style={{ width: 112 }}
+                  />
+                ) : record.enabled ? <span className="pk-money">{formatMoney(v)}</span> : <span className="pk-muted">-</span>
               ),
             },
           ]}

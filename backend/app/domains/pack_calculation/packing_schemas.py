@@ -6,7 +6,7 @@ Integrated from packing_tool_export.
 """
 
 from pydantic import BaseModel, Field, model_validator
-from typing import Literal, Optional, Dict, List, Any
+from typing import Annotated, Literal, Optional, Dict, List, Any
 from datetime import datetime
 from enum import Enum
 
@@ -164,6 +164,8 @@ class QuickEstimateRequest(BaseModel):
     include_contingency: bool = Field(default=False)
     contingency_rate: int = Field(default=0, ge=0, le=20)
     supplement_overrides: Dict[str, bool] = Field(default_factory=dict)
+    # The supplements the estimator adds: key -> amount (None for the usual one)
+    supplement_choices: Dict[str, Optional[Annotated[float, Field(ge=0)]]] = Field(default_factory=dict)
     region: Region = Field(default=Region.MID_ATLANTIC)
     special_items: List[str] = Field(default_factory=list)
     custom_special_items: List[CustomSpecialItem] = Field(default_factory=list)
@@ -203,9 +205,11 @@ class SupplementItem(BaseModel):
     name: str
     description: str = ""
     amount: float = 0
-    triggered: bool = False
+    triggered: bool = False  # the job shows what it's for
     enabled: bool = True
-    reason: str = ""
+    # The estimator added it; older estimates added every triggered one themselves
+    chosen: bool = False
+    reason: str = ""  # what in this job it's for, printed under it
 
 
 class EstimateResponse(BaseModel):
@@ -368,6 +372,8 @@ class RoomsEstimateRequest(BaseModel):
     include_contingency: bool = Field(default=False)
     contingency_rate: int = Field(default=0, ge=0, le=20)
     supplement_overrides: Dict[str, bool] = Field(default_factory=dict)
+    # The supplements the estimator adds: key -> amount (None for the usual one)
+    supplement_choices: Dict[str, Optional[Annotated[float, Field(ge=0)]]] = Field(default_factory=dict)
     region: Region = Field(default=Region.MID_ATLANTIC)
     special_items: List[str] = Field(default_factory=list)
     custom_special_items: List[CustomSpecialItem] = Field(default_factory=list)

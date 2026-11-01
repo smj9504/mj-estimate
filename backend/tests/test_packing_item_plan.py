@@ -702,3 +702,29 @@ def test_a_status_saved_from_the_page_reads_back(env):
     saved = client.get(f'/api/packing-estimate/{estimate_id}').json()
     assert saved['status'] == 'completed' and saved['notes'] == 'Walked through'
     assert client.put(f'/api/packing-estimate/{estimate_id}', json={'status': 'done'}).status_code == 422
+
+
+def test_a_saved_estimates_supplements_can_be_turned_off_or_repriced(env):
+    client = env[0]
+    payload = RoomsEstimateRequest(
+        rooms=[room(bedroom_items(), floor='3rd', contamination='gray_water')],
+        supplement_choices={'difficult_access': None, 'hidden_damage': None},
+    ).model_dump(mode='json')
+    estimate_id = client.post('/api/packing-estimate/content-estimate', json=payload).json()['id']
+    before = client.get(f'/api/packing-estimate/{estimate_id}').json()
+    assert before['supplements_total'] == 154.50 + 123.60
+
+    res = client.put(f'/api/packing-estimate/{estimate_id}', json={'supplements': [
+        {'key': 'hidden_damage', 'enabled': False},
+        {'key': 'difficult_access', 'amount': 100, 'enabled': True},
+        # Adding one is a recalculation, so this is ignored
+        {'key': 'heavy_contents', 'amount': 500, 'enabled': True},
+    ], 'grand_total': 1})
+    assert res.status_code == 200, res.text
+    after = client.get(f'/api/packing-estimate/{estimate_id}').json()
+    assert after['supplements_total'] == 100
+    assert {s['key']: s['enabled'] for s in after['supplements']} == {'difficult_access': True, 'hidden_damage': False}
+    assert after['grand_total'] == round(before['grand_total'] - before['supplements_total'] + 100, 2)
+
+    negative = client.put(f'/api/packing-estimate/{estimate_id}', json={'supplements': [{'key': 'difficult_access', 'amount': -5}]})
+    assert negative.status_code == 422

@@ -25,6 +25,7 @@ import {
   PACKING_CATEGORIES, type PackingRoomGroup, loadClaimPhotoRooms, packingCategoryLabel, packingRoomKey,
 } from '../components/packing-estimate/claimPhotos';
 import { isUnconfirmed, needsReview, withUids } from '../components/packing-estimate/itemEdits';
+import { supplementSignals } from '../components/packing-estimate/supplements';
 import {
   EstimateBreakdown, Figures, estimateFigures, regionLabel, modeLabel, sectionsWithLines, packEstimateTitle,
 } from '../components/packing-estimate/packingUi';
@@ -208,6 +209,13 @@ const PackCalculatorNew: React.FC = () => {
     custom_special_items: r.custom_special_items,
   })), [photoRooms]);
 
+  // What in this job each supplement would be for, beside its tick box
+  const supplementHints = useMemo(() => supplementSignals(mode === 'quick'
+    ? rooms.map(r => ({ floor: r.floor, density: r.density, contamination: r.contamination }))
+    : photoRooms.map(r => ({
+      name: r.room_name, floor: r.floor, density: r.density, contamination: r.contamination, items: r.items,
+    }))), [mode, rooms, photoRooms]);
+
   // Everything the calculation reads; when it moves on, the estimate on screen is out of date
   const inputsKey = useMemo(() => JSON.stringify({
     mode,
@@ -247,6 +255,7 @@ const PackCalculatorNew: React.FC = () => {
           special_items: settings.special_items,
           custom_special_items: settings.custom_special_items,
           material_display: settings.material_display,
+          supplement_choices: settings.supplement_choices,
         });
       } else {
         response = await packingService.contentEstimate({
@@ -268,6 +277,7 @@ const PackCalculatorNew: React.FC = () => {
           special_items: settings.special_items,
           custom_special_items: settings.custom_special_items,
           material_display: settings.material_display,
+          supplement_choices: settings.supplement_choices,
         });
       }
 
@@ -419,7 +429,7 @@ const PackCalculatorNew: React.FC = () => {
             onLoad={handleLoadFromClaim}
           />
 
-          <EstimationSettings settings={settings} setSettings={setSettings} />
+          <EstimationSettings settings={settings} setSettings={setSettings} supplementSignals={supplementHints} />
 
           {/* One column: the action sits at the end of the inputs as well as in the header */}
           <div className="pk-builder-inline-action">

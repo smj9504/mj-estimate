@@ -1690,3 +1690,35 @@
   flex-direction: column;
   gap: 20px;
 }
+
+/* Supplements in Estimation Settings: tick box and amount, then why it might apply */
+.pk-supplements {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+.pk-supplement {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 12px;
+}
+.pk-supplement-amount {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.pk-supplement-why {
+  grid-column: 1 / -1;
+  padding-left: 24px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-neutral-600);
+}
+.pk-supplement-signal {
+  color: var(--color-neutral-800);
+}

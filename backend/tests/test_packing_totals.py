@@ -273,3 +273,71 @@ def test_the_pdf_shows_materials_the_way_the_estimate_does():
     assert 'Furniture Protection' in text and 'Packing Boxes' in text
     # One line a lump, not a line a material
     assert 'Medium Box (3.0 cu ft)' not in text
+
+
+# ── Supplements are the estimator's to add ────
+
+def test_no_supplement_is_added_unless_the_estimator_chooses_it():
+    # Gray water in the kitchen and a dense master bedroom: the labor already
+    # carries those, so nothing is charged on top by itself
+    for result in (
+        calculator().calculate_estimate_from_content(photo_request('mid_atlantic', 'off_site', True)),
+        calculator().calculate_estimate(quick_request('mid_atlantic', 'off_site', True)),
+    ):
+        assert result.supplements == []
+        assert result.supplements_total == 0
+
+
+def test_a_chosen_supplement_says_what_in_the_job_it_is_for():
+    request = photo_request(
+        'mid_atlantic', 'off_site', True,
+        supplement_choices={'hidden_damage': None, 'heavy_contents': 60, 'not_a_supplement': 10},
+    )
+    result = calculator().calculate_estimate_from_content(request)
+    assert_adds_up(result)
+    supplements = {s.key: s for s in result.supplements}
+    assert set(supplements) == {'hidden_damage', 'heavy_contents'}
+
+    contaminated = supplements['hidden_damage']
+    assert contaminated.chosen and contaminated.enabled and contaminated.triggered
+    assert contaminated.amount == 154.50
+    assert contaminated.reason == 'Kitchen (gray water)'
+
+    # Chosen though no room is heavy: its own amount, and what it covers as its reason
+    heavy = supplements['heavy_contents']
+    assert heavy.amount == 60 and not heavy.triggered
+    assert heavy.reason == heavy.description
+    assert result.supplements_total == 214.50
+
+    total, _, text = pdf_totals(result, request)
+    assert total == result.grand_total
+    assert 'Contaminated Contents Handling' in text and 'Kitchen (gray water)' in text
+
+
+def test_high_value_documentation_names_the_items():
+    request = photo_request('mid_atlantic', 'off_site', True, supplement_choices={'high_value_documentation': None})
+    [documentation] = calculator().calculate_estimate_from_content(request).supplements
+    # One TV in each of two rooms: fewer than the three it's meant for
+    assert not documentation.triggered
+    assert documentation.reason == '2 high-value items: Flat Screen TV, Flat Screen TV'
+
+
+def test_a_quick_estimate_room_goes_by_its_preset_name():
+    request = quick_request('mid_atlantic', 'off_site', True, supplement_choices={'difficult_access': None})
+    [access] = calculator().calculate_estimate(request).supplements
+    assert access.triggered
+    assert '(3rd floor)' in access.reason
+
+
+def test_the_older_way_of_choosing_still_chooses():
+    request = photo_request('mid_atlantic', 'off_site', True, supplement_overrides={'difficult_access': True, 'hidden_damage': False})
+    assert [s.key for s in calculator().calculate_estimate_from_content(request).supplements] == ['difficult_access']
+
+
+def test_the_screen_offers_exactly_these_supplements():
+    constants = Path(__file__).resolve().parents[2] / 'frontend/src/components/packing-estimate/constants.ts'
+    block = constants.read_text(encoding='utf-8').split('SUPPLEMENT_OPTIONS')[1].split('];')[0]
+    offered = dict(re.findall(r"key: '(\w+)'.*?amount: ([\d.]+)", block, re.S))
+    assert {k: float(v) for k, v in offered.items()} == {
+        d['key']: d['flat_amount'] for d in EstimateCalculator.SUPPLEMENT_DEFINITIONS
+    }
