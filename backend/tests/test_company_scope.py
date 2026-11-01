@@ -96,7 +96,10 @@ def env(tmp_path, monkeypatch):
     session.flush()
     session.add(ClaimCompany(claim_id=pat_wm.id, company_id=wm_co.id, role='water_mitigation'))
     session.add(ClaimCompany(claim_id=pat_build.id, company_id=build_co.id, role='reconstruction'))
-    session.add(ClaimCompany(claim_id=sam_build.id, company_id=build_co.id, role='reconstruction'))
+    # Before anything a test adds: SQLite's now() has whole seconds, and companies
+    # assigned in the same second come back in no particular order
+    session.add(ClaimCompany(claim_id=sam_build.id, company_id=build_co.id, role='reconstruction',
+                             assigned_at=datetime(2026, 1, 1)))
     revision = ClaimNegotiation(claim_id=pat_build.id, revision_number=1, revision_type='initial')
     session.add(revision)
     session.commit()
