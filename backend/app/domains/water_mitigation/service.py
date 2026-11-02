@@ -1905,7 +1905,7 @@ class WaterMitigationService:
             grouped under a date of None.
         """
         from app.domains.integrations.companycam.client import CompanyCamClient
-        from app.domains.integrations.companycam.utils import extract_captured_date
+        from app.domains.integrations.companycam.utils import summarize_photo_dates
 
         job = self.job_repo.get_by_id(job_id)
         if not job:
@@ -1932,38 +1932,10 @@ class WaterMitigationService:
         async with CompanyCamClient() as companycam_client:
             photos = await companycam_client.get_project_photos(project_id)
 
-        buckets: Dict[Optional[str], Dict[str, int]] = {}
-        for cc_photo in photos:
-            photo_date = extract_captured_date(cc_photo)
-            date_key = photo_date.isoformat() if photo_date else None
-
-            bucket = buckets.setdefault(date_key, {'total_count': 0, 'new_count': 0})
-            bucket['total_count'] += 1
-
-            photo_id = str(cc_photo.get('id'))
-            if photo_id not in existing_external_ids:
-                bucket['new_count'] += 1
-
-        # Sort most recent first; unknown-date bucket (None) goes last.
-        sorted_keys = sorted(
-            (k for k in buckets.keys() if k is not None), reverse=True
-        ) + ([None] if None in buckets else [])
-
-        date_summary = [
-            {
-                'date': key,
-                'total_count': buckets[key]['total_count'],
-                'new_count': buckets[key]['new_count'],
-            }
-            for key in sorted_keys
-        ]
-
         return {
             'success': True,
             'project_id': str(project_id),
-            'dates': date_summary,
-            'total_photos': len(photos),
-            'total_new': sum(b['new_count'] for b in buckets.values()),
+            **summarize_photo_dates(photos, existing_external_ids),
         }
 
     async def sync_companycam_photos(

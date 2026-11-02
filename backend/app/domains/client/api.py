@@ -15,6 +15,7 @@ from app.core.database_factory import get_db_session as get_db
 from app.domains.auth import company_scope
 from app.domains.auth.dependencies import get_current_staff, require_admin
 from app.domains.auth.document_access import can_access_document
+from app.domains.client import claim_companycam
 from app.domains.client.claim_paths import SameCompanyAsWMError
 from app.domains.client.schemas import (
     ClientCreate,
@@ -600,6 +601,61 @@ def delete_claim(
     except Exception as e:
         logger.error(f"Error deleting claim: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# The same paths as a water mitigation job's import, for the claim's own photos
+@router.get("/{client_id}/claims/{claim_id}/search-companycam-projects", response_model=None)
+async def search_claim_companycam_projects(client_id: str, claim_id: str, query: Optional[str] = None):
+    """CompanyCam projects matching the client's address, best match first"""
+    try:
+        return await claim_companycam.search_projects(claim_id, query)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to search CompanyCam projects for claim {claim_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{client_id}/claims/{claim_id}/companycam-photo-dates", response_model=None)
+async def get_claim_companycam_photo_dates(
+    client_id: str,
+    claim_id: str,
+    companycam_project_id: Optional[str] = None,
+):
+    """A project's photos grouped by capture date, for picking what to import"""
+    try:
+        return await claim_companycam.photo_dates(claim_id, companycam_project_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch CompanyCam photo dates for claim {claim_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{client_id}/claims/{claim_id}/sync-companycam-photos", response_model=None)
+async def sync_claim_companycam_photos(
+    client_id: str,
+    claim_id: str,
+    background_tasks: BackgroundTasks,
+    companycam_project_id: Optional[str] = None,
+    selected_dates: Optional[str] = None,
+):
+    """Import a project's photos into the claim's own photos, in the background.
+    selected_dates is comma-separated ISO dates, 'unknown' for photos with no
+    capture date; omit it to import everything."""
+    return await claim_companycam.start_import(
+        claim_id, companycam_project_id, selected_dates, background_tasks
+    )
+
+
+@router.get("/{client_id}/claims/{claim_id}/sync-companycam-photos/status", response_model=None)
+async def get_claim_companycam_sync_status(client_id: str, claim_id: str):
+    return await claim_companycam.import_status(claim_id)
+
+
+@router.post("/{client_id}/claims/{claim_id}/sync-companycam-photos/cancel", response_model=None)
+async def cancel_claim_companycam_sync(client_id: str, claim_id: str):
+    return await claim_companycam.cancel_import(claim_id)
 
 
 @router.get("/{client_id}/claims/{claim_id}/documents", response_model=None)

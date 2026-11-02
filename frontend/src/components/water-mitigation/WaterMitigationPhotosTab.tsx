@@ -9,7 +9,7 @@ import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, Chec
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
 import type { FileItem, PhotoSortBy } from '../common/FileGallery/types';
-import CompanyCamDateSelectModal from './CompanyCamDateSelectModal';
+import { useCompanyCamImport } from './useCompanyCamImport';
 import WMPhotoLocationModal from './WMPhotoLocationModal';
 import WMBulkPhotoLocationModal from './WMBulkPhotoLocationModal';
 import wmSketchService from '../../services/wmSketchService';
@@ -21,7 +21,6 @@ import waterMitigationService, {
   type AIClassifyResult,
 } from '../../services/waterMitigationService';
 import type {
-  CompanyCamSyncResult,
   MagicPlanProjectMatch,
   MagicPlanSyncResult,
 } from '../../types/waterMitigation';
@@ -250,19 +249,6 @@ const AiResultsGrid: React.FC<{
   );
 };
 
-// Sync status type
-interface SyncStatus {
-  status: 'idle' | 'running' | 'completed' | 'cancelled' | 'unknown';
-  synced_count?: number;
-  skipped_existing?: number;
-  skipped_trashed?: number;
-  skipped_date_filtered?: number;
-  total_companycam?: number;
-  current_page?: number;
-  errors?: string[];
-  message?: string;
-}
-
 // Google Drive export status type
 interface ExportStatus {
   status: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
@@ -276,56 +262,6 @@ interface ExportStatus {
   drive_folder_url?: string;
   errors?: string[];
 }
-
-// CompanyCam project search result
-interface CompanyCamProject {
-  id: string;
-  name: string;
-  address: string;
-  match_score: number;
-  photo_count: number;
-  created_at?: string;
-  updated_at?: string;
-}
-
-interface ProjectSearchResult {
-  job_address: string;
-  search_query: string;
-  projects: CompanyCamProject[];
-  total: number;
-}
-
-// API calls
-const syncCompanyCamPhotos = async (
-  jobId: string,
-  projectId?: string,
-  selectedDates?: string[]
-): Promise<CompanyCamSyncResult> => {
-  const params = new URLSearchParams();
-  if (projectId) params.set('companycam_project_id', projectId);
-  if (selectedDates && selectedDates.length > 0) params.set('selected_dates', selectedDates.join(','));
-  const qs = params.toString();
-  const response = await api.post(`/api/water-mitigation/jobs/${jobId}/sync-companycam-photos${qs ? `?${qs}` : ''}`);
-  return response.data;
-};
-
-const getSyncStatus = async (jobId: string, options?: { suppressErrorNotification?: boolean }): Promise<SyncStatus> => {
-  const response = await api.get(`/api/water-mitigation/jobs/${jobId}/sync-companycam-photos/status`, {
-    suppressErrorNotification: options?.suppressErrorNotification,
-  });
-  return response.data;
-};
-
-const cancelSync = async (jobId: string): Promise<{ success: boolean; message: string }> => {
-  const response = await api.post(`/api/water-mitigation/jobs/${jobId}/sync-companycam-photos/cancel`);
-  return response.data;
-};
-
-const searchCompanyCamProjects = async (jobId: string, query?: string): Promise<ProjectSearchResult> => {
-  const params = query ? `?query=${encodeURIComponent(query)}` : '';
-  const response = await api.get(`/api/water-mitigation/jobs/${jobId}/search-companycam-projects${params}`);
-  return response.data;
-};
 
 interface WaterMitigationPhotosTabProps {
   jobId: string;
@@ -350,14 +286,17 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const queryClient = useQueryClient();
-  const [dateSelectModalVisible, setDateSelectModalVisible] = useState(false);
-  const [dateSelectProjectId, setDateSelectProjectId] = useState<string | undefined>(undefined);
-  const [projectIdModalVisible, setProjectIdModalVisible] = useState(false);
-  const [inputProjectId, setInputProjectId] = useState('');
   const [currentProjectId, setCurrentProjectId] = useState(companycamProjectId);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>({ status: 'idle' });
-  const [isSyncing, setIsSyncing] = useState(false);
-  const pollingRef = useRef<boolean>(false);
+  const importer = useCompanyCamImport({
+    context: 'water-mitigation',
+    contextId: jobId,
+    basePath: `/api/water-mitigation/jobs/${jobId}`,
+    projectId: currentProjectId,
+    onProjectLinked: (projectId) => {
+      setCurrentProjectId(projectId);
+      onProjectIdUpdated?.(projectId);
+    },
+  });
 
   // ─── Photo location tagging (Level + Room) ───
   const [locationModalFile, setLocationModalFile] = useState<FileItem | null>(null);
@@ -400,14 +339,6 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     }
     prevActiveRef.current = isActive;
   }, [isActive, jobId, queryClient]);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Project search state
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<CompanyCamProject[]>([]);
-  const [jobAddress, setJobAddress] = useState<string>('');
-  const [selectedProject, setSelectedProject] = useState<CompanyCamProject | null>(null);
-  const [manualInput, setManualInput] = useState(false);
 
   // MagicPlan sync state
   const [mpModalVisible, setMpModalVisible] = useState(false);
@@ -701,65 +632,9 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     }
   }, [clientId]);
 
-  // Poll for sync status using setTimeout (waits for previous request to complete)
-  const pollStatus = async () => {
-    if (!pollingRef.current) return;
-
-    try {
-      // suppressErrorNotification: this loop already retries silently below on
-      // failure - the global "다시 시도" toast would otherwise re-pop every 2-3s
-      // for the exact same transient blip it's already recovering from.
-      const status = await getSyncStatus(jobId, { suppressErrorNotification: true });
-
-      // Check if still polling (component might have unmounted)
-      if (!pollingRef.current) return;
-
-      setSyncStatus(status);
-
-      // Stop polling if sync completed or cancelled
-      if (status.status === 'completed' || status.status === 'cancelled') {
-        stopPolling();
-        setIsSyncing(false);
-        // Refresh photos
-        queryClient.invalidateQueries({ queryKey: ['files', 'water-mitigation', jobId] });
-        queryClient.invalidateQueries({ queryKey: ['files-infinite', 'water-mitigation', jobId] });
-
-        if (status.status === 'completed') {
-          message.success(status.message || 'Sync completed!');
-        } else {
-          message.info(status.message || 'Sync cancelled');
-        }
-      } else {
-        // Schedule next poll after current one completes
-        timeoutRef.current = setTimeout(pollStatus, 2000);
-      }
-    } catch (error) {
-      console.error('Failed to get sync status:', error);
-      // Retry on error if still polling
-      if (pollingRef.current) {
-        timeoutRef.current = setTimeout(pollStatus, 3000);
-      }
-    }
-  };
-
-  const startPolling = () => {
-    if (pollingRef.current) return;
-    pollingRef.current = true;
-    pollStatus();
-  };
-
-  const stopPolling = () => {
-    pollingRef.current = false;
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  };
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      stopPolling();
       stopExportPolling();
     };
   }, []);
@@ -1198,125 +1073,6 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     }
   };
 
-  // Check initial status on mount
-  useEffect(() => {
-    const checkInitialStatus = async () => {
-      try {
-        const status = await getSyncStatus(jobId);
-        setSyncStatus(status);
-        if (status.status === 'running') {
-          setIsSyncing(true);
-          startPolling();
-        }
-      } catch (error) {
-        // Ignore errors on initial check
-      }
-    };
-    // Always check status - sync might have been started with a manually entered project ID
-    checkInitialStatus();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId]);
-
-  // Search for CompanyCam projects when modal opens
-  const handleSearchProjects = async () => {
-    setIsSearching(true);
-    setSearchResults([]);
-    setSelectedProject(null);
-    setManualInput(false);
-
-    try {
-      const result = await searchCompanyCamProjects(jobId);
-      setJobAddress(result.job_address || '');
-      setSearchResults(result.projects || []);
-
-      // Auto-select if there's a high-confidence match (>70%)
-      if (result.projects?.length > 0 && result.projects[0].match_score > 70) {
-        setSelectedProject(result.projects[0]);
-      }
-    } catch (error: any) {
-      console.error('Failed to search CompanyCam projects:', error);
-      message.error(`Failed to search projects: ${error?.response?.data?.detail || error.message}`);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  // Sync mutation - supports project ID + a date filter picked in CompanyCamDateSelectModal
-  const syncMutation = useMutation({
-    mutationFn: ({ projectId, selectedDates }: { projectId?: string; selectedDates?: string[] }) =>
-      syncCompanyCamPhotos(jobId, projectId, selectedDates),
-    onMutate: () => {
-      setIsSyncing(true);
-      setDateSelectModalVisible(false);
-      setProjectIdModalVisible(false);
-      startPolling();
-    },
-    onSuccess: (result) => {
-      // Polling will handle the final state
-      if (result.cancelled) {
-        message.info('Sync was cancelled');
-      }
-    },
-    onError: (error: any) => {
-      stopPolling();
-      setIsSyncing(false);
-      message.error(`Sync failed: ${error?.response?.data?.detail || error.message || 'Unknown error'}`);
-    }
-  });
-
-  // Cancel mutation
-  const cancelMutation = useMutation({
-    mutationFn: () => cancelSync(jobId),
-    onSuccess: (result) => {
-      if (result.success) {
-        message.info(result.message);
-      } else {
-        message.warning(result.message);
-      }
-    },
-    onError: (error: any) => {
-      message.error(`Failed to cancel: ${error?.message || 'Unknown error'}`);
-    }
-  });
-
-  const handleSyncClick = () => {
-    if (currentProjectId) {
-      // Project ID exists, go straight to date selection
-      setDateSelectProjectId(currentProjectId);
-      setDateSelectModalVisible(true);
-    } else {
-      // No project ID, show search modal and start search
-      setProjectIdModalVisible(true);
-      handleSearchProjects();
-    }
-  };
-
-  const confirmSyncWithProjectId = () => {
-    const projectId = manualInput ? inputProjectId.trim() : selectedProject?.id;
-
-    if (!projectId) {
-      message.error('Please select a project or enter a Project ID');
-      return;
-    }
-
-    // Update local state and notify parent
-    setCurrentProjectId(projectId);
-    if (onProjectIdUpdated) {
-      onProjectIdUpdated(projectId);
-    }
-    setProjectIdModalVisible(false);
-    setDateSelectProjectId(projectId);
-    setDateSelectModalVisible(true);
-  };
-
-  const handleDateSelectConfirm = (selectedDates: string[] | undefined) => {
-    syncMutation.mutate({ projectId: dateSelectProjectId, selectedDates });
-  };
-
-  const handleCancel = () => {
-    cancelMutation.mutate();
-  };
-
   // ── MagicPlan handlers ──────────────────────────────────
   const handleMagicPlanClick = async () => {
     setMpModalVisible(true);
@@ -1361,31 +1117,6 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     } finally {
       setMpSyncing(false);
     }
-  };
-
-  // Calculate progress
-  const getProgressInfo = () => {
-    if (syncStatus.status !== 'running') return null;
-
-    const synced = syncStatus.synced_count || 0;
-    const skipped = (syncStatus.skipped_existing || 0) + (syncStatus.skipped_trashed || 0);
-    const processed = synced + skipped;
-
-    return {
-      synced,
-      skipped,
-      processed,
-      page: syncStatus.current_page || 0
-    };
-  };
-
-  const progressInfo = getProgressInfo();
-
-  // Get match score color
-  const getMatchScoreColor = (score: number) => {
-    if (score >= 80) return 'green';
-    if (score >= 50) return 'orange';
-    return 'default';
   };
 
   return (
@@ -1459,23 +1190,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         {/* Actions — right side */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           {/* Sync / Export progress inline */}
-          {isSyncing && progressInfo && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: '#edf3ec', borderRadius: 6, border: '1px solid #d3e5d0' }}>
-              <SyncOutlined spin style={{ color: '#448361' }} />
-              <Text style={{ fontSize: 12 }}>
-                Syncing… {progressInfo.synced + progressInfo.skipped} photos
-              </Text>
-              <Button type="text" danger size="small" icon={<CloseCircleOutlined />} onClick={handleCancel} loading={cancelMutation.isPending} style={{ padding: '0 4px' }} />
-            </div>
-          )}
-          {!isSyncing && syncStatus.status === 'running' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px', background: '#e7f3f8', borderRadius: 6, border: '1px solid #c6e0ee' }}>
-              <SyncOutlined spin style={{ color: '#1f74c9', fontSize: 12 }} />
-              <Text style={{ fontSize: 12 }}>Sync running</Text>
-              <Button size="small" onClick={() => { setIsSyncing(true); startPolling(); }}>Resume</Button>
-              <Button type="text" danger size="small" icon={<CloseCircleOutlined />} onClick={handleCancel} loading={cancelMutation.isPending} style={{ padding: '0 4px' }} />
-            </div>
-          )}
+          {importer.progress}
           {isExporting && (() => {
             const ep = getExportProgressInfo();
             return (
@@ -1498,8 +1213,8 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                   key: 'companycam',
                   icon: currentProjectId ? <SyncOutlined /> : <LinkOutlined />,
                   label: currentProjectId ? 'Sync CompanyCam' : 'Link CompanyCam',
-                  onClick: handleSyncClick,
-                  disabled: isSyncing,
+                  onClick: () => importer.start(),
+                  disabled: importer.isSyncing,
                 },
                 {
                   key: 'magicplan',
@@ -1568,17 +1283,17 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       </div>
 
       {/* Sync Status Bar - shows when sync was recently completed */}
-      {syncStatus.status === 'completed' && syncStatus.synced_count !== undefined && (
+      {importer.syncStatus.status === 'completed' && importer.syncStatus.synced_count !== undefined && (
         <Alert
           type="success"
           showIcon
           icon={<CheckCircleOutlined />}
           message={
             <span>
-              Sync completed! <strong>{syncStatus.synced_count}</strong> new photos added
-              {(syncStatus.skipped_existing || 0) > 0 && (
+              Sync completed! <strong>{importer.syncStatus.synced_count}</strong> new photos added
+              {(importer.syncStatus.skipped_existing || 0) > 0 && (
                 <span style={{ color: '#73726e', marginLeft: 8 }}>
-                  ({syncStatus.skipped_existing} skipped)
+                  ({importer.syncStatus.skipped_existing} skipped)
                 </span>
               )}
             </span>
@@ -1752,156 +1467,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         onSaved={handleLocationSaved}
       />
 
-      {/* CompanyCam Date Select Modal - pick which capture dates to import (linked or newly-linked project) */}
-      <CompanyCamDateSelectModal
-        visible={dateSelectModalVisible}
-        jobId={jobId}
-        projectId={dateSelectProjectId}
-        confirmLoading={syncMutation.isPending}
-        onCancel={() => setDateSelectModalVisible(false)}
-        onConfirm={handleDateSelectConfirm}
-      />
-
-      {/* Project Search Modal - when no project is linked */}
-      <Modal
-        title={
-          <Space>
-            <SearchOutlined style={{ color: '#1f74c9' }} />
-            <span>Find CompanyCam Project</span>
-          </Space>
-        }
-        open={projectIdModalVisible}
-        onOk={confirmSyncWithProjectId}
-        onCancel={() => {
-          setProjectIdModalVisible(false);
-          setSelectedProject(null);
-          setManualInput(false);
-          setInputProjectId('');
-        }}
-        confirmLoading={syncMutation.isPending}
-        okText="Link & Choose Dates"
-        cancelText="Cancel"
-        width={600}
-        okButtonProps={{ disabled: !selectedProject && !inputProjectId.trim() }}
-      >
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          {/* Job Address Display */}
-          {jobAddress && (
-            <Alert
-              type="info"
-              message={
-                <Text>
-                  <strong>Job Address:</strong> {jobAddress}
-                </Text>
-              }
-              style={{ marginBottom: 8 }}
-            />
-          )}
-
-          {/* Loading State */}
-          {isSearching && (
-            <div style={{ textAlign: 'center', padding: '20px' }}>
-              <Spin />
-              <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-                Searching all CompanyCam projects by address match...
-              </Text>
-              <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
-                This may take a moment if you have many projects
-              </Text>
-            </div>
-          )}
-
-          {/* Search Results */}
-          {!isSearching && searchResults.length > 0 && !manualInput && (
-            <>
-              <Text>Select a matching CompanyCam project:</Text>
-              <List
-                size="small"
-                bordered
-                dataSource={searchResults}
-                style={{ maxHeight: '300px', overflow: 'auto' }}
-                renderItem={(project) => (
-                  <List.Item
-                    style={{
-                      cursor: 'pointer',
-                      backgroundColor: selectedProject?.id === project.id ? '#e7f3f8' : 'transparent',
-                      borderLeft: selectedProject?.id === project.id ? '3px solid #1f74c9' : '3px solid transparent',
-                      padding: '12px 16px'
-                    }}
-                    onClick={() => setSelectedProject(project)}
-                  >
-                    <div style={{ width: '100%' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <Text strong>{project.name || 'Unnamed Project'}</Text>
-                        <Tag>{project.photo_count} photos</Tag>
-                      </div>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {project.address || 'No address'}
-                      </Text>
-                    </div>
-                  </List.Item>
-                )}
-              />
-              <Button
-                type="link"
-                onClick={() => setManualInput(true)}
-                style={{ padding: 0 }}
-              >
-                Can't find the project? Enter ID manually
-              </Button>
-            </>
-          )}
-
-          {/* No Results */}
-          {!isSearching && searchResults.length === 0 && !manualInput && (
-            <>
-              <Alert
-                type="warning"
-                message="No matching projects found"
-                description="No CompanyCam projects match this job's address. You can enter the Project ID manually."
-              />
-              <Button
-                type="primary"
-                onClick={() => setManualInput(true)}
-              >
-                Enter Project ID Manually
-              </Button>
-            </>
-          )}
-
-          {/* Manual Input */}
-          {manualInput && (
-            <>
-              <div>
-                <Text strong style={{ display: 'block', marginBottom: 4 }}>
-                  CompanyCam Project ID <span style={{ color: '#d44c47' }}>*</span>
-                </Text>
-                <Input
-                  placeholder="e.g., 12345678"
-                  value={inputProjectId}
-                  onChange={(e) => setInputProjectId(e.target.value)}
-                  onPressEnter={confirmSyncWithProjectId}
-                />
-                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-                  You can find this in the CompanyCam project URL (e.g., https://app.companycam.com/projects/12345678)
-                </Text>
-              </div>
-              {searchResults.length > 0 && (
-                <Button
-                  type="link"
-                  onClick={() => {
-                    setManualInput(false);
-                    setInputProjectId('');
-                  }}
-                  style={{ padding: 0 }}
-                >
-                  ← Back to search results
-                </Button>
-              )}
-            </>
-          )}
-        </Space>
-      </Modal>
+      {importer.modals}
 
       {/* Google Drive Export Confirmation Modal */}
       <Modal

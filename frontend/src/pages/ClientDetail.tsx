@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card,
@@ -57,6 +57,8 @@ import {
   CloseCircleOutlined,
   SwapOutlined,
   InboxOutlined,
+  CloudDownloadOutlined,
+  FullscreenOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -79,6 +81,8 @@ import ClientDocumentHub from '../components/client/ClientDocumentHub';
 import ClaimNotes from '../components/client/ClaimNotes';
 import ClaimPhotosSection from '../components/client/ClaimPhotosSection';
 import ClaimWMPhotos, { wmPhotoSetLabel } from '../components/client/ClaimWMPhotos';
+import ClaimPhotoViewer from '../components/client/photo-viewer/ClaimPhotoViewer';
+import { useCompanyCamImport } from '../components/water-mitigation/useCompanyCamImport';
 import ClaimPackingSection from '../components/client/ClaimPackingSection';
 import AddToPackingModal from '../components/client/AddToPackingModal';
 import type { FileItem } from '../components/common/FileGallery';
@@ -2465,11 +2469,19 @@ const COMPLETION_PHOTOS = 'completion';
 
 // The claim's photos, one set at a time: each water mitigation job's (the
 // same photos as the job's Photos tab) and the claim's completion photos.
-// Selected photos can go to the packing estimate (Use for packing).
-const ClaimPhotos: React.FC<{ claim: Claim }> = ({ claim }) => {
+// Selected photos can go to the packing estimate (Use for packing), CompanyCam
+// photos can come into any of the sets, and View all opens them all over the
+// whole window.
+const ClaimPhotos: React.FC<{
+  claim: Claim;
+  clientId: string;
+  onViewAll: () => void;
+}> = ({ claim, clientId, onViewAll }) => {
+  const queryClient = useQueryClient();
   const wmJobs = claim.wm_jobs ?? [];
   const [open, setOpen] = useState(false);
   const [view, setView] = useState(wmJobs[0]?.id ?? COMPLETION_PHOTOS);
+  const [importView, setImportView] = useState(wmJobs[0]?.id ?? COMPLETION_PHOTOS);
   const [packing, setPacking] = useState<{
     source: PackingPhotoSource;
     photos: FileItem[];
@@ -2479,11 +2491,51 @@ const ClaimPhotos: React.FC<{ claim: Claim }> = ({ claim }) => {
     ...wmJobs.map((job, i) => ({
       key: job.id,
       label: wmPhotoSetLabel(job, i, wmJobs.length),
+      importTarget: {
+        context: 'water-mitigation' as const,
+        contextId: job.id,
+        basePath: `/api/water-mitigation/jobs/${job.id}`,
+        projectId: job.companycam_project_id,
+        onProjectLinked: () => queryClient.invalidateQueries({ queryKey: ['claims', clientId] }),
+      },
     })),
-    { key: COMPLETION_PHOTOS, label: 'Completion' },
+    {
+      key: COMPLETION_PHOTOS,
+      label: 'Completion',
+      // A claim keeps no project, so each import finds it by the client's address
+      importTarget: {
+        context: 'claim' as const,
+        contextId: claim.id,
+        basePath: `/api/clients/${clientId}/claims/${claim.id}`,
+      },
+    },
   ];
   // A job unlinked from the claim since the view was picked
   const current = views.some(v => v.key === view) ? view : views[0].key;
+
+  const importer = useCompanyCamImport(
+    (views.find(v => v.key === importView) ?? views[0]).importTarget,
+  );
+  const startImport = (target: (typeof views)[number]) => {
+    setImportView(target.key);
+    // The photos show up where they can be seen arriving
+    setView(target.key);
+    setOpen(true);
+    importer.start(target.importTarget);
+  };
+  const importButton = (
+    <Button
+      size="small"
+      type="text"
+      icon={<CloudDownloadOutlined />}
+      aria-label="Import from CompanyCam"
+      disabled={importer.isSyncing}
+      onClick={views.length === 1 ? () => startImport(views[0]) : undefined}
+    >
+      <span>Import<span className="cl-import-source"> from CompanyCam</span></span>
+      {views.length > 1 && <DownOutlined style={{ fontSize: 10 }} />}
+    </Button>
+  );
 
   const packingAction = (source: PackingPhotoSource) => (
     selected: FileItem[],
@@ -2521,11 +2573,33 @@ const ClaimPhotos: React.FC<{ claim: Claim }> = ({ claim }) => {
         </div>
       ) : undefined}
       actions={(
-        <Button size="small" type="text" icon={<CameraOutlined />} aria-expanded={open} onClick={() => setOpen(!open)}>
-          {open ? 'Hide photos' : 'Show photos'}
-        </Button>
+        <>
+          {importer.progress}
+          {views.length > 1 ? (
+            <Dropdown
+              trigger={['click']}
+              disabled={importer.isSyncing}
+              menu={{
+                items: views.map(v => ({
+                  key: v.key,
+                  label: `CompanyCam into ${v.label}`,
+                  onClick: () => startImport(v),
+                })),
+              }}
+            >
+              {importButton}
+            </Dropdown>
+          ) : importButton}
+          <Button size="small" type="text" icon={<FullscreenOutlined />} onClick={onViewAll}>
+            View all
+          </Button>
+          <Button size="small" type="text" icon={<CameraOutlined />} aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? 'Hide photos' : 'Show photos'}
+          </Button>
+        </>
       )}
     >
+      {importer.modals}
       {open && (current === COMPLETION_PHOTOS
         ? <ClaimPhotosSection claimId={claim.id} renderBulkExtraAction={packingAction('claim')} />
         : <ClaimWMPhotos key={current} jobId={current} renderBulkExtraAction={packingAction('wm')} />)}
@@ -2548,7 +2622,8 @@ const ClaimPanel: React.FC<{
   client: Client;
   onEdit: () => void;
   onEmail: () => void;
-}> = ({ claim, client, onEdit, onEmail }) => (
+  onViewPhotos: () => void;
+}> = ({ claim, client, onEdit, onEmail, onViewPhotos }) => (
   <div className="cl-claim">
     <div className="cl-claim-aside cl-claim-aside--top">
       <ClaimFacts claim={claim} onEdit={onEdit} onEmail={onEmail} />
@@ -2568,7 +2643,7 @@ const ClaimPanel: React.FC<{
         <ClaimNotes clientId={client.id} claimId={claim.id} />
       </div>
       <ClaimPackingSection claim={claim} client={client} />
-      <ClaimPhotos claim={claim} />
+      <ClaimPhotos claim={claim} clientId={client.id} onViewAll={onViewPhotos} />
     </div>
     <div className="cl-claim-aside cl-claim-aside--bottom">
       <ClaimActivityTimeline clientId={client.id} claimId={claim.id} />
@@ -2645,6 +2720,17 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
   const claims = data?.claims ?? [];
   const cashJobCount = claims.filter(isCashJob).length;
   const insuranceCount = claims.length - cashJobCount;
+
+  // In the URL so a phone's Back closes the photos instead of leaving the page
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const photosClaim = claims.find(c => c.id === searchParams.get('photos'));
+  const openPhotos = (claimId: string) => setSearchParams({ photos: claimId }, { state: { photosPushed: true } });
+  const closePhotos = () => {
+    if ((location.state as { photosPushed?: boolean } | null)?.photosPushed) navigate(-1);
+    else setSearchParams({}, { replace: true });
+  };
 
   const openNew = (type: ClaimType) => {
     setEditingClaim(null);
@@ -2751,11 +2837,21 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                   setClaimModalOpen(true);
                 }}
                 onEmail={() => setEmailDrawerClaim(claim)}
+                onViewPhotos={() => openPhotos(claim.id)}
               />
             ),
           }))}
         />
       )}
+
+      <ClaimPhotoViewer
+        open={!!photosClaim}
+        onClose={closePhotos}
+        claimId={photosClaim?.id ?? ''}
+        wmJobs={photosClaim?.wm_jobs ?? []}
+        subtitle={[client.display_name, photosClaim?.claim_number].filter(Boolean).join(' · ')}
+      />
+
 
       {isLoading && (
         <div style={{ textAlign: 'center', padding: 32 }}>

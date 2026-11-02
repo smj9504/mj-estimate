@@ -3524,6 +3524,7 @@ mark.fu-tpl-missing {
   font-size: 14px;
 }
 .cl-section .ui-section-head {
+  flex-wrap: wrap;
   min-height: 31px;
   padding-bottom: 4px;
 }
@@ -3537,8 +3538,10 @@ mark.fu-tpl-missing {
 .cl-section-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 2px;
+  margin-left: auto;
   margin-right: -7px;
 }
 .cl-section-actions .ant-btn-text {
@@ -4312,6 +4315,11 @@ a.cl-contact-line:hover {
   }
   .cl-sections-table {
     margin-left: 0;
+  }
+
+  /* Import, View all and Show photos on one line */
+  .cl-import-source {
+    display: none;
   }
 
   /* Row icon buttons grow to a thumb-sized target */

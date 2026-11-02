@@ -15,6 +15,15 @@ export const photoDate = (file: FileItem): string => {
   return date?.isValid() ? date.format('MM/DD/YYYY') : '';
 };
 
+const photoTime = (file: FileItem): number => {
+  const time = file.uploadDate ? dayjs(file.uploadDate).valueOf() : NaN;
+  return Number.isNaN(time) ? 0 : time;
+};
+
+/** Several sets as one list, newest first; a single set keeps its own order */
+export const mergePhotoSets = (sets: FileItem[][]): FileItem[] =>
+  (sets.length === 1 ? sets[0] : sets.flat().sort((a, b) => photoTime(b) - photoTime(a)));
+
 export interface CategoryCount {
   key: string;
   count: number;

@@ -16,6 +16,7 @@ interface UseFileGalleryProps {
   categoryFilter?: string | string[];  // Category filter for server-side filtering
   sourceFilter?: string;  // Source filter (companycam, magicplan, manual_upload)
   sortBy?: PhotoSortBy;  // Water-mitigation photo order (default: newest first)
+  refetchIfStaleOnMount?: boolean;  // Infinite scroll keeps its pages on mount; this also picks up changes made since
 }
 
 export const useFileGallery = ({
@@ -28,7 +29,8 @@ export const useFileGallery = ({
   pageSize = 20,  // Optimized default: smaller initial load for faster perceived performance
   categoryFilter,  // Category filter passed to API
   sourceFilter,  // Source filter passed to API
-  sortBy = 'captured_date'
+  sortBy = 'captured_date',
+  refetchIfStaleOnMount = false
 }: UseFileGalleryProps) => {
   const queryClient = useQueryClient();
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
@@ -235,7 +237,7 @@ export const useFileGallery = ({
     gcTime: 10 * 60 * 1000, // 10 minutes - keep cache longer to preserve scroll position
     maxPages: undefined, // No limit - keep all loaded pages for smooth scrolling
     refetchOnWindowFocus: false, // Don't refetch when window regains focus
-    refetchOnMount: false, // Don't refetch on mount if data exists
+    refetchOnMount: refetchIfStaleOnMount, // Don't refetch on mount if data exists, unless asked to when it's stale
   });
 
   // Regular query for non-infinite scroll

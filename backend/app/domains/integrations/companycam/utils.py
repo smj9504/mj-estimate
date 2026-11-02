@@ -11,7 +11,7 @@ import logging
 import re
 from datetime import date as date_cls, datetime
 from difflib import SequenceMatcher
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from .schemas import AddressInfo, CompanyCamProject
 
@@ -44,6 +44,66 @@ def extract_captured_date(cc_photo: Dict[str, Any]) -> Optional[date_cls]:
         return None
 
     return None
+
+
+def summarize_photo_dates(
+    photos: Iterable[Dict[str, Any]],
+    existing_ids: Set[str],
+) -> Dict[str, Any]:
+    """
+    Group a project's photos by capture date, counting the ones not imported yet.
+
+    Args:
+        photos: Raw photo dicts from the CompanyCam API
+        existing_ids: CompanyCam ids of the photos already imported
+
+    Returns:
+        Per-date counts sorted most recent first (photos with no capture date
+        last, under a date of None), with totals across all of them.
+    """
+    buckets: Dict[Optional[str], Dict[str, int]] = {}
+    total = 0
+    for cc_photo in photos:
+        total += 1
+        photo_date = extract_captured_date(cc_photo)
+        date_key = photo_date.isoformat() if photo_date else None
+
+        bucket = buckets.setdefault(date_key, {'total_count': 0, 'new_count': 0})
+        bucket['total_count'] += 1
+
+        if str(cc_photo.get('id')) not in existing_ids:
+            bucket['new_count'] += 1
+
+    # Sort most recent first; unknown-date bucket (None) goes last.
+    sorted_keys: List[Optional[str]] = sorted(
+        (k for k in buckets.keys() if k is not None), reverse=True
+    ) + ([None] if None in buckets else [])
+
+    return {
+        'dates': [
+            {
+                'date': key,
+                'total_count': buckets[key]['total_count'],
+                'new_count': buckets[key]['new_count'],
+            }
+            for key in sorted_keys
+        ],
+        'total_photos': total,
+        'total_new': sum(b['new_count'] for b in buckets.values()),
+    }
+
+
+def photo_download_url(cc_photo: Dict[str, Any]) -> Optional[str]:
+    """
+    The size of a photo worth storing: large or web, 10-16x smaller than the
+    original and sharp enough for storage and display.
+    """
+    uris = cc_photo.get('uris') or []
+    if isinstance(uris, dict):
+        return uris.get('large') or uris.get('web') or uris.get('original') or uris.get('medium')
+
+    by_type = {u.get('type'): u.get('uri') for u in uris if isinstance(u, dict)}
+    return by_type.get('large') or by_type.get('web') or by_type.get('original')
 
 
 def parse_companycam_address(project: CompanyCamProject) -> AddressInfo:

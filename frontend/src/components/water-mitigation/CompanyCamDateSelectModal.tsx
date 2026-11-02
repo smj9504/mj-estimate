@@ -21,7 +21,7 @@ const UNKNOWN_KEY = 'unknown';
 export interface CompanyCamDateBucket {
   date: string | null; // null = no capture date found on the photo
   total_count: number;
-  new_count: number; // not yet imported into this job
+  new_count: number; // not yet imported here
 }
 
 interface CompanyCamPhotoDatesResult {
@@ -33,17 +33,18 @@ interface CompanyCamPhotoDatesResult {
 }
 
 const fetchCompanyCamPhotoDates = async (
-  jobId: string,
+  basePath: string,
   projectId?: string
 ): Promise<CompanyCamPhotoDatesResult> => {
   const params = projectId ? `?companycam_project_id=${encodeURIComponent(projectId)}` : '';
-  const response = await api.get(`/api/water-mitigation/jobs/${jobId}/companycam-photo-dates${params}`);
+  const response = await api.get(`${basePath}/companycam-photo-dates${params}`);
   return response.data;
 };
 
 interface CompanyCamDateSelectModalProps {
   visible: boolean;
-  jobId: string;
+  /** The job's or claim's path the import endpoints hang off */
+  basePath: string;
   projectId?: string;
   confirmLoading?: boolean;
   onCancel: () => void;
@@ -53,7 +54,7 @@ interface CompanyCamDateSelectModalProps {
 
 const CompanyCamDateSelectModal: React.FC<CompanyCamDateSelectModalProps> = ({
   visible,
-  jobId,
+  basePath,
   projectId,
   confirmLoading,
   onCancel,
@@ -71,7 +72,7 @@ const CompanyCamDateSelectModal: React.FC<CompanyCamDateSelectModalProps> = ({
     setLoading(true);
     setError(null);
 
-    fetchCompanyCamPhotoDates(jobId, projectId)
+    fetchCompanyCamPhotoDates(basePath, projectId)
       .then(result => {
         if (cancelled) return;
         const dateBuckets = result.dates || [];
@@ -97,7 +98,7 @@ const CompanyCamDateSelectModal: React.FC<CompanyCamDateSelectModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [visible, jobId, projectId]);
+  }, [visible, basePath, projectId]);
 
   const allKeys = useMemo(() => buckets.map(b => b.date ?? UNKNOWN_KEY), [buckets]);
   const totalPhotos = useMemo(() => buckets.reduce((sum, b) => sum + b.total_count, 0), [buckets]);

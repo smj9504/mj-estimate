@@ -420,6 +420,7 @@ class ClaimSQLAlchemyRepository(SQLAlchemyRepository):
                     'claim_number': j.claim_number,
                     'company_id': str(j.company_id) if j.company_id else None,
                     'company_name': company_name,
+                    'companycam_project_id': j.companycam_project_id,
                 }
                 for j, company_name in wm_jobs
             ]
@@ -494,6 +495,7 @@ class ClaimSQLAlchemyRepository(SQLAlchemyRepository):
                 'claim_number': job.claim_number,
                 'company_id': str(job.company_id) if job.company_id else None,
                 'company_name': company_name,
+                'companycam_project_id': job.companycam_project_id,
             })
 
         rebuild_jobs = self.db_session.query(WorkOrder, Company.name).outerjoin(

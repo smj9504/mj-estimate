@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FileItem } from '../../common/FileGallery/types';
 import {
-  FIT_VIEW, MAX_ZOOM, clampView, countCategories, photoCategory, photoDate, photoPlace, zoomAt,
+  FIT_VIEW, MAX_ZOOM, clampView, countCategories, mergePhotoSets, photoCategory, photoDate, photoPlace, zoomAt,
 } from './photoViewerUtils';
 
 const photo = (fields: Partial<FileItem>): FileItem => ({
@@ -91,6 +91,29 @@ describe('zoomAt', () => {
     // Math.abs: the clamp can land on -0, which draws the same
     expect(Math.abs(view.x)).toBe(0);
     expect(Math.abs(view.y)).toBe(0);
+  });
+});
+
+describe('mergePhotoSets', () => {
+  const dated = (id: string, uploadDate: string) => photo({ id, uploadDate });
+
+  it('leaves one set in the order it came', () => {
+    const set = [dated('old', '2026-01-01T00:00:00'), dated('new', '2026-06-01T00:00:00')];
+    expect(mergePhotoSets([set])).toBe(set);
+  });
+
+  it('puts several sets together newest first, undated photos last', () => {
+    const merged = mergePhotoSets([
+      [dated('wm-new', '2026-06-01T00:00:00'), dated('wm-old', '2026-01-01T00:00:00')],
+      [dated('undated', ''), dated('claim', '2026-03-01T00:00:00')],
+    ]);
+    expect(merged.map(p => p.id)).toEqual(['wm-new', 'claim', 'wm-old', 'undated']);
+  });
+
+  it('leaves the sets themselves alone', () => {
+    const set = [dated('old', '2026-01-01T00:00:00'), dated('new', '2026-06-01T00:00:00')];
+    mergePhotoSets([set, []]);
+    expect(set.map(p => p.id)).toEqual(['old', 'new']);
   });
 });
 

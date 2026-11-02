@@ -9,7 +9,7 @@ import type { FileContext, FileItem } from '../../common/FileGallery/types';
 import { CLAIM_PHOTO_CATEGORIES } from '../ClaimPhotosSection';
 import { WM_PHOTO_CATEGORIES, wmPhotoSetLabel } from '../ClaimWMPhotos';
 import PhotoStage from './PhotoStage';
-import { countCategories, photoCategory, photoDate, photoPlace } from './photoViewerUtils';
+import { countCategories, mergePhotoSets, photoCategory, photoDate, photoPlace } from './photoViewerUtils';
 import './photoViewer.css';
 
 interface PhotoSet {
@@ -20,6 +20,17 @@ interface PhotoSet {
   categories: string[];
   emptyHint: string;
 }
+
+// A tab of the viewer: one set, or all of them as one list
+interface ViewerTab {
+  key: string;
+  label: string;
+  sets: PhotoSet[];
+  categories: string[];
+  emptyHint: string;
+}
+
+const ALL_PHOTOS = 'all-photos';
 
 interface PhotoCardProps {
   file: FileItem;
@@ -94,14 +105,20 @@ const CategoryChip: React.FC<CategoryChipProps> = ({ dot, label, count, selected
   </Tag>
 );
 
-// One set's photos: the big photo on one side, category chips over its cards on
-// the other. Every page of the set loads, so the chip counts and the arrows
-// cover all of it rather than what has been scrolled to.
-const PhotoSetView: React.FC<{
+interface LoadedSet {
+  files: FileItem[];
+  loading: boolean;
+  error: unknown;
+  refetch: () => unknown;
+  loadingMore: boolean;
+}
+
+// One set with every page loaded, so the chip counts and the arrows cover all
+// of it rather than what has been scrolled to.
+const LoadSet: React.FC<{
   set: PhotoSet;
-  cardsOpen: boolean;
-  onCardsAvailable: (available: boolean) => void;
-}> = ({ set, cardsOpen, onCardsAvailable }) => {
+  children: (loaded: LoadedSet) => React.ReactElement;
+}> = ({ set, children }) => {
   const {
     files, loading, error, refetch, hasNextPage, fetchNextPage, isFetchingNextPage,
   } = useFileGallery({
@@ -111,13 +128,49 @@ const PhotoSetView: React.FC<{
     enableInfiniteScroll: true,
     // Same as the claim page's gallery, so they share pages already loaded
     pageSize: 20,
+    // That gallery uploads and deletes while this is closed
+    refetchIfStaleOnMount: true,
   });
 
   useEffect(() => {
     if (hasNextPage && !isFetchingNextPage && !error) fetchNextPage?.();
   }, [hasNextPage, isFetchingNextPage, error, fetchNextPage]);
 
-  const categories = useMemo(() => countCategories(files, set.categories), [files, set.categories]);
+  return children({
+    files, loading, error, refetch, loadingMore: !!hasNextPage || isFetchingNextPage,
+  });
+};
+
+// Each set is a hook call and a tab has however many sets it has, so each gets
+// a component, nested around what needs them all
+const LoadSets: React.FC<{
+  sets: PhotoSet[];
+  loaded?: LoadedSet[];
+  children: (loaded: LoadedSet[]) => React.ReactElement;
+}> = ({ sets, loaded = [], children }) => (
+  sets.length === 0 ? children(loaded) : (
+    <LoadSet set={sets[0]}>
+      {(one) => <LoadSets sets={sets.slice(1)} loaded={[...loaded, one]}>{children}</LoadSets>}
+    </LoadSet>
+  )
+);
+
+// A tab's photos: the big photo on one side, category chips over its cards on
+// the other.
+const PhotoBrowser: React.FC<{
+  loaded: LoadedSet[];
+  tab: ViewerTab;
+  cardsOpen: boolean;
+  onCardsAvailable: (available: boolean) => void;
+}> = ({ loaded, tab, cardsOpen, onCardsAvailable }) => {
+  const files = useMemo(() => mergePhotoSets(loaded.map(l => l.files)), [loaded]);
+  const error = loaded.some(l => l.error);
+  // With some of the sets in, the rest are "more photos" under their cards
+  const loading = files.length === 0 && loaded.some(l => l.loading);
+  const loadingMore = loaded.some(l => l.loading || l.loadingMore);
+  const retry = () => loaded.filter(l => l.error).forEach(l => l.refetch());
+
+  const categories = useMemo(() => countCategories(files, tab.categories), [files, tab.categories]);
 
   const [picked, setPicked] = useState<string[]>([]);
   // A category can empty out from under a chip when the photos reload
@@ -161,7 +214,7 @@ const PhotoSetView: React.FC<{
     selected.includes(key) ? selected.filter(k => k !== key) : [...selected, key],
   );
 
-  const loadFailed = !!error && files.length === 0;
+  const loadFailed = error && !loading && files.length === 0;
   const isEmpty = !loading && !loadFailed && files.length === 0;
   const cardsAvailable = !loadFailed && !isEmpty;
   const showCards = cardsOpen && cardsAvailable;
@@ -174,12 +227,12 @@ const PhotoSetView: React.FC<{
     <>
       <strong>Couldn't load these photos.</strong>
       <span>It may be a connection or server problem.</span>
-      <Button icon={<ReloadOutlined />} onClick={() => refetch()}>Try again</Button>
+      <Button icon={<ReloadOutlined />} onClick={retry}>Try again</Button>
     </>
   ) : isEmpty ? (
     <>
       <strong>No photos here yet.</strong>
-      <span>{set.emptyHint}</span>
+      <span>{tab.emptyHint}</span>
     </>
   ) : loading ? (
     <span role="status">Loading photos...</span>
@@ -218,7 +271,7 @@ const PhotoSetView: React.FC<{
             ))}
           </div>
         )}
-        <div className="cpv-cards" ref={cardsRef} aria-busy={loading || isFetchingNextPage}>
+        <div className="cpv-cards" ref={cardsRef} aria-busy={loading || loadingMore}>
           {loading && Array.from({ length: 8 }, (_, i) => (
             <div key={i} className="cpv-card cpv-card--skeleton" aria-hidden="true">
               <span className="cpv-card-thumb" />
@@ -229,13 +282,13 @@ const PhotoSetView: React.FC<{
           {shown.map(file => (
             <PhotoCard key={file.id} file={file} isCurrent={file.id === current?.id} onSelect={setCurrentId} />
           ))}
-          {(hasNextPage || isFetchingNextPage) && !error && (
+          {!loading && loadingMore && !error && (
             <div className="cpv-cards-note" role="status">Loading more photos...</div>
           )}
           {error && files.length > 0 && (
             <div className="cpv-cards-note" role="alert">
               Some photos didn't load.{' '}
-              <Button type="link" size="small" onClick={() => refetch()}>Try again</Button>
+              <Button type="link" size="small" onClick={retry}>Try again</Button>
             </div>
           )}
         </div>
@@ -252,27 +305,46 @@ interface ViewerBodyProps {
 }
 
 const ViewerBody: React.FC<ViewerBodyProps> = ({ claimId, wmJobs, subtitle, onClose }) => {
-  const sets = useMemo<PhotoSet[]>(() => [
-    ...wmJobs.map((job, i) => ({
-      key: job.id,
-      label: wmPhotoSetLabel(job, i, wmJobs.length),
-      context: 'water-mitigation' as const,
-      contextId: job.id,
-      categories: WM_PHOTO_CATEGORIES,
-      emptyHint: "Photos added to this claim's water mitigation job show up here.",
-    })),
-    {
-      key: claimId,
-      label: 'Completion',
-      context: 'claim' as const,
-      contextId: claimId,
-      categories: CLAIM_PHOTO_CATEGORIES,
-      emptyHint: "Completion photos added on the client's claim show up here.",
-    },
-  ], [claimId, wmJobs]);
+  const tabs = useMemo<ViewerTab[]>(() => {
+    const sets: PhotoSet[] = [
+      ...wmJobs.map((job, i) => ({
+        key: job.id,
+        label: wmPhotoSetLabel(job, i, wmJobs.length),
+        context: 'water-mitigation' as const,
+        contextId: job.id,
+        categories: WM_PHOTO_CATEGORIES,
+        emptyHint: "Photos added to this claim's water mitigation job show up here.",
+      })),
+      {
+        key: claimId,
+        label: 'Completion',
+        context: 'claim' as const,
+        contextId: claimId,
+        categories: CLAIM_PHOTO_CATEGORIES,
+        emptyHint: "Completion photos added on the client's claim show up here.",
+      },
+    ];
+    const setTabs = sets.map(set => ({
+      key: set.key,
+      label: set.label,
+      sets: [set],
+      categories: set.categories,
+      emptyHint: set.emptyHint,
+    }));
+    return setTabs.length === 1 ? setTabs : [
+      {
+        key: ALL_PHOTOS,
+        label: 'All photos',
+        sets,
+        categories: sets.flatMap(set => set.categories),
+        emptyHint: 'Photos added to this claim or its water mitigation job show up here.',
+      },
+      ...setTabs,
+    ];
+  }, [claimId, wmJobs]);
 
-  const [setKey, setSetKey] = useState(sets[0].key);
-  const currentSet = sets.find(s => s.key === setKey) ?? sets[0];
+  const [tabKey, setTabKey] = useState(tabs[0].key);
+  const currentTab = tabs.find(t => t.key === tabKey) ?? tabs[0];
 
   const [cardsOpen, setCardsOpen] = useState(true);
   // An empty or failed set has no cards to show or hide
@@ -318,20 +390,20 @@ const ViewerBody: React.FC<ViewerBodyProps> = ({ claimId, wmJobs, subtitle, onCl
           <strong>Photos</strong>
           {subtitle && <span className="cpv-title-meta" title={subtitle}>{subtitle}</span>}
         </div>
-        {sets.length > 1 && (
+        {tabs.length > 1 && (
           <div className="cpv-tabs" role="tablist" aria-label="Photo set">
-            {sets.map(s => (
+            {tabs.map(t => (
               <Button
-                key={s.key}
+                key={t.key}
                 type="text"
                 size="small"
                 role="tab"
-                aria-selected={currentSet.key === s.key}
-                title={s.label}
-                className={`ui-view-tab${currentSet.key === s.key ? ' is-selected' : ''}`}
-                onClick={() => setSetKey(s.key)}
+                aria-selected={currentTab.key === t.key}
+                title={t.label}
+                className={`ui-view-tab${currentTab.key === t.key ? ' is-selected' : ''}`}
+                onClick={() => setTabKey(t.key)}
               >
-                {s.label}
+                {t.label}
               </Button>
             ))}
           </div>
@@ -379,12 +451,16 @@ const ViewerBody: React.FC<ViewerBodyProps> = ({ claimId, wmJobs, subtitle, onCl
           </Tooltip>
         </div>
       </header>
-      <PhotoSetView
-        key={currentSet.key}
-        set={currentSet}
-        cardsOpen={cardsOpen}
-        onCardsAvailable={setCardsAvailable}
-      />
+      <LoadSets key={currentTab.key} sets={currentTab.sets}>
+        {(loaded) => (
+          <PhotoBrowser
+            loaded={loaded}
+            tab={currentTab}
+            cardsOpen={cardsOpen}
+            onCardsAvailable={setCardsAvailable}
+          />
+        )}
+      </LoadSets>
     </div>
   );
 };
@@ -394,7 +470,8 @@ interface ClaimPhotoViewerProps extends ViewerBodyProps {
 }
 
 // A claim's photos over the whole window, so they can be looked through without
-// leaving the page: the same sets as the Photos section on the client page.
+// leaving the page: the same sets as the Photos section on the client page, all
+// of them together first.
 const ClaimPhotoViewer: React.FC<ClaimPhotoViewerProps> = ({ open, onClose, subtitle, ...rest }) => (
   <Modal
     open={open}

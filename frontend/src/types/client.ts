@@ -336,7 +336,7 @@ export interface Claim extends ClaimStageInfo {
   invoice_count: number;
   estimate_count: number;
   wm_job_count: number;
-  wm_jobs: { id: string; property_address?: string; status?: string; claim_number?: string; company_id?: string; company_name?: string }[];
+  wm_jobs: { id: string; property_address?: string; status?: string; claim_number?: string; company_id?: string; company_name?: string; companycam_project_id?: string }[];
   work_order_count: number;
   rebuild_jobs: { id: string; work_order_number?: string; property_address?: string; status?: string; company_id?: string; company_name?: string }[];
   cabinet_estimate_count: number;
