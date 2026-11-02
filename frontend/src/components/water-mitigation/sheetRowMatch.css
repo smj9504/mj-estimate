@@ -1,0 +1,118 @@
+/*
+ * Sheet row match (srm-*): a sheet row beside the job or client entered by hand
+ * at the same address, to say whether they are the same. Built from the White
+ * Sheet tokens: hairlines between rows, colour only where the two disagree.
+ */
+
+.srm-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding-right: 24px; /* clear the modal close button */
+}
+.srm-count {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+}
+.srm-lead {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--color-neutral-700);
+}
+
+/* More than one job or client at the address: pick the one to compare with */
+.srm-picks.ant-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.srm-picks .ant-radio-wrapper {
+  margin-inline-end: 0;
+  align-items: flex-start;
+  overflow-wrap: anywhere;
+}
+.srm-pick-kind {
+  margin-right: 8px;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+
+.srm-compare {
+  border-top: 1px solid var(--color-neutral-200);
+}
+.srm-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-neutral-900);
+  overflow-wrap: anywhere;
+}
+.srm-row-head {
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-neutral-600);
+}
+.srm-ours {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.srm-open {
+  display: inline-flex;
+  padding: 2px;
+  color: var(--color-neutral-600);
+}
+.srm-label {
+  color: var(--color-neutral-600);
+  overflow-wrap: normal;
+}
+.srm-empty {
+  color: var(--color-neutral-400);
+}
+.srm-differs {
+  color: var(--tag-orange-text);
+}
+
+/* What each answer does, so nobody has to find out by trying it */
+.srm-outcomes {
+  margin: 14px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.srm-outcomes dt {
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.srm-outcomes dd {
+  margin: 0 0 8px;
+  color: var(--color-neutral-600);
+}
+.srm-outcomes dd:last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 767.98px) {
+  .srm-row {
+    grid-template-columns: 80px minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+  }
+  .srm-lead,
+  .srm-row,
+  .srm-outcomes {
+    font-size: 14px;
+  }
+  .srm-open {
+    padding: 8px;
+    margin: -6px 0;
+  }
+}

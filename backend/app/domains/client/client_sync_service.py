@@ -4,6 +4,11 @@ ClientSyncService - Auto-creates/updates Client and Claim from WM Job data.
 Called after WM Job creation or update (from Google Sheets sync or manual API).
 Handles duplicate prevention via multi-level matching.
 
+What came off the Google Sheet and what was entered by hand never match each other
+here: a job from a sheet row only finds clients the sheet made, and a job entered by
+hand only finds the rest. The two only meet when someone says a row is the same as
+what was entered by hand (WMSheetRowMatch).
+
 Flow:
   WM Job (homeowner_name, property_address, insurance, claim_number, etc.)
     → Match or create Client
@@ -15,13 +20,16 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 
 from app.domains.client.models import Client, Claim
-from app.domains.water_mitigation.models import WaterMitigationJob
+from app.domains.water_mitigation.models import WaterMitigationJob, WMSheetRowMatch
 
 logger = logging.getLogger(__name__)
+
+# clients.source for a client the sheet sync made. NULL = entered in this app.
+SHEET_SOURCE = 'google_sheets'
 
 
 class ClientSyncService:
@@ -52,16 +60,21 @@ class ClientSyncService:
             'claim_action': 'skipped',
         }
 
+        decision = self._same_decision(job)
+
         homeowner_name = (job.homeowner_name or '').strip()
-        if not homeowner_name:
+        if not homeowner_name and not (decision and decision.client_id):
             logger.debug(f"WM Job {job.id}: no homeowner_name, skipping client sync")
             return result
 
         try:
             # Step 1: Match or create Client
-            client, client_action = self._sync_client(job)
+            client, client_action = self._sync_client(job, decision)
             result['client_id'] = str(client.id)
             result['client_action'] = client_action
+
+            if decision and not decision.client_id:
+                decision.client_id = client.id
 
             # Step 2: Match or create Claim (if claim_number present)
             claim_number = (job.claim_number or '').strip()
@@ -97,7 +110,27 @@ class ClientSyncService:
     # Client matching & sync
     # ================================================================
 
-    def _sync_client(self, job: WaterMitigationJob) -> Tuple[Client, str]:
+    def _same_decision(self, job: WaterMitigationJob) -> Optional[WMSheetRowMatch]:
+        """The decision that this job's sheet row is the same as something entered by hand"""
+        return self.db.query(WMSheetRowMatch).filter(
+            WMSheetRowMatch.job_id == job.id,
+            WMSheetRowMatch.status == 'same',
+        ).first()
+
+    def _from_sheet(self, job: WaterMitigationJob, decision: Optional[WMSheetRowMatch]) -> bool:
+        """A job the sheet made, even if its row has gone (it keeps the tab's name)"""
+        on_sheet = job.google_sheet_row_number is not None or job.google_sheet_name is not None
+        return on_sheet and not decision
+
+    def _same_origin(self, job: WaterMitigationJob, decision: Optional[WMSheetRowMatch]) -> Any:
+        """Condition for the clients this job may match by its details"""
+        if self._from_sheet(job, decision):
+            return Client.source == SHEET_SOURCE
+        return or_(Client.source.is_(None), Client.source != SHEET_SOURCE)
+
+    def _sync_client(
+        self, job: WaterMitigationJob, decision: Optional[WMSheetRowMatch] = None
+    ) -> Tuple[Client, str]:
         """Match or create a Client from WM Job data. Returns (client, action)."""
 
         # Priority 1: WM Job already linked to a Claim that has a Client
@@ -109,33 +142,42 @@ class ClientSyncService:
                     self._update_client_from_job(client, job)
                     return client, 'updated'
 
-        # Priority 2: Match by homeowner_name + property_address
-        client = self._match_by_name_and_address(job)
+        # Priority 2: Someone said which client this job's sheet row belongs with
+        if decision and decision.client_id:
+            client = self.db.query(Client).filter(Client.id == decision.client_id).first()
+            if client:
+                self._update_client_from_job(client, job)
+                return client, 'updated'
+
+        same_origin = self._same_origin(job, decision)
+
+        # Priority 3: Match by homeowner_name + property_address
+        client = self._match_by_name_and_address(job, same_origin)
         if client:
             self._update_client_from_job(client, job)
             return client, 'updated'
 
-        # Priority 3: Match by phone (if available)
+        # Priority 4: Match by phone (if available)
         phone = (job.homeowner_phone or '').strip()
         if phone:
-            client = self._match_by_phone(phone)
+            client = self._match_by_phone(phone, same_origin)
             if client:
                 self._update_client_from_job(client, job)
                 return client, 'matched'
 
-        # Priority 4: Match by email (if available)
+        # Priority 5: Match by email (if available)
         email = (job.homeowner_email or '').strip()
         if email:
-            client = self._match_by_email(email)
+            client = self._match_by_email(email, same_origin)
             if client:
                 self._update_client_from_job(client, job)
                 return client, 'matched'
 
         # No match → create new Client
-        client = self._create_client_from_job(job)
+        client = self._create_client_from_job(job, decision)
         return client, 'created'
 
-    def _match_by_name_and_address(self, job: WaterMitigationJob) -> Optional[Client]:
+    def _match_by_name_and_address(self, job: WaterMitigationJob, same_origin: Any) -> Optional[Client]:
         """Match client by normalized homeowner_name + property_address."""
         name = (job.homeowner_name or '').strip().lower()
         address = (job.property_address or '').strip().lower()
@@ -147,6 +189,7 @@ class ClientSyncService:
         candidates = self.db.query(Client).filter(
             func.lower(Client.display_name) == name,
             Client.is_active == True,
+            same_origin,
         ).all()
 
         if not candidates:
@@ -154,6 +197,7 @@ class ClientSyncService:
             candidates = self.db.query(Client).filter(
                 func.lower(Client.display_name).contains(name),
                 Client.is_active == True,
+                same_origin,
             ).all()
 
         if not candidates:
@@ -178,7 +222,7 @@ class ClientSyncService:
 
         return None
 
-    def _match_by_phone(self, phone: str) -> Optional[Client]:
+    def _match_by_phone(self, phone: str, same_origin: Any) -> Optional[Client]:
         """Match by phone number (normalized)."""
         normalized = self._normalize_phone(phone)
         if not normalized or len(normalized) < 7:
@@ -186,7 +230,8 @@ class ClientSyncService:
 
         # Search in Client.phone and in owners JSON
         clients = self.db.query(Client).filter(
-            Client.is_active == True
+            Client.is_active == True,
+            same_origin,
         ).all()
 
         for c in clients:
@@ -202,7 +247,7 @@ class ClientSyncService:
                             return c
         return None
 
-    def _match_by_email(self, email: str) -> Optional[Client]:
+    def _match_by_email(self, email: str, same_origin: Any) -> Optional[Client]:
         """Match by email (case-insensitive)."""
         email_lower = email.lower().strip()
         if not email_lower:
@@ -211,6 +256,7 @@ class ClientSyncService:
         client = self.db.query(Client).filter(
             func.lower(Client.email) == email_lower,
             Client.is_active == True,
+            same_origin,
         ).first()
 
         return client
@@ -223,11 +269,14 @@ class ClientSyncService:
     # Client create / update
     # ================================================================
 
-    def _create_client_from_job(self, job: WaterMitigationJob) -> Client:
+    def _create_client_from_job(
+        self, job: WaterMitigationJob, decision: Optional[WMSheetRowMatch] = None
+    ) -> Client:
         """Create a new Client from WM Job homeowner data."""
         homeowner_name = (job.homeowner_name or '').strip()
 
         client = Client(
+            source=SHEET_SOURCE if self._from_sheet(job, decision) else None,
             display_name=homeowner_name,
             owners=[{
                 'name': homeowner_name,
@@ -336,9 +385,11 @@ class ClientSyncService:
                 self._update_claim_from_job(claim, job)
                 return claim, 'matched'
 
-            # Also search globally (claim might exist under different client - edge case)
-            claim = self.db.query(Claim).filter(
+            # Also search globally (claim might exist under different client - edge case),
+            # but not across a sheet client and one entered by hand
+            claim = self.db.query(Claim).join(Client, Claim.client_id == Client.id).filter(
                 func.lower(Claim.claim_number) == claim_number.lower(),
+                self._same_origin(job, self._same_decision(job)),
             ).first()
             if claim:
                 # If found under different client, still match (claim_number is unique per insurance)
@@ -427,6 +478,58 @@ class ClientSyncService:
             claim.company_id = job.company_id
 
         self.db.flush()
+
+
+def mark_sheet_clients(db: Session) -> None:
+    """
+    Tell the clients the sheet sync made before clients.source recorded it from the
+    ones entered here. Unmarked they'd look entered by hand, and a job with no claim,
+    which finds its client by its details on every sync, would get a second one.
+
+    A sheet client is one that appeared with or after a sheet job it belongs to: a
+    client entered first and merged into later stays NULL. Claims are the link when a
+    job has one; a job without a claim is matched on its homeowner, as the sync does.
+    Jobs someone has since linked to a client by hand are left out. Only runs until a
+    client is marked. Ids are cast because not every table holds them as the same type.
+    """
+    if db.query(Client.id).filter(Client.source == SHEET_SOURCE).first():
+        return
+
+    not_linked_by_hand = """
+        CAST(j.id AS TEXT) NOT IN (
+            SELECT CAST(m.job_id AS TEXT) FROM wm_sheet_row_matches m
+            WHERE m.status = 'same' AND m.job_id IS NOT NULL
+        )
+    """
+    db.execute(text(f"""
+        UPDATE clients SET source = '{SHEET_SOURCE}'
+        WHERE source IS NULL
+          AND CAST(id AS TEXT) IN (
+            SELECT CAST(cl.id AS TEXT)
+            FROM clients cl
+            JOIN claims c ON CAST(c.client_id AS TEXT) = CAST(cl.id AS TEXT)
+            JOIN water_mitigation_jobs j ON CAST(j.claim_id AS TEXT) = CAST(c.id AS TEXT)
+            WHERE j.google_sheet_row_number IS NOT NULL
+              AND cl.created_at >= j.created_at
+              AND {not_linked_by_hand}
+          )
+    """))
+    db.execute(text(f"""
+        UPDATE clients SET source = '{SHEET_SOURCE}'
+        WHERE source IS NULL
+          AND CAST(id AS TEXT) IN (
+            SELECT CAST(cl.id AS TEXT)
+            FROM clients cl
+            JOIN water_mitigation_jobs j
+              ON j.claim_id IS NULL
+             AND j.google_sheet_row_number IS NOT NULL
+             AND lower(trim(j.homeowner_name)) = lower(cl.display_name)
+            WHERE (cl.address = COALESCE(j.property_street, j.property_address)
+                   OR cl.created_at >= j.created_at)
+              AND {not_linked_by_hand}
+          )
+    """))
+    db.commit()
 
 
 def sync_client_from_wm_job(db: Session, job: WaterMitigationJob) -> Dict[str, Any]:

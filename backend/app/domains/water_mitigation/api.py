@@ -142,7 +142,7 @@ def create_job(
     """Create new water mitigation job"""
     job.company_id = company_for_new_job(db, current_staff, job.company_id)
     try:
-        created_job = service.create_job(job)
+        created_job = service.create_job(job, created_by_id=current_staff.id)
 
         # Commit the transaction
         db.commit()

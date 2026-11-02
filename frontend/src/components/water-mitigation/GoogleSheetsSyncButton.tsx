@@ -6,12 +6,12 @@
 import React, { useState } from 'react';
 import { Button, message, Modal, Tooltip } from 'antd';
 import { SyncOutlined, CloudSyncOutlined } from '@ant-design/icons';
-import googleSheetsService from '../../services/googleSheetsService';
+import googleSheetsService, { type SyncStats } from '../../services/googleSheetsService';
 
 interface GoogleSheetsSyncButtonProps {
   spreadsheetId?: string;
   sheetName?: string;
-  onSyncComplete?: () => void;
+  onSyncComplete?: (result: SyncStats) => void;
   type?: 'default' | 'primary' | 'text' | 'link';
   size?: 'small' | 'middle' | 'large';
   showStats?: boolean;
@@ -42,8 +42,11 @@ const GoogleSheetsSyncButton: React.FC<GoogleSheetsSyncButtonProps> = ({
         sync_type: 'full'
       });
 
+      const needsReview = result.needs_review || 0;
+
       if (result.status === 'success') {
-        if (showStats) {
+        // Rows to decide open their own dialog; a second one over it would only get in the way
+        if (showStats && !needsReview) {
           Modal.success({
             title: '동기화 완료',
             content: (
@@ -53,6 +56,10 @@ const GoogleSheetsSyncButton: React.FC<GoogleSheetsSyncButtonProps> = ({
                   <li>처리된 행: {result.processed}개</li>
                   <li>새로 생성: {result.created}개</li>
                   <li>업데이트: {result.updated}개</li>
+                  {(result.moved || 0) > 0 && <li>행 위치가 바뀐 job: {result.moved}개</li>}
+                  {(result.off_sheet || 0) > 0 && (
+                    <li>시트에서 행이 사라진 job: {result.off_sheet}개 (데이터는 유지됨)</li>
+                  )}
                   {result.failed > 0 && (
                     <li style={{ color: 'red' }}>실패: {result.failed}개</li>
                   )}
@@ -62,13 +69,14 @@ const GoogleSheetsSyncButton: React.FC<GoogleSheetsSyncButtonProps> = ({
           });
         } else {
           message.success(
-            `동기화 완료: ${result.processed}개 행 처리 (생성: ${result.created}, 업데이트: ${result.updated})`
+            `동기화 완료: ${result.processed}개 행 처리 (생성: ${result.created}, 업데이트: ${result.updated}` +
+            `${needsReview ? `, 확인 필요: ${needsReview}` : ''})`
           );
         }
 
         // Call callback if provided
         if (onSyncComplete) {
-          onSyncComplete();
+          onSyncComplete(result);
         }
       } else if (result.status === 'partial') {
         Modal.warning({
@@ -79,6 +87,11 @@ const GoogleSheetsSyncButton: React.FC<GoogleSheetsSyncButtonProps> = ({
               <ul style={{ marginTop: 12, paddingLeft: 20 }}>
                 <li>처리된 행: {result.processed}개</li>
                 <li>성공: {result.created + result.updated}개</li>
+                {needsReview > 0 && <li>확인 필요: {needsReview}개</li>}
+                {(result.moved || 0) > 0 && <li>행 위치가 바뀐 job: {result.moved}개</li>}
+                {(result.off_sheet || 0) > 0 && (
+                  <li>시트에서 행이 사라진 job: {result.off_sheet}개 (데이터는 유지됨)</li>
+                )}
                 <li style={{ color: 'red' }}>실패: {result.failed}개</li>
               </ul>
               {result.errors && result.errors.length > 0 && (
@@ -87,7 +100,7 @@ const GoogleSheetsSyncButton: React.FC<GoogleSheetsSyncButtonProps> = ({
                   <ul style={{ maxHeight: 150, overflow: 'auto', paddingLeft: 20 }}>
                     {result.errors.map((err, idx) => (
                       <li key={idx}>
-                        {err.row}번 행: {err.error}
+                        {err.row ? `${err.row}번 행` : `${err.sheet_name} 탭`}: {err.error}
                       </li>
                     ))}
                   </ul>
@@ -98,7 +111,7 @@ const GoogleSheetsSyncButton: React.FC<GoogleSheetsSyncButtonProps> = ({
         });
 
         if (onSyncComplete) {
-          onSyncComplete();
+          onSyncComplete(result);
         }
       } else {
         message.error('동기화 실패: ' + (result.errors?.[0]?.error || '알 수 없는 오류'));

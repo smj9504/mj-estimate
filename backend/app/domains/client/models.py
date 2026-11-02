@@ -63,7 +63,8 @@ class Client(Base, BaseModel):
     is_active = Column(Boolean, default=True)
 
     # Where the client came from: NULL = entered in this app,
-    # 'acculynx' = created by the AccuLynx archive import
+    # 'acculynx' = created by the AccuLynx archive import,
+    # 'google_sheets' = created by the Google Sheet sync
     source = Column(String(20), nullable=True)
 
     # Relationships

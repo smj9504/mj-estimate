@@ -51,6 +51,7 @@ def _sync_sheets_blocking() -> dict:
             f"processed={stats['processed']}, "
             f"created={stats['created']}, "
             f"updated={stats['updated']}, "
+            f"needs_review={stats['needs_review']}, "
             f"failed={stats['failed']}"
         )
         return stats

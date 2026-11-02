@@ -3,7 +3,7 @@ Google Sheets integration schemas
 """
 
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Literal, Optional, Dict, Any
 from datetime import datetime
 
 from app.core.config import settings
@@ -50,7 +50,10 @@ class SheetSyncResult(BaseModel):
     processed: int = Field(0, description="Number of rows processed")
     created: int = Field(0, description="Number of jobs created")
     updated: int = Field(0, description="Number of jobs updated")
+    moved: int = Field(0, description="Number of jobs that followed their row to a new row number")
+    off_sheet: int = Field(0, description="Number of jobs whose row is gone, keeping their data")
     skipped: int = Field(0, description="Number of inactive jobs skipped")
+    needs_review: int = Field(0, description="Number of rows waiting on a same-or-different decision")
     error: Optional[str] = Field(None, description="Error message if failed")
 
 
@@ -60,10 +63,20 @@ class SyncStats(BaseModel):
     processed: int = Field(0, description="Number of rows processed")
     created: int = Field(0, description="Number of jobs created")
     updated: int = Field(0, description="Number of jobs updated")
+    moved: int = Field(0, description="Number of jobs that followed their row to a new row number")
+    off_sheet: int = Field(0, description="Number of jobs whose row is gone, keeping their data")
     skipped: int = Field(0, description="Number of inactive jobs skipped")
+    needs_review: int = Field(0, description="Number of rows waiting on a same-or-different decision")
     failed: int = Field(0, description="Number of rows failed")
     sheets_synced: Optional[List[SheetSyncResult]] = Field(default=[], description="List of sheet sync results")
     errors: Optional[List[Dict[str, Any]]] = Field(default=[], description="List of errors")
+
+
+class RowMatchDecision(BaseModel):
+    """Whether a sheet row is the same as a job or client entered by hand"""
+    decision: Literal["same", "different"]
+    candidate_type: Optional[Literal["job", "client"]] = Field(None, description="With 'same': which kind of record")
+    candidate_id: Optional[str] = Field(None, description="With 'same': the record's id")
 
 
 class SyncLogResponse(BaseModel):

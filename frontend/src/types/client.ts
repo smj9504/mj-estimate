@@ -610,8 +610,8 @@ export interface Client {
   company_id?: string;
   notes?: string;
   is_active: boolean;
-  /** null/undefined = entered in this app, 'acculynx' = AccuLynx archive import */
-  source?: 'acculynx' | null;
+  /** null/undefined = entered in this app, 'acculynx' = AccuLynx archive import, 'google_sheets' = Google Sheet sync */
+  source?: 'acculynx' | 'google_sheets' | null;
   claims: Claim[];
   claim_count: number;
   standalone_invoice_count: number;
@@ -680,8 +680,8 @@ export interface ClientListItem {
   email?: string;
   insurance_company?: string;
   is_active: boolean;
-  /** null/undefined = entered in this app, 'acculynx' = AccuLynx archive import */
-  source?: 'acculynx' | null;
+  /** null/undefined = entered in this app, 'acculynx' = AccuLynx archive import, 'google_sheets' = Google Sheet sync */
+  source?: 'acculynx' | 'google_sheets' | null;
   claim_count: number;
   /** Claims still being worked (not closed or denied) */
   active_claim_count?: number;

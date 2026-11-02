@@ -1042,7 +1042,7 @@ const WaterMitigationDetail: React.FC = () => {
                           {job.google_sheet_name || EMPTY}
                         </Descriptions.Item>
                         <Descriptions.Item label="Google Sheet Row">
-                          {job.google_sheet_row_number || EMPTY}
+                          {job.google_sheet_row_number || (job.google_sheet_name ? 'No longer on the sheet' : EMPTY)}
                         </Descriptions.Item>
                         <Descriptions.Item label="Last CompanyCam Sync">
                           {job.companycam_last_sync

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sys
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -79,17 +80,26 @@ def process_row(existing_job):
     service = GoogleSheetsSyncService(None, 'test-sheet')
     saved = {}
     service._find_job_by_row_number = lambda row, sheet: existing_job
-    service._find_unlinked_job_by_address = lambda address: None
+    service._close_pending_match = lambda row, sheet: None
     service._update_job = lambda job, data, row, sheet: saved.update(data)
     service._create_job = lambda data, row, sheet: saved.update(data)
-    service._process_row(SHEET_ROW, 21, 'Vanessa')
+    with patch.multiple(
+        'app.domains.integrations.google_sheets.sync_service',
+        mapped_job_match=lambda db, job: None,
+        has_manual_match=lambda db, address: False,
+        find_companycam_lead=lambda db, address: None,
+    ):
+        service._process_row(SHEET_ROW, 21, 'Vanessa')
     return saved
 
 
 def test_a_later_sync_keeps_the_year_the_job_started_with():
     # A job from 2024 is still in 2024 however many syncs later: the year comes
     # from its created_at, not from the day the sync happens to run
-    job = SimpleNamespace(created_at=datetime(2024, 10, 14, tzinfo=timezone.utc), active=True)
+    job = SimpleNamespace(
+        created_at=datetime(2024, 10, 14, tzinfo=timezone.utc), active=True, property_address=SHEET_ROW[0],
+        claim_number=None, homeowner_name=None, homeowner_phone=None, homeowner_email=None,
+    )
     saved = process_row(job)
     assert saved['date_of_loss'] == datetime(2024, 10, 2)
     assert saved['mitigation_start_date'] == datetime(2024, 10, 2)

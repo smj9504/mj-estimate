@@ -2,12 +2,19 @@
 Google Sheets integration API endpoints
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import List
 
 from app.core.database_factory import get_db
+from app.domains.auth.dependencies import require_screen
+from app.domains.client.models import Client
+from app.domains.integrations.google_sheets.row_matches import candidates_for, list_pending
 from app.domains.integrations.google_sheets.schemas import (
+    RowMatchDecision,
     SyncRequest,
     SyncRowRequest,
     SyncStats,
@@ -17,8 +24,14 @@ from app.domains.integrations.google_sheets.schemas import (
 )
 from app.domains.integrations.google_sheets.sync_service import GoogleSheetsSyncService
 from app.domains.integrations.google_sheets.client import GoogleSheetsClient
+from app.domains.water_mitigation.models import WaterMitigationJob, WMSheetRowMatch
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# The View grant (water_mitigation_view) has no sheet sync
+_sheet_sync_access = Depends(require_screen("water_mitigation"))
 
 
 @router.post("/sync", response_model=SyncStats)
@@ -103,7 +116,7 @@ async def sync_single_row(
         else:
             return WebhookResponse(
                 status="skipped",
-                message=f"Row {request.row_number} is empty or invalid",
+                message=f"Row {request.row_number} is empty, invalid or waiting on a decision",
                 changes_detected=False
             )
 
@@ -172,7 +185,7 @@ async def handle_sheet_webhook(
         else:
             return WebhookResponse(
                 status="skipped",
-                message=f"Row {payload.row_number} is empty or invalid",
+                message=f"Row {payload.row_number} is empty, invalid or waiting on a decision",
                 changes_detected=False
             )
 
@@ -229,6 +242,67 @@ def cleanup_duplicate_jobs(
     sync_service = GoogleSheetsSyncService(db, "")
     result = sync_service.cleanup_duplicate_jobs()
     return result
+
+
+@router.get("/row-matches")
+def list_row_matches(
+    db: Session = Depends(get_db),
+    current_staff=_sheet_sync_access
+):
+    """Sheet rows waiting on whether they are the same as something entered by hand"""
+    return list_pending(db, current_staff)
+
+
+@router.post("/row-matches/{match_id}/resolve")
+def resolve_row_match(
+    match_id: str,
+    body: RowMatchDecision,
+    db: Session = Depends(get_db),
+    current_staff=_sheet_sync_access
+):
+    """
+    Decide a held sheet row.
+
+    same: the row joins the job or client picked (candidate_type, candidate_id).
+    different: the row becomes its own job and client.
+    """
+    match = db.query(WMSheetRowMatch).filter(WMSheetRowMatch.id == match_id).first()
+    if not match:
+        raise HTTPException(status_code=404, detail="Row match not found")
+    if match.status != 'pending':
+        raise HTTPException(status_code=409, detail="Someone has already decided this row.")
+    # As the list hides a row whose candidates the staff member can't see
+    candidates = candidates_for(db, current_staff, match)
+    if not candidates:
+        raise HTTPException(status_code=404, detail="Row match not found")
+
+    sync_service = GoogleSheetsSyncService(db, "")
+    if sync_service._find_job_by_row_number(match.row_number, match.sheet_name):
+        match.status = 'closed'
+        db.commit()
+        raise HTTPException(status_code=409, detail="This row is already on a job.")
+
+    try:
+        if body.decision == 'different':
+            job = sync_service.keep_row_separate(match, current_staff.id)
+        else:
+            if not any(c['type'] == body.candidate_type and c['id'] == body.candidate_id for c in candidates):
+                raise HTTPException(status_code=409, detail="That job or client is no longer at this address.")
+            if body.candidate_type == 'job':
+                record = db.query(WaterMitigationJob).filter(WaterMitigationJob.id == body.candidate_id).first()
+                job = sync_service.link_row_to_job(match, record, current_staff.id)
+            else:
+                record = db.query(Client).filter(Client.id == body.candidate_id).first()
+                job = sync_service.link_row_to_client(match, record, current_staff.id)
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"Could not save the decision on row match {match_id}: {e}")
+        raise HTTPException(
+            status_code=409,
+            detail="The decision couldn't be saved. The row may have just gone onto a job, so reload and check.",
+        )
+
+    return {'status': match.status, 'job_id': str(job.id)}
 
 
 @router.get("/sheet-metadata")

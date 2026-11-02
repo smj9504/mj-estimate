@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     DECIMAL,
+    JSON,
     Boolean,
     Column,
     DateTime,
@@ -16,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     event,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -1080,6 +1082,46 @@ class WMSheetPAMapping(Base, BaseModel):
                         comment="Google Sheet tab name (e.g. 'Angel', 'Vanessa')")
     pa_contact_id = Column(String(36), nullable=True,
                            comment="FK to company_contacts.id")
+
+
+class WMSheetRowMatch(Base, BaseModel):
+    """
+    A Google Sheet row with the same address as a job or client entered by hand.
+
+    The sync holds such a row here and makes nothing from it until someone says
+    whether they are the same. status 'same' links the row to what was entered by
+    hand: matched_type says whether that was a job or a client, job_id is the job
+    the row is on, and client_id is the client that job stays with. status
+    'different' makes the row its own job and client.
+    """
+    __tablename__ = "wm_sheet_row_matches"
+    __table_args__ = (
+        # A row is only ever waiting on one decision
+        Index(
+            'uq_wm_sheet_row_matches_pending',
+            'sheet_name', 'row_number',
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+            sqlite_where=text("status = 'pending'"),
+        ),
+        Index('ix_wm_sheet_row_matches_job', 'job_id'),
+        {'extend_existing': True}
+    )
+
+    sheet_name = Column(String(100), nullable=False)
+    row_number = Column(Integer, nullable=False)
+    address = Column(String(500), nullable=False)
+    # The row as last read (field name -> cell), refreshed by every sync while pending
+    row_data = Column(JSON, nullable=False, default=dict)
+    status = Column(
+        String(20), nullable=False, default='pending', server_default='pending',
+        comment="pending | same | different | closed (the row changed before anyone decided) | unlinked (a mapped row stopped matching its job)",
+    )
+    matched_type = Column(String(20), comment="With status 'same': job | client")
+    job_id = Column(UUIDType(), ForeignKey("water_mitigation_jobs.id", ondelete="SET NULL"))
+    client_id = Column(UUIDType(), ForeignKey("clients.id", ondelete="SET NULL"))
+    decided_by_id = Column(UUIDType(), ForeignKey("staff.id", ondelete="SET NULL"))
+    decided_at = Column(DateTime(timezone=True))
 
 
 class WMInvoiceItemConfig(Base, BaseModel):

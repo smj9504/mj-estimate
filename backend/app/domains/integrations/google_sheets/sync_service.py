@@ -11,9 +11,22 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.domains.client.client_sync_service import mark_sheet_clients
 from app.domains.integrations.google_sheets.client import (
     GoogleSheetsClient,
     get_header_mapping,
+)
+from app.domains.integrations.google_sheets.row_matches import (
+    find_companycam_lead,
+    has_manual_match,
+    mapped_job_match,
+    pending_match,
+)
+from app.domains.integrations.google_sheets.row_moves import (
+    plan_rows,
+    row_is_job,
+    rows_look_replaced,
+    same_words,
 )
 from app.domains.integrations.google_sheets.utils import (
     addresses_match,
@@ -23,7 +36,7 @@ from app.domains.integrations.google_sheets.utils import (
     parse_month_day_value,
     parse_numeric_value,
 )
-from app.domains.water_mitigation.models import WaterMitigationJob, WMSyncLog
+from app.domains.water_mitigation.models import WaterMitigationJob, WMSheetRowMatch, WMSyncLog
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +75,10 @@ class GoogleSheetsSyncService:
             "processed": 0,
             "created": 0,
             "updated": 0,
-            "cleared": 0,
+            "moved": 0,
+            "off_sheet": 0,
             "skipped": 0,
+            "needs_review": 0,
             "failed": 0,
             "sheets_synced": [],
             "errors": []
@@ -78,8 +93,10 @@ class GoogleSheetsSyncService:
                 combined_stats["processed"] += stats.get("processed", 0)
                 combined_stats["created"] += stats.get("created", 0)
                 combined_stats["updated"] += stats.get("updated", 0)
-                combined_stats["cleared"] += stats.get("cleared", 0)
+                combined_stats["moved"] += stats.get("moved", 0)
+                combined_stats["off_sheet"] += stats.get("off_sheet", 0)
                 combined_stats["skipped"] += stats.get("skipped", 0)
+                combined_stats["needs_review"] += stats.get("needs_review", 0)
                 combined_stats["failed"] += stats.get("failed", 0)
                 combined_stats["sheets_synced"].append({
                     "sheet_name": sheet_name,
@@ -87,8 +104,10 @@ class GoogleSheetsSyncService:
                     "processed": stats.get("processed", 0),
                     "created": stats.get("created", 0),
                     "updated": stats.get("updated", 0),
-                    "cleared": stats.get("cleared", 0),
-                    "skipped": stats.get("skipped", 0)
+                    "moved": stats.get("moved", 0),
+                    "off_sheet": stats.get("off_sheet", 0),
+                    "skipped": stats.get("skipped", 0),
+                    "needs_review": stats.get("needs_review", 0)
                 })
 
                 if stats.get("errors"):
@@ -121,8 +140,10 @@ class GoogleSheetsSyncService:
             f"processed={combined_stats['processed']}, "
             f"created={combined_stats['created']}, "
             f"updated={combined_stats['updated']}, "
-            f"cleared={combined_stats['cleared']}, "
-            f"skipped={combined_stats['skipped']}"
+            f"moved={combined_stats['moved']}, "
+            f"off_sheet={combined_stats['off_sheet']}, "
+            f"skipped={combined_stats['skipped']}, "
+            f"needs_review={combined_stats['needs_review']}"
         )
 
         return combined_stats
@@ -150,6 +171,8 @@ class GoogleSheetsSyncService:
         )
 
         try:
+            mark_sheet_clients(self.db)
+
             # Get all sheet values
             range_name = f"{sheet_name}!A:Z"
             rows = await self.client.get_sheet_values(range_name)
@@ -171,12 +194,18 @@ class GoogleSheetsSyncService:
             start_row = 1 if skip_header else 0
             data_rows = rows[start_row:]
 
+            # Rows may have moved since the last sync: each job follows its own row
+            # before anything is written to it
+            followed = await asyncio.to_thread(self._follow_moved_rows, data_rows, start_row, sheet_name)
+
             stats = {
                 "processed": 0,
                 "created": 0,
                 "updated": 0,
-                "cleared": 0,
+                "moved": followed["moved"],
+                "off_sheet": followed["off_sheet"],
                 "skipped": 0,
+                "needs_review": 0,
                 "failed": 0,
                 "errors": []
             }
@@ -191,10 +220,12 @@ class GoogleSheetsSyncService:
                             stats["created"] += 1
                         elif result.get("updated"):
                             stats["updated"] += 1
-                        elif result.get("cleared"):
-                            stats["cleared"] += 1
+                        elif result.get("off_sheet"):
+                            stats["off_sheet"] += 1
                         elif result.get("skipped"):
                             stats["skipped"] += 1
+                        elif result.get("needs_review"):
+                            stats["needs_review"] += 1
                         stats["processed"] += 1
                 except Exception as e:
                     self.db.rollback()
@@ -223,8 +254,10 @@ class GoogleSheetsSyncService:
                 "processed": stats["processed"],
                 "created": stats["created"],
                 "updated": stats["updated"],
-                "cleared": stats["cleared"],
+                "moved": stats["moved"],
+                "off_sheet": stats["off_sheet"],
                 "skipped": stats["skipped"],
+                "needs_review": stats["needs_review"],
                 "failed": stats["failed"],
                 "errors": stats.get("errors", [])
             }
@@ -252,8 +285,9 @@ class GoogleSheetsSyncService:
             sheet_name: Name of the sheet tab
 
         Returns:
-            Updated or created job, or None if row is empty
+            Updated or created job, or None if row is empty or waiting on a decision
         """
+        mark_sheet_clients(self.db)
         result = await asyncio.to_thread(self._process_row, row, row_number, sheet_name)
         return result.get("job") if result else None
 
@@ -267,10 +301,13 @@ class GoogleSheetsSyncService:
         Process a single row and update/create job
 
         Matching strategy:
-        1. First, try to find job by google_sheet_row_number + sheet_name (most accurate, active/inactive agnostic)
-        2. If not found, try to find by street address (fuzzy match, active_only=True)
-        3. If still not found, create new job
-        4. If row is empty but job exists by row_number + sheet_name, clear its synced fields
+        1. First, try to find job by google_sheet_row_number + sheet_name (a full sync has
+           already moved each job to its row, active or not; see _follow_moved_rows)
+        2. If not found and a job or client entered by hand has this address, hold the row
+           until someone says whether they are the same (see WMSheetRowMatch)
+        3. If not, fill in a CompanyCam lead at this address (fuzzy match, active_only=True)
+        4. If still not found, create new job
+        5. If row is empty but job exists by row_number + sheet_name, take it off the sheet
 
         Args:
             row: Row data
@@ -278,7 +315,8 @@ class GoogleSheetsSyncService:
             sheet_name: Name of the sheet tab
 
         Returns:
-            Dict with 'job', 'created', 'updated', and 'cleared' keys, or None if row is truly empty
+            Dict with 'job', 'created', 'updated', 'off_sheet' and 'needs_review' keys,
+            or None if row is truly empty
         """
         # Parse row data using sheet-specific column mapping
         header_mapping = get_header_mapping(sheet_name)
@@ -287,36 +325,47 @@ class GoogleSheetsSyncService:
         # Check if row has address (required field)
         address = row_data.get("property_address")
         if not address or not address.strip():
-            # Row is empty - check if there's an existing job linked to this row
-            # If so, clear its Google Sheet-synced fields to NULL
+            self._close_pending_match(row_number, sheet_name)
+            # Row is empty - a job still on it has lost its row, not its data
             existing_job = self._find_job_by_row_number(row_number, sheet_name)
             if existing_job:
-                job = self._clear_job_sheet_fields(existing_job)
-                logger.info(
-                    f"Cleared Google Sheet fields for job {job.id} "
-                    f"(row {row_number} in sheet {sheet_name} is now empty)"
-                )
-                return {"job": job, "created": False, "updated": False, "cleared": True}
+                self._take_off_sheet(existing_job)
+                self.db.commit()
+                self.db.refresh(existing_job)
+                return {"job": existing_job, "created": False, "updated": False, "off_sheet": True}
             return None
 
         # Step 1: Try to find job by google_sheet_row_number + sheet_name (most accurate)
         # This matches the exact row that was previously synced, regardless of active status
         existing_job = self._find_job_by_row_number(row_number, sheet_name)
 
-        # Step 2: If not found by row number, look for a job that was manually
-        # pre-created for this address before the Sheet row existed, and link it
-        # instead of creating a duplicate.
-        # We restrict this to UNLINKED jobs (google_sheet_row_number IS NULL) only.
+        # A full sync has already sorted this out. A single row can't see where the job's
+        # row went, but it can see this row is someone else: the job comes off the sheet
+        # rather than take this row's values, and the next full sync finds its row again.
+        if existing_job and not row_is_job(existing_job, row_data):
+            self._take_off_sheet(existing_job)
+            self.db.commit()
+            existing_job = None
+
+        # Step 2: If not found by row number, ask before this row joins anything
+        # entered by hand at this address: it may be the same job, or another one.
         # Jobs that are already linked to a different sheet row are never matched
         # by address here, because the same address can legitimately have multiple
         # WM jobs (different claims/incidents) once each is tied to its own row.
-        # The Client sync (sync_client_from_wm_job) will correctly match the
-        # same Client by homeowner_name/address and create a new Claim if needed.
         if not existing_job:
-            existing_job = self._find_unlinked_job_by_address(address)
+            if has_manual_match(self.db, address):
+                self._hold_row(row_data, row_number, sheet_name, address)
+                return {"job": None, "created": False, "updated": False, "needs_review": True}
+
+            # Whatever it was held for has gone, or its address changed
+            self._close_pending_match(row_number, sheet_name)
+
+            # Step 3: A lead CompanyCam made for this address has nothing of anyone's
+            # on it, so the row fills it in instead of creating a duplicate.
+            existing_job = find_companycam_lead(self.db, address)
             if existing_job:
                 logger.info(
-                    f"Linking pre-created job {existing_job.id} to row {row_number} "
+                    f"Linking CompanyCam lead {existing_job.id} to row {row_number} "
                     f"(sheet {sheet_name}) by address match: {address}"
                 )
 
@@ -325,7 +374,7 @@ class GoogleSheetsSyncService:
         anchor = (existing_job.created_at if existing_job else None) or datetime.utcnow()
         update_data = self._prepare_job_data(row_data, anchor)
 
-        # Step 3: Update existing job or create new one
+        # Step 4: Update existing job or create new one
         if existing_job:
             # Skip update if job is inactive (soft-deleted or archived)
             if not existing_job.active:
@@ -459,33 +508,184 @@ class GoogleSheetsSyncService:
 
         return None
 
-    def _find_unlinked_job_by_address(self, address: str) -> Optional[WaterMitigationJob]:
-        """
-        Find an active job with a matching address that has NOT yet been linked
-        to any Google Sheet row (google_sheet_row_number IS NULL).
+    def _hold_row(
+        self,
+        row_data: Dict[str, Any],
+        row_number: int,
+        sheet_name: str,
+        address: str
+    ) -> WMSheetRowMatch:
+        """Keep a row waiting on a decision, with what it says as of this sync"""
+        match = pending_match(self.db, row_number, sheet_name)
+        if match:
+            match.address = address.strip()
+            match.row_data = row_data
+        else:
+            match = WMSheetRowMatch(
+                sheet_name=sheet_name,
+                row_number=row_number,
+                address=address.strip(),
+                row_data=row_data,
+                status='pending',
+            )
+            self.db.add(match)
+            logger.info(
+                f"Row {row_number} (sheet {sheet_name}) has the address of something "
+                f"entered by hand, waiting on a decision: {address}"
+            )
+        self.db.commit()
+        return match
 
-        Used to let users manually pre-create a WM Job for a property before the
-        corresponding row shows up in the Sheet; once it does, that row gets
-        linked to the existing job instead of creating a duplicate.
+    def _close_pending_match(self, row_number: int, sheet_name: str) -> None:
+        """The row no longer needs a decision: nothing is made here, the row carries on"""
+        match = pending_match(self.db, row_number, sheet_name)
+        if match:
+            match.status = 'closed'
+            self.db.commit()
+
+    def _take_off_sheet(self, job: WaterMitigationJob) -> None:
+        """
+        The job's row is gone. Everything on the job stays, for the caller to commit.
+
+        A job the sheet made keeps its tab name, so it is still known as the sheet's and
+        finds its way back if a row with its address returns. A job entered by hand goes
+        back to how it was before a row was linked to it.
+        """
+        logger.info(f"Job {job.id} has no row in sheet {job.google_sheet_name} any more, keeping its data")
+        job.google_sheet_row_number = None
+        match = mapped_job_match(self.db, job)
+        if match:
+            job.google_sheet_name = None
+            job.sheets_last_sync = None
+            match.status = 'unlinked'
+
+    def _follow_moved_rows(
+        self,
+        data_rows: List[List[Any]],
+        start_row: int,
+        sheet_name: str
+    ) -> Dict[str, int]:
+        """
+        Put every job of this tab on the row that is now its own (see row_moves), and
+        take the ones whose row has gone off the sheet. Nothing is written if the rows
+        don't look like this tab's jobs at all: the sync stops with an error instead.
 
         Args:
-            address: Full address string from the sheet row
+            data_rows: The tab's rows, without the header
+            start_row: How many rows came before them
+            sheet_name: Name of the sheet tab
 
         Returns:
-            Matching unlinked job or None
+            How many jobs moved and how many came off the sheet
         """
-        query = select(WaterMitigationJob).where(
-            WaterMitigationJob.active.is_(True),
-            WaterMitigationJob.google_sheet_row_number.is_(None)
-        )
-        result = self.db.execute(query)
-        jobs = result.scalars().all()
+        header_mapping = get_header_mapping(sheet_name)
+        rows = {}
+        filled_rows = 0
+        for row_number, row in enumerate(data_rows, start=start_row + 1):
+            if any(str(cell).strip() for cell in row):
+                filled_rows += 1
+            row_data = self.client.parse_row_to_dict(row, header_mapping)
+            if str(row_data.get("property_address") or "").strip():
+                rows[row_number] = row_data
 
-        for job in jobs:
-            if addresses_match(job.property_address, address):
-                return job
+        jobs = self.db.execute(
+            select(WaterMitigationJob).where(WaterMitigationJob.google_sheet_name == sheet_name)
+        ).scalars().all()
+        plan = plan_rows(jobs, rows)
 
-        return None
+        on_rows = sum(1 for job in jobs if job.google_sheet_row_number is not None)
+        unknown_rows = len(plan.new_rows) + filled_rows - len(rows)
+        if rows_look_replaced(len(plan.off_sheet), on_rows, unknown_rows, filled_rows):
+            raise ValueError(
+                f"{len(plan.off_sheet)} of the {on_rows} jobs on the {sheet_name} tab match no row, "
+                f"and {unknown_rows} of its {filled_rows} rows match no job, so nothing was changed. "
+                f"Check whether the tab's columns moved."
+            )
+
+        by_id = {job.id: job for job in jobs}
+
+        # Two steps: the unique index on row + tab is checked at every update, so a job
+        # can't take a row until the job that was on it has let go
+        for job_id in plan.moves:
+            by_id[job_id].google_sheet_row_number = None
+        for job_id in plan.off_sheet:
+            self._take_off_sheet(by_id[job_id])
+        self.db.flush()
+        for job_id, row_number in plan.moves.items():
+            by_id[job_id].google_sheet_row_number = row_number
+
+        # A row waiting on a decision is held again wherever it is now
+        for match in self.db.query(WMSheetRowMatch).filter(
+            WMSheetRowMatch.sheet_name == sheet_name,
+            WMSheetRowMatch.status == 'pending',
+        ).all():
+            row = rows.get(match.row_number)
+            if not row or not same_words(row.get("property_address"), match.address):
+                match.status = 'closed'
+
+        self.db.commit()
+
+        if plan.moves or plan.off_sheet:
+            logger.info(
+                f"Sheet {sheet_name}: {len(plan.moves)} jobs followed their rows, "
+                f"{len(plan.off_sheet)} came off the sheet"
+            )
+        return {"moved": len(plan.moves), "off_sheet": len(plan.off_sheet)}
+
+    def _decide(
+        self,
+        match: WMSheetRowMatch,
+        status: str,
+        staff_id: Any,
+        matched_type: Optional[str] = None,
+        job_id: Any = None,
+        client_id: Any = None
+    ) -> None:
+        match.status = status
+        match.matched_type = matched_type
+        match.job_id = job_id
+        match.client_id = client_id
+        match.decided_by_id = staff_id
+        match.decided_at = datetime.utcnow()
+
+    def link_row_to_job(
+        self,
+        match: WMSheetRowMatch,
+        job: WaterMitigationJob,
+        staff_id: Any
+    ) -> WaterMitigationJob:
+        """
+        The row is this job entered by hand: the job takes the row, and stays with
+        its client. Sheet values replace the job's; empty cells leave it alone.
+        """
+        from app.domains.client.client_sync_service import sync_client_from_wm_job
+
+        # Who that client is, before the sheet's name lands on the job and changes it
+        client_id = sync_client_from_wm_job(self.db, job).get('client_id')
+        self._decide(match, 'same', staff_id, matched_type='job', job_id=job.id, client_id=client_id)
+        update_data = self._prepare_job_data(match.row_data, job.created_at or datetime.utcnow())
+        return self._update_job(job, update_data, match.row_number, match.sheet_name)
+
+    def link_row_to_client(self, match: WMSheetRowMatch, client: Any, staff_id: Any) -> WaterMitigationJob:
+        """The row's homeowner is this client entered by hand: the row becomes that client's job"""
+        self._decide(match, 'same', staff_id, matched_type='client', client_id=client.id)
+        return self._job_from_match(match, company_id=client.company_id)
+
+    def keep_row_separate(self, match: WMSheetRowMatch, staff_id: Any) -> WaterMitigationJob:
+        """The row is something else: it becomes its own job and client, and what was
+        entered by hand is left as it is"""
+        self._decide(match, 'different', staff_id)
+        return self._job_from_match(match)
+
+    def _job_from_match(self, match: WMSheetRowMatch, company_id: Any = None) -> WaterMitigationJob:
+        lead = find_companycam_lead(self.db, match.address)
+        data = self._prepare_job_data(match.row_data, (lead.created_at if lead else None) or datetime.utcnow())
+        if lead:
+            match.job_id = lead.id
+            return self._update_job(lead, data, match.row_number, match.sheet_name)
+        if company_id:
+            data['company_id'] = company_id
+        return self._create_job(data, match.row_number, match.sheet_name, match=match)
 
     def _prepare_job_data(self, row_data: Dict[str, Any], anchor: datetime) -> Dict[str, Any]:
         """
@@ -592,63 +792,6 @@ class GoogleSheetsSyncService:
 
         return update_data
 
-    def _clear_job_sheet_fields(self, job: WaterMitigationJob) -> WaterMitigationJob:
-        """
-        Clear Google Sheet-synced fields when the corresponding sheet row is empty.
-
-        This handles the case where a job was previously synced from a Sheet row,
-        but that row's data has been cleared/deleted. We clear the synced fields
-        to NULL to remove the corrupted/stale data.
-
-        Note: We keep the job record intact (don't delete) and preserve:
-        - job.id (primary key)
-        - job.active (status)
-        - job.status (workflow status)
-        - job.google_sheet_row_number (link to the sheet row)
-        - job.google_sheet_name (link to the sheet tab)
-        - job.created_at, job.updated_at (timestamps)
-        - CompanyCam data (companycam_project_id, companycam_last_sync, etc.)
-
-        Args:
-            job: Job to clear
-
-        Returns:
-            Updated job with cleared fields
-        """
-        # Fields synced from Google Sheets that should be cleared
-        # These are the fields populated by _prepare_job_data()
-        clearable_fields = [
-            # Address fields
-            "property_address", "property_street", "property_city",
-            "property_state", "property_zipcode",
-            # Homeowner fields
-            "homeowner_name", "homeowner_phone", "homeowner_email",
-            # Insurance fields
-            "insurance_company", "insurance_policy_number", "claim_number",
-            "adjuster_name", "adjuster_phone", "adjuster_email",
-            # Date fields
-            "date_of_loss", "mitigation_start_date", "mitigation_end_date",
-            "inspection_date", "documents_sent_date", "check_date",
-            # Other fields
-            "mitigation_period", "mitigation_flag",
-            "inspection_time", "plumbers_report",
-            "invoice_number", "invoice_amount",
-            "check_number", "check_amount"
-        ]
-
-        # Clear all synced fields to NULL
-        for field in clearable_fields:
-            if hasattr(job, field):
-                setattr(job, field, None)
-
-        # Update sync timestamp to indicate we processed this row
-        job.sheets_last_sync = datetime.utcnow()
-
-        self.db.commit()
-        self.db.refresh(job)
-
-        return job
-
     def _update_job(
         self,
         job: WaterMitigationJob,
@@ -668,6 +811,10 @@ class GoogleSheetsSyncService:
         Returns:
             Updated job
         """
+        # An emptied cell clears a job the sheet made, not what was entered by hand
+        if mapped_job_match(self.db, job):
+            update_data = {key: value for key, value in update_data.items() if value is not None}
+
         # Update fields
         for key, value in update_data.items():
             setattr(job, key, value)
@@ -700,7 +847,8 @@ class GoogleSheetsSyncService:
         self,
         job_data: Dict[str, Any],
         row_number: int,
-        sheet_name: str
+        sheet_name: str,
+        match: Optional[WMSheetRowMatch] = None
     ) -> WaterMitigationJob:
         """
         Create new job from sheet data
@@ -709,6 +857,7 @@ class GoogleSheetsSyncService:
             job_data: Job data
             row_number: Sheet row number
             sheet_name: Name of the sheet tab
+            match: The decision that released this row, saved along with the job
 
         Returns:
             Created job
@@ -721,6 +870,8 @@ class GoogleSheetsSyncService:
                 f"Duplicate prevented: job {existing.id} already exists "
                 f"for row {row_number}, sheet {sheet_name}. Updating instead."
             )
+            if match:
+                match.job_id = existing.id
             return self._update_job(existing, job_data, row_number, sheet_name)
 
         # Add sync metadata
@@ -734,6 +885,9 @@ class GoogleSheetsSyncService:
         job = WaterMitigationJob(**job_data)
         self.db.add(job)
         try:
+            if match:
+                self.db.flush()
+                match.job_id = job.id
             self.db.commit()
         except IntegrityError:
             self.db.rollback()

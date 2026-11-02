@@ -22,7 +22,8 @@ import {
   Tooltip,
   Statistic,
   Row,
-  Col
+  Col,
+  Alert
 } from 'antd';
 import {
   PlusOutlined,
@@ -49,6 +50,8 @@ import { useAuth } from '../contexts/AuthContext';
 import JobFormModal from '../components/water-mitigation/JobFormModal';
 import GoogleSheetsSyncButton from '../components/water-mitigation/GoogleSheetsSyncButton';
 import SheetPAMappingButton from '../components/water-mitigation/SheetPAMappingButton';
+import SheetRowMatchModal from '../components/water-mitigation/SheetRowMatchModal';
+import googleSheetsService, { type SheetRowMatch, type SyncStats } from '../services/googleSheetsService';
 import WMPaymentLinkButton from '../components/water-mitigation/WMPaymentLinkButton';
 import { useWaterMitigationAccess } from '../hooks/useWaterMitigationAccess';
 import {
@@ -89,6 +92,10 @@ const WaterMitigationList: React.FC = () => {
   const [formVisible, setFormVisible] = useState(false);
   const [editingJob, setEditingJob] = useState<WaterMitigationJob | undefined>(undefined);
 
+  // Sheet rows waiting on whether they are the same as something entered by hand
+  const [rowMatches, setRowMatches] = useState<SheetRowMatch[]>([]);
+  const [rowMatchesOpen, setRowMatchesOpen] = useState(false);
+
   // Payment view: swaps the column set for amounts / received tracking
   const [paymentView, setPaymentView] = useState(false);
   // Invoice / Approved columns can be hidden (e.g. when showing the screen to someone)
@@ -123,12 +130,35 @@ const WaterMitigationList: React.FC = () => {
     loadJobs();
   }, [filters]);
 
+  const loadRowMatches = async () => {
+    if (limited) return [];
+    try {
+      const matches = await googleSheetsService.getRowMatches();
+      setRowMatches(matches);
+      return matches;
+    } catch (error) {
+      console.error('Load sheet row matches error:', error);
+      return [];
+    }
+  };
+
+  useEffect(() => {
+    loadRowMatches();
+  }, [limited]);
+
+  const handleSheetSynced = async (result: SyncStats) => {
+    loadJobs();
+    const matches = await loadRowMatches();
+    if (result.needs_review && matches.length > 0) setRowMatchesOpen(true);
+  };
+
   // Supplement status is read from the supplement records on every load, so
   // coming back to this window picks up a status changed on that screen.
   // Skipped mid-save so the reload can't undo an optimistic payment edit.
   const reloadOnReturn = useRef(() => {});
   reloadOnReturn.current = () => {
     if (savingIds.size === 0) fetchJobs(true);
+    loadRowMatches();
   };
 
   useEffect(() => {
@@ -410,7 +440,18 @@ const WaterMitigationList: React.FC = () => {
       dataIndex: 'google_sheet_name',
       key: 'google_sheet_name',
       width: 90,
-      render: (name: string) => name ? <Pill tone="purple">{name}</Pill> : null,
+      render: (name: string, job: WaterMitigationJob) => {
+        if (!name) return null;
+        // The tab it came from, but its row has gone, so the sheet no longer updates it
+        return job.google_sheet_row_number
+          ? <Pill tone="purple">{name}</Pill>
+          : (
+            <div title={`This job's row is no longer on the ${name} tab, so the sheet doesn't update it.`}>
+              <Pill tone="gray">{name}</Pill>
+              <div className="ui-cell-meta">Off sheet</div>
+            </div>
+          );
+      },
     },
     {
       title: 'Claim #',
@@ -603,7 +644,7 @@ const WaterMitigationList: React.FC = () => {
               <>
                 <SheetPAMappingButton onApplied={loadJobs} />
                 <GoogleSheetsSyncButton
-                  onSyncComplete={loadJobs}
+                  onSyncComplete={handleSheetSynced}
                   type="default"
                   size="middle"
                   showStats={true}
@@ -621,6 +662,20 @@ const WaterMitigationList: React.FC = () => {
           </>
         )}
       />
+
+      {!limited && rowMatches.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={
+            rowMatches.length === 1
+              ? 'A sheet row has the same address as something entered by hand. It won\'t become a job until you decide.'
+              : `${rowMatches.length} sheet rows have the same address as something entered by hand. They won't become jobs until you decide.`
+          }
+          action={<Button size="small" onClick={() => setRowMatchesOpen(true)}>Review</Button>}
+        />
+      )}
 
       {/* Filters */}
       <div className="ui-toolbar">
@@ -772,6 +827,16 @@ const WaterMitigationList: React.FC = () => {
         }}
         onSuccess={handleFormSuccess}
         job={editingJob}
+      />
+
+      <SheetRowMatchModal
+        open={rowMatchesOpen}
+        matches={rowMatches}
+        onClose={() => setRowMatchesOpen(false)}
+        onChanged={() => {
+          loadJobs();
+          loadRowMatches();
+        }}
       />
     </div>
   );
