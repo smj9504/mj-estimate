@@ -35,6 +35,7 @@ import {
   AppstoreOutlined,
   ExportOutlined,
 } from '@ant-design/icons';
+import AddressAutocomplete from '../common/AddressAutocomplete';
 import InputModeSelector from './InputModeSelector';
 import SmartEstimation from './SmartEstimation';
 import { PhotoUploadManager } from './photo-upload';
@@ -835,7 +836,7 @@ const PackCalculatorMultiMode: React.FC = () => {
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item name="project_address" label="Project Address">
-              <Input placeholder="123 Main St, City, State" />
+              <AddressAutocomplete placeholder="123 Main St, City, State" fillFullAddress />
             </Form.Item>
           </Col>
           <Col span={12}>

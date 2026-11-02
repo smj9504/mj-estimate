@@ -625,7 +625,7 @@ const MaterialOrderPage: React.FC = () => {
           <Row gutter={[16, 8]}>
             <Col span={8}>
               <Form.Item label="Property Address" name="property_address">
-                <AddressAutocomplete placeholder="123 Main St, City, State" />
+                <AddressAutocomplete placeholder="123 Main St, City, State" fillFullAddress />
               </Form.Item>
             </Col>
             <Col span={4}>

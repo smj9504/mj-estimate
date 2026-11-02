@@ -197,6 +197,7 @@ from app.domains.water_mitigation.sketch_models import (
 )
 from app.domains.client.api import router as client_router, todo_dashboard_router, todo_router
 from app.domains.acculynx_archive.api import router as acculynx_archive_router
+from app.domains.address.api import router as address_router
 from app.domains.contract.api import router as contract_router
 from app.domains.contract.signing_api import router as signing_router
 from app.domains.contract.field_signing_api import router as field_signing_router
@@ -1008,6 +1009,7 @@ app.include_router(client_router, prefix="/api/clients", tags=["Clients"])
 app.include_router(acculynx_archive_router, prefix="/api/acculynx-archive", tags=["AccuLynx Archive"])
 app.include_router(todo_dashboard_router, prefix="/api/claim-todos", tags=["Claim Todos"])
 app.include_router(todo_router, prefix="/api/todos", tags=["Todos"])
+app.include_router(address_router, prefix="/api/address", tags=["Address Lookup"])
 app.include_router(contract_router, prefix="/api/contracts", tags=["Contracts"])
 app.include_router(signing_router, prefix="/api/sign", tags=["Contract Signing (Public)"])
 app.include_router(field_signing_router, prefix="/api/field-sign", tags=["Field Signing"])

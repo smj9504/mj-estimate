@@ -14,6 +14,7 @@ import RebuildProjectDetailModal from '../components/rebuild/RebuildProjectDetai
 import {
   REBUILD_STATUSES, REBUILD_STATUS_TONES, RebuildStatusPill, rebuildStatusLabel, formatCurrency,
 } from '../components/rebuild/rebuildUi';
+import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import ClaimSearchSelect from '../components/common/ClaimSearchSelect';
 import { PageHeader, Pill, useSheetModal } from '../components/common/ui';
 import { tagTones } from '../styles/tokens';
@@ -415,7 +416,7 @@ const RebuildProjectList: React.FC = () => {
               options={contractors.map((c: RebuildContractor) => ({ value: c.id, label: c.company_name }))} />
           </Form.Item>
           <Form.Item name="property_address" label="Property Address">
-            <Input autoComplete="street-address" />
+            <AddressAutocomplete fillFullAddress />
           </Form.Item>
           {/* Three amounts share a row on desktop; phones take two per row */}
           <Row gutter={12}>

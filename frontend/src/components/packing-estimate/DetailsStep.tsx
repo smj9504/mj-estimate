@@ -4,7 +4,7 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Select, Input, InputNumber, Switch, AutoComplete, Segmented, Checkbox,
+  Select, InputNumber, Switch, AutoComplete, Segmented, Checkbox,
 } from 'antd';
 import AddressAutocomplete from '../common/AddressAutocomplete';
 import { companyService } from '../../services/companyService';
@@ -344,18 +344,12 @@ const DetailsStep: React.FC<DetailsStepProps> = ({
           </FormRow>
         )}
         <FormRow label="Property Address" htmlFor="pk-address">
-          {claims.length > 0 ? (
-            <AddressAutocomplete
-              value={projectAddress}
-              onChange={(val) => setProjectAddress(val)}
-            />
-          ) : (
-            <Input
-              id="pk-address"
-              value={projectAddress}
-              onChange={e => setProjectAddress(e.target.value)}
-            />
-          )}
+          <AddressAutocomplete
+            id="pk-address"
+            value={projectAddress}
+            onChange={(val) => setProjectAddress(val)}
+            fillFullAddress
+          />
         </FormRow>
       </section>
 

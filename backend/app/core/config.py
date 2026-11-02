@@ -168,6 +168,9 @@ class Settings(BaseSettings):
     # Google Sheets Integration
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
 
+    # Address boxes (Google Places API, New)
+    GOOGLE_ADDRESS_AUTOCOMPLETE_API_KEY: str = os.getenv("GOOGLE_ADDRESS_AUTOCOMPLETE_API_KEY", "")
+
     # Multiple Google Sheets support
     GOOGLE_SHEETS_WATER_MITIGATION_ID: Optional[str] = os.getenv("GOOGLE_SHEETS_WATER_MITIGATION_ID")
     GOOGLE_SHEETS_WATER_MITIGATION_SHEET_NAME: str = os.getenv("GOOGLE_SHEETS_WATER_MITIGATION_SHEET_NAME", "Sheet1")

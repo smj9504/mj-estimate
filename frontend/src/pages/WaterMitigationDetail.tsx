@@ -44,6 +44,7 @@ import api from '../services/api';
 import type { WaterMitigationJob, JobStatusHistory, JobStatus } from '../types/waterMitigation';
 import type { Company } from '../types';
 import { JOB_STATUS_OPTIONS } from '../types/waterMitigation';
+import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import JobFormModal from '../components/water-mitigation/JobFormModal';
 import WaterMitigationPhotosTab from '../components/water-mitigation/WaterMitigationPhotosTab';
 import WaterMitigationDocumentsTab from '../components/water-mitigation/WaterMitigationDocumentsTab';
@@ -550,13 +551,12 @@ const WaterMitigationDetail: React.FC = () => {
                         <Descriptions {...propRows}>
                           <Descriptions.Item label="Property Address" span={descColumn}>
                             {isEditing ? (
-                              <Input.TextArea
+                              <AddressAutocomplete
                                 value={jobInfoForm.property_address}
-                                onChange={(e) => setJobInfoForm({ ...jobInfoForm, property_address: e.target.value })}
+                                onChange={(value) => setJobInfoForm({ ...jobInfoForm, property_address: value })}
                                 placeholder="Enter property address"
                                 maxLength={500}
-                                rows={2}
-                                autoSize={{ minRows: 2, maxRows: 4 }}
+                                fillFullAddress
                               />
                             ) : (
                               job.property_address

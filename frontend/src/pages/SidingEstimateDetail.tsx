@@ -9,6 +9,7 @@ import {
   ArrowLeftOutlined, EditOutlined, CalculatorOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
+import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import EagleViewUpload from '../components/siding-estimate/EagleViewUpload';
 import { sidingEstimateService } from '../services/sidingEstimateService';
 import type {
@@ -323,7 +324,9 @@ const SidingEstimateDetail: React.FC = () => {
               <Col xs={24} md={12}>
                 <Card title="Property Info" size="small">
                   <Form.Item name="property_address" label="Address">
-                    <Input />
+                    <AddressAutocomplete
+                      onSelect={(addr) => form.setFieldsValue({ city: addr.city, state: addr.state, zip_code: addr.zip })}
+                    />
                   </Form.Item>
                   <Row gutter={8}>
                     <Col span={10}>

@@ -50,6 +50,7 @@ services:
       # - SLACK_WEBHOOK_URL
       # - SLACK_CHANNEL
       # - GOOGLE_API_KEY
+      # - GOOGLE_ADDRESS_AUTOCOMPLETE_API_KEY (Places API, New: every address box)
       # - GOOGLE_SHEETS_WATER_MITIGATION_ID
       # - FRONTEND_URL (Vercel URL)
       # - CORS_ORIGINS (JSON array with Vercel URL)

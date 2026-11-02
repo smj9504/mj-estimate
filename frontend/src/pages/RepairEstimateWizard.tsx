@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Alert, Button, Collapse, Divider, Form, Grid, Input, List, Result,
+  Alert, Button, Collapse, Divider, Form, Grid, List, Result,
   Select, Space, Spin, Steps, Table, Typography, message,
 } from 'antd';
 import {
@@ -21,6 +21,7 @@ import RoomComparePanel, {
   RoomEstimateItem,
 } from '../components/repair-spec/RoomComparePanel';
 import { PageHeader, Pill, humanize } from '../components/common/ui';
+import AddressAutocomplete from '../components/common/AddressAutocomplete';
 
 const { Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -183,12 +184,14 @@ const RepairEstimateWizard: React.FC = () => {
       {selectedExtractionId && (
         <div>
           <Text strong style={{ display: 'block', marginBottom: 4 }}>Address:</Text>
-          <Input
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder="Job address"
-            style={{ maxWidth: 400 }}
-          />
+          <div style={{ maxWidth: 400 }}>
+            <AddressAutocomplete
+              value={address}
+              onChange={setAddress}
+              placeholder="Job address"
+              fillFullAddress
+            />
+          </div>
         </div>
       )}
     </Space>
