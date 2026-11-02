@@ -6,6 +6,9 @@ Admins see everything. Everyone else belongs to one or more companies
 (staff.all_companies), and sees:
 - the claims and cash jobs one of their companies is assigned to
   (claim_companies), with everything on them;
+- the claims whose public adjuster is a contact of one of their companies, with
+  everything on them: a PA stays on a claim from start to finish, without being
+  one of the companies working it;
 - the clients of those, and clients their company manages (clients.company_id)
   so a new client shows before it has a claim;
 - documents on those claims, and documents their company issued.
@@ -18,7 +21,7 @@ import uuid
 from typing import Any, Iterable, List, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import false, or_, select
+from sqlalchemy import String, and_, cast, false, or_, select
 
 from app.domains.staff.models import StaffRole
 
@@ -85,10 +88,46 @@ def home_company_ids(db: Any, staff: Any) -> Optional[List[str]]:
     return staff_company_ids(db, staff.id)
 
 
+def _contacts_of(ids: List[str]):
+    """The contacts of these companies, as text: the pa_contact_id columns may be
+    UUID or string, depending on how the table was made."""
+    from app.domains.company.models import CompanyContact
+
+    return select(cast(CompanyContact.id, String)).where(CompanyContact.company_id.in_(ids))
+
+
+def public_adjuster_sheets(ids: List[str]):
+    """The WM sheet tabs whose public adjuster is a contact of these companies"""
+    from app.domains.water_mitigation.models import WMSheetPAMapping
+
+    return select(WMSheetPAMapping.sheet_name).where(
+        cast(WMSheetPAMapping.pa_contact_id, String).in_(_contacts_of(ids))
+    )
+
+
+def _public_adjuster_claim_ids(ids: List[str]):
+    """Claims whose public adjuster is a contact of these companies. The PA picked
+    on the claim wins; the sheet tab of a WM job on it counts only when the claim
+    names none, the order the adjuster emails and reports resolve the PA in."""
+    from app.domains.client.models import Claim
+    from app.domains.water_mitigation.models import WaterMitigationJob
+
+    return select(Claim.id).outerjoin(
+        WaterMitigationJob, WaterMitigationJob.claim_id == Claim.id
+    ).where(or_(
+        cast(Claim.pa_contact_id, String).in_(_contacts_of(ids)),
+        and_(
+            Claim.pa_contact_id.is_(None),
+            WaterMitigationJob.google_sheet_name.in_(public_adjuster_sheets(ids)),
+        ),
+    ))
+
+
 def _visible_claim_ids(ids: List[str]):
     from app.domains.contract.models import ClaimCompany
 
-    return select(ClaimCompany.claim_id).where(ClaimCompany.company_id.in_(ids))
+    assigned = select(ClaimCompany.claim_id).where(ClaimCompany.company_id.in_(ids))
+    return assigned.union(_public_adjuster_claim_ids(ids))
 
 
 def claim_condition(db: Any, staff: Any, claim_id_column: Any):
@@ -153,6 +192,19 @@ def can_see_claim(db: Any, staff: Any, claim_id: Any) -> bool:
         return False
     query = _session(db).query(Claim.id).filter(Claim.id == str(claim_id))
     return scoped(query, claim_condition(db, staff, Claim.id)).first() is not None
+
+
+def is_public_adjuster_of(db: Any, staff: Any, claim_id: Any) -> bool:
+    """Whether this claim's public adjuster is a contact of one of their companies"""
+    from app.domains.client.models import Claim
+
+    ids = company_ids(db, staff)
+    if not ids or not _is_uuid(claim_id):
+        return False
+    return _session(db).query(Claim.id).filter(
+        Claim.id == str(claim_id),
+        Claim.id.in_(_public_adjuster_claim_ids(ids)),
+    ).first() is not None
 
 
 def can_see_client(db: Any, staff: Any, client_id: Any) -> bool:

@@ -1,26 +1,25 @@
 """
 Which water mitigation jobs a staff member may see.
 
-A job is visible when its claim is (claim_companies), its company_id is one of
-the staff member's companies, or its public adjuster works for one of them.
+A job is visible when its claim is (auth/company_scope.py, which counts the
+claim's public adjuster), its company_id is one of the staff member's companies,
+or it has no claim yet and its sheet tab's public adjuster works for one of them.
 Photos, documents, scope, sketches and the rest follow their job. Admins see
 everything: the conditions return None and the require_* checks return straight
 away.
-
-Seeing a job through its public adjuster doesn't open its claim or client: the
-adjuster's company isn't on claim_companies.
 """
 from typing import Any, Iterable
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
-from sqlalchemy import String, and_, cast, or_, select
+from sqlalchemy import and_, or_, select
 
 from app.core.database_factory import get_db_session
 from app.domains.auth.company_scope import (
     company_ids,
     document_condition,
     home_company_ids,
+    public_adjuster_sheets,
     sees_everything,
 )
 from app.domains.auth.dependencies import get_current_staff
@@ -31,34 +30,15 @@ from .models import (
     WMPhoto,
     WMScopeItem,
     WMScopeLocation,
-    WMSheetPAMapping,
 )
 
 
-def _public_adjuster_condition(ids: list):
-    """Jobs whose public adjuster is a contact of one of these companies. The
-    claim's PA wins; the sheet tab's PA counts only when the claim names none,
-    the order the adjuster emails and reports resolve the PA in. The contact
-    columns are compared as text because claims.pa_contact_id may be a UUID or
-    a string column, depending on how the table was made."""
-    from app.domains.client.models import Claim
-    from app.domains.company.models import CompanyContact
-
-    contacts = select(cast(CompanyContact.id, String)).where(CompanyContact.company_id.in_(ids))
-    claims_with_their_pa = select(Claim.id).where(cast(Claim.pa_contact_id, String).in_(contacts))
-    claims_naming_a_pa = select(Claim.id).where(Claim.pa_contact_id.isnot(None))
-    their_sheets = select(WMSheetPAMapping.sheet_name).where(
-        cast(WMSheetPAMapping.pa_contact_id, String).in_(contacts)
-    )
-    return or_(
-        WaterMitigationJob.claim_id.in_(claims_with_their_pa),
-        and_(
-            WaterMitigationJob.google_sheet_name.in_(their_sheets),
-            or_(
-                WaterMitigationJob.claim_id.is_(None),
-                WaterMitigationJob.claim_id.notin_(claims_naming_a_pa),
-            ),
-        ),
+def _no_claim_public_adjuster_condition(ids: list):
+    """Jobs with no claim yet, on a sheet tab whose public adjuster is a contact
+    of one of these companies. A job on a claim follows its claim."""
+    return and_(
+        WaterMitigationJob.claim_id.is_(None),
+        WaterMitigationJob.google_sheet_name.in_(public_adjuster_sheets(ids)),
     )
 
 
@@ -70,7 +50,7 @@ def job_condition(db: Any, staff: Any):
     assigned = document_condition(
         db, staff, WaterMitigationJob.claim_id, WaterMitigationJob.company_id
     )
-    return or_(assigned, _public_adjuster_condition(ids)) if ids else assigned
+    return or_(assigned, _no_claim_public_adjuster_condition(ids)) if ids else assigned
 
 
 def job_child_condition(db: Any, staff: Any, job_id_column: Any):

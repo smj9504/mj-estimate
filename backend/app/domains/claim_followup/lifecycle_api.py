@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query
 
 from app.core.database_factory import get_db_session as get_db
-from app.domains.auth.company_scope import claim_condition, document_condition, scoped
+from app.domains.auth.company_scope import claim_condition, scoped
 from app.domains.auth.dependencies import get_current_staff
 
 logger = logging.getLogger(__name__)
@@ -135,11 +135,10 @@ def get_payment_gaps(
 def get_pending_estimates(db=Depends(get_db), current_staff=Depends(get_current_staff)):
     """Get WM jobs with 'Sent to adjuster' status - awaiting insurance estimate"""
     from app.core.database_factory import get_database
+    from app.domains.water_mitigation.job_access import job_condition
     from app.domains.water_mitigation.models import WaterMitigationJob
 
-    scope = document_condition(
-        db, current_staff, WaterMitigationJob.claim_id, WaterMitigationJob.company_id
-    )
+    scope = job_condition(db, current_staff)
     database = get_database()
     session = database.get_readonly_session()
     try:
@@ -188,14 +187,13 @@ def get_doc_prep(db=Depends(get_db), current_staff=Depends(get_current_staff)):
     from app.core.database_factory import get_database
     from app.domains.claim_followup.models import FollowUpTask
     from app.domains.client.models import Claim, ClaimActivity
+    from app.domains.water_mitigation.job_access import job_condition
     from app.domains.water_mitigation.models import WaterMitigationJob
 
     def iso(value):
         return value.isoformat() if value else None
 
-    job_scope = document_condition(
-        db, current_staff, WaterMitigationJob.claim_id, WaterMitigationJob.company_id
-    )
+    job_scope = job_condition(db, current_staff)
     task_scope = claim_condition(db, current_staff, FollowUpTask.claim_id)
     database = get_database()
     session = database.get_readonly_session()

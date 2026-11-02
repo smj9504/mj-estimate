@@ -438,10 +438,11 @@ def get_latest_date_of_loss(
         return {"date_of_loss": None}
 
 
-def _checked_company_ids(db, staff, company_ids, creating: bool) -> List[str]:
+def _checked_company_ids(db, staff, company_ids, creating: bool, claim_id: Optional[str] = None) -> List[str]:
     """The companies to put on a claim. Someone who isn't an admin has to keep
     one of their own on it, or they would lose the claim; a new claim with
-    none picked gets the ones picked for them (never every company)."""
+    none picked gets the ones picked for them (never every company). A claim's
+    public adjuster sees it without being on it, so has no company to keep."""
     ids = [str(c) for c in company_ids or []]
     own = company_scope.company_ids(db, staff)
     if own is None:
@@ -450,7 +451,7 @@ def _checked_company_ids(db, staff, company_ids, creating: bool) -> List[str]:
         ids = company_scope.home_company_ids(db, staff)
         if not ids and own:
             raise HTTPException(status_code=400, detail="Pick the companies working it")
-    if not set(ids) & set(own):
+    if not set(ids) & set(own) and not company_scope.is_public_adjuster_of(db, staff, claim_id):
         raise HTTPException(
             status_code=400,
             detail="Keep at least one of your companies on it, or you won't be able to see it",
@@ -555,7 +556,7 @@ def update_claim(
     update_dict = data.dict(exclude_unset=True)
     company_ids = update_dict.pop('company_ids', None)
     if company_ids is not None:
-        company_ids = _checked_company_ids(db, current_staff, company_ids, creating=False)
+        company_ids = _checked_company_ids(db, current_staff, company_ids, creating=False, claim_id=claim_id)
     try:
 
         # Linking a PA contact is the source of truth for who the public
