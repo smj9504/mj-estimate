@@ -2,6 +2,7 @@
 Identical uploads share one stored file, so the storage providers' dedup is covered too."""
 import io
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -13,6 +14,7 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.domains.file.models import File
 from app.domains.storage.b2_provider import B2Provider
 from app.domains.storage.gcs_provider import GCSProvider
 from app.domains.water_mitigation import service as service_module
@@ -41,7 +43,7 @@ def db():
         engine, "connect",
         lambda conn, _: conn.create_function("gen_random_uuid", 0, lambda: str(uuid4())),
     )
-    for model in (WMPhoto, WMDocument, PhotoCategory, WMPhotoCategory):
+    for model in (WMPhoto, WMDocument, PhotoCategory, WMPhotoCategory, File):
         model.__table__.create(engine)
     session = sessionmaker(bind=engine)()
     yield session
@@ -119,6 +121,118 @@ def test_a_file_a_document_shares_is_kept(db, wm_service, deleted_files):
     db.commit()
 
     assert wm_service.delete_photo(photo.id) is True
+
+    assert deleted_files == []
+
+
+def add_claim_photo(db, file_id=FILE_ID, **fields) -> File:
+    """A claim's own copy: on the same stored file when the same picture came in twice"""
+    claim_photo = File(
+        filename=file_id,
+        original_name="companycam_555.jpg",
+        content_type="image/jpeg",
+        size=5,
+        url=f"b2://test/{file_id}",
+        storage_provider="b2",
+        context="claim",
+        context_id=str(uuid4()),
+        category="general",
+        **fields,
+    )
+    db.add(claim_photo)
+    db.commit()
+    return claim_photo
+
+
+@pytest.mark.parametrize("still_active", [True, False])
+def test_a_file_a_claims_own_photo_shares_is_kept(db, wm_service, deleted_files, still_active):
+    photo = add_photo(db)
+    add_claim_photo(db, is_active=still_active)
+
+    assert wm_service.delete_photo(photo.id) is True
+
+    assert deleted_files == []
+    assert db.query(WMPhoto).count() == 0
+
+
+def expire_in_trash(db, photo):
+    photo.is_trashed = True
+    photo.trashed_at = datetime.utcnow() - timedelta(days=60)
+    db.commit()
+
+
+def test_trash_cleanup_removes_a_file_nothing_else_uses(db, wm_service, deleted_files):
+    expire_in_trash(db, add_photo(db))
+
+    assert wm_service.cleanup_expired_trash()["deleted_count"] == 1
+
+    assert deleted_files == [FILE_ID]
+    assert db.query(WMPhoto).count() == 0
+
+
+def test_trash_cleanup_keeps_a_file_a_claims_own_photo_shares(db, wm_service, deleted_files):
+    expire_in_trash(db, add_photo(db))
+    add_claim_photo(db)
+
+    assert wm_service.cleanup_expired_trash()["deleted_count"] == 1
+
+    assert deleted_files == []
+    assert db.query(WMPhoto).count() == 0
+
+
+def test_trash_cleanup_keeps_a_file_another_jobs_photo_shares(db, wm_service, deleted_files):
+    expire_in_trash(db, add_photo(db))
+    other = add_photo(db)
+
+    assert wm_service.cleanup_expired_trash()["deleted_count"] == 1
+
+    assert deleted_files == []
+    assert db.query(WMPhoto).one().id == other.id
+
+
+def test_trash_cleanup_removes_a_shared_file_with_the_last_photo_to_expire(db, wm_service, deleted_files):
+    expire_in_trash(db, add_photo(db))
+    expire_in_trash(db, add_photo(db))
+
+    assert wm_service.cleanup_expired_trash()["deleted_count"] == 2
+
+    assert deleted_files == [FILE_ID]
+    assert db.query(WMPhoto).count() == 0
+
+
+@pytest.fixture
+def job_service(wm_service):
+    """Enough of a job for delete_job: its own photos are what the test added"""
+    wm_service.job_repo = SimpleNamespace(get_by_id=lambda job_id: {"id": job_id}, delete=lambda job_id: True)
+    wm_service.document_repo = SimpleNamespace(get_by_job=lambda *args, **kwargs: [])
+    return wm_service
+
+
+def test_deleting_a_job_removes_the_files_only_its_photos_use(db, job_service, deleted_files):
+    photo = add_photo(db)
+    same_job = add_photo(db, file_id="water-mitigation/job/photos/b.webp")
+    same_job.job_id = photo.job_id
+    db.commit()
+
+    assert job_service.delete_job(photo.job_id) is True
+
+    assert sorted(deleted_files) == [FILE_ID, "water-mitigation/job/photos/b.webp"]
+
+
+def test_deleting_a_job_keeps_a_file_another_jobs_photo_shares(db, job_service, deleted_files):
+    photo = add_photo(db)
+    add_photo(db)
+
+    assert job_service.delete_job(photo.job_id) is True
+
+    assert deleted_files == []
+
+
+def test_deleting_a_job_keeps_a_file_a_claims_own_photo_shares(db, job_service, deleted_files):
+    photo = add_photo(db)
+    add_claim_photo(db)
+
+    assert job_service.delete_job(photo.job_id) is True
 
     assert deleted_files == []
 

@@ -585,6 +585,10 @@ class WaterMitigationService:
                         photos_not_found += 1
                         logger.debug(f"Photo file not found: {file_path_str}")
                 elif storage_provider != 'local' and storage_file_id:
+                    if self._stored_file_in_use(storage_file_id, WMPhoto.job_id != job_id):
+                        logger.debug(f"Kept {storage_provider} file still in use: {storage_file_id}")
+                        continue
+
                     # Delete from cloud storage
                     try:
                         storage = StorageFactory.get_instance(storage_provider)
@@ -1307,10 +1311,18 @@ class WaterMitigationService:
 
         return record_deleted
 
-    def _stored_file_in_use(self, storage_file_id: str) -> bool:
-        """Identical uploads share one stored file, so another record may still need it."""
-        for column in (WMPhoto.storage_file_id, WMDocument.storage_file_id):
-            if self.session.query(column).filter(column == storage_file_id).first():
+    def _stored_file_in_use(self, storage_file_id: str, *photos_staying: Any) -> bool:
+        """Identical uploads share one stored file, so another record may still need it:
+        a photo on another job, a document, or a claim's own copy of the same picture.
+        photos_staying narrows the photos that count, when the caller's own are going too."""
+        from app.domains.file.models import File
+
+        for query in (
+            self.session.query(WMPhoto.id).filter(WMPhoto.storage_file_id == storage_file_id, *photos_staying),
+            self.session.query(WMDocument.id).filter(WMDocument.storage_file_id == storage_file_id),
+            self.session.query(File.id).filter(File.filename == storage_file_id),
+        ):
+            if query.first():
                 return True
         return False
 
@@ -1399,12 +1411,15 @@ class WaterMitigationService:
                 # Delete from storage provider
                 storage_deleted = False
                 if photo.storage_provider and photo.storage_provider != 'local' and photo.storage_file_id:
-                    storage = StorageFactory.get_instance(photo.storage_provider)
-                    storage_deleted = storage.delete(photo.storage_file_id)
-                    if storage_deleted:
-                        logger.info(f"Trash cleanup: deleted from {photo.storage_provider}: {photo.storage_file_id}")
+                    if self._stored_file_in_use(photo.storage_file_id, WMPhoto.id != photo.id):
+                        logger.info(f"Trash cleanup: kept file still in use: {photo.storage_file_id}")
                     else:
-                        logger.warning(f"Trash cleanup: storage delete failed for {photo.storage_file_id}")
+                        storage = StorageFactory.get_instance(photo.storage_provider)
+                        storage_deleted = storage.delete(photo.storage_file_id)
+                        if storage_deleted:
+                            logger.info(f"Trash cleanup: deleted from {photo.storage_provider}: {photo.storage_file_id}")
+                        else:
+                            logger.warning(f"Trash cleanup: storage delete failed for {photo.storage_file_id}")
                 elif photo.file_path and os.path.exists(photo.file_path):
                     os.remove(photo.file_path)
                     storage_deleted = True
