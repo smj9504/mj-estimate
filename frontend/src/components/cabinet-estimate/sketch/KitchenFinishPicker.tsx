@@ -71,7 +71,7 @@ const KitchenFinishPicker: React.FC<KitchenFinishPickerProps> = ({ finish, onCha
           <span style={{ color: '#5f5e5b', fontSize: 13 }}>{label}</span>
           {setBy[field] ? (
             <span
-              title="Set by the product chosen for this option. Change the product in the Edit tab."
+              title="Set in the Edit tab, by the door style or by the product chosen for this option. Change it there."
               style={{ fontSize: 12, color: '#1f74c9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               {setBy[field]}

@@ -207,12 +207,38 @@ WIDTH_EFFICIENCY_MULTIPLIER = {
     # 33"+ is flat at the baseline.
 }
 
-# Widths at or above this are priced straight off the $/LF rate.
+# Widths from here up to WIDE_BOX_FROM are priced straight off the $/LF rate.
 WIDTH_EFFICIENCY_FLAT_ABOVE = 33
 
+# Past 36" the curve turns the other way: a wider box is the same two doors
+# and two drawers over more run, so its $/LF falls. Measured against the same
+# line's 36" box (US Cabinet Depot Capital Collection, Shaker White, V1.2026):
+#     base  B36 $1,135 / B39 $1,165 / B42 $1,203 -> 0.947, 0.909
+#           (KCD agrees: B42 $707.43 / B36 $667.45 -> 0.908)
+#     wall  30"H W36 $777 / W39 $830 / W42 $888  -> 0.986, 0.980
+#           36"H W36 $891 / W39 $944 / W42 $1,000 -> 0.978, 0.962
+#           42"H W36 $1,028 / W39 $1,089 / W42 $1,154 -> 0.978, 0.962
+# That line stops at 42". 45" and 48" base carry on its last step (+$38);
+# 48" wall takes Dream Cabinets' W4830 $445 / W4230 $401.95 -> 0.969 on top
+# of 42", and 45" wall sits halfway.
+# Without this a B42 billed at the full rate came out about 10% high, and so
+# did every BBC42 / SB42, whose own ratios are against the standard box of
+# their width.
+WIDE_BOX_FROM = 36
+WIDE_BOX_EFFICIENCY = {
+    "base": {39: 0.95, 42: 0.91, 45: 0.875, 48: 0.845},
+    "wall": {39: 0.98, 42: 0.97, 45: 0.955, 48: 0.94},
+}
 
-def width_efficiency(width_inches: float) -> float:
-    """Per-LF cost uplift for a narrow box. 1.0 at 33"+ ."""
+
+def width_efficiency(width_inches: float, cab_type: str = "base") -> float:
+    """Per-LF cost factor for a box's width.
+
+    Above 1.0 for a narrow box, 1.0 from 33" to 36", below 1.0 for a wide one.
+    """
+    if width_inches > WIDE_BOX_FROM:
+        wide = WIDE_BOX_EFFICIENCY.get(cab_type, WIDE_BOX_EFFICIENCY["base"])
+        return wide[min(wide, key=lambda k: (abs(k - width_inches), k))]
     if width_inches >= WIDTH_EFFICIENCY_FLAT_ABOVE:
         return 1.0
     if width_inches in WIDTH_EFFICIENCY_MULTIPLIER:
@@ -368,6 +394,15 @@ SPECIALTY_PREMIUM = {
     # +$134.66 at 36"H. 42"H measured +$158.78; held at the 30/36" figure
     # to stay flat across heights like the diagonal corner.
     "easy_reach_corner_wall": {24: 135},
+    # Three-door corner wall: a bay front, one door on each of three angled
+    # faces, width being its reach along each wall. NOT measured: none of the
+    # stock lines read (KCD, Capital, Arcadia, JSI) carries one past the 27"
+    # single-door diagonal, so it is a semi-custom build. Derived from
+    # DCW2430 instead, 1.29x W2430 in both KCD and Capital: the 36" unit has
+    # about twice its shelf and door area, so about 2 x $392 at Stock here,
+    # less the 3 LF x $142 its supply line already bills. The calculator warns
+    # to confirm it (UNMEASURED_SPECIALTIES).
+    "three_door_corner_wall": {30: 275, 33: 325, 36: 375},
     # Blind corner in the WALL run. The $45-$75 that used to sit here was
     # never measured; KCD White Shaker WBC27 comes in UNDER the two-door
     # W27 at every height (-$49 / -$65 / -$67 at 30/36/42"H), so it is a
@@ -428,6 +463,10 @@ SPECIALTY_SUPPLY_MULTIPLIER = {
     "blind_corner_wall": 0.86,
     "angle_end_base": 0.90,
 }
+
+# Specialties whose premium is derived rather than read off a price list. The
+# calculator tells the estimator to confirm the figure with the supplier.
+UNMEASURED_SPECIALTIES = {"three_door_corner_wall"}
 
 # Specialty premiums above are quoted at Stock tier. The same feature
 # costs more in a better box: the hardware is upgraded (a Custom lazy
@@ -527,6 +566,33 @@ GLASS_READY_DOOR_PREMIUM = {
     "Stock": 12,
     "Semi-Custom": 18,
     "Custom": 30,
+}
+
+# A door with a pattern in its frame instead of a plain panel, per door on top
+# of the box. The glass is NOT in this: tick Glass on the box for that.
+#
+# "lattice" is a diamond-lattice frame. Three reads of what the frame costs
+# over a plain door:
+#   * Arcadia White Shaker mullion doors: $89 (15x30), $112 (18x30), $128
+#     (18x36) each, on a line whose W3030 is $271 against $358 at Stock here,
+#     so about $135 for a typical door at our level.
+#   * CabinetNow diamond "specialty lite" $62.30/SF vs plain $33.20/SF: +$29/SF,
+#     or $90-$150 on a 15x30 to 18x42 door.
+#   * QuikDrawers mullions, $6.30 a lite: $75-$100 for 12-16 lites.
+# Tiers follow GLASS_DOOR_PREMIUM's ratios (1 : 1.41 : 2.01).
+#
+# "lattice_band" adds a carved band with oval cut-outs under the lattice, the
+# whole cabinet front as one panel. Billed by the doors the box would have
+# had, since that one panel covers them. The band's +$50 is an allowance: no
+# price list carries it separately.
+DOOR_PATTERN_PREMIUM = {
+    "lattice": {"Stock": 135, "Semi-Custom": 190, "Custom": 270},
+    "lattice_band": {"Stock": 185, "Semi-Custom": 260, "Custom": 370},
+}
+
+DOOR_PATTERN_LABELS = {
+    "lattice": "Diamond Lattice",
+    "lattice_band": "Lattice + Oval Band",
 }
 
 # Island end panel / back panel pricing (per SF, finished to match cabinets)
@@ -941,6 +1007,7 @@ LAYOUT_TYPES = [
 DOOR_STYLES = [
     "Shaker",
     "Raised Panel",
+    "Arched Raised Panel",
     "Slab",
     "Glass",
 ]
@@ -1069,8 +1136,15 @@ DOOR_STYLE_MULTIPLIER = {
     "Shaker": 1.00,        # baseline - the default in this market
     "Slab": 0.96,          # flat panel, no rails/stiles to machine
     "Raised Panel": 1.15,  # profiled center panel + shaped frame
+    # The arched top rail is more machining on the same door, so the top of
+    # the raised panel's 10-20% band. No published figure found: CabinetNow
+    # sells arched and square at the same $/SF, other lines list it without a
+    # percentage, so the calculator warns to confirm (VOLATILE_DOOR_STYLES).
+    "Arched Raised Panel": 1.20,
     "Glass": 1.00,         # frame same as shaker; glass billed separately
 }
+
+VOLATILE_DOOR_STYLES = {"Arched Raised Panel"}
 
 # ── Overlay / frame style multiplier (applied to cabinet supply) ──
 # Inset doors sit flush INSIDE the face frame, which demands much tighter

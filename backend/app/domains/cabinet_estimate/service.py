@@ -13,6 +13,7 @@ from uuid import UUID
 from app.core.interfaces import DatabaseSession
 
 from .calculator import BoxInput, calculate_estimate
+from .pricing import DOOR_PATTERN_LABELS
 from .models import (
     CabinetBox,
     CabinetEstimate,
@@ -259,6 +260,7 @@ class CabinetEstimateService:
                 range_panel_count=getattr(
                     b, 'range_panel_count', None,
                 ),
+                door_pattern=getattr(b, 'door_pattern', None),
                 qty=b.qty,
             )
             for b in estimate.boxes
@@ -562,6 +564,7 @@ class CabinetEstimateService:
                 "specialty_type": box.specialty_type,
                 "has_glass_door": box.has_glass_door or False,
                 "range_panel_count": box.range_panel_count,
+                "door_pattern": box.door_pattern,
                 "qty": box.qty,
                 "display_order": i,
             })
@@ -805,19 +808,30 @@ class CabinetEstimateService:
         if not estimate:
             return None
 
-        # Group boxes by code + location
+        # Group boxes by code + location + door pattern: a lattice W3030 and a
+        # plain one are different things to order.
         box_groups: Dict[str, Dict] = {}
         for box in estimate.boxes:
             loc = getattr(
                 box, 'location', 'perimeter',
             ) or 'perimeter'
-            key = f"{box.code}_{loc}"
+            pattern = getattr(box, 'door_pattern', None)
+            key = f"{box.code}_{loc}_{pattern or ''}"
             if key in box_groups:
                 box_groups[key]["qty"] += box.qty
             else:
                 loc_label = (
                     " (Island)"
                     if loc == "island" else ""
+                )
+                # A supplier doesn't know this code, so it says what it is.
+                corner_label = (
+                    " - Three-Door Corner (bay front)"
+                    if box.specialty_type == "three_door_corner_wall" else ""
+                )
+                pattern_label = (
+                    f" - {DOOR_PATTERN_LABELS[pattern]} Doors"
+                    if pattern in DOOR_PATTERN_LABELS else ""
                 )
                 box_groups[key] = {
                     "code": box.code,
@@ -826,6 +840,7 @@ class CabinetEstimateService:
                         f"Cabinet {box.code} "
                         f"({box.width_inches}\"W x "
                         f"{box.height_inches}\"H)"
+                        f"{corner_label}{pattern_label}"
                         f"{loc_label}"
                     ),
                     "cab_type": box.cab_type,

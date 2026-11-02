@@ -83,7 +83,7 @@ class CabinetEstimate(Base, BaseModel):
     tier = Column(String(50))          # Stock / Semi-Custom / Custom
     box_material = Column(String(50))  # Plywood / MDF / Particle
     finish = Column(String(50))        # Painted / Stained / Glazed / Laminate
-    door_style = Column(String(50))    # Shaker / Raised Panel / Slab / Glass
+    door_style = Column(String(50))    # Shaker / Raised Panel / Arched Raised Panel / Slab / Glass
     # Full Overlay / Partial Overlay / Inset. Inset runs +15-25% because
     # the door sits flush inside the face frame.
     overlay_style = Column(String(50), nullable=True)
@@ -267,12 +267,14 @@ class CabinetBox(Base, BaseModel):
     is_specialty = Column(Boolean, default=False)
     specialty_type = Column(String(50), nullable=True)
     # sink_base / lazy_susan / blind_corner / drawer_base / diagonal_corner_wall
-    # / oven_cabinet / refrigerator_cabinet / range_base_slide_in
-    # / range_base_drop_in
+    # / three_door_corner_wall / oven_cabinet / refrigerator_cabinet
+    # / range_base_slide_in / range_base_drop_in
     has_glass_door = Column(Boolean, default=False)
     # Finished end panels flanking a slide-in range opening (0-2).
     # Only meaningful when specialty_type == "range_base_slide_in".
     range_panel_count = Column(Integer, nullable=True)
+    # lattice / lattice_band; NULL is a plain door in the job's door style.
+    door_pattern = Column(String(30), nullable=True)
     qty = Column(Integer, default=1, nullable=False)
     display_order = Column(Integer, default=0)
 

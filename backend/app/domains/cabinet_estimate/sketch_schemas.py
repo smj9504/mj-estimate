@@ -40,6 +40,8 @@ class CabinetSketchCabinet(BaseModel):
     corner_side: Optional[str] = None
     # Copied from the Edit-tab box: its doors are drawn as glass.
     has_glass_door: Optional[bool] = None
+    # Copied from the Edit-tab box: the pattern drawn in its doors (lattice / lattice_band).
+    door_pattern: Optional[str] = None
 
 
 class CabinetSketchAppliance(BaseModel):

@@ -206,6 +206,8 @@ export interface CabinetSketchEditorProps {
   products?: Record<string, ProductSnapshot> | null;
   /** The Edit tab's Crown Molding scope: the 3D and Front views top the uppers and talls with it. */
   crownMolding?: boolean;
+  /** The Edit tab's door style is arched: every view draws the doors so. */
+  archedDoors?: boolean;
 }
 
 const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
@@ -223,6 +225,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   sinkBowls: scopeSinkBowls = 1,
   products = null,
   crownMolding = false,
+  archedDoors = false,
 }) => {
   const queryClient = useQueryClient();
   const stageRef = useRef<Konva.Stage>(null);
@@ -298,6 +301,14 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
   // An option's products over the finish; a chosen sink's own bowls over the Edit tab's sink type
   const look = useProductLook(finish, products);
   const sinkBowls = look.sinkBowls ?? scopeSinkBowls;
+  // Arched doors are priced by the Edit tab's door style, so the drawing goes
+  // by it over the picker; an option's cabinet product still says otherwise.
+  const archedByStyle = archedDoors && !look.setBy.door_style;
+  const drawnFinish = useMemo(
+    () => (archedByStyle ? { ...look.finish, door_style: 'arched' } : look.finish),
+    [archedByStyle, look.finish]
+  );
+  const drawnArched = drawnFinish.door_style === 'arched';
   // The 3D view's look: the outlined drawing, or the kitchen in its finish.
   const [realistic, setRealistic] = useState(false);
   const view3dRef = useRef<Cabinet3DViewHandle>(null);
@@ -1098,7 +1109,14 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
                 { label: <Tooltip title="In the kitchen's finishes, with light and shadow">Realistic</Tooltip>, value: 'realistic' },
               ]}
             />
-            {realistic && <KitchenFinishPicker finish={finish} onChange={setFinish} setBy={look.setBy} drawn={look.finish} />}
+            {realistic && (
+              <KitchenFinishPicker
+                finish={finish}
+                onChange={setFinish}
+                setBy={archedByStyle ? { ...look.setBy, door_style: 'Arched raised panel (Edit tab)' } : look.setBy}
+                drawn={drawnFinish}
+              />
+            )}
             {realistic && (
               <Tooltip title="A photo-like picture of the finished kitchen, drawn by AI from the view as framed now">
                 <Button
@@ -1266,6 +1284,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
             height={CANVAS_HEIGHT}
             selectedIds={selectedIds}
             crownMolding={crownMolding}
+            archedDoors={drawnArched}
           />
         </div>
       )}
@@ -1297,9 +1316,10 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
               scalePixelsPerFoot={scalePixelsPerFoot}
               height={CANVAS_HEIGHT}
               islandSeatingIn={islandSeatingIn}
-              finish={realistic ? look.finish : null}
+              finish={realistic ? drawnFinish : null}
               surfaces={realistic ? look.surfaces : null}
               crownMolding={crownMolding}
+              archedDoors={drawnArched}
               active={view === '3d'}
               selectedIds={selectedIds}
               onSelect={handleSelect('cabinet')}
@@ -1309,7 +1329,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
           <AiPhotoModal
             estimateId={estimateId}
             render={aiPhotoRender}
-            finish={productWords(look.finish, products)}
+            finish={productWords(drawnFinish, products)}
             onClose={() => setAiPhotoRender(null)}
           />
         </div>
@@ -1319,7 +1339,7 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
         {cabinets.length === 0
           ? 'Cabinets you add in the Edit tab appear here. You can also draw the walls first, then pick a cabinet from the dropdown and click the canvas to place it.'
           : view === 'plan'
-            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. For an angled island, select the cabinets of one side, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors. Detach & reset appliances (D&R) come from the Edit tab: one that goes in a cabinet sits in it, the rest start in a row below the drawing — drag them into place (onto a range base, oven cabinet or sink base to put them in it), and turn a selected one by its handle, the angle box or R; the dark edge is its front. Sizes and glass come from the Edit tab; a selected cabinet shows in its list above, where picking another changes it (Esc or a click on empty canvas to add new ones instead).'
+            ? 'Drag cabinets into place — dropped near a wall, a cabinet turns to back onto it; brought up beside another cabinet, it lines up and butts against it; an upper over a base lines up with its ends. For an angled island, select the cabinets of one side, set their angle (e.g. 45) in the angle box and bring their end up to the other side — they join at the inside corner. Dashed shapes are uppers; a blue double-line front marks glass doors, a dotted rust one a pattern in the doors. Detach & reset appliances (D&R) come from the Edit tab: one that goes in a cabinet sits in it, the rest start in a row below the drawing — drag them into place (onto a range base, oven cabinet or sink base to put them in it), and turn a selected one by its handle, the angle box or R; the dark edge is its front. Sizes, glass and door patterns come from the Edit tab; a selected cabinet shows in its list above, where picking another changes it (Esc or a click on empty canvas to add new ones instead).'
             : view === '3d'
               ? 'The plan in 3D, at real sizes, with the detach & reset appliances in place. Drag to look around, scroll to zoom, right-drag to pan. Click a cabinet to select it and change it from its list above; move cabinets and appliances in Top. Realistic draws the kitchen in the finishes picked beside it (saved with the sketch, not priced; None under Hardware for fronts with no knobs or pulls); walls between you and the room are left out. Crown molding tops the uppers and talls when Crown Molding is ticked in the Edit tab. With Ray-traced light on, the picture sharpens toward a photo a few seconds after the view stops moving (it needs about a minute to get ready when the 3D view first opens).'
               : 'Each run is drawn from the front, as laid out in the plan. Uppers hang at 54" above the floor; shorter ones line up with their tops.'}

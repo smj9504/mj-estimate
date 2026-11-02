@@ -85,6 +85,7 @@ class CabinetBoxBase(BaseModel):
     specialty_type: Optional[str] = Field(None, max_length=50)
     has_glass_door: bool = False
     range_panel_count: Optional[int] = Field(None, ge=0, le=2)
+    door_pattern: Optional[str] = Field(None, max_length=30)
     qty: int = Field(1, ge=1)
     display_order: int = 0
 
@@ -103,6 +104,7 @@ class CabinetBoxUpdate(BaseModel):
     specialty_type: Optional[str] = Field(None, max_length=50)
     has_glass_door: Optional[bool] = None
     range_panel_count: Optional[int] = Field(None, ge=0, le=2)
+    door_pattern: Optional[str] = Field(None, max_length=30)
     qty: Optional[int] = Field(None, ge=1)
     display_order: Optional[int] = None
 

@@ -19,7 +19,7 @@
  * imported (it lives in a .tsx component).
  */
 
-import type { CabinetLocation, CabType, SpecialtyType } from '../../../types/cabinetEstimate';
+import type { CabinetLocation, CabType, DoorPattern, SpecialtyType } from '../../../types/cabinetEstimate';
 import type { CabinetSketchCabinet, CabinetSketchWall } from '../../../types/cabinetSketch';
 import { generateOverlayId } from './cabinetSketchUtils';
 
@@ -39,6 +39,7 @@ export interface SketchBoxSource {
   height_inches: number;
   specialty_type?: SpecialtyType | null;
   has_glass_door?: boolean;
+  door_pattern?: DoorPattern | null;
   qty: number;
 }
 
@@ -106,11 +107,12 @@ export function cabinetDepthIn(cabType: CabType, specialty?: SpecialtyType | nul
  * How a corner cabinet's footprint differs from a plain box:
  * - 'l': lazy susan / easy-reach — an L, `width` along each wall;
  * - 'diagonal': the same reach with the inside corner cut on an angle;
+ * - 'bay': the same reach with a front of three angled faces, a door on each;
  * - 'blind': a plain box whose corner end hides behind the other run;
  * - 'angle_end': a run end cut back at 45°, full depth only at the end
  *   that joins the run.
  */
-export type CornerKind = 'l' | 'diagonal' | 'blind' | 'angle_end';
+export type CornerKind = 'l' | 'diagonal' | 'bay' | 'blind' | 'angle_end';
 
 export function cornerKind(specialty?: SpecialtyType | null): CornerKind | null {
   switch (specialty) {
@@ -120,6 +122,8 @@ export function cornerKind(specialty?: SpecialtyType | null): CornerKind | null 
     case 'diagonal_corner_wall':
     case 'diagonal_corner_base':
       return 'diagonal';
+    case 'three_door_corner_wall':
+      return 'bay';
     case 'angle_end_base':
       return 'angle_end';
     case 'blind_corner':
@@ -130,10 +134,31 @@ export function cornerKind(specialty?: SpecialtyType | null): CornerKind | null 
   }
 }
 
-/** Plan depth of the footprint: an L or diagonal corner reaches as far along the side wall as along its own. */
+/** Plan depth of the footprint: an L, diagonal or bay corner reaches as far along the side wall as along its own. */
 export function footprintDepthIn(cabType: CabType, specialty: SpecialtyType | null | undefined, widthIn: number): number {
   const kind = cornerKind(specialty);
-  return kind === 'l' || kind === 'diagonal' ? widthIn : cabinetDepthIn(cabType, specialty);
+  return kind === 'l' || kind === 'diagonal' || kind === 'bay' ? widthIn : cabinetDepthIn(cabType, specialty);
+}
+
+/** How far a three-door corner's front turns at each door joint, degrees: its side doors off the middle one. */
+const BAY_TURN_DEG = 22.5;
+
+/**
+ * The front of a three-door corner, its corner at local (0, 0): the four
+ * points from the end of the side leg round to the end of the back leg, a
+ * door on each of the three equal stretches between them. The middle door
+ * faces straight out of the corner, at 45° to both walls.
+ */
+export function bayFront(w: number, d: number, leg: number): [number, number][] {
+  const t = (BAY_TURN_DEG * Math.PI) / 180;
+  const door = (w - leg) / (Math.sin(t) + Math.cos(t) + Math.SQRT1_2);
+  const [along, out] = [door * Math.cos(t), door * Math.sin(t)];
+  return [
+    [leg, d],
+    [leg + along, d - out],
+    [w - out, leg + along],
+    [w, leg],
+  ];
 }
 
 /** Length of a blind corner's end that the other run covers: that run's depth. */
@@ -216,15 +241,17 @@ export function mountHeightsIn(
 const fmt = (n: number) => String(Math.round(n * 100) / 100);
 
 /**
- * A glass-door box is a different cabinet from the same box without, so
- * that 1 glass + 1 plain W3030 each get a shape that shows which it is.
- * The suffix is only added for glass, leaving plain keys as they were.
+ * A glass-door or patterned box is a different cabinet from the same box
+ * without, so that 1 glass + 1 plain W3030 each get a shape that shows which
+ * it is. The suffixes are only added for those, leaving plain keys as they
+ * were.
  */
 export function boxKey(
-  box: Pick<SketchBoxSource, 'location' | 'code' | 'cab_type' | 'width_inches' | 'height_inches' | 'has_glass_door'>
+  box: Pick<SketchBoxSource, 'location' | 'code' | 'cab_type' | 'width_inches' | 'height_inches' | 'has_glass_door' | 'door_pattern'>
 ) {
   const glass = box.has_glass_door ? '|glass' : '';
-  return `${box.location}|${box.code}|${box.cab_type}|${fmt(box.width_inches)}x${fmt(box.height_inches)}${glass}`;
+  const pattern = box.door_pattern ? `|${box.door_pattern}` : '';
+  return `${box.location}|${box.code}|${box.cab_type}|${fmt(box.width_inches)}x${fmt(box.height_inches)}${glass}${pattern}`;
 }
 
 export function cabinetKey(cabinet: CabinetSketchCabinet, presets: PresetCatalog, scalePixelsPerFoot: number) {
@@ -236,6 +263,7 @@ export function cabinetKey(cabinet: CabinetSketchCabinet, presets: PresetCatalog
     width_inches: width,
     height_inches: height,
     has_glass_door: !!cabinet.has_glass_door,
+    door_pattern: cabinet.door_pattern,
   });
 }
 
@@ -345,6 +373,7 @@ export function reconcileCabinets(
       height_in: box.height_inches,
       // Left off a plain cabinet, so its saved JSON stays as before.
       has_glass_door: box.has_glass_door ? true : undefined,
+      door_pattern: box.door_pattern || undefined,
       width: inToPx(box.width_inches, scalePixelsPerFoot),
       height: inToPx(depth, scalePixelsPerFoot),
     };
@@ -393,7 +422,7 @@ export function reconcileCabinets(
   }
 
   // A changed box takes over the leftover shape it most likely was: one of
-  // the same code (only its glass was toggled), else any at the same height.
+  // the same code (only its glass or pattern changed), else any at the same height.
   const missing: SketchBoxSource[] = [];
   for (const box of unplaced) {
     const sameSpot = (c: CabinetSketchCabinet) =>

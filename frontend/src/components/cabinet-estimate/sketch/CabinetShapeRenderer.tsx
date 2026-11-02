@@ -8,8 +8,9 @@
  * the footprint follows the Edit tab box the shape stands for.
  *
  * Uppers are drawn dashed and see-through over the bases, as on a printed
- * kitchen plan; the heavier line marks the front (door side), and a blue
- * double line marks it instead on a cabinet with glass doors.
+ * kitchen plan; the heavier line marks the front (door side), a blue double
+ * line marks it instead on a cabinet with glass doors, and a dotted rust line
+ * runs along it on one with a pattern in its doors.
  *
  * Ported from water-mitigation/sketch/canvas/WMShapeRenderer.tsx, keeping
  * only the rectangle path — no ellipse/door/stairs branches; corner
@@ -20,6 +21,7 @@ import React, { useCallback, useRef, useEffect } from 'react';
 import { Group, Line, Rect, Text, Transformer } from 'react-konva';
 import Konva from 'konva';
 import type { CabinetSketchCabinet } from '../../../types/cabinetSketch';
+import { bayFront } from './cabinetSketchLayout';
 import type { CornerKind } from './cabinetSketchLayout';
 
 /** 15° snap angles for Shift+Rotate (0, 15, 30, …, 345) */
@@ -33,6 +35,7 @@ const FILL_BY_TYPE: Record<string, { fill: string; opacity: number }> = {
 };
 
 const GLASS_STROKE = '#6E9CC0';
+const PATTERN_STROKE = '#9A4A1F';
 
 /** Konva hit-target sizing — fixed desktop sizes (no touch-device variant needed here) */
 export const ANCHOR_SIZE = 8;
@@ -64,6 +67,9 @@ function cornerOutline(corner: CornerShape, w: number, h: number): { outline: nu
   } else if (corner.kind === 'diagonal') {
     pts = [[0, 0], [w, 0], [w, d], [d, h], [0, h]];
     front = [[w, d], [d, h]];
+  } else if (corner.kind === 'bay') {
+    front = bayFront(w, h, d).reverse();
+    pts = [[0, 0], [w, 0], ...front, [0, h]];
   } else if (corner.kind === 'angle_end') {
     // Cut back at 45° from the full-depth end: a triangle once it is as wide as it is deep.
     const outer = Math.max(h - w, 0);
@@ -304,6 +310,16 @@ const CabinetShapeRenderer: React.FC<CabinetShapeRendererProps> = ({
           !isUpper && (
             <Line points={front} stroke="#5A3E28" strokeWidth={2.5} strokeScaleEnabled={false} listening={false} />
           )
+        )}
+        {cabinet.door_pattern && (
+          <Line
+            points={front}
+            stroke={PATTERN_STROKE}
+            strokeWidth={3}
+            strokeScaleEnabled={false}
+            dash={[2 * px, 3 * px]}
+            listening={false}
+          />
         )}
         {isSelected &&
           (outline ? (

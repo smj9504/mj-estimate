@@ -8,7 +8,7 @@
  * outlined, over a 1 ft grid with see-through walls, so the two read as the
  * same drawing. The realistic look draws the sketch's finish
  * (kitchenFinish.ts) under real light: textured materials (finishMaterials.ts),
- * shaker, raised-panel or slab doors with pulls or knobs (or none), a
+ * shaker, raised-panel, arched or slab doors with pulls or knobs (or none), a
  * backsplash on every wall a counter or range backs onto, sinks sunk into the
  * counter under a gooseneck faucet, solid walls that open toward the camera
  * (cutAwayWalls) — what the AI photo starts from. Either look can top the
@@ -17,9 +17,19 @@
 
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
+import type { DoorPattern } from '../../../types/cabinetEstimate';
 import type { CabinetSketchFinish } from '../../../types/cabinetSketch';
-import { COUNTER_TOP_IN, CROWN_BANDS, CROWN_MIN_TOP_IN, GLASS_STILE_IN } from './cabinetFronts';
-import type { Face } from './cabinetFronts';
+import {
+  ARCH_MIN_DOOR_IN,
+  COUNTER_TOP_IN,
+  CROWN_BANDS,
+  CROWN_MIN_TOP_IN,
+  GLASS_STILE_IN,
+  LATTICE_BAR_IN,
+  archOutline,
+  doorDesign,
+} from './cabinetFronts';
+import type { DoorDesign, Face } from './cabinetFronts';
 import { applianceExtent, inPolygon, modelBounds, toPlan } from './cabinet3dModel';
 import type { ApplianceSolid, CabinetSolid, CounterSlab, FillerSolid, FrontRun, Pt2, WallSolid } from './cabinet3dModel';
 import { finishMaterials } from './finishMaterials';
@@ -131,7 +141,7 @@ function withEdges(mesh: THREE.Mesh, color: string): THREE.Mesh {
 /** How one build is drawn: see the file comment. */
 interface Paint {
   realistic: boolean;
-  /** Door and drawer fronts: shaker, raised (panel) or slab. */
+  /** Door and drawer fronts: shaker, raised (panel), arched (raised panel) or slab. */
   doors: string;
   /** Hardware shape: bar (pulls), knob, or cup (knobs on doors, cup pulls on drawers). */
   hardware: string;
@@ -206,11 +216,15 @@ function barPull(len: number, vertical: boolean, material: THREE.Material): THRE
 }
 
 /** A raised-panel door's field, w × h, centred on the origin: flat in the middle, bevelled down to its edges, its back at z = 0. */
-function raisedField(w: number, h: number, material: THREE.Material): THREE.Mesh {
+function raisedField(w: number, h: number, material: THREE.Material, arched = false): THREE.Mesh {
   const bevel = Math.min(RAISED_BEVEL_IN, w / 4, h / 4);
   const x = w / 2 - bevel;
   const y = h / 2 - bevel;
-  const shape = new THREE.Shape([new THREE.Vector2(-x, -y), new THREE.Vector2(x, -y), new THREE.Vector2(x, y), new THREE.Vector2(-x, y)]);
+  const shape = new THREE.Shape(
+    arched
+      ? archOutline(2 * x, 2 * y).map(([px, py]) => new THREE.Vector2(px - x, py - y))
+      : [new THREE.Vector2(-x, -y), new THREE.Vector2(x, -y), new THREE.Vector2(x, y), new THREE.Vector2(-x, y)]
+  );
   // The bevel grows the outline by `bevel` and adds its thickness either side of `depth`.
   const slope = RAISED_THICK_IN * 0.4;
   const geometry = new THREE.ExtrudeGeometry(shape, {
@@ -252,18 +266,75 @@ function cupPull(material: THREE.Material): THREE.Group {
 
 /** Where a door is hung from: the side away from the door beside it, if there is one. */
 function pullSide(f: Face, faces: Face[]): 'left' | 'right' {
+  if (f.pull) return f.pull;
   const beside = (g: Face) => g !== f && g.kind === 'door' && g.y < f.y + f.h && f.y < g.y + g.h;
   if (faces.some((g) => beside(g) && Math.abs(g.x - (f.x + f.w)) < 2)) return 'right';
   if (faces.some((g) => beside(g) && Math.abs(g.x + g.w - f.x) < 2)) return 'left';
   return 'right';
 }
 
+/** A door w × h as one piece, its bottom-left corner at the origin, standing off toward +z, with `holes` (door inches) through it. */
+function doorFrame(w: number, h: number, holes: Pt2[][]): THREE.BufferGeometry {
+  const flat = (pts: Pt2[]) => pts.map(([x, y]) => new THREE.Vector2(x, y));
+  const shape = new THREE.Shape(flat([[0, 0], [w, 0], [w, h], [0, h]]));
+  shape.holes = holes.map((hole) => new THREE.Path(flat(hole)));
+  return new THREE.ExtrudeGeometry(shape, { depth: FACE_THICK_IN, bevelEnabled: false });
+}
+
+/**
+ * A door with a pattern, in both looks, in the front's own frame: the frame
+ * with its opening and the band's cut-outs through it, the lattice bars
+ * across the opening, and behind them the cabinet's dark inside, or glass.
+ */
+function patternFront(f: Face, design: DoorDesign, glass: boolean, edge: string, paint: Paint): THREE.Object3D[] {
+  const { opening: o, bars, band } = design;
+  const ovals = (band?.ovals ?? []).map(({ cx, cy, rx, ry }) =>
+    Array.from({ length: 24 }, (_, i): Pt2 => {
+      const t = (i / 24) * Math.PI * 2;
+      return [cx + rx * Math.cos(t), cy + ry * Math.sin(t)];
+    })
+  );
+  const diamonds = (band?.diamonds ?? []).map(({ cx, cy, r }): Pt2[] => [
+    [cx, cy - r],
+    [cx + r, cy],
+    [cx, cy + r],
+    [cx - r, cy],
+  ]);
+  const holes = [rectPoints([o.x, o.y, o.x + o.w, o.y + o.h]), ...ovals, ...diamonds];
+  const frame = paint.outline(new THREE.Mesh(doorFrame(f.w, f.h, holes), paint.mat('face')), edge);
+
+  const inside = new THREE.Mesh(new THREE.PlaneGeometry(f.w - 0.2, f.h - 0.2), paint.mat(paint.realistic ? 'window' : 'toe'));
+  inside.position.set(f.w / 2, f.h / 2, 0.02);
+  const out: THREE.Object3D[] = [frame, inside];
+  if (glass) {
+    const pane = new THREE.Mesh(
+      new THREE.PlaneGeometry(o.w, o.h),
+      paint.mat('glass', { roughness: 0.15, transparent: true, opacity: 0.8 })
+    );
+    pane.position.set(o.x + o.w / 2, o.y + o.h / 2, FACE_THICK_IN * 0.25);
+    out.push(pane);
+  }
+  for (const [x0, y0, x1, y1] of bars) {
+    const bar = new THREE.Mesh(inchBox(Math.hypot(x1 - x0, y1 - y0), LATTICE_BAR_IN, LATTICE_BAR_IN), paint.mat('face'));
+    // Set back from the frame's face, so the bars' cut ends stay inside it.
+    bar.position.set((x0 + x1) / 2, (y0 + y1) / 2, FACE_THICK_IN - LATTICE_BAR_IN / 2 - 0.1);
+    bar.rotation.z = Math.atan2(y1 - y0, x1 - x0);
+    out.push(paint.outline(bar, edge));
+  }
+  return out;
+}
+
+/** Whether a front takes the arched style's panel: a door wide enough, with no glass in it. */
+const archedDoor = (f: Face, glass: boolean, paint: Paint) =>
+  paint.doors === 'arched' && f.kind === 'door' && !glass && Math.min(f.w, f.h) >= ARCH_MIN_DOOR_IN;
+
 /**
  * One realistic front in its own frame (x from its left edge, y up from its
- * bottom, z out from the box): a slab, or a shaker frame around a recessed
- * panel or glass, with its pull. `bottom` is the front's height off the floor.
+ * bottom, z out from the box): a slab, a shaker frame around a recessed panel
+ * or glass, an arched frame around a raised field, or a pattern (`design`),
+ * with its pull. `bottom` is the front's height off the floor.
  */
-function realisticFront(f: Face, faces: Face[], glass: boolean, bottom: number, paint: Paint): THREE.Object3D[] {
+function realisticFront(f: Face, faces: Face[], glass: boolean, design: DoorDesign | null, bottom: number, paint: Paint): THREE.Object3D[] {
   const out: THREE.Object3D[] = [];
   const at = (mesh: THREE.Mesh, x: number, y: number, z: number) => {
     mesh.position.set(x, y, z);
@@ -276,9 +347,19 @@ function realisticFront(f: Face, faces: Face[], glass: boolean, bottom: number, 
   }
   const surface: Surface = f.label === 'APRON SINK' ? 'ceramic' : 'face';
   const glassDoor = glass && f.kind === 'door';
-  const framed = glassDoor || (paint.doors !== 'slab' && surface === 'face' && Math.min(f.w, f.h) >= SHAKER_MIN_IN);
+  const arched = !design && surface === 'face' && archedDoor(f, glassDoor, paint);
+  const framed = glassDoor || !!design || arched || (paint.doors !== 'slab' && surface === 'face' && Math.min(f.w, f.h) >= SHAKER_MIN_IN);
   const s = Math.min(GLASS_STILE_IN, f.w / 4, f.h / 4);
-  if (framed) {
+  if (design) {
+    out.push(...patternFront(f, design, glassDoor, COLORS.faceEdge, paint));
+  } else if (arched) {
+    // The frame in one piece, around a recessed panel; the field stands up off it, short of the frame.
+    const [panelW, panelH] = [f.w - 2 * s, f.h - 2 * s];
+    const hole = archOutline(panelW, panelH).map(([x, y]): Pt2 => [x + s, y + s]);
+    out.push(new THREE.Mesh(doorFrame(f.w, f.h, [hole]), paint.mat(surface)));
+    at(new THREE.Mesh(inchBox(panelW, panelH, SHAKER_PANEL_IN), paint.mat(surface)), f.w / 2, f.h / 2, SHAKER_PANEL_IN / 2);
+    at(raisedField(panelW - 2 * RAISED_MARGIN_IN, panelH - 2 * RAISED_MARGIN_IN, paint.mat(surface), true), f.w / 2, f.h / 2, SHAKER_PANEL_IN);
+  } else if (framed) {
     const piece = (x: number, y: number, w: number, h: number) =>
       at(new THREE.Mesh(inchBox(w, h, FACE_THICK_IN), paint.mat(surface)), x + w / 2, y + h / 2, FACE_THICK_IN / 2);
     piece(0, 0, s, f.h);
@@ -335,7 +416,7 @@ function realisticFront(f: Face, faces: Face[], glass: boolean, bottom: number, 
 }
 
 /** The doors, drawers and openings of one front run, in the cabinet's local frame. `bottom`: the cabinet's height off the floor. */
-function frontMeshes(run: FrontRun, glass: boolean, edgeColor: string, bottom: number, paint: Paint): THREE.Object3D[] {
+function frontMeshes(run: FrontRun, glass: boolean, pattern: DoorPattern | null, edgeColor: string, bottom: number, paint: Paint): THREE.Object3D[] {
   const [ax, az] = run.a;
   const len = Math.hypot(run.b[0] - ax, run.b[1] - az);
   if (len < 0.01) return [];
@@ -353,8 +434,13 @@ function frontMeshes(run: FrontRun, glass: boolean, edgeColor: string, bottom: n
     front.rotation.y = turn;
     out.push(front);
 
+    const design = pattern && f.kind === 'door' ? doorDesign(f, pattern) : null;
     if (paint.realistic) {
-      front.add(...realisticFront(f, run.faces, glass, bottom + f.y, paint));
+      front.add(...realisticFront(f, run.faces, glass, design, bottom + f.y, paint));
+      return;
+    }
+    if (design) {
+      front.add(...patternFront(f, design, glass, edgeColor, paint));
       return;
     }
     const opening = f.kind === 'opening';
@@ -371,6 +457,12 @@ function frontMeshes(run: FrontRun, glass: boolean, edgeColor: string, bottom: n
       );
       pane.position.set(f.w / 2, f.h / 2, thick + 0.02);
       front.add(pane);
+    }
+    if (archedDoor(f, glass, paint)) {
+      // The arched panel, as a line on the door.
+      const s = Math.min(GLASS_STILE_IN, f.w / 4, f.h / 4);
+      const panel = archOutline(f.w - 2 * s, f.h - 2 * s).map(([x, y]) => new THREE.Vector3(x + s, y + s, thick + 0.02));
+      front.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(panel), new THREE.LineBasicMaterial({ color: edgeColor })));
     }
     if (f.kind === 'drawer' && f.h > 3) {
       const pull = new THREE.Mesh(new THREE.BoxGeometry(Math.min(f.w * 0.4, 5), 0.5, 0.6), paint.mat('pull'));
@@ -671,7 +763,7 @@ function cabinetObject(
     const top = new THREE.Mesh(prism(solid.counter, solid.height, COUNTER_TOP_IN, bowls), paint.mat('counter'));
     group.add(paint.outline(top, '#6f6d68'));
   }
-  for (const run of solid.fronts) group.add(...frontMeshes(run, solid.glass, faceEdge, solid.bottom, paint));
+  for (const run of solid.fronts) group.add(...frontMeshes(run, solid.glass, solid.doorPattern, faceEdge, solid.bottom, paint));
   if (solid.sink) group.add(materials ? realisticSink(solid.sink, materials) : sinkObject(solid.sink, paint));
   const isBase = solid.bottom < 1 && solid.height < COUNTER_TOP_IN + 1 && solid.cabinet.location !== 'island';
   if (materials?.backsplash && isBase) group.add(...backsplashes(solid, materials.backsplash, walls));
@@ -828,6 +920,7 @@ export function buildCabinetScene(
     finish = null,
     surfaces = null,
     crown = false,
+    archedDoors = false,
   }: {
     counters?: CounterSlab[];
     fillers?: FillerSolid[];
@@ -838,9 +931,11 @@ export function buildCabinetScene(
     surfaces?: ProductSurfaces | null;
     /** Top the uppers and talls with crown molding (the estimate's Crown Molding scope). */
     crown?: boolean;
+    /** Mark the doors' arched panels in the drawing look; the realistic look goes by its finish. */
+    archedDoors?: boolean;
   } = {}
 ): THREE.Group {
-  const paint = finish ? realisticPaint(finish, surfaces) : DRAWING;
+  const paint = finish ? realisticPaint(finish, surfaces) : archedDoors ? { ...DRAWING, doors: 'arched' } : DRAWING;
   const root = new THREE.Group();
   const bounds = modelBounds(solids, walls, applianceExtent(appliances));
   const center = bounds ? { x: (bounds.minX + bounds.maxX) / 2, z: (bounds.minZ + bounds.maxZ) / 2 } : { x: 0, z: 0 };

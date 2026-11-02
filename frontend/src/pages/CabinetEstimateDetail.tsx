@@ -179,6 +179,7 @@ const CabinetEstimateDetail: React.FC = () => {
   const applianceList: { type: string; qty: number }[] | undefined = Form.useWatch('appliance_list', { form, preserve: true });
   const sinkType: string | undefined = Form.useWatch('sink_type', { form, preserve: true });
   const crownMolding: boolean = Form.useWatch('include_crown_molding', { form, preserve: true }) ?? false;
+  const doorStyle: string | undefined = Form.useWatch('door_style', { form, preserve: true });
   const sketchAppliances = useMemo(
     () => (includeApplianceRr ? applianceList ?? [] : []),
     [includeApplianceRr, applianceList]
@@ -401,6 +402,7 @@ const CabinetEstimateDetail: React.FC = () => {
         specialty_type: b.specialty_type || null,
         has_glass_door: b.has_glass_door || false,
         range_panel_count: b.range_panel_count ?? null,
+        door_pattern: b.door_pattern ?? null,
         qty: b.qty,
         display_order: b.display_order,
       }));
@@ -997,7 +999,7 @@ const CabinetEstimateDetail: React.FC = () => {
                       <Form.Item
                         name="door_style"
                         label="Door Style"
-                        tooltip="Shaker is the baseline. Raised Panel +15% for the extra machining, Slab −4%."
+                        tooltip="Shaker is the baseline. Raised Panel +15% for the extra machining, Arched Raised Panel +20%, Slab −4%."
                       >
                         <Select
                           placeholder="Shaker"
@@ -1996,6 +1998,7 @@ const CabinetEstimateDetail: React.FC = () => {
             sinkBowls={sinkType === 'double' ? 2 : 1}
             products={estimate.kind === 'option' ? estimate.selections : null}
             crownMolding={crownMolding}
+            archedDoors={doorStyle === 'Arched Raised Panel'}
             onApplyIslandTopSf={(sf) => {
               form.setFieldsValue({ island_countertop_sqft: sf });
               message.success(`Island countertop set to ${sf} SF on the Edit tab — Save or Save & Calculate to price it`);

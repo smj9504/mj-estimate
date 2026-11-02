@@ -6,7 +6,7 @@
  * a cabinet "room" is just whatever the drawn walls visually enclose.
  */
 
-import type { CabinetLocation, CabType } from './cabinetEstimate';
+import type { CabinetLocation, CabType, DoorPattern } from './cabinetEstimate';
 
 export interface CabinetSketchWall {
   id: string;
@@ -51,6 +51,8 @@ export interface CabinetSketchCabinet {
   corner_side?: 'left' | 'right';
   /** The Edit tab box has glass door inserts; the sketch draws its doors as glass. */
   has_glass_door?: boolean | null;
+  /** The pattern the Edit tab box has in its doors. */
+  door_pattern?: DoorPattern | null;
 }
 
 /**

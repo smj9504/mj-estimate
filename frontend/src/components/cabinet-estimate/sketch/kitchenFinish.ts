@@ -40,6 +40,7 @@ export const CABINET_COLORS: CabinetColorChoice[] = [
 export const DOOR_STYLES: FinishChoice[] = [
   { key: 'shaker', label: 'Shaker', swatch: '#f1efea', words: 'shaker-style (five-piece recessed panel)' },
   { key: 'raised', label: 'Raised panel', swatch: '#f1efea', words: 'traditional raised-panel' },
+  { key: 'arched', label: 'Arched raised panel', swatch: '#f1efea', words: 'traditional arched-top (cathedral) raised-panel' },
   { key: 'slab', label: 'Flat (slab)', swatch: '#f1efea', words: 'flat slab (frameless, modern)' },
 ];
 

@@ -14,7 +14,7 @@ import {
   Typography,
 } from 'antd';
 import { DeleteOutlined } from '@ant-design/icons';
-import type { CabinetBoxCreate, CabinetLocation, CabType, SpecialtyType } from '../../types/cabinetEstimate';
+import type { CabinetBoxCreate, CabinetLocation, CabType, DoorPattern, SpecialtyType } from '../../types/cabinetEstimate';
 
 const { Text } = Typography;
 
@@ -31,6 +31,10 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'B30': { cab_type: 'base', width: 30, height: 34.5, label: 'Base 30"' },
   'B33': { cab_type: 'base', width: 33, height: 34.5, label: 'Base 33"' },
   'B36': { cab_type: 'base', width: 36, height: 34.5, label: 'Base 36"' },
+  'B39': { cab_type: 'base', width: 39, height: 34.5, label: 'Base 39"' },
+  'B42': { cab_type: 'base', width: 42, height: 34.5, label: 'Base 42"' },
+  'B45': { cab_type: 'base', width: 45, height: 34.5, label: 'Base 45"' },
+  'B48': { cab_type: 'base', width: 48, height: 34.5, label: 'Base 48"' },
   // Base - Sink Base
   'SB30': { cab_type: 'base', width: 30, height: 34.5, specialty: 'sink_base', label: 'Sink Base 30"' },
   'SB33': { cab_type: 'base', width: 33, height: 34.5, specialty: 'sink_base', label: 'Sink Base 33"' },
@@ -88,6 +92,10 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'W3030': { cab_type: 'wall', width: 30, height: 30, label: '30"W x 30"H' },
   'W3330': { cab_type: 'wall', width: 33, height: 30, label: '33"W x 30"H' },
   'W3630': { cab_type: 'wall', width: 36, height: 30, label: '36"W x 30"H' },
+  'W3930': { cab_type: 'wall', width: 39, height: 30, label: '39"W x 30"H' },
+  'W4230': { cab_type: 'wall', width: 42, height: 30, label: '42"W x 30"H' },
+  'W4530': { cab_type: 'wall', width: 45, height: 30, label: '45"W x 30"H' },
+  'W4830': { cab_type: 'wall', width: 48, height: 30, label: '48"W x 30"H' },
   // Wall - Tall (36"H)
   'W0936': { cab_type: 'wall', width: 9,  height: 36, label: '9"W x 36"H' },
   'W1236': { cab_type: 'wall', width: 12, height: 36, label: '12"W x 36"H' },
@@ -99,6 +107,10 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'W3036': { cab_type: 'wall', width: 30, height: 36, label: '30"W x 36"H' },
   'W3336': { cab_type: 'wall', width: 33, height: 36, label: '33"W x 36"H' },
   'W3636': { cab_type: 'wall', width: 36, height: 36, label: '36"W x 36"H' },
+  'W3936': { cab_type: 'wall', width: 39, height: 36, label: '39"W x 36"H' },
+  'W4236': { cab_type: 'wall', width: 42, height: 36, label: '42"W x 36"H' },
+  'W4536': { cab_type: 'wall', width: 45, height: 36, label: '45"W x 36"H' },
+  'W4836': { cab_type: 'wall', width: 48, height: 36, label: '48"W x 36"H' },
   // Wall - Tall (42"H)
   'W0942': { cab_type: 'wall', width: 9,  height: 42, label: '9"W x 42"H' },
   'W1242': { cab_type: 'wall', width: 12, height: 42, label: '12"W x 42"H' },
@@ -110,22 +122,34 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'W3042': { cab_type: 'wall', width: 30, height: 42, label: '30"W x 42"H' },
   'W3342': { cab_type: 'wall', width: 33, height: 42, label: '33"W x 42"H' },
   'W3642': { cab_type: 'wall', width: 36, height: 42, label: '36"W x 42"H' },
+  'W3942': { cab_type: 'wall', width: 39, height: 42, label: '39"W x 42"H' },
+  'W4242': { cab_type: 'wall', width: 42, height: 42, label: '42"W x 42"H' },
+  'W4542': { cab_type: 'wall', width: 45, height: 42, label: '45"W x 42"H' },
+  'W4842': { cab_type: 'wall', width: 48, height: 42, label: '48"W x 42"H' },
   // Wall - Short (above microwave / fridge: 12"~27"H)
   'W2412': { cab_type: 'wall', width: 24, height: 12, label: '24"W x 12"H' },
   'W3012': { cab_type: 'wall', width: 30, height: 12, label: '30"W x 12"H' },
   'W3312': { cab_type: 'wall', width: 33, height: 12, label: '33"W x 12"H' },
   'W3612': { cab_type: 'wall', width: 36, height: 12, label: '36"W x 12"H' },
+  'W4212': { cab_type: 'wall', width: 42, height: 12, label: '42"W x 12"H' },
+  'W4812': { cab_type: 'wall', width: 48, height: 12, label: '48"W x 12"H' },
   'W2415': { cab_type: 'wall', width: 24, height: 15, label: '24"W x 15"H' },
   'W3015': { cab_type: 'wall', width: 30, height: 15, label: '30"W x 15"H' },
   'W3315': { cab_type: 'wall', width: 33, height: 15, label: '33"W x 15"H' },
   'W3615': { cab_type: 'wall', width: 36, height: 15, label: '36"W x 15"H' },
+  'W4215': { cab_type: 'wall', width: 42, height: 15, label: '42"W x 15"H' },
+  'W4815': { cab_type: 'wall', width: 48, height: 15, label: '48"W x 15"H' },
   'W2418': { cab_type: 'wall', width: 24, height: 18, label: '24"W x 18"H' },
   'W3018': { cab_type: 'wall', width: 30, height: 18, label: '30"W x 18"H' },
   'W3618': { cab_type: 'wall', width: 36, height: 18, label: '36"W x 18"H' },
+  'W4218': { cab_type: 'wall', width: 42, height: 18, label: '42"W x 18"H' },
+  'W4818': { cab_type: 'wall', width: 48, height: 18, label: '48"W x 18"H' },
   'W2424': { cab_type: 'wall', width: 24, height: 24, label: '24"W x 24"H' },
   'W3024': { cab_type: 'wall', width: 30, height: 24, label: '30"W x 24"H' },
   'W3324': { cab_type: 'wall', width: 33, height: 24, label: '33"W x 24"H' },
   'W3624': { cab_type: 'wall', width: 36, height: 24, label: '36"W x 24"H' },
+  'W4224': { cab_type: 'wall', width: 42, height: 24, label: '42"W x 24"H' },
+  'W4824': { cab_type: 'wall', width: 48, height: 24, label: '48"W x 24"H' },
   'W3627': { cab_type: 'wall', width: 36, height: 27, label: '36"W x 27"H' },
   // Wall - Corner. The 30"H codes predate the 36"/42" ones and carry no
   // height; saved estimates use them, so they keep their names.
@@ -141,7 +165,18 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
   'WER2430': { cab_type: 'wall', width: 24, height: 30, specialty: 'easy_reach_corner_wall', label: 'Easy Reach Corner 24"W x 30"H' },
   'WER2436': { cab_type: 'wall', width: 24, height: 36, specialty: 'easy_reach_corner_wall', label: 'Easy Reach Corner 24"W x 36"H' },
   'WER2442': { cab_type: 'wall', width: 24, height: 42, specialty: 'easy_reach_corner_wall', label: 'Easy Reach Corner 24"W x 42"H' },
-  'WBC24':   { cab_type: 'wall', width: 24, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 24"W x 30"H' },
+  // Three-door corner: a bay of three angled doors. Width is its reach along
+  // each wall; on site it is measured by its doors, so the label carries both.
+  'WTD3030': { cab_type: 'wall', width: 30, height: 30, specialty: 'three_door_corner_wall', label: '3-Door Corner 30"W x 30"H (9" doors)' },
+  'WTD3036': { cab_type: 'wall', width: 30, height: 36, specialty: 'three_door_corner_wall', label: '3-Door Corner 30"W x 36"H (9" doors)' },
+  'WTD3042': { cab_type: 'wall', width: 30, height: 42, specialty: 'three_door_corner_wall', label: '3-Door Corner 30"W x 42"H (9" doors)' },
+  'WTD3330': { cab_type: 'wall', width: 33, height: 30, specialty: 'three_door_corner_wall', label: '3-Door Corner 33"W x 30"H (10.5" doors)' },
+  'WTD3336': { cab_type: 'wall', width: 33, height: 36, specialty: 'three_door_corner_wall', label: '3-Door Corner 33"W x 36"H (10.5" doors)' },
+  'WTD3342': { cab_type: 'wall', width: 33, height: 42, specialty: 'three_door_corner_wall', label: '3-Door Corner 33"W x 42"H (10.5" doors)' },
+  'WTD3630': { cab_type: 'wall', width: 36, height: 30, specialty: 'three_door_corner_wall', label: '3-Door Corner 36"W x 30"H (12" doors)' },
+  'WTD3636': { cab_type: 'wall', width: 36, height: 36, specialty: 'three_door_corner_wall', label: '3-Door Corner 36"W x 36"H (12" doors)' },
+  'WTD3642': { cab_type: 'wall', width: 36, height: 42, specialty: 'three_door_corner_wall', label: '3-Door Corner 36"W x 42"H (12" doors)' },
+  'WBC24':  { cab_type: 'wall', width: 24, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 24"W x 30"H' },
   'WBC27':   { cab_type: 'wall', width: 27, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 27"W x 30"H' },
   'WBC30':   { cab_type: 'wall', width: 30, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 30"W x 30"H' },
   'WBC33':   { cab_type: 'wall', width: 33, height: 30, specialty: 'blind_corner_wall', label: 'Blind Corner Wall 33"W x 30"H' },
@@ -206,6 +241,24 @@ export const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number;
 };
 
 const CUSTOM_VALUE = '__custom__';
+
+const PLAIN_DOOR = 'plain';
+
+/** `short` is what the narrow table cell shows once picked. */
+const DOOR_PATTERN_OPTIONS: { label: string; short: string; value: DoorPattern | typeof PLAIN_DOOR }[] = [
+  { label: 'Plain', short: 'Plain', value: PLAIN_DOOR },
+  { label: 'Diamond lattice', short: 'Lattice', value: 'lattice' },
+  { label: 'Lattice + oval band', short: 'Oval band', value: 'lattice_band' },
+];
+
+/** Boxes with no door to put a pattern in: all drawers, or an open bay. */
+const NO_DOOR_SPECIALTIES: SpecialtyType[] = [
+  'drawer_base',
+  'trash_pullout',
+  'microwave_drawer_base',
+  'range_base_slide_in',
+  'range_base_drop_in',
+];
 
 export type SectionType = 'base' | 'wall' | 'tall';
 
@@ -407,6 +460,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
         is_specialty: false,
         specialty_type: null,
         has_glass_door: false,
+        door_pattern: null,
       });
       return;
     }
@@ -470,7 +524,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
     {
       title: 'W"',
       dataIndex: 'width_inches',
-      width: 70,
+      width: 58,
       render: (_: number, record: CabinetBoxCreate & { _localIdx: number }) => {
         const gi = getGlobalIndex(cabType, record._localIdx);
         return isCustom(record) ? (
@@ -489,7 +543,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
     {
       title: 'H"',
       dataIndex: 'height_inches',
-      width: 70,
+      width: 58,
       render: (_: number, record: CabinetBoxCreate & { _localIdx: number }) => {
         const gi = getGlobalIndex(cabType, record._localIdx);
         return isCustom(record) ? (
@@ -508,14 +562,15 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
     ...(cabType !== 'wall' ? [{
       title: 'Specialty',
       dataIndex: 'specialty_type',
-      width: 130,
+      width: 98,
       render: (_: string, record: CabinetBoxCreate) => (
         record.is_specialty && record.specialty_type ? (
           <Tag color="orange">{record.specialty_type.replace(/_/g, ' ')}</Tag>
         ) : <Text type="secondary">—</Text>
       ),
     }] : []),
-    ...(cabType === 'base' ? [{
+    // Only a slide-in range has panels; the column makes room for the rest when there is none.
+    ...(cabType === 'base' && boxes.some((b) => b.cab_type === 'base' && b.specialty_type === 'range_base_slide_in') ? [{
       title: 'Panels',
       dataIndex: 'range_panel_count',
       width: 90,
@@ -544,7 +599,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
     ...((cabType === 'wall' || cabType === 'base') ? [{
       title: 'Glass',
       dataIndex: 'has_glass_door',
-      width: 60,
+      width: 52,
       render: (_: boolean, record: CabinetBoxCreate & { _localIdx: number }) => {
         const gi = getGlobalIndex(cabType, record._localIdx);
         return (
@@ -552,6 +607,29 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
             <Checkbox
               checked={record.has_glass_door}
               onChange={(e) => updateBox(gi, { has_glass_door: e.target.checked })}
+            />
+          </Tooltip>
+        );
+      },
+    }, {
+      title: 'Door',
+      dataIndex: 'door_pattern',
+      width: 134,
+      render: (_: DoorPattern | null | undefined, record: CabinetBoxCreate & { _localIdx: number }) => {
+        if (record.specialty_type && NO_DOOR_SPECIALTIES.includes(record.specialty_type)) {
+          return <Text type="secondary">—</Text>;
+        }
+        const gi = getGlobalIndex(cabType, record._localIdx);
+        return (
+          <Tooltip title="A pattern in the door's frame, priced per door. Lattice + oval band makes the whole front one panel. Tick Glass as well for glass behind it.">
+            <Select
+              size="small"
+              style={{ width: 118 }}
+              popupMatchSelectWidth={170}
+              value={record.door_pattern ?? PLAIN_DOOR}
+              onChange={(v: DoorPattern | typeof PLAIN_DOOR) => updateBox(gi, { door_pattern: v === PLAIN_DOOR ? null : v })}
+              options={DOOR_PATTERN_OPTIONS}
+              labelRender={(p) => DOOR_PATTERN_OPTIONS.find((o) => o.value === p.value)?.short ?? p.label}
             />
           </Tooltip>
         );
@@ -577,7 +655,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
     {
       title: '',
       key: 'action',
-      width: 45,
+      width: 40,
       render: (_: any, record: CabinetBoxCreate & { _localIdx: number }) => {
         const gi = getGlobalIndex(cabType, record._localIdx);
         return (
@@ -629,7 +707,8 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({
             columns={makeColumns(type, options)}
             pagination={false}
             size="small"
-            scroll={{ x: 500 }}
+            // Its own columns' width: a set width smaller than theirs squeezed W" and H" till they wrapped.
+            scroll={{ x: 'max-content' }}
           />
         )}
 

@@ -93,6 +93,7 @@ export function productLook(finish: CabinetSketchFinish, products?: Record<strin
     const look = cab.look || {};
     const words = text(look.door_style, cab.title);
     if (has(words, 'slab', 'flat', 'euro', 'modern')) out.door_style = 'slab';
+    else if (has(words, 'arched', 'arch top', 'arch-top', 'cathedral')) out.door_style = 'arched';
     else if (has(words, 'raised')) out.door_style = 'raised';
     else if (has(words, 'shaker', 'recessed')) out.door_style = 'shaker';
     const material = text(look.material, cab.finish, cab.title);

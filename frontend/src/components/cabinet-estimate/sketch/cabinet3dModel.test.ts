@@ -24,6 +24,9 @@ const PRESETS: PresetCatalog = {
   WDC24: { width: 24, height: 30, specialty: 'diagonal_corner_wall' },
   BEC24: { width: 24, height: 34.5, specialty: 'angle_end_base' },
   BBC42: { width: 42, height: 34.5, specialty: 'blind_corner' },
+  WTD3642: { width: 36, height: 42, specialty: 'three_door_corner_wall' },
+  W4830: { width: 48, height: 30 },
+  B48: { width: 48, height: 34.5 },
 };
 
 const box = (code: string, over: Partial<SketchBoxSource> = {}): SketchBoxSource => {
@@ -50,8 +53,9 @@ const centroid = (s: CabinetSolid) => {
   const n = s.outline.length;
   return s.outline.reduce(([x, z], [px, pz]) => [x + px / n, z + pz / n], [0, 0]);
 };
+const runLength = (run: FrontRun) => Math.hypot(run.b[0] - run.a[0], run.b[1] - run.a[1]);
 const outward = (run: FrontRun) => {
-  const len = Math.hypot(run.b[0] - run.a[0], run.b[1] - run.a[1]);
+  const len = runLength(run);
   return [-(run.b[1] - run.a[1]) / len, (run.b[0] - run.a[0]) / len];
 };
 
@@ -107,7 +111,7 @@ describe('cabinetSolids', () => {
   });
 
   it('puts every front on the outside of its cabinet, on either corner side', () => {
-    const cabinets = shapes('B30', 'BBC42', 'LS36', 'DCB36', 'WDC24', 'BEC24');
+    const cabinets = shapes('B30', 'BBC42', 'LS36', 'DCB36', 'WDC24', 'BEC24', 'WTD3642');
     const both = [...cabinets, ...cabinets.map((c) => ({ ...c, id: `${c.id}-r`, corner_side: 'right' as const }))];
     for (const solid of solidsOf(both)) {
       const [cx, cz] = centroid(solid);
@@ -138,6 +142,59 @@ describe('cabinetSolids', () => {
   it('marks a glass-door cabinet', () => {
     const [upper] = solidsOf(shapes('W3030').map((c) => ({ ...c, has_glass_door: true })));
     expect(upper.glass).toBe(true);
+  });
+
+  it('gives a three-door corner three equal doors on a bay from wall to wall', () => {
+    const [left] = solidsOf(shapes('WTD3642'));
+    const [right] = solidsOf(shapes('WTD3642').map((c) => ({ ...c, corner_side: 'right' as const })));
+    for (const solid of [left, right]) {
+      expect(solid.fronts).toHaveLength(3);
+      const lengths = solid.fronts.map(runLength);
+      for (const len of lengths) expect(len).toBeCloseTo(11.92, 2);
+      for (const run of solid.fronts) {
+        expect(run.faces).toHaveLength(1);
+        expect(run.faces[0].kind).toBe('door');
+        expect(run.faces[0].w).toBeCloseTo(11.92 - 1.5, 2);
+        expect(run.faces[0].h).toBeCloseTo(42 - 1.5, 2);
+      }
+      // One run into the next: the bay has no gaps.
+      expect(solid.fronts[0].b).toEqual(solid.fronts[1].a);
+      expect(solid.fronts[1].b).toEqual(solid.fronts[2].a);
+      // It stays within its 36" reach, and starts 12" off each wall.
+      expect(solid.outline).toHaveLength(7);
+      for (const [x, z] of solid.outline) {
+        expect(x).toBeGreaterThanOrEqual(-1e-9);
+        expect(x).toBeLessThanOrEqual(36 + 1e-9);
+        expect(z).toBeGreaterThanOrEqual(-1e-9);
+        expect(z).toBeLessThanOrEqual(36 + 1e-9);
+      }
+    }
+    expect(left.fronts[0].a).toEqual([12, 36]);
+    expect(left.fronts[2].b).toEqual([36, 12]);
+    expect(right.fronts[0].a).toEqual([0, 12]);
+    expect(right.fronts[2].b).toEqual([24, 36]);
+    // The middle door looks straight out of the corner.
+    const [nx, nz] = outward(left.fronts[1]);
+    expect(nx).toBeCloseTo(Math.SQRT1_2);
+    expect(nz).toBeCloseTo(Math.SQRT1_2);
+    // Each side door is turned 22.5° off it, the front bulging out past a flat diagonal.
+    const [sx] = outward(left.fronts[2]);
+    expect(sx).toBeCloseTo(Math.sin((67.5 * Math.PI) / 180));
+    const [mx, mz] = left.fronts[1].a;
+    expect(mx + mz).toBeGreaterThan(12 + 36);
+  });
+
+  it('carries the door pattern, and draws a wide box with its doors at a sensible width', () => {
+    const [wide] = solidsOf(shapes('W4830'));
+    expect(wide.doorPattern).toBeNull();
+    expect(wide.fronts[0].faces.filter((f) => f.kind === 'door')).toHaveLength(2);
+    const [base] = solidsOf(shapes('B48'));
+    expect(base.fronts[0].faces.filter((f) => f.kind === 'door')).toHaveLength(2);
+    expect(base.fronts[0].faces.filter((f) => f.kind === 'drawer')).toHaveLength(2);
+    expect(base.outline[1][0]).toBe(48);
+    const [band] = solidsOf(shapes('W4830').map((c) => ({ ...c, door_pattern: 'lattice_band' as const })));
+    expect(band.doorPattern).toBe('lattice_band');
+    expect(band.fronts[0].faces.filter((f) => f.kind === 'door')).toHaveLength(1);
   });
 });
 

@@ -6,7 +6,7 @@
  * Pure functions only, like cabinetSketchLayout.ts.
  */
 
-import type { CabType, SpecialtyType } from '../../../types/cabinetEstimate';
+import type { CabType, DoorPattern, SpecialtyType } from '../../../types/cabinetEstimate';
 import { blindLengthIn, cabinetDepthIn, cornerKind } from './cabinetSketchLayout';
 import type { CornerKind } from './cabinetSketchLayout';
 
@@ -48,6 +48,8 @@ export interface Face {
   h: number;
   kind: FaceKind;
   label?: string;
+  /** The edge a door's pull goes on, when the doors beside it don't settle that. */
+  pull?: 'left' | 'right';
 }
 
 /** n equal doors side by side across [x, x + w]. */
@@ -62,11 +64,12 @@ function doorRow(x: number, y: number, w: number, h: number, n: number, kind: Fa
   }));
 }
 
-const doorCount = (w: number) => (w >= 24 ? 2 : 1);
+/** Doors across a box: two up to 48" wide, then as many as keep each about 24". */
+const doorCount = (w: number) => (w < 24 ? 1 : w <= 48 ? 2 : Math.ceil(w / 24));
 
 /**
- * Front of a corner unit. Its corner end shows no front of its own — an L
- * or diagonal's other leg comes toward the viewer, a blind corner's end
+ * Front of a corner unit. Its corner end shows no front of its own — an L,
+ * diagonal or bay's other leg comes toward the viewer, a blind corner's end
  * hides behind the other run — so doors go only on the open part.
  */
 function cornerFaces(
@@ -75,7 +78,8 @@ function cornerFaces(
   kind: CornerKind,
   side: 'left' | 'right',
   w: number,
-  h: number
+  h: number,
+  pattern?: DoorPattern | null
 ): Face[] {
   const r = REVEAL_IN;
   const bottom = cabType === 'wall' ? r : TOE_KICK_IN + r;
@@ -89,10 +93,10 @@ function cornerFaces(
       ? [
           { x: r, y: bottom, w: cornerLen - r, h: h - r - bottom, kind: 'panel', label: 'BLIND' },
           // The open part reads like a plain box of its width.
-          ...facesFor(cabType, undefined, openW, h).map((f) => ({ ...f, x: f.x + cornerLen })),
+          ...facesFor(cabType, undefined, openW, h, 'left', pattern).map((f) => ({ ...f, x: f.x + cornerLen })),
         ]
-      : // Lazy susan / easy-reach / diagonal: one full-height door on the open leaf.
-        doorRow(cornerLen, bottom, openW, h - r - bottom, 1);
+      : // A bay's three doors, seen flat; the rest one full-height door on the open leaf.
+        doorRow(cornerLen, bottom, openW, h - r - bottom, kind === 'bay' ? 3 : 1);
   return side === 'right' ? faces.map((f) => ({ ...f, x: w - f.x - f.w })) : faces;
 }
 
@@ -102,16 +106,20 @@ export function facesFor(
   specialty: SpecialtyType | undefined,
   w: number,
   h: number,
-  cornerSide: 'left' | 'right' = 'left'
+  cornerSide: 'left' | 'right' = 'left',
+  pattern?: DoorPattern | null
 ): Face[] {
   const inner = w - REVEAL_IN * 2;
   const r = REVEAL_IN;
 
   const corner = cornerKind(specialty);
-  if (corner && specialty) return cornerFaces(cabType, specialty, corner, cornerSide, w, h);
+  if (corner && specialty) return cornerFaces(cabType, specialty, corner, cornerSide, w, h, pattern);
+
+  // A lattice over a band is the whole front as one panel.
+  const doors = pattern === 'lattice_band' ? 1 : doorCount(w);
 
   if (cabType === 'wall') {
-    return doorRow(0, r, w, h - r * 2, doorCount(w));
+    return doorRow(0, r, w, h - r * 2, doors);
   }
 
   if (cabType === 'tall') {
@@ -179,13 +187,120 @@ export function facesFor(
     }
     case 'sink_base':
       return [
-        ...doorRow(0, bottom, w, below, doorCount(w)),
+        ...doorRow(0, bottom, w, below, doors),
         { x: r, y: top - drawerH, w: inner, h: drawerH, kind: 'panel', label: 'SINK' },
       ];
     default:
       return [
-        ...doorRow(0, bottom, w, below, doorCount(w)),
-        ...doorRow(0, top - drawerH, w, drawerH, w >= 30 ? 2 : 1, 'drawer'),
+        ...doorRow(0, bottom, w, below, doors),
+        ...doorRow(0, top - drawerH, w, drawerH, w >= 30 ? doorCount(w) : 1, 'drawer'),
       ];
   }
+}
+
+/** How far a door's arch rises above its shoulders, for a panel `w` wide and `h` tall. */
+export const archRiseIn = (w: number, h: number) => Math.min(w * 0.22, h * 0.15);
+
+/**
+ * Doors narrower than this stay flat in the arched style: no room for its
+ * frame and panel. Low enough for a 30" three-door corner seen flat in the
+ * Front view, where its 7½" doors draw 5" wide.
+ */
+export const ARCH_MIN_DOOR_IN = 5;
+
+/**
+ * A panel with an arched top: its outline from the bottom-left corner round
+ * by the bottom-right, in inches from that corner. An arched door's frame
+ * has this as its opening, and its raised field this shape.
+ */
+export function archOutline(w: number, h: number): [number, number][] {
+  const rise = archRiseIn(w, h);
+  const steps = 16;
+  const top = Array.from({ length: steps + 1 }, (_, i): [number, number] => [
+    w * (1 - i / steps),
+    h - rise + rise * Math.sin((Math.PI * i) / steps),
+  ]);
+  return [[0, 0], [w, 0], ...top];
+}
+
+/** A rectangle on a door, inches from its bottom-left corner. */
+export interface DoorRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * What a door pattern puts in a door's frame, in inches from the door's
+ * bottom-left corner: the opening, the lattice bars across it, and for a
+ * lattice over a band the band's cut-outs below it (ovals in a row, a small
+ * diamond between each two).
+ */
+export interface DoorDesign {
+  opening: DoorRect;
+  /** Each bar's two ends, x0, y0, x1, y1, cut off at the opening's edge. */
+  bars: [number, number, number, number][];
+  band: {
+    ovals: { cx: number; cy: number; rx: number; ry: number }[];
+    diamonds: { cx: number; cy: number; r: number }[];
+  } | null;
+}
+
+/** Width of a lattice bar, inches. */
+export const LATTICE_BAR_IN = 0.5;
+/** A lattice diamond is about this wide, narrower on a door it wouldn't fit twice across. */
+const LATTICE_DIAMOND_IN = 7;
+const LATTICE_DIAMOND_MIN_IN = 3.5;
+/** The band's height, and the solid rail between it and the lattice. */
+const BAND_IN = 5;
+const BAND_RAIL_IN = 0.75;
+/** About how wide each oval's stretch of the band is. */
+const BAND_OVAL_SPAN_IN = 11;
+
+export function doorDesign(f: Pick<Face, 'w' | 'h'>, pattern: DoorPattern): DoorDesign {
+  const s = Math.min(GLASS_STILE_IN, f.w / 4, f.h / 4);
+  const inW = f.w - 2 * s;
+  const inH = f.h - 2 * s;
+  const bandH = pattern === 'lattice_band' ? Math.min(BAND_IN, inH * 0.3) : 0;
+  const lift = bandH > 0 ? bandH + BAND_RAIL_IN : 0;
+  const opening: DoorRect = { x: s, y: s + lift, w: inW, h: inH - lift };
+
+  // Two families of 45° bars, a crossing at the opening's middle.
+  const step = Math.max(LATTICE_DIAMOND_MIN_IN, Math.min(LATTICE_DIAMOND_IN, Math.min(opening.w, opening.h) / 2));
+  const [cx, cy] = [opening.x + opening.w / 2, opening.y + opening.h / 2];
+  const [x0, x1, y0, y1] = [opening.x, opening.x + opening.w, opening.y, opening.y + opening.h];
+  const reach = Math.ceil((opening.w + opening.h) / step) + 1;
+  const bars: DoorDesign['bars'] = [];
+  for (let k = -reach; k <= reach; k++) {
+    // Up to the right: y = x - c.
+    const c = cx - cy + k * step;
+    const [ax, bx] = [Math.max(x0, y0 + c), Math.min(x1, y1 + c)];
+    if (bx - ax > 0.01) bars.push([ax, ax - c, bx, bx - c]);
+    // Down to the right: y = e - x.
+    const e = cx + cy + k * step;
+    const [dx, fx] = [Math.max(x0, e - y1), Math.min(x1, e - y0)];
+    if (fx - dx > 0.01) bars.push([dx, e - dx, fx, e - fx]);
+  }
+
+  let band: DoorDesign['band'] = null;
+  if (bandH > 0) {
+    const n = Math.max(1, Math.round(inW / BAND_OVAL_SPAN_IN));
+    const span = inW / n;
+    const midY = s + bandH / 2;
+    band = {
+      ovals: Array.from({ length: n }, (_, i) => ({
+        cx: s + span * (i + 0.5),
+        cy: midY,
+        rx: span * 0.32,
+        ry: bandH * 0.3,
+      })),
+      diamonds: Array.from({ length: n - 1 }, (_, i) => ({
+        cx: s + span * (i + 1),
+        cy: midY,
+        r: Math.min(bandH * 0.22, span * 0.1),
+      })),
+    };
+  }
+  return { opening, bars, band };
 }

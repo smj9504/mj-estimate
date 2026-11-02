@@ -5,9 +5,10 @@
  * (see buildElevations in cabinetSketchLayout.ts). Read-only: cabinets are
  * moved in the plan and sized in the Edit tab; this view only shows how
  * the run reads from the front — door/drawer layout (glass doors from the
- * Edit tab's Glass box drawn as panes), upper mounting
- * height, countertop line and widths, and crown molding over the uppers and
- * talls when the estimate has it.
+ * Edit tab's Glass box drawn as panes, its door patterns as a lattice, arched
+ * panels when the job's doors are arched), upper mounting height, countertop
+ * line and widths, and crown molding over the uppers and talls when the
+ * estimate has it.
  *
  * Plain SVG rather than Konva: nothing here is interactive, and SVG scales
  * crisply and prints/exports as-is.
@@ -15,7 +16,19 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { ElevationItem, ElevationRun, PresetCatalog } from './cabinetSketchLayout';
-import { COUNTER_TOP_IN, CROWN_BANDS, CROWN_HEIGHT_IN, CROWN_MIN_TOP_IN, GLASS_STILE_IN, TOE_KICK_IN, facesFor } from './cabinetFronts';
+import {
+  ARCH_MIN_DOOR_IN,
+  COUNTER_TOP_IN,
+  CROWN_BANDS,
+  CROWN_HEIGHT_IN,
+  CROWN_MIN_TOP_IN,
+  GLASS_STILE_IN,
+  LATTICE_BAR_IN,
+  TOE_KICK_IN,
+  archOutline,
+  doorDesign,
+  facesFor,
+} from './cabinetFronts';
 import type { Face } from './cabinetFronts';
 
 /** Reference ceiling drawn behind the run (8 ft). */
@@ -33,10 +46,12 @@ const APPLIANCE_FILL = '#d9d9d6';
 const COUNTER_FILL = '#8c8a85';
 const GLASS_FILL = '#DCEAF3';
 const GLASS_STROKE = '#7FA6C2';
+const LATTICE_BEHIND = '#6b645a';
 const SELECTED = '#1f74c9';
 
 const MARGIN_X = 40;
-const MARGIN_TOP = 24;
+// Room for an upper's label over crown on a 42"H cabinet, whose top is at the ceiling line.
+const MARGIN_TOP = 44;
 const MARGIN_BOTTOM = 76;
 
 function formatFeetInches(totalIn: number): string {
@@ -54,6 +69,8 @@ export interface CabinetElevationViewProps {
   selectedIds?: Set<string>;
   /** Draw crown molding over the uppers and talls (the Edit tab's Crown Molding scope). */
   crownMolding?: boolean;
+  /** Draw the doors' arched panels. */
+  archedDoors?: boolean;
 }
 
 /** A stretch of crown: over cabinets side by side with the same top, and how far it returns at each end. */
@@ -94,7 +111,7 @@ function crownRuns(items: ElevationItem[], wall?: { left_in: number; right_in: n
   return runs;
 }
 
-const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, presets, height, selectedIds, crownMolding = false }) => {
+const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, presets, height, selectedIds, crownMolding = false, archedDoors = false }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(900);
 
@@ -148,9 +165,11 @@ const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, preset
     const w = item.width_in * ppi;
     const h = item.height_in * ppi;
     const selected = selectedIds?.has(c.id);
-    const faces = facesFor(c.cab_type, specialty, item.width_in, item.height_in, c.corner_side);
+    const faces = facesFor(c.cab_type, specialty, item.width_in, item.height_in, c.corner_side, c.door_pattern);
     const fx = (f: Face) => left + f.x * ppi;
     const fy = (f: Face) => y(item.bottom_in + f.y + f.h);
+    // A point on a door, inches from its bottom-left corner, on the drawing.
+    const onFace = (f: Face, px: number, py: number): [number, number] => [left + (f.x + px) * ppi, y(item.bottom_in + f.y + py)];
 
     return (
       <g key={c.id}>
@@ -180,13 +199,16 @@ const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, preset
           const handleY = fy(f) + Math.min(fh / 2, 2 * ppi);
           // Glass insert: a pane inside the door frame, with the usual two reflection strokes.
           const stile = Math.min(GLASS_STILE_IN, f.w / 4, f.h / 4) * ppi;
+          const design = c.door_pattern && f.kind === 'door' ? doorDesign(f, c.door_pattern) : null;
           const pane =
-            c.has_glass_door && f.kind === 'door'
+            c.has_glass_door && f.kind === 'door' && !design
               ? { x: fx(f) + stile, y: fy(f) + stile, w: fw - 2 * stile, h: fh - 2 * stile }
               : null;
           const m = pane ? Math.min(pane.w, pane.h) : 0;
           const sx = pane ? pane.x + pane.w * 0.22 : 0;
           const sy = pane ? pane.y + pane.h * 0.5 : 0;
+          const arched = archedDoors && f.kind === 'door' && !c.has_glass_door && !design && Math.min(f.w, f.h) >= ARCH_MIN_DOOR_IN;
+          const barW = Math.max(LATTICE_BAR_IN * ppi, 1.5);
           return (
             <g key={i}>
               <rect
@@ -204,6 +226,51 @@ const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, preset
                   <rect x={pane.x} y={pane.y} width={pane.w} height={pane.h} fill={GLASS_FILL} strokeWidth={0.75} />
                   <line x1={sx} y1={sy} x2={sx + m * 0.4} y2={sy - m * 0.4} strokeWidth={1} />
                   <line x1={sx + m * 0.1} y1={sy + m * 0.1} x2={sx + m * 0.38} y2={sy - m * 0.18} strokeWidth={1} />
+                </g>
+              )}
+              {arched && (
+                <polygon
+                  points={archOutline(f.w - 2 * (stile / ppi), f.h - 2 * (stile / ppi))
+                    .map(([ax, ay]) => onFace(f, ax + stile / ppi, ay + stile / ppi).join(','))
+                    .join(' ')}
+                  fill="none"
+                  stroke={FACE_STROKE}
+                  strokeWidth={0.75}
+                />
+              )}
+              {design && (
+                <g>
+                  <rect
+                    x={onFace(f, design.opening.x, 0)[0]}
+                    y={onFace(f, 0, design.opening.y + design.opening.h)[1]}
+                    width={design.opening.w * ppi}
+                    height={design.opening.h * ppi}
+                    fill={c.has_glass_door ? GLASS_FILL : LATTICE_BEHIND}
+                    stroke={FACE_STROKE}
+                    strokeWidth={0.75}
+                  />
+                  {design.bars.map(([x0, y0, x1, y1], b) => {
+                    const [ax, ay] = onFace(f, x0, y0);
+                    const [bx, by] = onFace(f, x1, y1);
+                    return <line key={b} x1={ax} y1={ay} x2={bx} y2={by} stroke={FACE_FILL} strokeWidth={barW} />;
+                  })}
+                  {design.band?.ovals.map((o, b) => {
+                    const [cx, cy] = onFace(f, o.cx, o.cy);
+                    return <ellipse key={b} cx={cx} cy={cy} rx={o.rx * ppi} ry={o.ry * ppi} fill={LATTICE_BEHIND} stroke={FACE_STROKE} strokeWidth={0.5} />;
+                  })}
+                  {design.band?.diamonds.map((d, b) => {
+                    const [cx, cy] = onFace(f, d.cx, d.cy);
+                    const r = d.r * ppi;
+                    return (
+                      <polygon
+                        key={b}
+                        points={`${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`}
+                        fill={LATTICE_BEHIND}
+                        stroke={FACE_STROKE}
+                        strokeWidth={0.5}
+                      />
+                    );
+                  })}
                 </g>
               )}
               {f.kind === 'drawer' && fh > 6 && (

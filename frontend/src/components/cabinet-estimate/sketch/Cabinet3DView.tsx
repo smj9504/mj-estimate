@@ -265,6 +265,8 @@ export interface Cabinet3DViewProps {
   surfaces?: ProductSurfaces | null;
   /** Top the uppers and talls with crown molding (the Edit tab's Crown Molding scope). */
   crownMolding?: boolean;
+  /** Mark the doors' arched panels in the drawing look. */
+  archedDoors?: boolean;
   /** On show. Kept mounted while hidden, so the ray tracer needn't start over; it rests meanwhile. */
   active?: boolean;
   selectedIds: Set<string>;
@@ -319,6 +321,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
     finish = null,
     surfaces = null,
     crownMolding = false,
+    archedDoors = false,
     active = true,
     selectedIds,
     onSelect,
@@ -596,7 +599,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
       disposeScene(stage.content);
     }
     setLook(stage, !!finish);
-    stage.content = buildCabinetScene(solids, wallModels, selectedIds, { ...extras, finish, surfaces, crown: crownMolding });
+    stage.content = buildCabinetScene(solids, wallModels, selectedIds, { ...extras, finish, surfaces, crown: crownMolding, archedDoors });
     stage.scene.add(stage.content);
     stage.traceStale = true;
 
@@ -625,7 +628,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
     } else {
       stage.render();
     }
-  }, [solids, wallModels, extras, selectedIds, finish, surfaces, crownMolding, frameView, stageVersion]);
+  }, [solids, wallModels, extras, selectedIds, finish, surfaces, crownMolding, archedDoors, frameView, stageVersion]);
 
   // Ray tracing: loaded the first time the realistic look wants it, then
   // switched on and off with the look, the toggle and the view's showing.

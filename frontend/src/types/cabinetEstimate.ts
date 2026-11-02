@@ -16,11 +16,17 @@ export type SpecialtyType =
   | 'sink_base' | 'lazy_susan' | 'blind_corner' | 'drawer_base'
   | 'angle_end_base' | 'diagonal_corner_base'
   | 'diagonal_corner_wall' | 'blind_corner_wall' | 'easy_reach_corner_wall'
+  | 'three_door_corner_wall'
   | 'trash_pullout' | 'farmhouse_sink_base' | 'microwave_drawer_base'
   | 'refrigerator_wall_deep' | 'otr_microwave_wall'
   | 'oven_cabinet' | 'refrigerator_cabinet'
   | 'pantry_rollout' | 'double_oven_cabinet'
   | 'range_base_slide_in' | 'range_base_drop_in';
+/**
+ * A pattern in a cabinet's doors instead of a plain panel: a diamond lattice,
+ * or a lattice over a carved oval band with the whole front as one panel.
+ */
+export type DoorPattern = 'lattice' | 'lattice_band';
 /**
  * Which pricing world an estimate is quoted in. An insurance claim and a
  * retail remodel price the same physical work differently — most visibly
@@ -49,6 +55,7 @@ export interface CabinetBox {
   has_glass_door: boolean;
   /** Finished end panels flanking a slide-in range opening (0-2). */
   range_panel_count?: number | null;
+  door_pattern?: DoorPattern | null;
   qty: number;
   display_order: number;
   created_at?: string;
@@ -65,6 +72,7 @@ export interface CabinetBoxCreate {
   has_glass_door: boolean;
   /** Finished end panels flanking a slide-in range opening (0-2). */
   range_panel_count?: number | null;
+  door_pattern?: DoorPattern | null;
   qty: number;
   display_order?: number;
 }

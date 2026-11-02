@@ -5,6 +5,7 @@ Supports perimeter vs island location separation.
 """
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -36,6 +37,8 @@ from .pricing import (
     DEFAULT_OVERHEAD_PCT,
     DEFAULT_PROFIT_PCT,
     DISHWASHER_RETURN_PANEL,
+    DOOR_PATTERN_LABELS,
+    DOOR_PATTERN_PREMIUM,
     DOOR_STYLE_MULTIPLIER,
     END_PANEL_PRICING,
     END_PANEL_TYPES,
@@ -62,6 +65,8 @@ from .pricing import (
     TALL_HEIGHT_MULTIPLIER,
     TALL_TYPE_BASE_WIDTH,
     TALL_WIDTH_MULTIPLIER,
+    UNMEASURED_SPECIALTIES,
+    VOLATILE_DOOR_STYLES,
     VOLATILE_FINISHES,
     WALL_HEIGHT_MULTIPLIER,
     get_labor_multiplier,
@@ -90,6 +95,48 @@ class BoxInput:
     qty: int
     # Finished end panels flanking a slide-in range opening (0-2).
     range_panel_count: Optional[int] = None
+    # A pattern in the doors' frames: see DOOR_PATTERN_PREMIUM.
+    door_pattern: Optional[str] = None
+
+
+# Boxes with no door to put a pattern in: all drawers, or an open bay.
+_NO_DOOR_SPECIALTIES = {
+    "drawer_base",
+    "trash_pullout",
+    "microwave_drawer_base",
+    "range_base_slide_in",
+    "range_base_drop_in",
+}
+
+
+def _plain_door_count(width_inches: float) -> int:
+    """Doors across a plain box. A door is never over about 24" wide."""
+    if width_inches < 24:
+        return 1
+    if width_inches <= 48:
+        return 2
+    return math.ceil(width_inches / 24)
+
+
+def _door_count(box: BoxInput) -> int:
+    """Doors on a wall or base box's front, as the sketch draws them
+    (cabinetFronts.ts)."""
+    if box.cab_type not in ("wall", "base"):
+        return 0
+    sp = box.specialty_type
+    if sp in _NO_DOOR_SPECIALTIES:
+        return 0
+    if sp == "three_door_corner_wall":
+        return 3
+    if sp in ("lazy_susan", "diagonal_corner_base", "diagonal_corner_wall"):
+        return 1
+    if sp == "easy_reach_corner_wall":
+        return 2
+    if sp in ("blind_corner", "blind_corner_wall"):
+        # Only the part the other run doesn't cover opens.
+        covered = 24 if box.cab_type == "base" else 12
+        return _plain_door_count(box.width_inches - covered)
+    return _plain_door_count(box.width_inches)
 
 
 @dataclass
@@ -213,13 +260,15 @@ def _calc_location_cabinets(
     # the same hardware, deck and assembly labor regardless of width. The
     # boxes in a group are billed as one pooled LF figure, so the group
     # takes an LF-weighted average of its boxes' efficiency factors
-    # rather than a per-box multiplier. See WIDTH_EFFICIENCY_MULTIPLIER.
+    # rather than a per-box multiplier. See WIDTH_EFFICIENCY_MULTIPLIER
+    # and, past 36", WIDE_BOX_EFFICIENCY.
     def _avg_width_efficiency(group: List[BoxInput]) -> float:
         total_in = sum(b.width_inches * b.qty for b in group)
         if total_in <= 0:
             return 1.0
         weighted = sum(
-            width_efficiency(b.width_inches) * b.width_inches * b.qty
+            width_efficiency(b.width_inches, b.cab_type)
+            * b.width_inches * b.qty
             for b in group
         )
         return round(weighted / total_in, 4)
@@ -478,6 +527,12 @@ def _calc_location_cabinets(
                 f"{sp_type.title()} premium applied: "
                 f"{box.code}"
             )
+            if box.specialty_type in UNMEASURED_SPECIALTIES:
+                warnings.append(
+                    f"{box.code}: not a stock catalog box, so its premium is "
+                    f"an allowance derived from similar corners — confirm "
+                    f"the price with the supplier."
+                )
 
     # ── Slide-in range finished end panels ──
     # Priced per panel rather than as a flat specialty premium: an opening
@@ -536,6 +591,28 @@ def _calc_location_cabinets(
             f"{sum(b.qty for b in glass_boxes)} door(s)"
             + (f" ({loc_label})" if loc_label else "")
         )
+
+    # ── Door pattern premiums ──
+    for box in boxes:
+        pattern_prices = DOOR_PATTERN_PREMIUM.get(box.door_pattern or "")
+        doors = _door_count(box)
+        if not pattern_prices or doors == 0:
+            continue
+        pattern_unit = pattern_prices.get(tier, pattern_prices["Stock"])
+        pattern_qty = doors * box.qty
+        line_items.append(LineItem(
+            description=(
+                f"{DOOR_PATTERN_LABELS[box.door_pattern]} Door - {box.code}"
+            ),
+            quantity=pattern_qty,
+            unit="EA",
+            unit_price=pattern_unit,
+            total=round(pattern_unit * pattern_qty, 2),
+            material_share=MATERIAL_SHARE["cabinet_supply"],
+            category="premium",
+            location=loc,
+            notes=f"{doors} per cabinet, {tier} tier; glass not included",
+        ))
 
     # ── Installation ──
     if include_install:
@@ -637,6 +714,8 @@ def _calc_location_cabinets(
             elif b.specialty_type in ("lazy_susan", "diagonal_corner_base"):
                 # Single door
                 openings = 1
+            elif b.specialty_type == "three_door_corner_wall":
+                openings = 3
             elif b.specialty_type == "angle_end_base":
                 # Two full-height doors, no drawer (KCD BEC24)
                 openings = 2
@@ -661,15 +740,20 @@ def _calc_location_cabinets(
                 # Standard base: 1 drawer + door(s)
                 # ≤21": 1 drawer + 1 door = 2
                 # >21": 1 drawer + 2 doors = 3
-                openings = (
-                    2 if b.width_inches <= 21 else 3
-                )
+                # 39"+: a drawer over each door (2 + 2 up to 48")
+                if b.width_inches <= 21:
+                    openings = 2
+                elif b.width_inches < 39:
+                    openings = 3
+                else:
+                    openings = 2 * _plain_door_count(b.width_inches)
             elif b.cab_type == "wall":
                 # Wall: door(s) only, no drawers
                 # ≤21": 1 door
-                # >21": 2 doors
+                # >21": 2 doors, more past 48"
                 openings = (
-                    1 if b.width_inches <= 21 else 2
+                    1 if b.width_inches <= 21
+                    else _plain_door_count(max(b.width_inches, 24))
                 )
             elif b.cab_type == "tall":
                 if b.specialty_type == "oven_cabinet":
@@ -989,6 +1073,12 @@ def calculate_estimate(
             f"{finish} finish is priced at a {fin_mult:.2f}x table value, "
             f"but manufacturers charge anywhere from 0% to 50% for it — "
             f"confirm the actual upcharge with the supplier."
+        )
+    if door_style in VOLATILE_DOOR_STYLES:
+        warnings.append(
+            f"{door_style} doors are priced at a {door_mult:.2f}x table "
+            f"value with no published figure behind it — confirm the actual "
+            f"upcharge with the supplier."
         )
 
     spec_mult = SPECIALTY_PREMIUM_TIER_SCALE.get(tier, 1.0)
