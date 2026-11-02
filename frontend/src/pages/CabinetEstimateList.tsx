@@ -30,6 +30,7 @@ import { cabinetEstimateService } from '../services/cabinetEstimateService';
 import type { CabinetEstimate, EstimateStatus, KitchenProjectType } from '../types/cabinetEstimate';
 import { memberName } from '../types/cabinetEstimate';
 import { PROJECT_TYPE_LABELS } from '../components/cabinet-estimate/KitchenGroupBar';
+import KitchenDesignQuoteModal from '../components/cabinet-estimate/KitchenDesignQuoteModal';
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -85,6 +86,7 @@ const CabinetEstimateList: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [designQuoteFor, setDesignQuoteFor] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['cabinet-estimates', { search, status: statusFilter, page, page_size: pageSize }],
@@ -237,13 +239,22 @@ const CabinetEstimateList: React.FC = () => {
             onClick={() => cloneMutation.mutate(record.id)}
             title="Clone"
           />
-          <Button
-            size="small"
-            icon={<FilePdfOutlined />}
-            onClick={() => cabinetEstimateService.exportPdf(record.id, { address: record.property_address })}
-            title="Export PDF"
+          {/* A click is the itemized quote, as ever; the other format is on hover. */}
+          <Dropdown
             disabled={record.status === 'draft'}
-          />
+            menu={{
+              items: [{ key: 'design', label: 'Design quote (drawings optional)…' }],
+              onClick: () => setDesignQuoteFor(record.id),
+            }}
+          >
+            <Button
+              size="small"
+              icon={<FilePdfOutlined />}
+              onClick={() => cabinetEstimateService.exportPdf(record.id, { address: record.property_address })}
+              title="Export PDF"
+              disabled={record.status === 'draft'}
+            />
+          </Dropdown>
           <Button
             size="small"
             icon={<FileExcelOutlined />}
@@ -282,6 +293,13 @@ const CabinetEstimateList: React.FC = () => {
                 label: 'Export PDF',
                 disabled: record.status === 'draft',
                 onClick: () => cabinetEstimateService.exportPdf(record.id, { address: record.property_address }),
+              },
+              {
+                key: 'design-quote',
+                icon: <FilePdfOutlined />,
+                label: 'Export design quote…',
+                disabled: record.status === 'draft',
+                onClick: () => setDesignQuoteFor(record.id),
               },
               {
                 key: 'excel',
@@ -346,6 +364,7 @@ const CabinetEstimateList: React.FC = () => {
 
   return (
     <div style={{ padding: isMobile ? '0' : '24px' }}>
+      <KitchenDesignQuoteModal estimateId={designQuoteFor} onClose={() => setDesignQuoteFor(null)} />
       <Card
         title={<Title level={4} style={{ margin: 0 }}>Cabinet Estimates</Title>}
         extra={

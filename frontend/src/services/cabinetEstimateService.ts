@@ -15,6 +15,7 @@ import type {
   PricingInfo,
   PurchaseOrderResponse,
 } from '../types/cabinetEstimate';
+import type { KitchenDrawings } from '../components/cabinet-estimate/sketch/kitchenDrawings';
 
 const BASE_URL = '/api/cabinet-estimates';
 
@@ -183,6 +184,18 @@ export const cabinetEstimateService = {
         params: options?.show_signature === false ? { show_signature: false } : undefined,
       });
     savePdf(response, `kitchen_options_${id.substring(0, 8)}.pdf`);
+  },
+
+  /**
+   * The design quote, the other format of the estimate's PDF. `drawings` are
+   * pictures drawn in the browser (kitchenDrawings.tsx), each part optional.
+   */
+  async exportDesignQuotePdf(id: string, options?: { show_signature?: boolean; drawings?: KitchenDrawings }) {
+    const response = await api.post(`${BASE_URL}/${id}/export/design-quote-pdf`, {
+      show_signature: options?.show_signature ?? true,
+      drawings: options?.drawings,
+    }, { responseType: 'blob', timeout: 120000 });
+    savePdf(response, `kitchen_design_quote_${id.substring(0, 8)}.pdf`);
   },
 
   async exportExcel(id: string) {

@@ -31,11 +31,7 @@ import { Button, Switch, Tooltip } from 'antd';
 import { AimOutlined, EyeOutlined } from '@ant-design/icons';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import type { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import type {
   CabinetSketchAppliance,
@@ -55,24 +51,29 @@ import {
   wallSolids,
 } from './cabinet3dModel';
 import { WALL_HEIGHT_IN, buildCabinetScene, cabinetIdOf, cutAwayWalls, disposeScene } from './cabinet3dScene';
+import {
+  ENVIRONMENT_INTENSITY,
+  REALISTIC_BACKGROUND,
+  addLights,
+  aimSun,
+  createComposer,
+  createEnvironment,
+  eyeLevelPose,
+  fitSunShadow,
+  overviewPose,
+  setLook,
+} from './cabinet3dStage';
+import type { CameraPose } from './cabinet3dStage';
 import { RAY_SAMPLES, RAY_SHOW_SAMPLES, disposeRayTracer, hasWebGPU, loadRayTracer } from './rayTracer';
 import type { RayTracer } from './rayTracer';
 import type { ProductSurfaces } from './productLook';
 
-const BACKGROUND = '#f7f7f5';
-const REALISTIC_BACKGROUND = '#e7e4de';
 const NO_APPLIANCES: CabinetSketchAppliance[] = [];
 /** How far (screen px) the pointer may move between press and release and still count as a click. */
 const CLICK_SLOP_PX = 4;
-/** The realistic sun: this far up from the horizon, turned this far from the camera, so it shines over the viewer's shoulder. */
-const SUN_ELEVATION = (50 * Math.PI) / 180;
-const SUN_TURN = (70 * Math.PI) / 180;
-/** A standing person's eye, inches off the floor: the Eye level view's camera height. */
-const EYE_HEIGHT_IN = 62;
 /** Width of a captured image, px; its height keeps the view's proportions. */
 const CAPTURE_WIDTH_PX = 1600;
-/** The studio environment's strength in the raster look; the ray tracer's sky's. */
-const ENVIRONMENT_INTENSITY = 0.45;
+/** The strength of the ray tracer's sky. */
 const RAY_ENVIRONMENT_INTENSITY = 0.4;
 /**
  * The ray-traced look's main light: a panel across the ceiling, shining
@@ -274,38 +275,11 @@ export interface Cabinet3DViewProps {
   onDeselect: () => void;
 }
 
-/** Put the realistic sun over the camera's shoulder, its shadows covering the model. */
-function aimSun(stage: Stage) {
-  const { camera, sun, center, reach } = stage;
-  const turn = Math.atan2(camera.position.z - center.z, camera.position.x - center.x) + SUN_TURN;
-  const far = reach * 2;
-  sun.position.set(
-    center.x + Math.cos(turn) * Math.cos(SUN_ELEVATION) * far,
-    center.y + Math.sin(SUN_ELEVATION) * far,
-    center.z + Math.sin(turn) * Math.cos(SUN_ELEVATION) * far
-  );
-  sun.target.position.copy(center);
-  sun.target.updateMatrixWorld();
-}
-
-/** Set the lights, tone and background for one look or the other. */
-function setLook(stage: Stage, realistic: boolean) {
-  const { renderer, scene, hemi, sun, fill } = stage;
-  stage.realistic = realistic;
-  renderer.setClearColor(realistic ? REALISTIC_BACKGROUND : BACKGROUND);
-  scene.environment = realistic ? stage.environment : null;
-  scene.environmentIntensity = ENVIRONMENT_INTENSITY;
-  renderer.toneMapping = realistic ? THREE.AgXToneMapping : THREE.NoToneMapping;
-  renderer.toneMappingExposure = 1.1;
-  hemi.intensity = realistic ? 0.3 : 2.2;
-  sun.intensity = realistic ? 2.8 : 1.6;
-  sun.castShadow = realistic;
-  fill.intensity = realistic ? 0.2 : 0.6;
-  if (!realistic) {
-    sun.position.set(-300, 600, 400);
-    sun.target.position.set(0, 0, 0);
-    sun.target.updateMatrixWorld();
-  }
+function moveCamera(stage: Stage, { position, target }: CameraPose) {
+  stage.camera.position.set(...position);
+  stage.controls.target.set(...target);
+  stage.controls.update();
+  stage.render();
 }
 
 const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(function Cabinet3DView(
@@ -359,41 +333,18 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
     [solids, scalePixelsPerFoot, islandSeatingIn, appliances, cabinets, presets]
   );
 
-  // Stand in front of the doors, a little to one side and above, far enough back to see it all.
   const frameView = useCallback(() => {
     const stage = stageRef.current;
     const bounds = modelBounds(solids, wallModels, applianceExtent(extras.appliances));
     if (!stage || !bounds) return;
-    const cx = (bounds.minX + bounds.maxX) / 2;
-    const cz = (bounds.minZ + bounds.maxZ) / 2;
-    const size = Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ, 96);
-    const distance = size * 1.3 + 48;
-    const [fx, fz] = mainFacing(solids);
-    const angle = Math.atan2(fz, fx) + 0.45;
-    stage.camera.position.set(cx + Math.cos(angle) * distance, distance * 0.7, cz + Math.sin(angle) * distance);
-    stage.controls.target.set(cx, 36, cz);
-    stage.controls.update();
-    stage.render();
+    moveCamera(stage, overviewPose(bounds, mainFacing(solids)));
   }, [solids, wallModels, extras]);
 
-  // Stand across the room from the doors at eye height, back far enough for the cabinets to fill the width: how a photo of the kitchen is taken.
   const eyeLevel = useCallback(() => {
     const stage = stageRef.current;
     const bounds = modelBounds(solids, [], applianceExtent(extras.appliances));
     if (!stage || !bounds) return;
-    const cx = (bounds.minX + bounds.maxX) / 2;
-    const cz = (bounds.minZ + bounds.maxZ) / 2;
-    const [fx, fz] = mainFacing(solids);
-    // Half the cabinets' spread across the line of sight.
-    const half = (Math.abs(fz) * (bounds.maxX - bounds.minX) + Math.abs(fx) * (bounds.maxZ - bounds.minZ)) / 2;
-    const camera = stage.camera;
-    const halfWide = Math.atan(Math.tan(((camera.fov / 2) * Math.PI) / 180) * camera.aspect);
-    const distance = Math.max(half / Math.tan(halfWide) * 1.1, 72);
-    const angle = Math.atan2(fz, fx) + 0.12;
-    camera.position.set(cx + Math.cos(angle) * distance, EYE_HEIGHT_IN, cz + Math.sin(angle) * distance);
-    stage.controls.target.set(cx, 44, cz);
-    stage.controls.update();
-    stage.render();
+    moveCamera(stage, eyeLevelPose(bounds, mainFacing(solids), stage.camera.fov, stage.camera.aspect));
   }, [solids, extras]);
 
   // Renderer, camera, lights and controls: once.
@@ -421,17 +372,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
     container.appendChild(labels.domElement);
 
     const scene = new THREE.Scene();
-    const hemi = new THREE.HemisphereLight('#ffffff', '#cfc8bc', 2.2);
-    scene.add(hemi);
-    const sun = new THREE.DirectionalLight('#ffffff', 1.6);
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.bias = -0.0004;
-    sun.shadow.normalBias = 0.4;
-    sun.shadow.radius = 3;
-    scene.add(sun, sun.target);
-    const fill = new THREE.DirectionalLight('#ffffff', 0.6);
-    fill.position.set(400, 300, -300);
-    scene.add(fill);
+    const { hemi, sun, fill } = addLights(scene);
     const ceiling = new THREE.RectAreaLight('#fff4e6', CEILING_INTENSITY, 96, 96);
     // Facing down: the tracer lights the side its -z faces.
     ceiling.rotation.x = -Math.PI / 2;
@@ -445,22 +386,8 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
     controls.minDistance = 24;
     controls.maxDistance = 2400;
 
-    // The raster look's light and reflections: a studio room, caught in a cube map.
-    const environmentTarget = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
-    const studio = new RoomEnvironment();
-    new THREE.CubeCamera(0.1, 100, environmentTarget).update(renderer, studio);
-    studio.dispose();
-    const environment = environmentTarget.texture;
-    environment.needsPMREMUpdate = true;
-    // The raster view's passes: the scene, ambient occlusion (radius in inches), then tone and colour.
-    const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(width, height, { type: THREE.HalfFloatType, samples: 4 }));
-    composer.setPixelRatio(renderer.getPixelRatio());
-    composer.setSize(width, height);
-    composer.addPass(new RenderPass(scene, camera));
-    const ao = new GTAOPass(scene, camera, width, height);
-    ao.updateGtaoMaterial({ radius: 16, thickness: 10, distanceExponent: 1, scale: 1.8, samples: 16 });
-    composer.addPass(ao);
-    composer.addPass(new OutputPass());
+    const { texture: environment, dispose: disposeEnvironment } = createEnvironment(renderer);
+    const { composer, dispose: disposeComposer } = createComposer(renderer, scene, camera, width, height);
 
     const stage: Stage = {
       renderer,
@@ -521,7 +448,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
         stage.wallsShown = shown;
         stage.wallsChanged = true;
       }
-      aimSun(stage);
+      aimSun(stage.sun, camera, stage.center, stage.reach);
     };
     setLook(stage, false);
     stageRef.current = stage;
@@ -580,9 +507,8 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
       controls.dispose();
       if (stage.content) disposeScene(stage.content);
-      ao.dispose();
-      composer.dispose();
-      environmentTarget.dispose();
+      disposeComposer();
+      disposeEnvironment();
       renderer.dispose();
       renderer.domElement.remove();
       labels.domElement.remove();
@@ -598,6 +524,7 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
       stage.scene.remove(stage.content);
       disposeScene(stage.content);
     }
+    stage.realistic = !!finish;
     setLook(stage, !!finish);
     stage.content = buildCabinetScene(solids, wallModels, selectedIds, { ...extras, finish, surfaces, crown: crownMolding, archedDoors });
     stage.scene.add(stage.content);
@@ -605,16 +532,9 @@ const Cabinet3DView = forwardRef<Cabinet3DViewHandle, Cabinet3DViewProps>(functi
 
     const bounds = modelBounds(solids, wallModels, applianceExtent(extras.appliances));
     if (bounds) {
-      stage.center.set((bounds.minX + bounds.maxX) / 2, 40, (bounds.minZ + bounds.maxZ) / 2);
-      stage.reach = Math.hypot(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ, 96) / 2 + 24;
-      const shadow = stage.sun.shadow.camera;
-      shadow.left = -stage.reach;
-      shadow.right = stage.reach;
-      shadow.top = stage.reach;
-      shadow.bottom = -stage.reach;
-      shadow.near = 1;
-      shadow.far = stage.reach * 4;
-      shadow.updateProjectionMatrix();
+      const { center, reach } = fitSunShadow(stage.sun, bounds);
+      stage.center.copy(center);
+      stage.reach = reach;
       // Most of the room's ceiling, just under it.
       stage.ceiling.position.set(stage.center.x, WALL_HEIGHT_IN - 1, stage.center.z);
       stage.ceiling.width = Math.max(bounds.maxX - bounds.minX, 48) * 0.8;

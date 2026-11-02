@@ -71,6 +71,8 @@ export interface CabinetElevationViewProps {
   crownMolding?: boolean;
   /** Draw the doors' arched panels. */
   archedDoors?: boolean;
+  /** Draw at this width, px, instead of the container's: for a picture of it. */
+  fixedWidth?: number;
 }
 
 /** A stretch of crown: over cabinets side by side with the same top, and how far it returns at each end. */
@@ -111,9 +113,10 @@ function crownRuns(items: ElevationItem[], wall?: { left_in: number; right_in: n
   return runs;
 }
 
-const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, presets, height, selectedIds, crownMolding = false, archedDoors = false }) => {
+const CabinetElevationView: React.FC<CabinetElevationViewProps> = ({ run, presets, height, selectedIds, crownMolding = false, archedDoors = false, fixedWidth }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(900);
+  const [measuredWidth, setWidth] = useState(900);
+  const width = fixedWidth ?? measuredWidth;
 
   useEffect(() => {
     const el = containerRef.current;

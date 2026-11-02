@@ -519,6 +519,16 @@ def _image_loader(session):
     return lambda file_id: image_bytes(session, file_id)
 
 
+def _pdf_filename(prefix: str, estimate: Dict[str, Any], estimate_id: str) -> str:
+    import re
+    addr = estimate.get("property_address") or ""
+    addr_slug = re.sub(r'[^a-zA-Z0-9]+', '_', addr).strip('_')[:60]
+    option = ""
+    if estimate.get("kind") == "option":
+        option = "_" + re.sub(r'[^a-zA-Z0-9]+', '_', estimate.get("option_label") or "option").strip('_')
+    return f"{prefix}_{addr_slug or estimate_id[:8]}{option}.pdf"
+
+
 def _estimate_pdf(estimate_id: str, show_signature: bool, render: Optional[str], session):
     from .export_service import CabinetExportService
 
@@ -531,17 +541,7 @@ def _estimate_pdf(estimate_id: str, show_signature: bool, render: Optional[str],
         estimate, show_signature=show_signature,
         image_loader=_image_loader(session), render=render,
     )
-
-    import re
-    addr = estimate.get("property_address") or ""
-    addr_slug = re.sub(r'[^a-zA-Z0-9]+', '_', addr).strip('_')[:60]
-    option = ""
-    if estimate.get("kind") == "option":
-        option = "_" + re.sub(r'[^a-zA-Z0-9]+', '_', estimate.get("option_label") or "option").strip('_')
-    filename = (
-        f"cabinet_estimate_{addr_slug}{option}.pdf" if addr_slug
-        else f"cabinet_estimate_{estimate_id[:8]}{option}.pdf"
-    )
+    filename = _pdf_filename("cabinet_estimate", estimate, estimate_id)
 
     return StreamingResponse(
         pdf_bytes,
@@ -577,6 +577,37 @@ def export_pdf_with_render(
     """
     _require_estimate(session, current_user, estimate_id)
     return _estimate_pdf(estimate_id, body.get("show_signature", True), body.get("render"), session)
+
+
+@router.post("/{estimate_id}/export/design-quote-pdf")
+def export_design_quote_pdf(
+    estimate_id: str,
+    body: Dict[str, Any] = Body(default={}),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """The design quote, the other format of the estimate's PDF.
+
+    Body: {show_signature, drawings: {plan, elevations: [{label, image}],
+    views: [{label, image}]}}, pictures in base64, each part optional.
+    """
+    from .export_service import CabinetExportService
+
+    _require_estimate(session, current_user, estimate_id)
+    estimate = CabinetEstimateService(session).get_estimate(estimate_id)
+    if not estimate:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+    pdf_bytes = CabinetExportService().generate_design_quote_pdf(
+        estimate, show_signature=body.get("show_signature", True),
+        image_loader=_image_loader(session), drawings=body.get("drawings"),
+    )
+    filename = _pdf_filename("kitchen_design_quote", estimate, estimate_id)
+    return StreamingResponse(
+        pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _proposal_pdf(estimate_id: str, show_signature: bool, renders: Optional[Dict[str, str]], session):

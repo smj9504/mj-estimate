@@ -30,6 +30,102 @@ _TALL_SUPPLY = re.compile(r'\d+"W x [\d.]+"H - ')
 # The tag a supply line carries while its install is quoted separately
 _SUPPLY_TAG = re.compile(r" \((?:Material|Supply)\)$")
 
+# The terms every kitchen quote carries, whichever format it's in
+TERMS_TEXT = (
+    "<b>Validity</b><br/>"
+    "1. This estimate is valid for 30 days "
+    "from the date above.<br/><br/>"
+    "<b>Change Orders</b><br/>"
+    "2. Any changes to the scope of work "
+    "must be documented in a written Change "
+    "Order signed by both parties before "
+    "work proceeds. Change orders will "
+    "detail the scope change, cost impact, "
+    "and schedule impact. No verbal "
+    "agreements will be honored.<br/><br/>"
+    "<b>Lead Time &amp; Scheduling</b><br/>"
+    "3. Lead times for cabinet orders are "
+    "typically 2-6 weeks depending on tier "
+    "and availability. Contractor is not "
+    "responsible for manufacturer "
+    "delays.<br/><br/>"
+    "<b>Warranty</b><br/>"
+    "4. Workmanship warranty: 1 year from "
+    "substantial completion, covering "
+    "cabinet installation (level, plumb, "
+    "secure), plumbing connections (leaks), "
+    "tile/grout (cracks, separation), and "
+    "all contractor-performed work.<br/>"
+    "5. Manufacturer warranties for "
+    "cabinets, countertops, fixtures, and "
+    "appliances are passed through to the "
+    "homeowner per manufacturer terms.<br/><br/>"
+    "<b>Permits &amp; Inspections</b><br/>"
+    "6. Permits required by the local "
+    "jurisdiction will be obtained by the "
+    "contractor. Permit fees are included "
+    "only if 'Permit Allowance' is listed "
+    "above. Any additional permit costs "
+    "beyond the allowance will be billed "
+    "at cost.<br/><br/>"
+    "<b>Material Specifications</b><br/>"
+    "7. Materials and fixtures are as "
+    "specified in the line items above. "
+    "Substitutions of equal or greater "
+    "quality may be made with homeowner "
+    "approval. Any upgrade requests will "
+    "be handled via Change Order."
+)
+
+
+def payment_phases(
+    total: float,
+    zip_code: Optional[str],
+) -> List[Dict[str, Any]]:
+    """The payment schedule of a quote; the deposit limit depends on the state."""
+    zip3 = (zip_code or "")[:3]
+    # DC zip codes: 200-205
+    is_dc = zip3 in (
+        "200", "201", "202", "203", "204", "205",
+    )
+    if is_dc:
+        deposit_pct, progress_pct, final_pct = (
+            0.34, 0.50, 0.16,
+        )
+    else:
+        # VA, MD, PA: 33% max deposit
+        deposit_pct, progress_pct, final_pct = (
+            0.33, 0.50, 0.17,
+        )
+
+    deposit_amt = round(total * deposit_pct, 2)
+    progress_amt = round(total * progress_pct, 2)
+    final_amt = round(
+        total - deposit_amt - progress_amt, 2,
+    )
+    return [
+        {
+            "phase": "1. Deposit",
+            "pct": deposit_pct,
+            "amount": deposit_amt,
+            "due": "Upon contract signing",
+        },
+        {
+            "phase": "2. Progress",
+            "pct": progress_pct,
+            "amount": progress_amt,
+            "due": "Upon cabinet delivery / "
+            "installation start",
+        },
+        {
+            "phase": "3. Final",
+            "pct": final_pct,
+            "amount": final_amt,
+            "due": "Upon final walk-through "
+            "& approval",
+        },
+    ]
+
 
 def _supply_lines_installed_by(
     install: Dict[str, Any],
@@ -794,80 +890,12 @@ class CabinetExportService:
             )
         )
 
-        terms_text = (
-            "<b>Validity</b><br/>"
-            "1. This estimate is valid for 30 days "
-            "from the date above.<br/><br/>"
-            "<b>Change Orders</b><br/>"
-            "2. Any changes to the scope of work "
-            "must be documented in a written Change "
-            "Order signed by both parties before "
-            "work proceeds. Change orders will "
-            "detail the scope change, cost impact, "
-            "and schedule impact. No verbal "
-            "agreements will be honored.<br/><br/>"
-            "<b>Lead Time &amp; Scheduling</b><br/>"
-            "3. Lead times for cabinet orders are "
-            "typically 2-6 weeks depending on tier "
-            "and availability. Contractor is not "
-            "responsible for manufacturer "
-            "delays.<br/><br/>"
-            "<b>Warranty</b><br/>"
-            "4. Workmanship warranty: 1 year from "
-            "substantial completion, covering "
-            "cabinet installation (level, plumb, "
-            "secure), plumbing connections (leaks), "
-            "tile/grout (cracks, separation), and "
-            "all contractor-performed work.<br/>"
-            "5. Manufacturer warranties for "
-            "cabinets, countertops, fixtures, and "
-            "appliances are passed through to the "
-            "homeowner per manufacturer terms.<br/><br/>"
-            "<b>Permits &amp; Inspections</b><br/>"
-            "6. Permits required by the local "
-            "jurisdiction will be obtained by the "
-            "contractor. Permit fees are included "
-            "only if 'Permit Allowance' is listed "
-            "above. Any additional permit costs "
-            "beyond the allowance will be billed "
-            "at cost.<br/><br/>"
-            "<b>Material Specifications</b><br/>"
-            "7. Materials and fixtures are as "
-            "specified in the line items above. "
-            "Substitutions of equal or greater "
-            "quality may be made with homeowner "
-            "approval. Any upgrade requests will "
-            "be handled via Change Order."
-        )
-        elements.append(Paragraph(terms_text, terms_style))
+        elements.append(Paragraph(TERMS_TEXT, terms_style))
 
         # ══════════════════════════════════════
         # PAYMENT SCHEDULE
         # ══════════════════════════════════════
         elements.append(Spacer(1, 16))
-
-        # Determine deposit limit based on state
-        zip_code = estimate.get("zip_code", "") or ""
-        zip3 = zip_code[:3] if zip_code else ""
-        # DC zip codes: 200-205
-        is_dc = zip3 in (
-            "200", "201", "202", "203", "204", "205",
-        )
-        if is_dc:
-            deposit_pct, progress_pct, final_pct = (
-                0.34, 0.50, 0.16,
-            )
-        else:
-            # VA, MD, PA: 33% max deposit
-            deposit_pct, progress_pct, final_pct = (
-                0.33, 0.50, 0.17,
-            )
-
-        deposit_amt = round(total * deposit_pct, 2)
-        progress_amt = round(total * progress_pct, 2)
-        final_amt = round(
-            total - deposit_amt - progress_amt, 2,
-        )
 
         pay_title = Paragraph(
             "<b>PAYMENT SCHEDULE</b>",
@@ -887,25 +915,16 @@ class CabinetExportService:
                 Paragraph("<b>Amount</b>", small_grey),
                 Paragraph("<b>Due</b>", small_grey),
             ],
-            [
-                "1. Deposit",
-                f"{deposit_pct*100:.0f}%",
-                f"${deposit_amt:,.2f}",
-                "Upon contract signing",
-            ],
-            [
-                "2. Progress",
-                f"{progress_pct*100:.0f}%",
-                f"${progress_amt:,.2f}",
-                "Upon cabinet delivery / "
-                "installation start",
-            ],
-            [
-                "3. Final",
-                f"{final_pct*100:.0f}%",
-                f"${final_amt:,.2f}",
-                "Upon final walk-through "
-                "& approval",
+            *[
+                [
+                    phase["phase"],
+                    f"{phase['pct']*100:.0f}%",
+                    f"${phase['amount']:,.2f}",
+                    phase["due"],
+                ]
+                for phase in payment_phases(
+                    total, estimate.get("zip_code", ""),
+                )
             ],
             [
                 Paragraph(
@@ -1064,6 +1083,17 @@ class CabinetExportService:
         """The customer's side-by-side of a kitchen job (proposal_pdf.py)."""
         from .proposal_pdf import generate_proposal_pdf
         return generate_proposal_pdf(group, show_signature, renders, image_loader)
+
+    def generate_design_quote_pdf(
+        self,
+        estimate: Dict[str, Any],
+        show_signature: bool = True,
+        image_loader=None,
+        drawings: Optional[Dict[str, Any]] = None,
+    ) -> io.BytesIO:
+        """The other format of a kitchen quote (design_quote_pdf.py)."""
+        from .design_quote_pdf import generate_design_quote_pdf
+        return generate_design_quote_pdf(estimate, show_signature, image_loader, drawings)
 
     # ── Excel Export (for supplier purchase order) ──
 

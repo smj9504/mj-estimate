@@ -43,6 +43,7 @@ import CabinetEstimateResult from '../components/cabinet-estimate/CabinetEstimat
 import CabinetPurchaseOrder from '../components/cabinet-estimate/CabinetPurchaseOrder';
 import CabinetEstimateHistory from '../components/cabinet-estimate/CabinetEstimateHistory';
 import CabinetSketchEditor from '../components/cabinet-estimate/sketch/CabinetSketchEditor';
+import KitchenDesignQuoteModal from '../components/cabinet-estimate/KitchenDesignQuoteModal';
 import KitchenGroupBar from '../components/cabinet-estimate/KitchenGroupBar';
 import KitchenGroupCompareDrawer from '../components/cabinet-estimate/KitchenGroupCompareDrawer';
 import KitchenSelections from '../components/cabinet-estimate/KitchenSelections';
@@ -159,6 +160,7 @@ const CabinetEstimateDetail: React.FC = () => {
   const headerSlot = useHeaderSlot();
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
+  const [designQuoteFor, setDesignQuoteFor] = useState<string | null>(null);
   const [perimeterBoxes, setPerimeterBoxes] = useState<CabinetBoxCreate[]>([]);
   const [islandBoxes, setIslandBoxes] = useState<CabinetBoxCreate[]>([]);
   // Bumped when the sketch adds, swaps or deletes a cabinet, so the box list is saved (see saveSketchBoxes).
@@ -735,6 +737,8 @@ const CabinetEstimateDetail: React.FC = () => {
                 items: [
                   { key: 'with-sig', label: 'PDF (with signature)' },
                   { key: 'no-sig', label: 'PDF (without signature)' },
+                  { type: 'divider' as const },
+                  { key: 'design', label: 'Design quote (drawings optional)…' },
                   // The customer's side-by-side of the whole job; never for the carrier
                   ...((estimate.group_members?.length ?? 0) > 1
                     ? [
@@ -744,6 +748,10 @@ const CabinetEstimateDetail: React.FC = () => {
                     : []),
                 ],
                 onClick: ({ key }) => {
+                  if (key === 'design') {
+                    setDesignQuoteFor(id!);
+                    return;
+                  }
                   const run =
                     key === 'proposal'
                       ? cabinetEstimateService.exportProposalPdf(id!)
@@ -770,6 +778,7 @@ const CabinetEstimateDetail: React.FC = () => {
         </Col>
       </Row>
 
+      <KitchenDesignQuoteModal estimateId={designQuoteFor} onClose={() => setDesignQuoteFor(null)} />
       <KitchenGroupBar
         estimate={estimate}
         onOpen={openMember}
