@@ -126,7 +126,7 @@ def generate_design_quote_pdf(
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import inch
     from reportlab.platypus import (
-        KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+        HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
     )
 
     drawings = drawings if isinstance(drawings, dict) else {}
@@ -145,10 +145,8 @@ def generate_design_quote_pdf(
     total = estimate.get("total") or 0
 
     brand_dark = colors.HexColor("#1a2332")
-    brand_accent = colors.HexColor("#2c5282")
     text_grey = colors.HexColor("#4a5568")
     border_grey = colors.HexColor("#e2e8f0")
-    pale_on_dark = colors.HexColor("#cbd5e0")
 
     def _footer(canvas, doc_ref):
         canvas.saveState()
@@ -182,7 +180,7 @@ def generate_design_quote_pdf(
 
     elements: List[Any] = []
 
-    # ══════ COMPANY ══════
+    # ══════ LETTERHEAD: the company, and the quote's number and dates ══════
     lines = []
     if company.get("name"):
         lines.append(f"<font size=11 color='#1a2332'><b>{_esc(company['name'])}</b></font>")
@@ -195,59 +193,53 @@ def generate_design_quote_pdf(
         lines.append(_esc(contact))
     if company.get("license_number"):
         lines.append(f"License #: {_esc(company['license_number'])}")
-    logo = render_picture(company.get("logo"), 1.3 * inch, 0.75 * inch)
-    if lines or logo:
-        text = Paragraph("<br/>".join(lines), company_style) if lines else ""
-        row = [logo, text] if logo else [text]
-        widths = [1.45 * inch, usable_w - 1.45 * inch] if logo else [usable_w]
-        company_table = Table([row], colWidths=widths)
-        company_table.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
-        ]))
-        elements.append(company_table)
-
-    # ══════ TITLE BAND: what this is, and the price ══════
-    white = ParagraphStyle("BandTitle", fontSize=15, fontName="Helvetica-Bold", textColor=colors.white, leading=19)
-    pale = ParagraphStyle("BandSub", fontSize=8.5, fontName="Helvetica", textColor=pale_on_dark, leading=12)
-    title_lines = [Paragraph("Kitchen Design Quote", white)]
-    if estimate.get("kind") == "option":
-        title_lines.append(Paragraph(_esc(member_name(estimate)), pale))
-    band = Table(
-        [[title_lines, [
-            Paragraph(f"${total:,.2f}", ParagraphStyle("BandTotal", parent=white, alignment=2)),
-            Paragraph("Total", ParagraphStyle("BandTotalLabel", parent=pale, alignment=2)),
-        ]]],
-        colWidths=[usable_w * 0.62, usable_w * 0.38],
-    )
-    band.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), brand_dark),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 14),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 14),
-        ("TOPPADDING", (0, 0), (-1, -1), 12),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
-    ]))
-    elements += [band, Spacer(1, 12)]
-
-    # ══════ WHO, WHERE, WHEN ══════
     date = datetime.now()
     valid_until = date + timedelta(days=30)
+    quote_cell = Paragraph(
+        f"Quote # {quote_number}<br/>{date.strftime('%B %d, %Y')}<br/>Valid until {valid_until.strftime('%B %d, %Y')}",
+        ParagraphStyle("QuoteLines", parent=company_style, alignment=2),
+    )
+    logo = render_picture(company.get("logo"), 1.3 * inch, 0.75 * inch)
+    text = Paragraph("<br/>".join(lines), company_style) if lines else ""
+    quote_w = usable_w * 0.32
+    logo_w = 1.45 * inch if logo else 0
+    letterhead = Table(
+        [[logo, text, quote_cell] if logo else [text, quote_cell]],
+        colWidths=[logo_w, usable_w - logo_w - quote_w, quote_w] if logo else [usable_w - quote_w, quote_w],
+    )
+    letterhead.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    elements += [letterhead, Spacer(1, 22)]
+
+    # ══════ TITLE ══════
+    elements.append(Paragraph("Kitchen Cabinet Quote", ParagraphStyle(
+        "QuoteTitle", fontSize=24, fontName="Helvetica-Bold", textColor=brand_dark, leading=29)))
+    if estimate.get("kind") == "option":
+        elements.append(Paragraph(_esc(member_name(estimate)), ParagraphStyle(
+            "QuoteOption", fontSize=12, fontName="Helvetica", textColor=text_grey, leading=16)))
+    elements += [Spacer(1, 8), HRFlowable(width="100%", thickness=1, color=brand_dark), Spacer(1, 10)]
+
+    # ══════ WHO, WHERE, HOW MUCH ══════
     client = [f"{_esc(estimate.get('client_name') or '—')}"]
     if estimate.get("claim_number"):
         client.append(f"Claim #: {_esc(estimate['claim_number'])}")
-    quote = [f"# {quote_number}", date.strftime("%B %d, %Y"), f"Valid until {valid_until.strftime('%B %d, %Y')}"]
     who = Table([
-        [Paragraph(text, label_style) for text in ("PREPARED FOR", "PROPERTY", "QUOTE")],
+        [Paragraph("PREPARED FOR", label_style), Paragraph("PROPERTY", label_style),
+         Paragraph("TOTAL", ParagraphStyle("TotalLabel", parent=label_style, alignment=2))],
         [Paragraph("<br/>".join(client), value_style),
          Paragraph(_esc(prop_addr) or "—", value_style),
-         Paragraph("<br/>".join(quote), value_style)],
-    ], colWidths=[usable_w * 0.3, usable_w * 0.4, usable_w * 0.3])
+         Paragraph(f"${total:,.2f}", ParagraphStyle(
+             "TotalValue", fontSize=16, fontName="Helvetica-Bold", textColor=brand_dark, leading=20, alignment=2))],
+    ], colWidths=[usable_w * 0.3, usable_w * 0.42, usable_w * 0.28])
     who.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 1),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
     ]))
@@ -300,9 +292,9 @@ def generate_design_quote_pdf(
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 8),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-        ("LINEABOVE", (0, 0), (-1, 0), 1, brand_accent),
+        ("LINEABOVE", (0, 0), (-1, 0), 1, brand_dark),
         ("LINEBELOW", (0, 0), (-1, -2), 0.5, border_grey),
-        ("LINEABOVE", (0, -1), (-1, -1), 1, brand_accent),
+        ("LINEABOVE", (0, -1), (-1, -1), 1, brand_dark),
     ]))
     elements += [Paragraph("Scope of Work", heading_style), scope_table]
 
@@ -346,7 +338,7 @@ def generate_design_quote_pdf(
         ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
         ("ALIGN", (1, 0), (2, -1), "RIGHT"),
         ("LINEBELOW", (0, 0), (-1, -2), 0.5, border_grey),
-        ("LINEABOVE", (0, -1), (-1, -1), 1, brand_accent),
+        ("LINEABOVE", (0, -1), (-1, -1), 1, brand_dark),
         ("LEFTPADDING", (0, 0), (0, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),

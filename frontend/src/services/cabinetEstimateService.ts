@@ -195,7 +195,7 @@ export const cabinetEstimateService = {
       show_signature: options?.show_signature ?? true,
       drawings: options?.drawings,
     }, { responseType: 'blob', timeout: 120000 });
-    savePdf(response, `kitchen_design_quote_${id.substring(0, 8)}.pdf`);
+    savePdf(response, `kitchen_cabinet_quote_${id.substring(0, 8)}.pdf`);
   },
 
   async exportExcel(id: string) {

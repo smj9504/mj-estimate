@@ -51,8 +51,8 @@ export interface KitchenDrawings {
 }
 
 export interface DrawingRequest {
-  /** The floor plan and the front elevations. */
-  plan2d: boolean;
+  plan: boolean;
+  elevations: boolean;
   /** The 3D views, in the realistic look or the outlined drawing. */
   views3d: boolean;
   realistic: boolean;
@@ -253,17 +253,23 @@ async function drawElevations(input: KitchenDrawingInput): Promise<{ label: stri
 export async function drawKitchen(
   sketch: CabinetSketch,
   estimate: CabinetEstimate,
-  { plan2d, views3d, realistic }: DrawingRequest
+  { plan, elevations, views3d, realistic }: DrawingRequest
 ): Promise<{ drawings: KitchenDrawings; missed: string[] }> {
   const input = drawingInput(sketch, estimate, CABINET_PRESETS);
   const drawings: KitchenDrawings = {};
   const missed: string[] = [];
-  if (plan2d) {
+  if (plan) {
     try {
       drawings.plan = await drawPlan(input);
+    } catch {
+      missed.push('floor plan');
+    }
+  }
+  if (elevations) {
+    try {
       drawings.elevations = await drawElevations(input);
     } catch {
-      missed.push('2D drawings');
+      missed.push('front elevations');
     }
   }
   if (views3d) {

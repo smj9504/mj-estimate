@@ -21,7 +21,8 @@ interface KitchenDesignQuoteModalProps {
 }
 
 const KitchenDesignQuoteModal: React.FC<KitchenDesignQuoteModalProps> = ({ estimateId, onClose }) => {
-  const [plan2d, setPlan2d] = useState(true);
+  const [plan, setPlan] = useState(true);
+  const [elevations, setElevations] = useState(false);
   const [views3d, setViews3d] = useState(true);
   const [realistic, setRealistic] = useState(true);
   const [signature, setSignature] = useState(true);
@@ -30,7 +31,8 @@ const KitchenDesignQuoteModal: React.FC<KitchenDesignQuoteModalProps> = ({ estim
 
   useEffect(() => {
     if (!estimateId) return;
-    setPlan2d(true);
+    setPlan(true);
+    setElevations(false);
     setViews3d(true);
     setRealistic(true);
     setSignature(true);
@@ -44,7 +46,8 @@ const KitchenDesignQuoteModal: React.FC<KitchenDesignQuoteModalProps> = ({ estim
     gcTime: 0,
   });
   const drawable = hasDrawing(sketch?.overlay_data);
-  const with2d = drawable && plan2d;
+  const withPlan = drawable && plan;
+  const withElevations = drawable && elevations;
   const with3d = drawable && views3d;
 
   const exportQuote = async () => {
@@ -52,13 +55,18 @@ const KitchenDesignQuoteModal: React.FC<KitchenDesignQuoteModalProps> = ({ estim
     try {
       let drawings;
       let missed: string[] = [];
-      if (with2d || with3d) {
+      if (withPlan || withElevations || with3d) {
         setBusy('Drawing the kitchen…');
         // Let the button show that before the drawing holds the page up.
         await new Promise((done) => window.setTimeout(done, 50));
         const [estimate, saved] = await Promise.all([cabinetEstimateService.getById(id), cabinetSketchService.getSketch(id)]);
         const { drawKitchen } = await import('./sketch/kitchenDrawings');
-        ({ drawings, missed } = await drawKitchen(saved, estimate, { plan2d: with2d, views3d: with3d, realistic }));
+        ({ drawings, missed } = await drawKitchen(saved, estimate, {
+          plan: withPlan,
+          elevations: withElevations,
+          views3d: with3d,
+          realistic,
+        }));
       }
       setBusy('Making the PDF…');
       await cabinetEstimateService.exportDesignQuotePdf(id, { show_signature: signature, drawings });
@@ -91,8 +99,11 @@ const KitchenDesignQuoteModal: React.FC<KitchenDesignQuoteModalProps> = ({ estim
         itemized quote stays the one for the carrier.
       </Text>
       <Space direction="vertical" size={8} style={{ display: 'flex', marginTop: 16 }}>
-        <Checkbox checked={with2d} disabled={!drawable || !!busy} onChange={(e) => setPlan2d(e.target.checked)}>
-          2D drawings: floor plan and front elevations
+        <Checkbox checked={withPlan} disabled={!drawable || !!busy} onChange={(e) => setPlan(e.target.checked)}>
+          Floor plan
+        </Checkbox>
+        <Checkbox checked={withElevations} disabled={!drawable || !!busy} onChange={(e) => setElevations(e.target.checked)}>
+          Front elevations
         </Checkbox>
         <Checkbox checked={with3d} disabled={!drawable || !!busy} onChange={(e) => setViews3d(e.target.checked)}>
           3D views

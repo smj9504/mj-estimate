@@ -248,7 +248,7 @@ def test_text_with_markup_characters_comes_through():
 
 def test_the_export_service_makes_it_too():
     pdf = CabinetExportService().generate_design_quote_pdf(_estimate(), show_signature=False)
-    assert "Kitchen Design Quote" in _pages(pdf)[0]
+    assert "Kitchen Cabinet Quote" in _pages(pdf)[0]
 
 
 def test_a_logo_that_cannot_be_read_does_not_stop_it():
@@ -297,7 +297,7 @@ def test_the_endpoint_sends_a_download_named_for_the_address_and_option(api_clie
     response = client.post(URL, json={"drawings": DRAWINGS})
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
-    assert 'filename="kitchen_design_quote_1_Old_Rd_Fairfax_VA_22030_Quartz_Oak.pdf"' in response.headers["content-disposition"]
+    assert 'filename="kitchen_cabinet_quote_1_Old_Rd_Fairfax_VA_22030_Quartz_Oak.pdf"' in response.headers["content-disposition"]
     text = "\n".join(_pages(io.BytesIO(response.content)))
     assert "Floor Plan" in text
     assert "ACCEPTED BY" in text
@@ -327,3 +327,19 @@ def test_the_endpoint_says_when_the_estimate_is_gone(api_client):
     client, monkeypatch, _ = api_client
     monkeypatch.setattr(_FakeService, "estimate", None)
     assert client.post(URL).status_code == 404
+
+
+def test_the_first_page_says_what_it_is_who_for_and_how_much():
+    estimate = _estimate(kind="option", option_label="Quartz Option")
+    first = _pages(generate_design_quote_pdf(estimate))[0]
+    for text in ("MJ Co & Sons", "Kitchen Cabinet Quote", "Quartz Option", "Jane O'Neil", "CL-77",
+                 "1 Old Rd, Fairfax, VA 22030", f"${estimate['total']:,.2f}", "Quote # ABCD1234", "Valid until"):
+        assert text in first
+
+
+def test_the_elevations_can_be_left_out_of_the_drawings():
+    without = {part: DRAWINGS[part] for part in ("plan", "views")}
+    text = "\n".join(_pages(generate_design_quote_pdf(_estimate(), drawings=without)))
+    assert "Floor Plan" in text
+    assert "3D Views" in text
+    assert "Front Elevations" not in text

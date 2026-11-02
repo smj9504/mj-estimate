@@ -602,7 +602,7 @@ def export_design_quote_pdf(
         estimate, show_signature=body.get("show_signature", True),
         image_loader=_image_loader(session), drawings=body.get("drawings"),
     )
-    filename = _pdf_filename("kitchen_design_quote", estimate, estimate_id)
+    filename = _pdf_filename("kitchen_cabinet_quote", estimate, estimate_id)
     return StreamingResponse(
         pdf_bytes,
         media_type="application/pdf",

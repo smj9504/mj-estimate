@@ -134,7 +134,7 @@ async function start(page: Page, { sketch = SKETCH as unknown, estimate = ESTIMA
       return route.fulfill({
         status: 200,
         contentType: 'application/pdf',
-        headers: { 'Content-Disposition': 'attachment; filename="kitchen_design_quote_1_Old_Rd.pdf"' },
+        headers: { 'Content-Disposition': 'attachment; filename="kitchen_cabinet_quote_1_Old_Rd.pdf"' },
         body: '%PDF-1.4 test',
       });
     }
@@ -160,7 +160,7 @@ const dialog = (page: Page) => page.getByRole('dialog', { name: 'Design quote' }
 async function exportIt(page: Page, sent: Sent[]) {
   const download = page.waitForEvent('download', { timeout: 150_000 });
   await dialog(page).getByRole('button', { name: 'Export PDF' }).click();
-  expect((await download).suggestedFilename()).toBe('kitchen_design_quote_1_Old_Rd.pdf');
+  expect((await download).suggestedFilename()).toBe('kitchen_cabinet_quote_1_Old_Rd.pdf');
   await expect(dialog(page)).toBeHidden();
   await expect.poll(() => sent.length).toBeGreaterThan(0);
   return sent[sent.length - 1];
@@ -173,6 +173,7 @@ test.describe('the design quote', () => {
   test('sends the floor plan, an elevation per run and the 3D views', async ({ page }, testInfo) => {
     const sent = await start(page);
     await openModal(page);
+    await dialog(page).getByRole('checkbox', { name: /Front elevations/ }).check();
     await dialog(page).screenshot({ path: testInfo.outputPath('modal.png') });
     const body = await exportIt(page, sent);
 
@@ -191,18 +192,20 @@ test.describe('the design quote', () => {
     fs.writeFileSync(testInfo.outputPath('drawings.json'), JSON.stringify(body.drawings));
   });
 
-  test('takes out what is unticked', async ({ page }) => {
+  test('takes out what is unticked, and leaves the elevations out unless ticked', async ({ page }) => {
     const sent = await start(page);
     await openModal(page);
+    await expect(dialog(page).getByRole('checkbox', { name: /Front elevations/ })).not.toBeChecked();
     await dialog(page).getByRole('checkbox', { name: /3D views/ }).uncheck();
     await dialog(page).getByRole('checkbox', { name: /Signature block/ }).uncheck();
     const onlyPlan = await exportIt(page, sent);
     expect(onlyPlan.show_signature).toBe(false);
     expect(isPng(onlyPlan.drawings!.plan)).toBe(true);
+    expect(onlyPlan.drawings!.elevations).toBeUndefined();
     expect(onlyPlan.drawings!.views).toBeUndefined();
 
     await openModal(page);
-    await dialog(page).getByRole('checkbox', { name: /2D drawings/ }).uncheck();
+    await dialog(page).getByRole('checkbox', { name: /Floor plan/ }).uncheck();
     await dialog(page).getByRole('checkbox', { name: /3D views/ }).uncheck();
     const none = await exportIt(page, sent);
     expect(none.show_signature).toBe(true);
@@ -212,7 +215,7 @@ test.describe('the design quote', () => {
   test('offers the outlined look for the 3D views', async ({ page }) => {
     const sent = await start(page);
     await openModal(page);
-    await dialog(page).getByRole('checkbox', { name: /2D drawings/ }).uncheck();
+    await dialog(page).getByRole('checkbox', { name: /Floor plan/ }).uncheck();
     await dialog(page).getByRole('radio', { name: /Outlined drawing/ }).check();
     const body = await exportIt(page, sent);
     expect(body.drawings!.plan).toBeUndefined();
@@ -224,8 +227,9 @@ test.describe('the design quote', () => {
     const sent = await start(page, { sketch: empty });
     await openModal(page);
     await expect(dialog(page).getByText(/Nothing is drawn for this estimate yet/)).toBeVisible();
-    await expect(dialog(page).getByRole('checkbox', { name: /2D drawings/ })).toBeDisabled();
-    await expect(dialog(page).getByRole('checkbox', { name: /2D drawings/ })).not.toBeChecked();
+    await expect(dialog(page).getByRole('checkbox', { name: /Floor plan/ })).toBeDisabled();
+    await expect(dialog(page).getByRole('checkbox', { name: /Floor plan/ })).not.toBeChecked();
+    await expect(dialog(page).getByRole('checkbox', { name: /Front elevations/ })).toBeDisabled();
     await expect(dialog(page).getByRole('checkbox', { name: /3D views/ })).toBeDisabled();
     const body = await exportIt(page, sent);
     expect(body.drawings).toBeUndefined();
@@ -287,7 +291,7 @@ test.describe('the design quote', () => {
     await page.locator('button[title="Export PDF"]').first().hover({ timeout: 120_000 });
     await page.getByRole('menuitem', { name: /Design quote/ }).click();
     await expect(dialog(page)).toBeVisible();
-    await dialog(page).getByRole('checkbox', { name: /2D drawings/ }).uncheck();
+    await dialog(page).getByRole('checkbox', { name: /Floor plan/ }).uncheck();
     await dialog(page).getByRole('checkbox', { name: /3D views/ }).uncheck();
     const body = await exportIt(page, sent);
     expect(body.drawings).toBeUndefined();
