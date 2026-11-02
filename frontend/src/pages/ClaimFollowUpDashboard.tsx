@@ -11,7 +11,6 @@ import {
   Input,
   Select,
   DatePicker,
-  Switch,
   InputNumber,
   message,
   Typography,
@@ -664,9 +663,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
       assigned_to_email: task.assigned_to_email,
       assigned_to_phone: task.assigned_to_phone,
       assigned_to_role: task.assigned_to_role,
-      auto_followup_enabled: task.auto_followup_enabled,
       followup_interval_days: task.followup_interval_days,
-      max_followup_count: task.max_followup_count,
       payment_status: task.payment_status,
       payment_note: task.payment_note,
     });
@@ -1420,24 +1417,13 @@ const ClaimFollowUpDashboard: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item name="auto_followup_enabled" label="Auto Follow-up" valuePropName="checked" initialValue={false}>
-            <Switch />
-          </Form.Item>
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.auto_followup_enabled !== cur.auto_followup_enabled}>
-            {({ getFieldValue }) => getFieldValue('auto_followup_enabled') && (
-              <Row gutter={16}>
-                <Col xs={24} sm={12}>
-                  <Form.Item name="followup_interval_days" label="Follow-up Interval (days)" initialValue={3}>
-                    <InputNumber min={1} max={30} style={{ width: '100%' }} />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} sm={12}>
-                  <Form.Item name="max_followup_count" label="Max Follow-ups" initialValue={5}>
-                    <InputNumber min={1} max={20} style={{ width: '100%' }} />
-                  </Form.Item>
-                </Col>
-              </Row>
-            )}
+          <Form.Item
+            name="followup_interval_days"
+            label="Days to next follow-up date"
+            initialValue={3}
+            extra="Set after each email you send. Nothing is sent automatically."
+          >
+            <InputNumber min={1} max={30} style={{ width: '100%' }} />
           </Form.Item>
         </Form>
       </Modal>
@@ -1698,23 +1684,13 @@ const ClaimFollowUpDashboard: React.FC = () => {
           <Form.Item name="assigned_to_phone" label="Phone">
             <Input />
           </Form.Item>
-          <Row gutter={12}>
-            <Col xs={24} sm={8}>
-              <Form.Item name="auto_followup_enabled" label="Auto Follow-up" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-            </Col>
-            <Col xs={12} sm={8}>
-              <Form.Item name="followup_interval_days" label="Interval (days)">
-                <InputNumber min={1} max={30} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col xs={12} sm={8}>
-              <Form.Item name="max_followup_count" label="Max Count">
-                <InputNumber min={1} max={20} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item
+            name="followup_interval_days"
+            label="Days to next follow-up date"
+            extra="Set after each email you send. Nothing is sent automatically."
+          >
+            <InputNumber min={1} max={30} style={{ width: '100%' }} />
+          </Form.Item>
 
           {/* Payment Status for payment tasks */}
           {selectedTask && ['payment_check', 'wm_payment_check'].includes(selectedTask.task_type) && (

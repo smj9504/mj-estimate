@@ -4,13 +4,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button, Col, ConfigProvider, DatePicker, Dropdown, Form, Grid, Input, InputNumber, Modal, Row, Select,
-  Skeleton, Switch, Tabs, Tooltip, message,
+  Skeleton, Tabs, Tooltip, message,
 } from 'antd';
 import type { FormInstance, MenuProps } from 'antd';
 import {
   ArrowLeftOutlined, CalendarOutlined, CheckOutlined, ClockCircleOutlined, DeleteOutlined,
   DownOutlined, EditOutlined, EllipsisOutlined, FilePdfOutlined, MailOutlined, PhoneOutlined,
-  PlusOutlined, ReloadOutlined, RightOutlined, RollbackOutlined, StopOutlined, SyncOutlined,
+  PlusOutlined, ReloadOutlined, RightOutlined, RollbackOutlined, StopOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -325,9 +325,7 @@ const ClaimFollowUpDetail: React.FC = () => {
       assigned_to_name: task.assigned_to_name,
       assigned_to_email: task.assigned_to_email,
       assigned_to_role: task.assigned_to_role,
-      auto_followup_enabled: task.auto_followup_enabled,
       followup_interval_days: task.followup_interval_days,
-      max_followup_count: task.max_followup_count,
     });
     setEditModalOpen(true);
   };
@@ -450,6 +448,7 @@ const ClaimFollowUpDetail: React.FC = () => {
   const renderTaskMeta = (task: FollowUpTask) => {
     const roleLabel = ASSIGNED_ROLE_LABELS[task.assigned_to_role] || task.assigned_to_role;
     const isPayment = PAYMENT_TASK_TYPES.includes(task.task_type);
+    const intervalDays = task.followup_interval_days || 3;
     return (
       <div className="fu-task-meta">
         {/* Who it is with */}
@@ -469,9 +468,7 @@ const ClaimFollowUpDetail: React.FC = () => {
         </div>
         {/* What has happened so far */}
         <div className="fu-task-meta-line">
-          {task.auto_followup_enabled && isTaskActive(task)
-            ? <SyncOutlined className="fu-task-meta-icon" aria-hidden="true" />
-            : <MailOutlined className="fu-task-meta-icon" aria-hidden="true" />}
+          <MailOutlined className="fu-task-meta-icon" aria-hidden="true" />
           {task.contact_count > 0 ? (
             <button type="button" className="fu-link-btn" onClick={() => openHistory(task.id)}>
               Contacted {task.contact_count}×
@@ -480,10 +477,9 @@ const ClaimFollowUpDetail: React.FC = () => {
           ) : (
             <span className="fu-muted">Not contacted yet</span>
           )}
-          {task.auto_followup_enabled && isTaskActive(task) && (
+          {isTaskActive(task) && (
             <span className="fu-muted">
-              Auto every {task.followup_interval_days} day{task.followup_interval_days === 1 ? '' : 's'}
-              {' '}· {Math.min(task.contact_count, task.max_followup_count)} of {task.max_followup_count}
+              Manual emails · next date is set {intervalDays} day{intervalDays === 1 ? '' : 's'} after each send
             </span>
           )}
         </div>
@@ -1132,24 +1128,12 @@ const ClaimFollowUpDetail: React.FC = () => {
               <Form.Item name="assigned_to_email" label="Email"><Input /></Form.Item>
             </Col>
           </Row>
-          <Form.Item name="auto_followup_enabled" label="Auto Follow-up" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.auto_followup_enabled !== cur.auto_followup_enabled}>
-            {({ getFieldValue }) => getFieldValue('auto_followup_enabled') && (
-              <Row gutter={12}>
-                <Col span={12}>
-                  <Form.Item name="followup_interval_days" label="Interval (days)">
-                    <InputNumber min={1} max={90} style={{ width: '100%' }} />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item name="max_followup_count" label="Max follow-ups">
-                    <InputNumber min={1} max={50} style={{ width: '100%' }} />
-                  </Form.Item>
-                </Col>
-              </Row>
-            )}
+          <Form.Item
+            name="followup_interval_days"
+            label="Days to next follow-up date"
+            extra="Set after each email you send. Nothing is sent automatically."
+          >
+            <InputNumber min={1} max={90} style={{ width: '100%' }} />
           </Form.Item>
         </Form>
       </Modal>
