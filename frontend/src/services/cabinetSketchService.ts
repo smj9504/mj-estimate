@@ -12,6 +12,13 @@ import { EMPTY_CABINET_OVERLAY_DATA } from '../types/cabinetSketch';
 
 const BASE_URL = '/api/cabinet-estimates';
 
+/**
+ * Overlay saves still on their way, by estimate. The sketch saves as it's
+ * left, so opening it again waits for that: read sooner, it would show the
+ * layout from before the last change.
+ */
+const savesUnderway = new Map<string, Promise<unknown>>();
+
 /** Ensure overlay_data array fields are defined (backend JSONB may omit empty arrays) */
 function normalize(sketch: CabinetSketch): CabinetSketch {
   const od = sketch.overlay_data;
@@ -24,6 +31,7 @@ function normalize(sketch: CabinetSketch): CabinetSketch {
 export const cabinetSketchService = {
   /** Get (or lazily create) the layout sketch for an estimate */
   getSketch: async (estimateId: string): Promise<CabinetSketch> => {
+    await savesUnderway.get(estimateId);
     const response = await api.get(`${BASE_URL}/${estimateId}/sketch`);
     return normalize(response.data);
   },
@@ -45,10 +53,17 @@ export const cabinetSketchService = {
     estimateId: string,
     overlayData: CabinetSketchOverlayData
   ): Promise<CabinetSketch> => {
-    const response = await api.put(
+    const saving = api.put(
       `${BASE_URL}/${estimateId}/sketch/overlay`,
       overlayData
     );
+    // With any earlier save, which may still be out too.
+    const underway = Promise.allSettled([savesUnderway.get(estimateId), saving]);
+    savesUnderway.set(estimateId, underway);
+    underway.then(() => {
+      if (savesUnderway.get(estimateId) === underway) savesUnderway.delete(estimateId);
+    });
+    const response = await saving;
     return normalize(response.data);
   },
 

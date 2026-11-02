@@ -545,10 +545,16 @@ const CabinetEstimateDetail: React.FC = () => {
   useEffect(() => {
     return () => {
       if (sketchBoxesPendingRef.current) {
-        cabinetEstimateService.update(id!, { boxes: latestBoxesRef.current }).catch(() => {});
+        // Coming back must find this list, even before the save lands: from
+        // the older one cached, the sketch would redo what was just changed.
+        queryClient.setQueryData<CabinetEstimate>(
+          ['cabinet-estimate', id],
+          (old) => old && { ...old, boxes: latestBoxesRef.current as CabinetEstimate['boxes'] }
+        );
+        saveSketchBoxes(latestBoxesRef.current);
       }
     };
-  }, [id]);
+  }, [id, queryClient, saveSketchBoxes]);
 
   // Build the API payload from the form store.
   // Read from the store, not validateFields(): conditionally rendered

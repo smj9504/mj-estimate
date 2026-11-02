@@ -237,6 +237,10 @@ const CabinetSketchEditor: React.FC<CabinetSketchEditorProps> = ({
     queryKey: ['cabinet-sketch', estimateId],
     queryFn: () => cabinetSketchService.getSketch(estimateId),
     enabled: !!estimateId,
+    // Always opens on what's saved. Saving doesn't touch this cache, so a copy
+    // kept from an earlier visit is the layout from back then — and the sync
+    // and autosave below would write that back over the newer one.
+    gcTime: 0,
   });
 
   // The plan container only exists once loading is done and while the plan
