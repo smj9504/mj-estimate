@@ -82,6 +82,7 @@ export const SCREEN_GROUPS: ScreenGroup[] = [
     label: 'Tools & Data',
     screens: [
       { key: 'line_items', label: 'Line Items', paths: ['/line-items'] },
+      { key: 'product_library', label: 'Product Library', paths: ['/product-library'] },
       { key: 'insurance_extractions', label: 'Insurance Extraction', paths: ['/insurance-extractions'] },
       { key: 'material_detection', label: 'AI Material Detection', paths: ['/reconstruction-estimate/material-detection'] },
       { key: 'debris_calculator', label: 'Debris Calculator', paths: ['/reconstruction-estimate/debris'] },

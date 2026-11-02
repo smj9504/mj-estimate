@@ -47,6 +47,7 @@ SCREEN_KEYS: tuple = (
     "repair_estimate",
     # Tools & Data
     "line_items",
+    "product_library",
     "insurance_extractions",
     "material_detection",
     "debris_calculator",

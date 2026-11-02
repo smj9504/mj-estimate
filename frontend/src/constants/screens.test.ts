@@ -27,6 +27,11 @@ describe('screenForPath', () => {
     expect(screenForPath('/clients/1#claims')).toBe('clients');
   });
 
+  it('puts the Product Library under its own screen', () => {
+    expect(screenForPath('/product-library')).toBe('product_library');
+    expect(screenForPath('/product-library?import=1')).toBe('product_library');
+  });
+
   it('leaves a page no screen claims open', () => {
     expect(screenForPath('/todos')).toBeNull();
   });
