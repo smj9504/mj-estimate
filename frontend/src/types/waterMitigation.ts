@@ -485,14 +485,25 @@ export interface MagicPlanProjectSearchResponse {
   total_projects: number;
 }
 
+export interface MagicPlanSyncProgress {
+  status: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
+  message?: string | null;
+  result?: MagicPlanSyncResult | null;
+}
+
 export interface MagicPlanSyncResult {
   success: boolean;
   photos_synced: number;
+  videos_synced: number;
   photos_skipped: number;
+  /** Already imported into another job: each file can only be on one */
+  photos_on_other_jobs: number;
+  total_files: number;
   floor_plans_synced: number;
   errors: string[];
   magicplan_project_id: string;
   magicplan_project_name: string;
+  cancelled: boolean;
 }
 
 export interface MagicPlanFloorPlanInfo {

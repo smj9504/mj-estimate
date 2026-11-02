@@ -302,7 +302,8 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         skip: Optional[int] = None,
         source_filter: Optional[str] = None,
         level_filter: Optional[List[str]] = None,
-        room_filter: Optional[List[str]] = None
+        room_filter: Optional[List[str]] = None,
+        photos_only: bool = False
     ) -> tuple[List[WMPhoto], Optional[int]]:
         """Find photos for a job with pagination and optional category filtering
 
@@ -315,7 +316,7 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         """
         query = self._filtered_photos_query(
             job_id, category_filter, uncategorized_only,
-            source_filter, level_filter, room_filter
+            source_filter, level_filter, room_filter, photos_only
         )
 
         # Get total count (after filters) - only for the first page
@@ -358,7 +359,8 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         skip: Optional[int] = None,
         source_filter: Optional[str] = None,
         level_filter: Optional[List[str]] = None,
-        room_filter: Optional[List[str]] = None
+        room_filter: Optional[List[str]] = None,
+        photos_only: bool = False
     ) -> tuple[List[WMPhoto], int, Dict[str, tuple]]:
         """Like find_by_job_paginated, but similar-looking photos are placed
         next to each other within each category (see photo_similarity.py).
@@ -373,7 +375,7 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
 
         query = self._filtered_photos_query(
             job_id, category_filter, uncategorized_only,
-            source_filter, level_filter, room_filter
+            source_filter, level_filter, room_filter, photos_only
         )
         rows = query.with_entities(
             WMPhoto.id, WMPhoto.category, WMPhoto.captured_date, WMPhoto.visual_signature
@@ -399,7 +401,8 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         uncategorized_only: bool = False,
         source_filter: Optional[str] = None,
         level_filter: Optional[List[str]] = None,
-        room_filter: Optional[List[str]] = None
+        room_filter: Optional[List[str]] = None,
+        photos_only: bool = False
     ):
         """Non-trashed photos of a job with the gallery's filters applied"""
         # Base query (exclude trashed photos by default)
@@ -407,6 +410,9 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
             WMPhoto.job_id == job_id,
             WMPhoto.is_trashed.is_(False)
         )
+
+        if photos_only:
+            query = query.filter(or_(WMPhoto.file_type.is_(None), WMPhoto.file_type != 'video'))
 
         # Apply category filters at database level (more efficient)
         if uncategorized_only:
@@ -569,7 +575,7 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
 
     def find_companycam_photos(self, job_id: UUID) -> List[WMPhoto]:
         """
-        Find all CompanyCam photos for a job (excludes trashed and manual uploads).
+        Find all CompanyCam photos for a job (excludes trashed, manual uploads and videos).
 
         Used for Google Drive export to only export photos sourced from CompanyCam.
 
@@ -582,6 +588,7 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         return self.db_session.query(WMPhoto).filter(
             WMPhoto.job_id == job_id,
             WMPhoto.is_trashed.is_(False),
+            or_(WMPhoto.file_type.is_(None), WMPhoto.file_type != 'video'),
             WMPhoto.source == 'companycam'
         ).order_by(WMPhoto.captured_date.asc()).all()
 

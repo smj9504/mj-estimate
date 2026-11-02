@@ -7,10 +7,11 @@ Provides endpoints for:
 - Importing floor plans for WM sketches
 """
 
+import asyncio
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -23,10 +24,16 @@ from .schemas import (
     MagicPlanFloorPlanInfo,
     MagicPlanProjectSearchRequest,
     MagicPlanProjectSearchResponse,
+    MagicPlanSyncProgress,
     MagicPlanSyncRequest,
     MagicPlanSyncResult,
 )
-from .sync_service import MagicPlanSyncService
+from .sync_service import (
+    MagicPlanSyncService,
+    SYNC_RESULT_TTL,
+    read_sync_status,
+    write_sync_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -94,33 +101,79 @@ async def list_projects(
 
 # ── Photo Sync ───────────────────────────────────────────────
 
+def run_sync_in_background(job_id: str, project_id: str, project_name: str) -> None:
+    """On a worker thread with an event loop and a DB session of its own"""
+    async def run():
+        database = get_database()
+        db = database.get_session()
+        try:
+            result = await MagicPlanSyncService(db).sync_photos(job_id, project_id, project_name)
+            if not result.success and result.errors:
+                logger.error(f"MagicPlan sync errors for job {job_id}: {result.errors}")
+        except Exception as e:
+            logger.error(f"MagicPlan sync crashed for job {job_id}: {e}", exc_info=True)
+            await write_sync_status(
+                job_id, {"status": "failed", "message": f"MagicPlan sync failed: {e}"}, ttl=SYNC_RESULT_TTL
+            )
+        finally:
+            db.close()
+
+    asyncio.run(run())
+
+
 @router.post(
     "/jobs/{job_id}/sync",
-    response_model=MagicPlanSyncResult,
-    summary="Sync photos from MagicPlan project to WM job",
+    response_model=MagicPlanSyncProgress,
+    summary="Start syncing photos and videos from a MagicPlan project to a WM job",
 )
 async def sync_magicplan_photos(
     job_id: str,
     request: MagicPlanSyncRequest,
-    db: Session = Depends(get_db),
+    background_tasks: BackgroundTasks,
 ):
     """
-    Sync photos from a MagicPlan project to a Water Mitigation job.
-    Downloads photos to storage and creates WMPhoto records with source='magicplan'.
+    Start syncing a MagicPlan project's photos and videos to a Water Mitigation job,
+    creating WMPhoto records with source='magicplan'. Poll /sync/status for how it goes.
     """
     _check_configured()
 
-    service = MagicPlanSyncService(db)
-    result = await service.sync_photos(
-        job_id=job_id,
-        magicplan_project_id=request.magicplan_project_id,
-        magicplan_project_name=request.magicplan_project_name or "",
+    current = await read_sync_status(job_id)
+    if current and current.get("status") == "running":
+        return MagicPlanSyncProgress(status="running", message="Sync already in progress")
+
+    await write_sync_status(job_id, {"status": "running", "message": "Starting sync..."})
+    background_tasks.add_task(
+        run_sync_in_background,
+        job_id,
+        request.magicplan_project_id,
+        request.magicplan_project_name or "",
     )
+    return MagicPlanSyncProgress(status="running", message="Sync started in background")
 
-    if not result.success and result.errors:
-        logger.error(f"MagicPlan sync errors for job {job_id}: {result.errors}")
 
-    return result
+@router.get(
+    "/jobs/{job_id}/sync/status",
+    response_model=MagicPlanSyncProgress,
+    summary="How a MagicPlan sync is getting on",
+)
+async def magicplan_sync_status(job_id: str):
+    current = await read_sync_status(job_id)
+    return MagicPlanSyncProgress(**current) if current else MagicPlanSyncProgress(status="idle")
+
+
+@router.post(
+    "/jobs/{job_id}/sync/cancel",
+    response_model=MagicPlanSyncProgress,
+    summary="Stop a MagicPlan sync after the file it's on",
+)
+async def cancel_magicplan_sync(job_id: str):
+    current = await read_sync_status(job_id)
+    if not current or current.get("status") != "running":
+        return MagicPlanSyncProgress(status="idle", message="No sync in progress to cancel")
+    current["status"] = "cancelled"
+    current["message"] = "Stopping after the current file..."
+    await write_sync_status(job_id, current)
+    return MagicPlanSyncProgress(**current)
 
 
 # ── Floor Plan Import ────────────────────────────────────────

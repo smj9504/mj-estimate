@@ -439,6 +439,51 @@ class CompanyCamClient:
             # Not an empty list: the webhook takes photos missing from it as deleted
             raise
 
+    async def get_project_videos(self, project_id: int) -> list:
+        """
+        Get every video of a project. Videos aren't in the photos list: they have
+        an endpoint of their own, paged the same way.
+
+        Raises:
+            httpx.HTTPError: If API request fails
+        """
+        url = f"{self.base_url}/projects/{project_id}/videos"
+        per_page = 100
+        videos: list = []
+        client = self._get_client()
+        try:
+            for page in range(1, 101):
+                response = await client.get(
+                    url, headers=self.headers, params={"page": page, "per_page": per_page}
+                )
+                response.raise_for_status()
+                batch = response.json()
+                if not isinstance(batch, list) or not batch:
+                    break
+                videos.extend(batch)
+                if len(batch) < per_page:
+                    break
+        finally:
+            if client is not self._shared_client:
+                await client.aclose()
+        logger.info(f"Fetched {len(videos)} videos from CompanyCam project {project_id}")
+        return videos
+
+    async def get_project_videos_as_media(self, project_id: int, strict: bool = False) -> list:
+        """
+        A project's videos in the shape that sits in one list with its photos.
+        Unless strict, a failure leaves out the videos rather than the photos.
+        """
+        from .utils import videos_as_media
+
+        try:
+            return videos_as_media(await self.get_project_videos(project_id))
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to get videos for project {project_id}: {e}")
+            if strict:
+                raise
+            return []
+
     async def list_project_photos(
         self,
         project_id: int,

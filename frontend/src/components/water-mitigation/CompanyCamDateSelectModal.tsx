@@ -167,18 +167,18 @@ const CompanyCamDateSelectModal: React.FC<CompanyCamDateSelectModalProps> = ({
       ) : error ? (
         <Alert type="error" message="Failed to load dates" description={error} showIcon />
       ) : buckets.length === 0 ? (
-        <Empty description="No photos found in this CompanyCam project" />
+        <Empty description="No photos or videos found in this CompanyCam project" />
       ) : (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Text type="secondary">
-            {totalNew} new photo{totalNew === 1 ? '' : 's'} out of {totalPhotos} total, grouped by capture date.
-            Loading a thumbnail for every photo is slow — pick just the dates you need.
+            {totalNew} new out of {totalPhotos} photos and videos, grouped by capture date.
+            Importing them all is slow — pick just the dates you need.
           </Text>
 
           <Space wrap>
             <Button size="small" onClick={selectAll}>Select All</Button>
             <Button size="small" onClick={selectNone}>Select None</Button>
-            <Button size="small" onClick={selectNewOnly} disabled={totalNew === 0}>New Photos Only</Button>
+            <Button size="small" onClick={selectNewOnly} disabled={totalNew === 0}>New Only</Button>
             <RangePicker size="small" onChange={handleRangeChange} allowClear />
           </Space>
 

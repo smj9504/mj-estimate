@@ -361,6 +361,11 @@ class PhotoResponse(BaseModel):
     similar_group_size: Optional[int] = None
     similar_index: Optional[int] = None
 
+    # Videos only: where to play it, and how its poster and browser copy are coming along
+    video_url: Optional[str] = None
+    video_status: Optional[str] = None
+    duration_seconds: Optional[float] = None
+
     class Config:
         from_attributes = True
 

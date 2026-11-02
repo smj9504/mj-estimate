@@ -2,7 +2,7 @@
 File management models for handling uploaded files
 """
 
-from sqlalchemy import Column, String, Integer, DateTime, Text, Boolean, Index
+from sqlalchemy import BigInteger, Column, Float, String, Integer, DateTime, Text, Boolean, Index, UniqueConstraint
 from sqlalchemy.sql import func
 import uuid
 
@@ -45,6 +45,42 @@ class File(Base):
 
     # Status
     is_active = Column(Boolean, default=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class VideoRendition(Base):
+    """What a stored video needs on top of the file: a poster to show before it plays,
+    and an H.264 copy when the browsers can't all play the original (an iPhone's HEVC).
+
+    Works the same for a job's WMPhoto and a claim's File, so it hangs off either
+    by owner_type and owner_id, and no photo query has to know about it.
+    """
+    __tablename__ = "video_renditions"
+    __table_args__ = (
+        UniqueConstraint('owner_type', 'owner_id', name='uq_video_renditions_owner'),
+        {'extend_existing': True},
+    )
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    owner_type = Column(String(20), nullable=False)  # 'wm_photo' | 'file'
+    owner_id = Column(String(36), nullable=False)
+
+    status = Column(String(20), nullable=False, default='pending')  # pending | processing | ready | failed
+    attempts = Column(Integer, nullable=False, default=0)
+    error = Column(Text)
+
+    # Where the two files below live; NULL playback_file_id = the original plays everywhere
+    storage_provider = Column(String(50))
+    poster_file_id = Column(Text)
+    playback_file_id = Column(Text)
+    playback_size = Column(BigInteger)
+
+    codec = Column(String(30))
+    width = Column(Integer)
+    height = Column(Integer)
+    duration_seconds = Column(Float)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -8,6 +8,8 @@ import {
 } from '@ant-design/icons';
 import { FileItem, FileCategory } from './types';
 import { getCategoryColor } from './categoryColors';
+import { VideoBadge, VideoPreviewModal } from './VideoPlayer';
+import { isVideoFile, saveVideo } from './videoFiles';
 import { fileService } from '../../../services/fileService';
 import api from '../../../services/api';
 import dayjs from 'dayjs';
@@ -157,8 +159,10 @@ const FileCardItem = memo<FileCardItemProps>(({
   }
 
   const contentType = file.contentType || file.mimeType || '';
+  const isVideo = isVideoFile(file);
   // Determine if file is an image: use contentType OR fileCategory prop
-  const isImage = contentType.startsWith('image/') || fileCategory === 'image';
+  // A video shows as its poster, a picture like any other
+  const isImage = contentType.startsWith('image/') || fileCategory === 'image' || isVideo;
 
   // Ensure imageQuality has a default value
   const quality = imageQuality || 'web';
@@ -195,6 +199,7 @@ const FileCardItem = memo<FileCardItemProps>(({
                 alt={file.originalName}
                 enableLazyLoading={enableLazyLoading}
               />
+              {isVideo && <VideoBadge file={file} />}
               {/* Date and Category overlay - always visible at bottom */}
               <div style={{
                 position: 'absolute',
@@ -354,6 +359,10 @@ const FileCardItem = memo<FileCardItemProps>(({
     prevProps.file.similarGroup === nextProps.file.similarGroup &&
     prevProps.file.similarIndex === nextProps.file.similarIndex &&
     prevProps.file.similarGroupSize === nextProps.file.similarGroupSize &&
+    // A video's poster and length turn up after the video does
+    prevProps.file.thumbnailUrl === nextProps.file.thumbnailUrl &&
+    prevProps.file.url === nextProps.file.url &&
+    prevProps.file.durationSeconds === nextProps.file.durationSeconds &&
     prevProps.isSelected === nextProps.isSelected &&
     prevProps.allowMultiSelect === nextProps.allowMultiSelect
   );
@@ -402,6 +411,10 @@ const FileGrid: React.FC<FileGridProps> = ({
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState<string>('');
   const [previewTitle, setPreviewTitle] = useState<string>('');
+  const [previewVideoFile, setPreviewVideoFile] = useState<FileItem | null>(null);
+  // The gallery refreshes while the server finishes a video, and an open player
+  // should hear about it. Its date can change too, moving it out of this group.
+  const previewVideo = (previewVideoFile && files.find(file => file.id === previewVideoFile.id)) || previewVideoFile;
 
   // Use Set if provided, otherwise fallback to array
   const currentSelectedSet = React.useMemo(
@@ -443,7 +456,9 @@ const FileGrid: React.FC<FileGridProps> = ({
   }, [allowMultiSelect, onFileSelect]);
 
   const handlePreview = useCallback((file: FileItem) => {
-    if (fileCategory === 'image' && showImagePreview) {
+    if (isVideoFile(file)) {
+      setPreviewVideoFile(file);
+    } else if (fileCategory === 'image' && showImagePreview) {
       // Use original high-resolution image for preview modal
       // fileUrl = original full resolution, url = optimized web preview
       const previewUrl = file.fileUrl || file.url;
@@ -460,6 +475,10 @@ const FileGrid: React.FC<FileGridProps> = ({
 
   const downloadingRef = useRef<Set<string>>(new Set());
   const handleDownload = useCallback(async (file: FileItem) => {
+    if (isVideoFile(file) && file.videoDownloadUrl) {
+      saveVideo(file.videoDownloadUrl);
+      return;
+    }
     if (downloadingRef.current.has(file.id)) return;
     downloadingRef.current.add(file.id);
     const hide = message.loading('다운로드 중...', 0);
@@ -669,6 +688,12 @@ const FileGrid: React.FC<FileGridProps> = ({
           preview={false}
         />
       </Modal>
+
+      <VideoPreviewModal
+        file={previewVideo}
+        downloadUrl={previewVideo?.videoDownloadUrl}
+        onClose={() => setPreviewVideoFile(null)}
+      />
     </>
   );
 };

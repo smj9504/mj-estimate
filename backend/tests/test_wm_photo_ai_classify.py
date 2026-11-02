@@ -208,6 +208,9 @@ def test_companycam_sync_saves_fingerprint_tags_and_ai_category(db, wm_service, 
         async def list_project_photos(self, project_id, page, per_page):
             return [{"id": 101, "uris": [{"type": "web", "uri": "https://cc/101.jpg"}], "tags": ["Kitchen"]}]
 
+        async def get_project_videos_as_media(self, project_id, strict=False):
+            return []
+
         async def download_photo(self, url):
             return data
 

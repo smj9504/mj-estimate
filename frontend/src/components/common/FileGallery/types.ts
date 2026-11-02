@@ -32,6 +32,12 @@ export interface FileItem {
   similarGroup?: number;
   similarGroupSize?: number;
   similarIndex?: number;
+  // Videos: url and thumbnailUrl are its poster, this is the video itself
+  videoUrl?: string;
+  videoDownloadUrl?: string;
+  // How the server's poster and browser-playable copy are coming along
+  videoStatus?: 'pending' | 'processing' | 'ready' | 'failed';
+  durationSeconds?: number;
 }
 
 // Water-mitigation photo order: newest first, or similar-looking photos together
@@ -47,6 +53,8 @@ export interface FileGalleryProps {
   fileCategory?: FileCategory;
   allowedTypes?: string[];
   maxFileSize?: number;
+  // A video's limit where it differs from a photo's (default: maxFileSize)
+  maxVideoFileSize?: number;
   maxFiles?: number;
 
   // Selection
@@ -93,6 +101,9 @@ export interface FileGalleryProps {
 
   // Source filter (for water-mitigation: 'companycam' | 'magicplan' | 'manual_upload')
   sourceFilter?: string;
+
+  // Leave out videos, for choosing pictures to put in a document
+  photosOnly?: boolean;
 
   // Photo order (water-mitigation only)
   sortBy?: PhotoSortBy;

@@ -15,6 +15,8 @@ import {
   UserOutlined
 } from '@ant-design/icons';
 import { FileItem, FileCategory } from './types';
+import { VideoBadge, VideoPreviewModal } from './VideoPlayer';
+import { isVideoFile, saveVideo } from './videoFiles';
 import { fileService } from '../../../services/fileService';
 import api from '../../../services/api';
 
@@ -54,6 +56,8 @@ const FileCard: React.FC<FileCardProps> = ({
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState<string>('');
   const [previewTitle, setPreviewTitle] = useState<string>('');
+  const [previewVideoFile, setPreviewVideoFile] = useState<FileItem | null>(null);
+  const previewVideo = (previewVideoFile && files.find(file => file.id === previewVideoFile.id)) || previewVideoFile;
 
   // Use Set if provided, otherwise fallback to array
   const currentSelectedSet = React.useMemo(
@@ -81,7 +85,9 @@ const FileCard: React.FC<FileCardProps> = ({
 
   const handlePreview = (file: FileItem) => {
     const contentType = file.contentType || file.mimeType || '';
-    if (contentType.startsWith('image/') && showImagePreview) {
+    if (isVideoFile(file)) {
+      setPreviewVideoFile(file);
+    } else if (contentType.startsWith('image/') && showImagePreview) {
       // Use original high-resolution image for preview modal
       // fileUrl = original full resolution, url = optimized web preview
       const previewUrl = file.fileUrl || file.url;
@@ -99,6 +105,10 @@ const FileCard: React.FC<FileCardProps> = ({
   const downloadingRef = useRef<Set<string>>(new Set());
   const handleDownload = async (file: FileItem, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (isVideoFile(file) && file.videoDownloadUrl) {
+      saveVideo(file.videoDownloadUrl);
+      return;
+    }
     if (downloadingRef.current.has(file.id)) return;
     downloadingRef.current.add(file.id);
     const hide = message.loading('다운로드 중...', 0);
@@ -185,7 +195,9 @@ const FileCard: React.FC<FileCardProps> = ({
     // Use Set for O(1) lookup instead of Array.includes() which is O(n)
     const isSelected = currentSelectedSet.has(file.id);
     const contentType = file.contentType || file.mimeType || '';
-    const isImage = contentType.startsWith('image/');
+    const isVideo = isVideoFile(file);
+    // A video shows as its poster, a picture like any other
+    const isImage = contentType.startsWith('image/') || isVideo;
 
     const actions = [
       <Tooltip title="Preview" key="preview">
@@ -226,6 +238,7 @@ const FileCard: React.FC<FileCardProps> = ({
           }}
           onClick={() => handlePreview(file)}
         />
+        {isVideo && <VideoBadge file={file} />}
         {onFileSelect && (
           <Checkbox
             checked={isSelected}
@@ -372,6 +385,12 @@ const FileCard: React.FC<FileCardProps> = ({
           preview={false}
         />
       </Modal>
+
+      <VideoPreviewModal
+        file={previewVideo}
+        downloadUrl={previewVideo?.videoDownloadUrl}
+        onClose={() => setPreviewVideoFile(null)}
+      />
     </>
   );
 };

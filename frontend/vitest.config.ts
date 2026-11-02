@@ -28,6 +28,7 @@ export default defineConfig({
     globals: false,
     include: [
       'src/components/**/sketch/**/*.test.ts',
+      'src/components/common/FileGallery/**/*.test.ts',
       'src/components/bathroom-estimate/**/*.test.ts',
       'src/components/contract/**/*.test.ts',
       'src/components/cabinet-estimate/**/*.test.ts',

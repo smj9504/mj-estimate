@@ -8,23 +8,28 @@ each import finds one by the client's address.
 
 A photo's CompanyCam id stays in its file name. A photo already on the claim, in
 its own photos or one of its jobs', isn't imported again, and neither is one
-deleted from here: deleting it says it isn't wanted.
+deleted from here: deleting it says it isn't wanted. Videos go the same way, under
+an id of their own.
 """
 
 import asyncio
 import json
 import logging
 import re
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from io import BytesIO
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from fastapi import BackgroundTasks, HTTPException
 
+from app.common.services import video_tools
 from app.core.cache import get_cache
 from app.core.database_factory import get_database
 from app.domains.file.models import File
+from app.domains.file.video_service import OWNER_FILE, queue_processing, store_video
 from app.domains.storage import StorageFactory
 
 from .models import Claim, Client
@@ -41,6 +46,7 @@ CLAIM_CONTEXT = 'claim'
 IMPORT_CATEGORY = 'general'
 IMPORT_UPLOADED_BY = 'CompanyCam'
 IMPORTED_NAME = re.compile(r'^companycam_(\d+)\.jpg$')
+IMPORTED_VIDEO_NAME = re.compile(r'^(companycam_video_\d+)\.\w+$')
 
 
 def _status_key(claim_id: str) -> str:
@@ -77,7 +83,12 @@ def _imported_ids(session, claim_id: str) -> Set[str]:
         File.context == CLAIM_CONTEXT,
         File.context_id == str(claim_id),
     ).all()
-    ids = {m.group(1) for m in (IMPORTED_NAME.match(name or '') for name, in names) if m}
+    ids = {
+        m.group(1)
+        for name, in names
+        for m in (IMPORTED_NAME.match(name or ''), IMPORTED_VIDEO_NAME.match(name or ''))
+        if m
+    }
 
     job_photos = session.query(WMPhoto.external_id).join(
         WaterMitigationJob, WMPhoto.job_id == WaterMitigationJob.id
@@ -152,11 +163,12 @@ async def photo_dates(claim_id: str, project_id: Optional[str]) -> Dict[str, Any
 
     async with CompanyCamClient() as client:
         photos = await client.get_project_photos(project)
+        videos = await client.get_project_videos_as_media(project)
 
     return {
         'success': True,
         'project_id': str(project),
-        **summarize_photo_dates(photos, imported),
+        **summarize_photo_dates(photos + videos, imported),
     }
 
 
@@ -210,7 +222,7 @@ async def cancel_import(claim_id: str) -> Dict[str, Any]:
         return {'success': False, 'message': 'No sync in progress to cancel'}
 
     status['status'] = 'cancelled'
-    status['message'] = f"Sync cancelled. Imported {status.get('synced_count', 0)} photos before cancellation."
+    status['message'] = f"Sync cancelled. Imported {status.get('synced_count', 0)} photos and videos before cancellation."
     await cache.set(key, json.dumps(status), ttl=RUNNING_TTL)
     return {'success': True, 'message': 'Cancellation requested. Sync will stop after the current photos.'}
 
@@ -260,6 +272,39 @@ async def _store(session, storage, claim_id: str, cc_photo: Dict[str, Any], phot
     ))
 
 
+async def _store_video(session, storage, claim_id: str, cc_video: Dict[str, Any]) -> File:
+    """Through a file on disk and on to storage in chunks: these can be hundreds of MB"""
+    from app.domains.integrations.companycam.utils import video_file_details
+
+    _, name, content_type, url = video_file_details(cc_video)
+
+    def fetch_and_store():
+        with tempfile.TemporaryDirectory(prefix='cc-video-') as folder:
+            local = Path(folder) / name
+            video_tools.download_to_file(url, local)
+            with open(local, 'rb') as data:
+                return store_video(data, name, content_type, CLAIM_CONTEXT, claim_id, IMPORT_CATEGORY, storage)
+
+    result, size = await asyncio.to_thread(fetch_and_store)
+    thumbnails = cc_video.get('thumbnail_urls') or {}
+    record = File(
+        filename=result.file_id,
+        original_name=name,
+        content_type=content_type,
+        size=size,
+        url=result.file_url,
+        thumbnail_url=thumbnails.get('medium') or thumbnails.get('small'),
+        storage_provider=storage.provider_name,
+        context=CLAIM_CONTEXT,
+        context_id=claim_id,
+        category=IMPORT_CATEGORY,
+        uploaded_by=IMPORT_UPLOADED_BY,
+        upload_date=_captured_at(cc_video) or datetime.now(timezone.utc),
+    )
+    session.add(record)
+    return record
+
+
 async def run_import(claim_id: str, project: int, selected_dates: Optional[List[str]] = None) -> None:
     from app.domains.integrations.companycam.client import CompanyCamClient
     from app.domains.integrations.companycam.utils import extract_captured_date
@@ -288,21 +333,28 @@ async def run_import(claim_id: str, project: int, selected_dates: Optional[List[
     try:
         imported = _imported_ids(session, claim_id)
 
+        def still_wanted(item: Dict[str, Any]) -> bool:
+            if str(item.get('id')) in imported:
+                progress['skipped_existing'] += 1
+                return False
+            if wanted_dates is not None:
+                item_date = extract_captured_date(item)
+                if (item_date.isoformat() if item_date else 'unknown') not in wanted_dates:
+                    progress['skipped_date_filtered'] += 1
+                    return False
+            return True
+
         async with CompanyCamClient() as client:
             photos = await client.get_project_photos(project)
-            progress['total_companycam'] = len(photos)
+            videos = await client.get_project_videos_as_media(project)
+            progress['total_companycam'] = len(photos) + len(videos)
 
-            to_import = []
-            for cc_photo in photos:
-                if str(cc_photo.get('id')) in imported:
-                    progress['skipped_existing'] += 1
-                    continue
-                if wanted_dates is not None:
-                    photo_date = extract_captured_date(cc_photo)
-                    if (photo_date.isoformat() if photo_date else 'unknown') not in wanted_dates:
-                        progress['skipped_date_filtered'] += 1
-                        continue
-                to_import.append(cc_photo)
+            to_import = [cc_photo for cc_photo in photos if still_wanted(cc_photo)]
+            # CompanyCam still working on one: the next import picks it up
+            videos_to_import = [
+                cc_video for cc_video in videos
+                if still_wanted(cc_video) and cc_video.get('status') == 'processed'
+            ]
 
             storage = StorageFactory.get_instance()
             for start in range(0, len(to_import), BATCH_SIZE):
@@ -336,9 +388,26 @@ async def run_import(claim_id: str, project: int, selected_dates: Optional[List[
                     break
                 await cache.set(key, json.dumps({**progress, 'errors': errors[:5]}), ttl=RUNNING_TTL)
 
+            # One at a time and committed one at a time, since each takes a while
+            for cc_video in videos_to_import:
+                if cancelled or await is_cancelled():
+                    cancelled = True
+                    break
+                video_id = cc_video.get('id')
+                try:
+                    record = await _store_video(session, storage, claim_id, cc_video)
+                    session.commit()
+                    queue_processing(OWNER_FILE, record.id)
+                    progress['synced_count'] += 1
+                except Exception as e:
+                    session.rollback()
+                    logger.error(f"Failed to import CompanyCam video {video_id}: {e}", exc_info=True)
+                    errors.append(f"Failed to import video {video_id}: {e}")
+                await cache.set(key, json.dumps({**progress, 'errors': errors[:5]}), ttl=RUNNING_TTL)
+
         synced = progress['synced_count']
         message = (
-            f"Imported {synced} photos. Skipped {progress['skipped_existing']} already on this claim."
+            f"Imported {synced} photos and videos. Skipped {progress['skipped_existing']} already on this claim."
         )
         if errors:
             message += f" {len(errors)} couldn't be imported."

@@ -4,17 +4,13 @@ import { message } from 'antd';
 import { FileItem, FileContext, FileCategory, PhotoSortBy } from '../types';
 import { fileService } from '../../../../services/fileService';
 import api from '../../../../services/api';
+import { videosStillComing, withBrowserUrls } from '../videoFiles';
 
-const browserCanOpen = (url?: string) => /^(https?:|data:|blob:|\/)/.test(url || '');
+// While a poster or a browser-playable copy is being made, how often to look again
+const VIDEO_REFRESH_MS = 10000;
 
-// Files outside water mitigation come as the server stored them: their url can be a
-// bucket address (b2://, gs://) that means nothing to a browser. The preview route
-// serves any of them.
-const servedFile = (file: FileItem): FileItem => ({
-  ...file,
-  url: browserCanOpen(file.url) ? file.url : fileService.getPreviewUrl(file.id),
-  thumbnailUrl: browserCanOpen(file.thumbnailUrl) ? file.thumbnailUrl : undefined,
-});
+const servedFile = (file: any): FileItem =>
+  withBrowserUrls(file, api.defaults.baseURL || window.location.origin);
 
 interface UseFileGalleryProps {
   context: FileContext;
@@ -26,6 +22,7 @@ interface UseFileGalleryProps {
   pageSize?: number;
   categoryFilter?: string | string[];  // Category filter for server-side filtering
   sourceFilter?: string;  // Source filter (companycam, magicplan, manual_upload)
+  photosOnly?: boolean;  // Leave out videos
   sortBy?: PhotoSortBy;  // Water-mitigation photo order (default: newest first)
   refetchIfStaleOnMount?: boolean;  // Infinite scroll keeps its pages on mount; this also picks up changes made since
 }
@@ -40,6 +37,7 @@ export const useFileGallery = ({
   pageSize = 20,  // Optimized default: smaller initial load for faster perceived performance
   categoryFilter,  // Category filter passed to API
   sourceFilter,  // Source filter passed to API
+  photosOnly = false,
   sortBy = 'captured_date',
   refetchIfStaleOnMount = false
 }: UseFileGalleryProps) => {
@@ -117,7 +115,7 @@ export const useFileGallery = ({
   // either skips a range of rows or re-fetches rows, which is why some
   // uploaded photos were silently missing from the gallery.
   const infiniteQuery = useInfiniteQuery({
-    queryKey: ['files-infinite', context, contextId, fileCategory, pageSize, normalizedCategoryFilter, sourceFilter, sortBy],
+    queryKey: ['files-infinite', context, contextId, fileCategory, pageSize, normalizedCategoryFilter, sourceFilter, sortBy, photosOnly],
     queryFn: async ({ pageParam = { skip: 0, size: 20 } }) => {
       if (!contextId) return { items: [], total: 0, page: 1, page_size: pageSize, total_pages: 1, nextSkip: 0, requestedSize: 1 };
 
@@ -144,6 +142,10 @@ export const useFileGallery = ({
           params.source_filter = sourceFilter;
         }
 
+        if (photosOnly) {
+          params.photos_only = true;
+        }
+
         const response = await api.get(`/api/water-mitigation/jobs/${contextId}/photos`, { params });
         const data = response.data;
 
@@ -164,9 +166,14 @@ export const useFileGallery = ({
             ? (photo.thumbnail_url.startsWith('http') ? photo.thumbnail_url : `${baseURL}${photo.thumbnail_url}`)
             : imageUrl;
 
+          // A video's picture is its poster; the video itself is videoUrl
+          const isVideo = (photo.mime_type || '').startsWith('video/');
+
           // Original full-resolution URL for preview modal and large grid display
           // Always use the preview endpoint with size=original to ensure highest quality
-          const originalUrl = `${baseURL}/api/water-mitigation/photos/${photo.id}/preview?size=original`;
+          const originalUrl = isVideo
+            ? imageUrl
+            : `${baseURL}/api/water-mitigation/photos/${photo.id}/preview?size=original`;
 
           // Build description with MagicPlan metadata if available
           let description = photo.description || '';
@@ -205,6 +212,12 @@ export const useFileGallery = ({
             similarGroup: photo.similar_group ?? undefined,
             similarGroupSize: photo.similar_group_size ?? undefined,
             similarIndex: photo.similar_index ?? undefined,
+            ...(isVideo ? {
+              videoUrl: `${baseURL}${photo.video_url || `/api/water-mitigation/photos/${photo.id}/video`}`,
+              videoDownloadUrl: `${baseURL}/api/water-mitigation/photos/${photo.id}/download`,
+              videoStatus: photo.video_status ?? undefined,
+              durationSeconds: photo.duration_seconds ?? undefined,
+            } : {}),
           };
         });
 
@@ -250,6 +263,9 @@ export const useFileGallery = ({
     maxPages: undefined, // No limit - keep all loaded pages for smooth scrolling
     refetchOnWindowFocus: false, // Don't refetch when window regains focus
     refetchOnMount: refetchIfStaleOnMount, // Don't refetch on mount if data exists, unless asked to when it's stale
+    refetchInterval: (query) => (
+      videosStillComing(query.state.data?.pages.flatMap(page => page.items as FileItem[]) ?? []) ? VIDEO_REFRESH_MS : false
+    ),
   });
 
   // Regular query for non-infinite scroll
@@ -270,6 +286,7 @@ export const useFileGallery = ({
     enabled: !!contextId && !enableInfiniteScroll,
     staleTime: 30 * 1000, // 30 seconds
     gcTime: 5 * 60 * 1000, // 5 minutes
+    refetchInterval: (query) => (videosStillComing(query.state.data ?? []) ? VIDEO_REFRESH_MS : false),
   });
 
   // Select the appropriate query based on mode
@@ -397,8 +414,10 @@ export const useFileGallery = ({
   });
 
   // Upload files function
+  // Waits for it, so the upload dialog's progress stays up for as long as a video
+  // takes. The mutation's onError has told the user about a failure.
   const uploadFiles = useCallback(async (files: File[], category?: string) => {
-    uploadMutation.mutate({ files, category });
+    await uploadMutation.mutateAsync({ files, category }).catch(() => undefined);
   }, [uploadMutation]);
 
   // Delete file function

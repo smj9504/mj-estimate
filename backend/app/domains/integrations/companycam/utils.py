@@ -106,6 +106,42 @@ def photo_download_url(cc_photo: Dict[str, Any]) -> Optional[str]:
     return by_type.get('large') or by_type.get('web') or by_type.get('original')
 
 
+def video_external_id(video_id: Any) -> str:
+    """How a video is told apart from a photo: their ids come from separate series"""
+    return f"companycam_video_{video_id}"
+
+
+def videos_as_media(videos: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Videos under an id that can sit in one list with the photos"""
+    return [{**video, 'id': video_external_id(video.get('id'))} for video in videos]
+
+
+def video_taken_at(cc_video: Dict[str, Any]) -> Optional[datetime]:
+    raw = cc_video.get('captured_at') or cc_video.get('created_at')
+    try:
+        return datetime.fromtimestamp(raw) if isinstance(raw, (int, float)) else None
+    except (ValueError, OSError):
+        return None
+
+
+def video_file_details(cc_video: Dict[str, Any]) -> Tuple[str, str, str, str]:
+    """(external id, file name, type, download URL) of a video from videos_as_media.
+
+    CompanyCam documents playback_url as an HLS stream once processed, yet serves the
+    uploaded file with a signed S3 URL, and format says m3u8 either way: go by the URL.
+    """
+    from urllib.parse import urlsplit
+
+    url = cc_video.get('playback_url') or ''
+    if not url:
+        raise ValueError(f"No playback URL for {cc_video.get('id')}")
+    extension = urlsplit(url).path.rsplit('.', 1)[-1].lower()
+    extension = extension if extension in ('mov', 'm4v', 'webm') else 'mp4'
+    content_type = {'mov': 'video/quicktime', 'm4v': 'video/x-m4v', 'webm': 'video/webm'}.get(extension, 'video/mp4')
+    external_id = str(cc_video.get('id'))
+    return external_id, f"{external_id}.{extension}", content_type, url
+
+
 def parse_companycam_address(project: CompanyCamProject) -> AddressInfo:
     """
     Parse address from CompanyCam project

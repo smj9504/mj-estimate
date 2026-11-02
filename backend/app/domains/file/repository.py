@@ -77,10 +77,11 @@ class FileRepository(SQLAlchemyRepository):
             )
         )
 
+        # Photos and videos are shown together
         if file_type == 'image':
-            query = query.filter(File.content_type.like('image/%'))
+            query = query.filter(or_(File.content_type.like('image/%'), File.content_type.like('video/%')))
         elif file_type == 'document':
-            query = query.filter(~File.content_type.like('image/%'))
+            query = query.filter(~File.content_type.like('image/%'), ~File.content_type.like('video/%'))
 
         return query.count()
 
@@ -100,10 +101,11 @@ class FileRepository(SQLAlchemyRepository):
             )
         )
 
+        # Photos and videos are shown together
         if file_type == 'image':
-            query = query.filter(File.content_type.like('image/%'))
+            query = query.filter(or_(File.content_type.like('image/%'), File.content_type.like('video/%')))
         elif file_type == 'document':
-            query = query.filter(~File.content_type.like('image/%'))
+            query = query.filter(~File.content_type.like('image/%'), ~File.content_type.like('video/%'))
 
         query = query.order_by(desc(File.upload_date))
 

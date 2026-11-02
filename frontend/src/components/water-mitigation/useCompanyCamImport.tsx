@@ -299,7 +299,7 @@ export const useCompanyCamImport = (target: CompanyCamImportTarget) => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: '#edf3ec', borderRadius: 6, border: '1px solid #d3e5d0' }}>
           <SyncOutlined spin style={{ color: '#448361' }} />
           <Text style={{ fontSize: 12 }}>
-            Syncing… {processed} photos
+            Syncing… {processed} photos and videos
           </Text>
           <Button type="text" danger size="small" aria-label="Cancel sync" icon={<CloseCircleOutlined />} onClick={handleCancel} loading={cancelMutation.isPending} style={{ padding: '0 4px' }} />
         </div>

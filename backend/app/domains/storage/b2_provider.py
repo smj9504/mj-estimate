@@ -307,6 +307,29 @@ class B2Provider(StorageProvider):
             logger.error(f"B2 download failed: {e}")
             raise RuntimeError(f"Failed to download from B2: {e}")
 
+    supports_range = True
+
+    def read_range(self, file_id: str, start: int, end: int) -> bytes:
+        """Read part of a file from B2"""
+        blob_path = self._strip_b2_prefix(file_id).replace('\\', '/')
+        body = self.client.get_object(
+            Bucket=self.bucket_name, Key=blob_path, Range=f'bytes={start}-{end}'
+        )['Body']
+        try:
+            return body.read()
+        finally:
+            body.close()
+
+    def signed_media_url(self, file_id: str, expires_in: int = 6 * 3600) -> Optional[str]:
+        blob_path = self._strip_b2_prefix(file_id).replace('\\', '/')
+        if self.make_public:
+            return f"{self.endpoint_url}/{self.bucket_name}/{blob_path}"
+        return self.client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': self.bucket_name, 'Key': blob_path},
+            ExpiresIn=expires_in,
+        )
+
     def delete(self, file_id: str) -> bool:
         """Delete file from B2"""
         try:

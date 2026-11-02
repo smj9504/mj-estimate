@@ -97,7 +97,7 @@ def _wm_photos(db: Session, claim_id: str, photo_ids: List[str]) -> Dict[str, ob
         WaterMitigationJob.claim_id == str(claim_id),
         WMPhoto.is_trashed.isnot(True),
     ).all()
-    return {str(p.id): p for p in rows}
+    return {str(p.id): p for p in rows if not (p.mime_type or "").startswith("video/")}
 
 
 def _claim_files(db: Session, claim_id: str, photo_ids: List[str]) -> Dict[str, object]:

@@ -2,6 +2,7 @@ import React, { useCallback } from 'react';
 import { message } from 'antd';
 import FileGallery from '../common/FileGallery/FileGallery';
 import type { FileGalleryProps } from '../common/FileGallery/types';
+import { MAX_VIDEO_FILE_SIZE, MEDIA_ACCEPT, MEDIA_ALLOWED_TYPES } from '../common/FileGallery/videoFiles';
 import waterMitigationService from '../../services/waterMitigationService';
 
 export const WM_PHOTO_CATEGORIES = [
@@ -41,21 +42,22 @@ interface ClaimWMPhotosProps {
 const ClaimWMPhotos: React.FC<ClaimWMPhotosProps> = ({ jobId, renderBulkExtraAction }) => {
   const handleUpload = useCallback(async (files: File[], category?: string): Promise<void> => {
     const msgKey = `claim-wm-photo-upload-${jobId}`;
-    message.loading({ content: `Uploading 0/${files.length} photos...`, key: msgKey, duration: 0 });
+    message.loading({ content: `Uploading 0/${files.length}...`, key: msgKey, duration: 0 });
     try {
       const { results, failed } = await waterMitigationService.photos.uploadMultiple(
         jobId,
         files,
         category,
-        (completed, total) => {
-          message.loading({ content: `Uploading photos ${completed}/${total}...`, key: msgKey, duration: 0 });
+        (completed, total, _failed, currentPercent) => {
+          const current = currentPercent === undefined ? '' : ` (this one ${currentPercent}%)`;
+          message.loading({ content: `Uploading ${completed}/${total}${current}...`, key: msgKey, duration: 0 });
         },
       );
       if (failed.length === 0) {
-        message.success({ content: `Uploaded ${results.length} photo(s)`, key: msgKey, duration: 3 });
+        message.success({ content: `Uploaded ${results.length} file(s)`, key: msgKey, duration: 3 });
       } else {
         message.error({
-          content: `${failed.length} of ${files.length} photos failed to upload. ${failed[0].error}`,
+          content: `${failed.length} of ${files.length} failed to upload. ${failed[0].error}`,
           key: msgKey,
           duration: 6,
         });
@@ -70,7 +72,7 @@ const ClaimWMPhotos: React.FC<ClaimWMPhotosProps> = ({ jobId, renderBulkExtraAct
       context="water-mitigation"
       mode="upload"
       contextId={jobId}
-      allowedTypes={['image/*']}
+      allowedTypes={MEDIA_ALLOWED_TYPES}
       fileCategory="image"
       categories={WM_PHOTO_CATEGORIES}
       allowUpload={true}
@@ -82,13 +84,14 @@ const ClaimWMPhotos: React.FC<ClaimWMPhotosProps> = ({ jobId, renderBulkExtraAct
       enableInfiniteScroll={true}
       pageSize={20}
       maxFileSize={20 * 1024 * 1024}
+      maxVideoFileSize={MAX_VIDEO_FILE_SIZE}
       maxFiles={500}
       height="520px"
       gridColumns={{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }}
       uploadConfig={{
         multiple: true,
         showUploadList: false,
-        accept: 'image/*',
+        accept: MEDIA_ACCEPT,
       }}
       renderBulkExtraAction={renderBulkExtraAction}
     />

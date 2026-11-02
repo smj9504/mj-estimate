@@ -4,14 +4,17 @@ Context-agnostic: works with water-mitigation, work-order, or any future context
 """
 
 import uuid
+import io
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import BinaryIO, Optional
 
 from sqlalchemy import select
 
+from app.common.services.media_types import as_jpeg_name, browser_video_type, is_heic, is_video
 from app.domains.storage import StorageFactory
 from app.domains.file.models import File
+from app.domains.file.video_service import OWNER_FILE, OWNER_WM_PHOTO, queue_processing
 
 from .models import UploadLink, UploadSession
 from .repository import UploadLinkRepository, UploadSessionRepository
@@ -173,9 +176,19 @@ class CrewUploadService:
             }
 
         # Determine file type
-        file_type = 'video' if content_type.startswith('video/') else 'photo'
+        video = is_video(content_type)
+        file_type = 'video' if video else 'photo'
 
         try:
+            # Windows and Chrome can't show an iPhone's HEIC, so it isn't stored as one
+            if is_heic(content_type):
+                from app.domains.storage.optimization import heic_to_jpeg
+                converted = heic_to_jpeg(file_data.read())
+                file_data = io.BytesIO(converted)
+                file_size = len(converted)
+                filename = as_jpeg_name(filename)
+                content_type = 'image/jpeg'
+
             storage = StorageFactory.get_instance()
             folder_path = f"{link.context}/{link.context_id}/crew-uploads"
 
@@ -189,7 +202,9 @@ class CrewUploadService:
                 context=link.context,
                 context_id=str(link.context_id),
                 category='crew-uploads',
-                content_type=content_type,
+                content_type=browser_video_type(content_type) if video else content_type,
+                # Hashing a video to look for a duplicate would mean reading it all again
+                optimize=not video,
             )
 
             file_url = result.file_url or result.file_path
@@ -233,6 +248,9 @@ class CrewUploadService:
             self.session_repo.add_completed_fingerprint(session.id, fingerprint)
 
             self.db.commit()
+
+            if video:
+                queue_processing(OWNER_WM_PHOTO if link.context == 'water-mitigation' else OWNER_FILE, file_id)
 
             return {
                 "file_id": file_id,

@@ -7,6 +7,7 @@ import api, { publicApi } from './api';
 import { isAxiosError } from 'axios';
 import { saveAs } from 'file-saver';
 import { compressIfNeeded } from '../utils/imageCompressor';
+import { VIDEO_UPLOAD_TIMEOUT_MS, isVideoUpload } from '../components/common/FileGallery/videoFiles';
 import type {
   WMPaymentBoardToken,
   WMPaymentRow,
@@ -26,7 +27,7 @@ import type {
   GenerateReportRequest,
   CompanyCamSyncResult,
   MagicPlanProjectSearchResponse,
-  MagicPlanSyncResult,
+  MagicPlanSyncProgress,
   MagicPlanFloorPlanInfo,
   MagicPlanFloorPlanImportResult,
   ReportTemplate,
@@ -264,7 +265,7 @@ export const waterMitigationService = {
       jobId: string,
       files: File[],
       category?: string,
-      onProgress?: (completed: number, total: number, failed: number) => void,
+      onProgress?: (completed: number, total: number, failed: number, currentPercent?: number) => void,
     ): Promise<{
       results: any[];
       failed: { file: File; name: string; error: string }[];
@@ -283,6 +284,7 @@ export const waterMitigationService = {
         const formData = new FormData();
         formData.append('file', uploadFile);
         if (category) formData.append('category', category);
+        const isVideo = isVideoUpload(uploadFile);
 
         let lastError: any;
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -290,8 +292,16 @@ export const waterMitigationService = {
             const response = await api.post(`${BASE_URL}/jobs/${jobId}/photos`, formData, {
               headers: { 'Content-Type': 'multipart/form-data' },
               // Images can be several MB on a slow mobile connection - give this
-              // more room than the global 30s default before giving up.
-              timeout: 120000,
+              // more room than the global 30s default before giving up. A video
+              // can run to a GB, and shows how far along it is meanwhile.
+              timeout: isVideo ? VIDEO_UPLOAD_TIMEOUT_MS : 120000,
+              onUploadProgress: isVideo
+                ? (event) => {
+                  if (event.total) {
+                    onProgress?.(results.length, files.length, failed.length, Math.round((event.loaded / event.total) * 100));
+                  }
+                }
+                : undefined,
               // This loop already retries transient failures on its own timer -
               // without this, the global axios interceptor pops a "server error"
               // notification on every failed attempt, even ones that succeed
@@ -1967,11 +1977,12 @@ export const magicPlanService = {
     return response.data;
   },
 
+  // Starts it on the server: photos and videos take minutes, so follow it with getSyncStatus
   syncPhotos: async (
     jobId: string,
     projectId: string,
     projectName?: string
-  ): Promise<MagicPlanSyncResult> => {
+  ): Promise<MagicPlanSyncProgress> => {
     const response = await api.post(
       `/api/integrations/magicplan/jobs/${jobId}/sync`,
       {
@@ -1979,11 +1990,21 @@ export const magicPlanService = {
         magicplan_project_name: projectName || '',
         sync_photos: true,
         sync_floor_plans: true,
-      },
-      // Downloads and re-uploads every project photo server-side, which can
-      // take well over the default 30s timeout.
-      { timeout: 300000 }
+      }
     );
+    return response.data;
+  },
+
+  getSyncStatus: async (jobId: string): Promise<MagicPlanSyncProgress> => {
+    // suppressErrorNotification: a poll retries by itself, and a toast for each blip would repeat
+    const response = await api.get(`/api/integrations/magicplan/jobs/${jobId}/sync/status`, {
+      suppressErrorNotification: true,
+    });
+    return response.data;
+  },
+
+  cancelSync: async (jobId: string): Promise<MagicPlanSyncProgress> => {
+    const response = await api.post(`/api/integrations/magicplan/jobs/${jobId}/sync/cancel`);
     return response.data;
   },
 

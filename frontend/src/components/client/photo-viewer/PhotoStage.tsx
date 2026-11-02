@@ -3,6 +3,8 @@ import { Button, Tooltip } from 'antd';
 import { LeftOutlined, MinusOutlined, PlusOutlined, RightOutlined } from '@ant-design/icons';
 import type { FileItem } from '../../common/FileGallery/types';
 import { getCategoryColor, getCategoryLabel } from '../../common/FileGallery/categoryColors';
+import { VideoPlayer } from '../../common/FileGallery/VideoPlayer';
+import { isVideoFile } from '../../common/FileGallery/videoFiles';
 import {
   FIT_VIEW, MAX_ZOOM, clampView, photoCategory, photoDate, photoPlace, zoomAt, type PhotoView,
 } from './photoViewerUtils';
@@ -32,6 +34,7 @@ interface PhotoStageProps {
 // card's thumbnail straight away, the web size over that, then the original.
 const PhotoStage: React.FC<PhotoStageProps> = ({ file, prev, next, position, total, onStep, placeholder }) => {
   const webSrc = file?.url || file?.fileUrl || '';
+  const isVideo = isVideoFile(file);
   const [photoId, setPhotoId] = useState(file?.id);
   const [src, setSrc] = useState(webSrc);
   const [failed, setFailed] = useState(false);
@@ -66,7 +69,7 @@ const PhotoStage: React.FC<PhotoStageProps> = ({ file, prev, next, position, tot
 
   useEffect(() => {
     const original = file?.fileUrl;
-    if (!original || original === file?.url) return undefined;
+    if (!original || original === file?.url || isVideo) return undefined;
     let active = true;
     const loader = new window.Image();
     const timer = setTimeout(() => {
@@ -80,7 +83,7 @@ const PhotoStage: React.FC<PhotoStageProps> = ({ file, prev, next, position, tot
       clearTimeout(timer);
       loader.onload = null;
     };
-  }, [file?.id, file?.fileUrl, file?.url]);
+  }, [file?.id, file?.fileUrl, file?.url, isVideo]);
 
   // The next photo either way is ready before the arrow is pressed
   useEffect(() => {
@@ -199,15 +202,23 @@ const PhotoStage: React.FC<PhotoStageProps> = ({ file, prev, next, position, tot
 
   return (
     <div className="cpv-stage">
+      {/* Beside the canvas, not in it: its pointer capture and wheel zoom would take
+          the video's own controls */}
+      {file && isVideo && (
+        <div className="cpv-video">
+          <VideoPlayer file={file} downloadUrl={file.videoDownloadUrl} fill />
+        </div>
+      )}
       <div
         ref={canvasRef}
+        hidden={isVideo}
         className={`cpv-canvas${view.scale > 1 ? ' is-zoomed' : ''}`}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
       >
-        {file && !failed && (
+        {file && !isVideo && !failed && (
           <img
             key={file.id}
             ref={imgRef}
@@ -222,7 +233,7 @@ const PhotoStage: React.FC<PhotoStageProps> = ({ file, prev, next, position, tot
             }}
           />
         )}
-        {file && failed && (
+        {file && !isVideo && failed && (
           <div className="cpv-placeholder" role="alert">
             <strong>This photo couldn't be loaded.</strong>
             <span>Move to another photo, or reopen the viewer to try again.</span>
@@ -269,7 +280,7 @@ const PhotoStage: React.FC<PhotoStageProps> = ({ file, prev, next, position, tot
             <span className="cpv-caption-name" title={file.originalName}>{file.originalName}</span>
           </div>
         )}
-        {file && (
+        {file && !isVideo && (
           <div className="cpv-zoom">
             <Tooltip title="Zoom out (−)">
               <Button

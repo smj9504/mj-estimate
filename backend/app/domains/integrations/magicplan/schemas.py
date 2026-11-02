@@ -122,11 +122,23 @@ class MagicPlanSyncResult(BaseModel):
     """Result of a MagicPlan sync operation"""
     success: bool
     photos_synced: int = 0
+    videos_synced: int = 0
     photos_skipped: int = 0
+    # Already imported into another job (each file can only be on one)
+    photos_on_other_jobs: int = 0
+    total_files: int = 0
     floor_plans_synced: int = 0
     errors: List[str] = []
     magicplan_project_id: str = ""
     magicplan_project_name: str = ""
+    cancelled: bool = False
+
+
+class MagicPlanSyncProgress(BaseModel):
+    """How a sync running in the background is getting on"""
+    status: str  # 'idle' | 'running' | 'completed' | 'cancelled' | 'failed'
+    message: Optional[str] = None
+    result: Optional[MagicPlanSyncResult] = None
 
 
 class MagicPlanFloorPlanInfo(BaseModel):

@@ -20,6 +20,7 @@ from sqlalchemy.pool import QueuePool
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.config import settings
+from app.domains.file import video_service
 from app.domains.integrations.companycam import client as companycam_client
 from app.domains.storage.factory import StorageFactory
 from app.domains.water_mitigation import api as wm_api
@@ -75,7 +76,7 @@ def _service(photo):
 
 
 def _request(photo, size):
-    return asyncio.run(preview_photo(uuid4(), size=size, service=_service(photo)))
+    return asyncio.run(preview_photo(uuid4(), request=None, size=size, service=_service(photo)))
 
 
 @pytest.fixture
@@ -129,8 +130,8 @@ def test_b2_preview_is_downloaded_once_and_then_served_from_disk(b2):
     service = _service(_photo())
     photo_id = uuid4()
 
-    first = asyncio.run(preview_photo(photo_id, size="thumbnail", service=service))
-    second = asyncio.run(preview_photo(photo_id, size="thumbnail", service=service))
+    first = asyncio.run(preview_photo(photo_id, request=None, size="thumbnail", service=service))
+    second = asyncio.run(preview_photo(photo_id, request=None, size="thumbnail", service=service))
 
     assert len(b2.downloads) == 1
     assert isinstance(second, FileResponse)
@@ -145,10 +146,12 @@ def test_b2_original_stays_a_signed_redirect_and_never_passes_through_the_server
     assert b2.downloads == []
 
 
-def test_b2_video_is_not_resized(b2):
+def test_b2_video_shows_its_poster_and_is_never_read_to_be_resized(b2, monkeypatch):
+    monkeypatch.setattr(video_service, "poster_response", lambda owner_type, owner_id: "the poster")
+
     response = _request(_photo(mime_type="video/mp4"), "thumbnail")
 
-    assert isinstance(response, RedirectResponse)
+    assert response == "the poster"
     assert b2.downloads == []
 
 
@@ -188,7 +191,7 @@ def test_a_page_of_cold_thumbnails_bigger_than_the_db_pool_all_load(b2, small_po
     async def burst():
         return await asyncio.gather(
             *[
-                preview_photo(uuid4(), size="thumbnail", service=_service_on(small_pool, _photo()))
+                preview_photo(uuid4(), request=None, size="thumbnail", service=_service_on(small_pool, _photo()))
                 for _ in range(12)
             ],
             return_exceptions=True,
@@ -216,7 +219,7 @@ def test_no_db_connection_is_held_while_the_photo_downloads(b2, small_pool, rout
 
     b2.download = download
 
-    asyncio.run(route(uuid4(), service=_service_on(small_pool, _photo()), **kwargs))
+    asyncio.run(route(uuid4(), request=None, service=_service_on(small_pool, _photo()), **kwargs))
 
     assert held == [0]
 
@@ -228,7 +231,7 @@ def test_waiting_for_a_db_connection_does_not_stop_the_event_loop(b2, small_pool
         busy = [small_pool.connect(), small_pool.connect()]
         started = time.monotonic()
         request = asyncio.create_task(
-            preview_photo(uuid4(), size="thumbnail", service=_service_on(small_pool, _photo()))
+            preview_photo(uuid4(), request=None, size="thumbnail", service=_service_on(small_pool, _photo()))
         )
         await asyncio.sleep(0.05)
         loop_was_free_for = time.monotonic() - started
@@ -262,7 +265,7 @@ def test_a_burst_of_cold_thumbnails_only_downloads_a_few_at_a_time(b2):
     async def burst():
         return await asyncio.gather(
             *[
-                preview_photo(uuid4(), size="thumbnail", service=_service(_photo()))
+                preview_photo(uuid4(), request=None, size="thumbnail", service=_service(_photo()))
                 for _ in range(16)
             ]
         )

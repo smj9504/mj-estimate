@@ -2,12 +2,15 @@ import React, { useCallback, useState, useRef } from 'react';
 import { Upload, Button, message, Progress, Space } from 'antd';
 import { InboxOutlined, CameraOutlined, PictureOutlined } from '@ant-design/icons';
 import { FileCategory } from './types';
+import { fileMediaType, isVideoUpload } from './videoFiles';
 
 const { Dragger } = Upload;
 
 interface FileUploadZoneProps {
   allowedTypes: string[];
   maxFileSize: number;
+  // A video's limit where it differs from a photo's
+  maxVideoFileSize?: number;
   maxFiles: number;
   fileCategory?: FileCategory;
   selectedCategory?: string;
@@ -24,6 +27,7 @@ interface FileUploadZoneProps {
 const FileUploadZone: React.FC<FileUploadZoneProps> = ({
   allowedTypes,
   maxFileSize,
+  maxVideoFileSize,
   maxFiles,
   fileCategory,
   selectedCategory,
@@ -41,16 +45,18 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
   const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   const validateFile = (file: File): boolean => {
-    if (file.size > maxFileSize) {
-      message.error(`File size must be less than ${Math.round(maxFileSize / 1024 / 1024)}MB`);
+    const sizeLimit = isVideoUpload(file) ? (maxVideoFileSize ?? maxFileSize) : maxFileSize;
+    if (file.size > sizeLimit) {
+      message.error(`${file.name}: file size must be less than ${Math.round(sizeLimit / 1024 / 1024)}MB`);
       return false;
     }
 
+    const mediaType = fileMediaType(file);
     const isValidType = allowedTypes.some(type => {
       if (type.endsWith('/*')) {
-        return file.type.startsWith(type.slice(0, -1));
+        return mediaType.startsWith(type.slice(0, -1));
       }
-      return file.type === type || file.name.toLowerCase().endsWith(type.toLowerCase());
+      return mediaType === type || file.name.toLowerCase().endsWith(type.toLowerCase());
     });
 
     if (!isValidType) {
@@ -107,7 +113,7 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
     } finally {
       setUploading(false);
     }
-  }, [onUpload, selectedCategory, allowedTypes, maxFileSize, maxFiles]);
+  }, [onUpload, selectedCategory, allowedTypes, maxFileSize, maxVideoFileSize, maxFiles]);
 
   // Flush accumulated files — called after a short debounce to ensure
   // all beforeUpload calls from a single file-picker selection are collected.
@@ -159,9 +165,15 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
   };
 
   const getUploadHint = () => {
-    const categoryText = fileCategory === 'image' ? 'images' : fileCategory === 'document' ? 'documents' : 'files';
+    const takesVideo = allowedTypes.some(type => type.startsWith('video/'));
+    const categoryText = fileCategory === 'image'
+      ? (takesVideo ? 'photos and videos' : 'images')
+      : fileCategory === 'document' ? 'documents' : 'files';
     const maxSizeMB = Math.round(maxFileSize / 1024 / 1024);
     let hint = `Support for single or bulk upload. Max ${maxFiles} ${categoryText}, ${maxSizeMB}MB each.`;
+    if (takesVideo && maxVideoFileSize) {
+      hint = `Support for single or bulk upload. Max ${maxFiles} ${categoryText}: ${maxSizeMB}MB a photo, ${Math.round(maxVideoFileSize / 1024 / 1024 / 1024)}GB a video.`;
+    }
     if (selectedCategory && selectedCategory !== 'all') {
       hint += ` Will be added to "${selectedCategory}" category.`;
     }
@@ -172,7 +184,9 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
     if (isMobile) {
       return 'Tap to select files';
     }
-    if (fileCategory === 'image') return 'Click or drag images to this area to upload';
+    if (fileCategory === 'image') {
+      return `Click or drag ${allowedTypes.some(type => type.startsWith('video/')) ? 'photos and videos' : 'images'} to this area to upload`;
+    }
     if (fileCategory === 'document') return 'Click or drag documents to this area to upload';
     return 'Click or drag files to this area to upload';
   };
@@ -209,7 +223,7 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
           <input
             ref={galleryInputRef}
             type="file"
-            accept="image/*"
+            accept={getAcceptTypes()}
             multiple={allowBulkUpload}
             style={{ display: 'none' }}
             onChange={handleNativeInputChange}
@@ -218,7 +232,7 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
           <input
             ref={cameraInputRef}
             type="file"
-            accept="image/*"
+            accept={allowedTypes.some(type => type.startsWith('video/')) ? 'image/*,video/*' : 'image/*'}
             capture="environment"
             style={{ display: 'none' }}
             onChange={handleNativeInputChange}

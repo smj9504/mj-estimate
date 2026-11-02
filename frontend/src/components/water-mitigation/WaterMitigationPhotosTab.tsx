@@ -9,6 +9,7 @@ import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, Chec
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
 import type { FileItem, PhotoSortBy } from '../common/FileGallery/types';
+import { MAX_VIDEO_FILE_SIZE, MEDIA_ACCEPT, MEDIA_ALLOWED_TYPES } from '../common/FileGallery/videoFiles';
 import { useCompanyCamImport } from './useCompanyCamImport';
 import WMPhotoLocationModal from './WMPhotoLocationModal';
 import WMBulkPhotoLocationModal from './WMBulkPhotoLocationModal';
@@ -348,6 +349,9 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   const [mpSelectedProject, setMpSelectedProject] = useState<MagicPlanProjectMatch | null>(null);
   const [mpSyncing, setMpSyncing] = useState(false);
   const [mpSyncResult, setMpSyncResult] = useState<MagicPlanSyncResult | null>(null);
+  const [mpProgress, setMpProgress] = useState<MagicPlanSyncResult | null>(null);
+  const [mpCancelling, setMpCancelling] = useState(false);
+  const mpPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Photo source filter state
   const [sourceFilter, setSourceFilter] = useState<string | undefined>(undefined);
@@ -467,7 +471,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   // Custom upload handler for Water Mitigation photos
   const handleUpload = useCallback(async (files: File[], category?: string): Promise<void> => {
     const msgKey = 'photo-upload-progress';
-    message.loading({ content: `Uploading 0/${files.length} photos...`, key: msgKey, duration: 0 });
+    message.loading({ content: `Uploading 0/${files.length}...`, key: msgKey, duration: 0 });
 
     // Mobile browsers throttle/suspend JS once the screen turns off, which
     // stalls the upload loop mid-batch even though the server is fine.
@@ -479,10 +483,11 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         jobId,
         files,
         category,
-        (completed, total, failedCount) => {
-          const progress = Math.round((completed / total) * 100);
+        (completed, total, failedCount, currentPercent) => {
+          // A video can take minutes by itself, so it reports its own progress
+          const progress = currentPercent ?? Math.round((completed / total) * 100);
           message.loading({
-            content: `Uploading photos ${completed}/${total} (${progress}%)${failedCount > 0 ? ` — ${failedCount} failed` : ''}`,
+            content: `Uploading ${completed}/${total} (${progress}%)${failedCount > 0 ? ` — ${failedCount} failed` : ''}`,
             key: msgKey,
             duration: 0,
           });
@@ -501,7 +506,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       }
 
       if (failed.length === 0) {
-        message.success({ content: `Successfully uploaded ${results.length} photo(s)`, key: msgKey, duration: 3 });
+        message.success({ content: `Successfully uploaded ${results.length} file(s)`, key: msgKey, duration: 3 });
       } else if (results.length > 0) {
         message.warning({
           content: `Uploaded ${results.length}/${files.length} photos. ${failed.length} failed and were saved to retry later.`,
@@ -818,7 +823,8 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       let page = 1;
       let totalPages = 1;
       do {
-        const params = new URLSearchParams({ page_size: '100', page: String(page) });
+        // Classifying means looking at a picture
+        const params = new URLSearchParams({ page_size: '100', page: String(page), photos_only: 'true' });
         const response = await api.get(`/api/water-mitigation/jobs/${jobId}/photos?${params}`);
         const pageItems = response.data.items || response.data.photos || [];
         allItems.push(...pageItems);
@@ -1093,31 +1099,99 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     }
   };
 
+  // The server does the work in the background, since a project's videos alone can
+  // take many minutes, so the page can be left and come back to.
+  const followMagicPlanSync = useCallback(() => {
+    if (mpPollRef.current) clearTimeout(mpPollRef.current);
+    const poll = async () => {
+      try {
+        const status = await magicPlanService.getSyncStatus(jobId);
+        if (status.status === 'running') {
+          setMpSyncing(true);
+          setMpProgress(status.result ?? null);
+          mpPollRef.current = setTimeout(poll, 2000);
+          return;
+        }
+        setMpSyncing(false);
+        setMpCancelling(false);
+        setMpProgress(null);
+        if (status.status === 'idle') return;
+
+        const result = status.result ?? null;
+        setMpSyncResult(result);
+        setMpModalVisible(true);
+        // Including a gallery that isn't showing: they don't refetch on mount
+        queryClient.invalidateQueries({ queryKey: ['files-infinite', 'water-mitigation', jobId], refetchType: 'all' });
+        if (status.status === 'failed') {
+          message.error(status.message || 'MagicPlan sync failed');
+        } else if (status.status === 'cancelled') {
+          message.info('MagicPlan sync stopped');
+        } else {
+          message.success(
+            `Synced ${result?.photos_synced ?? 0} photos and ${result?.videos_synced ?? 0} videos from MagicPlan`,
+          );
+        }
+      } catch {
+        mpPollRef.current = setTimeout(poll, 3000);
+      }
+    };
+    poll();
+  }, [jobId, queryClient]);
+
+  // A sync may already be running: started earlier, or by someone else
+  useEffect(() => {
+    let stale = false;
+    setMpSyncing(false);
+    setMpProgress(null);
+    magicPlanService.getSyncStatus(jobId)
+      .then((status) => {
+        if (!stale && status.status === 'running') followMagicPlanSync();
+      })
+      .catch(() => {
+        // Nothing to show either way
+      });
+    return () => {
+      stale = true;
+      if (mpPollRef.current) clearTimeout(mpPollRef.current);
+    };
+  }, [jobId, followMagicPlanSync]);
+
   const handleMagicPlanSync = async () => {
     if (!mpSelectedProject) {
       message.error('Please select a MagicPlan project');
       return;
     }
     setMpSyncing(true);
+    setMpProgress(null);
     try {
-      const result = await magicPlanService.syncPhotos(
+      await magicPlanService.syncPhotos(
         jobId,
         mpSelectedProject.project_id,
         mpSelectedProject.project_name
       );
-      setMpSyncResult(result);
-      if (result.success) {
-        message.success(`Synced ${result.photos_synced} photos from MagicPlan`);
-        queryClient.invalidateQueries({ queryKey: ['files-infinite', 'water-mitigation', jobId] });
-      } else {
-        message.error('MagicPlan sync failed');
-      }
+      followMagicPlanSync();
     } catch (err: any) {
-      message.error(err?.response?.data?.detail || 'MagicPlan sync failed');
-    } finally {
       setMpSyncing(false);
+      message.error(err?.response?.data?.detail || 'MagicPlan sync failed');
     }
   };
+
+  const handleMagicPlanCancel = async () => {
+    setMpCancelling(true);
+    try {
+      await magicPlanService.cancelSync(jobId);
+    } catch (err: any) {
+      setMpCancelling(false);
+      message.error(err?.response?.data?.detail || 'Failed to stop the sync');
+    }
+  };
+
+  // Each file ends up as one of these, so together they're how far along it is
+  const mpDone = mpProgress
+    ? mpProgress.photos_synced + mpProgress.videos_synced + mpProgress.photos_skipped
+      + mpProgress.photos_on_other_jobs + mpProgress.errors.length
+    : 0;
+  const mpTotal = mpProgress?.total_files ?? 0;
 
   return (
     <div className="wm-photos-tab" style={{
@@ -1191,6 +1265,15 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           {/* Sync / Export progress inline */}
           {importer.progress}
+          {mpSyncing && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: '#f6f3f9', borderRadius: 6, border: '1px solid #e2d9ec' }}>
+              <SyncOutlined spin style={{ color: '#9065b0' }} />
+              <Text style={{ fontSize: 12 }}>
+                MagicPlan {mpTotal > 0 ? `${mpDone}/${mpTotal}` : '…'}
+              </Text>
+              <Button type="text" danger size="small" aria-label="Stop MagicPlan sync" icon={<CloseCircleOutlined />} onClick={handleMagicPlanCancel} loading={mpCancelling} style={{ padding: '0 4px' }} />
+            </div>
+          )}
           {isExporting && (() => {
             const ep = getExportProgressInfo();
             return (
@@ -1341,7 +1424,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
           contextId={jobId}
 
           // Image-specific settings
-          allowedTypes={['image/*']}
+          allowedTypes={MEDIA_ALLOWED_TYPES}
           fileCategory="image"
 
           // Full screen utilization
@@ -1383,6 +1466,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
 
           // Large image handling
           maxFileSize={20 * 1024 * 1024} // 20MB
+          maxVideoFileSize={MAX_VIDEO_FILE_SIZE}
           maxFiles={500} // Water mitigation jobs can have many photos
 
           // UI customization for images
@@ -1399,7 +1483,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             multiple: true,
             showUploadList: false,
             listType: 'picture-card',
-            accept: 'image/*'
+            accept: MEDIA_ACCEPT
           }}
 
           // Date headers only make sense in date order; the Similar sort
@@ -1814,6 +1898,13 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
           <Button key="close" onClick={() => { setMpModalVisible(false); setMpSyncResult(null); }}>
             Close
           </Button>
+        ] : mpSyncing ? [
+          <Button key="stop" danger loading={mpCancelling} onClick={handleMagicPlanCancel}>
+            Stop
+          </Button>,
+          <Button key="background" type="primary" onClick={() => setMpModalVisible(false)}>
+            Keep going in the background
+          </Button>
         ] : [
           <Button key="cancel" onClick={() => setMpModalVisible(false)}>
             Cancel
@@ -1826,7 +1917,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             onClick={handleMagicPlanSync}
             style={{ background: '#9065b0', borderColor: '#9065b0' }}
           >
-            Sync Photos
+            Sync Photos and Videos
           </Button>
         ]}
         width={600}
@@ -1834,11 +1925,15 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         {mpSyncResult ? (
           <Alert
             type={mpSyncResult.success ? 'success' : 'error'}
-            message={mpSyncResult.success ? 'Sync Complete' : 'Sync Failed'}
+            message={mpSyncResult.cancelled ? 'Sync Stopped' : mpSyncResult.success ? 'Sync Complete' : 'Sync Failed'}
             description={
               <div>
                 <div>Photos synced: <strong>{mpSyncResult.photos_synced}</strong></div>
-                <div>Photos skipped (existing): <strong>{mpSyncResult.photos_skipped}</strong></div>
+                <div>Videos synced: <strong>{mpSyncResult.videos_synced}</strong></div>
+                <div>Skipped (already here): <strong>{mpSyncResult.photos_skipped}</strong></div>
+                {mpSyncResult.photos_on_other_jobs > 0 && (
+                  <div>Skipped (already on another job): <strong>{mpSyncResult.photos_on_other_jobs}</strong></div>
+                )}
                 {mpSyncResult.errors.length > 0 && (
                   <div style={{ marginTop: 8, color: '#d44c47' }}>
                     Errors: {mpSyncResult.errors.slice(0, 3).join(', ')}
@@ -1847,6 +1942,18 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
               </div>
             }
           />
+        ) : mpSyncing ? (
+          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            <Text>
+              {mpTotal > 0
+                ? `Importing from MagicPlan: ${mpDone} of ${mpTotal} photos and videos`
+                : 'Reading the MagicPlan project...'}
+            </Text>
+            <Progress percent={mpTotal > 0 ? Math.round((mpDone / mpTotal) * 100) : 0} status="active" />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Videos take a while. You can leave this running and keep working.
+            </Text>
+          </Space>
         ) : mpSearching ? (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
             <Spin size="large" />

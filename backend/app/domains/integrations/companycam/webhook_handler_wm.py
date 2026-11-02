@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional
 from uuid import UUID
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ...water_mitigation.schemas import WaterMitigationJobCreate
@@ -578,11 +579,13 @@ class CompanyCamWaterMitigationHandler:
 
             job_id = job.get('id') if isinstance(job, dict) else job.id
 
-            # Get all WM photos from CompanyCam that are not trashed
+            # Get all WM photos from CompanyCam that are not trashed. Not its videos:
+            # the list checked against here only holds photos, so they'd all look deleted.
             wm_photos = self.db.query(WMPhoto).filter(
                 WMPhoto.job_id == job_id,
                 WMPhoto.source == 'companycam',
-                WMPhoto.is_trashed == False
+                WMPhoto.is_trashed == False,
+                or_(WMPhoto.file_type.is_(None), WMPhoto.file_type != 'video')
             ).all()
 
             deleted_count = 0

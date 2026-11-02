@@ -10,6 +10,7 @@ import CategoryManager from './CategoryManager';
 import FileGrid from './FileGrid';
 import FileList from './FileList';
 import FileCard from './FileCard';
+import { isVideoFile } from './videoFiles';
 import './FileGallery.css';
 
 const { Title } = Typography;
@@ -31,6 +32,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   fileCategory,
   allowedTypes = ['image/*', 'application/pdf'],
   maxFileSize = 10 * 1024 * 1024, // 10MB
+  maxVideoFileSize,
   maxFiles = 100,
   allowMultiSelect = false,
   selectedFiles = [],
@@ -58,6 +60,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   enableInfiniteScroll = false,
   pageSize = 50,
   sourceFilter,
+  photosOnly,
   sortBy,
   showDocumentPreview = true,
   enableDocumentSearch = false,
@@ -153,6 +156,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
     pageSize,
     categoryFilter: selectedCategory,  // Pass selected category to backend for server-side filtering
     sourceFilter,  // Pass source filter (companycam, magicplan, manual_upload)
+    photosOnly,
     sortBy,
   });
 
@@ -668,7 +672,9 @@ const FileGallery: React.FC<FileGalleryProps> = ({
               >
                 {isCompactToolbar
                   ? 'Upload'
-                  : 'Upload ' + (fileCategory === 'image' ? 'Photos' : fileCategory === 'document' ? 'Documents' : 'Files')}
+                  : 'Upload ' + (fileCategory === 'image'
+                    ? (allowedTypes.some(type => type.startsWith('video/')) ? 'Photos & Videos' : 'Photos')
+                    : fileCategory === 'document' ? 'Documents' : 'Files')}
               </Button>
             )}
           </div>
@@ -859,7 +865,9 @@ const FileGallery: React.FC<FileGalleryProps> = ({
                     {group.displayDate}
                   </Typography.Title>
                   <Typography.Text type="secondary" style={{ fontSize: 14 }}>
-                    {group.count} {group.count === 1 ? 'photo' : 'photos'}
+                    {group.count} {group.files.some(isVideoFile)
+                      ? (group.count === 1 ? 'video' : 'items')
+                      : (group.count === 1 ? 'photo' : 'photos')}
                   </Typography.Text>
                 </div>
                 {groupContent}
@@ -1007,7 +1015,9 @@ const FileGallery: React.FC<FileGalleryProps> = ({
 
       {/* Upload Modal */}
       <Modal
-        title={`Upload ${fileCategory === 'image' ? 'Images' : fileCategory === 'document' ? 'Documents' : 'Files'}`}
+        title={`Upload ${fileCategory === 'image'
+          ? (allowedTypes.some(type => type.startsWith('video/')) ? 'Photos and Videos' : 'Images')
+          : fileCategory === 'document' ? 'Documents' : 'Files'}`}
         open={uploadModalVisible}
         onCancel={() => setUploadModalVisible(false)}
         footer={null}
@@ -1017,6 +1027,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
         <FileUploadZone
           allowedTypes={allowedTypes}
           maxFileSize={maxFileSize}
+          maxVideoFileSize={maxVideoFileSize}
           maxFiles={maxFiles}
           fileCategory={fileCategory}
           selectedCategory={

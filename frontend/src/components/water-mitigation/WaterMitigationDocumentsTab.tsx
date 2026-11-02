@@ -686,6 +686,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                   contextId={jobId}
                   allowedTypes={['image/*']}
                   fileCategory="image"
+                  photosOnly
                   height="100%"
                   allowUpload={false}  // No upload in document creation modal
                   allowMultiSelect={true}  // Always allow multi-select, handler will limit for EWA

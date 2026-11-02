@@ -151,6 +151,23 @@ class StorageProvider(ABC):
         """
         pass
 
+    # Can hand out part of a file: a video plays from these reads, without the
+    # whole file in memory. A provider that can't has its files read whole.
+    supports_range = False
+
+    def read_range(self, file_id: str, start: int, end: int) -> bytes:
+        """The bytes from start to end, both included"""
+        return self.download(file_id)[start:end + 1]
+
+    def signed_media_url(self, file_id: str, expires_in: int = 6 * 3600) -> Optional[str]:
+        """A URL a browser or ffmpeg can read directly with range requests, or
+        None when this storage can't give one"""
+        return None
+
+    def file_size(self, file_id: str) -> Optional[int]:
+        metadata = self.get_metadata(file_id)
+        return metadata.size if metadata else None
+
     @abstractmethod
     def delete(self, file_id: str) -> bool:
         """

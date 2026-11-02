@@ -12,6 +12,7 @@ import logging
 import io
 
 from app.common.base_service import BaseService
+from app.common.services.media_types import browser_video_type, is_video
 from app.common.utils.security import validate_file_path, PathTraversalError
 from app.core.config import settings
 from app.domains.storage import StorageFactory, StorageProvider
@@ -98,6 +99,11 @@ class FileService(BaseService[File, str]):
                 metadata = await self._get_job_metadata(context_id)
 
             # Upload to storage provider (blocking network I/O - keep it off the event loop)
+            video = is_video(content_type)
+            if video:
+                file_data.seek(0, 2)
+                video_size = file_data.tell()
+                file_data.seek(0)
             result = await asyncio.to_thread(
                 self.storage.upload,
                 file_data=file_data,
@@ -105,9 +111,12 @@ class FileService(BaseService[File, str]):
                 context=context,
                 context_id=context_id,
                 category=category,
-                content_type=content_type,
-                metadata=metadata
+                content_type=browser_video_type(content_type) if video else content_type,
+                metadata=metadata,
+                # Hashing it to look for a duplicate would mean reading it all again
+                optimize=not video
             )
+            size = video_size if video else (result.storage_metadata or {}).get('size', 0)
 
             # Handle water-mitigation context specially
             if context == 'water-mitigation':
@@ -118,7 +127,7 @@ class FileService(BaseService[File, str]):
                     folder_path=result.folder_path,
                     original_filename=original_filename,
                     content_type=content_type,
-                    file_size=result.storage_metadata.get('size', 0),
+                    file_size=size,
                     job_id=context_id,
                     category=category,
                     description=description,
@@ -130,7 +139,7 @@ class FileService(BaseService[File, str]):
                 filename=result.file_id,  # Use storage provider's file ID
                 original_name=original_filename,
                 content_type=content_type,
-                size=result.storage_metadata.get('size', 0) if result.storage_metadata else 0,
+                size=size,
                 url=result.file_url,
                 thumbnail_url=result.thumbnail_url,
                 storage_provider=self.storage.provider_name,

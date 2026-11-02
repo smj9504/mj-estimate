@@ -8,9 +8,36 @@ import hashlib
 import gzip
 import logging
 from typing import BinaryIO, Optional, Tuple, Dict, Any
-from PIL import Image
+from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
+
+try:
+    # Teaches Pillow to open iPhone HEIC/HEIF photos
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+except ImportError:
+    logger.warning("pillow-heif not installed: HEIC photos can't be opened")
+
+
+def heic_to_jpeg(data: bytes, quality: int = 90) -> bytes:
+    """A photo browsers can show, from an iPhone HEIC. Chrome and Windows can't decode
+    HEIC. Keeps the camera's date and wide-gamut colors, and the decoder has already
+    turned the picture upright, so its EXIF no longer says to rotate it."""
+    with Image.open(io.BytesIO(data)) as img:
+        exif = img.getexif()
+        exif.pop(0x0112, None)
+        icc_profile = img.info.get('icc_profile')
+        output = io.BytesIO()
+        img.convert('RGB').save(
+            output,
+            format='JPEG',
+            quality=quality,
+            exif=exif.tobytes(),
+            **({'icc_profile': icc_profile} if icc_profile else {}),
+        )
+    return output.getvalue()
 
 
 class ImageOptimizer:
@@ -81,20 +108,15 @@ class ImageOptimizer:
             if img.format == 'JPEG':
                 img.draft('RGB', max_size)
 
-            # Handle EXIF orientation
-            if hasattr(img, '_getexif') and img._getexif():
-                try:
-                    exif = img._getexif()
-                    orientation = exif.get(274)  # Orientation tag
+            # Kept before anything drops it: without it an iPhone's wide-gamut
+            # (Display P3) colors come out dull
+            icc_profile = img.info.get('icc_profile')
 
-                    if orientation == 3:
-                        img = img.rotate(180, expand=True)
-                    elif orientation == 6:
-                        img = img.rotate(270, expand=True)
-                    elif orientation == 8:
-                        img = img.rotate(90, expand=True)
-                except Exception as e:
-                    logger.warning(f"EXIF orientation handling failed: {e}")
+            # Handle EXIF orientation, mirrored ones (a front camera) included
+            try:
+                img = ImageOps.exif_transpose(img)
+            except Exception as e:
+                logger.warning(f"EXIF orientation handling failed: {e}")
 
             # Convert RGBA to RGB if necessary
             if img.mode in ('RGBA', 'LA', 'P'):
@@ -127,6 +149,9 @@ class ImageOptimizer:
             # Preserve EXIF if requested
             if preserve_exif and hasattr(img, 'info') and 'exif' in img.info:
                 save_kwargs['exif'] = img.info['exif']
+
+            if icc_profile:
+                save_kwargs['icc_profile'] = icc_profile
 
             img.save(output, **save_kwargs)
             output.seek(0)

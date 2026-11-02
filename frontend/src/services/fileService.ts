@@ -1,4 +1,5 @@
 import api from './api';
+import { VIDEO_UPLOAD_TIMEOUT_MS, isVideoUpload } from '../components/common/FileGallery/videoFiles';
 
 export interface FileItem {
   id: string;
@@ -54,6 +55,8 @@ export const fileService = {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      // A video can run to a GB; the global default is 30s
+      ...(files.some(isVideoUpload) ? { timeout: VIDEO_UPLOAD_TIMEOUT_MS } : {}),
     });
 
     return response.data.data;

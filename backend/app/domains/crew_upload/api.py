@@ -19,6 +19,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy import select
 
+from app.common.services.media_types import media_type_of
 from app.core.database_factory import get_db
 from app.domains.auth.dependencies import get_current_staff
 
@@ -127,11 +128,10 @@ def upload_file(
 ):
     """Upload a single photo/video file"""
     # Validate content type
-    if not file.content_type:
-        raise HTTPException(status_code=400, detail="Content type required")
+    content_type = media_type_of(file.filename, file.content_type)
 
     allowed_prefixes = ('image/', 'video/')
-    if not file.content_type.startswith(allowed_prefixes):
+    if not content_type.startswith(allowed_prefixes):
         raise HTTPException(status_code=400, detail="Only image and video files are allowed")
 
     # Parse captured_at
@@ -149,7 +149,7 @@ def upload_file(
         session_token=session_token,
         file_data=file.file,
         filename=file.filename or "unknown",
-        content_type=file.content_type,
+        content_type=content_type,
         file_size=file.size or 0,
         fingerprint=fingerprint,
         latitude=latitude,

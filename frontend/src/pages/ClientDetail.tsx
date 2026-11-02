@@ -86,6 +86,7 @@ import { useCompanyCamImport } from '../components/water-mitigation/useCompanyCa
 import ClaimPackingSection from '../components/client/ClaimPackingSection';
 import AddToPackingModal from '../components/client/AddToPackingModal';
 import type { FileItem } from '../components/common/FileGallery';
+import { isVideoFile } from '../components/common/FileGallery/videoFiles';
 import type { PackingPhotoSource } from '../types/packing-estimate';
 import ClaimTodos from '../components/client/ClaimTodos';
 import AccuLynxArchiveTab from '../components/client/AccuLynxArchiveTab';
@@ -2545,8 +2546,8 @@ const ClaimPhotos: React.FC<{
       size={compact ? 'middle' : 'small'}
       icon={<InboxOutlined />}
       aria-label="Use for packing"
-      disabled={selected.length === 0}
-      onClick={() => setPacking({ source, photos: selected, clearSelection })}
+      disabled={selected.filter(file => !isVideoFile(file)).length === 0}
+      onClick={() => setPacking({ source, photos: selected.filter(file => !isVideoFile(file)), clearSelection })}
     >
       {compact ? 'Packing' : 'Use for packing'}
     </Button>

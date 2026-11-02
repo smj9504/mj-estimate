@@ -134,6 +134,10 @@
   touch-action: none;
   user-select: none;
 }
+.cpv-video {
+  flex: 1;
+  min-height: 0;
+}
 .cpv-canvas.is-zoomed {
   cursor: grab;
 }
@@ -339,6 +343,7 @@
   outline-offset: 1px;
 }
 .cpv-card-thumb {
+  position: relative;
   display: block;
   width: 100%;
   aspect-ratio: 4 / 3;

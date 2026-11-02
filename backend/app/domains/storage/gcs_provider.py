@@ -297,6 +297,26 @@ class GCSProvider(StorageProvider):
             logger.error(f"GCS download failed: {e}")
             raise RuntimeError(f"Failed to download from GCS: {e}")
 
+    supports_range = True
+
+    def read_range(self, file_id: str, start: int, end: int) -> bytes:
+        """Read part of a file from GCS"""
+        blob_path = self._strip_gs_prefix(file_id).replace('\\', '/')
+        return self.bucket.blob(blob_path).download_as_bytes(start=start, end=end)
+
+    def signed_media_url(self, file_id: str, expires_in: int = 6 * 3600) -> Optional[str]:
+        blob = self.bucket.blob(self._strip_gs_prefix(file_id).replace('\\', '/'))
+        if self.make_public:
+            return blob.public_url
+        try:
+            return blob.generate_signed_url(
+                version="v4", expiration=timedelta(seconds=expires_in), method="GET"
+            )
+        except Exception as e:
+            # Signing needs a private key, which default credentials may not have
+            logger.info(f"GCS can't sign a URL here: {e}")
+            return None
+
     def delete(self, file_id: str) -> bool:
         """Delete file from GCS"""
         try:

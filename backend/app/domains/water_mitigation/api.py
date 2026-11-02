@@ -23,11 +23,13 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     UploadFile,
 )
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
+from app.common.services.media_types import is_heic, is_video
 from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
 from app.domains.auth.dependencies import get_current_staff, get_current_user, require_screen
@@ -455,7 +457,11 @@ async def upload_photo(
 
         _invalidate_photo_list_cache()
 
-        return service.photo_repo._convert_to_dict(photo)
+        uploaded = service.photo_repo._convert_to_dict(photo)
+        if is_video(uploaded.get('mime_type')):
+            from app.domains.file.video_service import OWNER_WM_PHOTO, queue_processing
+            queue_processing(OWNER_WM_PHOTO, uploaded['id'])
+        return uploaded
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -471,6 +477,7 @@ async def list_photos(
     source_filter: Optional[str] = None,
     level_filter: Optional[str] = None,
     room_filter: Optional[str] = None,
+    photos_only: bool = False,
     page: int = 1,
     page_size: int = 50,
     skip: Optional[int] = None,
@@ -478,7 +485,7 @@ async def list_photos(
     sort_order: str = 'desc',
     service: WaterMitigationService = Depends(get_wm_service)
 ):
-    """List photos for job with pagination and optional category filtering
+    """List photos and videos for job with pagination and optional category filtering
 
     Args:
         job_id: Job UUID
@@ -487,6 +494,7 @@ async def list_photos(
         source_filter: Filter by source (companycam, magicplan, manual_upload)
         level_filter: Comma-separated list of location levels to filter by (OR logic)
         room_filter: Comma-separated list of location rooms to filter by (OR logic)
+        photos_only: Leave out videos, for choosing pictures to put in a document
         page: Page number (1-indexed)
         page_size: Number of items per page (default: 50, max: 200)
         skip: Explicit offset override. Required when callers use a variable
@@ -504,7 +512,7 @@ async def list_photos(
         list_photos._cache = {}
         list_photos._cache_ts = {}
 
-    cache_key = f"{job_id}:{page}:{page_size}:{skip}:{sort_by}:{sort_order}:{category_filter}:{uncategorized_only}:{source_filter}:{level_filter}:{room_filter}"
+    cache_key = f"{job_id}:{page}:{page_size}:{skip}:{sort_by}:{sort_order}:{category_filter}:{uncategorized_only}:{source_filter}:{level_filter}:{room_filter}:{photos_only}"
     cached = list_photos._cache.get(cache_key)
     cached_ts = list_photos._cache_ts.get(cache_key, 0)
     if cached and (_time.time() - cached_ts) < 30:
@@ -548,7 +556,8 @@ async def list_photos(
             uncategorized_only=uncategorized_only,
             source_filter=source_filter,
             level_filter=levels,
-            room_filter=rooms
+            room_filter=rooms,
+            photos_only=photos_only
         )
     else:
         photos, total = service.photo_repo.find_by_job_paginated(
@@ -562,7 +571,8 @@ async def list_photos(
             uncategorized_only=uncategorized_only,
             source_filter=source_filter,
             level_filter=levels,
-            room_filter=rooms
+            room_filter=rooms,
+            photos_only=photos_only
         )
 
     # Calculate total pages (handle None total for performance optimization)
@@ -625,8 +635,6 @@ async def list_photos(
         missing_ids = [eid for eid in companycam_external_ids if eid not in companycam_urls]
         if missing_ids and settings.ENABLE_INTEGRATIONS and settings.COMPANYCAM_API_KEY:
             try:
-                import asyncio
-
                 from ..integrations.companycam.client import CompanyCamClient
 
                 companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
@@ -680,6 +688,12 @@ async def list_photos(
             except Exception as e:
                 logger.warning(f"Failed to batch fetch CompanyCam URLs: {e}")
 
+    video_ids = [str(photo.id) for photo in photos if is_video(photo.mime_type)]
+    videos = {}
+    if video_ids:
+        from app.domains.file.video_service import OWNER_WM_PHOTO, video_fields
+        videos = await asyncio.to_thread(video_fields, OWNER_WM_PHOTO, video_ids)
+
     # Convert photos to dict and add preview URLs
     items = []
     for photo in photos:
@@ -720,6 +734,17 @@ async def list_photos(
         if not thumbnail_url:
             thumbnail_url = fallback_thumbnail
             preview_url = fallback_preview
+
+        if is_video(photo.mime_type):
+            video = videos.get(str(photo.id), {})
+            photo_dict['video_url'] = f"/api/water-mitigation/photos/{photo.id}/video"
+            photo_dict['video_status'] = video.get('video_status')
+            photo_dict['duration_seconds'] = video.get('duration_seconds')
+            # A browser keeps the stand-in shown until the poster's made under another address
+            if preview_url == fallback_preview:
+                ready = video.get('video_status') or 'pending'
+                preview_url = f"{fallback_preview}&v={ready}"
+                thumbnail_url = f"{fallback_thumbnail}&v={ready}"
 
         photo_dict['preview_url'] = preview_url
         photo_dict['thumbnail_url'] = thumbnail_url
@@ -911,6 +936,32 @@ def _read_photo_and_release(service: WaterMitigationService, photo_id: UUID):
         service.session.close()
 
 
+def _original_as_jpeg(photo_id, storage_provider, storage_file_id, file_path) -> bytes:
+    """A HEIC stored before uploads were converted, shown as the JPEG a browser can use.
+    Converting costs seconds and 100MB+, so the result stays on disk. Worker thread only."""
+    from app.core.config import settings
+
+    from ..storage.factory import StorageFactory
+    from ..storage.optimization import heic_to_jpeg
+
+    cache_file = Path(settings.STORAGE_BASE_DIR) / ".cache" / "previews" / "heic" / f"{photo_id}.jpg"
+    if cache_file.exists():
+        return cache_file.read_bytes()
+
+    local = Path(file_path or '')
+    if local.is_absolute() and local.exists():
+        data = local.read_bytes()
+    else:
+        data = StorageFactory.get_instance(storage_provider or None).download(storage_file_id or file_path)
+    with _preview_render_slots:
+        jpeg = heic_to_jpeg(data)
+    try:
+        _write_preview_cache(cache_file, jpeg)
+    except OSError as e:
+        logger.warning(f"Failed to cache converted HEIC {photo_id}: {e}")
+    return jpeg
+
+
 def _render_preview_and_cache(source, max_size, quality, cache_file: Path, photo_id) -> bytes:
     """Optimize an image to WebP and save it to the preview disk cache.
 
@@ -949,10 +1000,12 @@ def _render_preview_and_cache(source, max_size, quality, cache_file: Path, photo
 @router.get("/photos/{photo_id}/preview")
 async def preview_photo(
     photo_id: UUID,
+    request: Request,
     size: Optional[str] = Query("web", description="Image size: thumbnail, web, or original"),
     service: WaterMitigationService = Depends(get_wm_service)
 ):
-    """Get photo preview - supports CompanyCam, local, and cloud storage
+    """Get photo preview - supports CompanyCam, local, and cloud storage. For a video,
+    its poster, or at size=original the video itself.
 
     Args:
         photo_id: Photo UUID
@@ -976,6 +1029,30 @@ async def preview_photo(
     file_path = photo.get('file_path') if isinstance(photo, dict) else photo.file_path
     mime_type = photo.get('mime_type') if isinstance(photo, dict) else photo.mime_type
     media_type = mime_type or 'image/jpeg'
+
+    if is_video(media_type):
+        from app.domains.file.video_service import OWNER_WM_PHOTO, poster_response, video_response
+        if size == 'original':
+            return await asyncio.to_thread(video_response, request, OWNER_WM_PHOTO, str(photo_id))
+        return await asyncio.to_thread(poster_response, OWNER_WM_PHOTO, str(photo_id))
+
+    if is_heic(media_type) and size == 'original':
+        try:
+            jpeg = await asyncio.to_thread(
+                _original_as_jpeg,
+                photo_id,
+                storage_provider,
+                photo.get('storage_file_id') if isinstance(photo, dict) else photo.storage_file_id,
+                file_path,
+            )
+            return Response(
+                content=jpeg,
+                media_type='image/jpeg',
+                headers={"Content-Disposition": "inline", "Cache-Control": "public, max-age=604800, immutable"},
+            )
+        except Exception as e:
+            # Stored as WebP by the storage provider's own optimizer: served as it is below
+            logger.info(f"Photo {photo_id} marked HEIC isn't convertible: {e}")
 
     # Handle CompanyCam photos - proxy the image to avoid CORS issues
     if source == 'companycam' and external_id:
@@ -1373,9 +1450,19 @@ async def preview_photo(
     )
 
 
+@router.api_route("/photos/{photo_id}/video", methods=["GET", "HEAD"])
+def play_video(photo_id: UUID, request: Request):
+    """A job's video for a <video> element, which can't send a token and asks for
+    ranges of it. Open like the photo preview above it."""
+    from app.domains.file.video_service import OWNER_WM_PHOTO, video_response
+
+    return video_response(request, OWNER_WM_PHOTO, str(photo_id))
+
+
 @router.get("/photos/{photo_id}/download")
 async def download_photo(
     photo_id: UUID,
+    request: Request,
     service: WaterMitigationService = Depends(get_wm_service)
 ):
     """Download photo as attachment (original quality)"""
@@ -1386,6 +1473,10 @@ async def download_photo(
     photo = await asyncio.to_thread(_read_photo_and_release, service, photo_id)
     if photo is None:
         raise HTTPException(status_code=404, detail="Photo not found")
+
+    if is_video(photo.get('mime_type') if isinstance(photo, dict) else photo.mime_type):
+        from app.domains.file.video_service import OWNER_WM_PHOTO, download_response
+        return await asyncio.to_thread(download_response, request, OWNER_WM_PHOTO, str(photo_id))
 
     source = photo.get('source') if isinstance(photo, dict) else photo.source
     external_id = photo.get('external_id') if isinstance(photo, dict) else photo.external_id
@@ -2378,6 +2469,7 @@ async def _run_sync_async(job_id: UUID, selected_dates: Optional[List[str]] = No
 
         result = await service.sync_companycam_photos(job_id, selected_dates=selected_dates)
         db_session.commit()
+        _invalidate_photo_list_cache()
 
         logger.info(f"Background sync completed for job {job_id}: {result}")
     except Exception as e:
@@ -2534,6 +2626,8 @@ async def generate_document_pdf(
                 raise HTTPException(status_code=404, detail=f"Photo {photo_id} not found")
 
             photo_dict = service.photo_repo._convert_to_dict(photo)
+            if is_video(photo_dict.get('mime_type')):
+                raise HTTPException(status_code=400, detail=f"{photo_dict.get('file_name')} is a video, and a PDF can only hold photos")
             file_path_str = photo_dict.get('file_path', '')
             source = photo_dict.get('source', 'local')
             external_id = photo_dict.get('external_id')
@@ -4090,6 +4184,10 @@ async def ai_classify_photos(
                 failed += 1
                 continue
 
+            if is_video(photo.get('mime_type') if isinstance(photo, dict) else photo.mime_type):
+                results.append({"photo_id": photo_id, "error": "Videos aren't classified"})
+                continue
+
             # Check cache first (unless force refresh)
             if not request.force_refresh:
                 cached = ai_classification_service.get_cached_result(db, photo_id)
@@ -4863,7 +4961,7 @@ async def detect_duplicate_photos(
     - 15: Loosely similar
     """
     # Get all photos for this job
-    items = service.photo_repo.find_by_job(job_id)
+    items = [photo for photo in service.photo_repo.find_by_job(job_id) if not is_video(photo.mime_type)]
 
     if len(items) < 2:
         return {"groups": [], "total_duplicates": 0}

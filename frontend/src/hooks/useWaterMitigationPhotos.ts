@@ -67,9 +67,11 @@ export const useWaterMitigationPhotos = (
       let totalPages = 1;
 
       do {
+        // These are for putting in a report or looking at while sketching: pictures only
         const params = new URLSearchParams({
           page_size: pageSize.toString(),
           page: String(page),
+          photos_only: 'true',
         });
 
         if (categoryFilter && categoryFilter !== 'all') {

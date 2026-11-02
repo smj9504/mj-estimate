@@ -30,7 +30,8 @@ from app.domains.document_types.models import WorkOrderDocumentType, WorkOrderTr
 from app.domains.electrician_report.models import ElectricianReport
 from app.domains.email_ingestion.models import EmailIngestionLog, ReceivedEmail
 from app.domains.estimate.models import Estimate
-from app.domains.file.models import File
+from app.domains.file.models import File, VideoRendition
+from app.domains.file.video_service import OWNER_FILE, OWNER_WM_PHOTO
 from app.domains.integrations.models import CompanyCamPhoto
 from app.domains.invoice.models import Invoice
 from app.domains.material_order.models import MaterialOrder
@@ -225,6 +226,25 @@ def _stored_files(db: Any, linked: _Linked, file_rows: Any) -> List[StoredFile]:
     ))
 
 
+def _take_video_renditions(db: Any, jobs: Any, file_rows: Any) -> List[StoredFile]:
+    """The posters and browser copies made from the videos going, whose rows go now:
+    only the rows say where these are, and no other record ever uses them."""
+    owners = or_(
+        (VideoRendition.owner_type == OWNER_WM_PHOTO)
+        & VideoRendition.owner_id.in_([str(i) for i in _ids(db, WMPhoto.id, WMPhoto.job_id.in_(jobs))]),
+        (VideoRendition.owner_type == OWNER_FILE)
+        & VideoRendition.owner_id.in_([str(i) for i in _ids(db, File.id, file_rows)]),
+    )
+    found = [
+        StoredFile(row.storage_provider, key)
+        for row in db.query(VideoRendition).filter(owners).all()
+        for key in (row.poster_file_id, row.playback_file_id)
+        if row.storage_provider and key
+    ]
+    _remove_rows(db, VideoRendition, owners)
+    return found
+
+
 def _blob_path(key: str) -> str:
     return _STORAGE_SCHEME.sub('', key).replace('\\', '/')
 
@@ -353,7 +373,7 @@ def delete_client_and_everything(db: Any, client_id: str) -> Optional[List[Store
 
     linked = _find_linked(db, client_id)
     file_rows = _file_row_condition(db, client_id, linked)
-    files = _stored_files(db, linked, file_rows)
+    files = _stored_files(db, linked, file_rows) + _take_video_renditions(db, linked.wm_jobs, file_rows)
     _remove_rows(db, File, file_rows)
 
     _retire_email_logs(db, client_id, linked)

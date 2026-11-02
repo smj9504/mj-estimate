@@ -6,6 +6,8 @@ import {
 import { useFileGallery } from '../../common/FileGallery/hooks/useFileGallery';
 import { getCategoryColor, getCategoryLabel } from '../../common/FileGallery/categoryColors';
 import type { FileContext, FileItem } from '../../common/FileGallery/types';
+import { VideoBadge } from '../../common/FileGallery/VideoPlayer';
+import { isVideoFile } from '../../common/FileGallery/videoFiles';
 import { CLAIM_PHOTO_CATEGORIES } from '../ClaimPhotosSection';
 import { WM_PHOTO_CATEGORIES, wmPhotoSetLabel } from '../ClaimWMPhotos';
 import PhotoStage from './PhotoStage';
@@ -63,6 +65,7 @@ const PhotoCard: React.FC<PhotoCardProps> = memo(({ file, isCurrent, onSelect })
             if (file.url && e.currentTarget.src !== file.url) e.currentTarget.src = file.url;
           }}
         />
+        {isVideoFile(file) && <VideoBadge file={file} />}
       </span>
       <span className="cpv-card-category">
         <span className="ui-filter-chip-dot" style={{ background: getCategoryColor(category) }} aria-hidden="true" />
@@ -199,6 +202,8 @@ const PhotoBrowser: React.FC<{
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // With a video in focus the arrows seek within it
+      if (e.target instanceof HTMLVideoElement) return;
       if (e.key === 'ArrowLeft') step(-1);
       else if (e.key === 'ArrowRight') step(1);
     };

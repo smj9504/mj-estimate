@@ -25,7 +25,7 @@ from app.domains.client.models import Claim, Client
 from app.domains.file.models import File
 from app.domains.integrations.companycam import client as companycam_client
 from app.domains.integrations.companycam import project_search
-from app.domains.integrations.companycam.utils import photo_download_url, summarize_photo_dates
+from app.domains.integrations.companycam.utils import photo_download_url, summarize_photo_dates, videos_as_media
 from app.domains.storage.base import UploadResult
 from app.domains.storage.factory import StorageFactory
 from app.domains.water_mitigation.models import WaterMitigationJob, WMPhoto
@@ -65,6 +65,7 @@ class FakeCache:
 
 class FakeCompanyCam:
     photos = []
+    videos = []
     # Photo ids whose download fails
     failing = set()
     on_download = None
@@ -80,6 +81,9 @@ class FakeCompanyCam:
 
     async def get_project_photos(self, project_id):
         return list(type(self).photos)
+
+    async def get_project_videos_as_media(self, project_id, strict=False):
+        return videos_as_media(type(self).videos)
 
     async def download_photo(self, url):
         photo_id = int(url.split('/')[3])
@@ -122,6 +126,7 @@ def env(tmp_path, monkeypatch):
     storage = FakeStorage()
     monkeypatch.setattr(StorageFactory, 'get_instance', classmethod(lambda cls: storage))
     FakeCompanyCam.photos = []
+    FakeCompanyCam.videos = []
     FakeCompanyCam.failing = set()
     FakeCompanyCam.on_download = None
     monkeypatch.setattr(companycam_client, 'CompanyCamClient', FakeCompanyCam)
@@ -513,3 +518,104 @@ def test_someone_who_cant_see_the_claim_gets_404_from_every_route(env, monkeypat
 
     assert response.status_code == 404
     assert response.json()['detail'] == 'Claim not found'
+
+
+# ── Videos ────────────────────────────────────
+
+def cc_video(video_id, captured_at=1792257645, status='processed', extension='mov'):
+    return {
+        'id': video_id,
+        'status': status,
+        'format': 'm3u8',
+        'captured_at': captured_at,
+        'playback_url': f'https://s3.example/{video_id}.{extension}?X-Amz-Signature=x',
+        'thumbnail_urls': {'large': f'https://img/{video_id}/l', 'medium': f'https://img/{video_id}/m'},
+    }
+
+
+@pytest.fixture
+def videos(env, monkeypatch):
+    state = SimpleNamespace(queued=[], failing=set())
+
+    def download(url, dest, headers=None):
+        if any(str(video_id) in url for video_id in state.failing):
+            raise claim_companycam.video_tools.VideoToolError('Download failed: 500')
+        Path(dest).write_bytes(b'video-bytes')
+        return 11
+
+    monkeypatch.setattr(claim_companycam.video_tools, 'download_to_file', download)
+    monkeypatch.setattr(claim_companycam, 'queue_processing', lambda owner, owner_id: state.queued.append(owner_id))
+    return state
+
+
+def test_videos_come_in_with_the_photos(env, videos):
+    FakeCompanyCam.photos = [cc_photo(1)]
+    FakeCompanyCam.videos = [cc_video(7), cc_video(8, extension='mp4')]
+
+    asyncio.run(claim_companycam.run_import(env.claim_id, 1))
+
+    by_name = {f.original_name: f for f in claim_files(env)}
+    assert set(by_name) == {'companycam_1.jpg', 'companycam_video_7.mov', 'companycam_video_8.mp4'}
+    video = by_name['companycam_video_7.mov']
+    assert video.content_type == 'video/quicktime'
+    assert video.size == len(b'video-bytes')
+    assert video.thumbnail_url == 'https://img/7/m'
+    assert video.upload_date.year == 2026
+    assert by_name['companycam_video_8.mp4'].content_type == 'video/mp4'
+    # Each goes on to be checked for what browsers can play
+    assert len(videos.queued) == 2
+    status = json.loads(env.cache.values[claim_companycam._status_key(env.claim_id)])
+    assert status['status'] == 'completed'
+    assert status['synced_count'] == 3
+
+
+def test_a_video_comes_in_only_once(env, videos):
+    FakeCompanyCam.videos = [cc_video(7)]
+    asyncio.run(claim_companycam.run_import(env.claim_id, 1))
+
+    asyncio.run(claim_companycam.run_import(env.claim_id, 1))
+
+    assert len(claim_files(env)) == 1
+    status = json.loads(env.cache.values[claim_companycam._status_key(env.claim_id)])
+    assert status['skipped_existing'] == 1
+
+
+def test_a_video_on_the_claims_job_isnt_imported_again(env, videos):
+    add_job_photo(env, 'companycam_video_7')
+    FakeCompanyCam.videos = [cc_video(7)]
+
+    asyncio.run(claim_companycam.run_import(env.claim_id, 1))
+
+    assert claim_files(env) == []
+
+
+def test_a_video_companycam_is_still_working_on_waits_for_the_next_import(env, videos):
+    FakeCompanyCam.videos = [cc_video(7, status='processing')]
+
+    asyncio.run(claim_companycam.run_import(env.claim_id, 1))
+
+    assert claim_files(env) == []
+
+
+def test_a_video_that_wont_download_doesnt_stop_the_rest(env, videos):
+    FakeCompanyCam.videos = [cc_video(7), cc_video(8)]
+    videos.failing = {7}
+
+    asyncio.run(claim_companycam.run_import(env.claim_id, 1))
+
+    assert [f.original_name for f in claim_files(env)] == ['companycam_video_8.mov']
+    status = json.loads(env.cache.values[claim_companycam._status_key(env.claim_id)])
+    assert status['status'] == 'completed'
+    assert any('video' in error for error in status['errors'])
+    # The signed URL stays out of what the page shows
+    assert not any('Signature' in error for error in status['errors'])
+
+
+def test_the_dates_count_videos_too(env, videos):
+    FakeCompanyCam.photos = [cc_photo(1, captured_at=1792257645)]
+    FakeCompanyCam.videos = [cc_video(7)]
+
+    summary = asyncio.run(claim_companycam.photo_dates(env.claim_id, '1'))
+
+    assert summary['total_photos'] == 2
+    assert summary['total_new'] == 2

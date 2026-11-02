@@ -1,6 +1,7 @@
 import React from 'react';
 import FileGallery from '../common/FileGallery/FileGallery';
 import type { FileGalleryProps } from '../common/FileGallery/types';
+import { MAX_VIDEO_FILE_SIZE, MEDIA_ACCEPT, MEDIA_ALLOWED_TYPES } from '../common/FileGallery/videoFiles';
 
 export const CLAIM_PHOTO_CATEGORIES = ['before', 'during', 'after', 'completion', 'damage', 'general'];
 
@@ -18,6 +19,7 @@ const ClaimPhotosSection: React.FC<ClaimPhotosSectionProps> = ({ claimId, render
         mode="upload"
         contextId={claimId}
         fileCategory="image"
+        allowedTypes={MEDIA_ALLOWED_TYPES}
         categories={CLAIM_PHOTO_CATEGORIES}
         allowUpload={true}
         allowMultiSelect={true}
@@ -25,13 +27,14 @@ const ClaimPhotosSection: React.FC<ClaimPhotosSectionProps> = ({ claimId, render
         allowViewModeChange={true}
         defaultViewMode="grid"
         maxFileSize={20 * 1024 * 1024}
+        maxVideoFileSize={MAX_VIDEO_FILE_SIZE}
         maxFiles={200}
         height="400px"
         gridColumns={{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }}
         uploadConfig={{
           multiple: true,
           showUploadList: false,
-          accept: 'image/*',
+          accept: MEDIA_ACCEPT,
         }}
         renderBulkExtraAction={renderBulkExtraAction}
       />

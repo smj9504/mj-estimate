@@ -9,14 +9,21 @@ Handles syncing photos and floor plans from MagicPlan to Water Mitigation jobs:
 
 import asyncio
 import io
+import json
 import logging
+import tempfile
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
+from app.common.services import video_tools
+from app.common.services.media_types import media_type_of
+from app.core.cache import get_cache
 from app.core.config import settings
+from app.domains.file.video_service import OWNER_WM_PHOTO, queue_processing, store_video
 from app.domains.integrations.companycam.utils import (
     calculate_address_similarity,
     normalize_address,
@@ -35,6 +42,28 @@ from .schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+SYNC_RUNNING_TTL = 3600
+SYNC_RESULT_TTL = 300
+
+
+def sync_status_key(job_id: str) -> str:
+    return f"magicplan_sync:{job_id}"
+
+
+async def read_sync_status(job_id: str) -> Optional[Dict[str, Any]]:
+    raw = await get_cache().get(sync_status_key(job_id))
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.warning(f"Failed to parse MagicPlan sync status: {e}")
+        return None
+
+
+async def write_sync_status(job_id: str, status: Dict[str, Any], ttl: int = SYNC_RUNNING_TTL) -> None:
+    await get_cache().set(sync_status_key(job_id), json.dumps(status), ttl=ttl)
 
 
 class MagicPlanSyncService:
@@ -100,7 +129,7 @@ class MagicPlanSyncService:
                     match_type=match_type,
                     photo_count=project.get("photo_count"),
                     plan_count=project.get("plan_count"),
-                    created_at=project.get("created_at"),
+                    created_at=project.get("user_created") or project.get("created_at"),
                 )
                 candidates.append(match)
 
@@ -214,8 +243,12 @@ class MagicPlanSyncService:
         magicplan_project_name: str = "",
     ) -> MagicPlanSyncResult:
         """
-        Sync photos from a MagicPlan project to a WM job.
-        Downloads photos and stores them via StorageFactory.
+        Sync photos and videos from a MagicPlan project to a WM job. Each one is
+        stored and committed on its own, so an interrupted sync keeps what it got
+        and a retry picks up from there.
+
+        This takes minutes (a video alone can be hundreds of MB), so it runs in the
+        background: progress and the result are in the cache for the page to read.
         """
         result = MagicPlanSyncResult(
             success=False,
@@ -223,10 +256,24 @@ class MagicPlanSyncService:
             magicplan_project_name=magicplan_project_name,
         )
 
+        async def cancelled() -> bool:
+            current = await read_sync_status(job_id)
+            return bool(current and current.get("status") == "cancelled")
+
+        async def report(status: str = "running", message: Optional[str] = None, ttl: int = SYNC_RUNNING_TTL) -> None:
+            # A stop asked for while this file was underway is still to be noticed
+            if status == "running" and await cancelled():
+                status = "cancelled"
+            await write_sync_status(job_id, {
+                "status": status,
+                "message": message,
+                "result": result.model_dump(),
+            }, ttl=ttl)
+
         try:
             async with MagicPlanClient() as client:
                 # MagicPlan API structure:
-                # - /projects/{id}/files → photos/files (jpeg, pdf, etc.)
+                # - /projects/{id}/files → photos, videos, exports (jpeg, mp4, pdf, etc.)
                 # - /projects/{id}/plan → plan data with floors[].image (SVG)
                 files = await client.get_project_files(magicplan_project_id)
 
@@ -247,121 +294,69 @@ class MagicPlanSyncService:
                 except Exception as e:
                     logger.warning(f"Failed to get plan data: {e}")
 
-                # Filter to image files only
-                images = [
-                    f for f in files
-                    if (f.get("filetype") or "").startswith("image/")
-                ]
+            # A plan's PDF exports aren't photos
+            media = [
+                f for f in files
+                if media_type_of(f.get("filename"), f.get("filetype")).startswith(("image/", "video/"))
+            ]
+            result.total_files = len(media)
 
-                if not images:
-                    result.success = True
-                    return result
+            # Get existing magicplan photos to avoid duplicates. external_id is
+            # unique across jobs, so one on another job can't come here too.
+            existing = (
+                self.db.query(WMPhoto.external_id, WMPhoto.job_id)
+                .filter(WMPhoto.source == "magicplan", WMPhoto.external_id.isnot(None))
+                .all()
+            )
+            existing_here = {ext_id for ext_id, on_job in existing if str(on_job) == str(job_id)}
+            existing_elsewhere = {ext_id for ext_id, on_job in existing if str(on_job) != str(job_id)}
+            self.db.commit()
 
-                # Get existing magicplan photos to avoid duplicates
-                existing_external_ids = set()
-                existing_photos = (
-                    self.db.query(WMPhoto.external_id)
-                    .filter(
-                        WMPhoto.job_id == job_id,
-                        WMPhoto.source == "magicplan",
-                        WMPhoto.external_id.isnot(None),
-                    )
-                    .all()
-                )
-                for (ext_id,) in existing_photos:
-                    if ext_id:
-                        existing_external_ids.add(ext_id)
+            storage = StorageFactory.get_instance()
+            await report()
 
-                storage = StorageFactory.create()
+            for item in media:
+                if await cancelled():
+                    result.cancelled = True
+                    break
 
-                for img in images:
-                    img_id = str(img.get("id", ""))
-                    external_id = f"magicplan_{img_id}" if img_id else None
+                item_id = str(item.get("id", ""))
+                external_id = f"magicplan_{item_id}" if item_id else None
 
-                    # Skip duplicates
-                    if external_id and external_id in existing_external_ids:
-                        result.photos_skipped += 1
-                        continue
+                # Skip duplicates
+                if external_id and external_id in existing_here:
+                    result.photos_skipped += 1
+                    await report()
+                    continue
+                if external_id and external_id in existing_elsewhere:
+                    result.photos_on_other_jobs += 1
+                    await report()
+                    continue
 
-                    # Get image URL from file.url
-                    file_info = img.get("file", {})
-                    img_url = file_info.get("url") if isinstance(
-                        file_info, dict
-                    ) else None
-                    if not img_url:
-                        result.photos_skipped += 1
-                        continue
+                # Get the URL from file.url
+                file_info = item.get("file", {})
+                url = file_info.get("url") if isinstance(file_info, dict) else None
+                if not url:
+                    result.photos_skipped += 1
+                    continue
 
-                    try:
-                        # Download photo
-                        photo_bytes = await client.download_file(img_url)
-                        if not photo_bytes:
-                            result.photos_skipped += 1
-                            continue
-
-                        # Determine file name and type
-                        file_name = (
-                            img.get("filename")
-                            or f"magicplan_{img_id}.jpg"
-                        )
-                        mime_type = img.get("filetype", "image/jpeg")
-
-                        # Upload to storage on a worker thread: the storage
-                        # SDK is blocking and would otherwise stall the single
-                        # event loop worker (--workers 1) for every photo.
-                        upload_result = await asyncio.to_thread(
-                            storage.upload,
-                            file_data=io.BytesIO(photo_bytes),
-                            filename=file_name,
-                            context="water-mitigation",
-                            context_id=job_id,
-                            category="magicplan",
-                            content_type=mime_type,
-                        )
-
-                        # Build magicplan metadata
-                        magicplan_metadata = self._extract_photo_metadata(img)
-                        # Add floor info if available
-                        if floor_map:
-                            magicplan_metadata["available_floors"] = [
-                                v["floor_name"] for v in floor_map.values()
-                            ]
-
-                        # Create WMPhoto record
-                        photo = WMPhoto(
-                            id=str(uuid.uuid4()),
-                            job_id=job_id,
-                            source="magicplan",
-                            external_id=external_id,
-                            file_name=file_name,
-                            file_path=upload_result.file_path,
-                            file_size=len(photo_bytes),
-                            mime_type=mime_type,
-                            file_type="photo",
-                            storage_provider=settings.STORAGE_PROVIDER,
-                            storage_file_id=upload_result.file_id,
-                            storage_folder_path=upload_result.folder_path,
-                            title=img.get("filename"),
-                            captured_date=self._parse_date(
-                                img.get("created_at")
-                            ),
-                            category="",
-                            upload_status="completed",
-                            magicplan_metadata=magicplan_metadata or None,
-                        )
-                        self.db.add(photo)
-                        # Commit per photo so an interrupted sync keeps what
-                        # it already stored; a retry skips them by external_id.
-                        self.db.commit()
+                content_type = media_type_of(item.get("filename"), item.get("filetype"))
+                try:
+                    if content_type.startswith("video/"):
+                        await self._store_video(job_id, item, external_id, url, content_type, storage)
+                        result.videos_synced += 1
+                    else:
+                        await self._store_photo(job_id, item, external_id, url, content_type, storage, floor_map)
                         result.photos_synced += 1
+                except Exception as e:
+                    self.db.rollback()
+                    error_msg = f"Failed to sync {item.get('filename') or item_id}: {e}"
+                    logger.error(error_msg)
+                    result.errors.append(error_msg)
 
-                    except Exception as e:
-                        self.db.rollback()
-                        error_msg = f"Failed to sync image {img_id}: {e}"
-                        logger.error(error_msg)
-                        result.errors.append(error_msg)
+                await report()
 
-                result.success = True
+            result.success = True
 
         except Exception as e:
             error_msg = f"MagicPlan sync failed: {e}"
@@ -369,7 +364,135 @@ class MagicPlanSyncService:
             result.errors.append(error_msg)
             self.db.rollback()
 
+        # The page reloads the gallery when it sees this, so the cached list has to be gone first
+        try:
+            from app.domains.water_mitigation.api import _invalidate_photo_list_cache
+            _invalidate_photo_list_cache()
+        except Exception as e:
+            logger.warning(f"Couldn't clear the photo list cache: {e}")
+
+        final = "cancelled" if result.cancelled else "completed" if result.success else "failed"
+        await report(final, ttl=SYNC_RESULT_TTL)
         return result
+
+    async def _store_photo(
+        self,
+        job_id: str,
+        item: Dict[str, Any],
+        external_id: Optional[str],
+        url: str,
+        content_type: str,
+        storage: Any,
+        floor_map: Dict[int, Dict[str, Any]],
+    ) -> None:
+        def fetch() -> bytes:
+            with tempfile.TemporaryDirectory(prefix="mp-photo-") as folder:
+                local = Path(folder) / "photo"
+                video_tools.download_to_file(url, local)
+                return local.read_bytes()
+
+        photo_bytes = await asyncio.to_thread(fetch)
+
+        # Determine file name and type
+        item_id = str(item.get("id", ""))
+        file_name = item.get("filename") or f"magicplan_{item_id}.jpg"
+
+        # Upload to storage on a worker thread: the storage
+        # SDK is blocking and would otherwise stall the single
+        # event loop worker (--workers 1) for every photo.
+        upload_result = await asyncio.to_thread(
+            storage.upload,
+            file_data=io.BytesIO(photo_bytes),
+            filename=file_name,
+            context="water-mitigation",
+            context_id=job_id,
+            category="magicplan",
+            content_type=content_type,
+        )
+
+        # Build magicplan metadata
+        magicplan_metadata = self._extract_photo_metadata(item)
+        # Add floor info if available
+        if floor_map:
+            magicplan_metadata["available_floors"] = [
+                v["floor_name"] for v in floor_map.values()
+            ]
+
+        # Create WMPhoto record
+        photo = WMPhoto(
+            id=str(uuid.uuid4()),
+            job_id=job_id,
+            source="magicplan",
+            external_id=external_id,
+            file_name=file_name,
+            file_path=upload_result.file_path,
+            file_size=len(photo_bytes),
+            mime_type=content_type,
+            file_type="photo",
+            storage_provider=settings.STORAGE_PROVIDER,
+            storage_file_id=upload_result.file_id,
+            storage_folder_path=upload_result.folder_path,
+            title=item.get("filename"),
+            description=(item.get("metadata") or {}).get("description"),
+            captured_date=self._taken_at(item),
+            category="",
+            upload_status="completed",
+            magicplan_metadata=magicplan_metadata or None,
+        )
+        self.db.add(photo)
+        # Commit per photo so an interrupted sync keeps what
+        # it already stored; a retry skips them by external_id.
+        self.db.commit()
+
+    async def _store_video(
+        self,
+        job_id: str,
+        item: Dict[str, Any],
+        external_id: Optional[str],
+        url: str,
+        content_type: str,
+        storage: Any,
+    ) -> None:
+        """Through a file on disk and on to storage in chunks: never all in memory"""
+        item_id = str(item.get("id", ""))
+        file_name = item.get("filename") or f"magicplan_{item_id}.mp4"
+
+        def fetch_and_store():
+            with tempfile.TemporaryDirectory(prefix="mp-video-") as folder:
+                local = Path(folder) / "video"
+                video_tools.download_to_file(url, local)
+                with open(local, "rb") as data:
+                    return store_video(data, file_name, content_type, "water-mitigation", job_id, "magicplan", storage)
+
+        upload_result, file_size = await asyncio.to_thread(fetch_and_store)
+
+        photo = WMPhoto(
+            id=str(uuid.uuid4()),
+            job_id=job_id,
+            source="magicplan",
+            external_id=external_id,
+            file_name=file_name,
+            file_path=upload_result.file_path,
+            file_size=file_size,
+            mime_type=content_type,
+            file_type="video",
+            storage_provider=settings.STORAGE_PROVIDER,
+            storage_file_id=upload_result.file_id,
+            storage_folder_path=upload_result.folder_path,
+            title=item.get("filename"),
+            description=(item.get("metadata") or {}).get("description"),
+            captured_date=self._taken_at(item),
+            category="",
+            upload_status="completed",
+            magicplan_metadata=self._extract_photo_metadata(item) or None,
+        )
+        self.db.add(photo)
+        self.db.commit()
+        queue_processing(OWNER_WM_PHOTO, photo.id)
+
+    def _taken_at(self, item: Dict[str, Any]) -> Optional[datetime]:
+        """user_created is when it was taken on the device; the upload can be weeks later"""
+        return self._parse_date(item.get("user_created") or item.get("created_at"))
 
     def _extract_photo_metadata(self, img: Dict[str, Any]) -> Dict[str, Any]:
         """Extract MagicPlan-specific metadata from an image record."""

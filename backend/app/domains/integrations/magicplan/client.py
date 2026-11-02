@@ -5,7 +5,9 @@ Handles all API communication with MagicPlan:
 - Authentication (API Key + Customer ID headers)
 - Project listing and search
 - Plan/floor data retrieval
-- Photo/image downloads
+- Photo/video downloads
+
+Lists come 10 to a page whatever per_page asks for, so read page_info to the end.
 
 API Docs: https://apidocs.magicplan.app/
 Base URL: https://cloud.magicplan.app/api/v2/
@@ -145,19 +147,24 @@ class MagicPlanClient:
                 or query_lower in (p.get("name", "") or "").lower()
             ]
 
-    async def list_all_projects(self, max_pages: int = 20) -> List[Dict[str, Any]]:
+    async def _list_every_page(self, path: str, max_pages: int = 200) -> List[Dict[str, Any]]:
+        """Every row of a paged list, following page_info.next_page."""
+        rows: List[Dict[str, Any]] = []
+        page: Optional[int] = 1
+        for _ in range(max_pages):
+            result = await self._request("GET", path, params={"page": page, "per_page": 100})
+            if isinstance(result, list):
+                rows.extend(result)
+                break
+            rows.extend(result.get("data") or [])
+            page = (result.get("page_info") or {}).get("next_page")
+            if not page:
+                break
+        return rows
+
+    async def list_all_projects(self) -> List[Dict[str, Any]]:
         """Fetch all projects with pagination."""
-        all_projects = []
-        page = 1
-        while page <= max_pages:
-            projects = await self.list_projects(page=page, per_page=100)
-            if not projects:
-                break
-            all_projects.extend(projects)
-            if len(projects) < 100:
-                break
-            page += 1
-        return all_projects
+        return await self._list_every_page("/projects")
 
     # ── Plans / Floors ───────────────────────────────────────
 
@@ -176,12 +183,10 @@ class MagicPlanClient:
 
     async def get_project_files(self, project_id: str) -> List[Dict[str, Any]]:
         """
-        Get exported files for a project (JPG/PNG/SVG/PDF floor plans).
+        Get every file of a project: photos and videos taken in it, and exports
+        (JPG/PNG/SVG/PDF floor plans).
         """
-        result = await self._request("GET", f"/projects/{project_id}/files")
-        if isinstance(result, list):
-            return result
-        return result.get("data", result.get("files", []))
+        return await self._list_every_page(f"/projects/{project_id}/files")
 
     # ── File Download ────────────────────────────────────────
 

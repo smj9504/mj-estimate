@@ -20,10 +20,13 @@ from PIL import Image
 from PIL.ExifTags import TAGS
 from sqlalchemy.sql import func
 
+from app.common.services import video_tools
+from app.common.services.media_types import as_jpeg_name, is_heic, is_video, media_type_of
 from app.common.utils.address import fill_missing_address_parts
 from app.core.config import settings
 from app.core.interfaces import DatabaseSession
 from app.domains.storage.factory import StorageFactory
+from app.domains.storage.optimization import heic_to_jpeg
 
 from .document_repository import WMDocumentRepository
 from .models import (
@@ -573,6 +576,14 @@ class WaterMitigationService:
                     else getattr(photo, 'id', None)
                 )
 
+                mime_type = (
+                    photo.get('mime_type') if isinstance(photo, dict)
+                    else getattr(photo, 'mime_type', None)
+                )
+                if is_video(mime_type):
+                    from app.domains.file.video_service import OWNER_WM_PHOTO, delete_renditions
+                    delete_renditions(self.session, OWNER_WM_PHOTO, [photo_id])
+
                 # Delete based on storage provider
                 if storage_provider == 'local' and file_path_str:
                     # Delete local file
@@ -719,32 +730,25 @@ class WaterMitigationService:
         """
         try:
             # Open image and extract EXIF data
+            # getexif, not _getexif: JPEG has the latter but an iPhone's HEIC doesn't
             image = Image.open(file_path)
-            exif_data = image._getexif()
+            exif_data = image.getexif()
 
-            if exif_data:
-                # Find DateTimeOriginal (tag 36867) or DateTime (tag 306)
-                for tag_id, value in exif_data.items():
-                    tag = TAGS.get(tag_id, tag_id)
-
-                    # Primary: DateTimeOriginal (when photo was taken)
-                    if tag == 'DateTimeOriginal':
-                        try:
-                            # Parse EXIF datetime format: "YYYY:MM:DD HH:MM:SS"
-                            capture_date = datetime.strptime(value, '%Y:%m:%d %H:%M:%S')
-                            logger.info(f"Extracted EXIF DateTimeOriginal: {capture_date}")
-                            return capture_date
-                        except ValueError as e:
-                            logger.warning(f"Failed to parse DateTimeOriginal '{value}': {e}")
-
-                    # Fallback: DateTime (when photo was modified)
-                    elif tag == 'DateTime':
-                        try:
-                            capture_date = datetime.strptime(value, '%Y:%m:%d %H:%M:%S')
-                            logger.info(f"Extracted EXIF DateTime: {capture_date}")
-                            return capture_date
-                        except ValueError as e:
-                            logger.warning(f"Failed to parse DateTime '{value}': {e}")
+            # Primary: DateTimeOriginal (tag 36867, when photo was taken), then
+            # DateTime (tag 306, when photo was modified)
+            for tag, value in (
+                ('DateTimeOriginal', exif_data.get_ifd(0x8769).get(36867)),
+                ('DateTime', exif_data.get(306)),
+            ):
+                if not value:
+                    continue
+                try:
+                    # Parse EXIF datetime format: "YYYY:MM:DD HH:MM:SS"
+                    capture_date = datetime.strptime(value, '%Y:%m:%d %H:%M:%S')
+                    logger.info(f"Extracted EXIF {tag}: {capture_date}")
+                    return capture_date
+                except ValueError as e:
+                    logger.warning(f"Failed to parse {tag} '{value}': {e}")
 
         except Exception as e:
             logger.warning(f"Failed to extract EXIF data from {file_path.name}: {e}")
@@ -794,29 +798,41 @@ class WaterMitigationService:
         storage = StorageFactory.get_instance()
         storage_provider_type = settings.STORAGE_PROVIDER.lower()
 
+        filename = file.filename or f"photo_{datetime.utcnow().timestamp()}.jpg"
+        content_type = media_type_of(filename, file.content_type)
+
+        if is_video(content_type):
+            return await self._upload_video(
+                storage, job_id, file, filename, content_type, title, description, uploaded_by_id
+            )
+        if not content_type.startswith('image/'):
+            raise ValueError(f"{filename} is not a photo or a video")
+
         # Read file content
         file_content = await file.read()
-        file_size = len(file_content)
-
-        # Determine file type
-        is_image = file.content_type and file.content_type.startswith('image/')
-        file_type = 'photo' if is_image else 'video'
 
         # Extract capture date from EXIF metadata
         # Runs on a worker thread: temp-file I/O + PIL decoding are blocking
         # calls that would otherwise stall the single event loop worker
         # (--workers 1) and cause other concurrent requests to time out.
-        captured_date = None
-        if is_image:
-            try:
-                captured_date = await asyncio.to_thread(
-                    self._save_temp_and_extract_capture_date, file_content
-                )
-            except Exception as e:
-                logger.warning(f"Failed to extract EXIF date: {e}")
-                captured_date = datetime.utcnow()
-        else:
+        try:
+            captured_date = await asyncio.to_thread(
+                self._save_temp_and_extract_capture_date, file_content
+            )
+        except Exception as e:
+            logger.warning(f"Failed to extract EXIF date: {e}")
             captured_date = datetime.utcnow()
+
+        # Windows and Chrome can't show an iPhone's HEIC, so it isn't stored as one
+        if is_heic(content_type):
+            try:
+                file_content = await asyncio.to_thread(heic_to_jpeg, file_content)
+            except Exception as e:
+                raise ValueError(f"{filename} could not be read as a photo: {e}")
+            filename = as_jpeg_name(filename)
+            content_type = 'image/jpeg'
+
+        file_size = len(file_content)
 
         # Upload to storage
         try:
@@ -824,11 +840,11 @@ class WaterMitigationService:
             upload_result = await asyncio.to_thread(
                 storage.upload,
                 file_data=file_stream,
-                filename=file.filename or f"photo_{datetime.utcnow().timestamp()}.jpg",
+                filename=filename,
                 context="water-mitigation",
                 context_id=str(job_id),
                 category="photos",
-                content_type=file.content_type,
+                content_type=content_type,
             )
             
             # Get file path (works for both local and cloud storage)
@@ -847,11 +863,11 @@ class WaterMitigationService:
         photo_data = {
             'job_id': job_id,
             'source': 'manual_upload',
-            'file_name': file.filename or upload_result.file_id,
+            'file_name': filename,
             'file_path': file_path,
             'file_size': file_size,
-            'mime_type': file.content_type,
-            'file_type': file_type,
+            'mime_type': content_type,
+            'file_type': 'photo',
             'title': title,
             'description': description,
             'captured_date': captured_date,
@@ -864,9 +880,57 @@ class WaterMitigationService:
         }
 
         created_photo = await asyncio.to_thread(self.photo_repo.create, photo_data)
-        logger.info(f"Photo uploaded to job {job_id}: {file.filename}")
+        logger.info(f"Photo uploaded to job {job_id}: {filename}")
 
         return created_photo
+
+    async def _upload_video(
+        self,
+        storage: Any,
+        job_id: UUID,
+        file: UploadFile,
+        filename: str,
+        content_type: str,
+        title: Optional[str],
+        description: Optional[str],
+        uploaded_by_id: Optional[UUID],
+    ) -> Dict[str, Any]:
+        """Store a video off the disk spool UploadFile already wrote it to: read into
+        memory like a photo, an iPhone clip would take the server down."""
+        from app.domains.file.video_service import MAX_VIDEO_UPLOAD_BYTES, store_video
+
+        if file.size and file.size > MAX_VIDEO_UPLOAD_BYTES:
+            raise ValueError(f"{filename} is over the {MAX_VIDEO_UPLOAD_BYTES // 1024 ** 3}GB limit for a video")
+
+        upload_result, file_size = await asyncio.to_thread(
+            store_video,
+            file.file,
+            filename,
+            content_type,
+            "water-mitigation",
+            str(job_id),
+            "photos",
+            storage,
+        )
+        logger.info(f"Video uploaded to job {job_id}: {filename} ({file_size} bytes)")
+
+        return await asyncio.to_thread(self.photo_repo.create, {
+            'job_id': job_id,
+            'source': 'manual_upload',
+            'file_name': filename,
+            'file_path': upload_result.file_path,
+            'file_size': file_size,
+            'mime_type': content_type,
+            'file_type': 'video',
+            'title': title,
+            'description': description,
+            'captured_date': datetime.utcnow(),
+            'upload_status': 'completed',
+            'uploaded_by_id': uploaded_by_id,
+            'storage_provider': settings.STORAGE_PROVIDER.lower(),
+            'storage_file_id': upload_result.file_id,
+            'storage_folder_path': upload_result.folder_path,
+        })
 
     async def upload_document(
         self,
@@ -1172,6 +1236,49 @@ class WaterMitigationService:
                     return existing
             raise
 
+    async def save_companycam_video(self, job_id: UUID, cc_video: Dict[str, Any]) -> WMPhoto:
+        """Download a CompanyCam video and store it on the job, in pieces: these run
+        to hundreds of MB. CompanyCam's thumbnails stand in for a poster."""
+        import tempfile
+
+        from app.domains.file.video_service import store_video
+        from app.domains.integrations.companycam.utils import video_file_details, video_taken_at
+
+        external_id, filename, content_type, url = video_file_details(cc_video)
+
+        def fetch_and_store():
+            with tempfile.TemporaryDirectory(prefix='cc-video-') as folder:
+                local = Path(folder) / filename
+                video_tools.download_to_file(url, local)
+                with open(local, 'rb') as data:
+                    return store_video(data, filename, content_type, 'water-mitigation', str(job_id), 'photos')
+
+        upload_result, file_size = await asyncio.to_thread(fetch_and_store)
+
+        thumbnails = cc_video.get('thumbnail_urls') or {}
+        coordinates = cc_video.get('coordinates') or {}
+        created = self.photo_repo.create({
+            'job_id': job_id,
+            'source': 'companycam',
+            'external_id': external_id,
+            'file_name': filename,
+            'file_path': upload_result.file_path,
+            'file_size': file_size,
+            'mime_type': content_type,
+            'file_type': 'video',
+            'captured_date': video_taken_at(cc_video) or datetime.utcnow(),
+            'category': '',
+            'upload_status': 'completed',
+            'storage_provider': settings.STORAGE_PROVIDER.lower(),
+            'storage_file_id': upload_result.file_id,
+            'storage_thumbnail_url': thumbnails.get('medium') or thumbnails.get('small'),
+            'storage_web_url': thumbnails.get('large') or thumbnails.get('medium'),
+            'storage_folder_path': upload_result.folder_path,
+            'latitude': coordinates.get('lat'),
+            'longitude': coordinates.get('lon'),
+        })
+        return created
+
     def _assign_categories_from_tags(
         self,
         photo: WMPhoto,
@@ -1284,6 +1391,10 @@ class WaterMitigationService:
         storage_provider = photo.get('storage_provider')
         storage_file_id = photo.get('storage_file_id')
         file_path = photo.get('file_path')
+
+        if is_video(photo.get('mime_type')):
+            from app.domains.file.video_service import OWNER_WM_PHOTO, delete_renditions
+            delete_renditions(self.session, OWNER_WM_PHOTO, [photo_id])
 
         # Delete from database first, so a record that can't be removed keeps its file
         record_deleted = self.photo_repo.delete(photo_id)
@@ -1423,6 +1534,10 @@ class WaterMitigationService:
                 elif photo.file_path and os.path.exists(photo.file_path):
                     os.remove(photo.file_path)
                     storage_deleted = True
+
+                if is_video(photo.mime_type):
+                    from app.domains.file.video_service import OWNER_WM_PHOTO, delete_renditions
+                    delete_renditions(self.session, OWNER_WM_PHOTO, [photo.id])
 
                 # Delete from database regardless of storage result
                 self.photo_repo.delete(photo.id)
@@ -1701,7 +1816,8 @@ class WaterMitigationService:
             raise ValueError("Job not found")
 
         photos = self.get_job_photos(job_id)
-        photos_list = [self.photo_repo._convert_to_dict(p) for p in photos]
+        # A PDF can't hold a video, however one came to be in a saved report
+        photos_list = [self.photo_repo._convert_to_dict(p) for p in photos if not is_video(p.mime_type)]
 
         # Company data - prioritize assigned company, fall back to client company
         company_data = None
@@ -1946,11 +2062,12 @@ class WaterMitigationService:
 
         async with CompanyCamClient() as companycam_client:
             photos = await companycam_client.get_project_photos(project_id)
+            videos = await companycam_client.get_project_videos_as_media(project_id)
 
         return {
             'success': True,
             'project_id': str(project_id),
-            **summarize_photo_dates(photos, existing_external_ids),
+            **summarize_photo_dates(photos + videos, existing_external_ids),
         }
 
     async def sync_companycam_photos(
@@ -1979,6 +2096,7 @@ class WaterMitigationService:
         Returns:
             Dict with sync results
         """
+        from app.domains.file.video_service import OWNER_WM_PHOTO, queue_processing
         from app.domains.integrations.companycam.client import CompanyCamClient
         from app.domains.integrations.companycam.utils import extract_captured_date
 
@@ -2038,6 +2156,7 @@ class WaterMitigationService:
         skipped_trashed = 0
         skipped_date_filtered = 0
         total_companycam = 0
+        videos_synced = 0
         errors = []
 
         # Initialize CompanyCam client with connection pooling
@@ -2078,6 +2197,7 @@ class WaterMitigationService:
                 'skipped_trashed': skipped_trashed,
                 'skipped_date_filtered': skipped_date_filtered,
                 'total_companycam': total_companycam,
+                'videos_synced': videos_synced,
                 'current_page': page,
                 'errors': errors[:5]
             }), ttl=3600)
@@ -2425,6 +2545,63 @@ class WaterMitigationService:
                 logger.error(error_msg, exc_info=True)
                 has_more = False
 
+          # Videos have an endpoint of their own, and come one at a time since a
+          # single one can be hundreds of MB
+          if not cancelled:
+              videos = []
+              try:
+                  videos = await companycam_client.get_project_videos_as_media(project_id, strict=True)
+              except Exception as e:
+                  errors.append(f"Failed to list videos: {e}")
+                  logger.error(f"Failed to list CompanyCam videos for job {job_id}: {e}")
+              total_companycam += len(videos)
+
+              for cc_video in videos:
+                  if await is_cancelled():
+                      logger.info(f"Sync cancelled for job {job_id}")
+                      cancelled = True
+                      break
+
+                  video_id = cc_video['id']
+                  if video_id in existing_external_ids:
+                      existing_video = existing_photos.get(video_id)
+                      if existing_video and existing_video.is_trashed:
+                          skipped_trashed += 1
+                      else:
+                          skipped_existing += 1
+                      continue
+
+                  if selected_dates_set is not None:
+                      video_date = extract_captured_date(cc_video)
+                      date_key = video_date.isoformat() if video_date else 'unknown'
+                      if date_key not in selected_dates_set:
+                          skipped_date_filtered += 1
+                          continue
+
+                  # CompanyCam is still working on it; the next sync picks it up
+                  if cc_video.get('status') != 'processed':
+                      continue
+
+                  # external_id is unique across jobs, as with photos
+                  if self.session.query(WMPhoto.id).filter(WMPhoto.external_id == video_id).first():
+                      skipped_existing += 1
+                      continue
+
+                  try:
+                      created = await self.save_companycam_video(job_id, cc_video)
+                      self.session.commit()
+                      queue_processing(OWNER_WM_PHOTO, created['id'])
+                      existing_external_ids.add(video_id)
+                      synced_count += 1
+                      videos_synced += 1
+                  except Exception as e:
+                      self.session.rollback()
+                      msg = f"Failed to save video {video_id}: {e}"
+                      errors.append(msg)
+                      logger.error(msg)
+
+                  await update_progress(page)
+
         # Build result
         date_filter_note = (
             f" Skipped {skipped_date_filtered} outside the selected dates."
@@ -2433,14 +2610,15 @@ class WaterMitigationService:
         if cancelled:
             success = True
             message = (
-                f"Sync cancelled. Synced {synced_count} photos before cancellation. "
+                f"Sync cancelled. Synced {synced_count} items before cancellation. "
                 f"Skipped {skipped_existing} existing, {skipped_trashed} trashed."
                 f"{date_filter_note}"
             )
         else:
             success = len(errors) == 0 or synced_count > 0
+            of_which_videos = f" ({videos_synced} videos)" if videos_synced else ""
             message = (
-                f"Synced {synced_count} photos. "
+                f"Synced {synced_count} items{of_which_videos}. "
                 f"Skipped {skipped_existing} existing, {skipped_trashed} trashed. "
                 f"Total in CompanyCam: {total_companycam}."
                 f"{date_filter_note}"
@@ -2459,6 +2637,7 @@ class WaterMitigationService:
             'skipped_trashed': skipped_trashed,
             'skipped_date_filtered': skipped_date_filtered,
             'total_companycam': total_companycam,
+            'videos_synced': videos_synced,
             'current_page': page,
             'errors': errors[:10],
             'message': message
@@ -2472,6 +2651,7 @@ class WaterMitigationService:
             'skipped_trashed': skipped_trashed,
             'skipped_date_filtered': skipped_date_filtered,
             'total_companycam': total_companycam,
+            'videos_synced': videos_synced,
             'errors': errors[:10],
             'cancelled': cancelled
         }

@@ -15,6 +15,7 @@ import {
   markCompleted,
   markFailed,
 } from '../utils/uploadQueue';
+import { MEDIA_ACCEPT } from '../components/common/FileGallery/videoFiles';
 
 const CONCURRENT_UPLOADS = 6;
 
@@ -290,7 +291,7 @@ const CrewUploadPage: React.FC = () => {
         {!uploading && !allDone && !compressing && (
           <div style={styles.uploadSection}>
             <Upload
-              accept="image/*,video/*"
+              accept={MEDIA_ACCEPT}
               multiple
               showUploadList={false}
               beforeUpload={() => false}

@@ -54,6 +54,9 @@ class FileResponse(FileBase):
     is_active: bool = Field(..., description="File active status")
     created_at: datetime
     updated_at: Optional[datetime]
+    # Videos only: how their poster and browser copy are coming along
+    video_status: Optional[str] = None
+    duration_seconds: Optional[float] = None
 
     model_config = ConfigDict(
         from_attributes=True,

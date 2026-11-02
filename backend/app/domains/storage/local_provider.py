@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, List, Optional
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from .base import FileMetadata, StorageProvider, UploadResult
 
@@ -107,6 +107,17 @@ class LocalStorageProvider(StorageProvider):
             return read_bounded(file_path, max_bytes)
         with open(file_path, 'rb') as f:
             return f.read()
+
+    supports_range = True
+
+    def read_range(self, file_id: str, start: int, end: int) -> bytes:
+        """Read part of a file"""
+        file_path = self._find_file_path(file_id)
+        if not file_path or not file_path.exists():
+            raise FileNotFoundError(f"File not found: {file_id}")
+        with open(file_path, 'rb') as f:
+            f.seek(start)
+            return f.read(end - start + 1)
 
     def delete(self, file_id: str) -> bool:
         """Delete file from filesystem"""
@@ -257,6 +268,9 @@ class LocalStorageProvider(StorageProvider):
 
     def _find_file_path(self, file_id: str) -> Optional[Path]:
         """Find file path by searching base directory"""
+        # An absolute path can't be searched for, and needs no search
+        if Path(file_id).is_absolute():
+            return Path(file_id)
         for file_path in self.base_dir.rglob(file_id):
             if file_path.is_file():
                 return file_path
@@ -271,6 +285,9 @@ class LocalStorageProvider(StorageProvider):
         """Generate optimized thumbnail for image (WebP format for better compression)"""
         try:
             with Image.open(image_path) as img:
+                # The thumbnail keeps no EXIF to say which way up it goes
+                img = ImageOps.exif_transpose(img)
+
                 # Convert to RGB if necessary
                 if img.mode != 'RGB':
                     img = img.convert('RGB')

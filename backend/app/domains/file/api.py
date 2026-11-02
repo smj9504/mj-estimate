@@ -2,15 +2,17 @@
 File API endpoints for file upload and management
 """
 
+import asyncio
 import io
 import logging
 import mimetypes
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse as FastAPIFileResponse
 
+from app.common.services.media_types import as_jpeg_name, is_heic, is_video, media_type_of
 from app.core.database_factory import get_database
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.staff.models import Staff
@@ -24,6 +26,16 @@ from .schemas import (
     FileUploadRequest,
 )
 from .service import FileService
+from .video_service import (
+    MAX_VIDEO_UPLOAD_BYTES,
+    OWNER_FILE,
+    OWNER_WM_PHOTO,
+    download_response,
+    poster_response,
+    queue_processing,
+    video_fields,
+    video_response,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -47,7 +59,7 @@ async def upload_files(
     """Upload one or more files"""
     try:
         # Validate file types and sizes
-        allowed_types = ['image/*', 'application/pdf', 'application/msword',
+        allowed_types = ['image/*', 'video/*', 'application/pdf', 'application/msword',
                         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                         'application/vnd.ms-excel',
                         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -61,29 +73,51 @@ async def upload_files(
         for file in files:
             # Validate file type (by MIME type or extension)
             file_ext = Path(file.filename).suffix.lower() if file.filename else ''
-            if not service.validate_file_type(file.content_type, allowed_types) and file_ext not in allowed_extensions:
+            content_type = media_type_of(file.filename, file.content_type)
+            if not service.validate_file_type(content_type, allowed_types) and file_ext not in allowed_extensions:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"File type {file.content_type} not allowed for {file.filename}"
+                    detail=f"File type {content_type} not allowed for {file.filename}"
                 )
 
-            # Read file content and validate size
-            file_content = await file.read()
-            if not service.validate_file_size(len(file_content), max_file_size):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"File {file.filename} exceeds maximum size of 20MB"
-                )
+            filename = file.filename
+            if is_video(content_type):
+                # Off the disk spool UploadFile wrote it to: an iPhone clip doesn't
+                # fit in this server's memory
+                if file.size and file.size > MAX_VIDEO_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"File {filename} exceeds the {MAX_VIDEO_UPLOAD_BYTES // 1024 ** 3}GB limit for a video"
+                    )
+                file_data = file.file
+            else:
+                # Read file content and validate size
+                file_content = await file.read()
+                if not service.validate_file_size(len(file_content), max_file_size):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"File {filename} exceeds maximum size of 20MB"
+                    )
 
-            # Reset file pointer for upload
-            from io import BytesIO
-            file_data = BytesIO(file_content)
+                # Windows and Chrome can't show an iPhone's HEIC, so it isn't stored as one
+                if is_heic(content_type):
+                    from app.domains.storage.optimization import heic_to_jpeg
+                    try:
+                        file_content = await asyncio.to_thread(heic_to_jpeg, file_content)
+                    except Exception as e:
+                        raise HTTPException(status_code=400, detail=f"{filename} could not be read as a photo: {e}")
+                    filename = as_jpeg_name(filename)
+                    content_type = 'image/jpeg'
+
+                # Reset file pointer for upload
+                from io import BytesIO
+                file_data = BytesIO(file_content)
 
             # Upload file
             uploaded_file = await service.upload_file(
                 file_data=file_data,
-                original_filename=file.filename,
-                content_type=file.content_type,
+                original_filename=filename,
+                content_type=content_type,
                 context=context,
                 context_id=context_id,
                 category=category,
@@ -96,6 +130,10 @@ async def upload_files(
         # Commit transaction to save files to database
         service.repository.session.commit()
         logger.info(f"✅ Transaction committed for {len(uploaded_files)} file(s)")
+
+        for uploaded in uploaded_files:
+            if is_video(uploaded.get('content_type')):
+                queue_processing(OWNER_WM_PHOTO if context == 'water-mitigation' else OWNER_FILE, uploaded['id'])
 
         # Convert dict to FileResponse models for proper alias generation
         file_responses = [FileResponse(**file_dict) for file_dict in uploaded_files]
@@ -118,9 +156,17 @@ async def upload_files(
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
+@router.api_route("/video/{file_id}", methods=["GET", "HEAD"])
+def play_video(file_id: str, request: Request):
+    """A video for a <video> element, which can't send a token and asks for ranges
+    of it. Open like the preview and download routes below it."""
+    return video_response(request, OWNER_FILE, file_id)
+
+
 @router.get("/download/{file_id}")
 def download_file(
     file_id: str,
+    request: Request,
     inline: bool = Query(False, description="If true, display in browser instead of downloading"),
     service: FileService = Depends(get_file_service)
 ):
@@ -135,6 +181,9 @@ def download_file(
         file_record = service.repository.get_by_id(file_id)
         if not file_record or not file_record.get('is_active', True):
             raise HTTPException(status_code=404, detail="File not found")
+
+        if is_video(file_record.get('content_type')):
+            return (video_response if inline else download_response)(request, OWNER_FILE, file_id)
 
         file_url = file_record.get('url', '')
         storage_provider = file_record.get('storage_provider')
@@ -208,6 +257,9 @@ def preview_file(
         if not file_record or not file_record.get('is_active', True):
             raise HTTPException(status_code=404, detail="File not found")
 
+        if is_video(file_record.get('content_type')):
+            return poster_response(OWNER_FILE, file_id)
+
         file_url = file_record.get('url', '')
         storage_provider = file_record.get('storage_provider')
 
@@ -240,6 +292,11 @@ def preview_file(
                 # Download original file
                 file_data = storage.download(file_url)
                 media_type = file_record.get('content_type', 'application/octet-stream')
+                # Stored before uploads were converted: browsers can't show it as it is
+                if is_heic(media_type):
+                    from app.domains.storage.optimization import heic_to_jpeg
+                    file_data = heic_to_jpeg(file_data)
+                    media_type = 'image/jpeg'
                 content_disposition = "inline" if media_type.startswith('image/') or media_type == 'application/pdf' else "attachment"
 
                 return StreamingResponse(
@@ -368,6 +425,12 @@ def get_files(
         # Ensure files is always a list
         if file_dicts is None:
             file_dicts = []
+
+        # A job's videos are in wm_photos and listed through the job's own routes
+        if context != 'water-mitigation':
+            videos = video_fields(OWNER_FILE, [str(f['id']) for f in file_dicts if is_video(f.get('content_type'))])
+            for file_dict in file_dicts:
+                file_dict.update(videos.get(str(file_dict['id']), {}))
 
         # Convert dict to FileResponse models for proper alias generation
         files = [FileResponse(**file_dict) for file_dict in file_dicts]
