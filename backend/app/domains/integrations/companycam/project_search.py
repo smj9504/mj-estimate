@@ -103,6 +103,10 @@ async def search_projects_by_address(
     logger.info(f"Found {len(project_list)} projects from CompanyCam")
 
     for project in project_list:
+        # CompanyCam still lists these, and answers 404 for their photos
+        if project.get('status') == 'deleted':
+            continue
+
         project_id = project.get('id')
         project_name = project.get('name') or ''  # Handle None explicitly
 

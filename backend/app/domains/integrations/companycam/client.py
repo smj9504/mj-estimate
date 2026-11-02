@@ -436,7 +436,8 @@ class CompanyCamClient:
 
         except Exception as e:
             logger.error(f"Failed to get photos for project {project_id}: {e}")
-            return []
+            # Not an empty list: the webhook takes photos missing from it as deleted
+            raise
 
     async def list_project_photos(
         self,
