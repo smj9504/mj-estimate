@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useBreadcrumbTitle } from '../contexts/BreadcrumbContext';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useMatch } from 'react-router-dom';
 import {
   Card,
   Descriptions,
@@ -151,8 +151,9 @@ const WaterMitigationDetail: React.FC = () => {
   // Set breadcrumb title to property address
   useBreadcrumbTitle(job?.property_address || null);
   const [statusHistory, setStatusHistory] = useState<JobStatusHistory[]>([]);
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
+  // The job form is open while the URL ends in /edit. Both routes render this same
+  // page, which stays mounted going from one to the other, so read it on every render.
+  const isEditMode = !!useMatch('/water-mitigation/:id/edit');
   const [selectedStatus, setSelectedStatus] = useState<JobStatus | null>(null);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [statusChangeNote, setStatusChangeNote] = useState('');
@@ -187,14 +188,6 @@ const WaterMitigationDetail: React.FC = () => {
     payment_status: '' as string,
     payment_note: '' as string,
   });
-
-  useEffect(() => {
-    const isEdit = window.location.pathname.includes('/edit');
-    setIsEditMode(isEdit);
-    if (isEdit) {
-      setShowEditModal(true);
-    }
-  }, []);
 
   const loadCompanies = async () => {
     try {
@@ -274,18 +267,12 @@ const WaterMitigationDetail: React.FC = () => {
   }, [job]);
 
   const handleEditModalClose = () => {
-    setShowEditModal(false);
-    if (isEditMode) {
-      navigate(`/water-mitigation/${id}`);
-    }
+    navigate(`/water-mitigation/${id}`);
   };
 
   const handleEditModalSuccess = () => {
-    setShowEditModal(false);
     loadJob();
-    if (isEditMode) {
-      navigate(`/water-mitigation/${id}`);
-    }
+    navigate(`/water-mitigation/${id}`);
   };
 
   const handleStatusChange = (newStatus: JobStatus) => {
@@ -1145,7 +1132,7 @@ const WaterMitigationDetail: React.FC = () => {
 
       {/* Edit Modal */}
       <JobFormModal
-        visible={showEditModal}
+        visible={isEditMode}
         onCancel={handleEditModalClose}
         onSuccess={handleEditModalSuccess}
         job={job || undefined}
