@@ -8,6 +8,7 @@ import asyncio
 import logging
 import math
 import os
+import re
 import threading
 from datetime import date, datetime, time
 from pathlib import Path
@@ -1318,7 +1319,9 @@ async def preview_photo(
                         logger.warning(f"Cloud image optimization failed for photo {photo_id}: {e}, serving original")
                         # Fall through to unoptimized original below
 
-            if storage_provider in ('gdrive', 'gcs') and hasattr(storage, 'download') and storage_file_id:
+            # Crops used to be stored labelled application/pdf, and a browser won't
+            # show that in an <img> from B2's address: those need the type set here.
+            if (storage_provider in ('gdrive', 'gcs') or source == 'cropped') and hasattr(storage, 'download') and storage_file_id:
                 # size=original: cache the raw downloaded bytes too, so
                 # reopening the same photo's detail modal doesn't re-hit GCS.
                 original_cache_dir = cache_base_dir / "original"
@@ -1576,6 +1579,75 @@ async def download_photo(
     )
 
 
+# What storage keeps of a photo at most: it shrinks anything larger when saving.
+STORED_PHOTO_PX = 1920
+
+
+def _companycam_original(external_id: str) -> Optional[bytes]:
+    """The photo as CompanyCam holds it: of 48 sampled on 2026-11-02, 17 were 2880px
+    where storage keeps 1920. None if it can't hand it over: storage's copy still crops."""
+    from app.core.config import settings
+
+    from ..integrations.companycam.client import CompanyCamClient
+
+    if not settings.ENABLE_INTEGRATIONS or not settings.COMPANYCAM_API_KEY:
+        return None
+    try:
+        client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
+        url = client.get_photo_url(external_id)
+        return asyncio.run(client.download_photo(url)) if url else None
+    except Exception as e:
+        logger.warning(f"No CompanyCam original for photo {external_id}: {e}")
+        return None
+
+
+def _stored_photo_bytes(photo: dict) -> bytes:
+    """A photo's file as storage holds it, wherever that is."""
+    from app.common.utils.storage_helpers import download_from_storage
+    from app.core.config import settings
+
+    file_path = photo.get('file_path') or ''
+    for local in (Path(file_path), Path(settings.STORAGE_BASE_DIR) / file_path):
+        if file_path and local.is_file():
+            return local.read_bytes()
+    return download_from_storage(
+        photo.get('storage_file_id') or file_path, photo.get('storage_provider'), max_bytes=30 * MIB
+    )
+
+
+def _load_photo_to_crop(photo: dict, original: Optional[bytes]):
+    """The photo with the most pixels there are to crop. CompanyCam's answer counts
+    only at storage's size or more: with no original on offer it can send a thumbnail."""
+    import io
+
+    from app.common.services.pdf_service import load_photo_to_crop
+
+    if original:
+        try:
+            img = load_photo_to_crop(io.BytesIO(original))
+            if max(img.size) >= STORED_PHOTO_PX:
+                return img
+            img.close()
+        except Exception as e:
+            logger.info(f"Cropping storage's copy instead of the CompanyCam original: {e}")
+    return load_photo_to_crop(io.BytesIO(_stored_photo_bytes(photo)))
+
+
+def _cropped_file_name(source_name: Optional[str], taken: set) -> str:
+    """"IMG_2041.jpg" -> "IMG_2041_cropped.jpg", then "_cropped_2" for the next crop
+    of it. A crop of a crop stays one "_cropped"."""
+    stem = re.sub(r'_cropped(_\d+)?$', '', Path(source_name or '').stem)
+    stem = re.sub(r'^(cropped_)+', '', stem)  # Crops were all "cropped_cropped.jpg" once
+    if not stem or stem == 'cropped':
+        stem = 'photo'
+    name = f"{stem}_cropped.jpg"
+    copy = 2
+    while name in taken:
+        name = f"{stem}_cropped_{copy}.jpg"
+        copy += 1
+    return name
+
+
 @router.post("/photos/{photo_id}/perspective-crop", dependencies=[_photo_access])
 def perspective_crop_photo(
     photo_id: UUID,
@@ -1589,88 +1661,73 @@ def perspective_crop_photo(
     to create a cropped, corrected version of the photo.
     Returns the new photo data.
     """
-    import tempfile
-    from pathlib import Path
-
-    from app.common.services.pdf_service import apply_scan_effect, perspective_crop
-    from app.core.config import settings
-    from PIL import Image, ImageOps
+    from app.common.services.document_resources import document_guard
+    from app.common.services.pdf_service import cropped_photo_jpeg
+    from app.common.utils.storage_helpers import upload_bytes_to_storage
 
     photo = service.photo_repo.get_by_id(str(photo_id))
     if not photo:
         raise HTTPException(status_code=404, detail="Photo not found")
 
     photo_dict = service.photo_repo._convert_to_dict(photo)
-    file_path_str = photo_dict.get('file_path', '')
-    storage_provider = settings.STORAGE_PROVIDER
+    job_id = photo_dict.get('job_id', '')
 
-    # Load image bytes
-    img_bytes = None
-    local_path = Path(file_path_str)
-    if local_path.exists():
-        img_bytes = local_path.read_bytes()
-    elif storage_provider and storage_provider.lower() != 'local':
-        from app.domains.storage.factory import StorageFactory
-        storage = StorageFactory.get_instance(storage_provider)
-        img_bytes = storage.download(file_path_str)
-
-    if not img_bytes:
-        raise HTTPException(status_code=404, detail="Photo file not found")
-
-    # Open image and apply perspective crop
-    import io
-    img = Image.open(io.BytesIO(img_bytes))
-    img = ImageOps.exif_transpose(img)
+    original = None
+    if photo_dict.get('source') == 'companycam' and photo_dict.get('external_id'):
+        original = _companycam_original(photo_dict['external_id'])
 
     points = [{"x": p.x, "y": p.y} for p in request.points]
-    cropped = perspective_crop(img, points)
+    try:
+        with document_guard():
+            img = _load_photo_to_crop(photo_dict, original)
+            try:
+                cropped_bytes = cropped_photo_jpeg(img, points, request.scan_effect)
+            finally:
+                img.close()
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Photo file not found")
+    except DocumentResourceError as e:
+        raise HTTPException(status_code=503, detail=str(e), headers={"Retry-After": "10"})
 
-    # Apply scan effect if requested
-    if request.scan_effect:
-        cropped = apply_scan_effect(cropped, mode=request.scan_effect)
+    taken = {
+        name for (name,) in service.session.query(WMPhoto.file_name).filter(
+            WMPhoto.job_id == UUID(str(job_id)), WMPhoto.source == 'cropped'
+        )
+    }
+    cropped_filename = _cropped_file_name(photo_dict.get('file_name'), taken)
 
-    # Save to temp file
-    temp_fd, temp_path = tempfile.mkstemp(suffix='.jpg')
-    import os
-    os.close(temp_fd)
-    cropped.save(temp_path, format='JPEG', quality=95)
-
-    # Upload to storage
-    from app.common.utils.storage_helpers import upload_bytes_to_storage
-    cropped_bytes = Path(temp_path).read_bytes()
-    job_id = photo_dict.get('job_id', '')
-    original_name = photo_dict.get('original_name', 'cropped.jpg')
-    cropped_filename = f"cropped_{original_name}"
-
+    # Not optimized: that would shrink a crop from a larger original back to 1920px
+    # as a WebP
     storage_info = upload_bytes_to_storage(
         file_bytes=cropped_bytes,
         filename=cropped_filename,
         context="water-mitigation",
         context_id=str(job_id),
         category="photos",
+        content_type="image/jpeg",
+        optimize=False,
     )
 
-    # Clean up temp
-    try:
-        Path(temp_path).unlink()
-    except Exception:
-        pass
-
-    # Create new photo record
+    # Create new photo record, filed with the photo it came from
     new_photo_data = {
         "job_id": str(job_id),
         "file_path": storage_info["file_path"],
         "file_name": cropped_filename,
         "mime_type": "image/jpeg",
+        "file_type": "photo",
         "file_size": storage_info["file_size"],
         "source": "cropped",
-        "category": photo_dict.get('category', 'documentation'),
-        "title": f"Cropped - {photo_dict.get('title', original_name)}",
+        "category": photo_dict.get('category') or '',
+        "title": photo_dict.get('title'),
+        "captured_date": photo_dict.get('captured_date'),
+        "location_level": photo_dict.get('location_level'),
+        "location_room": photo_dict.get('location_room'),
         "storage_provider": storage_info.get("storage_provider"),
         "storage_file_id": storage_info.get("storage_file_id"),
     }
     new_photo = service.photo_repo.create(new_photo_data)
     db.commit()
+    _invalidate_photo_list_cache()
 
     new_photo_dict = service.photo_repo._convert_to_dict(new_photo)
 
@@ -2740,8 +2797,10 @@ async def generate_document_pdf(
 
         # Build rotations dict using photo_id as key (to match paths in pdf_service)
         rotations = None
+        rotations_by_path = None
         if request.rotations:
             rotations = {str(k): v for k, v in request.rotations.items()}
+            rotations_by_path = {path: rotations.get(pid, 0) for path, pid in path_to_id.items()}
             logger.info(f"Photo rotations requested: {rotations}")
 
         # Generate filename
@@ -2798,7 +2857,8 @@ async def generate_document_pdf(
             # COS: Images only (multiple photos)
             await asyncio.to_thread(
                 generate_images_pdf, photo_paths, temp_output,
-                rotations=rotations, scan_effect=request.scan_effect,
+                rotations=rotations_by_path, scan_effect=request.scan_effect,
+                compress=request.compress,
             )
 
         pdf_bytes = Path(temp_output).read_bytes()

@@ -5,20 +5,21 @@
  */
 
 import React, { useState, useRef, useCallback } from 'react';
-import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox, Grid, Radio, Table, Tag, Empty } from 'antd';
-import { FilePdfOutlined, PlusOutlined, UploadOutlined, RotateRightOutlined, CloseOutlined, EditOutlined, FormOutlined, ScissorOutlined } from '@ant-design/icons';
+import { Button, Modal, Select, Space, message, Spin, Input, Segmented, Switch, Tag, Empty } from 'antd';
+import { ExclamationCircleOutlined, FilePdfOutlined, PlusOutlined, UploadOutlined, EditOutlined, FormOutlined } from '@ant-design/icons';
 import PerspectiveCropModal from './PerspectiveCropModal';
-import { useQuery } from '@tanstack/react-query';
+import WMDocumentPages from './WMDocumentPages';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { contractTemplateService } from '../../services/contractService';
 import FileGallery from '../common/FileGallery/FileGallery';
+import { useSheetModal } from '../common/ui';
 import WMDocumentList from './WMDocumentList';
 import WMDocumentUploadModal from './WMDocumentUploadModal';
 import WMPdfAnnotator from './pdf-annotator/WMPdfAnnotator';
 import type { PdfAnnotationData } from './pdf-annotator/types';
 import waterMitigationService from '../../services/waterMitigationService';
 import api from '../../services/api';
-
-const { Title, Text } = Typography;
+import './documentCreate.css';
 
 interface WaterMitigationDocumentsTabProps {
   jobId: string;
@@ -60,7 +61,11 @@ const DOCUMENT_TYPES: DocumentType[] = [
   }
 ];
 
-const { useBreakpoint } = Grid;
+const SCAN_EFFECTS = [
+  { label: 'None', value: 'none' },
+  { label: 'Color scan', value: 'color_scan' },
+  { label: 'B&W scan', value: 'bw_scan' },
+];
 
 const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = ({
   jobId,
@@ -72,8 +77,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   onJobDataChange,
   canEditInvoices = true,
 }) => {
-  const screens = useBreakpoint();
-  const isMobile = !screens.md;
+  const { isPhone: isMobile, sheetProps } = useSheetModal('tall');
+  const queryClient = useQueryClient();
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const [selectedDocType, setSelectedDocType] = useState<string | null>(null);
@@ -93,11 +98,13 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   const [editingSignatureFields, setEditingSignatureFields] = useState<any[] | undefined>(undefined);
   const [cropModalOpen, setCropModalOpen] = useState(false);
   const [cropPhotoId, setCropPhotoId] = useState<string>('');
-  const [cropPhotoUrl, setCropPhotoUrl] = useState<string>('');
   const [createSource, setCreateSource] = useState<'photos' | 'template'>('photos');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [generatingFromTemplate, setGeneratingFromTemplate] = useState(false);
   const documentListRef = useRef<any>(null);
+  // The gallery's cards keep the selection handler from when they last redrew
+  const selectedDocTypeRef = useRef(selectedDocType);
+  selectedDocTypeRef.current = selectedDocType;
 
   // Fetch contract templates for assigned company (always fetch so we can decide default mode)
   const { data: templatesData } = useQuery({
@@ -123,10 +130,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     prevActiveRef.current = isActive;
   }, [isActive]);
 
-  const handleCreateDocument = () => {
-    const hasTemplates = companyId && contractTemplates.length > 0;
-    setCreateModalVisible(true);
-    setCreateSource(hasTemplates ? 'template' : 'photos');
+  const resetCreateForm = () => {
     setSelectedDocType(null);
     setSelectedPhotoIds([]);
     setPhotoRotations({});
@@ -134,6 +138,18 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     setCompressPdf(false);
     setScanEffect(undefined);
     setSelectedTemplateId(null);
+  };
+
+  const handleCreateDocument = () => {
+    const hasTemplates = companyId && contractTemplates.length > 0;
+    setCreateModalVisible(true);
+    setCreateSource(hasTemplates ? 'template' : 'photos');
+    resetCreateForm();
+  };
+
+  const closeCreateModal = () => {
+    setCreateModalVisible(false);
+    resetCreateForm();
   };
 
   // Rotate a photo by 90 degrees clockwise
@@ -154,25 +170,40 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     });
   };
 
-  const getPhotoThumbnail = (photoId: string) => {
-    return `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photoId}/preview?size=thumbnail`;
-  };
-
-  const getPhotoFullUrl = (photoId: string) => {
+  const getPhotoWebUrl = (photoId: string) => {
     return `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photoId}/preview?size=web`;
   };
 
+  const getPhotoOriginalUrl = (photoId: string) => {
+    return `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photoId}/preview?size=original`;
+  };
+
   const handlePhotoSelection = (fileIds: string[]) => {
-    console.log('Document tab - photos selected:', fileIds);
+    // An EWA holds 1 photo: picking another swaps it
+    setSelectedPhotoIds(selectedDocTypeRef.current === 'EWA' ? fileIds.slice(-1) : fileIds);
+  };
 
-    // For EWA, limit to 1 photo
-    if (selectedDocType === 'EWA' && fileIds.length > 1) {
-      message.warning('EWA document requires exactly 1 photo. Only the first selected photo will be used.');
-      setSelectedPhotoIds([fileIds[0]]);
-      return;
+  const handleDocTypeChange = (value: string) => {
+    setSelectedDocType(value);
+    // Auto-fill custom filename with job address when Custom type is selected
+    if (value === 'Custom' && !customFilename) {
+      setCustomFilename(jobAddress);
     }
+    if (value === 'EWA' && selectedPhotoIds.length > 1) {
+      message.info('EWA document requires exactly 1 photo. Kept the first one.');
+      setSelectedPhotoIds(selectedPhotoIds.slice(0, 1));
+    }
+  };
 
-    setSelectedPhotoIds(fileIds);
+  const handleCropped = (newPhoto: any) => {
+    // The crop takes the original's page. Any turn is already in its pixels.
+    setSelectedPhotoIds(prev => prev.map(id => id === cropPhotoId ? newPhoto.id : id));
+    setPhotoRotations(prev => {
+      const { [cropPhotoId]: _, ...rest } = prev;
+      return rest;
+    });
+    setCropModalOpen(false);
+    queryClient.invalidateQueries({ queryKey: ['files-infinite', 'water-mitigation', jobId] });
   };
 
   const handleGeneratePdf = async () => {
@@ -212,7 +243,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
 
       // Build rotations object (only include non-zero rotations)
       const rotations = Object.entries(photoRotations).reduce((acc, [id, deg]) => {
-        if (deg !== 0) acc[id] = deg;
+        if (deg !== 0 && selectedPhotoIds.includes(id)) acc[id] = deg;
         return acc;
       }, {} as Record<string, number>);
 
@@ -240,13 +271,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
       setAnnotatorOpen(true);
 
       message.success('PDF generated. You can now annotate it.');
-      setCreateModalVisible(false);
-      setSelectedPhotoIds([]);
-      setSelectedDocType(null);
-      setPhotoRotations({});
-      setCustomFilename('');
-      setCompressPdf(false);
-      setScanEffect(undefined);
+      closeCreateModal();
     } catch (error: any) {
       console.error('Failed to generate PDF:', error);
       const errorMessage = error?.response?.data?.detail || 'Failed to generate PDF';
@@ -296,9 +321,13 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     }
   };
 
-  const getSelectedDocumentType = () => {
-    return DOCUMENT_TYPES.find(dt => dt.value === selectedDocType);
-  };
+  const pageCount = selectedPhotoIds.length > 0
+    ? selectedPhotoIds.length + (selectedDocType === 'EWA' ? 1 : 0)
+    : 0;
+  const canGeneratePdf = !!selectedDocType
+    && selectedPhotoIds.length > 0
+    && !(selectedDocType === 'EWA' && !dateOfLoss)
+    && !(selectedDocType === 'Custom' && !customFilename.trim());
 
   // --- PDF Annotator Handlers ---
 
@@ -402,33 +431,15 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
       />
 
       <Modal
-        title="Create Document"
+        {...sheetProps}
+        className="wdc-modal"
+        title="Create document"
         open={createModalVisible}
-        onCancel={() => {
-          setCreateModalVisible(false);
-          setSelectedPhotoIds([]);
-          setSelectedDocType(null);
-          setPhotoRotations({});
-          setCustomFilename('');
-          setCompressPdf(false);
-          setScanEffect(undefined);
-          setSelectedTemplateId(null);
-        }}
-        width={isMobile ? '95vw' : 1000}
+        onCancel={closeCreateModal}
+        width={createSource === 'photos' ? 1180 : 760}
+        style={isMobile ? undefined : { maxWidth: '96vw', top: 24 }}
         footer={[
-          <Button
-            key="cancel"
-            onClick={() => {
-              setCreateModalVisible(false);
-              setSelectedPhotoIds([]);
-              setSelectedDocType(null);
-              setPhotoRotations({});
-              setCustomFilename('');
-              setCompressPdf(false);
-              setScanEffect(undefined);
-              setSelectedTemplateId(null);
-            }}
-          >
+          <Button key="cancel" onClick={closeCreateModal}>
             Cancel
           </Button>,
           createSource === 'photos' ? (
@@ -437,10 +448,10 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
               type="primary"
               icon={<FilePdfOutlined />}
               onClick={handleGeneratePdf}
-              disabled={!selectedDocType || selectedPhotoIds.length === 0}
+              disabled={!canGeneratePdf}
               loading={creatingPdf}
             >
-              Generate PDF ({selectedPhotoIds.length} photo{selectedPhotoIds.length !== 1 ? 's' : ''})
+              {pageCount > 0 ? `Generate PDF · ${pageCount} page${pageCount !== 1 ? 's' : ''}` : 'Generate PDF'}
             </Button>
           ) : (
             <Button
@@ -456,230 +467,101 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
           )
         ]}
       >
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
-          {/* Source Selection */}
-          {companyId && contractTemplates.length > 0 && (
-            <Radio.Group
+        {/* Source Selection */}
+        {companyId && contractTemplates.length > 0 && (
+          <div className="wdc-source">
+            <Segmented
+              block
               value={createSource}
-              onChange={(e) => {
-                setCreateSource(e.target.value);
+              onChange={(value) => {
+                setCreateSource(value as 'photos' | 'template');
                 setSelectedDocType(null);
                 setSelectedPhotoIds([]);
+                setPhotoRotations({});
                 setSelectedTemplateId(null);
               }}
-              optionType="button"
-              buttonStyle="solid"
-              style={{ width: '100%', display: 'flex' }}
-            >
-              <Radio.Button value="photos" style={{ flex: 1, textAlign: 'center' }}>
-                <FilePdfOutlined /> From Photos
-              </Radio.Button>
-              <Radio.Button value="template" style={{ flex: 1, textAlign: 'center' }}>
-                <FormOutlined /> From Contract Template
-              </Radio.Button>
-            </Radio.Group>
-          )}
-
-          {/* Document Type Selection - only for photo mode */}
-          {createSource === 'photos' && (
-          <div>
-            <Text strong style={{ display: 'block', marginBottom: 8 }}>Document Type</Text>
-            <Select
-              style={{ width: '100%' }}
-              placeholder="Select document type"
-              value={selectedDocType}
-              onChange={(value) => {
-                setSelectedDocType(value);
-                // Auto-fill custom filename with job address when Custom type is selected
-                if (value === 'Custom' && !customFilename) {
-                  setCustomFilename(jobAddress);
-                }
-              }}
-              options={DOCUMENT_TYPES.map(dt => ({
-                value: dt.value,
-                label: dt.label
-              }))}
+              options={[
+                { value: 'photos', label: 'From photos', icon: <FilePdfOutlined /> },
+                { value: 'template', label: isMobile ? 'From template' : 'From contract template', icon: <FormOutlined /> },
+              ]}
             />
           </div>
-          )}
+        )}
 
-          {/* === Template Source === */}
-          {createSource === 'template' && (
-            <div>
-              <Text strong style={{ display: 'block', marginBottom: 8 }}>Select Contract Template</Text>
-              {contractTemplates.length === 0 ? (
-                <Empty
-                  description="No templates with field mappings found for this company"
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                />
-              ) : (
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-                  gap: 8,
-                }}>
-                  {contractTemplates.map((tmpl: any) => {
-                    const isSelected = selectedTemplateId === tmpl.id;
-                    const mappingCount = (() => {
-                      try { return JSON.parse(tmpl.field_mappings || '[]').length; }
-                      catch { return 0; }
-                    })();
-                    return (
-                      <Card
-                        key={tmpl.id}
-                        size="small"
-                        hoverable
-                        onClick={() => {
-                          setSelectedTemplateId(tmpl.id);
-                          // Auto-set document type from template type
-                          const typeMap: Record<string, string> = {
-                            certificate_of_satisfaction: 'COS',
-                            authorization: 'EWA',
-                          };
-                          if (!selectedDocType) {
-                            setSelectedDocType(typeMap[tmpl.document_type] || 'Other');
-                          }
-                        }}
-                        style={{
-                          border: isSelected ? '2px solid #1f74c9' : '1px solid #dfdfdc',
-                          background: isSelected ? '#e7f3f8' : undefined,
-                        }}
-                      >
-                        <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                          <Text strong>{tmpl.name}</Text>
-                          <Space size={4} wrap>
-                            <Tag>{tmpl.document_type?.replace(/_/g, ' ')}</Tag>
-                            <Tag color="blue">{mappingCount} fields mapped</Tag>
-                          </Space>
-                          {tmpl.file_name && (
-                            <Text type="secondary" style={{ fontSize: 11 }}>
-                              <FilePdfOutlined style={{ marginRight: 4 }} />
-                              {tmpl.file_name}
-                            </Text>
-                          )}
-                        </Space>
-                      </Card>
-                    );
-                  })}
-                </div>
-              )}
-              {unmappedTemplates.length > 0 && (
-                <div style={{ marginTop: 12 }}>
-                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-                    Not available yet — map the fields in the company's Contract Templates first:
-                  </Text>
-                  <Space size={4} wrap>
-                    {unmappedTemplates.map((tmpl: any) => (
-                      <Tag key={tmpl.id} style={{ opacity: 0.7 }}>
-                        {tmpl.name} · 0 fields mapped
-                      </Tag>
-                    ))}
-                  </Space>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* === Photo Source === */}
-          {/* Custom Filename Input - only for Custom type */}
-          {createSource === 'photos' && selectedDocType === 'Custom' && (
-            <div>
-              <Text strong style={{ display: 'block', marginBottom: 8 }}>
-                Custom Filename
-              </Text>
-              <Input
-                placeholder="Enter custom filename (without .pdf)"
-                value={customFilename}
-                onChange={(e) => setCustomFilename(e.target.value)}
-                maxLength={200}
-                showCount
-                style={{ marginBottom: 4 }}
+        {/* === Template Source === */}
+        {createSource === 'template' && (
+          <div className="wdc-templates">
+            <h3 className="wdc-section-head">Select contract template</h3>
+            {contractTemplates.length === 0 ? (
+              <Empty
+                description="No templates with field mappings found for this company"
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
               />
-              <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-                Extension .pdf will be added automatically
-              </Text>
-              {customFilename && (
-                <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
-                  Final filename: <strong>{customFilename}.pdf</strong>
-                </Text>
-              )}
-            </div>
-          )}
-
-          {/* Compress PDF & Scan Effect Options */}
-          {createSource === 'photos' && (
-            <Space direction="vertical" size={8} style={{ width: '100%' }}>
-              <div>
-                <Checkbox
-                  checked={compressPdf}
-                  onChange={(e) => setCompressPdf(e.target.checked)}
-                >
-                  <Text>Compress PDF</Text>
-                </Checkbox>
-                <Text type="secondary" style={{ display: 'block', fontSize: 12, marginLeft: 24 }}>
-                  Reduce file size by compressing images (lower quality)
-                </Text>
+            ) : (
+              <div className="wdc-template-grid">
+                {contractTemplates.map((tmpl: any) => {
+                  const isSelected = selectedTemplateId === tmpl.id;
+                  const mappingCount = (() => {
+                    try { return JSON.parse(tmpl.field_mappings || '[]').length; }
+                    catch { return 0; }
+                  })();
+                  return (
+                    <button
+                      key={tmpl.id}
+                      type="button"
+                      className={`wdc-template${isSelected ? ' is-selected' : ''}`}
+                      aria-pressed={isSelected}
+                      onClick={() => {
+                        setSelectedTemplateId(tmpl.id);
+                        // Auto-set document type from template type
+                        const typeMap: Record<string, string> = {
+                          certificate_of_satisfaction: 'COS',
+                          authorization: 'EWA',
+                        };
+                        if (!selectedDocType) {
+                          setSelectedDocType(typeMap[tmpl.document_type] || 'Other');
+                        }
+                      }}
+                    >
+                      <span className="wdc-template-name">{tmpl.name}</span>
+                      <Space size={4} wrap>
+                        <Tag>{tmpl.document_type?.replace(/_/g, ' ')}</Tag>
+                        <Tag color="blue">{mappingCount} fields mapped</Tag>
+                      </Space>
+                      {tmpl.file_name && (
+                        <span className="wdc-template-file">
+                          <FilePdfOutlined style={{ marginRight: 4 }} />
+                          {tmpl.file_name}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
-              <div>
-                <Text style={{ marginRight: 8 }}>Scan Effect:</Text>
-                <Select
-                  value={scanEffect || 'none'}
-                  onChange={(val) => setScanEffect(val === 'none' ? undefined : val)}
-                  style={{ width: 150 }}
-                  size="small"
-                >
-                  <Select.Option value="none">None</Select.Option>
-                  <Select.Option value="color_scan">Color Scan</Select.Option>
-                  <Select.Option value="bw_scan">B&W Scan</Select.Option>
-                </Select>
-                <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
-                  Make photos look like scanned documents
-                </Text>
+            )}
+            {unmappedTemplates.length > 0 && (
+              <div className="wdc-unmapped">
+                <p className="wdc-hint" style={{ margin: '0 0 4px' }}>
+                  Not available yet — map the fields in the company's Contract Templates first:
+                </p>
+                <Space size={4} wrap>
+                  {unmappedTemplates.map((tmpl: any) => (
+                    <Tag key={tmpl.id} style={{ opacity: 0.7 }}>
+                      {tmpl.name} · 0 fields mapped
+                    </Tag>
+                  ))}
+                </Space>
               </div>
-            </Space>
-          )}
+            )}
+          </div>
+        )}
 
-          {/* Photo Selection */}
-          {createSource === 'photos' && (
-          <div>
-            <Text strong style={{ display: 'block', marginBottom: 8 }}>Select Photos</Text>
-            <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
-              {selectedDocType === 'EWA' ? (
-                <>
-                  <strong>EWA requires exactly 1 photo.</strong>
-                  {!dateOfLoss && (
-                    <span style={{ color: '#d44c47', display: 'block', marginTop: 4 }}>
-                      ⚠️ Date of Loss is missing. Please update job information before generating EWA.
-                    </span>
-                  )}
-                </>
-              ) : selectedDocType === 'Custom' ? (
-                'Select one or more photos. Each photo will be one full page.'
-              ) : (
-                'Select one or more photos. Each photo will be one full page in the PDF.'
-              )}
-            </Text>
-
-            <div style={{
-              height: selectedPhotoIds.length > 0 ? (isMobile ? '250px' : '350px') : (isMobile ? '300px' : '500px'),
-              border: '1px solid #dfdfdc',
-              borderRadius: 4,
-              overflow: 'hidden',
-              transition: 'height 0.3s ease'
-            }}>
-              {creatingPdf ? (
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  height: '100%'
-                }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <Spin size="large" />
-                    <div style={{ marginTop: 12, color: '#73726e', fontSize: 14 }}>Generating PDF...</div>
-                  </div>
-                </div>
-              ) : (
+        {/* === Photo Source === */}
+        {createSource === 'photos' && (
+          <div className="wdc-split">
+            {/* Photo Selection */}
+            <section className="wdc-gallery" aria-label="Job photos">
+              <div className="wdc-gallery-body">
                 <FileGallery
                   context="water-mitigation"
                   mode="select"
@@ -722,124 +604,112 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                   enableInfiniteScroll={true}  // Same photo API as the Photos tab: real thumbnails, paged
                   pageSize={20}
                 />
-              )}
-            </div>
-          </div>
-          )}
-
-          {/* Selected Photos with Rotation Controls */}
-          {createSource === 'photos' && selectedPhotoIds.length > 0 && !creatingPdf && (
-            <div>
-              <Text strong style={{ display: 'block', marginBottom: 8 }}>
-                Selected Photos ({selectedPhotoIds.length}) - Click rotate to adjust orientation
-              </Text>
-              <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '12px',
-                maxHeight: '140px',
-                overflowY: 'auto',
-                padding: '8px',
-                background: '#f7f7f5',
-                borderRadius: 8,
-                border: '1px solid #e9e9e7'
-              }}>
-                {selectedPhotoIds.map((photoId, index) => {
-                  const rotation = photoRotations[photoId] || 0;
-                  return (
-                    <Card
-                      key={photoId}
-                      size="small"
-                      style={{
-                        width: 100,
-                        padding: 0,
-                        overflow: 'hidden'
-                      }}
-                      styles={{ body: { padding: 4 } }}
-                    >
-                      <div style={{ position: 'relative' }}>
-                        <div style={{
-                          width: '100%',
-                          height: 70,
-                          overflow: 'hidden',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          background: '#e9e9e7',
-                          borderRadius: 4
-                        }}>
-                          <img
-                            src={getPhotoThumbnail(photoId)}
-                            alt={`Photo ${index + 1}`}
-                            style={{
-                              maxWidth: '100%',
-                              maxHeight: '100%',
-                              objectFit: 'contain',
-                              transform: `rotate(${rotation}deg)`,
-                              transition: 'transform 0.3s ease'
-                            }}
-                          />
-                        </div>
-                        {rotation !== 0 && (
-                          <div style={{
-                            position: 'absolute',
-                            top: 2,
-                            left: 2,
-                            background: 'rgba(24, 144, 255, 0.9)',
-                            color: 'white',
-                            fontSize: 10,
-                            padding: '1px 4px',
-                            borderRadius: 3
-                          }}>
-                            {rotation}°
-                          </div>
-                        )}
-                      </div>
-                      <div style={{
-                        display: 'flex',
-                        justifyContent: 'center',
-                        gap: 4,
-                        marginTop: 4
-                      }}>
-                        <Tooltip title="Rotate 90°">
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<RotateRightOutlined />}
-                            onClick={() => handleRotatePhoto(photoId)}
-                            style={{ color: '#1f74c9' }}
-                          />
-                        </Tooltip>
-                        <Tooltip title="Perspective Crop">
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<ScissorOutlined />}
-                            onClick={() => {
-                              setCropPhotoId(photoId);
-                              setCropPhotoUrl(getPhotoFullUrl(photoId));
-                              setCropModalOpen(true);
-                            }}
-                            style={{ color: '#9065b0' }}
-                          />
-                        </Tooltip>
-                        <Tooltip title="Remove">
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<CloseOutlined />}
-                            onClick={() => handleRemovePhoto(photoId)}
-                            style={{ color: '#d44c47' }}
-                          />
-                        </Tooltip>
-                      </div>
-                    </Card>
-                  );
-                })}
               </div>
-            </div>
-          )}
-        </Space>
+            </section>
+
+            <aside className="wdc-rail" aria-label="Document">
+              {/* Document Type */}
+              <div className="wdc-rail-setup">
+                <div className="wdc-field">
+                  <label className="wdc-label" htmlFor="wdc-doc-type">Document type</label>
+                  <Select
+                    id="wdc-doc-type"
+                    style={{ width: '100%' }}
+                    size={isMobile ? 'large' : undefined}
+                    placeholder="Select document type"
+                    value={selectedDocType}
+                    onChange={handleDocTypeChange}
+                    options={DOCUMENT_TYPES.map(dt => ({
+                      value: dt.value,
+                      label: dt.label
+                    }))}
+                  />
+                  {selectedDocType === 'EWA' && !dateOfLoss && (
+                    <p className="wdc-warning">
+                      <ExclamationCircleOutlined aria-hidden />
+                      <span>Date of Loss is missing. Please update job information before generating EWA.</span>
+                    </p>
+                  )}
+                </div>
+
+                {/* Custom Filename Input - only for Custom type */}
+                {selectedDocType === 'Custom' && (
+                  <div className="wdc-field">
+                    <label className="wdc-label" htmlFor="wdc-filename">Custom filename</label>
+                    <Input
+                      id="wdc-filename"
+                      size={isMobile ? 'large' : undefined}
+                      placeholder="Enter custom filename"
+                      value={customFilename}
+                      onChange={(e) => setCustomFilename(e.target.value)}
+                      maxLength={200}
+                      suffix=".pdf"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* The pages, in order */}
+              <div className="wdc-rail-pages">
+                <h3 className="wdc-section-head">
+                  Pages
+                  {pageCount > 0 && <span className="wdc-section-count">{pageCount}</span>}
+                </h3>
+                {selectedPhotoIds.length === 0 ? (
+                  <div className="wdc-empty">
+                    {selectedDocType === 'EWA'
+                      ? 'Select 1 photo. It goes in after the agreement form.'
+                      : 'Select photos. Each one becomes a full page, in this order.'}
+                  </div>
+                ) : (
+                  <WMDocumentPages
+                    photoIds={selectedPhotoIds}
+                    rotations={photoRotations}
+                    leadingPage={selectedDocType === 'EWA' ? 'Agreement form, filled in from the job' : undefined}
+                    sheetUrl={getPhotoWebUrl}
+                    fullSizeUrl={getPhotoOriginalUrl}
+                    onReorder={setSelectedPhotoIds}
+                    onRotate={handleRotatePhoto}
+                    onCrop={(photoId) => {
+                      setCropPhotoId(photoId);
+                      setCropModalOpen(true);
+                    }}
+                    onRemove={handleRemovePhoto}
+                  />
+                )}
+              </div>
+
+              {/* Compress PDF & Scan Effect Options */}
+              <div className="wdc-rail-options">
+                <div className="wdc-field">
+                  <span className="wdc-label">Scan effect</span>
+                  <Segmented
+                    block
+                    size={isMobile ? 'middle' : 'small'}
+                    options={SCAN_EFFECTS}
+                    value={scanEffect || 'none'}
+                    onChange={(val) => setScanEffect(val === 'none' ? undefined : String(val))}
+                  />
+                  <p className="wdc-hint">Make photos look like scanned documents</p>
+                </div>
+                <div className="wdc-field">
+                  <div className="wdc-compress">
+                    <label className="wdc-compress-label" htmlFor="wdc-compress">Compress PDF</label>
+                    <Switch id="wdc-compress" size="small" checked={compressPdf} onChange={setCompressPdf} />
+                  </div>
+                  <p className="wdc-hint">Reduce file size by compressing images (lower quality)</p>
+                </div>
+              </div>
+            </aside>
+
+            {creatingPdf && (
+              <div className="wdc-busy" role="status">
+                <Spin size="large" />
+                Generating PDF...
+              </div>
+            )}
+          </div>
+        )}
       </Modal>
 
       {/* Document Upload Modal */}
@@ -883,15 +753,11 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
       <PerspectiveCropModal
         open={cropModalOpen}
         photoId={cropPhotoId}
-        photoUrl={cropPhotoUrl}
+        photoUrl={cropPhotoId ? getPhotoOriginalUrl(cropPhotoId) : ''}
+        previewUrl={cropPhotoId ? getPhotoWebUrl(cropPhotoId) : undefined}
+        rotation={photoRotations[cropPhotoId] || 0}
         onClose={() => setCropModalOpen(false)}
-        onCropped={(newPhoto) => {
-          // Replace the original photo with the cropped one in selection
-          setSelectedPhotoIds(prev =>
-            prev.map(id => id === cropPhotoId ? newPhoto.id : id)
-          );
-          setCropModalOpen(false);
-        }}
+        onCropped={handleCropped}
       />
     </div>
   );

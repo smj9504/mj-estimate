@@ -1,0 +1,588 @@
+/*
+ * Create document (wdc-*): the job's photos beside the document being made,
+ * which is drawn as white letter sheets on Sidebar Paper so the order, the
+ * rotation and the fit on the page can be read before generating. The crop
+ * stage is dark for the photo viewer's reason: white around a photo outshines it.
+ */
+
+.wdc-modal .ant-modal-content {
+  padding: 0;
+  overflow: hidden;
+}
+.wdc-modal .ant-modal-header {
+  margin: 0;
+  padding: 16px 48px 12px 20px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.wdc-modal .ant-modal-body {
+  padding: 0;
+}
+.wdc-modal .ant-modal-footer {
+  margin: 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+
+.wdc-source {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+
+.wdc-split {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 348px;
+  height: min(700px, calc(100dvh - 160px));
+}
+.wdc-source + .wdc-split {
+  height: min(700px, calc(100dvh - 218px));
+}
+.wdc-gallery {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px 16px 0 20px;
+}
+.wdc-gallery-body {
+  flex: 1;
+  min-height: 0;
+}
+/* The pages scroll; what they are and how they come out stay in view */
+.wdc-rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--color-neutral-50);
+  border-left: 1px solid var(--color-neutral-200);
+}
+.wdc-rail-setup {
+  flex-shrink: 0;
+  padding: 16px 16px 12px;
+}
+.wdc-rail-pages {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 16px 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.wdc-rail-options {
+  flex-shrink: 0;
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+
+.wdc-field + .wdc-field {
+  margin-top: 12px;
+}
+.wdc-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.wdc-hint {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-neutral-600);
+}
+.wdc-warning {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--tag-orange-text);
+}
+.wdc-warning .anticon {
+  margin-top: 2px;
+}
+
+.wdc-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-neutral-900);
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.wdc-section-count {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pages: a white letter sheet per page */
+.wdc-pages {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wdc-page {
+  min-width: 0;
+}
+.wdc-page.is-dragging {
+  position: relative;
+  z-index: 2;
+}
+.wdc-sheet {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 8.5 / 11;
+  padding: 0;
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-neutral-400);
+  border-radius: 2px;
+  cursor: grab;
+  touch-action: manipulation;
+  transition: border-color 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+.wdc-sheet:hover {
+  border-color: #c8c7c3;
+}
+.wdc-sheet:focus-visible,
+.wdc-page-num:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+}
+.is-dragging .wdc-sheet {
+  cursor: grabbing;
+  box-shadow: var(--shadow-elevated, rgba(15, 15, 15, 0.05) 0 0 0 1px, rgba(15, 15, 15, 0.1) 0 3px 6px, rgba(15, 15, 15, 0.2) 0 9px 24px);
+}
+.wdc-sheet-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* Turned a quarter: as wide as the sheet is tall, so it still fills it */
+.wdc-sheet-photo.is-sideways {
+  inset: auto;
+  top: 50%;
+  left: 50%;
+  width: calc(100% * 11 / 8.5);
+  height: calc(100% * 8.5 / 11);
+  translate: -50% -50%;
+}
+.wdc-sheet-missing {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+.wdc-page-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+.wdc-page-num {
+  min-width: 20px;
+  height: 24px;
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 24px;
+  color: var(--color-neutral-700);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: grab;
+}
+.wdc-page-actions {
+  display: flex;
+  gap: 2px;
+}
+.wdc-page-actions .ant-btn {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+}
+
+/* The form an EWA opens with: filled in from the job, nothing to arrange */
+.wdc-sheet--form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--color-neutral-600);
+  text-align: center;
+  cursor: default;
+}
+.wdc-sheet--form:hover {
+  border-color: var(--color-neutral-400);
+}
+.wdc-sheet--form .anticon {
+  font-size: 18px;
+  color: var(--color-placeholder);
+}
+.wdc-page-num--still {
+  cursor: default;
+}
+
+.wdc-empty {
+  padding: 24px 16px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-neutral-600);
+  text-align: center;
+  background: var(--color-surface);
+  border: 1px dashed var(--color-neutral-400);
+  border-radius: 8px;
+}
+
+.wdc-compress {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wdc-compress-label {
+  font-size: 14px;
+  color: var(--color-neutral-900);
+}
+
+.wdc-busy {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 14px;
+  color: var(--color-neutral-700);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+/* From a contract template */
+.wdc-templates {
+  padding: 16px 20px 20px;
+  max-height: min(640px, calc(100dvh - 190px));
+  overflow-y: auto;
+}
+.wdc-template-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.wdc-template {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  background: var(--color-surface);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s ease-out, background 0.15s ease-out;
+}
+.wdc-template:hover {
+  border-color: var(--color-neutral-400);
+}
+.wdc-template:focus-visible {
+  outline: 2px solid rgba(31, 116, 201, 0.55);
+  outline-offset: 1px;
+}
+.wdc-template.is-selected {
+  background: #eef5fc;
+  border-color: var(--color-primary);
+}
+.wdc-template-name {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-neutral-900);
+  overflow-wrap: anywhere;
+}
+.wdc-template-file {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  overflow-wrap: anywhere;
+}
+.wdc-unmapped {
+  margin-top: 16px;
+}
+
+/* Crop */
+.wdc-crop-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+}
+.wdc-crop-lead {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-neutral-600);
+}
+.wdc-crop-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: min(620px, calc(100dvh - 250px));
+  min-height: 240px;
+  padding: 24px;
+  overflow: hidden;
+  background: #191816;
+  user-select: none;
+}
+.wdc-crop-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.68);
+}
+.wdc-crop-frame {
+  position: relative;
+  flex: none;
+}
+.wdc-crop-photo {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.wdc-crop-photo img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: none;
+  translate: -50% -50%;
+  pointer-events: none;
+}
+.wdc-crop-mask {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.wdc-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  padding: 0;
+  background: var(--color-primary);
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+  touch-action: none;
+  transition: transform 0.12s ease-out;
+}
+/* A corner's finger-sized target, wider than what is drawn */
+.wdc-handle::before {
+  content: '';
+  position: absolute;
+  inset: -14px;
+  border-radius: 50%;
+}
+.wdc-handle:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+.wdc-handle.is-active {
+  cursor: grabbing;
+  transform: scale(1.2);
+}
+.wdc-loupe {
+  position: absolute;
+  top: 12px;
+  z-index: 2;
+  width: 148px;
+  height: 148px;
+  overflow: hidden;
+  background: #191816;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: rgba(0, 0, 0, 0.3) 0 3px 6px, rgba(0, 0, 0, 0.45) 0 9px 24px;
+  pointer-events: none;
+}
+.wdc-loupe-photo {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.wdc-loupe::before,
+.wdc-loupe::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  background: var(--color-primary);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+.wdc-loupe::before {
+  top: 50%;
+  left: calc(50% - 12px);
+  width: 24px;
+  height: 1px;
+}
+.wdc-loupe::after {
+  top: calc(50% - 12px);
+  left: 50%;
+  width: 1px;
+  height: 24px;
+}
+.wdc-crop-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 12px 20px;
+}
+.wdc-crop-effect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.wdc-crop-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.wdc-crop-note {
+  color: var(--tag-orange-text);
+}
+
+@media (pointer: coarse) {
+  .wdc-handle {
+    width: 24px;
+    height: 24px;
+    margin: -12px 0 0 -12px;
+  }
+  .wdc-page-actions .ant-btn {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+  }
+  .wdc-page-num {
+    height: 32px;
+    line-height: 32px;
+  }
+}
+
+/* Phones: one column in the sheet's scroll, the document type before the photos */
+@media (max-width: 767.98px) {
+  .ui-sheet .ant-modal.wdc-modal .ant-modal-body {
+    padding: 0;
+  }
+  .ui-sheet .ant-modal.wdc-modal .ant-modal-header {
+    padding: 18px 52px 12px 16px;
+  }
+  .wdc-source {
+    padding: 12px 16px;
+  }
+  .wdc-split,
+  .wdc-source + .wdc-split {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    height: auto;
+    padding: 16px;
+  }
+  .wdc-rail {
+    display: contents;
+  }
+  .wdc-rail-setup {
+    order: 0;
+    padding: 0;
+  }
+  .wdc-gallery {
+    order: 1;
+    height: 46dvh;
+    min-height: 280px;
+    padding: 0;
+  }
+  .wdc-rail-pages {
+    order: 2;
+    padding: 0;
+    overflow: visible;
+  }
+  .wdc-rail-options {
+    order: 3;
+    padding: 12px 0 0;
+  }
+  .wdc-pages {
+    display: flex;
+    gap: 10px;
+    margin: 0 -16px;
+    padding: 0 16px 4px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .wdc-page {
+    flex: 0 0 136px;
+  }
+  .wdc-templates {
+    max-height: none;
+    padding: 16px;
+    overflow: visible;
+  }
+  .wdc-template-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wdc-crop-stage {
+    height: calc(100dvh - 248px);
+    padding: 20px;
+  }
+  .wdc-crop-tools {
+    padding: 12px 16px;
+  }
+  .wdc-crop-effect {
+    width: 100%;
+  }
+  .wdc-crop-effect .ant-segmented {
+    flex: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wdc-sheet,
+  .wdc-sheet-photo,
+  .wdc-template,
+  .wdc-handle {
+    transition: none;
+  }
+}

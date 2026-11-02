@@ -27,6 +27,7 @@ def upload_bytes_to_storage(
     category: str = "documents",
     content_type: str = "application/pdf",
     replace: bool = False,
+    optimize: bool = True,
 ) -> Dict[str, Any]:
     """Upload raw bytes to the configured storage provider.
 
@@ -39,6 +40,8 @@ def upload_bytes_to_storage(
         content_type: MIME type
         replace: A new version of a document whose one record is updated in place
             (see StorageProvider.upload)
+        optimize: Off for an image that must stay as it is: the optimizer shrinks
+            any image over 1920px and rewrites it as WebP
 
     Returns:
         Dict with keys:
@@ -65,6 +68,7 @@ def upload_bytes_to_storage(
         category=category,
         content_type=content_type,
         replace=replace,
+        optimize=optimize,
     )
 
     logger.info(

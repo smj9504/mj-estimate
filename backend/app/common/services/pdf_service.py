@@ -2640,13 +2640,14 @@ def perspective_crop(img, points: list[dict]) -> "Image.Image":
                 Coordinates are in ratio (0.0-1.0) relative to image dimensions.
 
     Returns:
-        Cropped and perspective-corrected PIL Image
+        Cropped and perspective-corrected PIL Image, as many pixels across as
+        the photo has along the longer of each pair of opposite sides
     """
     import cv2
     import numpy as np
     from PIL import Image
 
-    img_array = np.array(img.convert('RGB'))
+    img_array = np.asarray(img.convert('RGB'))
     h, w = img_array.shape[:2]
 
     # Convert ratio coordinates to pixel coordinates
@@ -2660,11 +2661,11 @@ def perspective_crop(img, points: list[dict]) -> "Image.Image":
     # Calculate output dimensions from the quadrilateral
     width_top = np.linalg.norm(src_pts[1] - src_pts[0])
     width_bottom = np.linalg.norm(src_pts[2] - src_pts[3])
-    out_w = int(max(width_top, width_bottom))
+    out_w = round(max(width_top, width_bottom))
 
     height_left = np.linalg.norm(src_pts[3] - src_pts[0])
     height_right = np.linalg.norm(src_pts[2] - src_pts[1])
-    out_h = int(max(height_left, height_right))
+    out_h = round(max(height_left, height_right))
 
     # Ensure minimum dimensions
     out_w = max(out_w, 100)
@@ -2678,9 +2679,40 @@ def perspective_crop(img, points: list[dict]) -> "Image.Image":
     ])
 
     matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
-    warped = cv2.warpPerspective(img_array, matrix, (out_w, out_h))
+    # warpPerspective defaults to bilinear, which took about 40% of the edge
+    # contrast out of a photographed form. Replicating the border keeps a corner
+    # dragged to the photo's edge from pulling in a black line.
+    warped = cv2.warpPerspective(
+        img_array, matrix, (out_w, out_h),
+        flags=cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_REPLICATE,
+    )
 
     return Image.fromarray(warped)
+
+
+def cropped_photo_jpeg(img, points: list[dict], scan_effect: str | None = None) -> bytes:
+    """A perspective crop as a JPEG that adds no loss of its own.
+
+    Every crop is re-encoded once here, so it keeps full 4:4:4 colour at high
+    quality (Pillow's default halves the colour resolution) and the photo's
+    colour profile, without which an iPhone's colours come out dull.
+    """
+    cropped = perspective_crop(img, points)
+    try:
+        if scan_effect:
+            processed = apply_scan_effect(cropped, mode=scan_effect)
+            if processed is not cropped:
+                cropped.close()
+                cropped = processed
+        icc_profile = img.info.get('icc_profile')
+        output = io.BytesIO()
+        cropped.save(
+            output, format='JPEG', quality=95, subsampling=0, optimize=True,
+            **({'icc_profile': icc_profile} if icc_profile else {}),
+        )
+        return output.getvalue()
+    finally:
+        cropped.close()
 
 
 def apply_scan_effect(img, mode: str = "color_scan"):
@@ -2722,6 +2754,9 @@ _MAX_PHOTO_DOWNLOAD = 30 * MIB
 FULL_PAGE_PHOTO_PX = 2000
 # Longest side of a photo in a report grid, as in the water mitigation report.
 GRID_PHOTO_PX = 1800
+# Longest side of a photo about to be cropped: a 12MP phone photo stays whole,
+# since a crop only has the pixels inside its corners to fill a page with.
+CROP_PHOTO_PX = 4096
 _MAX_DECODE_PIXELS = 16_000_000
 _PHOTO_TOO_LARGE = 'Photo resolution is too large. Resize this photo before generating the report.'
 
@@ -2739,6 +2774,11 @@ def _flatten_to_rgb(img):
     flat.paste(rgba, mask=rgba.getchannel('A'))
     rgba.close()
     return flat
+
+
+def load_photo_to_crop(source):
+    """A photo upright and at full size for cropped_photo_jpeg, up to CROP_PHOTO_PX."""
+    return _load_photo(source, CROP_PHOTO_PX)
 
 
 def _load_photo(source, max_px: int):
@@ -2805,23 +2845,53 @@ def _photo_jpeg_file(source, max_px: int, quality: int, rotation: int = 0,
         img.close()
 
 
+def _jpeg_fit_for_page(source, max_px: int) -> tuple | None:
+    """(width, height) of a JPEG that can go into a PDF as it is, or None.
+
+    Decoding and saving it again would lose quality to no purpose: a crop's
+    second encode, or a browser-shrunk upload's. CMYK stays out because a PDF
+    viewer shows it inverted, and an EXIF rotation because a PDF ignores it.
+    """
+    from PIL import Image
+
+    with Image.open(source) as img:
+        if (img.format == 'JPEG' and img.mode in ('RGB', 'L') and max(img.size) <= max_px
+                and img.getexif().get(0x0112, 1) == 1):
+            return img.size
+    return None
+
+
 def _full_page_photo_pdf(source, max_px: int, quality: int, rotation: int = 0,
-                         scan_effect: str | None = None) -> io.BytesIO:
-    """A one-page letter PDF with the photo fitted and centred."""
-    path, width, height = _photo_jpeg_file(source, max_px, quality, rotation, scan_effect)
+                         scan_effect: str | None = None, keep_jpeg: bool = False) -> io.BytesIO:
+    """A one-page letter PDF with the photo fitted and centred.
+
+    With keep_jpeg, a photo that fits goes in byte for byte and a rotation only
+    turns it on the page; anything else is written out as a new JPEG first.
+    """
+    as_is = _jpeg_fit_for_page(source, max_px) if keep_jpeg and not scan_effect else None
+    if as_is:
+        path, width, height = str(source), *as_is
+    else:
+        path, width, height = _photo_jpeg_file(source, max_px, quality, rotation, scan_effect)
+        rotation = 0
     try:
         buffer = io.BytesIO()
         c = canvas.Canvas(buffer, pagesize=letter)
         page_width, page_height = letter
-        scale = min(page_width / width, page_height / height)
+        sideways = rotation % 180 == 90
+        scale = min(page_width / (height if sideways else width),
+                    page_height / (width if sideways else height))
         drawn_width, drawn_height = width * scale, height * scale
-        c.drawImage(path, (page_width - drawn_width) / 2, (page_height - drawn_height) / 2,
+        c.translate(page_width / 2, page_height / 2)
+        c.rotate(-rotation)  # Clockwise, as rotation is everywhere else.
+        c.drawImage(path, -drawn_width / 2, -drawn_height / 2,
                     width=drawn_width, height=drawn_height, preserveAspectRatio=True)
         c.save()
         buffer.seek(0)
         return buffer
     finally:
-        os.unlink(path)
+        if not as_is:
+            os.unlink(path)
 
 
 def _shrinking_url_fetcher():
@@ -2891,7 +2961,8 @@ def generate_images_pdf(
     image_paths: list[str],
     output_path: str,
     rotations: dict[str, int] | None = None,
-    scan_effect: str | None = None
+    scan_effect: str | None = None,
+    compress: bool = False
 ) -> str:
     """
     Generate PDF from images with each image taking up one full page.
@@ -2900,7 +2971,8 @@ def generate_images_pdf(
     Args:
         image_paths: List of paths to image files
         output_path: Path to save the generated PDF
-        rotations: Optional dict mapping photo_id to rotation degrees (0, 90, 180, 270)
+        rotations: Optional dict mapping an image path to rotation degrees (0, 90, 180, 270)
+        compress: If True, compress the images to reduce file size
 
     Returns:
         Path to the generated PDF
@@ -2918,17 +2990,16 @@ def generate_images_pdf(
     # staying in a PdfWriter until the end.
     output = DiskPDFWriter(output_path)
     for img_path in image_paths:
-        rotation = 0
-        if rotations:
-            for photo_id, degrees in rotations.items():
-                if photo_id in str(img_path):
-                    rotation = degrees
-                    break
+        rotation = (rotations or {}).get(str(img_path), 0)
 
         logger.info(f"Processing image: {img_path} (rotation: {rotation})")
         try:
             output.append(_full_page_photo_pdf(
-                img_path, FULL_PAGE_PHOTO_PX, 85, rotation, scan_effect,
+                img_path,
+                1200 if compress else FULL_PAGE_PHOTO_PX,
+                50 if compress else 85,
+                rotation, scan_effect,
+                keep_jpeg=not compress,
             ))
         except DocumentResourceError:
             raise
@@ -4919,6 +4990,7 @@ def generate_ewa_pdf(
         1200 if compress else FULL_PAGE_PHOTO_PX,
         50 if compress else 85,
         rotation, scan_effect,
+        keep_jpeg=not compress,
     )
     photo_reader = PdfReader(photo_pdf_buffer)
     writer.add_page(photo_reader.pages[0])
