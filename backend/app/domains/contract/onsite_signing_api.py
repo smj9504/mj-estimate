@@ -32,7 +32,7 @@ from app.domains.auth.company_scope import (
     scoped,
 )
 from app.domains.auth.dependencies import get_current_staff
-from app.domains.client.address_utils import normalize_address
+from app.domains.client.address_utils import named_after_address, normalize_address
 from app.domains.client.models import Client
 from app.domains.company.models import Company
 from app.domains.contract.models import ContractInstance, ContractTemplate
@@ -327,13 +327,6 @@ def _find_or_create_client(
     db.add(client)
     db.flush()
     return client, True
-
-
-def named_after_address(client: Client) -> bool:
-    """A client made from just an address on a field visit: it has no owner yet, so its
-    address stands in for its name. No owners alone doesn't say that: imported clients
-    have real names and no owners."""
-    return not client.owners and (client.display_name or '').strip() == (client.address or '').strip()
 
 
 def _adopt_signer_as_owner(client: Client, values: Dict[str, Any], signer_name: str) -> None:

@@ -966,3 +966,185 @@ def test_staff_only_see_rows_about_what_they_may_see(db, sync, api, monkeypatch)
     visible = manual_job(db, company_id=ours.id)
     [pending] = api.get(ROW_MATCHES).json()
     assert [c['id'] for c in pending['candidates'] if c['type'] == 'job'] == [str(visible.id)]
+
+
+# A job entered by hand has a client at its address, with or without a claim
+
+JOBS = '/api/water-mitigation/jobs'
+STREET = '100 Example St'
+PLACE = {'property_city': 'Springfield', 'property_state': 'VA', 'property_zipcode': '22152'}
+
+
+def enter_job(api, street=STREET, **values):
+    """What the job form sends"""
+    response = api.post(JOBS, json={'property_address': street, 'property_street': street, **PLACE, **values})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def edit_job(api, job, **values):
+    response = api.put(f"{JOBS}/{job['id']}", json=values)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_a_job_with_only_an_address_makes_a_client_named_after_it(db, api):
+    enter_job(api)
+
+    client = db.query(Client).one()
+    assert client.display_name == client.address == STREET
+    assert client.owners == [] and client.source is None
+    assert (client.city, client.state, client.zipcode) == ('Springfield', 'VA', '22152')
+    # What the field visit and on-site signing look a client up by
+    assert client.normalized_address == '100 example st'
+    assert db.query(Claim).count() == 0
+
+
+def test_a_job_with_a_homeowner_and_no_claim_makes_their_client(db, api):
+    enter_job(api, homeowner_name='Pat Doe', homeowner_phone='555-010-0100')
+
+    client = db.query(Client).one()
+    assert client.display_name == 'Pat Doe' and client.address == STREET
+    assert client.owners[0]['name'] == 'Pat Doe' and client.owners[0]['phone'] == '555-010-0100'
+    assert client.normalized_address == '100 example st'
+    assert db.query(Claim).count() == 0
+
+
+def test_a_job_with_a_claim_files_it_under_the_client_at_its_address(db, api):
+    enter_job(api, homeowner_name='Pat Doe', claim_number='CL-1')
+
+    claim = db.query(Claim).one()
+    assert claim.client_id == db.query(Client).one().id
+    assert db.query(WaterMitigationJob).one().claim_id == claim.id
+
+
+@pytest.mark.parametrize('street', ['100 Example Street', '100 example st.', ' 100 Example St '])
+def test_a_job_finds_the_client_at_its_address_however_it_is_written(db, api, street):
+    client = manual_client(db, name='Already Here', phone='555-010-0199')
+
+    enter_job(api, street=street)
+
+    assert db.query(Client).one().id == client.id
+
+
+def test_a_client_holding_the_whole_address_in_its_street_is_still_found(db, api):
+    client = Client(display_name='Older Row', owners=[], address='100 Example St, Springfield, VA 22152')
+    db.add(client)
+    db.commit()
+
+    enter_job(api)
+
+    assert db.query(Client).one().id == client.id
+
+
+def test_a_different_name_at_the_same_address_stays_with_that_client(db, api):
+    client = manual_client(db, name='Already Here')
+
+    enter_job(api, homeowner_name='Someone Else', claim_number='CL-1')
+
+    assert db.query(Client).one().display_name == 'Already Here'
+    assert db.query(Claim).one().client_id == client.id
+
+
+def test_another_unit_is_another_client(db, api):
+    enter_job(api, street='100 Example St Apt 1')
+    enter_job(api, street='100 Example St Apt 2')
+
+    assert {client.address for client in db.query(Client).all()} == {'100 Example St Apt 1', '100 Example St Apt 2'}
+
+
+def test_the_same_street_in_another_zip_is_another_client(db, api):
+    db.add(Client(display_name='Elsewhere', owners=[], address=STREET, zipcode='20124'))
+    db.commit()
+
+    enter_job(api)
+
+    assert db.query(Client).count() == 2
+
+
+def test_the_same_street_in_another_city_is_another_client_when_a_zip_is_missing(db, api):
+    db.add(Client(display_name='Elsewhere', owners=[], address=STREET, city='Clifton'))
+    db.commit()
+
+    enter_job(api)
+
+    assert db.query(Client).count() == 2
+
+
+@pytest.mark.parametrize('values', [
+    {'homeowner_name': 'Same Name'},
+    {'homeowner_name': 'One Person', 'homeowner_phone': '555-010-0123'},
+    {'homeowner_name': 'One Person', 'homeowner_email': 'same@example.com'},
+])
+def test_someone_known_at_another_address_still_gets_a_client_at_this_one(db, api, values):
+    manual_client(db, address='12 Elsewhere Rd', name='Same Name', phone='555-010-0123', email='same@example.com')
+
+    enter_job(api, **values)
+
+    assert db.query(Client).filter(Client.address == STREET).count() == 1
+    assert db.query(Client).count() == 2
+
+
+def test_a_client_with_no_address_yet_takes_the_jobs_instead_of_doubling(db, api):
+    client = Client(display_name='Pat Doe', owners=[], phone='555-010-0100')
+    db.add(client)
+    db.commit()
+
+    enter_job(api, homeowner_name='Pat Doe')
+
+    db.refresh(client)
+    assert db.query(Client).count() == 1
+    assert client.address == STREET and client.normalized_address == '100 example st'
+
+
+def test_the_client_named_after_its_address_takes_the_homeowner_added_later(db, api):
+    job = enter_job(api)
+
+    edit_job(api, job, homeowner_name='Pat Doe', homeowner_phone='555-010-0100')
+
+    client = db.query(Client).one()
+    assert client.display_name == 'Pat Doe' and client.phone == '555-010-0100'
+    assert client.owners == [{'name': 'Pat Doe', 'phone': '555-010-0100', 'email': None, 'is_primary': True}]
+
+
+def test_a_claim_added_later_goes_under_the_client_the_job_already_made(db, api):
+    job = enter_job(api)
+
+    edit_job(api, job, claim_number='CL-1')
+
+    assert db.query(Claim).one().client_id == db.query(Client).one().id
+    assert db.query(WaterMitigationJob).one().claim_id == db.query(Claim).one().id
+
+
+def test_editing_a_job_with_no_claim_keeps_finding_the_same_client(db, api):
+    job = enter_job(api, homeowner_name='Pat Doe')
+
+    edit_job(api, job, homeowner_phone='555-010-0100')
+    edit_job(api, job, homeowner_name='Patricia Doe')
+
+    client = db.query(Client).one()
+    assert client.display_name == 'Pat Doe' and client.phone == '555-010-0100'
+
+
+def test_a_job_at_a_sheet_clients_address_stays_apart_from_it(db, sync, api):
+    sync._process_row(angel_row(), 5, SHEET)
+
+    enter_job(api)
+
+    assert db.query(Client).count() == 2
+    assert db.query(Client).filter(Client.source.is_(None)).one().address == STREET
+
+
+def test_a_sheet_row_with_no_homeowner_still_makes_no_client(db, sync):
+    assert sync._process_row(angel_row(name=''), 5, SHEET)['created']
+    assert db.query(Client).count() == 0
+
+
+def test_the_new_client_shows_to_the_company_on_the_job(db, api):
+    company = Company(name='WM Co')
+    db.add(company)
+    db.commit()
+
+    enter_job(api, company_id=str(company.id))
+
+    assert str(db.query(Client).one().company_id) == str(company.id)

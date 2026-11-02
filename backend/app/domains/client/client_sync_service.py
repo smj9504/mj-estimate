@@ -9,6 +9,9 @@ here: a job from a sheet row only finds clients the sheet made, and a job entere
 hand only finds the rest. The two only meet when someone says a row is the same as
 what was entered by hand (WMSheetRowMatch).
 
+A job entered by hand goes by its address: it joins the client there, or makes one
+with just that address if there's none, claim and homeowner or not.
+
 Flow:
   WM Job (homeowner_name, property_address, insurance, claim_number, etc.)
     → Match or create Client
@@ -20,9 +23,11 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
-from sqlalchemy import func, or_, text
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session
 
+from app.common.utils.address import fill_missing_address_parts
+from app.domains.client.address_utils import named_after_address, normalize_address, same_address
 from app.domains.client.models import Client, Claim
 from app.domains.water_mitigation.models import WaterMitigationJob, WMSheetRowMatch
 
@@ -63,7 +68,7 @@ class ClientSyncService:
         decision = self._same_decision(job)
 
         homeowner_name = (job.homeowner_name or '').strip()
-        if not homeowner_name and not (decision and decision.client_id):
+        if not homeowner_name and not (decision and decision.client_id) and not self._goes_by_address(job, decision):
             logger.debug(f"WM Job {job.id}: no homeowner_name, skipping client sync")
             return result
 
@@ -128,6 +133,19 @@ class ClientSyncService:
             return Client.source == SHEET_SOURCE
         return or_(Client.source.is_(None), Client.source != SHEET_SOURCE)
 
+    def _job_address(self, job: WaterMitigationJob) -> Dict[str, Optional[str]]:
+        return fill_missing_address_parts(
+            job.property_address,
+            street=job.property_street,
+            city=job.property_city,
+            state=job.property_state,
+            zipcode=job.property_zipcode,
+        )
+
+    def _goes_by_address(self, job: WaterMitigationJob, decision: Optional[WMSheetRowMatch]) -> bool:
+        """A job entered by hand, which only needs its address to have a client"""
+        return not self._from_sheet(job, decision) and bool(self._job_address(job)['street'])
+
     def _sync_client(
         self, job: WaterMitigationJob, decision: Optional[WMSheetRowMatch] = None
     ) -> Tuple[Client, str]:
@@ -151,13 +169,23 @@ class ClientSyncService:
 
         same_origin = self._same_origin(job, decision)
 
-        # Priority 3: Match by homeowner_name + property_address
+        # Priority 3: A job entered by hand goes with whoever is at its address. With
+        # nobody there it gets its own client, even if the name, phone or email is
+        # someone's elsewhere; below, those only find a client with no address yet.
+        if self._goes_by_address(job, decision):
+            client = self._match_by_address(job, same_origin)
+            if client:
+                self._update_client_from_job(client, job)
+                return client, 'updated'
+            same_origin = and_(same_origin, or_(Client.address.is_(None), Client.address == ''))
+
+        # Priority 4: Match by homeowner_name + property_address
         client = self._match_by_name_and_address(job, same_origin)
         if client:
             self._update_client_from_job(client, job)
             return client, 'updated'
 
-        # Priority 4: Match by phone (if available)
+        # Priority 5: Match by phone (if available)
         phone = (job.homeowner_phone or '').strip()
         if phone:
             client = self._match_by_phone(phone, same_origin)
@@ -165,7 +193,7 @@ class ClientSyncService:
                 self._update_client_from_job(client, job)
                 return client, 'matched'
 
-        # Priority 5: Match by email (if available)
+        # Priority 6: Match by email (if available)
         email = (job.homeowner_email or '').strip()
         if email:
             client = self._match_by_email(email, same_origin)
@@ -176,6 +204,24 @@ class ClientSyncService:
         # No match → create new Client
         client = self._create_client_from_job(job, decision)
         return client, 'created'
+
+    def _match_by_address(self, job: WaterMitigationJob, same_origin: Any) -> Optional[Client]:
+        """The client at this job's address. Oldest first: a job with no claim has nothing
+        else tying it to its client, so it has to find the same one every time."""
+        address = self._job_address(job)
+        clients = self.db.query(Client).filter(
+            Client.is_active == True,
+            Client.address.isnot(None),
+            same_origin,
+        ).order_by(Client.created_at).all()
+
+        for c in clients:
+            client_address = fill_missing_address_parts(
+                None, street=c.address, city=c.city, state=c.state, zipcode=c.zipcode,
+            )
+            if same_address(address, client_address):
+                return c
+        return None
 
     def _match_by_name_and_address(self, job: WaterMitigationJob, same_origin: Any) -> Optional[Client]:
         """Match client by normalized homeowner_name + property_address."""
@@ -272,19 +318,22 @@ class ClientSyncService:
     def _create_client_from_job(
         self, job: WaterMitigationJob, decision: Optional[WMSheetRowMatch] = None
     ) -> Client:
-        """Create a new Client from WM Job homeowner data."""
+        """Create a new Client from WM Job homeowner data. Its name is the address until
+        there's an owner, which an empty `owners` marks."""
         homeowner_name = (job.homeowner_name or '').strip()
+        address = job.property_street or job.property_address
 
         client = Client(
             source=SHEET_SOURCE if self._from_sheet(job, decision) else None,
-            display_name=homeowner_name,
+            display_name=homeowner_name or address,
             owners=[{
                 'name': homeowner_name,
                 'phone': (job.homeowner_phone or '').strip() or None,
                 'email': (job.homeowner_email or '').strip() or None,
                 'is_primary': True,
-            }],
-            address=job.property_street or job.property_address,
+            }] if homeowner_name else [],
+            address=address,
+            normalized_address=normalize_address(address) or None,
             city=job.property_city,
             state=job.property_state,
             zipcode=job.property_zipcode,
@@ -298,7 +347,7 @@ class ClientSyncService:
         self.db.add(client)
         self.db.flush()  # Get the ID
 
-        logger.info(f"Created Client '{homeowner_name}' (id={client.id}) from WM Job {job.id}")
+        logger.info(f"Created Client '{client.display_name}' (id={client.id}) from WM Job {job.id}")
         return client
 
     def _update_client_from_job(self, client: Client, job: WaterMitigationJob) -> None:
@@ -307,6 +356,7 @@ class ClientSyncService:
         job_street = job.property_street or job.property_address
         if job_street and not client.address:
             client.address = job_street
+            client.normalized_address = normalize_address(job_street) or None
         if job.property_city and not client.city:
             client.city = job.property_city
         if job.property_state and not client.state:
@@ -322,6 +372,17 @@ class ClientSyncService:
         email = (job.homeowner_email or '').strip()
         if email and not client.email:
             client.email = email
+
+        # A client named after its address takes the homeowner's name once there is one
+        homeowner_name = (job.homeowner_name or '').strip()
+        if homeowner_name and homeowner_name != (client.address or '').strip() and named_after_address(client):
+            client.display_name = homeowner_name
+            client.owners = [{
+                'name': homeowner_name,
+                'phone': client.phone,
+                'email': client.email,
+                'is_primary': True,
+            }]
 
         # Update insurance defaults if missing
         ins_company = (job.insurance_company or '').strip()

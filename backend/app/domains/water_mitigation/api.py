@@ -45,7 +45,7 @@ from .job_access import (
     require_job_row,
     require_photos,
 )
-from .models import WMPhoto
+from .models import WaterMitigationJob, WMPhoto
 from .schemas import (
     BulkUpdateDateRequest,
     BulkUpdatePhotoDatesByCategoryRequest,
@@ -150,7 +150,8 @@ def create_job(
         # Auto-sync Client/Claim from WM Job
         try:
             from app.domains.client.client_sync_service import sync_client_from_wm_job
-            wm_job = service.get_job(created_job['id'])
+            # The row itself, which the sync writes to; the service only hands back dicts
+            wm_job = db.query(WaterMitigationJob).filter(WaterMitigationJob.id == created_job['id']).first()
             if wm_job:
                 sync_result = sync_client_from_wm_job(db, wm_job)
                 created_job['client_sync'] = sync_result
@@ -264,7 +265,9 @@ def update_job(
     # Auto-sync Client/Claim from updated WM Job
     try:
         from app.domains.client.client_sync_service import sync_client_from_wm_job
-        sync_client_from_wm_job(db, updated_job)
+        wm_job = db.query(WaterMitigationJob).filter(WaterMitigationJob.id == job_id).first()
+        if wm_job:
+            sync_client_from_wm_job(db, wm_job)
     except Exception as sync_err:
         logger.warning(f"Client sync after WM job update failed (non-fatal): {sync_err}")
 
