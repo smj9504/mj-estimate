@@ -1,0 +1,501 @@
+/* ============================================================
+   Xactimate cheat sheet
+   ============================================================ */
+
+.cs-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 32px;
+}
+.cs-main {
+  flex: 1;
+  min-width: 0;
+  max-width: 1120px;
+}
+
+/* Search stays reachable under the 52px top bar while the sheet scrolls */
+.cs-toolbar {
+  position: sticky;
+  top: 52px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 0;
+  background: var(--color-surface);
+}
+.cs-toolbar .ant-input-affix-wrapper {
+  flex: 1;
+  min-width: 0;
+}
+.cs-match-count {
+  color: var(--color-neutral-600);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cs-empty-search {
+  margin: 0;
+  padding: 8px 0;
+  color: var(--color-neutral-600);
+}
+
+/* Contents: quiet text links, the current one an ink wash */
+.cs-nav {
+  position: sticky;
+  top: 68px;
+  flex-shrink: 0;
+  width: 208px;
+  max-height: calc(100vh - 84px);
+  overflow-y: auto;
+}
+.cs-nav .ant-anchor-wrapper {
+  padding: 0;
+}
+.cs-nav .ant-anchor::before,
+.cs-nav .ant-anchor-ink {
+  display: none !important;
+}
+.cs-nav .ant-anchor > .ant-anchor-link {
+  padding: 0;
+  margin-bottom: 12px;
+}
+.cs-nav .ant-anchor > .ant-anchor-link > .ant-anchor-link-title,
+.cs-nav .ant-anchor > .ant-anchor-link > .ant-anchor-link-title.ant-anchor-link-title-active {
+  display: block;
+  padding: 0 8px 4px;
+  color: var(--color-neutral-600);
+  font-size: 12px;
+  font-weight: 500;
+}
+.cs-nav .ant-anchor-link .ant-anchor-link {
+  padding: 0;
+}
+.cs-nav .ant-anchor-link .ant-anchor-link > .ant-anchor-link-title {
+  display: block;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--color-neutral-700);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: normal;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.cs-nav .ant-anchor-link .ant-anchor-link > .ant-anchor-link-title:hover {
+  background: var(--color-ink-hover);
+  color: var(--color-neutral-900);
+}
+.cs-nav .ant-anchor-link .ant-anchor-link > .ant-anchor-link-title-active {
+  background: var(--color-ink-selected);
+  color: var(--color-neutral-900);
+  font-weight: 500;
+}
+.cs-nav--drawer {
+  position: static;
+  width: auto;
+  max-height: none;
+  overflow: visible;
+}
+@media (pointer: coarse) {
+  .cs-nav .ant-anchor-link .ant-anchor-link > .ant-anchor-link-title {
+    padding: 10px 8px;
+  }
+}
+.cs-nav-tools {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+
+/* A category: a heading over a hairline, nothing boxed */
+.cs-section {
+  margin-bottom: 36px;
+  scroll-margin-top: 116px;
+}
+.cs-section-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.cs-section-title {
+  margin: 0;
+  color: var(--color-neutral-900);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.cs-section-code {
+  color: var(--color-neutral-600);
+  font-family: SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+}
+.cs-section-action {
+  margin-left: auto;
+}
+
+/* Rules as Notion callouts: the icon says the type, so yellow stays for the
+   rows flagged as often missed */
+.cs-rules {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-items: start;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.cs-callout {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--color-neutral-50);
+}
+.cs-callout-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+.cs-callout--info .cs-callout-icon { color: var(--tag-blue-text); }
+.cs-callout--success .cs-callout-icon { color: var(--tag-green-text); }
+.cs-callout--purple .cs-callout-icon { color: var(--tag-purple-text); }
+.cs-callout--warning .cs-callout-icon { color: var(--color-warning); }
+.cs-callout-body {
+  flex: 1;
+  min-width: 0;
+}
+.cs-callout-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.cs-callout-title {
+  margin: 0;
+  color: var(--color-neutral-900);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: 0;
+}
+.cs-callout-list {
+  margin: 0;
+  padding-left: 16px;
+  color: var(--color-neutral-700);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.cs-callout-list strong {
+  color: var(--color-neutral-900);
+  font-weight: 600;
+}
+.cs-callout .cs-code {
+  background: rgba(55, 53, 47, 0.08);
+}
+
+/* Inline values */
+.cs-code {
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-900);
+  font-family: SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.cs-muted {
+  color: var(--color-neutral-600);
+}
+.cs-group {
+  color: var(--color-neutral-600);
+  font-size: 13px;
+}
+.cs-unit {
+  color: var(--color-neutral-600);
+  font-family: SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.cs-price {
+  color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cs-note {
+  color: var(--color-neutral-700);
+  font-size: 13px;
+}
+
+/* A flag reads like a highlight on the words, so a long one still wraps */
+.cs-flag {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.cs-flag-icon {
+  margin-right: 4px;
+  font-size: 11px;
+}
+.cs-flag--miss { background: var(--tag-yellow-bg); color: var(--tag-yellow-text); }
+.cs-flag--excl { background: var(--tag-red-bg); color: var(--tag-red-text); }
+.cs-flag--warn { background: var(--tag-orange-bg); color: var(--tag-orange-text); }
+
+.cs-memo {
+  margin-top: 2px;
+  color: var(--color-neutral-700);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+/* Tables */
+.cs-table-block {
+  margin-bottom: 12px;
+}
+.cs-table .ant-table {
+  font-size: 14px;
+}
+.cs-table.ant-table-wrapper .ant-table-thead > tr > th {
+  padding: 6px 8px;
+  background: var(--color-surface);
+  color: var(--color-neutral-600);
+}
+.cs-table.ant-table-wrapper .ant-table-tbody > tr > td {
+  padding: 6px 8px;
+  line-height: 1.5;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.cs-table.ant-table-wrapper .ant-table-tbody > tr:not(.ant-table-expanded-row) {
+  cursor: pointer;
+}
+.cs-table.ant-table-wrapper .ant-table-tbody > tr.ant-table-expanded-row > td {
+  background: var(--color-surface);
+  cursor: default;
+}
+
+/* Only a row with a note shows its icon at rest; the rest come up on hover or focus */
+.cs-note-btn:not(.has-note) {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.cs-table tr:hover .cs-note-btn,
+.cs-note-btn:focus-visible {
+  opacity: 1;
+}
+.ant-btn.cs-note-btn.has-note {
+  color: var(--color-neutral-900);
+}
+.ant-btn.cs-tier-on {
+  color: var(--tag-yellow-text);
+}
+.cs-edit-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+/* Description / justification */
+.cs-desc-toggle {
+  margin-left: 6px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-neutral-600);
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.cs-desc-toggle:hover,
+.cs-desc-toggle.is-open {
+  background: var(--color-ink-hover);
+  color: var(--color-neutral-900);
+}
+.cs-desc {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--color-neutral-50);
+  font-size: 13px;
+  line-height: 1.6;
+  cursor: default;
+}
+.cs-desc-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-neutral-900);
+}
+.cs-desc-label {
+  color: var(--color-neutral-600);
+  font-size: 12px;
+}
+
+/* Occasional items: a Notion toggle under the category */
+.cs-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 8px 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-neutral-600);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+button.cs-more {
+  cursor: pointer;
+}
+@media (hover: hover) {
+  button.cs-more:hover {
+    background: var(--color-ink-hover);
+    color: var(--color-neutral-900);
+  }
+}
+.cs-more--label {
+  padding-left: 8px;
+}
+.cs-more-chevron {
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+.cs-more[aria-expanded='true'] {
+  color: var(--color-neutral-900);
+}
+.cs-more[aria-expanded='true'] .cs-more-chevron {
+  transform: rotate(90deg);
+}
+.cs-more-body {
+  margin-top: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cs-more-chevron {
+    transition: none;
+  }
+}
+
+/* Phones: rows instead of a table */
+.cs-rows {
+  margin: 0 -16px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.cs-rows-group {
+  padding: 10px 16px 4px;
+  color: var(--color-neutral-600);
+  font-size: 13px;
+  font-weight: 500;
+}
+.cs-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-neutral-200);
+  -webkit-tap-highlight-color: transparent;
+}
+.cs-row:active {
+  background: rgba(55, 53, 47, 0.04);
+}
+.cs-row-body {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cs-row-name {
+  color: var(--color-neutral-900);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.cs-row-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin-top: 2px;
+  font-size: 13px;
+}
+.cs-row-meta .cs-desc-toggle {
+  margin-left: 0;
+  min-width: 28px;
+}
+.cs-row-note {
+  margin-top: 4px;
+}
+.cs-row-extra {
+  margin-top: 2px;
+  color: var(--color-neutral-700);
+  font-size: 13px;
+}
+.cs-row .cs-desc {
+  margin-top: 6px;
+}
+.cs-row-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+}
+.cs-row .cs-note-btn:not(.has-note) {
+  opacity: 1;
+  color: var(--color-placeholder);
+}
+@media (max-width: 767px) {
+  .cs-rules {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cs-section {
+    margin-bottom: 28px;
+  }
+  .cs-more {
+    min-height: 40px;
+  }
+  .cs-section-action {
+    margin-left: 0;
+  }
+}
+
+/* Print takes the whole sheet, occasional items included, without the app around it */
+@media print {
+  body:has(.cs-page) .ant-layout-sider,
+  body:has(.cs-page) .ant-layout-header,
+  body:has(.cs-page) .ant-breadcrumb,
+  body:has(.cs-page) .mobile-bottom-nav {
+    display: none !important;
+  }
+  body:has(.cs-page) .main-content {
+    margin-left: 0 !important;
+  }
+  .cs-nav,
+  .cs-toolbar,
+  .cs-note-btn,
+  .cs-desc-toggle,
+  .cs-more-chevron {
+    display: none !important;
+  }
+  .cs-more-body[hidden] {
+    display: block !important;
+  }
+  .cs-callout,
+  .cs-table tr {
+    break-inside: avoid;
+  }
+  .cs-section-head {
+    break-after: avoid;
+  }
+}

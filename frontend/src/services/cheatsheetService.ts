@@ -14,6 +14,8 @@ export interface CSRow {
   row_key: string;
   data: Record<string, string | undefined>;
   note: string | null;
+  /** False puts the row behind its category's "간혹 쓰는 항목" */
+  is_common: boolean;
   sort_order: number;
 }
 
@@ -31,6 +33,8 @@ export interface CSRule {
   rule_type: string;
   title: string;
   items: string[];
+  /** False puts the rule behind its category's "간혹 쓰는 항목" */
+  is_common: boolean;
   sort_order: number;
 }
 
@@ -78,14 +82,14 @@ export const deleteSection = async (id: string): Promise<void> => {
 // ─── Rules ──────────────────────────────────────────────────────────────────
 
 export const createRule = async (body: {
-  section_id: string; rule_type?: string; title: string; items?: string[]; sort_order?: number;
+  section_id: string; rule_type?: string; title: string; items?: string[]; is_common?: boolean; sort_order?: number;
 }): Promise<CSRule> => {
   const { data } = await api.post(`${PREFIX}/rules`, body);
   return data;
 };
 
 export const updateRule = async (id: string, body: Partial<{
-  rule_type: string; title: string; items: string[]; sort_order: number;
+  rule_type: string; title: string; items: string[]; is_common: boolean; sort_order: number;
 }>): Promise<CSRule> => {
   const { data } = await api.put(`${PREFIX}/rules/${id}`, body);
   return data;
@@ -118,14 +122,14 @@ export const deleteTable = async (id: string): Promise<void> => {
 // ─── Rows ───────────────────────────────────────────────────────────────────
 
 export const createRow = async (body: {
-  table_id: string; row_key: string; data: Record<string, any>; note?: string; sort_order?: number;
+  table_id: string; row_key: string; data: Record<string, any>; note?: string; is_common?: boolean; sort_order?: number;
 }): Promise<CSRow> => {
   const { data } = await api.post(`${PREFIX}/rows`, body);
   return data;
 };
 
 export const updateRow = async (id: string, body: Partial<{
-  data: Record<string, any>; note: string | null; sort_order: number;
+  data: Record<string, any>; note: string | null; is_common: boolean; sort_order: number;
 }>): Promise<CSRow> => {
   const { data } = await api.put(`${PREFIX}/rows/${id}`, body);
   return data;

@@ -41,6 +41,7 @@ class RuleResponse(BaseModel):
     rule_type: str
     title: str
     items: List[str]
+    is_common: bool = True
     sort_order: int
 
     class Config:
@@ -53,6 +54,7 @@ class RowResponse(BaseModel):
     row_key: str
     data: Dict[str, Any]
     note: Optional[str] = None
+    is_common: bool = True
     sort_order: int
 
     class Config:
@@ -101,6 +103,7 @@ class RuleCreate(BaseModel):
     rule_type: str = "info"
     title: str
     items: List[str] = []
+    is_common: bool = True
     sort_order: int = 0
 
 
@@ -108,6 +111,7 @@ class RuleUpdate(BaseModel):
     rule_type: Optional[str] = None
     title: Optional[str] = None
     items: Optional[List[str]] = None
+    is_common: Optional[bool] = None
     sort_order: Optional[int] = None
 
 
@@ -131,12 +135,14 @@ class RowCreate(BaseModel):
     row_key: str
     data: Dict[str, Any]
     note: Optional[str] = None
+    is_common: bool = True
     sort_order: int = 0
 
 
 class RowUpdate(BaseModel):
     data: Optional[Dict[str, Any]] = None
     note: Optional[str] = None
+    is_common: Optional[bool] = None
     sort_order: Optional[int] = None
 
 

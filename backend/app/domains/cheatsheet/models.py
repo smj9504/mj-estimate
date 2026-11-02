@@ -101,6 +101,7 @@ class CheatsheetRule(Base):
     rule_type = Column(Text, nullable=False, default="info")  # info|warning|success|purple
     title = Column(Text, nullable=False)
     items = Column(JSONB, nullable=False, default=[])  # string array
+    is_common = Column(Boolean, nullable=False, default=True, server_default="true")  # false: behind "간혹 쓰는 항목"
     sort_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -114,6 +115,7 @@ class CheatsheetRule(Base):
             "rule_type": self.rule_type,
             "title": self.title,
             "items": self.items or [],
+            "is_common": self.is_common,
             "sort_order": self.sort_order,
         }
 
@@ -177,6 +179,7 @@ class CheatsheetRow(Base):
     row_key = Column(Text, nullable=False)  # e.g. 'c1', 'l4', 'w6'
     data = Column(JSONB, nullable=False)  # {situation: '', item: '', unit: '', ...}
     note = Column(Text, nullable=True)  # user note
+    is_common = Column(Boolean, nullable=False, default=True, server_default="true")  # false: behind "간혹 쓰는 항목"
     sort_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -190,5 +193,6 @@ class CheatsheetRow(Base):
             "row_key": self.row_key,
             "data": self.data or {},
             "note": self.note,
+            "is_common": self.is_common,
             "sort_order": self.sort_order,
         }

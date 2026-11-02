@@ -4,7 +4,8 @@ import { defineConfig } from 'vitest/config';
  * Vitest setup for the sketch geometry layer, the bathroom and kitchen estimate helpers,
  * the claim follow-up helpers, the todo board helpers, the screen catalog,
  * the contract signature lines, the on-site signing dates, the claim photo viewer's
- * zoom and category helpers, the packing item edits and the shared utils.
+ * zoom and category helpers, the packing item edits, the cheat sheet's views and
+ * the shared utils.
  *
  * Deliberately narrow for now. Two constraints shape this config:
  *
@@ -38,6 +39,7 @@ export default defineConfig({
       'src/components/field-visit/**/*.test.ts',
       'src/components/client/photo-viewer/**/*.test.ts',
       'src/components/packing-estimate/**/*.test.ts',
+      'src/components/cheat-sheet/**/*.test.ts',
       'src/constants/**/*.test.ts',
       'src/utils/**/*.test.ts',
     ],
