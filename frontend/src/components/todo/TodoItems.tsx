@@ -26,12 +26,12 @@ const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
 /** The client (a link to its page), the claim the todo is tied to, and who else it's assigned to */
 export const TodoMeta: React.FC<{ todo: Todo }> = ({ todo }) => {
-  const { user } = useAuth();
+  const { user, canAccessPath } = useAuth();
   const others = sharedWith(todo, user?.id);
   if (!todo.client_name && !todo.claim_number && !others) return null;
   return (
     <div className="td-meta">
-      {todo.client_id && todo.client_name && (
+      {todo.client_id && todo.client_name && (canAccessPath('/clients') ? (
         <Link
           to={`/clients/${todo.client_id}`}
           className="td-client-link"
@@ -41,7 +41,7 @@ export const TodoMeta: React.FC<{ todo: Todo }> = ({ todo }) => {
         >
           {todo.client_name}
         </Link>
-      )}
+      ) : <span>{todo.client_name}</span>)}
       {todo.claim_number && <span>#{todo.claim_number}</span>}
       {others && (
         <span className="td-shared">

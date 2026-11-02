@@ -23,6 +23,7 @@
 
 import React, { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import {
   Alert,
   Button,
@@ -86,6 +87,7 @@ const format = (value: number, kind: string) => {
 };
 
 const RoofingPricingSettings: React.FC = () => {
+  const { canAccessPath } = useAuth();
   const queryClient = useQueryClient();
   const [drafts, setDrafts] = useState<Record<string, number | null>>({});
   const [search, setSearch] = useState('');
@@ -427,7 +429,9 @@ const RoofingPricingSettings: React.FC = () => {
             들어가는 주요 자재의 공급업체 원가를 같은 단위로 환산한
             것으로, <u>조회 전용</u>입니다. 못·실란트 등 부자재는
             빠져 있어 전체 원가가 아닙니다. 자재 원가 수정은{' '}
-            <Link to="/roofing/material-prices">자재 기본 단가</Link>{' '}
+            {canAccessPath('/roofing/material-prices')
+              ? <Link to="/roofing/material-prices">자재 기본 단가</Link>
+              : '자재 기본 단가'}{' '}
             화면에서 — 공급업체·SKU·포장 규칙과 함께 관리해야 합니다.
           </Paragraph>
         }

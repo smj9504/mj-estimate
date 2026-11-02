@@ -10,6 +10,7 @@ import type { MenuProps } from 'antd';
 import { FilePdfOutlined, FileImageOutlined, FileOutlined, FileTextOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, EditOutlined, DollarOutlined, CheckOutlined, CloseOutlined, DownOutlined, MailOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import waterMitigationService from '../../services/waterMitigationService';
 import type { WMScopeInvoiceResponse } from '../../types/waterMitigation';
 import { WM_DOCUMENT_TYPES, getDocumentTypeInfo } from '../../constants/wmDocumentTypes';
@@ -63,6 +64,7 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
     const screens = useBreakpoint();
     const isMobile = !screens.md;
     const navigate = useNavigate();
+    const { canAccessPath } = useAuth();
     const queryClient = useQueryClient();
     const { data: documents = [], isLoading: docsLoading } = useQuery({
       queryKey: ['wm-documents', jobId],
@@ -586,7 +588,7 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
       <List.Item
         className="wm-list-item"
         actions={[
-          ...(canEditInvoices ? [
+          ...(canEditInvoices && canAccessPath('/invoices') ? [
             <Button
               key="edit"
               type="text"

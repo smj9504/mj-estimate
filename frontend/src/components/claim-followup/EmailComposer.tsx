@@ -172,7 +172,7 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
 }) => {
   const [form] = Form.useForm();
   const isMobile = useIsMobile();
-  const { user } = useAuth();
+  const { user, canAccessPath } = useAuth();
   const [selectedTemplate, setSelectedTemplate] = useState<string | undefined>();
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>();
   const [previewMode, setPreviewMode] = useState(false);
@@ -681,7 +681,8 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
                 />
               ) : (
                 <span className="fu-compose-warning">
-                  No email accounts configured. <a href="/email-ingestion/accounts">Add one here</a>
+                  No email accounts configured.
+                  {canAccessPath('/email-ingestion/accounts') && <> <a href="/email-ingestion/accounts">Add one here</a></>}
                 </span>
               )}
             </div>

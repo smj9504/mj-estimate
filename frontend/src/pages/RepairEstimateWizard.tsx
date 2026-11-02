@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { insuranceExtractionService } from '../services/insuranceExtractionService';
 import { estimateService } from '../services/estimateService';
 import {
@@ -28,6 +29,7 @@ const RepairEstimateWizard: React.FC = () => {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const navigate = useNavigate();
+  const { canAccessPath } = useAuth();
 
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedExtractionId, setSelectedExtractionId] = useState<string | null>(null);
@@ -337,14 +339,14 @@ const RepairEstimateWizard: React.FC = () => {
   return (
     <div style={{ maxWidth: 960 }}>
       <PageHeader
-        leading={
+        leading={canAccessPath('/repair-templates') && (
           <Button
             type="text"
             icon={<ArrowLeftOutlined />}
             onClick={() => navigate('/repair-templates')}
             aria-label="Back to repair templates"
           />
-        }
+        )}
         title="Repair Estimate Wizard"
       />
 

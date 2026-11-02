@@ -21,6 +21,17 @@ describe('opensScreen', () => {
   });
 });
 
+describe('screenForPath', () => {
+  it('reads a link with a query string as its page', () => {
+    expect(screenForPath('/rebuild-projects?project=1')).toBe('rebuild_projects');
+    expect(screenForPath('/clients/1#claims')).toBe('clients');
+  });
+
+  it('leaves a page no screen claims open', () => {
+    expect(screenForPath('/todos')).toBeNull();
+  });
+});
+
 describe('hasLimitedScreen', () => {
   it('is true with only the View grant', () => {
     expect(hasLimitedScreen(['water_mitigation_view'], 'water_mitigation')).toBe(true);

@@ -54,7 +54,7 @@ const { Title, Text } = Typography;
 const { Option } = Select;
 
 const RoleBasedDashboard: React.FC = () => {
-  const { user } = useAuth();
+  const { user, canAccessPath } = useAuth();
   const navigate = useNavigate();
   const [timePeriod, setTimePeriod] = useState<string>('week');
 
@@ -173,7 +173,7 @@ const RoleBasedDashboard: React.FC = () => {
           <WorkOrderCard
             key={wo.id}
             workOrder={wo}
-            onEdit={() => navigate(`/work-orders/${wo.id}`)}
+            onEdit={canAccessPath('/work-orders') ? () => navigate(`/work-orders/${wo.id}`) : undefined}
             onComplete={() => console.log('Complete', wo.id)}
             onRevision={() => console.log('Revision', wo.id)}
           />

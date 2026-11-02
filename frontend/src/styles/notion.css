@@ -2295,6 +2295,13 @@ button.fu-step--extra:hover {
 .fu-sup:hover {
   background: rgba(55, 53, 47, 0.04);
 }
+/* This person can't open the supplement's page: the facts, no link */
+.fu-sup.is-static {
+  cursor: default;
+}
+.fu-sup.is-static:hover {
+  background: none;
+}
 .fu-sup-head {
   display: flex;
   align-items: baseline;
@@ -3622,6 +3629,10 @@ a.cl-contact-line:hover {
 .cl-job:hover {
   color: var(--color-neutral-900);
   background: rgba(55, 53, 47, 0.04);
+}
+/* This person can't open the job's page: the facts, no link */
+.cl-job.is-static:hover {
+  background: none;
 }
 .cl-job-top {
   display: flex;

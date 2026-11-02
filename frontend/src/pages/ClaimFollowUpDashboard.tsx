@@ -56,6 +56,7 @@ import {
   FilterOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { claimFollowUpService } from '../services/claimFollowUpService';
@@ -298,6 +299,7 @@ const QUICK_FILTERS: { key: QuickFilter; label: string; hint: string; match: (g:
 
 const ClaimFollowUpDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { canAccessPath } = useAuth();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
   const { sheetProps } = useSheetModal();
@@ -1986,6 +1988,11 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
                   if (!hasSupp && !hasResolvedEstimate && group.pendingInfoRequests === 0) return null;
 
+                  // A tag opens the supplements list only for someone who can
+                  const supplementsTag = canAccessPath('/supplements')
+                    ? { style: { margin: 0, fontSize: 11, cursor: 'pointer' }, onClick: () => navigate('/supplements') }
+                    : { style: { margin: 0, fontSize: 11 } };
+
                   return (
                     <div style={{ marginBottom: 12, padding: '6px 8px', background: '#f7f7f5', borderRadius: 6 }}>
                       <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Supplement Status</Text>
@@ -1993,14 +2000,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
                         {hasSupp ? (
                           <>
                             {ss['identified'] && (
-                              <Tag color="orange" style={{ margin: 0, fontSize: 11, cursor: 'pointer' }}
-                                onClick={() => navigate('/supplements')}>
+                              <Tag color="orange" {...supplementsTag}>
                                 Review Needed ({ss['identified']})
                               </Tag>
                             )}
                             {ss['in_progress'] && (
-                              <Tag color="processing" style={{ margin: 0, fontSize: 11, cursor: 'pointer' }}
-                                onClick={() => navigate('/supplements')}>
+                              <Tag color="processing" {...supplementsTag}>
                                 In Progress ({ss['in_progress']})
                               </Tag>
                             )}
@@ -2018,14 +2023,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
                             )}
                           </>
                         ) : hasResolvedEstimate ? (
-                          <Tag color="warning" style={{ margin: 0, fontSize: 11, cursor: 'pointer' }}
-                            onClick={() => navigate('/supplements')}>
+                          <Tag color="warning" {...supplementsTag}>
                             Supplement Pending - Needs Creation
                           </Tag>
                         ) : null}
                         {group.pendingInfoRequests > 0 && (
-                          <Tag color="volcano" style={{ margin: 0, fontSize: 11, cursor: 'pointer' }}
-                            onClick={() => navigate('/supplements')}>
+                          <Tag color="volcano" {...supplementsTag}>
                             Info Waiting ({group.pendingInfoRequests})
                           </Tag>
                         )}

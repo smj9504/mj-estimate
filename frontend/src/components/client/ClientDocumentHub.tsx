@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   Table,
   Select,
@@ -66,6 +67,8 @@ interface ClientDocumentHubProps {
 
 const ClientDocumentHub: React.FC<ClientDocumentHubProps> = ({ clientId }) => {
   const navigate = useNavigate();
+  const { canAccessPath } = useAuth();
+  const canOpen = (record: ClientDocument) => !!record.link && canAccessPath(record.link);
   const [typeFilter, setTypeFilter] = useState<string | undefined>();
   const [claimFilter, setClaimFilter] = useState<string | undefined>();
   const [searchText, setSearchText] = useState('');
@@ -124,7 +127,7 @@ const ClientDocumentHub: React.FC<ClientDocumentHubProps> = ({ clientId }) => {
       render: (title: string, record: ClientDocument) => (
         <>
           <span className="cl-doc-title">
-            <span className={record.link ? 'ui-ink-link' : 'cl-doc-title-text'}>{title}</span>
+            <span className={canOpen(record) ? 'ui-ink-link' : 'cl-doc-title-text'}>{title}</span>
             {record.reply_received && (
               <Pill tone="green" icon={<CheckOutlined />}>Replied</Pill>
             )}
@@ -177,8 +180,8 @@ const ClientDocumentHub: React.FC<ClientDocumentHubProps> = ({ clientId }) => {
   ];
 
   const handleRowClick = (record: ClientDocument) => {
-    if (record.link) {
-      navigate(record.link);
+    if (canOpen(record)) {
+      navigate(record.link!);
     }
   };
 
@@ -268,7 +271,7 @@ const ClientDocumentHub: React.FC<ClientDocumentHubProps> = ({ clientId }) => {
         }}
         onRow={(record) => ({
           onClick: () => handleRowClick(record),
-          style: { cursor: record.link ? 'pointer' : 'default' },
+          style: { cursor: canOpen(record) ? 'pointer' : 'default' },
         })}
       />
     </div>

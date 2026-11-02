@@ -7,6 +7,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   Button, Col, Input, InputNumber, message, Popconfirm, Row, Select, Skeleton, Tooltip, Upload,
 } from 'antd';
@@ -73,6 +74,8 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
   const navigate = useNavigate();
+  const { canAccessPath } = useAuth();
+  const canOpenSupplements = canAccessPath('/supplements');
   const [estimates, setEstimates] = useState<any[]>([]);
   const [supplements, setSupplements] = useState<any[]>([]);
   const [bidItems, setBidItems] = useState<any[]>([]);
@@ -533,15 +536,21 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                   const supBidItems = (sup.bid_items || []).filter((b: any) => b.custom_document_file_id);
                   const totalAmount = sup.supplement_amount || sup.our_estimate_amount || 0;
                   return (
-                    <div key={sup.id} className="fu-sup" onClick={() => navigate(`/supplements/${sup.id}`)}>
+                    <div
+                      key={sup.id}
+                      className={`fu-sup${canOpenSupplements ? '' : ' is-static'}`}
+                      onClick={canOpenSupplements ? () => navigate(`/supplements/${sup.id}`) : undefined}
+                    >
                       <div className="fu-sup-head">
-                        <a
-                          className="ui-ink-link fu-sup-title"
-                          href={`/supplements/${sup.id}`}
-                          onClick={e => { e.preventDefault(); e.stopPropagation(); navigate(`/supplements/${sup.id}`); }}
-                        >
-                          {sup.title}
-                        </a>
+                        {canOpenSupplements ? (
+                          <a
+                            className="ui-ink-link fu-sup-title"
+                            href={`/supplements/${sup.id}`}
+                            onClick={e => { e.preventDefault(); e.stopPropagation(); navigate(`/supplements/${sup.id}`); }}
+                          >
+                            {sup.title}
+                          </a>
+                        ) : <span className="fu-sup-title">{sup.title}</span>}
                         {sup.request_type === 'estimate_request' && <Pill tone="gray">Estimate request</Pill>}
                         {totalAmount > 0 && (
                           <span className="fu-money fu-money--strong fu-sup-amount">{formatCurrency(totalAmount)}</span>

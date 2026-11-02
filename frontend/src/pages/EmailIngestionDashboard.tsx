@@ -35,6 +35,7 @@ import {
   PaperClipOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { emailIngestionService } from '../services/emailIngestionService';
 import { fileService } from '../services/fileService';
 import { clientService, claimService } from '../services/clientService';
@@ -81,6 +82,7 @@ const documentTypeTag = (log: IngestionLog) => {
 
 const EmailIngestionDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { canAccessPath } = useAuth();
   const queryClient = useQueryClient();
   // Default to pending: this screen exists to work the manual-assign queue,
   // and skipped rows (classified as not-an-estimate, no file stored) are a
@@ -442,9 +444,13 @@ const EmailIngestionDashboard: React.FC = () => {
       // against the client it matched.
       render: (_: any, r: EmailRow) => r.head.client_name ? (
         <Tooltip title={r.head.client_address}>
-          <a onClick={() => r.head.matched_client_id && navigate(`/clients/${r.head.matched_client_id}`)}>
-            <UserOutlined style={{ marginRight: 4 }} />{r.head.client_name}
-          </a>
+          {canAccessPath('/clients') ? (
+            <a onClick={() => r.head.matched_client_id && navigate(`/clients/${r.head.matched_client_id}`)}>
+              <UserOutlined style={{ marginRight: 4 }} />{r.head.client_name}
+            </a>
+          ) : (
+            <span><UserOutlined style={{ marginRight: 4 }} />{r.head.client_name}</span>
+          )}
         </Tooltip>
       ) : <Text type="secondary">-</Text>,
     },

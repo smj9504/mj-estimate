@@ -5,6 +5,7 @@ import {
   ArrowRightOutlined, CheckCircleOutlined, CheckOutlined, MailOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
 import { lifecycleService } from '../services/lifecycleService';
@@ -107,8 +108,12 @@ interface StageView<T> {
 
 const NoValue = () => <span className="ui-props-empty">—</span>;
 
-const TitleLink: React.FC<{ to?: string; children: React.ReactNode }> = ({ to, children }) =>
-  to ? <Link className="ui-ink-link" to={to}>{children}</Link> : <span className="lc-title">{children}</span>;
+const TitleLink: React.FC<{ to?: string; children: React.ReactNode }> = ({ to, children }) => {
+  const { canAccessPath } = useAuth();
+  return to && canAccessPath(to)
+    ? <Link className="ui-ink-link" to={to}>{children}</Link>
+    : <span className="lc-title">{children}</span>;
+};
 
 /** Grey line under a table cell's value; parts join with a middle dot */
 const CellMeta: React.FC<{ parts: React.ReactNode[] }> = ({ parts }) => {
@@ -168,6 +173,7 @@ const PhoneRow: React.FC<{
   end?: React.ReactNode;
   action?: React.ReactNode;
 }> = ({ to, tags, title, lines = [], end, action }) => {
+  const { canAccessPath } = useAuth();
   const body = (
     <>
       <div className="ui-row-body">
@@ -187,7 +193,7 @@ const PhoneRow: React.FC<{
   );
   return (
     <div className="ui-row lc-row">
-      {to ? <Link className="lc-row-link" to={to}>{body}</Link> : <div className="lc-row-link">{body}</div>}
+      {to && canAccessPath(to) ? <Link className="lc-row-link" to={to}>{body}</Link> : <div className="lc-row-link">{body}</div>}
       {action && <div className="lc-row-action">{action}</div>}
     </div>
   );
@@ -222,6 +228,7 @@ const StagePanel: React.FC<{
   onKindChange: (kind?: string) => void;
 }> = ({ stage, isPhone, kind, onKindChange }) => {
   const navigate = useNavigate();
+  const { canAccessPath } = useAuth();
   const allRows = stage.error ? [] : stage.rows;
 
   // Chips only for the kinds that have rows, once there are two to choose between
@@ -258,7 +265,7 @@ const StagePanel: React.FC<{
     <>
       <div className="lc-panel-head">
         <p className="lc-panel-meta">{stage.meta}</p>
-        {stage.link && (
+        {stage.link && canAccessPath(stage.link.to) && (
           <Link className="lc-panel-link" to={stage.link.to}>
             {stage.link.label} <ArrowRightOutlined aria-hidden="true" />
           </Link>
@@ -301,7 +308,8 @@ const StagePanel: React.FC<{
           locale={{ emptyText: empty }}
           pagination={{ pageSize: 20, hideOnSinglePage: true, size: 'small', showSizeChanger: false }}
           onRow={(r) => {
-            const path = stage.pathOf(r);
+            const rowPath = stage.pathOf(r);
+            const path = rowPath && canAccessPath(rowPath) ? rowPath : undefined;
             return {
               // Links and buttons inside the row handle their own click
               onClick: (e: React.MouseEvent) => {
@@ -319,6 +327,7 @@ const StagePanel: React.FC<{
 
 const ClaimsLifecycleDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { canAccessPath } = useAuth();
   const queryClient = useQueryClient();
   const screens = Grid.useBreakpoint();
   const isPhone = !screens.md;
@@ -381,7 +390,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
   const taskPath = (t: FollowUpTask) =>
     t.wm_job_id ? `/water-mitigation/${t.wm_job_id}` : t.claim_id ? `/claim-followup/claim/${t.claim_id}` : undefined;
 
-  const emailButton = (t: FollowUpTask) => (
+  const emailButton = (t: FollowUpTask) => canAccessPath('/claim-followup') && (
     <Tooltip title="Write follow-up email">
       <Button
         type="text"

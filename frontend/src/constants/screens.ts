@@ -107,9 +107,10 @@ const PATH_INDEX: { path: string; key: string }[] = SCREEN_GROUPS
   .flatMap(g => g.screens.flatMap(s => s.paths.map(path => ({ path, key: s.key }))))
   .sort((a, b) => b.path.length - a.path.length);
 
-/** The screen a route belongs to, or null when no screen claims it. */
+/** The screen a route or in-app link belongs to, or null when no screen claims it. */
 export function screenForPath(pathname: string): string | null {
-  const match = PATH_INDEX.find(({ path }) => pathname === path || pathname.startsWith(`${path}/`));
+  const [route] = pathname.split(/[?#]/);
+  const match = PATH_INDEX.find(({ path }) => route === path || route.startsWith(`${path}/`));
   return match ? match.key : null;
 }
 

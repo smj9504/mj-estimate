@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button, Col, ConfigProvider, DatePicker, Dropdown, Form, Grid, Input, InputNumber, Modal, Row, Select,
@@ -92,6 +93,7 @@ const followUpPresets = () => [
 const ClaimFollowUpDetail: React.FC = () => {
   const { claimId } = useParams<{ claimId: string }>();
   const navigate = useNavigate();
+  const { canAccessPath } = useAuth();
   const queryClient = useQueryClient();
   const screens = Grid.useBreakpoint();
   const isMobile = screens.md === false;
@@ -974,9 +976,11 @@ const ClaimFollowUpDetail: React.FC = () => {
             <section className="ui-section">
               <div className="ui-section-head">
                 <h2 className="ui-section-title">Supplements</h2>
-                <Button type="text" size="small" className="ui-icon-btn" onClick={() => navigate('/supplements')}>
-                  Open list
-                </Button>
+                {canAccessPath('/supplements') && (
+                  <Button type="text" size="small" className="ui-icon-btn" onClick={() => navigate('/supplements')}>
+                    Open list
+                  </Button>
+                )}
               </div>
               <ul className="fu-sup-summary">
                 {supplementEntries.map(s => (

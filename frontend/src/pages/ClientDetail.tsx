@@ -2364,6 +2364,7 @@ const ClaimFacts: React.FC<{ claim: Claim; onEdit: () => void; onEmail: () => vo
 // Jobs and documents on the claim
 const ClaimLinks: React.FC<{ claim: Claim }> = ({ claim }) => {
   const linkTo = useInAppLink();
+  const { canAccessPath } = useAuth();
   const counts = [
     { label: 'Invoices', n: claim.invoice_count },
     { label: 'Estimates', n: claim.estimate_count },
@@ -2396,9 +2397,9 @@ const ClaimLinks: React.FC<{ claim: Claim }> = ({ claim }) => {
     <ClaimSection title="Jobs & documents">
       {jobs.length > 0 && (
         <ul className="cl-jobs">
-          {jobs.map(job => (
-            <li key={job.key}>
-              <a className="cl-job" {...linkTo(job.to)}>
+          {jobs.map(job => {
+            const body = (
+              <>
                 <span className="cl-job-top">
                   {job.status}
                   <span className="cl-job-title">{job.title}</span>
@@ -2407,9 +2408,16 @@ const ClaimLinks: React.FC<{ claim: Claim }> = ({ claim }) => {
                   <span>{job.kind}</span>
                   <CompanyMark id={job.companyId} name={job.company} />
                 </span>
-              </a>
-            </li>
-          ))}
+              </>
+            );
+            return (
+              <li key={job.key}>
+                {canAccessPath(job.to)
+                  ? <a className="cl-job" {...linkTo(job.to)}>{body}</a>
+                  : <div className="cl-job is-static">{body}</div>}
+              </li>
+            );
+          })}
         </ul>
       )}
       <dl className="cl-counts">
@@ -2420,7 +2428,7 @@ const ClaimLinks: React.FC<{ claim: Claim }> = ({ claim }) => {
           </div>
         ))}
       </dl>
-      {claim.plumber_report_id && (
+      {claim.plumber_report_id && canAccessPath('/plumber-reports') && (
         <a className="cl-link-line" {...linkTo(`/plumber-reports/${claim.plumber_report_id}`)}>
           <FileTextOutlined aria-hidden="true" /> Plumber report
         </a>
@@ -2944,6 +2952,9 @@ const DocStatusPill: React.FC<{ status?: string }> = ({ status }) => {
 
 const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
   const navigate = useNavigate();
+  const { canAccessPath } = useAuth();
+  const canOpenCabinet = canAccessPath('/cabinet-estimates');
+  const canOpenPlumber = canAccessPath('/plumber-reports');
 
   const cabinetEstimates = client.cabinet_estimates ?? [];
   const plumberReports = client.plumber_reports ?? [];
@@ -3007,7 +3018,7 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
       title: 'Report #',
       dataIndex: 'report_number',
       key: 'report_number',
-      render: (val?: string) => <span className="ui-ink-link">{val || '—'}</span>,
+      render: (val?: string) => <span className={canOpenPlumber ? 'ui-ink-link' : undefined}>{val || '—'}</span>,
     },
     {
       title: 'Technician',
@@ -3054,10 +3065,10 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
             pagination={false}
             size="small"
             className="cl-table"
-            onRow={(record) => ({
+            onRow={(record) => (canOpenCabinet ? {
               onClick: () => navigate(`/cabinet-estimates/${record.id}`),
               style: { cursor: 'pointer' },
-            })}
+            } : {})}
           />
         )}
       </ClaimSection>
@@ -3073,10 +3084,10 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
             pagination={false}
             size="small"
             className="cl-table"
-            onRow={(record) => ({
+            onRow={(record) => (canOpenPlumber ? {
               onClick: () => navigate(`/plumber-reports/${record.id}`),
               style: { cursor: 'pointer' },
-            })}
+            } : {})}
           />
         )}
       </ClaimSection>
@@ -3093,6 +3104,8 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
 
 const PackingEstimatesCard: React.FC<{ clientId: string }> = ({ clientId }) => {
   const navigate = useNavigate();
+  const { canAccessPath } = useAuth();
+  const canOpenPacking = canAccessPath('/reconstruction-estimate/pack-calculator-new');
   const { data: packData } = useQuery({
     queryKey: ['packing-estimates', clientId],
     queryFn: async () => {
@@ -3109,7 +3122,7 @@ const PackingEstimatesCard: React.FC<{ clientId: string }> = ({ clientId }) => {
       title: 'Address',
       key: 'address',
       render: (_: unknown, record: any) => (
-        <span className="ui-ink-link">{record.project_address || record.calculation_name || 'Packing Estimate'}</span>
+        <span className={canOpenPacking ? 'ui-ink-link' : undefined}>{record.project_address || record.calculation_name || 'Packing Estimate'}</span>
       ),
     },
     {
@@ -3158,10 +3171,10 @@ const PackingEstimatesCard: React.FC<{ clientId: string }> = ({ clientId }) => {
           pagination={false}
           size="small"
           className="cl-table"
-          onRow={(record: any) => ({
+          onRow={(record: any) => (canOpenPacking ? {
             onClick: () => navigate(`/reconstruction-estimate/pack-calculator-new/${record.id}`),
             style: { cursor: 'pointer' },
-          })}
+          } : {})}
         />
       )}
     </ClaimSection>
@@ -3241,6 +3254,7 @@ const FinancialsTab: React.FC<FinancialsTabProps> = ({ client }) => {
 // ─────────────────────────────────────────────
 
 const ClientDetail: React.FC = () => {
+  const { canAccessPath } = useAuth();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -3354,22 +3368,16 @@ const ClientDetail: React.FC = () => {
   ];
 
   const createDocumentItems = [
-    {
-      key: 'estimate',
-      label: 'Estimate',
-      onClick: () => navigate('/create/estimate', { state: { presetClient: client } }),
-    },
-    {
-      key: 'invoice',
-      label: 'Invoice',
-      onClick: () => navigate('/create/invoice', { state: { presetClient: client } }),
-    },
-    {
-      key: 'plumber-report',
-      label: "Plumber's Report",
-      onClick: () => navigate('/create/plumber-report', { state: { presetClient: client } }),
-    },
-  ];
+    { key: 'estimate', label: 'Estimate', path: '/create/estimate' },
+    { key: 'invoice', label: 'Invoice', path: '/create/invoice' },
+    { key: 'plumber-report', label: "Plumber's Report", path: '/create/plumber-report' },
+  ]
+    .filter(item => canAccessPath(item.path))
+    .map(({ key, label, path }) => ({
+      key,
+      label,
+      onClick: () => navigate(path, { state: { presetClient: client } }),
+    }));
 
   return (
     <div className="cl-page">
@@ -3393,11 +3401,13 @@ const ClientDetail: React.FC = () => {
         }
         actions={
           <>
-            <Dropdown menu={{ items: createDocumentItems }} trigger={['click']}>
-              <Button type="primary" icon={<FileAddOutlined />}>
-                Create Document <DownOutlined />
-              </Button>
-            </Dropdown>
+            {createDocumentItems.length > 0 && (
+              <Dropdown menu={{ items: createDocumentItems }} trigger={['click']}>
+                <Button type="primary" icon={<FileAddOutlined />}>
+                  Create Document <DownOutlined />
+                </Button>
+              </Dropdown>
+            )}
             <Button icon={<EditOutlined />} onClick={() => setEditModalOpen(true)}>
               Edit
             </Button>

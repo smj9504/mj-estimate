@@ -11,6 +11,7 @@
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import { Button, Image, Input, Popconfirm, Tooltip, message } from 'antd';
 import {
   CheckOutlined, CloseOutlined, DeleteOutlined, DragOutlined, EditOutlined, PlusOutlined, SwapOutlined,
@@ -60,6 +61,8 @@ interface ClaimPackingSectionProps {
 const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client }) => {
   const navigate = useNavigate();
   const linkTo = useInAppLink();
+  const { canAccessPath } = useAuth();
+  const canOpenPacking = canAccessPath('/reconstruction-estimate/pack-calculator-new');
   const queryClient = useQueryClient();
   const photosKey = claimPackingPhotosKey(claim.id);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -138,7 +141,7 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
     <ClaimSection
       title="Packing estimate"
       count={photos.length > 0 ? photos.length : undefined}
-      actions={(
+      actions={canOpenPacking && (
         <Button size="small" type="text" icon={<PlusOutlined />} onClick={() => startEstimate()}>
           New estimate
         </Button>
@@ -157,16 +160,18 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
             <span className="cl-meta">
               {plural(group.rooms.length, 'room')} · {plural(group.photoCount, 'photo')}
             </span>
-            <Button
-              size="small"
-              type="text"
-              icon={<ThunderboltOutlined />}
-              className="cl-packing-category-action"
-              onClick={() => startEstimate(group.category)}
-              aria-label={`Pack-out/in estimate for ${group.label}`}
-            >
-              Pack-out/in estimate
-            </Button>
+            {canOpenPacking && (
+              <Button
+                size="small"
+                type="text"
+                icon={<ThunderboltOutlined />}
+                className="cl-packing-category-action"
+                onClick={() => startEstimate(group.category)}
+                aria-label={`Pack-out/in estimate for ${group.label}`}
+              >
+                Pack-out/in estimate
+              </Button>
+            )}
           </div>
           <ul className="cl-packing-rooms">
             {group.rooms.map(room => {
@@ -296,9 +301,9 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
 
       {estimates.length > 0 && (
         <ul className="cl-jobs cl-packing-estimates" aria-label="Packing estimates">
-          {estimates.map(est => (
-            <li key={est.id}>
-              <a className="cl-job" {...linkTo(`/reconstruction-estimate/pack-calculator-new/${est.id}`)}>
+          {estimates.map(est => {
+            const body = (
+              <>
                 <span className="cl-job-top">
                   <PackStatusPill status={est.status} />
                   <span className="cl-job-title">{formatMoney(est.grand_total)}</span>
@@ -309,9 +314,16 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
                   <span>{plural(est.total_rooms, 'room')}</span>
                   {est.created_at && <span>{dayjs(est.created_at).format('MMM D, YYYY')}</span>}
                 </span>
-              </a>
-            </li>
-          ))}
+              </>
+            );
+            return (
+              <li key={est.id}>
+                {canOpenPacking
+                  ? <a className="cl-job" {...linkTo(`/reconstruction-estimate/pack-calculator-new/${est.id}`)}>{body}</a>
+                  : <div className="cl-job is-static">{body}</div>}
+              </li>
+            );
+          })}
         </ul>
       )}
     </ClaimSection>

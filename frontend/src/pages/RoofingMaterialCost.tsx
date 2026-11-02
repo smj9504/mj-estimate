@@ -40,6 +40,7 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { roofingEstimateService } from '../services/roofingEstimateService';
 import type {
   MaterialCostBreakdown,
@@ -72,6 +73,7 @@ const unitMoney = (v: number) =>
 const RoofingMaterialCost: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { canAccessPath } = useAuth();
   const queryClient = useQueryClient();
 
   // Edits are staged locally so a half-finished table isn't saved.
@@ -407,9 +409,11 @@ const RoofingMaterialCost: React.FC = () => {
           <Text type="secondary" style={{ fontSize: 12 }}>
             수량은 측정치에서 발주 단위(BD/RL/PC)로 환산됩니다. 단위당 기본
             원가는{' '}
-            <a onClick={() => navigate('/roofing/material-prices')}>
-              자재 기본 단가
-            </a>
+            {canAccessPath('/roofing/material-prices') ? (
+              <a onClick={() => navigate('/roofing/material-prices')}>
+                자재 기본 단가
+              </a>
+            ) : '자재 기본 단가'}
             에서 관리합니다.
           </Text>
         </Space>

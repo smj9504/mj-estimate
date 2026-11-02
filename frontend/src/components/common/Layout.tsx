@@ -366,7 +366,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       .map(item => (item.children
         ? { ...item, children: item.children.filter(child => canAccessPath(child.key)) }
         : item))
-      .filter(item => !item.children || item.children.length > 0);
+      .filter(item => (item.children ? item.children.length > 0 : canAccessPath(item.key)));
 
     // ── Admin (admin-only) ─────────────────────────────
     if (isAdmin()) {
