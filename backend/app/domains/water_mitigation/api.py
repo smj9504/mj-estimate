@@ -769,15 +769,15 @@ async def list_photos(
         "total_pages": total_pages
     }
 
-    # Cache result (evict old entries if cache grows too large)
-    list_photos._cache[cache_key] = result
-    list_photos._cache_ts[cache_key] = _time.time()
-    if len(list_photos._cache) > 100:
-        # Evict oldest entries
-        oldest_keys = sorted(list_photos._cache_ts, key=list_photos._cache_ts.get)[:50]
-        for k in oldest_keys:
+    # Cache result. Past their 30 seconds entries are no use, and a page can be 200 photos.
+    now = _time.time()
+    # A copy of the items: the video worker can clear these from its own thread
+    for k, ts in list(list_photos._cache_ts.items()):
+        if now - ts >= 30:
             list_photos._cache.pop(k, None)
             list_photos._cache_ts.pop(k, None)
+    list_photos._cache[cache_key] = result
+    list_photos._cache_ts[cache_key] = now
 
     return result
 

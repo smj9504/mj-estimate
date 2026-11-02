@@ -26,6 +26,7 @@ Cost optimization:
 
 import asyncio
 import base64
+import importlib
 import io
 import json
 import logging
@@ -33,7 +34,6 @@ import re
 from datetime import datetime
 from typing import Optional
 
-import anthropic
 import httpx
 from sqlalchemy.orm import Session
 
@@ -740,6 +740,10 @@ class AIClassificationService:
             }
 
         image_b64 = base64.standard_b64encode(image_data).decode("utf-8")
+
+        # 30MB+ once loaded and only a Claude call needs it. Loading takes many seconds
+        # on the server's half a CPU, so it stays off the event loop.
+        anthropic = await asyncio.to_thread(importlib.import_module, "anthropic")
 
         async with anthropic.AsyncAnthropic(
             api_key=settings.ANTHROPIC_API_KEY, timeout=60.0, max_retries=1

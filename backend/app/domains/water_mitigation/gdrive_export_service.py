@@ -3,6 +3,9 @@ Google Drive Export Service for CompanyCam Photos
 
 Exports CompanyCam photos from Water Mitigation jobs to Google Drive.
 Photos are organized in CompanyCam/{address}/ folder structure.
+
+Google's client loads only for an actual export: every job's Photos tab asks for the
+export status from here, on the event loop.
 """
 
 import asyncio
@@ -15,8 +18,6 @@ from typing import Any, Dict, List, Optional, Set
 from uuid import UUID
 
 import httpx
-from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaIoBaseUpload
 
 from app.core.cache import get_cache
 from app.core.config import settings
@@ -437,6 +438,8 @@ class GDriveExportService:
 
     def _find_folder(self, folder_name: str, parent_id: str) -> Optional[str]:
         """Find folder by name in parent"""
+        from googleapiclient.errors import HttpError
+
         try:
             # Escape single quotes in folder name
             escaped_name = folder_name.replace("'", "\\'")
@@ -477,6 +480,8 @@ class GDriveExportService:
 
     def _get_existing_filenames(self, folder_id: str) -> Set[str]:
         """List all filenames in a folder for duplicate detection"""
+        from googleapiclient.errors import HttpError
+
         filenames = set()
         page_token = None
 
@@ -572,6 +577,9 @@ class GDriveExportService:
         Returns:
             File ID of uploaded file
         """
+        from googleapiclient.errors import HttpError
+        from googleapiclient.http import MediaIoBaseUpload
+
         file_metadata = {
             'name': filename,
             'parents': [folder_id]

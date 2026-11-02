@@ -14,8 +14,6 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-import anthropic
-
 from app.core.config import settings
 
 from .catalog import CATEGORIES, LOOK_OPTIONS, PRICE_UNITS
@@ -104,6 +102,7 @@ def _call(content: List[Dict[str, Any]]) -> Dict[str, Any]:
     output_config: Dict[str, Any] = {"format": {"type": "json_schema", "schema": SCHEMA}}
     if settings.PRODUCT_EXTRACT_EFFORT:
         output_config["effort"] = settings.PRODUCT_EXTRACT_EFFORT
+    import anthropic  # 30MB+ once loaded, and only reading a listing needs it
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY, timeout=90.0, max_retries=1)
     response = client.messages.create(
         model=settings.PRODUCT_EXTRACT_MODEL,

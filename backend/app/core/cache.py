@@ -145,8 +145,13 @@ class CacheService:
 class InMemoryCache:
     """Fallback in-memory cache when Redis is not available
 
-    Uses class-level storage to share cache across all instances.
+    Uses class-level storage to share cache across all instances. It sits in the
+    server's own memory, so what it holds is limited: no single value big enough to
+    be a photo, and the oldest go first once the whole lot passes MAX_TOTAL_SIZE.
     """
+
+    MAX_VALUE_SIZE = 256 * 1024
+    MAX_TOTAL_SIZE = 16 * 1024 * 1024
 
     # Class-level storage for shared cache across instances
     _shared_cache = {}
@@ -177,16 +182,34 @@ class InMemoryCache:
     def setex(self, key: str, ttl: int, value: str) -> bool:
         """Set value with TTL"""
         import time
-        
+
+        # Written again counts as new, so a job's running status isn't what gets dropped
+        self.delete(key)
+        if self._size(value) > self.MAX_VALUE_SIZE:
+            return False
+
         self._cache[key] = value
         self._ttls[key] = time.time() + ttl
-        
+
         # Cleanup old entries if cache is too large
         if len(self._cache) > 1000:
             self._cleanup()
-        
+        self._evict_oldest()
+
         return True
-    
+
+    @staticmethod
+    def _size(value: Any) -> int:
+        return len(value) if isinstance(value, (str, bytes)) else 0
+
+    def _evict_oldest(self) -> None:
+        total = sum(self._size(value) for value in self._cache.values())
+        for key in list(self._cache):
+            if total <= self.MAX_TOTAL_SIZE:
+                break
+            total -= self._size(self._cache[key])
+            self.delete(key)
+
     def delete(self, key: str) -> bool:
         """Delete value from cache"""
         if key in self._cache:

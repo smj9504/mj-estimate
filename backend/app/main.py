@@ -35,6 +35,11 @@ import warnings
 
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
+# Has to come before FastAPI and any model load
+from app.core.deferred_validation import defer_validators
+
+defer_validators()
+
 import asyncio
 import logging
 import os
@@ -667,6 +672,12 @@ async def lifespan(app: FastAPI):
                 print(f"[STARTUP] Storage init deferred: {e}")
 
             print("[STARTUP] Background initialization complete")
+
+            from app.common.services.document_resources import MIB, memory_headroom
+
+            headroom = memory_headroom()
+            if headroom is not None:
+                logger.info(f"[MEM] Started with {headroom // MIB}MB free before the container's limit")
 
         threading.Thread(target=_background_init, daemon=True).start()
 
