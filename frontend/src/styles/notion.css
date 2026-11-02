@@ -943,6 +943,197 @@ h4.ant-typography {
   color: var(--color-neutral-600);
 }
 
+/* Detail: what the water mitigation sketch says was torn out */
+.wmd-job + .wmd-job {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.wmd-job-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.wmd-state {
+  padding: 24px 0;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  text-align: center;
+}
+.wmd-note {
+  padding: 4px 0 8px;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+}
+.wmd-floor {
+  margin-bottom: 32px;
+}
+.wmd-floor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.wmd-floor-head .ui-section-title {
+  margin: 0;
+}
+.wmd-floor-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.wmd-plan {
+  position: sticky;
+  top: 0;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+}
+.wmd-plan-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: calc(100vh - 120px);
+  max-height: calc(100dvh - 120px);
+}
+.wmd-plan-zone {
+  cursor: pointer;
+}
+.wmd-plan-text {
+  pointer-events: none;
+  user-select: none;
+}
+/* A halo keeps a room name readable over whatever is drawn under it */
+.wmd-plan-label {
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.wmd-group {
+  margin-bottom: 12px;
+}
+.wmd-group-title {
+  padding: 2px 8px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--color-neutral-600);
+}
+.wmd-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+.wmd-row:hover,
+.wmd-row.is-active {
+  background: var(--color-neutral-50);
+}
+.wmd-row[aria-pressed='true'] {
+  background: #eef5fc;
+}
+.wmd-row:focus-visible {
+  outline: 2px solid #1f74c9;
+  outline-offset: -2px;
+}
+.wmd-num {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #d9730d;
+  border-radius: 50%;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.wmd-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.wmd-row-name {
+  display: block;
+  font-size: 14px;
+  line-height: 22px;
+}
+.wmd-row-meta {
+  display: block;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-neutral-600);
+}
+.wmd-qty {
+  flex: none;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.wmd-qty--missing {
+  font-weight: 400;
+  color: #a65208;
+}
+.wmd-totals {
+  margin-top: 12px;
+  padding: 10px 8px 0;
+  border-top: 1px solid var(--color-neutral-200);
+}
+.wmd-totals-title {
+  margin-bottom: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--color-neutral-600);
+}
+.wmd-totals-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 24px;
+}
+@media (max-width: 767.98px) {
+  .wmd-floor-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wmd-plan {
+    position: static;
+  }
+  .wmd-plan-svg {
+    max-height: 60vh;
+  }
+}
+/* Phones and touch: a list row stays a thumb-sized target */
+@media (max-width: 767.98px), (pointer: coarse) {
+  .wmd-row {
+    min-height: 44px;
+    padding: 8px;
+  }
+}
+
 /* Detail: section head count and empty lines */
 .sup-section-count {
   margin-left: 8px;

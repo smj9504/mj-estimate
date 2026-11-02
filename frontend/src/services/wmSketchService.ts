@@ -74,8 +74,11 @@ const wmSketchService = {
   // ============================================================================
 
   /** Retrieve all floor sketches for a given WM job, ordered by floor_order */
-  getFloorSketches: async (jobId: string): Promise<WMFloorSketch[]> => {
-    const response = await api.get(`${BASE_URL}/jobs/${jobId}/floors`);
+  getFloorSketches: async (
+    jobId: string,
+    options?: { suppressErrorNotification?: boolean }
+  ): Promise<WMFloorSketch[]> => {
+    const response = await api.get(`${BASE_URL}/jobs/${jobId}/floors`, options);
     return (response.data.items as WMFloorSketch[]).map(normalizeOverlay);
   },
 
@@ -149,6 +152,10 @@ const wmSketchService = {
     );
     return response.data;
   },
+
+  /** Where a floor's plan image loads from; it needs no token, so an <image> can use it */
+  backgroundImagePreviewUrl: (floorSketchId: string): string =>
+    `${api.defaults.baseURL ?? ''}${BASE_URL}/floors/${floorSketchId}/background-image/preview`,
 
   /** Remove the background image from a floor sketch */
   removeBackgroundImage: async (floorSketchId: string): Promise<void> => {

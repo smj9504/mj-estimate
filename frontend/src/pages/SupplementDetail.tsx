@@ -12,7 +12,7 @@ import {
   SendOutlined, PhoneOutlined,
   FilePdfOutlined, SaveOutlined, UploadOutlined,
   LoadingOutlined, ThunderboltOutlined, PlusOutlined, DeleteOutlined,
-  SwapOutlined, InfoCircleOutlined, CheckOutlined, ReloadOutlined,
+  SwapOutlined, InfoCircleOutlined, CheckOutlined, ReloadOutlined, ColumnWidthOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../services/api';
@@ -29,6 +29,7 @@ import { useBreadcrumbTitle } from '../contexts/BreadcrumbContext';
 import { PageHeader, Pill, PropertyList, humanize, useSheetModal, type TagTone } from '../components/common/ui';
 import { CompanyTag } from '../components/water-mitigation/paymentBoardShared';
 import ClaimPhotoViewer from '../components/client/photo-viewer/ClaimPhotoViewer';
+import WMDemoDrawer from '../components/supplement/WMDemoDrawer';
 import {
   SupplementStatusPill, SUPPLEMENT_STATUSES, supplementStatusLabel,
   BID_TYPE_LABELS, REQUIRED_ESTIMATE_OPTIONS, formatCurrency, formatSignedCurrency,
@@ -149,13 +150,14 @@ const SupplementDetail: React.FC = () => {
   const controlSize = isMobile ? 'middle' : 'small';
   const { sheetProps } = useSheetModal();
 
-  // In the URL so a phone's Back closes the photos instead of leaving the page
+  // In the URL so a phone's Back closes the photos or demo list instead of leaving the page
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const photosOpen = searchParams.get('photos') === '1';
-  const openPhotos = () => setSearchParams({ photos: '1' }, { state: { photosPushed: true } });
-  const closePhotos = () => {
-    if ((location.state as { photosPushed?: boolean } | null)?.photosPushed) navigate(-1);
+  const demoOpen = searchParams.get('demo') === '1';
+  const openOverlay = (key: 'photos' | 'demo') => setSearchParams({ [key]: '1' }, { state: { overlayPushed: true } });
+  const closeOverlay = () => {
+    if ((location.state as { overlayPushed?: boolean } | null)?.overlayPushed) navigate(-1);
     else setSearchParams({}, { replace: true });
   };
 
@@ -597,6 +599,7 @@ const SupplementDetail: React.FC = () => {
 
   const hasBidPdf = !!supplement.bid_items?.some(i => i.custom_document_file_id);
   const bidItems = supplement.bid_items || [];
+  const wmJobs = supplement.wm_jobs ?? [];
   const wmCompany = supplement.wm_company_id
     ? (allCompanies as any[]).find(c => c.id === supplement.wm_company_id)
       || { id: supplement.wm_company_id, name: supplement.wm_company_name || 'Company' }
@@ -969,7 +972,19 @@ const SupplementDetail: React.FC = () => {
               suffixIcon={<SwapOutlined />}
               aria-label="Supplement status"
             />
-            <Button icon={<CameraOutlined />} onClick={openPhotos}>Photos</Button>
+            <Button icon={<CameraOutlined />} onClick={() => openOverlay('photos')}>Photos</Button>
+            <Tooltip title={wmJobs.length > 0 ? undefined : 'No water mitigation job on this claim'}>
+              <span>
+                <Button
+                  icon={<ColumnWidthOutlined />}
+                  disabled={wmJobs.length === 0}
+                  aria-expanded={demoOpen}
+                  onClick={() => (demoOpen ? closeOverlay() : openOverlay('demo'))}
+                >
+                  WM Demo
+                </Button>
+              </span>
+            </Tooltip>
             <Tooltip title={hasBidPdf ? undefined : 'Upload bid item PDFs first'}>
               <span>
                 <Button
@@ -2799,11 +2814,13 @@ const SupplementDetail: React.FC = () => {
 
       <ClaimPhotoViewer
         open={photosOpen}
-        onClose={closePhotos}
+        onClose={closeOverlay}
         claimId={supplement.claim_id}
-        wmJobs={supplement.wm_jobs ?? []}
+        wmJobs={wmJobs}
         subtitle={[supplement.homeowner_name, supplement.claim_number].filter(Boolean).join(' · ')}
       />
+
+      <WMDemoDrawer open={demoOpen} onClose={closeOverlay} jobs={wmJobs} />
     </div>
   );
 };
