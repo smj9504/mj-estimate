@@ -9,7 +9,7 @@ import type { FileContext, FileItem } from '../../common/FileGallery/types';
 import { CLAIM_PHOTO_CATEGORIES } from '../ClaimPhotosSection';
 import { WM_PHOTO_CATEGORIES, wmPhotoSetLabel } from '../ClaimWMPhotos';
 import PhotoStage from './PhotoStage';
-import { countCategories, mergePhotoSets, photoCategory, photoDate, photoPlace } from './photoViewerUtils';
+import { countCategories, mergePhotoSets, photoCategory, photoDate, photoKey, photoPlace } from './photoViewerUtils';
 import './photoViewer.css';
 
 interface PhotoSet {
@@ -35,7 +35,7 @@ const ALL_PHOTOS = 'all-photos';
 interface PhotoCardProps {
   file: FileItem;
   isCurrent: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (key: string) => void;
 }
 
 const PhotoCard: React.FC<PhotoCardProps> = memo(({ file, isCurrent, onSelect }) => {
@@ -49,7 +49,7 @@ const PhotoCard: React.FC<PhotoCardProps> = memo(({ file, isCurrent, onSelect })
       className={`cpv-card${isCurrent ? ' is-current' : ''}`}
       aria-current={isCurrent || undefined}
       aria-label={[file.originalName, label, date, place].filter(Boolean).join(', ')}
-      onClick={() => onSelect(file.id)}
+      onClick={() => onSelect(photoKey(file))}
     >
       <span className="cpv-card-thumb">
         <img
@@ -183,16 +183,17 @@ const PhotoBrowser: React.FC<{
     [files, selected],
   );
 
-  const [currentId, setCurrentId] = useState<string | null>(null);
+  // Not by record: the job's copy of a photo can replace the claim's as its set loads
+  const [currentKey, setCurrentKey] = useState<string | null>(null);
   // The first photo until one's picked, or when a filter leaves the picked one out
-  const currentIndex = Math.max(0, shown.findIndex(f => f.id === currentId));
+  const currentIndex = Math.max(0, shown.findIndex(f => photoKey(f) === currentKey));
   const current = shown[currentIndex] ?? null;
   const prev = shown[currentIndex - 1];
   const next = shown[currentIndex + 1];
 
   const step = useCallback((delta: number) => {
     const target = shown[currentIndex + delta];
-    if (target) setCurrentId(target.id);
+    if (target) setCurrentKey(photoKey(target));
   }, [shown, currentIndex]);
 
   useEffect(() => {
@@ -280,7 +281,7 @@ const PhotoBrowser: React.FC<{
             </div>
           ))}
           {shown.map(file => (
-            <PhotoCard key={file.id} file={file} isCurrent={file.id === current?.id} onSelect={setCurrentId} />
+            <PhotoCard key={file.id} file={file} isCurrent={file.id === current?.id} onSelect={setCurrentKey} />
           ))}
           {!loading && loadingMore && !error && (
             <div className="cpv-cards-note" role="status">Loading more photos...</div>

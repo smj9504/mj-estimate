@@ -24,10 +24,11 @@ const photoTime = (file: FileItem): number => {
 // (backend: client/claim_companycam.py), a water mitigation job's in externalId
 const IMPORTED_NAME = /^companycam_(\d+)\.jpg$|^(companycam_video_\d+)\.\w+$/;
 
-const sourcePhotoId = (file: FileItem): string | undefined => {
+/** Which photo this is, whichever set's copy: its CompanyCam id, or else its record */
+export const photoKey = (file: FileItem): string => {
   if (file.externalId) return file.externalId;
   const imported = IMPORTED_NAME.exec(file.originalName);
-  return imported ? imported[1] || imported[2] : undefined;
+  return imported ? imported[1] || imported[2] : file.id;
 };
 
 /** Several sets as one list, newest first; a single set keeps its own order. Each
@@ -38,10 +39,9 @@ export const mergePhotoSets = (sets: FileItem[][]): FileItem[] => {
   const seen = new Set<string>();
   return sets.flat()
     .filter((file) => {
-      const id = sourcePhotoId(file);
-      if (!id) return true;
-      if (seen.has(id)) return false;
-      seen.add(id);
+      const key = photoKey(file);
+      if (seen.has(key)) return false;
+      seen.add(key);
       return true;
     })
     .sort((a, b) => photoTime(b) - photoTime(a));

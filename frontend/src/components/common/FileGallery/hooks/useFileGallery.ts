@@ -5,6 +5,17 @@ import { FileItem, FileContext, FileCategory, PhotoSortBy } from '../types';
 import { fileService } from '../../../../services/fileService';
 import api from '../../../../services/api';
 
+const browserCanOpen = (url?: string) => /^(https?:|data:|blob:|\/)/.test(url || '');
+
+// Files outside water mitigation come as the server stored them: their url can be a
+// bucket address (b2://, gs://) that means nothing to a browser. The preview route
+// serves any of them.
+const servedFile = (file: FileItem): FileItem => ({
+  ...file,
+  url: browserCanOpen(file.url) ? file.url : fileService.getPreviewUrl(file.id),
+  thumbnailUrl: browserCanOpen(file.thumbnailUrl) ? file.thumbnailUrl : undefined,
+});
+
 interface UseFileGalleryProps {
   context: FileContext;
   contextId?: string;
@@ -214,7 +225,7 @@ export const useFileGallery = ({
       // Fallback to regular API for other contexts - returns everything in
       // one shot, so force getNextPageParam to stop after this page
       // (items.length is always < requestedSize, including the 0/0 case).
-      const result = await fileService.getFiles(context, contextId, undefined, fileCategory);
+      const result = (await fileService.getFiles(context, contextId, undefined, fileCategory)).map(servedFile);
       return {
         items: result,
         total: result.length,
@@ -254,7 +265,7 @@ export const useFileGallery = ({
         count: result?.length || 0,
         files: result
       });
-      return result;
+      return result.map(servedFile);
     },
     enabled: !!contextId && !enableInfiniteScroll,
     staleTime: 30 * 1000, // 30 seconds

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FileItem } from '../../common/FileGallery/types';
 import {
-  FIT_VIEW, MAX_ZOOM, clampView, countCategories, mergePhotoSets, photoCategory, photoDate, photoPlace, zoomAt,
+  FIT_VIEW, MAX_ZOOM, clampView, countCategories, mergePhotoSets, photoCategory, photoDate, photoKey, photoPlace, zoomAt,
 } from './photoViewerUtils';
 
 const photo = (fields: Partial<FileItem>): FileItem => ({
@@ -148,6 +148,19 @@ describe('mergePhotoSets', () => {
       [photo({ id: 'claim', originalName: 'companycam_555.jpg', category: 'general' })],
     ]);
     expect(countCategories(merged, [])).toEqual([{ key: 'wet-area', count: 1 }]);
+  });
+});
+
+describe('photoKey', () => {
+  it('is the same for both sets\' copies of one photo or video', () => {
+    expect(photoKey(photo({ id: 'wm', externalId: '555' })))
+      .toBe(photoKey(photo({ id: 'claim', originalName: 'companycam_555.jpg' })));
+    expect(photoKey(photo({ id: 'wm', externalId: 'companycam_video_7' })))
+      .toBe(photoKey(photo({ id: 'claim', originalName: 'companycam_video_7.mov' })));
+  });
+
+  it('falls back on the record for a photo from nowhere else', () => {
+    expect(photoKey(photo({ id: 'by-hand', originalName: 'IMG_1.jpg' }))).toBe('by-hand');
   });
 });
 
