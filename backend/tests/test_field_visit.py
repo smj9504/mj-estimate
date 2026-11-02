@@ -13,13 +13,15 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core import database_factory
 from app.core.database_factory import Base, SQLiteDatabase, get_db_session
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.client.models import Claim, Client
-from app.domains.company.models import Company
+from app.domains.company.models import Company, CompanyContact
 from app.domains.contract.models import ClaimCompany, ContractInstance, ContractTemplate
 from app.domains.contract.onsite_signing_api import _known_values, named_after_address
 from app.domains.field_visit import api as field_api
@@ -27,15 +29,22 @@ from app.domains.field_visit import geocode, room_reader
 from app.domains.field_visit.models import FieldRoom, FieldShot, FieldVisit
 from app.domains.file.models import File
 from app.domains.staff.models import Staff, StaffCompany, StaffRole
+from app.domains.water_mitigation.models import WaterMitigationJob, WMSheetPAMapping
 # SQLAlchemy configures every loaded model on first use, and models other test
 # files load name classes by string, so register them all as the app does
 import app.main  # noqa: E402,F401
 
 sqlite3.register_adapter(uuid.UUID, str)
 
+
+@compiles(JSONB, 'sqlite')
+def jsonb_as_json(type_, compiler, **kw):
+    return 'JSON'
+
+
 TABLES = [
-    Staff, StaffCompany, Company, Client, Claim, ClaimCompany, File, ContractTemplate, ContractInstance,
-    FieldVisit, FieldRoom, FieldShot,
+    Staff, StaffCompany, Company, CompanyContact, Client, Claim, ClaimCompany, File, ContractTemplate, ContractInstance,
+    FieldVisit, FieldRoom, FieldShot, WaterMitigationJob, WMSheetPAMapping,
 ]
 
 STREET = '12 Elm St'
@@ -272,6 +281,29 @@ def test_a_shot_is_filed_under_its_room(env):
     assert found['rooms'][0]['name'] == 'Kitchen'
     assert found['shots'][0]['id'] == shot_id
     assert found['shots'][0]['url'] == f"/api/files/download/{row.id}?inline=true"
+
+
+def test_no_connection_is_held_while_a_shot_goes_to_storage(env, monkeypatch):
+    visit = start(env)
+    room_id = save_room(env, visit['id'])
+    env.session.commit()
+
+    engine = env.session._session.get_bind()
+    connections = {'out': 0}
+    sa.event.listen(engine, 'checkout', lambda *_: connections.update(out=connections['out'] + 1))
+    sa.event.listen(engine, 'checkin', lambda *_: connections.update(out=connections['out'] - 1))
+    upload = env.storage.upload
+    out_while_uploading = []
+
+    def waited_on(*args, **kwargs):
+        out_while_uploading.append(connections['out'])
+        return upload(*args, **kwargs)
+
+    monkeypatch.setattr(env.storage, 'upload', waited_on)
+    shot_id, response = send_shot(env, visit['id'], room_id, filename='a.mp4', content_type='video/mp4', kind='video')
+    assert response.status_code == 200, response.text
+    assert out_while_uploading == [0]
+    assert env.session.query(FieldShot).filter(FieldShot.id == shot_id).count() == 1
 
 
 def test_sending_a_shot_again_saves_it_once(env):

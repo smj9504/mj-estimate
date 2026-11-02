@@ -1062,7 +1062,7 @@ def get_claim_activities(client_id: str, claim_id: str):
 # Client All-Documents Aggregation
 # ────────────────────────────────────────
 
-@router.get("/clients/{client_id}/all-documents")
+@router.get("/{client_id}/all-documents")
 def get_all_documents(
     client_id: str,
     doc_type: Optional[str] = None,
@@ -1217,7 +1217,7 @@ def get_all_documents(
                 ClaimNegotiation.claim_id.in_(claim_ids),
             ).order_by(ClaimNegotiation.date_received.desc()).all()
             for neg in negotiations:
-                file_id = neg.file_id or getattr(neg, 'document_url', None)
+                file_id = neg.document_url
                 if not file_id and not neg.document_name:
                     continue
                 total = float(neg.rcv_amount or 0)

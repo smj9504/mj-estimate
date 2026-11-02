@@ -487,6 +487,10 @@ def upload_shot(
     if not video and not content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="Only photos and videos")
 
+    # Storage takes as long as the video does, which is no time to sit on a connection.
+    # Nothing is written yet, and what's been read stays readable.
+    db.commit()
+
     filename = file.filename or f"{shot_id}.jpg"
     image: Optional[bytes] = None
     if video:

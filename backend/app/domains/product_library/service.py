@@ -150,14 +150,19 @@ class ProductService:
 
     async def _store(self, product_id: UUID, data: bytes, filename: str, content_type: str, category: str) -> str:
         files = FileService(get_database())
-        record = await files.upload_file(
-            file_data=io.BytesIO(data),
-            original_filename=filename[:200],
-            content_type=content_type,
-            context="product",
-            context_id=str(product_id),
-            category=category,
-        )
+        try:
+            record = await files.upload_file(
+                file_data=io.BytesIO(data),
+                original_filename=filename[:200],
+                content_type=content_type,
+                context="product",
+                context_id=str(product_id),
+                category=category,
+            )
+            # On its own session, so nothing else commits it
+            files.repository.session.commit()
+        finally:
+            files.repository.session.close()
         return str(record["id"] if isinstance(record, dict) else record.id)
 
     # ── Reading listings ──

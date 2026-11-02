@@ -549,18 +549,20 @@ def get_work_order_file_count(
         from app.core.database_factory import get_database
 
         file_service = FileService(get_database())
-
-        if file_type:
-            count = file_service.get_file_count_by_type(
-                context="work-order",
-                context_id=str(work_order_id),
-                file_type=file_type
-            )
-        else:
-            count = file_service.get_file_count(
-                context="work-order",
-                context_id=str(work_order_id)
-            )
+        try:
+            if file_type:
+                count = file_service.get_file_count_by_type(
+                    context="work-order",
+                    context_id=str(work_order_id),
+                    file_type=file_type
+                )
+            else:
+                count = file_service.get_file_count(
+                    context="work-order",
+                    context_id=str(work_order_id)
+                )
+        finally:
+            file_service.repository.session.close()
 
         return {"count": count}
 

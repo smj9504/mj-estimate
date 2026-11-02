@@ -42,8 +42,14 @@ logger = logging.getLogger(__name__)
 
 
 def get_file_service():
-    """Dependency to get file service"""
-    return FileService(get_database())
+    """Dependency to get file service. Its session is closed here because nothing else
+    would: left to the garbage collector, a page of thumbnails keeps every connection in
+    the pool long after it has been answered, and all requests behind it fail."""
+    service = FileService(get_database())
+    try:
+        yield service
+    finally:
+        service.repository.session.close()
 
 
 @router.post("/upload", response_model=FilesResponse, response_model_by_alias=True)
@@ -179,6 +185,8 @@ def download_file(
         from app.domains.storage.factory import StorageFactory
 
         file_record = service.repository.get_by_id(file_id)
+        # The rest waits on storage, which is no time to sit on a connection
+        service.repository.session.close()
         if not file_record or not file_record.get('is_active', True):
             raise HTTPException(status_code=404, detail="File not found")
 
@@ -254,6 +262,8 @@ def preview_file(
         from app.domains.storage.factory import StorageFactory
 
         file_record = service.repository.get_by_id(file_id)
+        # The rest waits on storage, and a page of thumbnails asks for dozens at once
+        service.repository.session.close()
         if not file_record or not file_record.get('is_active', True):
             raise HTTPException(status_code=404, detail="File not found")
 
@@ -361,6 +371,7 @@ def preview_wm_photo(
         storage_provider = (photo.get('storage_provider') if isinstance(photo, dict) else getattr(photo, 'storage_provider', None)) or 'local'
         storage_file_id = (photo.get('storage_file_id') if isinstance(photo, dict) else getattr(photo, 'storage_file_id', None)) or ''
         mime_type = (photo.get('mime_type') if isinstance(photo, dict) else photo.mime_type) or 'image/jpeg'
+        service.repository.session.close()
 
         # Cloud storage
         if storage_provider not in ('local', ''):
