@@ -400,6 +400,7 @@ const CabinetEstimateDetail: React.FC = () => {
         is_specialty: b.is_specialty,
         specialty_type: b.specialty_type || null,
         has_glass_door: b.has_glass_door || false,
+        range_panel_count: b.range_panel_count ?? null,
         qty: b.qty,
         display_order: b.display_order,
       }));
