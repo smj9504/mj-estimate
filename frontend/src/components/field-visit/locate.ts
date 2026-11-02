@@ -16,6 +16,39 @@ const GOOD_ENOUGH_M = 25;
 const SETTLE_MS = 8000;
 const GIVE_UP_MS = 20000;
 
+// iPads call themselves Macs
+export const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent)
+  || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+
+/** Chrome 144+. A page's own request stays refused once blocked; tapping this brings the browser's dialog back. */
+export const hasLocationButton = () => 'HTMLGeolocationElement' in window;
+
+/**
+ * The links into settings a page can use. Android's location screen is marked
+ * browsable, so Chrome will open it; iOS answers these with "Invalid URL" since 15.4.
+ */
+export const settingsLink = () => {
+  if (/Android/.test(navigator.userAgent)) return 'intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end';
+  if (/Windows/.test(navigator.userAgent)) return 'ms-settings:privacy-location';
+  return null;
+};
+
+/** Where the setting is, for when asking again hasn't helped and there's no link to it */
+export const settingsPath = () => {
+  if (isIOS()) {
+    // iOS can stay refused in an app installed to the home screen while Safari works
+    if (window.matchMedia('(display-mode: standalone)').matches) return 'Open this site in Safari.';
+    const browser = /CriOS/.test(navigator.userAgent) ? 'Chrome' : 'Safari Websites';
+    return `Settings → Privacy & Security → Location Services → ${browser}`;
+  }
+  if (/Android/.test(navigator.userAgent)) {
+    return hasLocationButton()
+      ? 'Phone settings → Location'
+      : 'Phone settings → Location, then the icon left of the web address → Permissions';
+  }
+  return settingsLink() ? null : "Turn on location in this computer's settings.";
+};
+
 export const locate = () => new Promise<LocatedFix>((resolve, reject) => {
   if (!navigator.geolocation) {
     reject(new Error('unavailable'));

@@ -3,14 +3,14 @@
  * A new client only needs its address; the visit opens straight after.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button, ConfigProvider, Input, Select, Skeleton } from 'antd';
 import { AimOutlined, ReloadOutlined, RightOutlined, SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader, Pill } from '../components/common/ui';
 import { AddressFields } from '../components/field-visit/FieldForms';
-import { locate } from '../components/field-visit/locate';
+import { hasLocationButton, isIOS, locate, settingsLink, settingsPath } from '../components/field-visit/locate';
 import type { LocatedFix } from '../components/field-visit/locate';
 import '../components/field-visit/field.css';
 import '../components/onsite-signing/onsite.css';
@@ -23,6 +23,8 @@ type Finding = 'idle' | 'locating' | 'found' | 'no-number' | 'no-address' | 'den
 
 // Only worth saying when the address may be someone else's
 const VAGUE_ACCURACY_M = 60;
+
+const ASK_AGAIN_KEY = 'field-ask-again';
 
 const NOTES: Partial<Record<Finding, string>> = {
   'no-number': 'Add the house number.',
@@ -40,9 +42,21 @@ const agoLabel = (iso: string | null) => {
   return `${Math.round(minutes / (60 * 24))}d ago`;
 };
 
-const NewClient: React.FC<{ onCancel: () => void }> = ({ onCancel }) => {
+/** The browser draws this one and words it itself, and it stops working if anything covers it */
+const LocationButton: React.FC<{ onLocation: () => void }> = ({ onLocation }) => {
+  const button = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const element = button.current;
+    element?.addEventListener('location', onLocation);
+    return () => element?.removeEventListener('location', onLocation);
+  }, [onLocation]);
+  return React.createElement('geolocation', { ref: button, className: 'fv-location-btn', accuracymode: 'precise' });
+};
+
+const NewClient: React.FC<{ onCancel: () => void; askedAgain: boolean }> = ({ onCancel, askedAgain }) => {
   const navigate = useNavigate();
   const [finding, setFinding] = useState<Finding>('idle');
+  const [tries, setTries] = useState(askedAgain ? 1 : 0);
   const [fix, setFix] = useState<LocatedFix | null>(null);
   const [address, setAddress] = useState<FieldAddress>({ street: '' });
   const [fromMap, setFromMap] = useState(false);
@@ -57,6 +71,7 @@ const NewClient: React.FC<{ onCancel: () => void }> = ({ onCancel }) => {
   }, [companies.data, companyId]);
 
   const find = async () => {
+    setTries(count => count + 1);
     setFinding('locating');
     setProblem(null);
     let position: LocatedFix;
@@ -81,6 +96,30 @@ const NewClient: React.FC<{ onCancel: () => void }> = ({ onCancel }) => {
     find();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A phone with location off can look like either of these
+  const off = finding === 'denied' || finding === 'no-fix';
+
+  // Back from the phone's settings: look again, unless they've started typing instead
+  useEffect(() => {
+    if (!off || address.street.trim()) return undefined;
+    const onReturn = () => {
+      if (document.visibilityState === 'visible') find();
+    };
+    document.addEventListener('visibilitychange', onReturn);
+    return () => document.removeEventListener('visibilitychange', onReturn);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [off, address.street]);
+
+  const tryAgain = () => {
+    // On iOS only a fresh page gets the browser to ask again
+    if (finding === 'denied' && isIOS() && !address.street.trim()) {
+      sessionStorage.setItem(ASK_AGAIN_KEY, '1');
+      window.location.reload();
+      return;
+    }
+    find();
+  };
 
   const start = async () => {
     const street = address.street.trim();
@@ -119,10 +158,17 @@ const NewClient: React.FC<{ onCancel: () => void }> = ({ onCancel }) => {
               {vague && <Pill tone="yellow">±{Math.round(fix.accuracy)} m</Pill>}
             </div>
           )}
+          {off && (hasLocationButton() || settingsLink()) && (
+            <div className="fv-location-fix">
+              {hasLocationButton() && <LocationButton onLocation={find} />}
+              {settingsLink() && <Button href={settingsLink() ?? undefined}>Open Settings</Button>}
+            </div>
+          )}
+          {off && tries > 1 && settingsPath() && <p className="fv-location-path">{settingsPath()}</p>}
           <AddressFields
             value={address}
             onChange={setAddress}
-            focusStreet={finding === 'no-number' || finding === 'no-address' || finding === 'denied'}
+            focusStreet={finding === 'no-number' || finding === 'no-address'}
           />
           {list.length > 1 && (
             <Select
@@ -136,7 +182,11 @@ const NewClient: React.FC<{ onCancel: () => void }> = ({ onCancel }) => {
           )}
           {problem && <div className="os-error" role="alert">{problem}</div>}
           <div className="fv-new-actions">
-            <Button icon={<ReloadOutlined />} aria-label="Find again" onClick={find} />
+            {off && !hasLocationButton() ? (
+              <Button onClick={tryAgain}>Try again</Button>
+            ) : (
+              <Button icon={<ReloadOutlined />} aria-label="Find again" onClick={find} />
+            )}
             <Button onClick={onCancel}>Cancel</Button>
             <Button type="primary" loading={saving} disabled={!address.street.trim()} onClick={start}>
               Start
@@ -161,9 +211,18 @@ const NewClient: React.FC<{ onCancel: () => void }> = ({ onCancel }) => {
 const FieldVisits: React.FC = () => {
   const navigate = useNavigate();
   const [adding, setAdding] = useState(false);
+  const [askedAgain, setAskedAgain] = useState(false);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [startProblem, setStartProblem] = useState<string | null>(null);
+
+  // Back from the reload that gets iOS to ask again
+  useEffect(() => {
+    if (!sessionStorage.getItem(ASK_AGAIN_KEY)) return;
+    sessionStorage.removeItem(ASK_AGAIN_KEY);
+    setAskedAgain(true);
+    setAdding(true);
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => setQuery(search.trim()), 250);
@@ -194,7 +253,7 @@ const FieldVisits: React.FC = () => {
         <PageHeader title="Field visits" />
 
         {adding ? (
-          <NewClient onCancel={() => setAdding(false)} />
+          <NewClient onCancel={() => setAdding(false)} askedAgain={askedAgain} />
         ) : (
           <Button type="primary" block className="fv-main-btn" icon={<AimOutlined />} onClick={() => setAdding(true)}>
             New client here
