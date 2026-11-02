@@ -1,0 +1,1167 @@
+/* ============================================================
+   Field visits. The start screen and the visit sit on the white
+   sheet at the Comfort scale, sharing the os-* rows of On-site
+   Signing. The camera is the dark stage: white around a viewfinder
+   outshines it, and it gets used in dark, torn-out rooms.
+   ============================================================ */
+
+/* ── The sheet ─────────────────────────────── */
+
+.fv-main-btn.ant-btn {
+  height: 56px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 8px;
+}
+
+.os-rows.fv-rows {
+  margin-top: 16px;
+}
+.fv-search {
+  margin-top: 16px;
+}
+.fv-recent,
+.fv-floor {
+  margin-top: 28px;
+}
+.fv-recent .os-rows.fv-rows,
+.fv-floor .os-rows.fv-rows {
+  margin-top: 0;
+  border-top: 0;
+}
+
+a.os-row,
+a.os-row:hover {
+  color: var(--color-neutral-900);
+  text-decoration: none;
+}
+
+.fv-row-icon {
+  flex: none;
+  font-size: 18px;
+  color: var(--color-neutral-600);
+}
+.fv-row-signed {
+  flex: none;
+  font-size: 18px;
+  color: #448361;
+}
+
+.fv-hub-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+}
+.fv-hub-place .ant-btn {
+  color: var(--color-neutral-600);
+}
+
+.fv-hub-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--color-neutral-700);
+  font-variant-numeric: tabular-nums;
+}
+.fv-hub-retry {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.os-row-meta.fv-room-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Four ticks: the walls of a room */
+.fv-ticks {
+  display: inline-flex;
+  gap: 3px;
+  vertical-align: middle;
+}
+.fv-tick {
+  width: 14px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--color-neutral-200);
+}
+.fv-tick.is-done {
+  background: #448361;
+}
+
+/* New client */
+.fv-new {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.fv-find-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.fv-address {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fv-address-row {
+  display: flex;
+  gap: 8px;
+}
+.fv-address-row .ant-input {
+  min-width: 0;
+}
+.fv-address-state.ant-input {
+  flex: 0 0 72px;
+  text-transform: uppercase;
+}
+.fv-address-zip.ant-input {
+  flex: 0 0 96px;
+}
+.fv-company {
+  width: 100%;
+}
+.fv-new-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.fv-new-actions .ant-btn:first-child {
+  margin-right: auto;
+}
+.fv-credit {
+  align-self: flex-end;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+
+/* Owners */
+.fv-owners {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+}
+.fv-owners > .ant-btn {
+  align-self: flex-start;
+}
+.fv-owner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fv-owner-name {
+  display: flex;
+  gap: 4px;
+}
+
+/* On the client page */
+.fv-office-visit + .fv-office-visit {
+  margin-top: 28px;
+}
+.fv-office-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.fv-office-claim {
+  min-width: 160px;
+}
+.fv-office-floor {
+  margin-top: 16px;
+}
+.fv-office-floor-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-neutral-900);
+}
+.fv-office-room {
+  margin-bottom: 16px;
+}
+.fv-office-room-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.fv-office-room-name {
+  font-weight: 500;
+  color: var(--color-neutral-900);
+}
+.fv-office-shots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+.fv-office-shot {
+  margin: 0;
+}
+.fv-office-shot figcaption {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+.fv-office-shot .ant-image,
+.fv-office-shot .ant-image-img,
+.fv-office-video img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 4px;
+  object-fit: cover;
+}
+.fv-office-video {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.fv-office-video .anticon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  font-size: 32px;
+  color: #fff;
+  transform: translate(-50%, -50%);
+}
+.fv-office-player {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  background: #000;
+}
+
+/* ── The camera ────────────────────────────── */
+
+.fv-cam {
+  --fv-stage: #0f0f0e;
+  --fv-panel: #1c1c1a;
+  --fv-line: rgba(255, 255, 255, 0.16);
+  --fv-ink: #ffffff;
+  --fv-ink-2: rgba(255, 255, 255, 0.72);
+  --fv-done: #6fc497;
+  --fv-accent: #4d9be6;
+  --fv-warn: #f2a65a;
+  --fv-danger: #ef6a64;
+
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  background: var(--fv-stage);
+  color: var(--fv-ink);
+  font-size: 15px;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.fv-cam button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.fv-cam button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.fv-cam button:focus-visible,
+.fv-cam label:focus-within {
+  outline: 2px solid var(--fv-accent);
+  outline-offset: 2px;
+}
+
+/* Top */
+.fv-cam-top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(8px + env(safe-area-inset-top)) 8px 8px;
+}
+.fv-icon-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font-size: 18px;
+}
+.fv-icon-btn:active {
+  background: var(--fv-line);
+}
+.fv-room-chip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fv-panel);
+}
+.fv-room-chip:active {
+  background: #2a2a27;
+}
+.fv-room-chip .anticon {
+  flex: none;
+  font-size: 11px;
+  color: var(--fv-ink-2);
+}
+.fv-room-chip-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fv-floor-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--fv-ink);
+  color: var(--fv-stage);
+  font-size: 13px;
+  font-weight: 700;
+}
+.fv-upload-state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--fv-done);
+  font-variant-numeric: tabular-nums;
+}
+.fv-upload-state:has(.anticon-cloud-upload),
+.fv-upload-state:has(.anticon-disconnect) {
+  color: var(--fv-ink);
+}
+.fv-upload-state.is-failed {
+  color: var(--fv-danger);
+}
+
+/* The picture, shown whole so the guides mean what the photo will show */
+.fv-finder-wrap {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  container-type: size;
+}
+.fv-finder {
+  position: relative;
+  width: 100%;
+  width: min(100cqw, calc(100cqh * var(--fv-ratio)));
+  aspect-ratio: var(--fv-ratio);
+  overflow: hidden;
+  background: #000;
+}
+.fv-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.fv-finder-note {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 40px;
+  color: var(--fv-line);
+}
+
+.fv-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  animation: fv-flash 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes fv-flash {
+  0% { opacity: 0.75; }
+  100% { opacity: 0; }
+}
+
+/* The ceiling belongs in the top band, the floor in the bottom one */
+.fv-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 13%;
+  pointer-events: none;
+}
+.fv-band span {
+  position: absolute;
+  right: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.fv-band--ceiling {
+  top: 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.85);
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03));
+}
+.fv-band--ceiling span {
+  bottom: 6px;
+}
+.fv-band--floor {
+  bottom: 0;
+  border-top: 1px dashed rgba(255, 255, 255, 0.85);
+  background: linear-gradient(to top, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03));
+}
+.fv-band--floor span {
+  top: 6px;
+}
+
+/* Close-up frame for demo */
+.fv-close-up {
+  position: absolute;
+  inset: 22% 14%;
+  pointer-events: none;
+}
+.fv-close-up span {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border: 0 solid var(--fv-warn);
+}
+.fv-close-up span:nth-child(1) { top: 0; left: 0; border-width: 3px 0 0 3px; }
+.fv-close-up span:nth-child(2) { top: 0; right: 0; border-width: 3px 3px 0 0; }
+.fv-close-up span:nth-child(3) { bottom: 0; right: 0; border-width: 0 3px 3px 0; }
+.fv-close-up span:nth-child(4) { bottom: 0; left: 0; border-width: 0 0 3px 3px; }
+
+/* Level */
+.fv-level {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 64px;
+  height: 0;
+  margin-left: -32px;
+  pointer-events: none;
+}
+.fv-level span {
+  display: block;
+  height: 2px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.75);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+  transition: transform 0.12s linear;
+}
+.fv-level.is-level span {
+  background: var(--fv-done);
+}
+
+/* Walls */
+.fv-map-wrap {
+  position: absolute;
+  left: 8px;
+  bottom: calc(13% + 8px);
+  padding: 4px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+.fv-map {
+  display: block;
+  width: 76px;
+  height: 76px;
+}
+.fv-map-wall {
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke 0.15s ease;
+}
+.fv-map-wall.is-next {
+  stroke: #fff;
+  stroke-width: 4;
+}
+.fv-map-wall.is-done {
+  stroke: var(--fv-done);
+  stroke-width: 4;
+}
+.fv-map-cone {
+  fill: rgba(77, 155, 230, 0.55);
+  transition: transform 0.12s linear;
+}
+.fv-map-you {
+  fill: #fff;
+}
+
+/* Lens */
+.fv-lens {
+  position: absolute;
+  right: 8px;
+  bottom: calc(13% + 8px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fv-lens-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  font-size: 15px;
+  font-weight: 600;
+}
+.fv-lens-btn.is-on {
+  background: var(--fv-ink);
+  color: var(--fv-stage);
+}
+
+/* What's been noticed: offered, never decided */
+.fv-offers {
+  position: absolute;
+  top: calc(13% + 8px);
+  left: 8px;
+  right: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+.fv-offer {
+  display: inline-flex;
+  align-items: stretch;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--fv-ink);
+  color: var(--fv-stage);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3), 0 9px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+}
+.fv-cam .fv-offer button {
+  border: 0;
+  background: none;
+  color: var(--fv-stage);
+}
+.fv-cam .fv-offer-yes {
+  min-height: 44px;
+  padding: 0 16px;
+  font-weight: 600;
+}
+.fv-cam .fv-offer-no {
+  width: 44px;
+  border-left: 1px solid rgba(0, 0, 0, 0.14);
+}
+
+.fv-system-camera {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+}
+.fv-big-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 64px;
+  border-radius: 8px;
+  background: var(--fv-panel);
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.fv-big-btn input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+/* Bottom */
+.fv-cam-bottom {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px calc(14px + env(safe-area-inset-bottom));
+}
+.fv-cam-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.fv-rec-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.fv-rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 84px;
+  height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fv-panel);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.fv-rec.is-paused {
+  background: var(--fv-warn);
+  color: var(--fv-stage);
+}
+.fv-cam .fv-rec.is-paused {
+  color: var(--fv-stage);
+}
+.fv-rec-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+}
+.fv-rec.is-on .fv-rec-dot {
+  background: var(--fv-danger);
+  animation: fv-pulse 1.2s ease-in-out infinite;
+}
+.fv-mic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fv-panel);
+  color: var(--fv-ink-2);
+  font-size: 18px;
+}
+.fv-cam .fv-mic.is-on {
+  background: var(--fv-ink);
+  color: var(--fv-stage);
+}
+.fv-next-room {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--fv-line);
+  border-radius: 8px;
+  background: none;
+  font-weight: 600;
+}
+.fv-next-room .anticon {
+  font-size: 12px;
+}
+.fv-next-room.is-due {
+  border-color: var(--fv-accent);
+  background: var(--fv-accent);
+  animation: fv-due 1.6s ease-in-out 3;
+}
+@keyframes fv-due {
+  50% { box-shadow: 0 0 0 6px rgba(77, 155, 230, 0.3); }
+}
+@keyframes fv-pulse {
+  50% { opacity: 0.3; }
+}
+
+.fv-cam-row--shutter {
+  position: relative;
+  min-height: 76px;
+}
+.fv-thumb,
+.fv-demo {
+  position: relative;
+  flex: none;
+  width: 60px;
+  height: 60px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fv-panel);
+}
+.fv-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.fv-thumb-empty {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.fv-thumb-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 11px;
+  background: var(--fv-ink);
+  color: var(--fv-stage);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 22px;
+}
+.fv-shutter {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 76px;
+  height: 76px;
+  padding: 0;
+  border: 4px solid var(--fv-ink);
+  border-radius: 50%;
+  background: none;
+  transform: translate(-50%, -50%);
+}
+.fv-shutter span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 3px solid transparent;
+  border-radius: 50%;
+  background: var(--fv-ink);
+  background-clip: padding-box;
+  transition: transform 0.1s ease;
+}
+.fv-shutter:active span {
+  transform: scale(0.88);
+}
+.fv-demo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 18px;
+}
+.fv-demo span {
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.fv-demo.is-on {
+  background: var(--fv-warn);
+  color: var(--fv-stage);
+}
+.fv-demo.is-due {
+  box-shadow: inset 0 0 0 2px var(--fv-warn);
+  animation: fv-demo-due 1.6s ease-in-out 3;
+}
+@keyframes fv-demo-due {
+  50% { box-shadow: inset 0 0 0 2px var(--fv-warn), 0 0 0 6px rgba(242, 166, 90, 0.3); }
+}
+
+/* Panels over the camera */
+.fv-sheet-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.fv-cam .fv-sheet-back {
+  flex: 1;
+  border: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+.fv-sheet {
+  display: flex;
+  flex-direction: column;
+  max-height: 88%;
+  border-radius: 12px 12px 0 0;
+  background: var(--fv-panel);
+  animation: fv-sheet-up 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.fv-sheet--tall {
+  min-height: 60%;
+}
+@keyframes fv-sheet-up {
+  from { transform: translateY(24px); opacity: 0.6; }
+  to { transform: none; opacity: 1; }
+}
+.fv-sheet-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 6px 6px 16px;
+  border-bottom: 1px solid var(--fv-line);
+}
+.fv-sheet-head h2 {
+  margin: 0;
+  color: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.fv-sheet-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px calc(16px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.fv-sheet-empty {
+  padding: 32px 0;
+  text-align: center;
+  color: var(--fv-ink-2);
+}
+
+.fv-chip-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+.fv-floor-btn {
+  height: 48px;
+  padding: 0;
+  border: 1px solid var(--fv-line);
+  border-radius: 8px;
+  background: none;
+  font-size: 17px;
+  font-weight: 600;
+}
+.fv-floor-btn.is-on {
+  border-color: var(--fv-ink);
+  background: var(--fv-ink);
+  color: var(--fv-stage);
+}
+.fv-floor-btn.is-guess:not(.is-on) {
+  border-color: var(--fv-accent);
+  color: var(--fv-accent);
+}
+.fv-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.fv-chip {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--fv-line);
+  border-radius: 6px;
+  background: none;
+}
+.fv-chip.is-on {
+  border-color: var(--fv-ink);
+  background: var(--fv-ink);
+  color: var(--fv-stage);
+}
+.fv-name-row {
+  display: flex;
+  gap: 6px;
+}
+.fv-input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--fv-line);
+  border-radius: 6px;
+  outline: none;
+  background: var(--fv-stage);
+  color: var(--fv-ink);
+  /* Below 16px an iPhone zooms the page on focus */
+  font-size: 16px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.fv-input:focus {
+  border-color: var(--fv-accent);
+}
+.fv-input::placeholder {
+  color: var(--fv-ink-2);
+}
+.fv-wide-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fv-ink);
+  color: var(--fv-stage);
+  font-weight: 600;
+}
+.fv-cam .fv-wide-btn {
+  color: var(--fv-stage);
+}
+.fv-room-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--fv-line);
+}
+.fv-room-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 1px solid var(--fv-line);
+  background: none;
+  text-align: left;
+}
+.fv-room-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fv-room-row-floor {
+  flex: none;
+  font-size: 13px;
+  color: var(--fv-ink-2);
+}
+.fv-cam .fv-tick {
+  background: var(--fv-line);
+}
+.fv-cam .fv-tick.is-done {
+  background: var(--fv-done);
+}
+
+.fv-shot-group h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: inherit;
+  font-size: 15px;
+  font-weight: 600;
+}
+.fv-shot-group h3 span {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--fv-ink-2);
+}
+.fv-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 4px;
+}
+.fv-tile {
+  position: relative;
+  aspect-ratio: 1;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 4px;
+  background: var(--fv-stage);
+}
+.fv-tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.fv-tile-empty {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.fv-tile-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  font-size: 28px;
+  transform: translate(-50%, -50%);
+}
+.fv-tile-tag {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.65);
+  font-size: 12px;
+  font-weight: 600;
+}
+.fv-tile-state {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 3px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  font-size: 13px;
+}
+.fv-tile-state.is-failed {
+  color: var(--fv-danger);
+}
+
+/* One shot */
+.fv-viewer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  background: var(--fv-stage);
+}
+.fv-viewer-stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding-top: env(safe-area-inset-top);
+}
+.fv-viewer-stage img,
+.fv-viewer-stage video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.fv-viewer-rooms {
+  flex: none;
+  max-height: 40%;
+  overflow-y: auto;
+  padding: 0 16px;
+}
+.fv-viewer-error {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 16px;
+  color: var(--fv-danger);
+}
+.fv-viewer-bar {
+  flex: none;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 4px;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--fv-line);
+}
+.fv-text-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 48px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font-weight: 500;
+}
+.fv-text-btn:active {
+  background: var(--fv-line);
+}
+.fv-text-btn.is-on {
+  color: var(--fv-warn);
+}
+.fv-cam .fv-text-btn.is-danger {
+  color: var(--fv-danger);
+}
+
+/* A phone on its side: the controls move to the end of the picture */
+@media (orientation: landscape) and (max-height: 520px) {
+  .fv-cam {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "finder top"
+      "finder bottom";
+  }
+  .fv-cam-top {
+    grid-area: top;
+    width: 280px;
+    padding-top: 8px;
+  }
+  .fv-finder-wrap {
+    grid-area: finder;
+  }
+  .fv-cam-bottom {
+    grid-area: bottom;
+    justify-content: flex-end;
+    width: 280px;
+    padding-bottom: 12px;
+  }
+  .fv-sheet {
+    max-width: 480px;
+    width: 100%;
+    margin: 0 auto;
+    max-height: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fv-next-room.is-due,
+  .fv-demo.is-due,
+  .fv-rec.is-on .fv-rec-dot,
+  .fv-sheet,
+  .fv-flash {
+    animation: none;
+  }
+}

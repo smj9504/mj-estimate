@@ -37,6 +37,7 @@ from app.domains.document_types.models import WorkOrderDocumentType, WorkOrderTr
 from app.domains.electrician_report.models import ElectricianReport  # noqa: E402
 from app.domains.email_ingestion.models import EmailIngestionLog, ReceivedEmail  # noqa: E402
 from app.domains.estimate.models import Estimate, EstimateItem  # noqa: E402
+from app.domains.field_visit.models import FieldRoom, FieldShot, FieldVisit  # noqa: E402
 from app.domains.file.models import File  # noqa: E402
 from app.domains.integrations.models import CompanyCamPhoto  # noqa: E402
 from app.domains.invoice.models import Invoice, InvoiceItem  # noqa: E402
@@ -149,6 +150,13 @@ def seed_client(session, label, shared_report_id=None):
         ('negotiation', claim.id), ('claim-negotiation', claim.id), ('electrician-report', electric.id),
     ):
         keys.append(stored_file(context, context_id)[1])
+
+    # A field visit whose photos aren't on a claim yet
+    visit = add(FieldVisit, client_id=client.id)
+    room = add(FieldRoom, id=str(uuid.uuid4()), visit_id=visit.id)
+    field_photo, field_photo_key = stored_file('field-visit', visit.id)
+    keys.append(field_photo_key)
+    add(FieldShot, id=str(uuid.uuid4()), visit_id=visit.id, room_id=room.id, file_id=str(field_photo.id))
 
     # Files found by the column that points at them, whatever context they were uploaded under
     def file_id():
@@ -448,6 +456,7 @@ def test_preview_says_what_goes(world, api, storage):
     assert items['Estimates'] == 7
     assert items['Work orders'] == 1
     assert items['AccuLynx archived jobs'] == 1
+    assert items['Field visits'] == 1
     # Sent on the claim, plus received on the client and on the job
     assert items['Emails'] == 3
 

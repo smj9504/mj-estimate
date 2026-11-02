@@ -209,7 +209,7 @@ def _known_values(db: Any, company: Company, client_id: Any, address: Optional[O
             street = client.address or ''
             place = ' '.join(p for p in (client.state or '', client.zipcode or '') if p)
             known['client'] = {
-                'display_name': client.display_name,
+                'display_name': None if named_after_address(client) else client.display_name,
                 'address': street,
                 'city': client.city,
                 'state': client.state,
@@ -283,22 +283,26 @@ def _primary_signature(mappings: List[Dict[str, Any]], signatures: Dict[str, str
     return signatures[lines[0].get('id', '')]
 
 
+def find_client_at_address(db: Any, staff: Any, street: str, zipcode: Optional[str]) -> Optional[Client]:
+    """The client at this address, among those this person may see. Search can miss
+    an address typed differently; the normalized form catches that."""
+    query = scoped(db.query(Client), client_condition(db, staff)).filter(
+        Client.normalized_address == normalize_address(street),
+        Client.is_active.is_(True),
+    )
+    if zipcode:
+        # A street name repeats across towns; a client with no zip can't rule itself out
+        query = query.filter((Client.zipcode == zipcode) | Client.zipcode.is_(None))
+    return query.first()
+
+
 def _find_or_create_client(
     db: Any, staff: Any, company: Company, address: OnsiteAddress, values: Dict[str, Any], signer_name: str,
 ) -> Tuple[Client, bool]:
-    """The client at this address, among those this person may see, or a new one
-    managed by the company so they can find it again. Search can miss an address
-    typed differently; the normalized form catches that."""
+    """The client at this address, or a new one managed by the company so they can find it again"""
     street = address.street.strip()
     normalized = normalize_address(street)
-    query = scoped(db.query(Client), client_condition(db, staff)).filter(
-        Client.normalized_address == normalized,
-        Client.is_active.is_(True),
-    )
-    if address.zipcode:
-        # A street name repeats across towns; a client with no zip can't rule itself out
-        query = query.filter((Client.zipcode == address.zipcode) | Client.zipcode.is_(None))
-    existing = query.first()
+    existing = find_client_at_address(db, staff, street, address.zipcode)
     if existing:
         return existing, False
 
@@ -323,6 +327,25 @@ def _find_or_create_client(
     db.add(client)
     db.flush()
     return client, True
+
+
+def named_after_address(client: Client) -> bool:
+    """A client made from just an address on a field visit: it has no owner yet, so its
+    address stands in for its name. No owners alone doesn't say that: imported clients
+    have real names and no owners."""
+    return not client.owners and (client.display_name or '').strip() == (client.address or '').strip()
+
+
+def _adopt_signer_as_owner(client: Client, values: Dict[str, Any], signer_name: str) -> None:
+    """Whoever signs is its first owner, as for a client made here. Done before the
+    contract is made, which copies the client's name onto itself."""
+    name = known_value(values, 'client.display_name') or signer_name
+    phone = known_value(values, 'client.phone') or client.phone
+    email = known_value(values, 'client.email') or client.email
+    client.display_name = name
+    client.owners = [{'name': name, 'phone': phone, 'email': email, 'is_primary': True}]
+    client.phone = phone
+    client.email = email
 
 
 def _tell_the_office(staff: Any, contracts: List[Dict[str, Any]], client: Client) -> bool:
@@ -615,6 +638,8 @@ def create_signed_contract(
     if data.client_id:
         client = db.query(Client).filter(Client.id == str(data.client_id)).first()
         client_created = False
+        if named_after_address(client):
+            _adopt_signer_as_owner(client, answers, signer_name)
     else:
         client, client_created = _find_or_create_client(db, staff, company, data.address, answers, signer_name)
     db.commit()

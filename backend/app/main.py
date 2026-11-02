@@ -202,6 +202,7 @@ from app.domains.contract.api import router as contract_router
 from app.domains.contract.signing_api import router as signing_router
 from app.domains.contract.field_signing_api import router as field_signing_router
 from app.domains.contract.onsite_signing_api import router as onsite_signing_router
+from app.domains.field_visit.api import router as field_visit_router
 from app.domains.material_order.api import router as material_order_router
 from app.domains.work_order.api import router as work_order_router
 from app.domains.xactimate.api import router as xactimate_router
@@ -1014,6 +1015,7 @@ app.include_router(contract_router, prefix="/api/contracts", tags=["Contracts"])
 app.include_router(signing_router, prefix="/api/sign", tags=["Contract Signing (Public)"])
 app.include_router(field_signing_router, prefix="/api/field-sign", tags=["Field Signing"])
 app.include_router(onsite_signing_router, prefix="/api/onsite-signing", tags=["On-site Signing"])
+app.include_router(field_visit_router, prefix="/api/field-visits", tags=["Field Visits"])
 app.include_router(invoice_router, prefix="/api/invoices", tags=["Invoices"])
 app.include_router(estimate_router, prefix="/api/estimates", tags=["Estimates"])
 app.include_router(document_transfer_router, prefix="/api/document-transfers", tags=["Document Transfers"])

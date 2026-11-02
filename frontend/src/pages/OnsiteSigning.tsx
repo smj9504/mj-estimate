@@ -12,6 +12,9 @@
  * was entered. The visit is drafted to this tab's storage so a reload or a
  * discarded tab doesn't lose it (signatures aren't kept: the customer signs
  * again), and leaving for another page asks first.
+ *
+ * A field visit opens this with ?client=&visit=: the client is already chosen,
+ * and being done goes back to the visit.
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -27,6 +30,7 @@ import SignStep from '../components/onsite-signing/SignStep';
 import { presetPeriod } from '../components/onsite-signing/lossDates';
 import { useSheetModal } from '../components/common/ui';
 import '../components/onsite-signing/onsite.css';
+import { clientService } from '../services/clientService';
 import { onsiteSigningService } from '../services/contractService';
 import { comfortTheme } from '../styles/antTheme';
 import { SIGNING_PURPOSES } from '../types/contract';
@@ -45,6 +49,7 @@ interface Draft {
   company: OnsiteCompany | null;
   templateIds: string[];
   answers: Answers;
+  visitId: string | null;
 }
 
 const DRAFT_KEY = 'onsite-signing-draft';
@@ -80,17 +85,34 @@ const OnsiteSigning: React.FC = () => {
     Array.isArray(draft.templateIds) ? draft.templateIds : [],
   );
   const [answers, setAnswers] = useState<Answers>(draft.answers ?? {});
+  const [visitId] = useState<string | null>(params.get('visit') ?? draft.visitId ?? null);
   const [result, setResult] = useState<OnsiteSignedContract | null>(null);
   const [signerName, setSignerName] = useState('');
   // The device's date: an evening signing must not be dated tomorrow in UTC
   const today = useMemo(() => dayjs().format('MM/DD/YYYY'), []);
 
   useEffect(() => {
-    writeDraft(subject && !result ? { subject, purpose, company, templateIds, answers } : null);
-  }, [subject, purpose, company, templateIds, answers, result]);
+    writeDraft(subject && !result ? { subject, purpose, company, templateIds, answers, visitId } : null);
+  }, [subject, purpose, company, templateIds, answers, visitId, result]);
+
+  // Replaces its own history entry, so Back from the first step is the visit again
+  const fromVisit = params.get('client');
+  const visitClient = useQuery({
+    queryKey: ['onsite-visit-client', fromVisit],
+    queryFn: () => clientService.getById(fromVisit as string),
+    enabled: !!fromVisit && !subject,
+  });
+  useEffect(() => {
+    if (!visitClient.data || subject) return;
+    setSubject({ kind: 'client', client: visitClient.data as unknown as ClientListItem });
+    setParams({ step: 'purpose' }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visitClient.data]);
 
   const blocker = useBlocker(({ currentLocation, nextLocation }) => (
     !!subject && !result && currentLocation.pathname !== nextLocation.pathname
+    // Coming from a visit, nothing has been entered until a purpose is picked
+    && !(visitId && !purpose)
   ));
 
   const clientId = subject?.kind === 'client' ? subject.client.id : undefined;
@@ -212,7 +234,19 @@ const OnsiteSigning: React.FC = () => {
 
   const renderStep = () => {
     if (result) {
-      return <DoneStep result={result} signerName={signerName} onStartOver={startOver} />;
+      return (
+        <DoneStep
+          result={result}
+          signerName={signerName}
+          onStartOver={startOver}
+          onBackToVisit={visitId ? () => navigate(`/field/${visitId}`) : undefined}
+        />
+      );
+    }
+    if (fromVisit && !subject) {
+      return visitClient.isError
+        ? <LoadError what="the client" onRetry={() => visitClient.refetch()} />
+        : <Skeleton active paragraph={{ rows: 3 }} />;
     }
     switch (step) {
       case 'purpose':

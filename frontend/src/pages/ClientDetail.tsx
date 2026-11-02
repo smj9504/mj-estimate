@@ -80,6 +80,7 @@ import UnassignedContracts from '../components/contract/UnassignedContracts';
 import ClientDocumentHub from '../components/client/ClientDocumentHub';
 import ClaimNotes from '../components/client/ClaimNotes';
 import ClaimPhotosSection from '../components/client/ClaimPhotosSection';
+import ClientFieldVisits, { useClientFieldVisits } from '../components/field-visit/ClientFieldVisits';
 import ClaimWMPhotos, { wmPhotoSetLabel } from '../components/client/ClaimWMPhotos';
 import ClaimPhotoViewer from '../components/client/photo-viewer/ClaimPhotoViewer';
 import { useCompanyCamImport } from '../components/water-mitigation/useCompanyCamImport';
@@ -3270,6 +3271,7 @@ const ClientDetail: React.FC = () => {
     enabled: !!id,
   });
   useBreadcrumbTitle(client?.display_name || null);
+  const { data: fieldVisits = [] } = useClientFieldVisits(client?.id);
 
   // Jobs archived from AccuLynx - the tab only shows when there are some
   const { data: archivedJobs = [], isLoading: archivedJobsLoading } = useQuery({
@@ -3365,6 +3367,16 @@ const ClientDetail: React.FC = () => {
       children: <AllDocumentsTab client={client} />,
     },
     ...(!isAccuLynxImport && archivedJobs.length > 0 ? [accuLynxHistoryTab] : []),
+    ...(fieldVisits.length > 0 ? [{
+      key: 'field-visits',
+      label: (
+        <span className="cl-tab-label">
+          Field visits
+          <span className="ui-tab-count">{fieldVisits.length}</span>
+        </span>
+      ),
+      children: <ClientFieldVisits visits={fieldVisits} />,
+    }] : []),
   ];
 
   const createDocumentItems = [

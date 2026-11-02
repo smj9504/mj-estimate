@@ -36,6 +36,7 @@ import {
   BorderOuterOutlined,
   CheckSquareOutlined,
   SignatureOutlined,
+  CameraOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -117,6 +118,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     return () => document.removeEventListener('keydown', trapFocus);
   }, [isMobile, collapsed]);
 
+  // Field photos waiting on this phone go out whichever page the app opens on
+  useEffect(() => {
+    import('../field-visit/fieldStore').then(store => store.resumeFieldUploads());
+  }, []);
+
   // Follow the viewport across the phone edge (resize, rotation, devtools).
   // A media query fires once per crossing, so a single rotation can't be lost
   // the way a debounced resize timer could when the sidebar collapsed mid-wait.
@@ -149,6 +155,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         key: '/todos',
         icon: <CheckSquareOutlined />,
         label: 'Todos',
+      },
+      {
+        key: '/field',
+        icon: <CameraOutlined />,
+        label: 'Field Visits',
       },
       {
         key: '/onsite-signing',

@@ -19,7 +19,9 @@ const DoneStep: React.FC<{
   result: OnsiteSignedContract;
   signerName: string;
   onStartOver: () => void;
-}> = ({ result, signerName, onStartOver }) => {
+  /** Signed as part of a field visit, which is where this goes next */
+  onBackToVisit?: () => void;
+}> = ({ result, signerName, onStartOver, onBackToVisit }) => {
   const { canAccessPath } = useAuth();
   const [email, setEmail] = useState(result.client_email);
   const [sending, setSending] = useState(false);
@@ -110,7 +112,9 @@ const DoneStep: React.FC<{
             {several ? contract.title : 'View signed PDF'}
           </Button>
         ))}
-        <Button onClick={onStartOver}>Start another</Button>
+        {onBackToVisit
+          ? <Button type="primary" onClick={onBackToVisit}>Back to visit</Button>
+          : <Button onClick={onStartOver}>Start another</Button>}
       </div>
 
       <section className="ui-section os-email">

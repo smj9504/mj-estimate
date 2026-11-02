@@ -35,6 +35,7 @@ export default defineConfig({
       'src/components/claim-followup/**/*.test.ts',
       'src/components/todo/**/*.test.ts',
       'src/components/onsite-signing/**/*.test.ts',
+      'src/components/field-visit/**/*.test.ts',
       'src/components/client/photo-viewer/**/*.test.ts',
       'src/components/packing-estimate/**/*.test.ts',
       'src/constants/**/*.test.ts',

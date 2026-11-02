@@ -24,6 +24,7 @@ export const SCREEN_GROUPS: ScreenGroup[] = [
   {
     label: 'Jobs & Claims',
     screens: [
+      { key: 'field_visits', label: 'Field Visits', paths: ['/field'] },
       { key: 'onsite_signing', label: 'On-site Signing', paths: ['/onsite-signing'] },
       { key: 'claims_lifecycle', label: 'Claims Dashboard', paths: ['/claims-lifecycle'] },
       { key: 'claim_followup', label: 'Follow-up', paths: ['/claim-followup'] },

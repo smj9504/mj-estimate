@@ -19,6 +19,7 @@ from app.domains.staff.models import RoleScreenAccess, Staff, StaffRole
 # Keep in sync with SCREEN_GROUPS in frontend/src/constants/screens.ts
 SCREEN_KEYS: tuple = (
     # Jobs & Claims
+    "field_visits",
     "onsite_signing",
     "claims_lifecycle",
     "claim_followup",

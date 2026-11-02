@@ -142,6 +142,9 @@ class Settings(BaseSettings):
 
     # Frontend URL (for generating links in notifications)
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    # Field visits: the address at a phone's position, from OpenStreetMap. Their usage
+    # policy wants it switchable off without a release; off just asks for the address.
+    NOMINATIM_REVERSE_ENABLED: bool = os.getenv("NOMINATIM_REVERSE_ENABLED", "true").lower() == "true"
 
     # Backend public URL (for links/pixels embedded in outbound emails, e.g. open tracking)
     BACKEND_PUBLIC_URL: str = os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8000")

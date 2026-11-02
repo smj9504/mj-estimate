@@ -30,6 +30,7 @@ from app.domains.document_types.models import WorkOrderDocumentType, WorkOrderTr
 from app.domains.electrician_report.models import ElectricianReport
 from app.domains.email_ingestion.models import EmailIngestionLog, ReceivedEmail
 from app.domains.estimate.models import Estimate
+from app.domains.field_visit.models import FieldVisit
 from app.domains.file.models import File, VideoRendition
 from app.domains.file.video_service import OWNER_FILE, OWNER_WM_PHOTO
 from app.domains.integrations.models import CompanyCamPhoto
@@ -81,6 +82,7 @@ class _Linked:
     supplements: List[Any]
     bid_items: List[Any]
     rebuild_projects: List[Any]
+    field_visits: List[Any]
 
 
 def _ids(db: Any, column: Any, *conditions: Any) -> List[Any]:
@@ -137,6 +139,7 @@ def _find_linked(db: Any, client_id: str) -> _Linked:
         supplements=supplements,
         bid_items=_ids(db, BidItemEstimate.id, BidItemEstimate.supplement_id.in_(supplements)),
         rebuild_projects=_ids(db, RebuildProject.id, RebuildProject.claim_id.in_(claims)),
+        field_visits=_ids(db, FieldVisit.id, FieldVisit.client_id == client_id),
     )
 
 
@@ -165,6 +168,7 @@ def _file_row_condition(db: Any, client_id: str, linked: _Linked) -> Any:
         'estimate': linked.estimates,
         'invoice': linked.invoices,
         'work-order': linked.work_orders,
+        'field-visit': linked.field_visits,
     }
     file_ids = set()
     for column, condition in (
@@ -344,6 +348,7 @@ def linked_counts(db: Any, client_id: str) -> Optional[List[Dict[str, Any]]]:
         ('Supplements', len(linked.supplements)),
         ('Rebuild projects', len(linked.rebuild_projects)),
         ('Follow-up tasks', len(linked.followup_tasks)),
+        ('Field visits', len(linked.field_visits)),
         ('Emails', (
             _count_rows(db, SentEmail.id, SentEmail.claim_id.in_(linked.claims))
             + _count_rows(db, ReceivedEmail.id, *_received_email_conditions(client_id, linked))
@@ -412,6 +417,7 @@ def delete_client_and_everything(db: Any, client_id: str) -> Optional[List[Store
         (RoofingEstimate, linked.roofing_estimates),
         (SidingEstimate, linked.siding_estimates),
         (MaterialOrder, linked.material_orders),
+        (FieldVisit, linked.field_visits),
     ):
         _delete_objects(db, model, ids)
 

@@ -48,6 +48,9 @@ const ContractTemplateManagement = lazyWithRetry(() => import('./pages/ContractT
 const ContractSigning = lazyWithRetry(() => import('./pages/ContractSigning'));
 const FieldContractSigning = lazyWithRetry(() => import('./pages/FieldContractSigning'));
 const OnsiteSigning = lazyWithRetry(() => import('./pages/OnsiteSigning'));
+const FieldVisits = lazyWithRetry(() => import('./pages/FieldVisits'));
+const FieldVisitHub = lazyWithRetry(() => import('./pages/FieldVisitHub'));
+const FieldCamera = lazyWithRetry(() => import('./pages/FieldCamera'));
 
 // Dashboard Pages
 const RoleBasedDashboard = lazyWithRetry(() => import('./pages/RoleBasedDashboard'));
@@ -309,6 +312,40 @@ const router = createBrowserRouter([
             <TodoBoard />
           </Suspense>
         </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/field",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <FieldVisits />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/field/:visitId",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <FieldVisitHub />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/field/:visitId/camera",
+    element: (
+      <ProtectedRoute>
+        <Suspense fallback={<PageLoader />}>
+          <FieldCamera />
+        </Suspense>
       </ProtectedRoute>
     )
   },
