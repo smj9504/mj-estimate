@@ -279,8 +279,7 @@ def list_claim_packing_photos(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_user),
 ):
-    """The claim's photos picked for its packing estimate, category by
-    category and room by room."""
+    """The claim's photos picked for its packing estimate, room by room."""
     _require_packing_claim(db, current_user, claim_id)
     return {"photos": packing_photos.list_photos(db, claim_id)}
 
@@ -292,12 +291,9 @@ def add_claim_packing_photos(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_user),
 ):
-    """File claim photos under a packing category and rooms in it (moves
-    ones already filed)."""
+    """File claim photos by room (moves ones already filed)."""
     _require_packing_claim(db, current_user, claim_id)
-    packing_photos.add_photos(
-        db, claim_id, request.category, request.room_name, request.photos, current_user.id,
-    )
+    packing_photos.add_photos(db, claim_id, request.room_name, request.photos, current_user.id)
     return {"photos": packing_photos.list_photos(db, claim_id)}
 
 
@@ -308,10 +304,9 @@ def move_claim_packing_photos(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_user),
 ):
-    """Move packing photos to a room (and category); moving a whole room
-    renames it or moves it to the category."""
+    """Move packing photos to a room; moving a whole room renames it."""
     _require_packing_claim(db, current_user, claim_id)
-    packing_photos.move_photos(db, claim_id, request.ids, request.room_name, request.category)
+    packing_photos.move_photos(db, claim_id, request.ids, request.room_name)
     return {"photos": packing_photos.list_photos(db, claim_id)}
 
 
@@ -754,7 +749,6 @@ def _report_rooms(db: Session, calc: PackCalculation) -> list:
     photos = (
         packing_photos.estimate_room_photos(
             db, str(calc.claim_id), [r["room_name"] for r in out],
-            packing_photos.category_named(calc.calculation_name),
         ) if calc.claim_id and not any(r["saved_photos"] for r in out) else [[] for _ in out]
     )
     for room, entries in zip(out, photos):

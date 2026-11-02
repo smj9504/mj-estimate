@@ -1,9 +1,7 @@
 """
 Claim packing photos
 
-The claim photos picked for its packing estimate, filed under a category -
-the stage of the job they are for (water mitigation, work completion) - and
-a room within it. A packing estimate is made for one category's rooms. Each entry
+The claim photos picked for its packing estimate, filed by room. Each entry
 points at a photo where it already lives - a photo of one of the claim's
 water mitigation jobs ('wm') or a claim photo ('claim') - so nothing is
 copied, and a photo trashed or unlinked there drops out here too.
@@ -31,7 +29,6 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .models import PackingPhoto, PackRoom
-from .packing_schemas import PackingPhotoCategory
 
 logger = logging.getLogger(__name__)
 
@@ -63,22 +60,9 @@ def clean_room_name(name: Optional[str]) -> str:
     return " ".join((name or "").split())[:100]
 
 
-# Categories in the order the claim page lists them
-CATEGORIES = [c.value for c in PackingPhotoCategory]
-DEFAULT_CATEGORY = PackingPhotoCategory.WATER_MITIGATION.value
-
-
 def _value(member) -> Optional[str]:
     """The plain string: a str Enum member doesn't hash like its value"""
     return getattr(member, "value", member)
-
-
-def _category(entry: PackingPhoto) -> str:
-    return entry.category or DEFAULT_CATEGORY
-
-
-def _category_rank(category: str) -> int:
-    return CATEGORIES.index(category) if category in CATEGORIES else len(CATEGORIES)
 
 
 # ── Where the photos live ─────────────────────
@@ -144,7 +128,6 @@ def _photo_out(entry: PackingPhoto, record) -> dict:
             "id": str(entry.id),
             "source": entry.source,
             "photo_id": entry.photo_id,
-            "category": _category(entry),
             "room_name": entry.room_name,
             "file_name": record.file_name,
             "thumbnail_url": f"{base}?size=thumbnail",
@@ -156,7 +139,6 @@ def _photo_out(entry: PackingPhoto, record) -> dict:
         "id": str(entry.id),
         "source": entry.source,
         "photo_id": entry.photo_id,
-        "category": _category(entry),
         "room_name": entry.room_name,
         "file_name": record.original_name,
         "thumbnail_url": f"/api/files/preview/{entry.photo_id}",
@@ -166,28 +148,21 @@ def _photo_out(entry: PackingPhoto, record) -> dict:
     }
 
 
-def _by_category(rooms: Dict[Tuple[str, str], list]) -> List[Tuple[Tuple[str, str], list]]:
-    """(category, room) groups category by category, each category's rooms
-    in the order they were started"""
-    return sorted(rooms.items(), key=lambda item: _category_rank(item[0][0]))
-
-
 def list_photos(db: Session, claim_id: str) -> List[dict]:
-    """The claim's packing photos, category by category and within each room
-    by room in the order the rooms were started, each room's photos in the
-    order they were added"""
+    """The claim's packing photos room by room, in the order the rooms were
+    started, each room's photos in the order they were added"""
     entries = db.query(PackingPhoto).filter(
         PackingPhoto.claim_id == str(claim_id)
     ).order_by(PackingPhoto.sort_order, PackingPhoto.created_at).all()
     found = _sources(db, claim_id, [(e.source, e.photo_id) for e in entries])
 
-    rooms: Dict[Tuple[str, str], List[dict]] = {}
+    rooms: Dict[str, List[dict]] = {}
     for entry in entries:
         record = found.get((entry.source, entry.photo_id))
         if record is None:
             continue  # trashed, deleted or no longer on this claim
-        rooms.setdefault((_category(entry), entry.room_name), []).append(_photo_out(entry, record))
-    return [photo for _, photos in _by_category(rooms) for photo in photos]
+        rooms.setdefault(entry.room_name, []).append(_photo_out(entry, record))
+    return [photo for photos in rooms.values() for photo in photos]
 
 
 def _live_photo_keys(db: Session, entries: List[PackingPhoto]) -> set:
@@ -227,8 +202,8 @@ def _live_photo_keys(db: Session, entries: List[PackingPhoto]) -> set:
 def claims_with_photos(db: Session, condition, search: Optional[str] = None, limit: int = 50) -> List[dict]:
     """Claims with packing photos, the most recently picked first, for the
     builder to load from: each with its client, the company its pack-out goes
-    under and its rooms (category by category). condition limits them to the
-    claims the staff member may see (None: all)."""
+    under and its rooms. condition limits them to the claims the staff member
+    may see (None: all)."""
     from app.domains.auth.company_scope import scoped
     from app.domains.client.claim_companies import companies_by_claim
     from app.domains.client.models import Claim, Client
@@ -259,14 +234,13 @@ def claims_with_photos(db: Session, condition, search: Optional[str] = None, lim
         PackingPhoto.claim_id.in_(claim_ids)
     ).order_by(PackingPhoto.sort_order, PackingPhoto.created_at).all()
     live = _live_photo_keys(db, entries)
-    rooms_by_claim: Dict[str, Dict[Tuple[str, str], int]] = {}
+    rooms_by_claim: Dict[str, Dict[str, int]] = {}
     for entry in entries:
         claim_id = str(entry.claim_id)
         if (claim_id, entry.source, entry.photo_id) not in live:
             continue
         rooms = rooms_by_claim.setdefault(claim_id, {})
-        key = (_category(entry), entry.room_name)
-        rooms[key] = rooms.get(key, 0) + 1
+        rooms[entry.room_name] = rooms.get(entry.room_name, 0) + 1
 
     claims = {
         str(c.id): (c, cl) for c, cl in db.query(Claim, Client).join(
@@ -292,10 +266,7 @@ def claims_with_photos(db: Session, condition, search: Optional[str] = None, lim
             ),
             "company_id": _packing_company_id(claim, companies.get(claim_id, [])),
             "photo_count": sum(rooms.values()),
-            "rooms": [
-                {"category": category, "room_name": name, "photo_count": n}
-                for (category, name), n in _by_category(rooms)
-            ],
+            "rooms": [{"room_name": name, "photo_count": n} for name, n in rooms.items()],
         })
     return out
 
@@ -315,13 +286,12 @@ def _packing_company_id(claim, companies: List[dict]) -> Optional[str]:
 
 # ── Changes ───────────────────────────────────
 
-def _existing_room_names(db: Session, claim_id: str) -> Dict[Tuple[str, str], str]:
-    """(category, lower-cased room name) -> the spelling already in use in
-    that category on the claim"""
-    names = db.query(PackingPhoto.category, PackingPhoto.room_name).filter(
+def _existing_room_names(db: Session, claim_id: str) -> Dict[str, str]:
+    """Lower-cased room name -> the spelling already in use on the claim"""
+    names = db.query(PackingPhoto.room_name).filter(
         PackingPhoto.claim_id == str(claim_id)
     ).distinct().all()
-    return {(category or DEFAULT_CATEGORY, n.lower()): n for category, n in names}
+    return {n.lower(): n for (n,) in names}
 
 
 def _next_sort_order(db: Session, claim_id: str) -> int:
@@ -331,28 +301,19 @@ def _next_sort_order(db: Session, claim_id: str) -> int:
     return (top or 0) + 1
 
 
-def _check_category(category) -> str:
-    category = _value(category)
-    if category not in CATEGORIES:
-        raise HTTPException(status_code=400, detail="Choose a category for the photos")
-    return category
-
-
 def add_photos(
-    db: Session, claim_id: str, category, room_name: Optional[str], photos, staff_id,
+    db: Session, claim_id: str, room_name: Optional[str], photos, staff_id,
 ) -> None:
-    """File photos under a category and rooms in it: each photo's own
-    room_name, else room_name. A photo already in the packing set moves to
-    its new category and room."""
-    category = _check_category(category)
+    """File photos by room: each photo's own room_name, else room_name. A
+    photo already in the packing set moves to its new room."""
     known = _existing_room_names(db, claim_id)
     wanted: List[Tuple[str, str, str]] = []
     for ref in photos:
         room = clean_room_name(ref.room_name) or clean_room_name(room_name)
         if not room:
             raise HTTPException(status_code=400, detail="Choose a room for every photo")
-        # "kitchen" joins an existing "Kitchen" room of the same category
-        room = known.setdefault((category, room.lower()), room)
+        # "kitchen" joins an existing "Kitchen" room
+        room = known.setdefault(room.lower(), room)
         wanted.append((_value(ref.source), str(ref.photo_id), room))
 
     found = _sources(db, claim_id, [(src, pid) for src, pid, _ in wanted])
@@ -377,56 +338,42 @@ def add_photos(
             )
             db.add(entry)
             current[(src, pid)] = entry
-        elif entry.room_name == room and _category(entry) == category:
+        elif entry.room_name == room:
             continue
-        entry.category = category
         entry.room_name = room
         entry.sort_order = order
         order += 1
     db.commit()
 
 
-def move_photos(
-    db: Session, claim_id: str, ids: List[str], room_name: str, category=None,
-) -> None:
-    """Move photos to a room: of category, else of the category each is in.
-    Moving every photo of a room to a new name (or category) moves the room
-    as it is, in its place. Photos joining a room go to its end, and some of
-    a room's photos moved to a new room start it after the others."""
+def move_photos(db: Session, claim_id: str, ids: List[str], room_name: str) -> None:
+    """Move photos to a room. Moving every photo of a room to a new name moves
+    the room as it is, in its place. Photos joining a room go to its end, and
+    some of a room's photos moved to a new room start it after the others."""
     room = clean_room_name(room_name)
     if not room:
         raise HTTPException(status_code=400, detail="Room name is required")
-    category = _check_category(category) if category is not None else None
     known = _existing_room_names(db, claim_id)
+    joining = room.lower() in known
+    name = known.get(room.lower(), room)
 
     entries = db.query(PackingPhoto).filter(
         PackingPhoto.claim_id == str(claim_id),
         PackingPhoto.id.in_([i for i in ids if _is_uuid(i)]),
     ).order_by(PackingPhoto.sort_order, PackingPhoto.created_at).all()
-    # (category, room) -> its photo count, to tell a whole room from part of one
-    room_sizes: Dict[Tuple[str, str], int] = {}
-    for cat, name, n in db.query(
-        PackingPhoto.category, PackingPhoto.room_name, func.count(PackingPhoto.id)
-    ).filter(PackingPhoto.claim_id == str(claim_id)).group_by(
-        PackingPhoto.category, PackingPhoto.room_name
-    ).all():
-        key = (cat or DEFAULT_CATEGORY, name)
-        room_sizes[key] = room_sizes.get(key, 0) + n
-    moving: Dict[Tuple[str, str], int] = {}
+    # Each room's photo count, to tell a whole room from part of one
+    room_sizes: Dict[str, int] = dict(db.query(
+        PackingPhoto.room_name, func.count(PackingPhoto.id)
+    ).filter(PackingPhoto.claim_id == str(claim_id)).group_by(PackingPhoto.room_name).all())
+    moving: Dict[str, int] = {}
     for entry in entries:
-        key = (_category(entry), entry.room_name)
-        moving[key] = moving.get(key, 0) + 1
+        moving[entry.room_name] = moving.get(entry.room_name, 0) + 1
 
     order = _next_sort_order(db, claim_id)
     for entry in entries:
-        target = category or _category(entry)
-        joining = (target, room.lower()) in known
-        name = known.get((target, room.lower()), room)
-        source = (_category(entry), entry.room_name)
-        if entry.room_name == name and _category(entry) == target:
+        if entry.room_name == name:
             continue
-        whole_room = moving[source] == room_sizes.get(source)
-        entry.category = target
+        whole_room = moving[entry.room_name] == room_sizes.get(entry.room_name)
         entry.room_name = name
         if joining or not whole_room:
             entry.sort_order = order
@@ -534,12 +481,6 @@ async def load_image(db: Session, claim_id: str, entry_id: str) -> str:
 
 # ── An estimate's room photos ─────────────────
 
-# The name the estimate builder gives an estimate made from one category's rooms
-CATEGORY_LABELS = {
-    PackingPhotoCategory.WATER_MITIGATION.value: "Water mitigation",
-    PackingPhotoCategory.WORK_COMPLETION.value: "Work completion",
-}
-
 # "Kitchen (2)": the builder's name for a second room loaded as "Kitchen"
 _REPEAT_SUFFIX = re.compile(r"^(.*\S)\s+\((\d+)\)$")
 
@@ -549,53 +490,43 @@ REPORT_PHOTO_QUALITY = 72
 REPORT_PARALLEL_FETCHES = 4
 
 
-def category_named(name: Optional[str]) -> Optional[str]:
-    """The category an estimate is for when it is named for one (as the
-    builder names an estimate made from one category's rooms)"""
-    text = (name or "").strip().lower()
-    return next((c for c, label in CATEGORY_LABELS.items() if label.lower() == text), None)
-
-
 def estimate_room_photos(
-    db: Session, claim_id: str, room_names: List[str], category: Optional[str] = None,
+    db: Session, claim_id: str, room_names: List[str],
 ) -> List[List[PackingPhoto]]:
     """The claim's packing photos of each of an estimate's rooms, in the
-    order they are on the claim: the room of the same name (any case), in
-    `category` when the estimate is for one. The builder loads a second
-    "Kitchen" as "Kitchen (2)", so that one gets the next Kitchen, in the
-    category after. A room the claim has no photos of gets none."""
+    order they are on the claim: the room of the same name (any case). The
+    builder loads a room named like one it already has as "Kitchen (2)", so
+    that one gets Kitchen if no other room of the estimate did. A room the
+    claim has no photos of gets none."""
     entries = db.query(PackingPhoto).filter(
         PackingPhoto.claim_id == str(claim_id)
     ).order_by(PackingPhoto.sort_order, PackingPhoto.created_at).all()
     live = _sources(db, claim_id, [(e.source, e.photo_id) for e in entries])
 
-    rooms: Dict[Tuple[str, str], List[PackingPhoto]] = {}
+    rooms: Dict[str, List[PackingPhoto]] = {}
     for entry in entries:
         if (entry.source, entry.photo_id) not in live:
             continue  # trashed, deleted or no longer on this claim
-        rooms.setdefault((_category(entry), entry.room_name), []).append(entry)
-    claim_rooms = [
-        key for key, _ in _by_category(rooms) if category is None or key[0] == category
-    ]
+        rooms.setdefault(entry.room_name, []).append(entry)
 
     taken = set()
 
-    def match(name: str) -> Optional[Tuple[str, str]]:
+    def match(name: str) -> Optional[str]:
         return next(
-            (key for key in claim_rooms if key not in taken and key[1].lower() == name.lower()),
+            (room for room in rooms if room not in taken and room.lower() == name.lower()),
             None,
         )
 
     out = []
     for room_name in room_names:
         name = " ".join((room_name or "").split())
-        key = match(name)
+        room = match(name)
         repeat = _REPEAT_SUFFIX.match(name)
-        if key is None and repeat:
-            key = match(repeat.group(1))
-        if key is not None:
-            taken.add(key)
-        out.append(rooms[key] if key is not None else [])
+        if room is None and repeat:
+            room = match(repeat.group(1))
+        if room is not None:
+            taken.add(room)
+        out.append(rooms[room] if room is not None else [])
     return out
 
 

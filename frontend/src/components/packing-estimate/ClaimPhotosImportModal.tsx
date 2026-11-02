@@ -1,15 +1,12 @@
 /**
  * ClaimPhotosImportModal - load a claim's packing photos into the builder.
  * Photos picked for packing on a claim (Use for packing in the claim's
- * Photos) are filed by category (water mitigation, work completion), then by
- * room; pick the claim, then the rooms to load. The estimate's own claim
- * opens straight to its rooms. A pack-out/in estimate is for one category, so
- * only one category's rooms start ticked: the estimate's own when it is for
- * one, else the first that has rooms to load.
+ * Photos) are filed by room; pick the claim, then the rooms to load. The
+ * estimate's own claim opens straight to its rooms.
  *
  * A room's Move sorts its photos before loading: tap the photos, then pick
- * the category and another room or type a new one, or take them out of
- * packing (ClaimRoomPhotoMover). The
+ * another room or type a new one, or take them out of packing
+ * (ClaimRoomPhotoMover). The
  * change is to the claim's packing photos, so the claim page shows it too.
  * Photos moved out of a ticked room keep being loaded, in their new room.
  */
@@ -20,10 +17,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSheetModal } from '../common/ui';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import * as packingService from '../../services/packingEstimateService';
-import type { ClaimPackingPhoto, PackingPhotoCategory, PackingPhotoClaim } from '../../types/packing-estimate';
+import type { ClaimPackingPhoto, PackingPhotoClaim } from '../../types/packing-estimate';
 import {
-  AI_PHOTOS_PER_ROOM, type PackingRoomGroup, apiUrl, claimPackingPhotosKey, groupPackingCategories,
-  packingCategoryLabel, packingRoomKey,
+  AI_PHOTOS_PER_ROOM, type PackingRoomGroup, apiUrl, claimPackingPhotosKey, groupPackingRooms,
 } from './claimPhotos';
 import ClaimRoomPhotoMover from './ClaimRoomPhotoMover';
 import './packing.css';
@@ -40,13 +36,11 @@ interface ClaimPhotosImportModalProps {
   currentClaimId: string | null;
   /** Rooms already in the builder; a room of the same name starts unticked */
   existingRoomNames: string[];
-  /** The category the estimate is for, if it is for one: its rooms start ticked */
-  currentCategory?: PackingPhotoCategory;
   onLoad: (claim: PackingPhotoClaim, rooms: PackingRoomGroup[], analyze: boolean) => void;
 }
 
 const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
-  open, onClose, currentClaimId, existingRoomNames, currentCategory, onLoad,
+  open, onClose, currentClaimId, existingRoomNames, onLoad,
 }) => {
   const { sheetProps } = useSheetModal('tall');
   const queryClient = useQueryClient();
@@ -56,7 +50,7 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
   const [picked, setPicked] = useState<PackingPhotoClaim | null | undefined>(undefined);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [analyze, setAnalyze] = useState(true);
-  // The room whose photos are being moved (packingRoomKey)
+  // The room whose photos are being moved
   const [moving, setMoving] = useState<string | null>(null);
   const selectionFor = useRef<string | null>(null);
 
@@ -90,8 +84,7 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
     enabled: open && !!picked,
     staleTime: 0,
   });
-  const categories = useMemo(() => groupPackingCategories(photosQuery.data ?? []), [photosQuery.data]);
-  const rooms = useMemo(() => categories.flatMap(c => c.rooms), [categories]);
+  const rooms = useMemo(() => groupPackingRooms(photosQuery.data ?? []), [photosQuery.data]);
 
   const existing = useMemo(
     () => new Set(existingRoomNames.map(n => n.trim().toLowerCase())),
@@ -99,33 +92,22 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
   );
   const inEstimate = (name: string) => existing.has(name.trim().toLowerCase());
 
-  // Tick one category's rooms not in the estimate yet - the estimate's
-  // category when it is for one, else the first with any - once per claim
-  // each time it opens
+  // Tick the rooms not in the estimate yet, once per claim each time it opens
   useEffect(() => {
     if (!open || !picked || !photosQuery.isSuccess || selectionFor.current === picked.claim_id) return;
     selectionFor.current = picked.claim_id;
-    const fresh = (group: typeof categories[number]) => group.rooms.filter(r => !inEstimate(r.room_name));
-    const group = currentCategory
-      ? categories.find(c => c.category === currentCategory)
-      : categories.find(c => fresh(c).length > 0);
-    setSelected(new Set(group ? fresh(group).map(packingRoomKey) : []));
+    setSelected(new Set(rooms.filter(r => !inEstimate(r.room_name)).map(r => r.room_name)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, picked, photosQuery.isSuccess, categories]);
+  }, [open, picked, photosQuery.isSuccess, rooms]);
 
-  const toggleRoom = (key: string) => setSelected(prev => {
+  const toggleRoom = (name: string) => setSelected(prev => {
     const next = new Set(prev);
-    if (next.has(key)) next.delete(key); else next.add(key);
+    if (next.has(name)) next.delete(name); else next.add(name);
     return next;
   });
 
-  const chosenRooms = rooms.filter(r => selected.has(packingRoomKey(r)));
+  const chosenRooms = rooms.filter(r => selected.has(r.room_name));
   const chosenPhotos = chosenRooms.reduce((sum, r) => sum + r.photos.length, 0);
-  const chosenCategories = new Set(chosenRooms.map(r => r.category));
-  // Rooms of another category than the estimate's, or of more than one
-  const intoOtherCategory = !!currentCategory && existingRoomNames.length > 0
-    && chosenRooms.some(r => r.category !== currentCategory);
-  const mixesCategories = intoOtherCategory || chosenCategories.size > 1;
 
   const pickClaim = (claim: PackingPhotoClaim | null) => {
     selectionFor.current = null;
@@ -136,17 +118,17 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
 
   // Photos moved out of a ticked room stay ticked in their new room (taken
   // out, they are gone); a room left empty is gone
-  const handleChanged = (fromKey: string, updated: ClaimPackingPhoto[], ids: string[]) => {
+  const handleChanged = (fromRoom: string, updated: ClaimPackingPhoto[], ids: string[]) => {
     if (!picked) return;
     queryClient.setQueryData(claimPackingPhotosKey(picked.claim_id), updated);
     queryClient.invalidateQueries({ queryKey: ['packing-photo-claims'] });
     const dest = updated.find(p => p.id === ids[0]);
-    const emptied = !updated.some(p => packingRoomKey(p) === fromKey);
+    const emptied = !updated.some(p => p.room_name === fromRoom);
     setSelected(prev => {
-      if (!prev.has(fromKey)) return prev;
+      if (!prev.has(fromRoom)) return prev;
       const next = new Set(prev);
-      if (dest) next.add(packingRoomKey(dest));
-      if (emptied) next.delete(fromKey);
+      if (dest) next.add(dest.room_name);
+      if (emptied) next.delete(fromRoom);
       return next;
     });
     if (emptied) setMoving(null);
@@ -240,23 +222,18 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
           <div className="pk-folder-empty">Couldn't load this claim's packing photos.</div>
         ) : rooms.length === 0 ? (
           <div className="pk-folder-empty">This claim has no packing photos left.</div>
-        ) : categories.flatMap(group => [
-          <div key={group.category} className="pk-claim-category">
-            {group.label}
-          </div>,
-          ...group.rooms.map(room => {
-          const key = packingRoomKey(room);
-          const on = selected.has(key);
-          const isMoving = moving === key;
+        ) : rooms.map(room => {
+          const on = selected.has(room.room_name);
+          const isMoving = moving === room.room_name;
           return (
-            <div key={key} className={`pk-claim-room-block${isMoving ? ' is-moving' : ''}`}>
+            <div key={room.room_name} className={`pk-claim-room-block${isMoving ? ' is-moving' : ''}`}>
               <div className={`pk-folder-row${on ? '' : ' is-off'}`}>
                 {/* The room's name and photos are the checkbox's label */}
                 <Checkbox
                   className="pk-claim-room"
                   checked={on}
-                  onChange={() => toggleRoom(key)}
-                  aria-label={`${room.room_name}, ${group.label}`}
+                  onChange={() => toggleRoom(room.room_name)}
+                  aria-label={room.room_name}
                 >
                   <span className="pk-claim-main">
                     <span className="pk-folder-name">{room.room_name}</span>
@@ -280,7 +257,7 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
                     className="pk-claim-room-move"
                     aria-expanded={isMoving}
                     aria-label={`Move photos of ${room.room_name} to another room`}
-                    onClick={() => setMoving(isMoving ? null : key)}
+                    onClick={() => setMoving(isMoving ? null : room.room_name)}
                   >
                     Move
                   </Button>
@@ -291,26 +268,14 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
                   claimId={picked.claim_id}
                   room={room}
                   rooms={rooms}
-                  onChanged={(updated, ids) => handleChanged(key, updated, ids)}
+                  onChanged={(updated, ids) => handleChanged(room.room_name, updated, ids)}
                   onDone={() => setMoving(null)}
                 />
               )}
             </div>
           );
-          }),
-        ])}
+        })}
       </div>
-
-      {mixesCategories && (
-        <div className="pk-note pk-note--warn">
-          <ExclamationCircleOutlined aria-hidden="true" />
-          <span>
-            {intoOtherCategory
-              ? `This estimate is for ${packingCategoryLabel(currentCategory!)}. A pack-out/in estimate is usually for one category's rooms.`
-              : "These rooms are from more than one category. A pack-out/in estimate is usually for one category's rooms."}
-          </span>
-        </div>
-      )}
 
       {chosenRooms.some(r => r.photos.length > AI_PHOTOS_PER_ROOM) && (
         <div className="pk-note">
@@ -357,7 +322,7 @@ const ClaimPhotosImportModal: React.FC<ClaimPhotosImportModalProps> = ({
       destroyOnHidden
     >
       <p className="pk-folder-intro">
-        Photos picked for packing on a claim (Use for packing in the claim's Photos) load here by category, room by room.
+        Photos picked for packing on a claim (Use for packing in the claim's Photos) load here room by room.
       </p>
       {picked === undefined && !claimsQuery.isError
         ? <div className="pk-folder-empty"><Spin size="small" /></div>

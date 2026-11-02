@@ -635,14 +635,6 @@
   max-height: none;
 }
 /* A category's heading above its rooms */
-.pk-claim-category {
-  padding: 12px 4px 4px;
-  border-bottom: 1px solid var(--color-neutral-200);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 20px;
-  color: var(--color-neutral-600);
-}
 .pk-claim-room.ant-checkbox-wrapper {
   flex: 1;
   min-width: 0;
@@ -743,13 +735,6 @@
   background: var(--color-surface);
   font-size: 18px;
   color: var(--color-primary);
-}
-.pk-mover-to {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  margin-bottom: 8px;
 }
 .pk-mover-bar {
   display: flex;

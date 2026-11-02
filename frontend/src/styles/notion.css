@@ -3816,18 +3816,14 @@ a.cl-contact-line:hover {
   background: var(--color-neutral-50);
 }
 
-/* Packing estimate: the claim photos picked for it, category by category
-   (cl-group) and room by room within each (photo strip from packing.css),
-   then the claim's packing estimates */
-.cl-packing-category-head .cl-group-name {
-  font-weight: 600;
-}
-.cl-packing-category-head .ant-btn.cl-packing-category-action {
+/* Packing estimate: the claim photos picked for it, room by room (photo strip
+   from packing.css), then the claim's packing estimates */
+.cl-group-head .ant-btn.cl-packing-action {
   margin-left: auto;
 }
 .cl-packing-rooms {
   margin: 0;
-  padding: 0 0 0 12px;
+  padding: 0;
   list-style: none;
 }
 .cl-packing-room {
@@ -3879,11 +3875,11 @@ a.cl-contact-line:hover {
 .cl-packing-estimates {
   margin: 4px 0 0;
 }
-.cl-packing-category + .cl-packing-estimates {
+.cl-packing-set + .cl-packing-estimates {
   padding-top: 8px;
   border-top: 1px solid var(--color-neutral-200);
 }
-/* The Use for packing dialog: the category, then the room */
+/* The Use for packing dialog: the room */
 .cl-packing-intro {
   margin: 0 0 16px;
   color: var(--color-neutral-600);
@@ -3893,19 +3889,8 @@ a.cl-contact-line:hover {
   flex-direction: column;
   gap: 6px;
 }
-.cl-packing-field + .cl-packing-field {
-  margin-top: 20px;
-}
 .cl-packing-tags.ant-checkbox-wrapper {
   margin-bottom: 4px;
-}
-/* The two categories side by side, the full width; nothing picked to start */
-.cl-packing-category-pick.ant-radio-group {
-  display: flex;
-}
-.cl-packing-category-pick .ant-radio-button-wrapper {
-  flex: 1;
-  text-align: center;
 }
 .cl-packing-tag-list {
   display: block;

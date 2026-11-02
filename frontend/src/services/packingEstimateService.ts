@@ -13,7 +13,6 @@ import type {
   PackingPrice,
   RoomPreset,
   ClaimPackingPhoto,
-  PackingPhotoCategory,
   PackingPhotoRef,
   PackingPhotoClaim,
   PackingReportOptions,
@@ -154,35 +153,28 @@ export async function listClaimPhotos(claimId: string): Promise<ClaimPackingPhot
   return data.photos;
 }
 
-/** File claim photos under a category and rooms in it; a photo already filed moves there */
+/** File claim photos by room; a photo already filed moves there */
 export async function addClaimPhotos(
   claimId: string,
-  category: PackingPhotoCategory,
   photos: PackingPhotoRef[],
   roomName?: string,
 ): Promise<ClaimPackingPhoto[]> {
   const { data } = await api.post(`${BASE}/claims/${claimId}/photos`, {
-    category,
     room_name: roomName,
     photos,
   });
   return data.photos;
 }
 
-/**
- * Move packing photos to a room, of `category` or of the one each is in.
- * Moving all of a room's photos renames it, or moves it to the category.
- */
+/** Move packing photos to a room; moving all of a room's photos renames it */
 export async function moveClaimPhotos(
   claimId: string,
   ids: string[],
   roomName: string,
-  category?: PackingPhotoCategory,
 ): Promise<ClaimPackingPhoto[]> {
   const { data } = await api.patch(`${BASE}/claims/${claimId}/photos`, {
     ids,
     room_name: roomName,
-    category,
   });
   return data.photos;
 }

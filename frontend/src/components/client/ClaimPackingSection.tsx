@@ -1,31 +1,26 @@
 /**
  * ClaimPackingSection - the claim's packing estimate: the claim photos picked
- * for it (Use for packing in the claim's photo galleries), category by
- * category (the stage of the job: water mitigation, work completion) and room
- * by room within each, and the claim's packing estimates. A category's
- * Pack-out/in estimate opens the packing estimate builder with the job filled
- * in; it loads that category's rooms and runs the AI item analysis on them.
- * A room's Move moves some of its photos to another room, of either
- * category, or to a new one, or takes them out of packing
- * (ClaimRoomPhotoMover); ⇄ moves the whole room to the other category.
+ * for it (Use for packing in the claim's photo galleries), room by room, and
+ * the claim's packing estimates. Pack-out/in estimate opens the packing
+ * estimate builder with the job filled in; it loads the rooms and runs the AI
+ * item analysis on them. A room's Move moves some of its photos to another
+ * room or a new one, or takes them out of packing (ClaimRoomPhotoMover).
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, Image, Input, Popconfirm, Tooltip, message } from 'antd';
 import {
-  CheckOutlined, CloseOutlined, DeleteOutlined, DragOutlined, EditOutlined, PlusOutlined, SwapOutlined,
-  ThunderboltOutlined,
+  CheckOutlined, CloseOutlined, DeleteOutlined, DragOutlined, EditOutlined, PlusOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import ClaimSection from './ClaimSection';
 import * as packingService from '../../services/packingEstimateService';
 import type { Claim, Client } from '../../types/client';
-import type { ClaimPackingPhoto, PackingPhotoCategory } from '../../types/packing-estimate';
+import type { ClaimPackingPhoto } from '../../types/packing-estimate';
 import {
-  AI_PHOTOS_PER_ROOM, PACKING_CATEGORIES, apiUrl, claimPackingPhotosKey, groupPackingCategories,
-  packingCategoryLabel, packingRoomKey,
+  AI_PHOTOS_PER_ROOM, apiUrl, claimPackingPhotosKey, groupPackingRooms,
 } from '../packing-estimate/claimPhotos';
 import ClaimRoomPhotoMover from '../packing-estimate/ClaimRoomPhotoMover';
 import { PackStatusPill, formatMoney, modeLabel } from '../packing-estimate/packingUi';
@@ -67,7 +62,7 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
   const photosKey = claimPackingPhotosKey(claim.id);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
-  // The room whose photos are being moved (packingRoomKey)
+  // The room whose photos are being moved
   const [moving, setMoving] = useState<string | null>(null);
 
   const { data: photos = [], isLoading } = useQuery({
@@ -79,7 +74,7 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
     queryFn: () => packingService.listEstimates({ claim_id: claim.id }),
   });
   const estimates = estimateData?.items ?? [];
-  const categories = groupPackingCategories(photos);
+  const rooms = groupPackingRooms(photos);
 
   const saved = (updated: ClaimPackingPhoto[]) => queryClient.setQueryData(photosKey, updated);
   const failed = (fallback: string) => (err: any) =>
@@ -99,20 +94,10 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
     },
     onError: failed('Failed to rename the room'),
   });
-  const moveMutation = useMutation({
-    mutationFn: ({ ids, name, category }: { ids: string[]; name: string; category: PackingPhotoCategory }) =>
-      packingService.moveClaimPhotos(claim.id, ids, name, category),
-    onSuccess: (updated, { name, category }) => {
-      saved(updated);
-      message.success(`${name} moved to ${packingCategoryLabel(category)}`);
-    },
-    onError: failed('Failed to move the room'),
-  });
-
   // A room left with no photos is gone, and so is its Move
-  const photosChanged = (fromKey: string, updated: ClaimPackingPhoto[]) => {
+  const photosChanged = (fromRoom: string, updated: ClaimPackingPhoto[]) => {
     saved(updated);
-    if (!updated.some(p => packingRoomKey(p) === fromKey)) setMoving(null);
+    if (!updated.some(p => p.room_name === fromRoom)) setMoving(null);
   };
 
   const saveRename = (ids: string[]) => {
@@ -121,18 +106,15 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
     renameMutation.mutate({ ids, name });
   };
 
-  // A category's estimate loads that category's rooms and analyzes them; the
-  // estimate is named for the category so the claim can tell them apart
-  const startEstimate = (category?: PackingPhotoCategory) => navigate('/reconstruction-estimate/pack-calculator-new', {
+  // Pack-out/in estimate loads the rooms and analyzes them; New estimate starts empty
+  const startEstimate = (loadPhotos: boolean) => navigate('/reconstruction-estimate/pack-calculator-new', {
     state: {
       mode: 'photo_ai',
       clientId: client.id,
       claimId: claim.id,
       companyId: packingCompanyId(claim),
       projectAddress: [client.address, client.city, client.state, client.zipcode].filter(Boolean).join(', '),
-      claimPhotos: category ? claim.id : undefined,
-      claimPhotoCategory: category,
-      calculationName: category ? packingCategoryLabel(category) : undefined,
+      claimPhotos: loadPhotos ? claim.id : undefined,
       returnTo: `/clients/${client.id}`,
     },
   });
@@ -142,46 +124,42 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
       title="Packing estimate"
       count={photos.length > 0 ? photos.length : undefined}
       actions={canOpenPacking && (
-        <Button size="small" type="text" icon={<PlusOutlined />} onClick={() => startEstimate()}>
+        <Button size="small" type="text" icon={<PlusOutlined />} onClick={() => startEstimate(false)}>
           New estimate
         </Button>
       )}
     >
-      {!isLoading && categories.length === 0 && (
+      {!isLoading && rooms.length === 0 && (
         <div className="cl-empty">
-          No photos picked for packing yet. In Photos below, select the photos of the contents, choose Use for packing, then pick their category (Water mitigation or Work completion) and room.
+          No photos picked for packing yet. In Photos below, select the photos of the contents, choose Use for packing, then pick their room.
         </div>
       )}
 
-      {categories.map(group => (
-        <section key={group.category} className="cl-group cl-packing-category" aria-label={group.label}>
-          <div className="cl-group-head cl-packing-category-head">
-            <span className="cl-group-name">{group.label}</span>
+      {rooms.length > 0 && (
+        <div className="cl-group cl-packing-set">
+          <div className="cl-group-head">
             <span className="cl-meta">
-              {plural(group.rooms.length, 'room')} · {plural(group.photoCount, 'photo')}
+              {plural(rooms.length, 'room')} · {plural(photos.length, 'photo')}
             </span>
             {canOpenPacking && (
               <Button
                 size="small"
                 type="text"
                 icon={<ThunderboltOutlined />}
-                className="cl-packing-category-action"
-                onClick={() => startEstimate(group.category)}
-                aria-label={`Pack-out/in estimate for ${group.label}`}
+                className="cl-packing-action"
+                onClick={() => startEstimate(true)}
               >
                 Pack-out/in estimate
               </Button>
             )}
           </div>
           <ul className="cl-packing-rooms">
-            {group.rooms.map(room => {
+            {rooms.map(room => {
               const ids = room.photos.map(p => p.id);
-              const key = packingRoomKey(room);
-              const isRenaming = renaming === key;
-              const isMoving = moving === key;
-              const others = PACKING_CATEGORIES.filter(c => c.value !== room.category);
+              const isRenaming = renaming === room.room_name;
+              const isMoving = moving === room.room_name;
               return (
-                <li key={key} className="cl-packing-room">
+                <li key={room.room_name} className="cl-packing-room">
                   <div className="cl-packing-room-head">
                     {isRenaming ? (
                       <Input
@@ -228,25 +206,17 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
                             className={`cl-packing-move${isMoving ? ' is-on' : ''}`}
                             aria-expanded={isMoving}
                             aria-label={`Move photos of ${room.room_name} to another room`}
-                            onClick={() => setMoving(isMoving ? null : key)}
+                            onClick={() => setMoving(isMoving ? null : room.room_name)}
                           >
                             Move
                           </Button>
-                          {others.map(other => (
-                            <Tooltip key={other.value} title={`Move to ${other.label}`}>
-                              <Button type="text" size="small" className="ui-icon-btn cl-touch-icon"
-                                aria-label={`Move ${room.room_name} to ${other.label}`} icon={<SwapOutlined />}
-                                loading={moveMutation.isPending && moveMutation.variables?.ids[0] === ids[0]}
-                                onClick={() => moveMutation.mutate({ ids, name: room.room_name, category: other.value })} />
-                            </Tooltip>
-                          ))}
                           <Tooltip title="Rename room">
                             <Button type="text" size="small" className="ui-icon-btn cl-touch-icon"
                               aria-label={`Rename ${room.room_name}`} icon={<EditOutlined />}
-                              onClick={() => { setRenaming(key); setDraftName(room.room_name); setMoving(null); }} />
+                              onClick={() => { setRenaming(room.room_name); setDraftName(room.room_name); setMoving(null); }} />
                           </Tooltip>
                           <Popconfirm
-                            title={`Take ${room.room_name} (${group.label}) out of packing?`}
+                            title={`Take ${room.room_name} out of packing?`}
                             description="Its photos stay in the claim's photos."
                             onConfirm={() => removeMutation.mutate(ids)}
                             okText="Take out"
@@ -263,8 +233,8 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
                     <ClaimRoomPhotoMover
                       claimId={claim.id}
                       room={room}
-                      rooms={categories.flatMap(c => c.rooms)}
-                      onChanged={updated => photosChanged(key, updated)}
+                      rooms={rooms}
+                      onChanged={updated => photosChanged(room.room_name, updated)}
                       onDone={() => setMoving(null)}
                     />
                   ) : (
@@ -296,8 +266,8 @@ const ClaimPackingSection: React.FC<ClaimPackingSectionProps> = ({ claim, client
               );
             })}
           </ul>
-        </section>
-      ))}
+        </div>
+      )}
 
       {estimates.length > 0 && (
         <ul className="cl-jobs cl-packing-estimates" aria-label="Packing estimates">

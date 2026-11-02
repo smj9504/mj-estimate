@@ -298,12 +298,10 @@ class PackItem(Base, BaseModel):
 
 class PackingPhoto(Base, BaseModel):
     """
-    A claim photo picked for the claim's packing estimate, filed under a
-    category (the stage of the job it is for: 'water_mitigation',
-    'work_completion') and a room within it. Points at the photo where it
-    already lives, so nothing is copied: source 'wm' is a water mitigation
-    job photo (wm_photos.id), 'claim' a claim photo (files.id). A photo is in
-    one room of a claim at a time.
+    A claim photo picked for the claim's packing estimate, filed by room.
+    Points at the photo where it already lives, so nothing is copied: source
+    'wm' is a water mitigation job photo (wm_photos.id), 'claim' a claim photo
+    (files.id). A photo is in one room of a claim at a time.
     """
     __tablename__ = "packing_photos"
     __table_args__ = (
@@ -315,9 +313,6 @@ class PackingPhoto(Base, BaseModel):
     claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="CASCADE"), nullable=False)
     source = Column(String(20), nullable=False)  # 'wm' | 'claim'
     photo_id = Column(String(64), nullable=False)
-    category = Column(
-        String(30), nullable=False, default='water_mitigation', server_default='water_mitigation',
-    )
     room_name = Column(String(100), nullable=False)
     sort_order = Column(Integer, default=0, nullable=False)
 

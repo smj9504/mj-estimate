@@ -30,8 +30,6 @@ from app.domains.water_mitigation.models import WaterMitigationJob, WMPhoto  # n
 from app.main import app  # noqa: E402
 
 ADMIN_ID = '00000000-0000-0000-0000-0000000000ad'
-WM = 'water_mitigation'
-DONE = 'work_completion'
 BASE = '/api/packing-estimate'
 
 
@@ -104,8 +102,7 @@ def _jpeg(path: Path, color=(200, 120, 40), size=(1600, 1200)) -> str:
 
 def _seed(database, tmp_path):
     """A moving company, and a client's claim with a WM job whose photos are
-    filed for packing: two of the kitchen and one of the den under water
-    mitigation, and one of the kitchen under work completion"""
+    filed for packing: two of the kitchen and one of the den"""
     s = database.get_session()
     company = Company(name='Pack & Move Co', address='9 Depot Rd', city='Fairfax',
                       state='VA', zipcode='22030', phone='555-0100', email='office@pack.test')
@@ -130,23 +127,19 @@ def _seed(database, tmp_path):
     kitchen_1 = photo('kitchen1.jpg', (200, 40, 40))
     kitchen_2 = photo('kitchen2.jpg', (40, 200, 40))
     den = photo('den.jpg', (40, 40, 200))
-    kitchen_done = photo('kitchen_done.jpg', (90, 90, 90))
     s.commit()
     ids = SimpleNamespace(company=str(company.id), client=str(client.id), claim=str(claim.id))
     s.close()
-    return ids, (kitchen_1, kitchen_2, den, kitchen_done)
+    return ids, (kitchen_1, kitchen_2, den)
 
 
 def _file_photos(api, ids, photos):
-    kitchen_1, kitchen_2, den, kitchen_done = photos
+    kitchen_1, kitchen_2, den = photos
     url = f"{BASE}/claims/{ids.claim}/photos"
-    assert api.post(url, json={'category': WM, 'photos': [
+    assert api.post(url, json={'photos': [
         {'source': 'wm', 'photo_id': kitchen_1, 'room_name': 'Kitchen'},
         {'source': 'wm', 'photo_id': kitchen_2, 'room_name': 'Kitchen'},
         {'source': 'wm', 'photo_id': den, 'room_name': 'Den'},
-    ]}).status_code == 200
-    assert api.post(url, json={'category': DONE, 'photos': [
-        {'source': 'wm', 'photo_id': kitchen_done, 'room_name': 'Kitchen'},
     ]}).status_code == 200
 
 
@@ -154,7 +147,7 @@ def _item(name, category='Furniture', **extra):
     return {'name': name, 'category': category, 'quantity': 1, 'size': 'medium', 'weight': 'medium', **extra}
 
 
-def _photo_estimate(api, ids, name='Water mitigation', rooms=None):
+def _photo_estimate(api, ids, name='Pack-out', rooms=None):
     rooms = rooms or [
         {'room_name': 'Kitchen', 'items': [
             _item('Dining table & 4 chairs'),
@@ -226,7 +219,6 @@ def test_the_report_offers_each_rooms_items_and_photos(env):
     calc_id = _photo_estimate(api, ids)
 
     options = api.get(f"{BASE}/{calc_id}/report").json()
-    # Named for water mitigation: its Kitchen, not the work completion one
     assert options == {
         'has_claim': True,
         'rooms': [
@@ -287,23 +279,25 @@ def test_a_report_can_show_the_estimate_total(env):
     assert f"Estimate total: ${total:,.2f}" in text
 
 
-def test_photos_come_from_the_category_the_estimate_is_for(env):
+def test_a_room_gets_the_photos_of_the_claims_room_of_its_name(env):
     api, database, tmp_path = env
     ids, photos = _seed(database, tmp_path)
     _file_photos(api, ids, photos)
-    kitchen = [{'room_name': 'Kitchen', 'items': [_item('Table')]}]
 
-    done = _photo_estimate(api, ids, name='Work completion', rooms=kitchen)
-    rooms = api.get(f"{BASE}/{done}/report").json()['rooms']
-    assert rooms == [{'room_name': 'Kitchen', 'item_count': 1, 'photo_count': 1}]
+    # Loaded into a builder that had a Kitchen, the claim's comes in as "Kitchen (2)"
+    repeat = _photo_estimate(api, ids, rooms=[{'room_name': 'kitchen (2)', 'items': [_item('Chair')]}])
+    assert api.get(f"{BASE}/{repeat}/report").json()['rooms'] == [
+        {'room_name': 'kitchen (2)', 'item_count': 1, 'photo_count': 2},
+    ]
 
-    # Not named for one: a second Kitchen loaded as "Kitchen (2)" gets the next one
-    both = _photo_estimate(api, ids, name='Pack-out', rooms=kitchen + [
-        {'room_name': 'kitchen (2)', 'items': [_item('Chair')]},
+    # The claim has one Kitchen: only the first room of the name gets it
+    both = _photo_estimate(api, ids, rooms=[
+        {'room_name': 'Kitchen', 'items': [_item('Table')]},
+        {'room_name': 'Kitchen (2)', 'items': [_item('Chair')]},
         {'room_name': 'Garage', 'items': [_item('Bike')]},
     ])
     rooms = api.get(f"{BASE}/{both}/report").json()['rooms']
-    assert [r['photo_count'] for r in rooms] == [2, 1, 0]
+    assert [r['photo_count'] for r in rooms] == [2, 0, 0]
 
     # A room without photos still lists its items, and isn't in a photo report
     text = _text(_pdf(api.post(f"{BASE}/{both}/export/report", json={'contents_list': False, 'photos': True})))

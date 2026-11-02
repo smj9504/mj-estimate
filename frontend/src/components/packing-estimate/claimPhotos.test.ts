@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ClaimPackingPhoto, PackingPhotoCategory } from '../../types/packing-estimate';
+import type { ClaimPackingPhoto } from '../../types/packing-estimate';
 
 // The grouping is pure; keep the API client (it reads window) and the
 // builder's import dialog out of the node test
@@ -8,56 +8,26 @@ vi.mock('../../services/packingEstimateService', () => ({}));
 vi.mock('./FolderImportModal', () => ({ defaultPhotoRoom: vi.fn(), resolveNameCollisions: vi.fn() }));
 
 // eslint-disable-next-line import/first
-import {
-  groupPackingCategories, groupPackingRooms, packingCategoryLabel, packingRoomKey, roomNameOptions,
-} from './claimPhotos';
+import { groupPackingRooms, roomNameOptions } from './claimPhotos';
 
 let next = 0;
-const photo = (category: PackingPhotoCategory, room_name: string): ClaimPackingPhoto => {
+const photo = (room_name: string): ClaimPackingPhoto => {
   next += 1;
   return {
     id: `entry-${next}`,
-    source: category === 'water_mitigation' ? 'wm' : 'claim',
+    source: 'wm',
     photo_id: `photo-${next}`,
-    category,
     room_name,
     thumbnail_url: `/thumb/${next}`,
     preview_url: `/preview/${next}`,
   };
 };
 
-describe('claim packing photos by category, then room', () => {
-  it('keeps a room name of two categories as two rooms', () => {
-    const photos = [
-      photo('water_mitigation', 'Kitchen'),
-      photo('water_mitigation', 'Kitchen'),
-      photo('water_mitigation', 'Den'),
-      photo('work_completion', 'Kitchen'),
-    ];
-    const rooms = groupPackingRooms(photos);
-    expect(rooms.map(r => [r.category, r.room_name, r.photos.length])).toEqual([
-      ['water_mitigation', 'Kitchen', 2],
-      ['water_mitigation', 'Den', 1],
-      ['work_completion', 'Kitchen', 1],
-    ]);
-    expect(new Set(rooms.map(packingRoomKey)).size).toBe(3);
-  });
-
-  it('lists the categories that have photos, in their order, with counts', () => {
-    const photos = [
-      photo('work_completion', 'Kitchen'),
-      photo('work_completion', 'Den'),
-      photo('water_mitigation', 'Bedroom'),
-    ];
-    expect(groupPackingCategories(photos).map(g => ({
-      category: g.category, label: g.label, rooms: g.rooms.map(r => r.room_name), photoCount: g.photoCount,
-    }))).toEqual([
-      { category: 'water_mitigation', label: 'Water mitigation', rooms: ['Bedroom'], photoCount: 1 },
-      { category: 'work_completion', label: 'Work completion', rooms: ['Kitchen', 'Den'], photoCount: 2 },
-    ]);
-    expect(groupPackingCategories([photo('work_completion', 'Den')]).map(g => g.category))
-      .toEqual(['work_completion']);
-    expect(groupPackingCategories([])).toEqual([]);
+describe('claim packing photos by room', () => {
+  it('groups the photos of a room, in the order the rooms come', () => {
+    const rooms = groupPackingRooms([photo('Kitchen'), photo('Den'), photo('Kitchen')]);
+    expect(rooms.map(r => [r.room_name, r.photos.length])).toEqual([['Kitchen', 2], ['Den', 1]]);
+    expect(groupPackingRooms([])).toEqual([]);
   });
 
   it('offers each room name once, not the room itself, matching what is typed', () => {
@@ -65,10 +35,5 @@ describe('claim packing photos by category, then room', () => {
     expect(roomNameOptions(names, '', 'den').map(o => o.value)).toEqual(['Basement', 'Kitchen', 'Living Room']);
     expect(roomNameOptions(names, ' KIT').map(o => o.value)).toEqual(['Kitchen']);
     expect(roomNameOptions(names, 'Storage')).toEqual([]);
-  });
-
-  it('names the categories', () => {
-    expect(packingCategoryLabel('water_mitigation')).toBe('Water mitigation');
-    expect(packingCategoryLabel('work_completion')).toBe('Work completion');
   });
 });
