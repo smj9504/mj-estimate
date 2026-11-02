@@ -188,6 +188,7 @@ export const useFileGallery = ({
             updatedAt: photo.updated_at,
             // Preserve source info for UI display
             uploadedBy: photo.source === 'magicplan' ? 'MagicPlan' : photo.source === 'companycam' ? 'CompanyCam' : undefined,
+            externalId: photo.external_id ?? undefined,
             locationLevel: photo.location_level,
             locationRoom: photo.location_room,
             similarGroup: photo.similar_group ?? undefined,

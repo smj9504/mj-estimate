@@ -26,6 +26,8 @@ export interface FileItem {
   // Water-mitigation-specific location tag (undefined for other contexts)
   locationLevel?: string;
   locationRoom?: string;
+  // Water-mitigation: its id where it came from (CompanyCam, MagicPlan)
+  externalId?: string;
   // Water-mitigation "Similar" sort: photos sharing a group look alike
   similarGroup?: number;
   similarGroupSize?: number;

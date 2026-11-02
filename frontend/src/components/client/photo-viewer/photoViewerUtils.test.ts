@@ -115,6 +115,40 @@ describe('mergePhotoSets', () => {
     mergePhotoSets([set, []]);
     expect(set.map(p => p.id)).toEqual(['old', 'new']);
   });
+
+  it('shows a photo or video imported into two sets once, as the first set\'s copy', () => {
+    const merged = mergePhotoSets([
+      [photo({ id: 'wm-photo', externalId: '555' }), photo({ id: 'wm-video', externalId: 'companycam_video_7' })],
+      [
+        photo({ id: 'claim-photo', originalName: 'companycam_555.jpg' }),
+        photo({ id: 'claim-video', originalName: 'companycam_video_7.mp4' }),
+        photo({ id: 'claim-only', originalName: 'companycam_556.jpg' }),
+      ],
+    ]);
+    expect(merged.map(p => p.id).sort()).toEqual(['claim-only', 'wm-photo', 'wm-video']);
+  });
+
+  it('keeps photos that only look alike by name or number', () => {
+    const merged = mergePhotoSets([
+      [photo({ id: 'wm', originalName: 'IMG_1.jpg' }), photo({ id: 'wm-photo', externalId: '7' })],
+      [
+        // Uploaded by hand under the same name
+        photo({ id: 'claim', originalName: 'IMG_1.jpg' }),
+        // A video and a photo can share a number in CompanyCam
+        photo({ id: 'claim-video', originalName: 'companycam_video_7.mp4' }),
+        photo({ id: 'magicplan', externalId: 'magicplan_7' }),
+      ],
+    ]);
+    expect(merged).toHaveLength(5);
+  });
+
+  it('counts each category once a copy is gone', () => {
+    const merged = mergePhotoSets([
+      [photo({ id: 'wm', externalId: '555', category: 'wet-area' })],
+      [photo({ id: 'claim', originalName: 'companycam_555.jpg', category: 'general' })],
+    ]);
+    expect(countCategories(merged, [])).toEqual([{ key: 'wet-area', count: 1 }]);
+  });
 });
 
 describe('clampView', () => {

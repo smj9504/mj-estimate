@@ -20,9 +20,32 @@ const photoTime = (file: FileItem): number => {
   return Number.isNaN(time) ? 0 : time;
 };
 
-/** Several sets as one list, newest first; a single set keeps its own order */
-export const mergePhotoSets = (sets: FileItem[][]): FileItem[] =>
-  (sets.length === 1 ? sets[0] : sets.flat().sort((a, b) => photoTime(b) - photoTime(a)));
+// A claim's own photos keep their CompanyCam id in the name the import gives them
+// (backend: client/claim_companycam.py), a water mitigation job's in externalId
+const IMPORTED_NAME = /^companycam_(\d+)\.jpg$|^(companycam_video_\d+)\.\w+$/;
+
+const sourcePhotoId = (file: FileItem): string | undefined => {
+  if (file.externalId) return file.externalId;
+  const imported = IMPORTED_NAME.exec(file.originalName);
+  return imported ? imported[1] || imported[2] : undefined;
+};
+
+/** Several sets as one list, newest first; a single set keeps its own order. Each
+ *  set stores its own copy, so a photo imported into two shows once, as the first
+ *  set's copy: the job's, which has the category and location someone gave it. */
+export const mergePhotoSets = (sets: FileItem[][]): FileItem[] => {
+  if (sets.length === 1) return sets[0];
+  const seen = new Set<string>();
+  return sets.flat()
+    .filter((file) => {
+      const id = sourcePhotoId(file);
+      if (!id) return true;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    })
+    .sort((a, b) => photoTime(b) - photoTime(a));
+};
 
 export interface CategoryCount {
   key: string;
