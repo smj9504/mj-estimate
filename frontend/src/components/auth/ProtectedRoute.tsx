@@ -40,8 +40,9 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   }
 
   if (!hasPermission(requiredRole) || !canAccessPath(location.pathname)) {
-    // User doesn't have required permissions
-    return <Navigate to="/unauthorized" replace />;
+    // Straight from signing in (an old link, the last person's page), their own
+    // first screen rather than a refusal
+    return <Navigate to={location.state?.signedIn ? '/' : '/unauthorized'} replace />;
   }
 
   return <>{children}</>;

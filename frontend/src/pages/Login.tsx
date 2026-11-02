@@ -11,7 +11,8 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const from = location.state?.from?.pathname || '/todos';
+  // The page they were on their way to; "/" opens their own first screen
+  const from = location.state?.from?.pathname || '/';
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
@@ -29,7 +30,7 @@ const Login: React.FC = () => {
           return;
         }
       }
-      navigate(from, { replace: true });
+      navigate(from, { replace: true, state: { signedIn: true } });
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Login failed.');
     } finally {
