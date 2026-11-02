@@ -240,7 +240,7 @@ def suggest_followup_template(session, job) -> Optional[Dict[str, Any]]:
     from app.domains.claim_followup.reply_tracker import _extract_reply_body
     from app.domains.client.models import Claim
     from app.domains.email_ingestion.models import ReceivedEmail
-    from app.domains.email_ingestion.service import _html_to_text
+    from app.domains.email_ingestion.service import _html_to_text, _one_copy_per_message
 
     claim_adjuster_email = None
     if job.claim_id:
@@ -254,7 +254,7 @@ def suggest_followup_template(session, job) -> Optional[Dict[str, Any]]:
     query = session.query(ReceivedEmail).filter(_job_mail_filter(job))
     if job.documents_sent_date:
         query = query.filter(ReceivedEmail.received_at >= job.documents_sent_date)
-    rows = query.order_by(ReceivedEmail.received_at.desc().nullslast()).limit(20).all()
+    rows = _one_copy_per_message(query).order_by(ReceivedEmail.received_at.desc().nullslast()).limit(20).all()
 
     for row in rows:
         if extract_sender_email(row.sender or "") not in addresses:
@@ -311,15 +311,18 @@ class AdjusterInboxService:
         """Stored inbound mail for the job (see _job_mail_filter), newest
         first, bodies left out."""
         from app.domains.email_ingestion.models import EmailAccount, ReceivedEmail
-        from app.domains.email_ingestion.service import _received_email_dict
+        from app.domains.email_ingestion.service import _one_copy_per_message, _received_email_dict
 
         session = self.database.get_readonly_session()
         try:
             job, addresses = self._load_job(session, job_id)
-            rows = (
+            query = (
                 session.query(ReceivedEmail, EmailAccount.email_address)
                 .join(EmailAccount, EmailAccount.id == ReceivedEmail.email_account_id)
                 .filter(_job_mail_filter(job))
+            )
+            rows = (
+                _one_copy_per_message(query)
                 .order_by(ReceivedEmail.received_at.desc().nullslast())
                 .limit(limit)
                 .all()

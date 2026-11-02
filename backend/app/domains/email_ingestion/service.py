@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from cryptography.fernet import Fernet
 
 from app.core.config import settings
+from app.domains.email_ingestion.email_client import _html_to_text, readable_plain_text
 from app.domains.email_ingestion.schemas import ESTIMATE_DOCUMENT_TYPE
 
 logger = logging.getLogger(__name__)
@@ -137,20 +138,6 @@ _CERTAIN_MATCH_METHODS = {"reply_thread", "claim_number"}
 _MAX_BODY_CHARS = 200_000
 
 
-def _html_to_text(html: Optional[str]) -> str:
-    """Rough plain text from an HTML-only body, for matching and snippets."""
-    if not html:
-        return ""
-    import html as html_lib
-
-    text = re.sub(r"(?is)<(script|style|head)\b.*?</\1>", " ", html)
-    text = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</tr>", "\n", text)
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = html_lib.unescape(text)
-    text = re.sub(r"[ \t\r\f\v]+", " ", text)
-    return re.sub(r"\n\s*\n+", "\n\n", text).strip()
-
-
 def _snippet(text: str, length: int = 280) -> Optional[str]:
     collapsed = " ".join((text or "").split())
     return collapsed[:length] or None
@@ -164,6 +151,9 @@ def _cap(value: Optional[str], max_chars: int) -> Optional[str]:
 
 
 def _received_email_dict(row, include_body: bool) -> Dict[str, Any]:
+    # Mail stored before the plain part was checked at fetch still holds the
+    # botched text, so it is read past here rather than rewritten
+    body_text = readable_plain_text(row.body_text, row.body_html)
     data = {
         "id": str(row.id),
         "email_account_id": str(row.email_account_id),
@@ -174,7 +164,7 @@ def _received_email_dict(row, include_body: bool) -> Dict[str, Any]:
         "to_addresses": row.to_addresses,
         "cc_addresses": row.cc_addresses,
         "received_at": row.received_at,
-        "snippet": row.snippet,
+        "snippet": row.snippet if body_text == row.body_text else _snippet(body_text),
         "attachment_names": row.attachment_names or [],
         "matched_client_id": str(row.matched_client_id) if row.matched_client_id else None,
         "matched_claim_id": str(row.matched_claim_id) if row.matched_claim_id else None,
@@ -184,9 +174,32 @@ def _received_email_dict(row, include_body: bool) -> Dict[str, Any]:
         "created_at": row.created_at,
     }
     if include_body:
-        data["body_text"] = row.body_text
+        data["body_text"] = body_text
         data["body_html"] = row.body_html
     return data
+
+
+def _one_copy_per_message(query):
+    """A message delivered to several connected inboxes is stored once for each;
+    a list shows it once. The copy on a claim wins over one that isn't."""
+    from sqlalchemy import case, func, select
+
+    from app.domains.email_ingestion.models import ReceivedEmail
+
+    copies = query.with_entities(
+        ReceivedEmail.id.label("id"),
+        func.row_number().over(
+            partition_by=ReceivedEmail.message_id,
+            order_by=(
+                case((ReceivedEmail.matched_claim_id.is_(None), 1), else_=0),
+                ReceivedEmail.created_at,
+                ReceivedEmail.id,
+            ),
+        ).label("copy_number"),
+    ).subquery()
+    return query.filter(
+        ReceivedEmail.id.in_(select(copies.c.id).where(copies.c.copy_number == 1))
+    )
 
 
 def _get_fernet() -> Fernet:
@@ -955,8 +968,6 @@ class EmailIngestionService:
                 query = query.filter(ReceivedEmail.matched_claim_id == claim_id)
             if account_id:
                 query = query.filter(ReceivedEmail.email_account_id == account_id)
-            if unmatched:
-                query = query.filter(ReceivedEmail.matched_claim_id.is_(None))
             if search and search.strip():
                 like = f"%{search.strip()}%"
                 query = query.filter(or_(
@@ -964,6 +975,10 @@ class EmailIngestionService:
                     ReceivedEmail.sender.ilike(like),
                     ReceivedEmail.snippet.ilike(like),
                 ))
+            query = _one_copy_per_message(query)
+            # After picking the copy: a message is unlinked only if no copy is on a claim
+            if unmatched:
+                query = query.filter(ReceivedEmail.matched_claim_id.is_(None))
 
             total = query.count()
             rows = query.order_by(
@@ -1018,22 +1033,24 @@ class EmailIngestionService:
             row = session.query(ReceivedEmail).filter(ReceivedEmail.id == email_id).first()
             if not row:
                 raise ValueError(f"Received email {email_id} not found")
-            # A person's call overrides the automatic WM job match; mail on a
-            # claim still shows on that claim's job
-            row.matched_wm_job_id = None
+            claim = None
             if claim_id:
                 claim = session.query(Claim).filter(Claim.id == claim_id).first()
                 if not claim:
                     raise ValueError(f"Claim {claim_id} not found")
-                row.matched_claim_id = claim.id
-                row.matched_client_id = claim.client_id
-                row.match_method = "manual"
-                row.match_confidence = 100
-            else:
-                row.matched_claim_id = None
-                row.matched_client_id = None
-                row.match_method = None
-                row.match_confidence = None
+            # Every inbox's copy: lists show one, and another copy would take
+            # the place of one just unlinked
+            copies = session.query(ReceivedEmail).filter(
+                ReceivedEmail.message_id == row.message_id
+            ).all()
+            for copy in copies:
+                # A person's call overrides the automatic WM job match; mail on a
+                # claim still shows on that claim's job
+                copy.matched_wm_job_id = None
+                copy.matched_claim_id = claim.id if claim else None
+                copy.matched_client_id = claim.client_id if claim else None
+                copy.match_method = "manual" if claim else None
+                copy.match_confidence = 100 if claim else None
             session.commit()
             return _received_email_dict(row, include_body=False)
         except Exception:

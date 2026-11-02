@@ -4,9 +4,11 @@ Supports Gmail, Outlook, Yahoo, and custom IMAP servers.
 """
 
 import email
+import email.message
 import hashlib
 import imaplib
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from email.header import decode_header
@@ -14,6 +16,19 @@ from email.utils import parsedate_to_datetime
 from typing import Iterator, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+# What a mailer leaves in a plain part it built badly from its HTML: entities
+# and pieces of tags. Angle brackets alone aren't it - plain mail quotes
+# <name@host> and <https://...>.
+_HTML_LEFTOVERS = re.compile(
+    r"&(?:[a-z]+|#\d+|#x[0-9a-f]+);"
+    r"|\b(?:style|class|href|src)\s*=\s*[\"']"
+    r"|</?(?:a|b|i|p|br|hr|div|span|table|tr|td|img|font)(?:\s[^<>]*)?/?>",
+    re.IGNORECASE,
+)
+
+# Characters senders pad a hidden preview line with
+_INVISIBLE_CHARS = re.compile("[\u00ad\u034f\u200b-\u200d\u2060\ufeff]")
 
 
 @dataclass
@@ -68,6 +83,47 @@ def _decode_header_value(value: str) -> str:
     return " ".join(result)
 
 
+def _html_to_text(html: Optional[str]) -> str:
+    """Rough plain text from an HTML body, for matching and snippets."""
+    if not html:
+        return ""
+    import html as html_lib
+
+    # Comments first: Outlook-only copies of the content sit inside them
+    text = re.sub(r"(?s)<!--.*?-->", " ", html)
+    text = re.sub(r"(?is)<(script|style|head)\b.*?</\1>", " ", text)
+    # Preview lines and mobile-only copies. Stopping at the first closing tag
+    # can leave hidden words in when these nest, but keeps visible ones
+    text = re.sub(r"(?is)<(div|span|td)\b[^>]*\bdisplay\s*:\s*none[^>]*>.*?</\1>", " ", text)
+    # Mailer codes in print too small to read. Only an element holding nothing
+    # but text: layouts also set font-size:0 on wrappers around real content
+    text = re.sub(
+        r"(?is)<(div|span|td|p)\b[^>]*\bfont-size\s*:\s*(?:0(?![.\d])|[0-8](?:\.\d+)?px)[^>]*>[^<]*</\1>",
+        " ",
+        text,
+    )
+    # Line wraps in the source aren't line breaks; only the tags below are
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"(?i)<br\s*/?>|</(?:p|div|tr|li|h[1-6])>", "\n", text)
+    # Inline tags don't separate words: Allstate<span></span>.com
+    text = re.sub(r"(?i)</?(?:a|b|i|u|em|font|span|strong)\b[^>]*>", "", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html_lib.unescape(text)
+    text = _INVISIBLE_CHARS.sub("", text).replace("\xa0", " ")
+    text = re.sub(r"[ \t\r\f\v]+", " ", text)
+    text = re.sub(r" ?\n ?", "\n", text)
+    return re.sub(r"\n\s*\n+", "\n\n", text).strip()
+
+
+def readable_plain_text(text_body: Optional[str], html_body: Optional[str]) -> Optional[str]:
+    """The plain part, or the HTML part's words if the mailer botched the plain
+    one. Allstate's auto-reply carries `&nbsp;` and `" style="color: ...` as its
+    plain part, with the actual message only in the HTML."""
+    if text_body and html_body and _HTML_LEFTOVERS.search(text_body):
+        return _html_to_text(html_body) or text_body
+    return text_body
+
+
 def _extract_body(msg: email.message.Message) -> Tuple[str, str]:
     """Extract plain text and HTML body from email message"""
     text_body = ""
@@ -108,7 +164,7 @@ def _extract_body(msg: email.message.Message) -> Tuple[str, str]:
         except Exception:
             pass
 
-    return text_body, html_body
+    return readable_plain_text(text_body, html_body), html_body
 
 
 def _extract_attachments(msg: email.message.Message, max_size_mb: int = 50) -> List[EmailAttachment]:

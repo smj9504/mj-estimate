@@ -228,6 +228,111 @@ def test_job_lists_its_own_and_its_claims_mail(env):
     assert result['items'][0]['account_email'] == 'office@ourco.com'
 
 
+# ---- mail delivered to more than one connected inbox ----
+
+@pytest.fixture
+def inboxes(env):
+    session = env['session']
+    second = EmailAccount(
+        display_name='Second', email_address='second@ourco.com', username='second@ourco.com',
+        encrypted_password='x', imap_server='imap.gmail.com', imap_port=993,
+    )
+    session.add(second)
+    session.commit()
+    return env['account'], second
+
+
+def add_copy(env, account, message_id='<same>', **fields):
+    row = ReceivedEmail(
+        email_account_id=account.id, message_id=message_id, sender='Pat <pat@carrier.com>',
+        received_at=datetime(2026, 10, 23, tzinfo=timezone.utc), **fields,
+    )
+    env['session'].add(row)
+    env['session'].commit()
+    return row
+
+
+def message_ids(listing):
+    return sorted(i['message_id'] for i in listing['items'])
+
+
+def test_job_lists_mail_in_two_inboxes_once(env, inboxes):
+    claim = env['add_claim']()
+    job = env['add_job'](claim_id=claim.id)
+    first, second = inboxes
+    add_copy(env, first, matched_claim_id=claim.id)
+    add_copy(env, second, matched_claim_id=claim.id)
+    # Sent in the same second but its own message, so it keeps its own line
+    add_copy(env, first, message_id='<other>', matched_claim_id=claim.id)
+
+    result = AdjusterInboxService(env['database']).list_job_emails(str(job.id))
+
+    assert message_ids(result) == ['<other>', '<same>']
+
+
+def test_inbox_counts_a_message_once(env, inboxes):
+    first, second = inboxes
+    add_copy(env, first)
+    add_copy(env, second)
+
+    listing = EmailIngestionService(env['database']).get_received_emails()
+
+    assert listing['total'] == 1
+    assert message_ids(listing) == ['<same>']
+
+
+def test_each_inbox_still_lists_its_own_copy(env, inboxes):
+    first, second = inboxes
+    first_copy = add_copy(env, first)
+    second_copy = add_copy(env, second)
+    service = EmailIngestionService(env['database'])
+
+    for account, copy in ((first, first_copy), (second, second_copy)):
+        items = service.get_received_emails(account_id=str(account.id))['items']
+        assert [i['id'] for i in items] == [str(copy.id)]
+
+
+def test_copy_on_a_claim_is_the_one_listed(env, inboxes):
+    claim = env['add_claim']()
+    first, second = inboxes
+    add_copy(env, first)
+    filed = add_copy(env, second, matched_claim_id=claim.id)
+    service = EmailIngestionService(env['database'])
+
+    assert [i['id'] for i in service.get_received_emails()['items']] == [str(filed.id)]
+    assert [i['id'] for i in service.get_received_emails(claim_id=str(claim.id))['items']] == [str(filed.id)]
+    assert service.get_received_emails(unmatched=True)['items'] == []
+
+
+def test_unlinking_one_copy_takes_the_message_off_the_claim(env, inboxes):
+    claim = env['add_claim']()
+    first, second = inboxes
+    shown = add_copy(env, first, matched_claim_id=claim.id, match_method='claim_number')
+    add_copy(env, second, matched_claim_id=claim.id, match_method='claim_number')
+    service = EmailIngestionService(env['database'])
+
+    service.assign_received_email(str(shown.id), None)
+
+    assert service.get_received_emails(claim_id=str(claim.id))['items'] == []
+    assert message_ids(service.get_received_emails(unmatched=True)) == ['<same>']
+
+
+def test_linking_one_copy_links_the_message(env, inboxes):
+    claim = env['add_claim']()
+    first, second = inboxes
+    shown = add_copy(env, first)
+    add_copy(env, second)
+    add_copy(env, first, message_id='<other>')
+    service = EmailIngestionService(env['database'])
+
+    item = service.assign_received_email(str(shown.id), str(claim.id))
+
+    assert item['matched_claim_id'] == str(claim.id)
+    assert [r.matched_claim_id for r in stored(env) if r.message_id == '<same>'] == [claim.id, claim.id]
+    assert [r.match_method for r in stored(env) if r.message_id == '<same>'] == ['manual', 'manual']
+    assert message_ids(service.get_received_emails(unmatched=True)) == ['<other>']
+
+
 def test_check_searches_for_the_adjuster_and_claim_number(env, monkeypatch):
     job = env['add_job'](claim_number='CLM-12345', adjuster_email='pat@carrier.com')
     searches = []
