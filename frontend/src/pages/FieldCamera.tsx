@@ -235,7 +235,7 @@ const FieldCamera: React.FC = () => {
 
   const nextRoom = () => {
     askForMotionAccess();
-    // Nothing shot here yet, so this room is still the next one: let them name it
+    // Nothing shot here yet, so this room is still the next one: show where they are instead
     if (roomShots.length === 0 && camera.seconds < 3) setSheet('room');
     else startRoom();
   };
@@ -630,8 +630,8 @@ const FieldCamera: React.FC = () => {
           shots={shots}
           floorGuess={floorGuess}
           onFloor={setFloor}
-          onName={(name, roomType) => {
-            updateRoom(visitId, room.id, { name, nameSource: 'user', roomType });
+          onName={(name) => {
+            updateRoom(visitId, room.id, { name, nameSource: 'user' });
             setSheet(null);
           }}
           onSwitch={(next) => {

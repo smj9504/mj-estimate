@@ -16,7 +16,7 @@ import {
   ReloadOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
-import { FLOORS, ROOM_PRESETS, floorLabel } from '../../types/fieldVisit';
+import { FLOORS, floorLabel } from '../../types/fieldVisit';
 import type { FloorKey } from '../../types/fieldVisit';
 import { deleteShot, dropKeptThumb, retryShot, shotFullUrl, shotThumbUrl, updateShot, wallsDone } from './fieldStore';
 import type { LocalRoom, LocalShot } from './fieldStore';
@@ -51,6 +51,7 @@ const Sheet: React.FC<{ label: string; onClose: () => void; children: React.Reac
 );
 
 // ── Which room ──────────────────────────────────────
+// Rooms come in as Room 1, Room 2… (or what the AI saw); renaming is a typed name, any time.
 
 export const RoomSheet: React.FC<{
   room: LocalRoom;
@@ -58,7 +59,7 @@ export const RoomSheet: React.FC<{
   shots: LocalShot[];
   floorGuess: FloorKey | null;
   onFloor: (floor: FloorKey) => void;
-  onName: (name: string, roomType: string | null) => void;
+  onName: (name: string) => void;
   onSwitch: (room: LocalRoom) => void;
   onNew: () => void;
   onClose: () => void;
@@ -71,7 +72,7 @@ export const RoomSheet: React.FC<{
 
   const saveTyped = () => {
     const name = typed.trim();
-    if (name) onName(uniqueRoomName(rooms, name, room.id), null);
+    if (name) onName(uniqueRoomName(rooms, name, room.id));
   };
 
   return (
@@ -88,19 +89,6 @@ export const RoomSheet: React.FC<{
             onClick={() => onFloor(floor.key)}
           >
             {floor.short}
-          </button>
-        ))}
-      </div>
-
-      <div className="fv-chip-grid">
-        {ROOM_PRESETS.map(preset => (
-          <button
-            key={preset.key}
-            type="button"
-            className={`fv-chip${room.roomType === preset.key ? ' is-on' : ''}`}
-            onClick={() => onName(uniqueRoomName(rooms, preset.title, room.id), preset.key)}
-          >
-            {preset.title}
           </button>
         ))}
       </div>
