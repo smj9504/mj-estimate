@@ -19,6 +19,8 @@ import pytest
 from pypdf import PdfReader
 from reportlab.pdfgen import canvas
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.common.base_repository import SQLAlchemyRepository
@@ -26,23 +28,30 @@ from app.core import database_factory
 from app.core.database_factory import Base, SQLiteDatabase, get_db_session
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.client.models import Claim, ClaimTodo, ClaimTodoAssignee, Client
-from app.domains.company.models import Company
+from app.domains.company.models import Company, CompanyContact
 from app.domains.contract import api as contract_api
 from app.domains.contract import onsite_signing_api
 from app.domains.contract.models import ClaimCompany, ContractInstance, ContractSignature, ContractTemplate
 from app.domains.contract.onsite_signing import build_questions, expand_answers, missing_fields, period_error
 from app.domains.messaging.models import Conversation, ConversationParticipant, Message
 from app.domains.staff.models import Staff, StaffCompany, StaffRole
+from app.domains.water_mitigation.models import WaterMitigationJob, WMSheetPAMapping
 # SQLAlchemy configures every loaded model on first use, and models other test
 # files load name classes by string, so register them all as the app does
 import app.main  # noqa: E402,F401
 
 sqlite3.register_adapter(uuid.UUID, str)
 
+@compiles(JSONB, 'sqlite')
+def jsonb_as_json(type_, compiler, **kw):
+    return 'JSON'
+
+
 TABLES = [
     Staff, StaffCompany, Company, Client, Claim, ClaimTodo, ClaimTodoAssignee, ClaimCompany,
     ContractTemplate, ContractInstance, ContractSignature,
     Conversation, ConversationParticipant, Message,
+    CompanyContact, WaterMitigationJob, WMSheetPAMapping,
 ]
 
 # A real 1x1 PNG, so the PDF step can actually draw it

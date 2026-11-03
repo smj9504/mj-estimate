@@ -9,6 +9,8 @@ import time
 import jwt
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.dialects.sqlite import base as sqlite_base
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -18,7 +20,8 @@ from app.core import database_factory
 from app.core.cache import CacheService, InMemoryCache, get_cache
 from app.core.database_factory import Base, SQLiteDatabase, get_db_session
 from app.domains.auth.service import AuthService
-from app.domains.company.models import Company
+from app.domains.client.models import Claim, Client
+from app.domains.company.models import Company, CompanyContact
 from app.domains.document_transfer import api as transfer_api
 from app.domains.document_transfer.models import DocumentTransfer
 from app.domains.estimate import api as estimate_api
@@ -29,14 +32,21 @@ from app.domains.messaging import api as messaging_api
 from app.domains.messaging.models import Conversation, ConversationParticipant, Message
 from app.domains.contract.models import ClaimCompany
 from app.domains.staff.models import Staff, StaffCompany, StaffRole
+from app.domains.water_mitigation.models import WaterMitigationJob, WMSheetPAMapping
 # SQLAlchemy configures every loaded model on first use, and models other test
 # files load name classes by string, so register them all as the app does
 import app.main  # noqa: E402,F401
+
+@compiles(JSONB, 'sqlite')
+def jsonb_as_json(type_, compiler, **kw):
+    return 'JSON'
+
 
 TABLES = [
     Staff, Company, Estimate, EstimateItem, Invoice, InvoiceItem,
     DocumentTransfer, Conversation, ConversationParticipant, Message,
     StaffCompany, ClaimCompany,
+    Claim, Client, CompanyContact, WaterMitigationJob, WMSheetPAMapping,
 ]
 
 

@@ -13,6 +13,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core import database_factory
@@ -20,16 +22,22 @@ from app.core.database_factory import Base, SQLiteDatabase, get_db_session
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.client import api as client_api
 from app.domains.client.models import Claim, ClaimTodo, ClaimTodoAssignee, Client
-from app.domains.company.models import Company
+from app.domains.company.models import Company, CompanyContact
 from app.domains.contract.models import ClaimCompany
 from app.domains.staff.models import Staff, StaffCompany, StaffRole
+from app.domains.water_mitigation.models import WaterMitigationJob, WMSheetPAMapping
 # SQLAlchemy configures every loaded model on first use, and models other test
 # files load name classes by string, so register them all as the app does
 import app.main  # noqa: E402,F401
 
 sqlite3.register_adapter(uuid.UUID, str)
 
-TABLES = [Staff, StaffCompany, Company, Client, Claim, ClaimCompany, ClaimTodo, ClaimTodoAssignee]
+@compiles(JSONB, 'sqlite')
+def jsonb_as_json(type_, compiler, **kw):
+    return 'JSON'
+
+
+TABLES = [Staff, StaffCompany, Company, Client, Claim, ClaimCompany, ClaimTodo, ClaimTodoAssignee, CompanyContact, WaterMitigationJob, WMSheetPAMapping]
 
 
 def make_staff(first, role, **over):
