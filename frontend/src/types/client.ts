@@ -276,6 +276,34 @@ export interface ClaimCompanyRef {
   role?: string;
 }
 
+/**
+ * An adjuster past the first on a claim or WM job. A carrier sometimes hands
+ * the claim to a third-party firm, so there can be three adjusters in all.
+ */
+export interface AdjusterContact {
+  /** The firm, when it isn't the insurance company */
+  company?: string;
+  name?: string;
+  phone?: string;
+  email?: string;
+}
+
+/** Adjusters past the first; the backend refuses more */
+export const MAX_ADDITIONAL_ADJUSTERS = 2;
+
+/** Every adjuster email: the first adjuster's, then the others' */
+export const allAdjusterEmails = (
+  email: string | undefined | null,
+  others: AdjusterContact[] | undefined | null,
+): string[] => {
+  const emails: string[] = [];
+  for (const e of [email, ...(others ?? []).map(a => a.email)]) {
+    const trimmed = (e || '').trim();
+    if (trimmed && !emails.some(x => x.toLowerCase() === trimmed.toLowerCase())) emails.push(trimmed);
+  }
+  return emails;
+};
+
 export interface Claim extends ClaimStageInfo {
   id: string;
   client_id: string;
@@ -291,6 +319,8 @@ export interface Claim extends ClaimStageInfo {
   adjuster_name?: string;
   adjuster_phone?: string;
   adjuster_email?: string;
+  /** Adjusters 2 and 3 */
+  additional_adjusters?: AdjusterContact[] | null;
   date_of_loss?: string;
   loss_description?: string;
   current_acv: number;
@@ -552,6 +582,8 @@ export interface ClaimCreate {
   adjuster_name?: string;
   adjuster_phone?: string;
   adjuster_email?: string;
+  /** Adjusters 2 and 3; [] clears them */
+  additional_adjusters?: AdjusterContact[];
   /** CompanyContact id of the public adjuster; null/'' clears the link. */
   pa_contact_id?: string | null;
   date_of_loss?: string;

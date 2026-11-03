@@ -120,6 +120,11 @@ class Claim(Base, BaseModel):
     adjuster_name = Column(String(255))
     adjuster_phone = Column(String(50))
     adjuster_email = Column(String(255))
+    # Up to two more, e.g. a third-party firm the carrier handed it to (adjusters.py)
+    additional_adjusters = Column(
+        JSON, nullable=True, default=list,
+        comment="Adjusters past the first [{company, name, phone, email}], at most 2",
+    )
 
     # Loss info
     date_of_loss = Column(DateTime(timezone=True))

@@ -748,8 +748,23 @@ const WaterMitigationDetail: React.FC = () => {
                             <a href={`mailto:${job.adjuster_email}`}>{job.adjuster_email}</a>
                           ) : EMPTY}
                         </Descriptions.Item>
+                        {/* Adjusters 2 and 3, e.g. a third-party firm the carrier handed it to */}
+                        {(job.additional_adjusters ?? []).map((adjuster, idx) => (
+                          <Descriptions.Item key={`adjuster-${idx}`} label={`Adjuster ${idx + 2}`} span={descColumn}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                              <div>
+                                <span style={{ fontWeight: 500 }}>{adjuster.name || adjuster.company || EMPTY}</span>
+                                {adjuster.name && adjuster.company && (
+                                  <span style={{ marginLeft: 8, color: '#73726e' }}>{adjuster.company}</span>
+                                )}
+                              </div>
+                              {adjuster.phone && <a href={`tel:${adjuster.phone}`}>{adjuster.phone}</a>}
+                              {adjuster.email && <a href={`mailto:${adjuster.email}`}>{adjuster.email}</a>}
+                            </div>
+                          </Descriptions.Item>
+                        ))}
                         {job.adjuster_emails && job.adjuster_emails.length > 0 && (
-                          <Descriptions.Item label="Additional Contacts" span={descColumn}>
+                          <Descriptions.Item label="Other Email Contacts" span={descColumn}>
                             <div>
                               {job.adjuster_emails.map((contact, idx) => (
                                 <div key={idx} style={{ marginBottom: idx < job.adjuster_emails!.length - 1 ? 4 : 0 }}>

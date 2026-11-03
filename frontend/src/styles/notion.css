@@ -3775,6 +3775,15 @@ mark.fu-tpl-missing {
   color: var(--color-neutral-700);
   font-variant-numeric: tabular-nums;
 }
+/* A claim with several adjusters: a gap between each one's lines */
+.cl-contacts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cl-contact-firm {
+  color: var(--color-neutral-600);
+}
 a.cl-contact-line:hover {
   color: var(--color-neutral-900);
   text-decoration: underline;

@@ -69,11 +69,14 @@ def env(tmp_path):
         session.commit()
         return job
 
-    def add_claim(claim_number='UNRELATED-0001', adjuster_email=None):
+    def add_claim(claim_number='UNRELATED-0001', adjuster_email=None, additional_adjusters=None):
         client = Client(display_name='Someone Else')
         session.add(client)
         session.flush()
-        claim = Claim(client_id=client.id, claim_number=claim_number, adjuster_email=adjuster_email)
+        claim = Claim(
+            client_id=client.id, claim_number=claim_number, adjuster_email=adjuster_email,
+            additional_adjusters=additional_adjusters,
+        )
         session.add(claim)
         session.commit()
         return claim
@@ -133,6 +136,47 @@ def test_adjuster_with_one_open_job_matches_by_sender(env):
     job_id, method, _ = index.match('Status', 'Still under review.', 'Desk <desk@carrier.com>')
 
     assert (job_id, method) == (str(job.id), 'adjuster_email')
+
+
+THIRD_PARTY = {'company': 'Field Desk LLC', 'name': 'Sam Ortiz', 'phone': '', 'email': 'Sam@FieldDesk.com'}
+
+
+def test_a_jobs_second_adjuster_matches_by_sender(env):
+    job = env['add_job'](adjuster_email='pat@carrier.com', additional_adjusters=[THIRD_PARTY])
+    index = JobMailIndex.load(env['session'])
+
+    job_id, method, _ = index.match('Status', 'Still under review.', 'Sam <sam@fielddesk.com>')
+
+    assert (job_id, method) == (str(job.id), 'adjuster_email')
+
+
+def test_the_claims_other_adjuster_matches_the_job_by_sender(env):
+    claim = env['add_claim'](additional_adjusters=[THIRD_PARTY])
+    job = env['add_job'](claim_id=claim.id, adjuster_email='pat@carrier.com')
+    index = JobMailIndex.load(env['session'])
+
+    assert index.match('Status', 'Still under review.', 'sam@fielddesk.com')[0] == str(job.id)
+    assert 'sam@fielddesk.com' in AdjusterInboxService(env['database'])._load_job(env['session'], str(job.id))[1]
+
+
+def test_every_adjuster_is_a_preset_recipient_once(env):
+    claim = env['add_claim'](
+        adjuster_email='pat@carrier.com',
+        additional_adjusters=[THIRD_PARTY, {'company': 'Review Co', 'name': '', 'phone': '', 'email': 'desk@review.com'}],
+    )
+    job = env['add_job'](
+        claim_id=claim.id, adjuster_name='Pat Lee', adjuster_email='pat@carrier.com',
+        additional_adjusters=[THIRD_PARTY],
+    )
+
+    info = AdjusterEmailService(env['database']).get_adjuster_info(str(job.id))
+
+    assert [(p['name'], p['email'], p['role']) for p in info['preset_emails']] == [
+        ('Pat Lee', 'pat@carrier.com', 'adjuster'),
+        ('Sam Ortiz', 'Sam@FieldDesk.com', 'adjuster'),
+        # No name: the firm stands in
+        ('Review Co', 'desk@review.com', 'adjuster'),
+    ]
 
 
 def test_adjuster_on_several_jobs_needs_the_homeowner_or_street(env):

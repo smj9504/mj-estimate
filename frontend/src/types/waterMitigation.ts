@@ -4,6 +4,7 @@
  */
 
 import type { RequestType, SupplementStatus } from './supplement';
+import type { AdjusterContact } from './client';
 
 // Job Status Enum
 export enum JobStatus {
@@ -82,6 +83,8 @@ export interface WaterMitigationJob {
   adjuster_name?: string;
   adjuster_phone?: string;
   adjuster_email?: string;
+  /** Adjusters 2 and 3 */
+  additional_adjusters?: AdjusterContact[] | null;
   adjuster_emails?: { name: string; email: string; role: string }[];
 
   // Inspection Information
@@ -177,6 +180,8 @@ export interface JobCreateRequest {
   adjuster_name?: string;
   adjuster_phone?: string;
   adjuster_email?: string;
+  /** Adjusters 2 and 3; [] clears them */
+  additional_adjusters?: AdjusterContact[];
 
   // Inspection Information
   inspection_date?: string | null;
@@ -272,6 +277,8 @@ export interface JobUpdate {
   adjuster_name?: string;
   adjuster_phone?: string;
   adjuster_email?: string;
+  /** Adjusters 2 and 3; [] clears them */
+  additional_adjusters?: AdjusterContact[];
 
   // Inspection Information
   inspection_date?: string | null;

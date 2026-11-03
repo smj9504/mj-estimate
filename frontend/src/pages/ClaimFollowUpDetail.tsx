@@ -157,6 +157,7 @@ const ClaimFollowUpDetail: React.FC = () => {
       adjuster_name: first.adjuster_name || '',
       adjuster_email: first.adjuster_email || '',
       adjuster_phone: first.adjuster_phone || '',
+      additionalAdjusters: first.additional_adjusters || [],
       expectedAmount: first.claim_expected_amount || 0,
       receivedAmount: first.claim_received_amount || 0,
       deductible: first.claim_deductible || 0,
@@ -195,6 +196,11 @@ const ClaimFollowUpDetail: React.FC = () => {
     if (claimInfo.adjuster_email) {
       list.push({ name: claimInfo.adjuster_name || claimInfo.adjuster_email, email: claimInfo.adjuster_email, role: 'adjuster', label: 'Adjuster' });
     }
+    claimInfo.additionalAdjusters.forEach(a => {
+      if (a.email) {
+        list.push({ name: a.name || a.company || a.email, email: a.email, role: 'adjuster', label: a.company ? `Adjuster · ${a.company}` : 'Adjuster' });
+      }
+    });
     if (claimInfo.pa_email) {
       list.push({ name: claimInfo.pa_name || claimInfo.pa_email, email: claimInfo.pa_email, role: 'pa', label: 'Public Adjuster' });
     }
@@ -952,11 +958,17 @@ const ClaimFollowUpDetail: React.FC = () => {
               <div className="ui-section-head">
                 <h2 className="ui-section-title">Contacts</h2>
               </div>
-              {claimInfo.adjuster_name || claimInfo.adjuster_email || claimInfo.pa_name || claimInfo.pa_email ? (
+              {claimInfo.adjuster_name || claimInfo.adjuster_email || claimInfo.additionalAdjusters.length > 0
+                || claimInfo.pa_name || claimInfo.pa_email ? (
                 <div className="fu-contacts">
                   {(claimInfo.adjuster_name || claimInfo.adjuster_email) && renderContact(
                     'Adjuster', claimInfo.adjuster_name, '', claimInfo.adjuster_email, claimInfo.adjuster_phone,
                   )}
+                  {claimInfo.additionalAdjusters.map((a, i) => (
+                    <React.Fragment key={i}>
+                      {renderContact('Adjuster', a.name || '', a.company || '', a.email || '', a.phone || '')}
+                    </React.Fragment>
+                  ))}
                   {(claimInfo.pa_name || claimInfo.pa_email) && renderContact(
                     'Public Adjuster', claimInfo.pa_name, claimInfo.pa_company, claimInfo.pa_email, claimInfo.pa_phone,
                   )}

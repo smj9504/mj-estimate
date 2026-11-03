@@ -458,7 +458,24 @@ class AdjusterEmailService:
                     "role": "adjuster",
                 })
 
-            # 2. Additional emails from adjuster_emails JSON
+            def add_other_adjusters(entries):
+                """Adjusters 2 and 3 (client/adjusters.py)."""
+                for entry in entries or []:
+                    if not isinstance(entry, dict):
+                        continue
+                    em = (entry.get("email") or "").strip()
+                    if em and em.lower() not in seen_emails:
+                        seen_emails.add(em.lower())
+                        preset_emails.append({
+                            "name": entry.get("name") or entry.get("company") or "",
+                            "email": em,
+                            "role": "adjuster",
+                        })
+
+            # 2. The job's other adjusters
+            add_other_adjusters(job.additional_adjusters)
+
+            # 3. Additional emails from adjuster_emails JSON
             extra_emails = getattr(job, 'adjuster_emails', None)
             if extra_emails and isinstance(extra_emails, list):
                 for entry in extra_emails:
@@ -473,7 +490,7 @@ class AdjusterEmailService:
                             ),
                         })
 
-            # 3. Claim adjuster email (if different)
+            # 4. Claim adjusters (if different)
             if job.claim_id:
                 from app.domains.client.models import (
                     Claim as ClaimModel,
@@ -495,8 +512,9 @@ class AdjusterEmailService:
                             "email": ce,
                             "role": "adjuster",
                         })
+                    add_other_adjusters(claim_rec.additional_adjusters)
 
-            # 4. Public adjuster (PA) email
+            # 5. Public adjuster (PA) email
             if pa_info["email"] and pa_info["email"].lower() not in seen_emails:
                 seen_emails.add(pa_info["email"].lower())
                 preset_emails.append({

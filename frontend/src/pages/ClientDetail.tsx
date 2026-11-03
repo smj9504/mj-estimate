@@ -96,6 +96,7 @@ import {  } from '@ant-design/icons';
 import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory, ReceivedEmails } from '../components/claim-followup';
 import type { ClaimContact } from '../components/claim-followup/EmailComposer';
 import type {
+  AdjusterContact,
   Client,
   ClientCreate,
   OwnerInfo,
@@ -119,8 +120,10 @@ import {
   CONTRACTOR_ESTIMATE_STAGE_ORDER,
   CONTRACTOR_ESTIMATE_STAGE_LABELS,
   WM_COST_STATUS_LABELS,
+  allAdjusterEmails,
 } from '../types/client';
 import RebuildEstimateCompanySelect from '../components/claim-followup/RebuildEstimateCompanySelect';
+import AdditionalAdjustersFields from '../components/common/AdditionalAdjustersFields';
 import type { ColumnsType } from 'antd/es/table';
 
 dayjs.extend(relativeTime);
@@ -522,6 +525,7 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
           adjuster_name: editingClaim.adjuster_name,
           adjuster_phone: editingClaim.adjuster_phone,
           adjuster_email: editingClaim.adjuster_email,
+          additional_adjusters: editingClaim.additional_adjusters ?? [],
           date_of_loss: editingClaim.date_of_loss ? dayjs(editingClaim.date_of_loss) as any : undefined,
           loss_description: editingClaim.loss_description,
           status: editingClaim.status,
@@ -795,6 +799,7 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
             </Form.Item>
           </Col>
         </Row>
+        <AdditionalAdjustersFields />
 
         <Divider orientation="left" plain style={{ marginBottom: 8 }}>Public Adjuster</Divider>
         <Row gutter={12}>
@@ -2271,6 +2276,51 @@ const constructionText = (claim: Claim): string => {
   return 'Not started';
 };
 
+// One adjuster's name, firm, phone and email
+const AdjusterContactLines: React.FC<{ adjuster: AdjusterContact; onEmail: () => void }> = ({ adjuster, onEmail }) => (
+  <div className="cl-contact">
+    {(adjuster.name || adjuster.company) && (
+      <div>
+        {adjuster.name}
+        {adjuster.company && (
+          <span className="cl-contact-firm">{adjuster.name ? ' · ' : ''}{adjuster.company}</span>
+        )}
+      </div>
+    )}
+    {adjuster.phone && (
+      <a className="cl-contact-line" href={`tel:${adjuster.phone.split(/ext/i)[0].replace(/[^\d+]/g, '')}`}>
+        {adjuster.phone}
+      </a>
+    )}
+    {adjuster.email && (
+      <Tooltip title="Send email">
+        <button type="button" className="cl-contact-line cl-link-btn" onClick={onEmail}>
+          {adjuster.email}
+        </button>
+      </Tooltip>
+    )}
+  </div>
+);
+
+// The claim's adjusters: up to three when the carrier handed it to a third-party firm
+const adjusterFact = (claim: Claim, onEmail: () => void) => {
+  const adjusters: AdjusterContact[] = [
+    { name: claim.adjuster_name, phone: claim.adjuster_phone, email: claim.adjuster_email },
+    ...(claim.additional_adjusters ?? []),
+  ].filter(a => a.company || a.name || a.phone || a.email);
+  return {
+    key: 'adj',
+    label: adjusters.length > 1 ? 'Adjusters' : 'Adjuster',
+    value: adjusters.length > 0 ? (
+      <div className="cl-contacts">
+        {adjusters.map((adjuster, i) => (
+          <AdjusterContactLines key={i} adjuster={adjuster} onEmail={onEmail} />
+        ))}
+      </div>
+    ) : null,
+  };
+};
+
 const ClaimFacts: React.FC<{ claim: Claim; onEdit: () => void; onEmail: () => void }> = ({ claim, onEdit, onEmail }) => isCashJob(claim) ? (
   <ClaimSection
     title="Cash job"
@@ -2335,27 +2385,7 @@ const ClaimFacts: React.FC<{ claim: Claim; onEdit: () => void; onEmail: () => vo
             <span className="cl-money">{formatCurrency(claim.current_acv)} / {formatCurrency(claim.current_rcv)}</span>
           ) : null,
         },
-        {
-          key: 'adj',
-          label: 'Adjuster',
-          value: (claim.adjuster_name || claim.adjuster_phone || claim.adjuster_email) ? (
-            <div className="cl-contact">
-              {claim.adjuster_name && <div>{claim.adjuster_name}</div>}
-              {claim.adjuster_phone && (
-                <a className="cl-contact-line" href={`tel:${claim.adjuster_phone.split(/ext/i)[0].replace(/[^\d+]/g, '')}`}>
-                  {claim.adjuster_phone}
-                </a>
-              )}
-              {claim.adjuster_email && (
-                <Tooltip title="Send email">
-                  <button type="button" className="cl-contact-line cl-link-btn" onClick={onEmail}>
-                    {claim.adjuster_email}
-                  </button>
-                </Tooltip>
-              )}
-            </div>
-          ) : null,
-        },
+        adjusterFact(claim, onEmail),
         { key: 'loss', label: 'Loss', hideEmpty: true, value: claim.loss_description || null },
       ]}
     />
@@ -2680,6 +2710,16 @@ function buildClaimContacts(claim: Claim, client: Client): ClaimContact[] {
       label: 'Adjuster',
     });
   }
+  (claim.additional_adjusters ?? []).forEach(a => {
+    if (a.email) {
+      contacts.push({
+        name: a.name || a.company || 'Adjuster',
+        email: a.email,
+        role: 'adjuster',
+        label: a.company ? `Adjuster · ${a.company}` : 'Adjuster',
+      });
+    }
+  });
   if (claim.pa_email) {
     contacts.push({
       name: claim.pa_name || claim.pa_company || 'Public Adjuster',
@@ -2912,7 +2952,7 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
               pa_name: emailDrawerClaim.pa_name,
               insurance_company: emailDrawerClaim.insurance_company,
             }}
-            defaultTo={emailDrawerClaim.adjuster_email ? [emailDrawerClaim.adjuster_email] : []}
+            defaultTo={allAdjusterEmails(emailDrawerClaim.adjuster_email, emailDrawerClaim.additional_adjusters)}
             defaultSubject={isCashJob(emailDrawerClaim)
               ? `${client.display_name} - ${client.address || 'Job'}`
               : `Claim #${emailDrawerClaim.claim_number} - ${emailDrawerClaim.insurance_company || ''}`}

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 CASH_JOB_CLEARED_FIELDS = (
     'insurance_company', 'insurance_policy_number', 'insurance_deductible',
     'deductible_discount', 'adjuster_name', 'adjuster_phone', 'adjuster_email',
-    'pa_contact_id', 'estimate_origin', 'contractor_estimate_stage',
+    'additional_adjusters', 'pa_contact_id', 'estimate_origin', 'contractor_estimate_stage',
     'rebuild_estimate_company_id', 'appraisal_date',
 )
 

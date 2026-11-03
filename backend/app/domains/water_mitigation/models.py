@@ -89,6 +89,11 @@ class WaterMitigationJob(Base, BaseModel):
     adjuster_name = Column(String(255))
     adjuster_phone = Column(String(100))
     adjuster_email = Column(String(255))
+    # Up to two more, e.g. a third-party firm the carrier handed it to (client/adjusters.py)
+    additional_adjusters = Column(
+        JSONB, nullable=True, default=list,
+        comment="Adjusters past the first [{company, name, phone, email}], at most 2"
+    )
     adjuster_emails = Column(
         JSONB, default=list,
         comment="Additional adjuster/insurance emails [{name, email, role}]"

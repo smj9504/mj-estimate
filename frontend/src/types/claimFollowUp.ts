@@ -2,6 +2,8 @@
  * Claim Follow-up types
  */
 
+import type { AdjusterContact } from './client';
+
 export type TaskType = 'wm_docs_sent' | 'supplement_estimate_prep' | 'supplement_sent' | 'depreciation_recovery' | 'estimate_request' | 'payment_check' | 'wm_payment_check' | 'docs_sent' | 'general' | 'dispute' | 'appraisal' | 'attorney_referral' | (string & {});
 
 export const KNOWN_TASK_TYPES = [
@@ -144,6 +146,8 @@ export interface FollowUpTask {
   adjuster_name?: string;
   adjuster_email?: string;
   adjuster_phone?: string;
+  /** Adjusters 2 and 3 (the by-claim task list only) */
+  additional_adjusters?: AdjusterContact[];
   wm_cost_status?: string;
   // How the claim's estimates come to be
   estimate_origin?: string;

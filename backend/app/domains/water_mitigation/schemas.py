@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_serializer, validator
 
+from app.domains.client.adjusters import clean_additional_adjusters
+
 
 # Job Status enum values
 class JobStatus:
@@ -64,6 +66,10 @@ class JobBase(BaseModel):
     adjuster_name: Optional[str] = Field(None, max_length=255)
     adjuster_phone: Optional[str] = Field(None, max_length=100)
     adjuster_email: Optional[str] = Field(None, max_length=255)
+    additional_adjusters: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="Up to two more adjusters [{company, name, phone, email}]"
+    )
     adjuster_emails: Optional[List[Dict[str, str]]] = Field(
         None,
         description="Additional email contacts [{name, email, role}]"
@@ -98,6 +104,8 @@ class JobBase(BaseModel):
         if isinstance(v, date) and not isinstance(v, datetime):
             return datetime.combine(v, datetime.min.time())
         return v
+
+    _additional_adjusters = validator('additional_adjusters', allow_reuse=True)(clean_additional_adjusters)
 
     @validator('check_recipient')
     def validate_check_recipient(cls, v):
@@ -146,6 +154,10 @@ class JobUpdate(BaseModel):
     adjuster_name: Optional[str] = Field(None, max_length=255)
     adjuster_phone: Optional[str] = Field(None, max_length=100)
     adjuster_email: Optional[str] = Field(None, max_length=255)
+    additional_adjusters: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="Up to two more adjusters [{company, name, phone, email}]"
+    )
     adjuster_emails: Optional[List[Dict[str, str]]] = Field(
         None,
         description="Additional email contacts [{name, email, role}]"
@@ -183,6 +195,8 @@ class JobUpdate(BaseModel):
         if isinstance(v, date) and not isinstance(v, datetime):
             return datetime.combine(v, datetime.min.time())
         return v
+
+    _additional_adjusters = validator('additional_adjusters', allow_reuse=True)(clean_additional_adjusters)
 
     @validator('check_recipient')
     def validate_check_recipient(cls, v):

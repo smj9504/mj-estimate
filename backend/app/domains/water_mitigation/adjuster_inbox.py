@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.core.database_factory import get_database
+from app.domains.client.adjusters import additional_adjuster_emails
 from app.domains.email_ingestion.matcher import extract_sender_email
 
 logger = logging.getLogger(__name__)
@@ -39,10 +40,16 @@ def normalize_claim_number(value: Optional[str]) -> str:
     return re.sub(r"[^0-9a-z]", "", (value or "").lower())
 
 
-def job_adjuster_addresses(job, claim_adjuster_email: Optional[str] = None) -> Set[str]:
-    """Every carrier-side address on the job, lowercased: the adjuster, the
-    extra contacts in adjuster_emails, and the linked claim's adjuster."""
+def job_adjuster_addresses(
+    job,
+    claim_adjuster_email: Optional[str] = None,
+    claim_additional_adjusters: Optional[List[Dict[str, Any]]] = None,
+) -> Set[str]:
+    """Every carrier-side address on the job, lowercased: its adjusters, the
+    extra contacts in adjuster_emails, and the linked claim's adjusters."""
     raw = [job.adjuster_email, claim_adjuster_email]
+    raw += additional_adjuster_emails(job.additional_adjusters)
+    raw += additional_adjuster_emails(claim_additional_adjusters)
     for entry in job.adjuster_emails or []:
         if isinstance(entry, dict):
             raw.append(entry.get("email"))
@@ -147,7 +154,9 @@ class JobMailIndex:
         from .models import WaterMitigationJob
 
         rows = (
-            session.query(WaterMitigationJob, Claim.adjuster_email, Claim.client_id)
+            session.query(
+                WaterMitigationJob, Claim.adjuster_email, Claim.additional_adjusters, Claim.client_id,
+            )
             .outerjoin(Claim, Claim.id == WaterMitigationJob.claim_id)
             .filter(WaterMitigationJob.active == True)  # noqa: E712
             .order_by(WaterMitigationJob.created_at.desc())
@@ -160,11 +169,11 @@ class JobMailIndex:
                 "client_id": str(client_id) if client_id else None,
                 "claim_number": job.claim_number,
                 "open": job.status not in _CLOSED_STATUSES,
-                "addresses": job_adjuster_addresses(job, claim_adjuster_email),
+                "addresses": job_adjuster_addresses(job, claim_adjuster_email, claim_others),
                 "homeowner_name": job.homeowner_name,
                 "street": job.property_street or job.property_address,
             }
-            for job, claim_adjuster_email, client_id in rows
+            for job, claim_adjuster_email, claim_others, client_id in rows
         ])
 
     def claim_of(self, job_id: str) -> Tuple[Optional[str], Optional[str]]:
@@ -242,12 +251,14 @@ def suggest_followup_template(session, job) -> Optional[Dict[str, Any]]:
     from app.domains.email_ingestion.models import ReceivedEmail
     from app.domains.email_ingestion.service import _html_to_text, _one_copy_per_message
 
-    claim_adjuster_email = None
+    claim_adjuster_email = claim_others = None
     if job.claim_id:
-        claim_adjuster_email = session.query(Claim.adjuster_email).filter(
+        claim_row = session.query(Claim.adjuster_email, Claim.additional_adjusters).filter(
             Claim.id == job.claim_id
-        ).scalar()
-    addresses = job_adjuster_addresses(job, claim_adjuster_email)
+        ).first()
+        if claim_row:
+            claim_adjuster_email, claim_others = claim_row
+    addresses = job_adjuster_addresses(job, claim_adjuster_email, claim_others)
     if not addresses:
         return None
 
@@ -297,15 +308,15 @@ class AdjusterInboxService:
         from .models import WaterMitigationJob
 
         row = (
-            session.query(WaterMitigationJob, Claim.adjuster_email)
+            session.query(WaterMitigationJob, Claim.adjuster_email, Claim.additional_adjusters)
             .outerjoin(Claim, Claim.id == WaterMitigationJob.claim_id)
             .filter(WaterMitigationJob.id == job_id)
             .first()
         )
         if not row:
             raise ValueError("Job not found")
-        job, claim_adjuster_email = row
-        return job, job_adjuster_addresses(job, claim_adjuster_email)
+        job, claim_adjuster_email, claim_others = row
+        return job, job_adjuster_addresses(job, claim_adjuster_email, claim_others)
 
     def list_job_emails(self, job_id: str, limit: int = 100) -> Dict[str, Any]:
         """Stored inbound mail for the job (see _job_mail_filter), newest

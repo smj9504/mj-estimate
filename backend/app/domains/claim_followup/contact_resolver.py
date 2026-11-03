@@ -14,7 +14,7 @@ pa_name/pa_email freetext. Reading the freetext alone therefore yields a blank
 PA on virtually every claim, which is why callers must go through here.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 EMPTY_CONTACT: Dict[str, str] = {
@@ -118,6 +118,27 @@ def resolve_adjuster_contact(session, claim) -> Dict[str, str]:
             pass
 
     return info
+
+
+def resolve_additional_adjusters(session, claim) -> List[Dict[str, str]]:
+    """
+    A claim's adjusters past the first [{company, name, phone, email}]: the
+    claim's own, else the linked WM job's, the same fallback as above.
+    """
+    if claim is None:
+        return []
+    if getattr(claim, 'additional_adjusters', None):
+        return list(claim.additional_adjusters)
+    try:
+        from app.domains.water_mitigation.models import WaterMitigationJob
+        wm_job = session.query(WaterMitigationJob).filter(
+            WaterMitigationJob.claim_id == claim.id
+        ).first()
+        if wm_job and wm_job.additional_adjusters:
+            return list(wm_job.additional_adjusters)
+    except Exception:
+        pass
+    return []
 
 
 def resolve_contact_for_role(session, claim, role: str) -> Dict[str, str]:

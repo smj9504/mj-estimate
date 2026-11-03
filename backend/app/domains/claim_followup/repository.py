@@ -408,6 +408,7 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
         # All tasks here share one claim, so resolve its contacts once.
         pa: Dict[str, str] = {}
         adj: Dict[str, str] = {}
+        other_adjusters: List[Dict[str, str]] = []
         wm_companies_by_claim: Dict[str, set] = {}
         writer_names: Dict[str, str] = {}
         claim_obj = next((t.claim for t in tasks if t.claim is not None), None)
@@ -415,9 +416,11 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
             try:
                 from app.domains.claim_followup.contact_resolver import (
                     resolve_pa_contact, resolve_adjuster_contact,
+                    resolve_additional_adjusters,
                 )
                 pa = resolve_pa_contact(self.db_session, claim_obj)
                 adj = resolve_adjuster_contact(self.db_session, claim_obj)
+                other_adjusters = resolve_additional_adjusters(self.db_session, claim_obj)
             except Exception:
                 pass
             try:
@@ -451,6 +454,7 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                     d['adjuster_name'] = adj.get('name', '')
                     d['adjuster_email'] = adj.get('email', '')
                     d['adjuster_phone'] = adj.get('phone', '')
+                    d['additional_adjusters'] = other_adjusters
                     d.update(_estimate_path_fields(
                         t.claim, wm_companies_by_claim, writer_names,
                     ))

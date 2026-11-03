@@ -7,6 +7,7 @@ import { Modal, Form, Input, DatePicker, Switch, Select, Button, Space, Row, Col
 import { PlusOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import AddressAutocomplete from '../common/AddressAutocomplete';
+import AdditionalAdjustersFields from '../common/AdditionalAdjustersFields';
 import type { WaterMitigationJob, JobCreateRequest } from '../../types/waterMitigation';
 import { JOB_STATUS_OPTIONS } from '../../types/waterMitigation';
 import waterMitigationService from '../../services/waterMitigationService';
@@ -70,6 +71,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
           adjuster_name: job.adjuster_name,
           adjuster_phone: job.adjuster_phone,
           adjuster_email: job.adjuster_email,
+          additional_adjusters: job.additional_adjusters || [],
           adjuster_emails: job.adjuster_emails || [],
           inspection_date: job.inspection_date ? dayjs(job.inspection_date) : null,
           inspection_time: job.inspection_time,
@@ -349,12 +351,15 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
           <Input placeholder="jane.smith@insurance.com" />
         </Form.Item>
 
-        {/* Additional Email Contacts */}
+        {/* Adjusters 2 and 3, e.g. a third-party firm the carrier handed it to */}
+        <AdditionalAdjustersFields />
+
+        {/* Other people emailed with the adjusters, e.g. the carrier's claims inbox */}
         <Form.List name="adjuster_emails">
           {(fields, { add, remove }) => (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 13, color: '#666' }}>Additional Email Contacts</span>
+                <span style={{ fontSize: 13, color: '#666' }}>Other Email Contacts</span>
                 <Button
                   type="dashed"
                   size="small"

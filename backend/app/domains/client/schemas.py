@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, validator
 
+from app.domains.client.adjusters import clean_additional_adjusters
+
 
 # ============================================================
 # Owner schema (embedded in Client)
@@ -171,6 +173,8 @@ class ClaimBase(BaseModel):
     adjuster_name: Optional[str] = None
     adjuster_phone: Optional[str] = None
     adjuster_email: Optional[str] = None
+    # Up to two more [{company, name, phone, email}] (adjusters.py)
+    additional_adjusters: Optional[List[Dict[str, Any]]] = None
     date_of_loss: Optional[datetime] = None
     loss_description: Optional[str] = None
     status: Optional[str] = "open"
@@ -194,6 +198,7 @@ class ClaimBase(BaseModel):
 
     _claim_type = validator('claim_type', allow_reuse=True)(_check_claim_type)
     _stage_override = validator('stage_override', allow_reuse=True)(_check_stage_override)
+    _additional_adjusters = validator('additional_adjusters', allow_reuse=True)(clean_additional_adjusters)
 
     @validator('estimate_origin')
     def validate_estimate_origin(cls, v):
@@ -235,6 +240,7 @@ class ClaimUpdate(BaseModel):
     adjuster_name: Optional[str] = None
     adjuster_phone: Optional[str] = None
     adjuster_email: Optional[str] = None
+    additional_adjusters: Optional[List[Dict[str, Any]]] = None
     date_of_loss: Optional[datetime] = None
     loss_description: Optional[str] = None
     our_estimate_amount: Optional[float] = None
@@ -276,6 +282,7 @@ class ClaimUpdate(BaseModel):
 
     _claim_type = validator('claim_type', allow_reuse=True)(_check_claim_type)
     _stage_override = validator('stage_override', allow_reuse=True)(_check_stage_override)
+    _additional_adjusters = validator('additional_adjusters', allow_reuse=True)(clean_additional_adjusters)
 
     @validator('wm_cost_status')
     def validate_wm_cost_status(cls, v):

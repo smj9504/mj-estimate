@@ -494,6 +494,7 @@ class ClientSyncService:
             adjuster_name=(job.adjuster_name or '').strip() or None,
             adjuster_phone=(job.adjuster_phone or '').strip() or None,
             adjuster_email=(job.adjuster_email or '').strip() or None,
+            additional_adjusters=list(job.additional_adjusters or []),
             date_of_loss=job.date_of_loss,
             status='open',
         )
@@ -529,6 +530,9 @@ class ClientSyncService:
         adj_email = (job.adjuster_email or '').strip()
         if adj_email and not claim.adjuster_email:
             claim.adjuster_email = adj_email
+
+        if job.additional_adjusters and not claim.additional_adjusters:
+            claim.additional_adjusters = list(job.additional_adjusters)
 
         # Update date_of_loss if missing
         if job.date_of_loss and not claim.date_of_loss:
