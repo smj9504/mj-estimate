@@ -702,6 +702,9 @@ a.os-row:hover {
   background: var(--fv-danger);
   animation: fv-pulse 1.2s ease-in-out infinite;
 }
+.fv-rec.is-idle .fv-rec-dot {
+  background: var(--fv-danger);
+}
 .fv-mic {
   display: inline-flex;
   align-items: center;

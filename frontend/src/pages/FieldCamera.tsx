@@ -1,7 +1,7 @@
 /**
- * Field Visit camera: walk the property shooting one room after another. Video is
- * the default: it starts with the camera and runs up to a minute in each room, and
- * the shutter takes photos out of it. Each shot and clip saves and sends itself,
+ * Field Visit camera: walk the property shooting one room after another. Each room
+ * starts with video off; the record button starts it, up to a minute a room, and the
+ * shutter takes photos with or without it. Each shot and clip saves and sends itself,
  * and coming back picks up at the next wall of the room left off in.
  *
  * It runs in the page instead of the phone's camera app because only then can it
@@ -138,7 +138,8 @@ const FieldCamera: React.FC = () => {
   useWakeLock();
 
   const [roomId, setRoomId] = useState<string | null>(null);
-  const [paused, setPaused] = useState(false);
+  // Video is off until asked for in each room
+  const [paused, setPaused] = useState(true);
   const [videoDone, setVideoDone] = useState(false);
   const [demo, setDemo] = useState(false);
   const [sheet, setSheet] = useState<'room' | 'shots' | null>(null);
@@ -201,7 +202,7 @@ const FieldCamera: React.FC = () => {
     writeSaved(lastRoomKey(visitId), next.id);
     sensors.resetSteps();
     setDemo(false);
-    setPaused(false);
+    setPaused(true);
     setVideoDone(false);
     camera.resetClock();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -311,9 +312,10 @@ const FieldCamera: React.FC = () => {
     });
   }, [visitId]);
 
-  // Video runs whenever the camera does, a clip per room, and is started again by itself after
-  // anything that ended the last one. A room's video ends at the limit, or a long stay is
-  // minutes to send and watch; photos carry on, and tapping records some more.
+  // Video runs once the record button is tapped in a room, and is started again by itself after
+  // anything else that ended it (the page going to the background, a new stream, the mic). A
+  // room's video ends at the limit, or a long stay is minutes to send and watch; photos carry
+  // on, and tapping records some more.
   const canRecord = camera.canRecord();
   const { recording, startRecording, stopRecording, streamKey, seconds: roomSeconds } = camera;
   const isCameraReady = camera.status === 'ready';
@@ -405,6 +407,8 @@ const FieldCamera: React.FC = () => {
   const allWalls = target == null;
   const demoDue = allWalls && demoCount === 0 && !demo;
   const isReady = camera.status === 'ready';
+  // Not recorded anything in this room yet: the button is there to start it
+  const notStarted = paused && !videoDone && camera.seconds === 0;
   const useSystem = camera.status === 'unavailable';
   const shortFloor = room ? FLOORS.find(floor => floor.key === room.floor)?.short ?? room.floor : '';
 
@@ -552,17 +556,17 @@ const FieldCamera: React.FC = () => {
             <div className="fv-rec-controls">
               <button
                 type="button"
-                className={`fv-rec${camera.recording ? ' is-on' : ''}${paused && !videoDone ? ' is-paused' : ''}`}
-                aria-pressed={paused}
+                className={`fv-rec${camera.recording ? ' is-on' : ''}${notStarted ? ' is-idle' : paused && !videoDone ? ' is-paused' : ''}`}
                 aria-label={
                   videoDone ? 'This room has its video. Record more'
-                    : paused ? 'Video paused. Resume'
-                      : `Recording video, ${clock(camera.seconds)}. Pause`
+                    : notStarted ? 'Record video'
+                      : paused ? 'Video paused. Resume'
+                        : `Recording video, ${clock(camera.seconds)}. Pause`
                 }
                 onClick={togglePause}
               >
-                {videoDone ? <CheckOutlined /> : paused ? <PauseOutlined /> : <span className="fv-rec-dot" />}
-                {videoDone ? 'Video' : paused ? 'Paused' : clock(camera.seconds)}
+                {videoDone ? <CheckOutlined /> : paused && !notStarted ? <PauseOutlined /> : <span className="fv-rec-dot" />}
+                {videoDone ? 'Video' : notStarted ? 'Record' : paused ? 'Paused' : clock(camera.seconds)}
               </button>
               <button
                 type="button"
