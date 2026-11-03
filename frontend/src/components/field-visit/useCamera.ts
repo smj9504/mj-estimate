@@ -5,8 +5,13 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { isIOS } from './locate';
 
-export type CameraStatus = 'starting' | 'ready' | 'unavailable';
+/**
+ * denied: the camera was refused for this site, which asking again may fix.
+ * busy: another app has it. unavailable: none this page can use, so the phone's camera app it is.
+ */
+export type CameraStatus = 'starting' | 'ready' | 'denied' | 'busy' | 'unavailable';
 
 export interface Taken {
   blob: Blob;
@@ -210,9 +215,34 @@ export const useCamera = (videoRef: React.RefObject<HTMLVideoElement>) => {
       await findWide();
     } catch (err) {
       console.warn('[field-visit] No camera:', err);
-      setStatus('unavailable');
+      const name = (err as DOMException)?.name;
+      if (name === 'NotAllowedError') setStatus('denied');
+      else if (name === 'NotReadableError' || name === 'AbortError') setStatus('busy');
+      else setStatus('unavailable');
     }
   }, [findWide, open]);
+
+  /** Ask for the camera again. Coming back to the page asks by itself too (see below). */
+  const retry = useCallback(() => {
+    setStatus('starting');
+    start();
+  }, [start]);
+
+  // Allowed from the browser's own controls while this stays open (a computer's address bar)
+  useEffect(() => {
+    if (status !== 'denied' || !navigator.permissions?.query) return undefined;
+    let watched: PermissionStatus | null = null;
+    const onChange = () => {
+      if (watched?.state === 'granted') retry();
+    };
+    navigator.permissions.query({ name: 'camera' as PermissionName })
+      .then((permission) => {
+        watched = permission;
+        permission.addEventListener('change', onChange);
+      })
+      .catch(() => undefined); // Not a name every browser knows
+    return () => watched?.removeEventListener('change', onChange);
+  }, [status, retry]);
 
   const stopRecording = useCallback(() => {
     if (isRecording()) recorder.current?.stop();
@@ -341,6 +371,7 @@ export const useCamera = (videoRef: React.RefObject<HTMLVideoElement>) => {
 
   return {
     status,
+    retry,
     ratio,
     onMetadata: () => {
       const element = videoRef.current;
@@ -363,6 +394,20 @@ export const useCamera = (videoRef: React.RefObject<HTMLVideoElement>) => {
     torch,
     setTorch,
   };
+};
+
+/** Where the camera setting is, for when asking again hasn't brought the browser's question back */
+export const cameraSettingsPath = () => {
+  const agent = navigator.userAgent;
+  if (isIOS()) {
+    // Settings moved under Apps in iOS 18
+    const version = Number(agent.match(/OS (\d+)_/)?.[1] ?? 0);
+    const apps = !version || version >= 18 ? 'Apps → ' : '';
+    if (/CriOS/.test(agent)) return `iPhone Settings → ${apps}Chrome → Camera`;
+    return `Safari: the page menu by the web address (aA) → Website Settings → Camera → Allow. Or iPhone Settings → ${apps}Safari → Camera.`;
+  }
+  if (/Android/.test(agent)) return 'Tap the icon left of the web address → Permissions → Camera → Allow.';
+  return 'Click the icon left of the web address → Camera → Allow.';
 };
 
 /** A small picture for a file from the system camera, which has to be decoded first */
