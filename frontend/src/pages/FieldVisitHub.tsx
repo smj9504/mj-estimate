@@ -12,6 +12,7 @@ import {
   CheckCircleFilled,
   EditOutlined,
   FilePdfOutlined,
+  PictureOutlined,
   RightOutlined,
   SignatureOutlined,
   UserOutlined,
@@ -171,6 +172,18 @@ const FieldVisitHub: React.FC = () => {
                 <SignatureOutlined className="fv-row-icon" aria-hidden="true" />
                 <span className="os-row-body">
                   <span className="os-row-title">Sign contract</span>
+                </span>
+                <RightOutlined className="os-row-go" aria-hidden="true" />
+              </button>
+            </li>
+          )}
+          {shots.length > 0 && (
+            <li>
+              <button type="button" className="os-row" onClick={() => navigate(`/field/${visitId}/edit`)}>
+                <PictureOutlined className="fv-row-icon" aria-hidden="true" />
+                <span className="os-row-body">
+                  <span className="os-row-title">Edit photos</span>
+                  <span className="os-row-meta">Fix rooms, move or delete photos</span>
                 </span>
                 <RightOutlined className="os-row-go" aria-hidden="true" />
               </button>

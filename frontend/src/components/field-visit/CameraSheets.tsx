@@ -163,10 +163,23 @@ export const ShotThumb: React.FC<{ shot: LocalShot; emptyClass: string; lazy?: b
   );
 };
 
-const ShotTile: React.FC<{ shot: LocalShot; onOpen: () => void }> = ({ shot, onOpen }) => {
+/** `selected` is left out unless shots are being picked, when it shows a tick in the corner */
+export const ShotTile: React.FC<{ shot: LocalShot; onOpen: () => void; selected?: boolean }> = ({
+  shot,
+  onOpen,
+  selected,
+}) => {
+  const picking = selected !== undefined;
   return (
-    <button type="button" className="fv-tile" aria-label={shotLabel(shot)} onClick={onOpen}>
+    <button
+      type="button"
+      className={`fv-tile${selected ? ' is-selected' : ''}`}
+      aria-label={shotLabel(shot)}
+      aria-pressed={picking ? selected : undefined}
+      onClick={onOpen}
+    >
       <ShotThumb shot={shot} emptyClass="fv-tile-empty" lazy />
+      {picking && <span className="fv-tile-check" aria-hidden="true">{selected && <CheckOutlined />}</span>}
       {shot.isVideo && <PlayCircleFilled className="fv-tile-play" />}
       {shot.kind === 'demo' && <span className="fv-tile-tag"><ToolOutlined /></span>}
       {shot.kind === 'wall' && shot.wall != null && <span className="fv-tile-tag">{shot.wall}</span>}

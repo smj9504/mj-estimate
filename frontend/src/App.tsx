@@ -51,6 +51,7 @@ const OnsiteSigning = lazyWithRetry(() => import('./pages/OnsiteSigning'));
 const FieldVisits = lazyWithRetry(() => import('./pages/FieldVisits'));
 const FieldVisitHub = lazyWithRetry(() => import('./pages/FieldVisitHub'));
 const FieldCamera = lazyWithRetry(() => import('./pages/FieldCamera'));
+const FieldVisitEdit = lazyWithRetry(() => import('./pages/FieldVisitEdit'));
 
 // Dashboard Pages
 const RoleBasedDashboard = lazyWithRetry(() => import('./pages/RoleBasedDashboard'));
@@ -334,6 +335,18 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <FieldVisitHub />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/field/:visitId/edit",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <FieldVisitEdit />
           </Suspense>
         </Layout>
       </ProtectedRoute>
