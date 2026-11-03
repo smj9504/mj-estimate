@@ -5,12 +5,13 @@ export type ShotKind = 'wall' | 'demo' | 'video';
 export type NameSource = 'default' | 'ai' | 'user';
 export type FloorSource = 'default' | 'altitude' | 'ai' | 'user';
 
+/** short is what the floor buttons and the camera's room badge say: words, so nobody has to guess what B or A means */
 export const FLOORS: { key: FloorKey; label: string; short: string }[] = [
-  { key: 'B', label: 'Basement', short: 'B' },
-  { key: '1', label: '1st floor', short: '1' },
-  { key: '2', label: '2nd floor', short: '2' },
-  { key: '3', label: '3rd floor', short: '3' },
-  { key: 'A', label: 'Attic', short: 'A' },
+  { key: 'B', label: 'Basement', short: 'Basement' },
+  { key: '1', label: '1st floor', short: '1st' },
+  { key: '2', label: '2nd floor', short: '2nd' },
+  { key: '3', label: '3rd floor', short: '3rd' },
+  { key: 'A', label: 'Attic', short: 'Attic' },
 ];
 
 export const floorLabel = (floor: string) => FLOORS.find(f => f.key === floor)?.label ?? floor;

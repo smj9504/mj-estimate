@@ -900,19 +900,26 @@ a.os-row:hover {
   color: var(--fv-ink-2);
 }
 
+.fv-field-label {
+  margin-bottom: -8px;
+  font-size: 13px;
+  color: var(--fv-ink-2);
+}
 .fv-chip-row {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  display: flex;
   gap: 6px;
 }
+/* Sized to their words, so Basement fits beside 1st, 2nd and 3rd on a narrow phone */
 .fv-floor-btn {
+  flex: 1 1 auto;
   height: 48px;
-  padding: 0;
+  padding: 0 8px;
   border: 1px solid var(--fv-line);
   border-radius: 8px;
   background: none;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
+  white-space: nowrap;
 }
 .fv-floor-btn.is-on {
   border-color: var(--fv-ink);
@@ -962,6 +969,22 @@ a.os-row:hover {
 }
 .fv-cam .fv-wide-btn {
   color: var(--fv-stage);
+}
+.fv-btn-row {
+  display: flex;
+  gap: 6px;
+}
+.fv-btn-row .fv-wide-btn {
+  flex: 1;
+}
+.fv-btn-row .fv-wide-btn.is-quiet {
+  flex: none;
+  padding: 0 20px;
+}
+.fv-cam .fv-wide-btn.is-quiet {
+  border: 1px solid var(--fv-line);
+  background: none;
+  color: var(--fv-ink);
 }
 .fv-room-list {
   margin: 0;

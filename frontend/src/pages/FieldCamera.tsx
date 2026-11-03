@@ -208,12 +208,13 @@ const FieldCamera: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visitId, sensors.resetSteps, camera.resetClock]);
 
-  const startRoom = useCallback(() => {
+  const startRoom = useCallback((as?: { name: string; roomType: string }) => {
     const snapshot = getVisitSnapshot(visitId);
     const guess = sensors.floorNow(floorAnchor.current);
     const previous = snapshot.rooms.find(r => r.id === roomId);
     const created = addRoom(visitId, {
-      name: uniqueRoomName(snapshot.rooms, `Room ${snapshot.rooms.length + 1}`),
+      name: uniqueRoomName(snapshot.rooms, as?.name ?? `Room ${snapshot.rooms.length + 1}`),
+      ...(as ? { nameSource: 'user' as const, roomType: as.roomType } : {}),
       floor: guess ?? previous?.floor ?? '1',
       floorSource: guess ? 'altitude' : 'default',
     });
@@ -233,6 +234,21 @@ const FieldCamera: React.FC = () => {
     else startRoom();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visit.loaded, waitingOnServer, roomId]);
+
+  // Stairs are a room of their own, on the floor they start from. One just opened with nothing
+  // in it becomes the stairs rather than being left behind empty.
+  const startStairs = () => {
+    const stairs = { name: 'Stairs', roomType: 'stairs' };
+    if (room && roomShots.length === 0) {
+      updateRoom(visitId, room.id, {
+        name: uniqueRoomName(rooms, stairs.name, room.id),
+        nameSource: 'user',
+        roomType: stairs.roomType,
+      });
+    } else {
+      startRoom(stairs);
+    }
+  };
 
   const nextRoom = () => {
     askForMotionAccess();
@@ -264,7 +280,9 @@ const FieldCamera: React.FC = () => {
     enterRoom(created);
   };
 
-  const floorOffer = room && floorGuess && floorGuess !== room.floor && room.floorSource !== 'user'
+  // Not on the stairs: climbing them is meant to change the altitude
+  const floorOffer = room && room.roomType !== 'stairs' && floorGuess && floorGuess !== room.floor
+    && room.floorSource !== 'user'
     && !dismissed.includes(`floor:${room.id}:${floorGuess}`)
     ? floorGuess
     : null;
@@ -644,6 +662,10 @@ const FieldCamera: React.FC = () => {
           }}
           onNew={() => {
             if (roomShots.length > 0) startRoom();
+            setSheet(null);
+          }}
+          onStairs={() => {
+            startStairs();
             setSheet(null);
           }}
           onClose={() => setSheet(null)}

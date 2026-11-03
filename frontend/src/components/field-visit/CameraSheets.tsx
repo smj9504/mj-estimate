@@ -62,8 +62,9 @@ export const RoomSheet: React.FC<{
   onName: (name: string) => void;
   onSwitch: (room: LocalRoom) => void;
   onNew: () => void;
+  onStairs: () => void;
   onClose: () => void;
-}> = ({ room, rooms, shots, floorGuess, onFloor, onName, onSwitch, onNew, onClose }) => {
+}> = ({ room, rooms, shots, floorGuess, onFloor, onName, onSwitch, onNew, onStairs, onClose }) => {
   const [typed, setTyped] = useState('');
   // Rooms nobody has taken anything in yet aren't worth going back to
   const others = useMemo(() => rooms.filter(
@@ -77,6 +78,7 @@ export const RoomSheet: React.FC<{
 
   return (
     <Sheet label="Room" onClose={onClose} tall>
+      <span className="fv-field-label" aria-hidden="true">Floor</span>
       <div className="fv-chip-row" role="radiogroup" aria-label="Floor">
         {FLOORS.map(floor => (
           <button
@@ -114,9 +116,15 @@ export const RoomSheet: React.FC<{
         </button>
       </form>
 
-      <button type="button" className="fv-wide-btn" onClick={onNew}>
-        <PlusOutlined /> New room
-      </button>
+      <div className="fv-btn-row">
+        <button type="button" className="fv-wide-btn" onClick={onNew}>
+          <PlusOutlined /> New room
+        </button>
+        {/* Stairs go between floors: filed on the one they start from, and climbing them doesn't ask about the floor */}
+        <button type="button" className="fv-wide-btn is-quiet" onClick={onStairs}>
+          Stairs
+        </button>
+      </div>
 
       {others.length > 0 && (
         <ul className="fv-room-list">
