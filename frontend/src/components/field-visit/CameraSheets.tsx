@@ -4,16 +4,18 @@
  * them goes straight back to shooting.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckOutlined,
   CloseOutlined,
   CloudUploadOutlined,
   DeleteOutlined,
   ExclamationCircleFilled,
+  LeftOutlined,
   PlayCircleFilled,
   PlusOutlined,
   ReloadOutlined,
+  RightOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
 import { FLOORS, floorLabel } from '../../types/fieldVisit';
@@ -196,6 +198,16 @@ export const shotLabel = (shot: LocalShot) => {
   return shot.kind === 'demo' ? 'Demo' : `Wall ${shot.wall ?? ''}`.trim();
 };
 
+/** The camera's Photos sheet, by room: the room being shot first, then the newest room back */
+export const shotGroups = (rooms: LocalRoom[], shots: LocalShot[], currentRoomId: string | null) => rooms
+  .filter(room => shots.some(shot => shot.roomId === room.id))
+  .sort((a, b) => {
+    if (a.id === currentRoomId) return -1;
+    if (b.id === currentRoomId) return 1;
+    return b.position - a.position;
+  })
+  .map(room => ({ room, shots: shots.filter(shot => shot.roomId === room.id) }));
+
 export const ShotsSheet: React.FC<{
   rooms: LocalRoom[];
   shots: LocalShot[];
@@ -203,17 +215,7 @@ export const ShotsSheet: React.FC<{
   onOpen: (shot: LocalShot) => void;
   onClose: () => void;
 }> = ({ rooms, shots, currentRoomId, onOpen, onClose }) => {
-  // The room being shot first, then the newest room back
-  const groups = useMemo(() => {
-    const withShots = rooms.filter(room => shots.some(shot => shot.roomId === room.id));
-    return withShots
-      .sort((a, b) => {
-        if (a.id === currentRoomId) return -1;
-        if (b.id === currentRoomId) return 1;
-        return b.position - a.position;
-      })
-      .map(room => ({ room, shots: shots.filter(shot => shot.roomId === room.id) }));
-  }, [rooms, shots, currentRoomId]);
+  const groups = useMemo(() => shotGroups(rooms, shots, currentRoomId), [rooms, shots, currentRoomId]);
 
   return (
     <Sheet label={`Photos · ${shots.length}`} onClose={onClose} tall>
@@ -237,38 +239,159 @@ export const ShotsSheet: React.FC<{
 
 // ── One shot ────────────────────────────────────────
 
+/** How far a finger has to go, or how fast, to turn to the next one */
+const SWIPE_PX = 70;
+const FLICK_PX = 30;
+const FLICK_MS = 250;
+/** Along the bottom of a video its own controls scrub sideways: a drag there isn't a swipe */
+const VIDEO_CONTROLS_PX = 64;
+
+interface Drag {
+  x: number;
+  y: number;
+  at: number;
+  axis: 'x' | 'y' | null;
+}
+
+/**
+ * One shot up close, and the ones either side of it a swipe away (arrow keys, or the
+ * arrows at the sides, with a mouse). `sequence` is the order they're in on screen.
+ */
 export const ShotViewer: React.FC<{
   visitId: string;
   shot: LocalShot;
   rooms: LocalRoom[];
+  sequence?: LocalShot[];
+  onShow?: (shot: LocalShot) => void;
   onClose: () => void;
-}> = ({ visitId, shot, rooms, onClose }) => {
+}> = ({ visitId, shot, rooms, sequence, onShow, onClose }) => {
   const [moving, setMoving] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [entering, setEntering] = useState<'from-left' | 'from-right' | null>(null);
+  const drag = useRef<Drag | null>(null);
   const url = shotFullUrl(shot);
   const thumb = shotThumbUrl(shot);
 
+  const index = sequence ? sequence.findIndex(s => s.id === shot.id) : -1;
+  const prev = index > 0 ? sequence?.[index - 1] : undefined;
+  const next = index >= 0 ? sequence?.[index + 1] : undefined;
+  const room = rooms.find(r => r.id === shot.roomId);
+
+  useEffect(() => {
+    setMoving(false);
+  }, [shot.id]);
+
+  // The neighbours' photos fetched ahead, so a swipe lands on a picture rather than a wait
+  useEffect(() => {
+    [prev, next].forEach((near) => {
+      if (!near || near.isVideo) return;
+      const ahead = shotFullUrl(near);
+      if (ahead) new Image().src = ahead;
+    });
+  }, [prev, next]);
+
+  const show = useCallback((target: LocalShot | undefined, from: 'from-left' | 'from-right') => {
+    if (!target || !onShow) return;
+    setEntering(from);
+    onShow(target);
+  }, [onShow]);
+  const showPrev = useCallback(() => show(prev, 'from-left'), [show, prev]);
+  const showNext = useCallback(() => show(next, 'from-right'), [show, next]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowLeft') showPrev();
+      else if (event.key === 'ArrowRight') showNext();
+      else if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showPrev, showNext, onClose]);
+
+  const onTouchStart = (event: React.TouchEvent) => {
+    drag.current = null;
+    if (event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    const video = (event.target as HTMLElement).closest('video');
+    if (video && touch.clientY > video.getBoundingClientRect().bottom - VIDEO_CONTROLS_PX) return;
+    drag.current = { x: touch.clientX, y: touch.clientY, at: Date.now(), axis: null };
+  };
+  const onTouchMove = (event: React.TouchEvent) => {
+    const current = drag.current;
+    if (!current || event.touches.length !== 1) return;
+    const dx = event.touches[0].clientX - current.x;
+    const dy = event.touches[0].clientY - current.y;
+    if (!current.axis) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      current.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    }
+    if (current.axis !== 'x') return;
+    // Past the first or the last it gives a little and springs back
+    const nothingThere = (dx > 0 && !prev) || (dx < 0 && !next);
+    setOffset(nothingThere ? dx / 4 : dx);
+  };
+  const onTouchEnd = () => {
+    const current = drag.current;
+    drag.current = null;
+    if (current?.axis === 'x') {
+      const flick = Math.abs(offset) > FLICK_PX && Date.now() - current.at < FLICK_MS;
+      if ((offset < -SWIPE_PX || (flick && offset < 0)) && next) showNext();
+      else if ((offset > SWIPE_PX || (flick && offset > 0)) && prev) showPrev();
+    }
+    setOffset(0);
+  };
+
+  // Gone from here: the one after it takes its place, as in a phone's photos
   const remove = () => {
+    const after = next ?? prev;
+    if (after && onShow) show(after, next ? 'from-right' : 'from-left');
+    else onClose();
     deleteShot(visitId, shot.id);
-    onClose();
   };
   const toggleDemo = () => {
     updateShot(visitId, shot.id, { kind: shot.kind === 'demo' ? 'wall' : 'demo', wall: null });
-    onClose();
   };
 
   return (
     <div className="fv-viewer" role="dialog" aria-modal="true" aria-label={shotLabel(shot)}>
-      <div className="fv-viewer-stage">
-        {shot.isVideo
-          ? <video src={url} controls playsInline preload="auto" poster={thumb} />
-          : (
-            <img
-              src={url}
-              alt={shotLabel(shot)}
-              draggable={false}
-              style={thumb ? { backgroundImage: `url("${thumb}")` } : undefined}
-            />
-          )}
+      <div
+        className="fv-viewer-stage"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchEnd}
+      >
+        <div
+          key={shot.id}
+          className={`fv-viewer-media${entering ? ` is-${entering}` : ''}${offset ? ' is-dragging' : ''}`}
+          style={offset ? { transform: `translateX(${offset}px)` } : undefined}
+        >
+          {shot.isVideo
+            ? <video src={url} controls playsInline preload="auto" poster={thumb} />
+            : (
+              <img
+                src={url}
+                alt={shotLabel(shot)}
+                draggable={false}
+                style={thumb ? { backgroundImage: `url("${thumb}")` } : undefined}
+              />
+            )}
+        </div>
+        {sequence && sequence.length > 1 && index >= 0 && (
+          <div className="fv-viewer-count" aria-live="polite">
+            {room ? `${room.name} · ` : ''}{index + 1} / {sequence.length}
+          </div>
+        )}
+        {prev && onShow && (
+          <button type="button" className="fv-viewer-nav is-prev" aria-label="Previous" onClick={showPrev}>
+            <LeftOutlined />
+          </button>
+        )}
+        {next && onShow && (
+          <button type="button" className="fv-viewer-nav is-next" aria-label="Next" onClick={showNext}>
+            <RightOutlined />
+          </button>
+        )}
       </div>
       {shot.status === 'failed' && (
         <div className="fv-viewer-error" role="alert">
@@ -280,18 +403,18 @@ export const ShotViewer: React.FC<{
       )}
       {moving ? (
         <ul className="fv-room-list fv-viewer-rooms">
-          {rooms.filter(room => room.id !== shot.roomId).map(room => (
-            <li key={room.id}>
+          {rooms.filter(other => other.id !== shot.roomId).map(other => (
+            <li key={other.id}>
               <button
                 type="button"
                 className="fv-room-row"
                 onClick={() => {
-                  updateShot(visitId, shot.id, { roomId: room.id, wall: null });
-                  onClose();
+                  updateShot(visitId, shot.id, { roomId: other.id, wall: null });
+                  setMoving(false);
                 }}
               >
-                <span className="fv-room-row-name">{room.name}</span>
-                <span className="fv-room-row-floor">{floorLabel(room.floor)}</span>
+                <span className="fv-room-row-name">{other.name}</span>
+                <span className="fv-room-row-floor">{floorLabel(other.floor)}</span>
               </button>
             </li>
           ))}
@@ -305,7 +428,12 @@ export const ShotViewer: React.FC<{
           </button>
         )}
         {!shot.isVideo && (
-          <button type="button" className={`fv-text-btn${shot.kind === 'demo' ? ' is-on' : ''}`} onClick={toggleDemo}>
+          <button
+            type="button"
+            className={`fv-text-btn${shot.kind === 'demo' ? ' is-on' : ''}`}
+            aria-pressed={shot.kind === 'demo'}
+            onClick={toggleDemo}
+          >
             <ToolOutlined /> Demo
           </button>
         )}

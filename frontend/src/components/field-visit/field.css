@@ -1223,11 +1223,89 @@ body:has(.fv-edit-bar) .mobile-bottom-nav {
   background: var(--fv-stage);
 }
 .fv-viewer-stage {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: grid;
   place-items: center;
   padding-top: env(safe-area-inset-top);
+  overflow: hidden;
+  /* Sideways is ours, for turning to the next shot; up and down and pinching stay the browser's */
+  touch-action: pan-y pinch-zoom;
+}
+.fv-viewer-media {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  transition: transform 0.2s ease-out;
+}
+.fv-viewer-media.is-dragging {
+  transition: none;
+}
+.fv-viewer-media.is-from-right {
+  animation: fv-slide-from-right 0.22s ease-out;
+}
+.fv-viewer-media.is-from-left {
+  animation: fv-slide-from-left 0.22s ease-out;
+}
+@keyframes fv-slide-from-right {
+  from {
+    opacity: 0.4;
+    transform: translateX(35%);
+  }
+}
+@keyframes fv-slide-from-left {
+  from {
+    opacity: 0.4;
+    transform: translateX(-35%);
+  }
+}
+.fv-viewer-count {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 50%;
+  max-width: calc(100% - 32px);
+  padding: 4px 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+/* With a mouse there's no swiping: arrows at the sides instead */
+.fv-viewer-nav {
+  position: absolute;
+  top: 50%;
+  display: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+.fv-viewer-nav.is-prev {
+  left: 12px;
+}
+.fv-viewer-nav.is-next {
+  right: 12px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .fv-viewer-nav {
+    display: grid;
+  }
 }
 .fv-viewer-stage img,
 .fv-viewer-stage video {
@@ -1320,6 +1398,12 @@ body:has(.fv-edit-bar) .mobile-bottom-nav {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .fv-viewer-media,
+  .fv-viewer-media.is-from-left,
+  .fv-viewer-media.is-from-right {
+    transition: none;
+    animation: none;
+  }
   .fv-next-room.is-due,
   .fv-demo.is-due,
   .fv-rec.is-on .fv-rec-dot,

@@ -194,6 +194,11 @@ const FieldVisitEdit: React.FC = () => {
   const chosenPhotos = chosen.filter(shot => !shot.isVideo);
   const allDemo = chosenPhotos.length > 0 && chosenPhotos.every(shot => shot.kind === 'demo');
   const viewed = viewing ? shots.find(shot => shot.id === viewing) ?? null : null;
+  // A swipe in the viewer goes through them as they're laid out here
+  const viewOrder = useMemo(
+    () => floors.flatMap(floor => floor.rooms.flatMap(room => shots.filter(shot => shot.roomId === room.id))),
+    [floors, shots],
+  );
   const editedRoom = editing ? shown.find(room => room.id === editing) ?? null : null;
 
   // Gone from under the selection (deleted here or elsewhere): drop them from it
@@ -351,7 +356,14 @@ const FieldVisitEdit: React.FC = () => {
         {viewed && (
           // The camera's viewer, on its dark stage
           <div className="fv-cam">
-            <ShotViewer key={viewed.id} visitId={visitId} shot={viewed} rooms={shown} onClose={() => setViewing(null)} />
+            <ShotViewer
+              visitId={visitId}
+              shot={viewed}
+              rooms={shown}
+              sequence={viewOrder}
+              onShow={shot => setViewing(shot.id)}
+              onClose={() => setViewing(null)}
+            />
           </div>
         )}
       </div>

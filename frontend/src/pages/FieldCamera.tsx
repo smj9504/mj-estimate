@@ -29,7 +29,7 @@ import {
   VideoCameraOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { RoomSheet, ShotThumb, ShotViewer, ShotsSheet, uniqueRoomName } from '../components/field-visit/CameraSheets';
+import { RoomSheet, ShotThumb, ShotViewer, ShotsSheet, shotGroups, uniqueRoomName } from '../components/field-visit/CameraSheets';
 import {
   addRoom,
   addShot,
@@ -160,6 +160,11 @@ const FieldCamera: React.FC = () => {
   const demoCount = roomShots.filter(shot => shot.kind === 'demo').length;
   const target = nextWall(done);
   const viewed = viewing ? shots.find(shot => shot.id === viewing) ?? null : null;
+  // A swipe in the viewer goes through them in the Photos sheet's order
+  const viewOrder = useMemo(
+    () => (viewing ? shotGroups(rooms, shots, roomId).flatMap(group => group.shots) : []),
+    [viewing, rooms, shots, roomId],
+  );
 
   // ── Which floor ──────────────────────────────────
 
@@ -682,10 +687,11 @@ const FieldCamera: React.FC = () => {
       )}
       {viewed && (
         <ShotViewer
-          key={viewed.id}
           visitId={visitId}
           shot={viewed}
           rooms={rooms}
+          sequence={viewOrder}
+          onShow={shot => setViewing(shot.id)}
           onClose={() => setViewing(null)}
         />
       )}
