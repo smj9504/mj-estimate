@@ -928,6 +928,7 @@ const PlumberReportCreation: React.FC = () => {
         detached_fixture: values.detached_fixture || '',
         fixture_reinstalled: values.fixture_reinstalled !== false,
         affected_areas: values.affected_areas || '',
+        how_noticed: values.how_noticed || '',
         photos: aiPhotos.map(({ url, category, caption }) => ({ url, category, caption })),
       });
 
@@ -1915,6 +1916,13 @@ const PlumberReportCreation: React.FC = () => {
             <Input placeholder="e.g. burst supply line, failed mixing valve, cracked flex connector" />
           </Form.Item>
           <Form.Item
+            name="how_noticed"
+            label="How Was the Problem Noticed? (optional)"
+            extra="What made the homeowner call. The report gives it as the reason the wall was opened."
+          >
+            <Input placeholder="e.g. stain on the ceiling below, low water pressure, sound of running water in the wall" />
+          </Form.Item>
+          <Form.Item
             name="pipe_material"
             label="Pipe Material (optional)"
           >
@@ -1950,9 +1958,9 @@ const PlumberReportCreation: React.FC = () => {
           </Form.Item>
           <Form.Item
             name="detached_fixture"
-            label="Anything Detached to Access the Area? (optional)"
+            label="Fixture Detached to Access the Area? (optional)"
           >
-            <Input placeholder="e.g. toilet, vanity, dishwasher — leave blank if nothing was detached" />
+            <Input placeholder="e.g. toilet, vanity, dishwasher — not the tile or drywall that was cut; leave blank if none" />
           </Form.Item>
           <Form.Item
             noStyle

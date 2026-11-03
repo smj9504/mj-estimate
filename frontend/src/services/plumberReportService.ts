@@ -282,6 +282,7 @@ class PlumberReportService {
     detached_fixture?: string;
     fixture_reinstalled?: boolean;
     affected_areas?: string;
+    how_noticed?: string;
     photos?: Array<{ url: string; category: string; caption?: string }>;
   }): Promise<{
     site_findings: string;

@@ -75,6 +75,7 @@ class AIGenerateRequest(BaseModel):
     detached_fixture: str = ""
     fixture_reinstalled: bool = True
     affected_areas: str = ""  # other floors/rooms/units the water reached
+    how_noticed: str = ""  # what led to the call — ceiling stain below, low pressure, ...
     photos: List[AIPhotoInput] = []
 
     @field_validator("state")
@@ -104,6 +105,7 @@ def generate_ai_report(request: AIGenerateRequest):
             detached_fixture=request.detached_fixture,
             fixture_reinstalled=request.fixture_reinstalled,
             affected_areas=request.affected_areas,
+            how_noticed=request.how_noticed,
             photos=[photo.model_dump() for photo in request.photos],
         )
     except ValueError as e:

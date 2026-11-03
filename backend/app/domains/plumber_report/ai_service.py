@@ -31,6 +31,9 @@ VALID_STATES = {"MD", "VA", "DC"}
 # ──────────────────────────────────────────────
 
 AI_TEMPERATURE = 0.3
+# Reasoning models (claude-sonnet-5) spend part of this on thinking — at 2000,
+# Step 1's thinking often used all of it and the reply had no text at all.
+ANTHROPIC_MAX_TOKENS = 8000
 MAX_AI_PHOTOS = 10
 OPENAI_MODEL_STRONG = "gpt-4o"
 OPENAI_MODEL_FAST = "gpt-4o-mini"
@@ -56,6 +59,7 @@ SCOPE_PROMPT_TEMPLATE = """Write the field report sections for this plumbing ser
 ## JOB DETAILS
 
 - **Incident type / problem:** {incident_type}
+- **How the problem was noticed (what led to the call):** {how_noticed}
 - **Location in home:** {location}
 - **Pipe material:** {pipe_material}
 - **What was opened/torn out to access the issue:** {wall_access_type}
@@ -88,8 +92,8 @@ You do NOT know:
 - **The age, wear, deterioration, or maintenance history of the plumbing.** Nothing may
   suggest homeowner fault or a delayed response.
 
-You DO know, and should write about: the physical conditions visible at the surface, and
-the actions the technician performed.
+You DO know, and should write about: what led to the call (when JOB DETAILS give it), the
+physical conditions visible at the surface, and the actions the technician performed.
 
 {photos_section}
 
@@ -102,10 +106,15 @@ the actions the technician performed.
   a decimal string (e.g. "3.5").
 - **protection_needed** — "yes" if tile, drywall, or other finished surfaces are involved
   (judge from the access type above), otherwise "no".
-- **fixture_detached** — the fixture detached or removed to reach the work area (e.g.
-  "toilet", "vanity", "dishwasher"). Use the value given in JOB DETAILS if one was
-  provided; otherwise infer it from the incident, location, and access context. Use ""
-  if nothing was detached.
+- **fixture_detached** — a fixture, trim piece, or appliance removed to reach the work
+  area (e.g. "toilet", "vanity", "dishwasher"). Never a surface that
+  was cut or removed for access — tile, backer board, drywall, plaster, ceiling, flooring,
+  or an access panel. Removing those is part of the access step (step 4 of Work
+  Performed), not a detached fixture. Use the value given in JOB DETAILS if one was
+  provided, minus any such surface: if it names only a surface (e.g. "shower tile"),
+  output ""; if it names a fixture and a surface (e.g. "toilet and floor tile"), keep
+  only the fixture. If none was provided, infer it from the incident, location, and
+  access context. Use "" if no fixture was detached.
 - **pipe_material** — the pipe material the report names. Use the value given in JOB
   DETAILS if one was provided; if it says "not specified," use a material only when the
   incident description itself names one (e.g. "burst copper line") or an attached photo
@@ -117,10 +126,31 @@ exactly wherever fixture_detached is non-empty.
 
 ### SITE FINDINGS (-> site_findings)
 
-Purpose: what was observed on site, before any work. Observations only — no technician
-action of any kind (isolation, protection, cutting, repair, testing) belongs here.
+Purpose: what led to the call and what was observed on site, before any work. No
+technician action of any kind (isolation, protection, cutting, repair, testing) belongs
+here.
 
 REQUIRED:
+- **What led to the call — the basis for this repair.** The report has to show why an
+  emergency visit and an opened wall were warranted, so state the evidence that pointed
+  to this leak:
+  - If "How the problem was noticed" in JOB DETAILS gives it, state it as what the
+    homeowner reported (e.g. "The homeowner called after noticing water staining on the
+    kitchen ceiling below and a drop in water pressure at the shower").
+  - Then what the technician observed that located it — the surface indicators below,
+    and the areas the water reached.
+  - If it says "not specified," build the basis only from what is established: the
+    problem named in the incident description, the areas the water reached, and what
+    photos clearly show. When none of those shows a condition, the basis is the report
+    itself — e.g. "Technician responded to a report of a burst supply line behind the
+    shower wall." Never invent a symptom or a condition — no "sound of running water,"
+    "drop in pressure," "staining," or "dampness" unless JOB DETAILS or a photo gives it.
+- **Record what was present, never what was absent.** Do not write "no moisture," "no
+  staining," "no visible signs of leakage," "no water damage was observed," or any other
+  negative finding about the source area or the areas the water reached. A report that
+  records no evidence of a leak and then bills an emergency call and an opened wall
+  contradicts itself. If nothing beyond the reported problem is established, describe
+  only that — say less rather than state that something was not there.
 - The component that failed and where it is.
 - **The failure mode, described specifically and neutrally — but only if it was actually
   visible without opening anything.** Whether it was depends on wall_access_type:
@@ -146,7 +176,8 @@ REQUIRED:
   mechanical failure — let it stand on its own without an added editorial verdict.
 - **Surface-level moisture indicators only** — staining or discoloration on the drywall or
   paint, drywall that is soft or spongy to the touch, visible water or dampness on the
-  floor or baseboard. Do NOT mention a moisture-meter reading: no input here carries an
+  floor or baseboard — and only the ones "How the problem was noticed," "Other areas the
+  water reached," or a photo establishes. Do NOT mention a moisture-meter reading: no input here carries an
   actual measured value, and citing an instrument reading with no number — or inventing
   one — either hands an adjuster an unanswerable "what was the reading?" or puts a
   fabricated figure in a report that has to hold up under scrutiny. If a real reading is
@@ -155,7 +186,10 @@ REQUIRED:
   meaningful either. Nothing inside the wall: naming or characterizing insulation, framing,
   or studs requires opening the wall, which is a technician action and belongs in Work
   Performed.
-- One plain mention, exactly once, that the homeowner reported no prior signs of leakage.
+- One plain mention, exactly once, that the homeowner reported no signs of leakage before
+  this event — worded so it clearly refers to the time before the problem appeared (e.g.
+  "The homeowner reported no signs of leakage before the ceiling stain appeared"), never
+  as a finding about the conditions found on site.
 - **Other areas the water reached — follow "Other areas the water reached" in JOB
   DETAILS exactly.**
   - If it lists areas, name every one of them, and qualify each as active, fresh, or wet
@@ -172,20 +206,22 @@ REQUIRED:
   - If it says "none reported," do not mention water reaching any other floor, room, or
     unit at all — not even when the location is on an upper floor.
 
-OPENING SENTENCE — vary it; do not always start with "Upon arrival":
-- "Technician found..."
-- "On-site inspection revealed..."
-- "At time of service, technician observed..."
-- Or lead straight into the condition: "Water staining and dampness were visible at..."
-Whichever you choose, open on the observed condition, and do not characterize the leak as
-either still discharging or already stopped — neither is knowable. "Water was present at
+OPENING SENTENCE — open on what led to the call (or, if that is not specified, on the
+observed condition), and vary it; do not always start with "Upon arrival":
+- "The homeowner called after noticing..."
+- "Service was requested after..."
+- "Technician responded to a report of..."
+- Or, only when JOB DETAILS or a photo establishes the condition, lead straight into it:
+  "Water staining was visible on the ceiling below..."
+Whichever you choose, do not characterize the leak as either still discharging or already
+stopped on arrival — neither is knowable. "Water was present at
 the base of the wall" is safe; "water was actively discharging" and "the leak had since
 stopped" are both not.
 
 NEVER in Site Findings: valve position or pressure on arrival; any suggestion the supply
 was "still running" or left unattended; estimated leak duration or water volume; age, wear,
 deterioration, or maintenance history; homeowner fault or delayed response; any technician
-action.
+action; any statement that moisture, staining, or signs of leakage were absent.
 
 ### WORK PERFORMED (-> work_performed)
 
@@ -272,8 +308,15 @@ was detached before the work area was accessed.
 - One sentence: 30-day workmanship warranty from date of service.
 
 ### NOTES (-> notes)
-- 2-3 sentences max.
-- Cover: drying advisory, monitoring recommendation, and that no additional issues were found.
+- 2-3 sentences max. Every statement must agree with Site Findings and Work Performed —
+  Notes add no condition that those sections do not record.
+- Drying advisory, matched to what was recorded: if Site Findings or Work Performed
+  records water, wetness, or staining, advise that the affected materials be dried and
+  confirmed dry before restoration. If neither records any, do not say anything is wet or
+  needs to dry — recommend instead that the opened cavity be checked for moisture before
+  it is closed up.
+- A monitoring recommendation, and that no other plumbing issues were found in the work
+  area.
 - If tile or drywall was removed, add that restoration is pending and the cavity has been
   temporarily sealed.
 - If water reached other areas (per JOB DETAILS), add that those areas should also be
@@ -312,6 +355,15 @@ age-related, neglect, deferred maintenance.
 10. Site Findings contains no sudden-vs-gradual conclusion (e.g. "rather than a gradual
     leak") and no moisture-meter reading of any kind.
 11. If pipe_material is "", no pipe material is named anywhere in the report.
+12. Site Findings states what led to the call (or, if that is not specified, the
+    established basis) and invents no symptom, and no staining, dampness, or water that
+    JOB DETAILS or a photo does not establish. It contains no statement that moisture,
+    staining, or signs of leakage were absent, and its "no signs of leakage" mention
+    refers only to the time before this event.
+13. Notes agree with Site Findings and Work Performed — nothing in Notes says a material
+    is wet or must dry unless water, wetness, or staining is recorded there.
+14. fixture_detached is a fixture, trim piece, or appliance — never tile, backer board,
+    drywall, plaster, ceiling, flooring, or an access panel.
 
 ## OUTPUT FORMAT
 Return ONLY a valid JSON object — no markdown, no code fences, no commentary before or
@@ -389,14 +441,23 @@ INVOICE_PROMPT_TEMPLATE = """Price a realistic itemized invoice for the plumbing
    WORK PERFORMED above, e.g. "Labor - Isolation, Protection & Access" and
    "Labor - Repair, Testing & Seal-up".
 3. **Fixture detach & reset labor** — one additional HR line, required ONLY if "Fixture
-   detached for access" above names a real fixture (i.e. it is not empty and not "none")
-   AND "Detached fixture reinstalled by this technician" is "yes". Name it for that
+   detached for access" above names a real fixture (i.e. it is not empty and not "none",
+   and not tile, backer board, drywall, or another surface opened for access — that is
+   access labor) AND "Detached fixture reinstalled by this technician" is "yes". Name it for that
    fixture, e.g. "Labor - Toilet Detach & Reset" or "Labor - Vanity Detach & Reinstall".
    Typically 0.5-1.5 HR, kept separate from the other labor phases. If a fixture was
    detached but will NOT be reinstalled by this technician, instead use a "Labor -
    [Fixture] Detach" line (detach-only labor, no reset/reinstall wording) — still
    separate from the other labor phases.
 4. **Materials** — exactly one line, quantity 1, unit LOT.
+
+**Bill each task once.** Each task in WORK PERFORMED belongs to exactly one line. Opening
+the wall, ceiling, or floor — protecting it, then cutting and removing tile, backer board,
+or drywall — is access labor and stays inside the access phase. It never gets a line of
+its own: no "Tile Detach," "Drywall Removal," or similar line may sit beside a phase that
+already covers it. A detached fixture's detach and its reset both go in that fixture's
+own line, never in the access phase. Before responding, read the names and descriptions
+of all the labor lines together and make sure no two of them describe the same work.
 
 ## PRICING
 
@@ -421,6 +482,16 @@ technician, do not include any reset/reinstall materials for it. The description
 the actual items with approximate quantities. If the pipe material is not specified, list
 the pipe items generically (e.g. "replacement pipe section and fittings to match existing")
 rather than naming a material, and price them at a mid-range of the anchors above.
+
+**Quantities follow the opening.** Every quantity must fit the work in WORK PERFORMED:
+- Pipe: the replaced section can be no longer than the pipe exposed in the opening — at
+  most the opening's longest side as stated in WORK PERFORMED (e.g. a 1.5' x 2' opening
+  means 1-2 ft of pipe, not 8 ft). Price the feet used, not a full stick. Where nothing
+  was cut open (access panel, under-sink), price a short section or a single connector.
+- Fittings: typically 2 couplings per replaced section; add elbows, tees, or valves only
+  if WORK PERFORMED names them.
+- Protection and seal-up supplies: sized to the area worked, not a whole room.
+
 **The Materials total must not equal $185.00 or any other line's total** — a match reads
 as an unpriced placeholder rather than a real estimate. If your first pass lands on a
 round number or a coincidental match, recompute it from the components.
@@ -431,7 +502,8 @@ any price for tax. It is computed automatically after generation.
 **No target total.** Price every line independently at realistic market rates; the invoice
 total is simply whatever they add up to. Before responding, multiply quantity × unit_cost
 for each line and sanity-check both the individual line totals and their sum against the
-scope of work.
+scope of work, and check that every quantity in the Materials description fits the
+opening.
 
 ## OUTPUT FORMAT
 Return ONLY a valid JSON object — no markdown, no code fences, no commentary:
@@ -479,6 +551,7 @@ def generate_plumber_report(
     detached_fixture: str = "",
     fixture_reinstalled: bool = True,
     affected_areas: str = "",
+    how_noticed: str = "",
     photos: Optional[list] = None,
 ) -> Optional[dict]:
     """
@@ -491,7 +564,11 @@ def generate_plumber_report(
             only if the incident text or a photo clearly shows it, otherwise
             the report stays material-neutral. affected_areas lists the other
             floors/rooms/units the water reached; blank means none reported,
-            and the model must not infer any. photos ({url, category, caption}
+            and the model must not infer any. how_noticed is what led to the
+            call (ceiling stain below, low pressure, ...) — Site Findings
+            opens on it as the basis for the repair; blank means the model
+            builds that basis from the other inputs and never invents a
+            symptom. photos ({url, category, caption}
             with category "before"/"after") are sent to the model as images —
             Step 1 only, since the invoice prices Step 1's work_performed.
             fixture_reinstalled is a given input (not inferred): whether
@@ -500,7 +577,10 @@ def generate_plumber_report(
             trade) — defaults to True to preserve prior behavior for callers
             that don't pass it.
     Step 2 (fast model): Invoice -> invoice_items priced at realistic DMV market
-            rates from Step 1's inferred scope (no fixed target).
+            rates from Step 1's inferred scope (no fixed target). It takes
+            the detached fixture from Step 1, which drops a surface typed
+            into that box ("shower tile") so the invoice doesn't bill tile
+            removal twice — once in access labor and again as a detach line.
 
     The labor hourly rate and sales tax are deterministic — they are computed
     in code below, not trusted from the model's output.
@@ -530,6 +610,7 @@ def generate_plumber_report(
     logger.info(f"AI Step 1/2: Generating scope & assessment ({len(images)} photo(s))...")
     scope_prompt = SCOPE_PROMPT_TEMPLATE.format(
         incident_type=incident_type,
+        how_noticed=(how_noticed or "").strip() or "not specified",
         location=location,
         pipe_material=(pipe_material or "").strip() or "not specified",
         wall_access_type=wall_access_type,
@@ -558,7 +639,7 @@ def generate_plumber_report(
         ),
         wall_access_type=wall_access_type,
         protection_installed=scope_data.get("protection_needed") or "yes",
-        fixture_detached=detached_fixture or scope_data.get("fixture_detached") or "none",
+        fixture_detached=scope_data.get("fixture_detached", detached_fixture) or "none",
         fixture_reinstalled="yes" if fixture_reinstalled else "no",
         state=state_normalized,
         hours_estimate=scope_data.get("hours_estimate") or "3",
@@ -824,7 +905,7 @@ def _call_anthropic(prompt: str, model: str, images: list) -> Optional[str]:
             messages = [{"role": "user", "content": user_content}]
             if use_prefill:
                 messages.append({"role": "assistant", "content": "{"})
-            kwargs = dict(model=model, max_tokens=2000, system=SYSTEM_PROMPT, messages=messages)
+            kwargs = dict(model=model, max_tokens=ANTHROPIC_MAX_TOKENS, system=SYSTEM_PROMPT, messages=messages)
             if use_temperature:
                 kwargs["temperature"] = AI_TEMPERATURE
 
