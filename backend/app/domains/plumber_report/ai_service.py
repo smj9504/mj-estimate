@@ -563,8 +563,10 @@ def generate_plumber_report(
             is optional: when the technician leaves it blank, the model uses one
             only if the incident text or a photo clearly shows it, otherwise
             the report stays material-neutral. affected_areas lists the other
-            floors/rooms/units the water reached; blank means none reported,
-            and the model must not infer any. how_noticed is what led to the
+            floors/rooms/units the water reached; blank on a 2nd-floor-or-
+            higher leak means the ceiling directly below (see
+            _resolve_affected_areas), "none" means none, and the model never
+            adds areas of its own. how_noticed is what led to the
             call (ceiling stain below, low pressure, ...) — Site Findings
             opens on it as the basis for the repair; blank means the model
             builds that basis from the other inputs and never invents a
@@ -616,7 +618,7 @@ def generate_plumber_report(
         wall_access_type=wall_access_type,
         detached_fixture=detached_fixture or "none specified — infer from context if applicable",
         fixture_reinstalled="yes" if fixture_reinstalled else "no",
-        affected_areas=(affected_areas or "").strip() or "none reported",
+        affected_areas=_resolve_affected_areas(affected_areas, location),
         photos_section=photos_section,
     )
 
@@ -684,6 +686,52 @@ def generate_plumber_report(
         "tax_amount": tax,
         "total": total,
     }
+
+
+# ──────────────────────────────────────────────
+# Areas the water reached
+# ──────────────────────────────────────────────
+
+_FLOOR_NUMBER_RE = re.compile(
+    r"\b([2-9])(?:st|nd|rd|th)?[\s-]*(?:fl(?:oor)?|story|storey|level|f)\b", re.IGNORECASE
+)
+_FLOOR_WORD_RE = re.compile(
+    r"\b(second|third|fourth|fifth)[\s-]+(?:floor|story|storey|level)\b", re.IGNORECASE
+)
+_UPSTAIRS_RE = re.compile(r"\b(?:upstairs|upper[\s-]+(?:floor|level))\b", re.IGNORECASE)
+_FLOOR_WORDS = {"second": 2, "third": 3, "fourth": 4, "fifth": 5}
+_ORDINAL_SUFFIXES = {1: "st", 2: "nd", 3: "rd"}
+_NONE_ANSWERS = {"none", "no", "n/a", "na", "nothing", "none reported"}
+
+
+def _ordinal(n: int) -> str:
+    return f"{n}{_ORDINAL_SUFFIXES.get(n, 'th')}"
+
+
+def _resolve_affected_areas(affected_areas: str, location: str) -> str:
+    """
+    The "Other areas the water reached" value the model sees. Left blank on a
+    leak at the 2nd floor or above, it is the ceiling directly below — water
+    from an upper floor almost always reaches the floor below, so the report
+    records it by default (user's call, 2026-11-03). The technician types
+    "none" when the water stayed on that floor.
+    """
+    areas = (affected_areas or "").strip()
+    if areas.lower().strip(" .!") in _NONE_ANSWERS:
+        return "none reported"
+    if areas:
+        return areas
+
+    match = _FLOOR_NUMBER_RE.search(location or "")
+    if match:
+        return f"{_ordinal(int(match.group(1)) - 1)} floor ceiling directly below the source"
+    match = _FLOOR_WORD_RE.search(location or "")
+    if match:
+        floor = _FLOOR_WORDS[match.group(1).lower()]
+        return f"{_ordinal(floor - 1)} floor ceiling directly below the source"
+    if _UPSTAIRS_RE.search(location or ""):
+        return "ceiling of the floor directly below the source"
+    return "none reported"
 
 
 # ──────────────────────────────────────────────

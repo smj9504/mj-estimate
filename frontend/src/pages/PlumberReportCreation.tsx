@@ -1952,7 +1952,7 @@ const PlumberReportCreation: React.FC = () => {
           <Form.Item
             name="affected_areas"
             label="Did Water Reach Other Areas? (optional)"
-            extra="List every floor/room the water reached below or next to the source. Leave blank if none."
+            extra={'List every floor/room the water reached below or next to the source. Left blank on a 2nd-floor-or-higher leak, the ceiling directly below is recorded — type "none" if the water stayed on that floor.'}
           >
             <Input placeholder="e.g. 1st floor kitchen ceiling, basement family room" />
           </Form.Item>
