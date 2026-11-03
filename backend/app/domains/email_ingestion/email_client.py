@@ -550,7 +550,7 @@ class IMAPClient:
                 references=references,
             )
         except Exception as e:
-            logger.debug(f"Header-only fetch failed for {msg_id}: {e}")
+            logger.warning(f"Header-only fetch failed for {msg_id}: {e}")
             return None
 
     def fetch_replies(

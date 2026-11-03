@@ -337,6 +337,7 @@ export interface SentEmail {
   sent_at?: string;
   error_message?: string;
   scheduled_at?: string;
+  smtp_message_id?: string;
   reply_received: boolean;
   reply_received_at?: string;
   reply_summary?: string;

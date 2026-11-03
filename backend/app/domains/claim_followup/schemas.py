@@ -361,6 +361,8 @@ class SentEmailResponse(BaseModel):
     sent_at: Optional[datetime] = None
     error_message: Optional[str] = None
     scheduled_at: Optional[datetime] = None
+    # Lets the history tell which received mail answers this email
+    smtp_message_id: Optional[str] = None
     reply_received: bool = False
     reply_received_at: Optional[datetime] = None
     reply_summary: Optional[str] = None

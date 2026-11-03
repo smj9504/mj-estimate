@@ -15,9 +15,13 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { claimFollowUpService } from '../../services/claimFollowUpService';
+import { emailIngestionService } from '../../services/emailIngestionService';
 import { Pill, humanize, type TagTone } from '../common/ui';
 import { tagTones } from '../../styles/tokens';
 import type { CommunicationLog, SentEmail } from '../../types/claimFollowUp';
+import type { ReceivedEmail } from '../../types/emailIngestion';
+import ReceivedEmailBody from './ReceivedEmailBody';
+import { receivedMailToShow, withoutLoggedCopies } from './receivedMail';
 
 interface CommunicationTimelineProps {
   claimId: string;
@@ -44,10 +48,15 @@ const EMAIL_STATUS_TONES: Record<string, TagTone> = {
 /** Timeline dots take the tone's text colour so they match the pills */
 const dotColor = (tone: TagTone) => tagTones[tone].text;
 
-const ToggleContent: React.FC<{ html?: string; text?: string; label?: string }> = ({ html, text, label = 'View content' }) => {
+const ToggleContent: React.FC<{
+  html?: string;
+  text?: string;
+  label?: string;
+  children?: React.ReactNode;
+}> = ({ html, text, label = 'View content', children }) => {
   const [open, setOpen] = useState(false);
   const content = html || text;
-  if (!content) return null;
+  if (!content && !children) return null;
   return (
     <div className="fu-comm-toggle">
       <Button
@@ -60,14 +69,14 @@ const ToggleContent: React.FC<{ html?: string; text?: string; label?: string }> 
       >
         {label}
       </Button>
-      {open && (
+      {open && (children || (
         <div
           className="fu-comm-content"
           dangerouslySetInnerHTML={html ? { __html: html } : undefined}
         >
           {!html ? text : undefined}
         </div>
-      )}
+      ))}
     </div>
   );
 };
@@ -89,19 +98,29 @@ const CommunicationTimeline: React.FC<CommunicationTimelineProps> = ({ claimId, 
         : claimFollowUpService.getSentEmailsByClaimId(claimId),
   });
 
-  if (commLoading || emailsLoading) {
+  // Mail the inbox poll filed on this claim. The reply tracker only logs the
+  // first reply to each email, and only from the inbox that sent it, so later
+  // replies and mail that came in another way exist nowhere else.
+  const { data: received, isLoading: receivedLoading } = useQuery({
+    queryKey: ['received-emails-claim', claimId],
+    queryFn: () => emailIngestionService.listReceived({ claim_id: claimId, limit: 200 }),
+  });
+
+  if (commLoading || emailsLoading || receivedLoading) {
     return <Skeleton active title={false} paragraph={{ rows: 4 }} style={{ padding: '8px 0' }} />;
   }
 
   // Merge and sort by date
   type TimelineItem = {
-    type: 'communication' | 'email';
+    type: 'communication' | 'email' | 'received';
     date: string;
-    data: CommunicationLog | SentEmail;
+    data: CommunicationLog | SentEmail | ReceivedEmail;
   };
 
+  const receivedMail = receivedMailToShow(received?.items || [], sentEmails, taskId);
+
   const items: TimelineItem[] = [
-    ...communications.map((c): TimelineItem => ({
+    ...withoutLoggedCopies(communications, receivedMail).map((c): TimelineItem => ({
       type: 'communication',
       date: c.created_at || '',
       data: c,
@@ -110,6 +129,11 @@ const CommunicationTimeline: React.FC<CommunicationTimelineProps> = ({ claimId, 
       type: 'email',
       date: e.sent_at || e.created_at || '',
       data: e,
+    })),
+    ...receivedMail.map((r): TimelineItem => ({
+      type: 'received',
+      date: r.received_at || r.created_at || '',
+      data: r,
     })),
   ].sort((a, b) => dayjs(b.date).unix() - dayjs(a.date).unix());
 
@@ -121,6 +145,32 @@ const CommunicationTimeline: React.FC<CommunicationTimelineProps> = ({ claimId, 
     <Timeline
       className="fu-comm"
       items={items.map((item) => {
+        if (item.type === 'received') {
+          const mail = item.data as ReceivedEmail;
+          return {
+            dot: <MailOutlined />,
+            color: dotColor('green'),
+            children: (
+              <div className="fu-comm-item">
+                <div className="fu-comm-head">
+                  <Pill tone="green">Received</Pill>
+                  <span className="fu-comm-kind">Email</span>
+                  <time className="fu-comm-time">{dayjs(item.date).format('MM/DD/YYYY h:mm A')}</time>
+                </div>
+                <div className="fu-comm-line fu-comm-subject">{mail.subject || '(no subject)'}</div>
+                <div className="fu-comm-meta">From {mail.sender || 'unknown sender'}</div>
+                {mail.attachment_names?.length > 0 && (
+                  <div className="fu-comm-meta">
+                    <PaperClipOutlined aria-hidden="true" /> {mail.attachment_names.length} attachment(s)
+                  </div>
+                )}
+                <ToggleContent label="View email">
+                  <ReceivedEmailBody emailId={mail.id} />
+                </ToggleContent>
+              </div>
+            ),
+          };
+        }
         if (item.type === 'communication') {
           const comm = item.data as CommunicationLog;
           const outbound = comm.direction === 'outbound';

@@ -199,6 +199,10 @@ class ReplyTracker:
 
             found = 0
 
+            # The searches below can take minutes, and Neon drops connections
+            # left idle in a transaction
+            session.commit()
+
             try:
                 # Use a single IMAP connection for both strategies
                 imap.connect()
@@ -217,8 +221,7 @@ class ReplyTracker:
                         matched = self._match_reply_to_sent(
                             reply, msg_id_map
                         )
-                        if matched:
-                            self._process_reply(session, matched, reply)
+                        if matched and self._save_reply(session, matched, reply):
                             found += 1
 
                 # Strategy 2: Subject-based matching (reuse same connection)
@@ -234,8 +237,7 @@ class ReplyTracker:
                         matched = self._match_reply_by_subject(
                             reply, subject_map, unreplied
                         )
-                        if matched:
-                            self._process_reply(session, matched, reply)
+                        if matched and self._save_reply(session, matched, reply):
                             found += 1
 
             except imaplib.IMAP4.error as imap_err:
@@ -356,7 +358,7 @@ class ReplyTracker:
                             if fetched:
                                 results.append(fetched)
             except Exception as e:
-                logger.debug(f"Header search failed for {orig_id}: {e}")
+                logger.warning(f"Header search failed for {orig_id}: {e}")
         return results
 
     def _search_by_subject(self, imap, subjects, since_date):
@@ -380,7 +382,7 @@ class ReplyTracker:
                         if fetched:
                             results.append(fetched)
             except Exception as e:
-                logger.debug(f"Subject search failed for '{subj[:50]}': {e}")
+                logger.warning(f"Subject search failed for '{subj[:50]}': {e}")
         return results
 
     def _match_reply_to_sent(
@@ -435,6 +437,22 @@ class ReplyTracker:
 
         return None
 
+    def _save_reply(self, session, sent_email: Dict, reply) -> bool:
+        """Commit one reply on its own, so one that can't be saved doesn't
+        undo the others found in this run. It is looked for again next run."""
+        try:
+            self._process_reply(session, sent_email, reply)
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            logger.error(
+                f"[ReplyTracker] Could not save reply from {reply.sender} "
+                f"to email {sent_email['id']}: {e}",
+                exc_info=True,
+            )
+            return False
+
     def _process_reply(self, session, sent_email: Dict, reply) -> None:
         """Process a matched reply: update SentEmail, Task, CommunicationLog, Activity."""
         from app.domains.claim_followup.models import (
@@ -483,8 +501,8 @@ class ReplyTracker:
             claim_id=email_obj.claim_id,
             communication_type="email",
             direction="inbound",
-            contact_email=reply.sender,
-            subject=reply.subject or f"Re: {email_obj.subject}",
+            contact_email=(reply.sender or "")[:255] or None,
+            subject=(reply.subject or f"Re: {email_obj.subject}")[:500],
             summary=reply_summary or "Reply received (auto-detected).",
             response_received=True,
             response_date=reply_time,
@@ -499,7 +517,7 @@ class ReplyTracker:
             session.add(ClaimActivity(
                 claim_id=email_obj.claim_id,
                 activity_type="reply_received",
-                title=f"Reply auto-detected from {reply.sender}",
+                title=f"Reply auto-detected from {reply.sender}"[:500],
                 description=reply_summary or f"Reply to: {email_obj.subject}",
                 related_entity_type="sent_email",
                 related_entity_id=email_obj.id,
