@@ -320,7 +320,7 @@ def process_video(owner_type: str, owner_id: str) -> None:
         )
         _record_capture_date(source, info.created_at)
 
-        if not source.poster_url:
+        if not source.poster_url and not _has_poster(owner_type, owner_id):
             poster = workdir / 'poster.jpg'
             video_tools.make_poster(media, poster, info)
             # Saved now: the gallery can show it while the copy below takes its minutes
@@ -329,7 +329,8 @@ def process_video(owner_type: str, owner_id: str) -> None:
                 poster_file_id=_upload_rendition(storage, source, poster, 'poster.jpg', 'image/jpeg'),
             )
 
-        if not info.plays_in_browsers:
+        needs_copy = not info.plays_in_browsers or video_tools.starts_slowly(media)
+        if needs_copy:
             copy = workdir / 'playback.mp4'
             video_tools.make_playback_copy(media, copy, info)
             _update_rendition(
@@ -339,7 +340,7 @@ def process_video(owner_type: str, owner_id: str) -> None:
             )
 
         _update_rendition(owner_type, owner_id, status='ready', error=None)
-        logger.info(f"Video {owner_id} ready ({info.codec}, copy: {not info.plays_in_browsers})")
+        logger.info(f"Video {owner_id} ready ({info.codec}, copy: {needs_copy})")
     except video_tools.VideoLowMemory as e:
         # Not this video's fault, so it doesn't use up an attempt
         logger.warning(f"Video {owner_id} put off: {e}")
@@ -358,6 +359,15 @@ def _attempts(owner_type: str, owner_id: str) -> int:
     try:
         row = _find_rendition(session, owner_type, owner_id)
         return (row.attempts or 0) if row else 0
+    finally:
+        session.close()
+
+
+def _has_poster(owner_type: str, owner_id: str) -> bool:
+    session = get_database().get_session()
+    try:
+        row = _find_rendition(session, owner_type, owner_id)
+        return bool(row and row.poster_file_id)
     finally:
         session.close()
 
@@ -401,6 +411,18 @@ def _needs_processing(rendition: Optional[Dict[str, Any]]) -> bool:
     if status == 'failed':
         return rendition['attempts'] < MAX_ATTEMPTS and age >= RETRY_FAILED_AFTER
     return age >= STALE_PROCESSING
+
+
+def _older_phone_clip(source: VideoSource, rendition: Optional[Dict[str, Any]]) -> bool:
+    """A field visit's clip marked ready before copies were made of what starts slowly,
+    which all of those do. Looked at once more, and the attempts count ends it."""
+    return bool(
+        rendition
+        and rendition['status'] == 'ready'
+        and not rendition['playback_file_id']
+        and rendition['attempts'] <= 1
+        and source.filename.startswith('field-')
+    )
 
 
 def video_fields(owner_type: str, owner_ids: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -536,7 +558,14 @@ def _serve_video(request: Request, source: VideoSource, rendition: Optional[Dict
     # one small server would hold up everyone else
     url = storage.signed_media_url(file_id)
     if url:
-        return RedirectResponse(url=url, status_code=302, headers={'Cache-Control': 'no-store'})
+        # Once nothing more is coming the address can be reused, well inside what it's signed
+        # for. Safari asks this route again for each range of a video it plays.
+        settled = (rendition or {}).get('status') == 'ready' and not _older_phone_clip(source, rendition)
+        return RedirectResponse(
+            url=url,
+            status_code=302,
+            headers={'Cache-Control': 'private, max-age=3600' if settled else 'no-store'},
+        )
     return _stream(request, storage, file_id, size, media_type, 'inline')
 
 
@@ -545,7 +574,7 @@ def video_response(request: Request, owner_type: str, owner_id: str) -> Response
     source, rendition = read_source(owner_type, owner_id)
     if not source:
         raise HTTPException(status_code=404, detail="Video not found")
-    if _needs_processing(rendition):
+    if _needs_processing(rendition) or _older_phone_clip(source, rendition):
         queue_processing(owner_type, owner_id)
     return _serve_video(request, source, rendition)
 
@@ -588,6 +617,9 @@ def poster_response(owner_type: str, owner_id: str) -> Response:
     source, rendition = read_source(owner_type, owner_id)
     if not source:
         raise HTTPException(status_code=404, detail="Video not found")
+    # A grid of them is the moment before someone presses play
+    if _older_phone_clip(source, rendition):
+        queue_processing(owner_type, owner_id)
     if source.poster_url:
         return RedirectResponse(
             url=source.poster_url, status_code=302, headers={'Cache-Control': 'public, max-age=86400'}

@@ -291,7 +291,7 @@ const roomChanged = (a: LocalRoom, b: LocalRoom) => (
 
 const shotChanged = (a: LocalShot, b: LocalShot) => (
   a.roomId !== b.roomId || a.kind !== b.kind || a.wall !== b.wall || a.aiRoomType !== b.aiRoomType
-  || a.status !== b.status || a.fileId !== b.fileId || a.url !== b.url
+  || a.status !== b.status || a.fileId !== b.fileId || a.url !== b.url || a.thumbnailUrl !== b.thumbnailUrl
 );
 
 /**

@@ -36,6 +36,7 @@ from app.domains.client.models import Claim, Client
 from app.domains.company.models import Company
 from app.domains.contract.models import ContractInstance
 from app.domains.contract.onsite_signing_api import find_client_at_address
+from app.domains.file import thumbnails
 from app.domains.file.models import File
 from app.domains.file.video_service import MAX_VIDEO_UPLOAD_BYTES, OWNER_FILE, queue_processing
 from app.domains.storage import StorageFactory
@@ -170,7 +171,7 @@ def _shot_out(shot: FieldShot, file: Optional[File]) -> Dict[str, Any]:
         'moved': bool(shot.moved),
         'ai_room_type': shot.ai_room_type,
         'is_video': video,
-        'thumbnail_url': f"/api/files/preview/{shot.file_id}",
+        'thumbnail_url': f"/api/files/thumbnail/{shot.file_id}",
         'url': f"/api/files/video/{shot.file_id}" if video else f"/api/files/download/{shot.file_id}?inline=true",
     }
 
@@ -564,6 +565,8 @@ def upload_shot(
 
     if video:
         queue_processing(OWNER_FILE, file_row.id)
+    else:
+        background_tasks.add_task(thumbnails.keep_from_photo, file_row.id, storage.provider_name, image)
     if read_it:
         background_tasks.add_task(read_room_of_shot, shot_id, image)
     return _shot_out(shot, file_row)

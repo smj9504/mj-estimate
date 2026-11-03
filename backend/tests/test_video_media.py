@@ -10,6 +10,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+import uuid
 
 from fastapi import HTTPException, UploadFile
 from fastapi.testclient import TestClient
@@ -214,7 +215,18 @@ def clips(tmp_path_factory):
             ['-c:v', 'libx265', '-preset', 'ultrafast', '-x265-params', 'log-level=error',
              '-tag:v', 'hvc1', '-pix_fmt', 'yuv420p', '-metadata', 'creation_time=2026-03-14T15:09:26Z'],
         ),
+        # ffmpeg, like a camera, puts a file's index at the end unless told otherwise
         h264=make('h264.mov', [], ['-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p']),
+        h264_index_first=make(
+            'h264_index_first.mov', [],
+            ['-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-movflags', '+faststart'],
+        ),
+        # Cut in pieces the way a phone's MediaRecorder cuts them
+        recording=make(
+            'field-recording.mp4', [],
+            ['-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p',
+             '-movflags', 'empty_moov+default_base_moof', '-frag_duration', '500000'],
+        ),
         hdr=make(
             'hdr.mov',
             [],
@@ -754,14 +766,110 @@ def test_hevc_gets_a_poster_a_copy_and_its_real_date(db, clips, local_storage):
     assert photo.captured_date.strftime('%Y-%m-%d') == '2026-03-14'
 
 
-def test_h264_needs_no_copy(db, clips, local_storage):
-    photo_id = _store_clip(db, local_storage, clips.h264)
+def test_h264_with_its_index_first_needs_no_copy(db, clips, local_storage):
+    photo_id = _store_clip(db, local_storage, clips.h264_index_first)
 
     video_service.process_video(video_service.OWNER_WM_PHOTO, photo_id)
 
     row = _rendition(db, photo_id)
     assert row.status == 'ready'
     assert row.poster_file_id and not row.playback_file_id
+
+
+def test_a_browser_only_has_to_look_for_the_index_of_some_files(clips, tmp_path):
+    assert video_tools.starts_slowly(str(clips.recording))
+    assert video_tools.starts_slowly(str(clips.h264))
+    assert not video_tools.starts_slowly(str(clips.h264_index_first))
+
+    not_a_video = tmp_path / 'empty.mp4'
+    not_a_video.write_bytes(b'')
+    assert not video_tools.starts_slowly(str(not_a_video))
+
+
+@pytest.mark.parametrize('clip', ['recording', 'h264'])
+def test_a_clip_that_starts_slowly_gets_a_copy_that_doesnt_without_being_reencoded(db, clips, local_storage, clip):
+    photo_id = _store_clip(db, local_storage, getattr(clips, clip))
+
+    video_service.process_video(video_service.OWNER_WM_PHOTO, photo_id)
+
+    row = _rendition(db, photo_id)
+    assert row.status == 'ready' and row.poster_file_id and row.playback_file_id
+    copy = local_storage.download(row.playback_file_id)
+    assert abs(len(copy) - getattr(clips, clip).stat().st_size) < 20_000
+
+    copied = local_storage.base_dir / 'copy.mp4'
+    copied.write_bytes(copy)
+    assert not video_tools.starts_slowly(str(copied))
+    info = video_tools.probe(str(copied))
+    assert info.codec == 'h264'
+    assert info.duration_seconds == pytest.approx(2, abs=0.3)
+
+
+def _field_clip(database, provider, path, *rendition_fields):
+    with open(path, 'rb') as data:
+        result, size = video_service.store_video(data, path.name, 'video/mp4', 'field-visit', str(uuid.uuid4()), 'field-visit', provider)
+    file_id = str(uuid.uuid4())
+    session = database.get_session()
+    session.add(File(
+        id=file_id, filename=result.file_id, original_name=path.name, content_type='video/mp4', size=size,
+        url=result.file_url, storage_provider='local', context='field-visit', context_id=str(uuid.uuid4()),
+        category='Kitchen',
+    ))
+    session.commit()
+    session.close()
+    return file_id
+
+
+def test_a_phone_clip_stored_before_copies_gets_one_when_someone_looks(db, clips, local_storage, monkeypatch):
+    file_id = _field_clip(db, local_storage, clips.recording)
+    video_service.process_video(video_service.OWNER_FILE, file_id)
+
+    # As the code before copies left it
+    session = db.get_session()
+    row = session.query(VideoRendition).filter(VideoRendition.owner_id == file_id).first()
+    first_poster = row.poster_file_id
+    assert row.playback_file_id
+    row.playback_file_id = None
+    row.playback_size = None
+    session.commit()
+    session.close()
+
+    queued = []
+    monkeypatch.setattr(video_service, 'queue_processing', lambda *key: queued.append(key))
+    video_service.poster_response(video_service.OWNER_FILE, file_id)
+    assert queued == [(video_service.OWNER_FILE, file_id)]
+
+    video_service.process_video(video_service.OWNER_FILE, file_id)
+    row = _rendition(db, file_id)
+    assert row.playback_file_id
+    assert row.attempts == 2
+    # There's no call for a second poster
+    assert row.poster_file_id == first_poster
+
+    queued.clear()
+    video_service.poster_response(video_service.OWNER_FILE, file_id)
+    assert queued == []
+
+
+def test_a_phone_clip_that_turned_out_fine_is_not_looked_at_for_ever(db, clips, local_storage, monkeypatch):
+    file_id = _field_clip(db, local_storage, clips.h264_index_first)
+    renamed = clips.h264_index_first.with_name('field-index-first.mov')
+    session = db.get_session()
+    session.query(File).filter(File.id == file_id).update({File.original_name: renamed.name})
+    session.commit()
+    session.close()
+
+    video_service.process_video(video_service.OWNER_FILE, file_id)
+    queued = []
+    monkeypatch.setattr(video_service, 'queue_processing', lambda *key: queued.append(key))
+    video_service.poster_response(video_service.OWNER_FILE, file_id)
+    assert queued == [(video_service.OWNER_FILE, file_id)]
+
+    queued.clear()
+    video_service.process_video(video_service.OWNER_FILE, file_id)
+    video_service.poster_response(video_service.OWNER_FILE, file_id)
+    assert queued == []
+    assert not _rendition(db, file_id).playback_file_id
 
 
 def test_a_provider_thumbnail_means_no_poster_is_made(db, clips, local_storage):

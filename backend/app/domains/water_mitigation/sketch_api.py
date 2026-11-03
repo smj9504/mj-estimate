@@ -14,7 +14,7 @@ from typing import List, Optional, Tuple
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.database_factory import get_db
@@ -502,8 +502,8 @@ def preview_background_image(
                 status_code=404,
                 detail="Background image not found",
             )
-        return StreamingResponse(
-            io.BytesIO(data),
+        return Response(
+            content=data,
             media_type=sketch.background_image_content_type or "image/png",
             headers={
                 "Content-Disposition": "inline",
@@ -535,8 +535,8 @@ def preview_background_image(
         cache_key = (provider, file_id)
         cached = _preview_cache_get(cache_key)
         if cached is not None:
-            return StreamingResponse(
-                io.BytesIO(cached[0]),
+            return Response(
+                content=cached[0],
                 media_type=cached[1],
                 headers={
                     "Content-Disposition": "inline",
@@ -596,8 +596,8 @@ def preview_background_image(
             )
             _preview_cache_put(cache_key, photo_bytes, content_type)
 
-            return StreamingResponse(
-                io.BytesIO(photo_bytes),
+            return Response(
+                content=photo_bytes,
                 media_type=content_type,
                 headers={
                     "Content-Disposition": "inline",
@@ -932,8 +932,8 @@ def generate_sketch_report(
         "Content-Disposition": f'attachment; filename="{filename}"',
         "Content-Length": str(len(pdf_bytes)),
     }
-    return StreamingResponse(
-        io.BytesIO(pdf_bytes),
+    return Response(
+        content=pdf_bytes,
         media_type="application/pdf",
         headers=headers,
     )

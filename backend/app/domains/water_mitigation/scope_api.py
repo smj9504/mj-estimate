@@ -1159,10 +1159,9 @@ def download_invoice_pdf_with_document(
     On re-download the existing Invoice WMDocument is replaced
     so only the latest version is kept.
     """
-    import io
     import logging
     from pathlib import Path
-    from fastapi.responses import StreamingResponse
+    from fastapi.responses import Response
     from app.domains.invoice.service import InvoiceService
     from app.common.services.pdf_service import get_pdf_service
     from app.domains.water_mitigation.models import (
@@ -1394,8 +1393,8 @@ def download_invoice_pdf_with_document(
         "Content-Disposition": f'attachment; filename="{filename}"',
         "Content-Length": str(len(pdf_bytes)),
     }
-    return StreamingResponse(
-        io.BytesIO(pdf_bytes),
+    return Response(
+        content=pdf_bytes,
         media_type="application/pdf",
         headers=headers,
     )

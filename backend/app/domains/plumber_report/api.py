@@ -5,10 +5,9 @@ API endpoints for Plumber Reports
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
-from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 import asyncio
 import json
-import io
 import logging
 from urllib.parse import quote
 
@@ -318,8 +317,8 @@ def generate_pdf(
         if ascii_filename != filename:
             content_disposition += f"; filename*=UTF-8''{quote(filename)}"
 
-        return StreamingResponse(
-            io.BytesIO(pdf_bytes),
+        return Response(
+            content=pdf_bytes,
             media_type="application/pdf",
             headers={"Content-Disposition": content_disposition}
         )
@@ -343,8 +342,8 @@ def preview_pdf(
             include_financial=pdf_request.include_financial
         )
         
-        return StreamingResponse(
-            io.BytesIO(pdf_bytes),
+        return Response(
+            content=pdf_bytes,
             media_type="application/pdf",
             headers={
                 "Content-Disposition": "inline; filename=preview.pdf"

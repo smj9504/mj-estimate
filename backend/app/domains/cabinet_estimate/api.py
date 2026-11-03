@@ -7,7 +7,7 @@ from typing import Any, Dict, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response
 
 from app.core.database_factory import get_db, get_db_session
 from app.core.interfaces import DatabaseSession
@@ -543,8 +543,8 @@ def _estimate_pdf(estimate_id: str, show_signature: bool, render: Optional[str],
     )
     filename = _pdf_filename("cabinet_estimate", estimate, estimate_id)
 
-    return StreamingResponse(
-        pdf_bytes,
+    return Response(
+        content=pdf_bytes.getvalue(),
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"'
@@ -603,8 +603,8 @@ def export_design_quote_pdf(
         image_loader=_image_loader(session), drawings=body.get("drawings"),
     )
     filename = _pdf_filename("kitchen_cabinet_quote", estimate, estimate_id)
-    return StreamingResponse(
-        pdf_bytes,
+    return Response(
+        content=pdf_bytes.getvalue(),
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -624,8 +624,8 @@ def _proposal_pdf(estimate_id: str, show_signature: bool, renders: Optional[Dict
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return StreamingResponse(
-        pdf_bytes,
+    return Response(
+        content=pdf_bytes.getvalue(),
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'attachment; filename="kitchen_options_{estimate_id[:8]}.pdf"'
@@ -679,8 +679,8 @@ def export_excel(
     export_svc = CabinetExportService()
     excel_bytes = export_svc.generate_excel(estimate, result)
 
-    return StreamingResponse(
-        excel_bytes,
+    return Response(
+        content=excel_bytes.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
             "Content-Disposition": f'attachment; filename="cabinet_purchase_order_{estimate_id[:8]}.xlsx"'

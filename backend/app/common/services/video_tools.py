@@ -15,13 +15,14 @@ import logging
 import os
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import BinaryIO, Dict, List, Optional, Set
 from urllib.parse import urlsplit
 
 import httpx
@@ -262,6 +263,46 @@ def probe(source: str) -> VideoInfo:
     if not info.codec:
         raise VideoToolError(_clean_error(result.stderr) or 'No video stream found')
     return info
+
+
+def starts_slowly(path: str) -> bool:
+    """Whether a browser has to go looking for this MP4's index before it can play. A phone's
+    recording comes in pieces, each with its own index, and Chrome asks storage for every
+    one: 85 seconds for a 60-second clip with storage answering in 1.2s. A camera's file has
+    its one index at the end, which is one extra trip. With it at the front there are none."""
+    size = os.path.getsize(path)
+    with open(path, 'rb') as file:
+        position = 0
+        while position + 8 <= size:
+            file.seek(position)
+            header = file.read(16)
+            length, kind = struct.unpack('>I4s', header[:8])
+            if length == 1 and len(header) == 16:
+                length = struct.unpack('>Q', header[8:16])[0]
+            elif length == 0:
+                length = size - position
+            if kind in (b'moof', b'mdat'):
+                return True
+            if kind == b'moov':
+                # Declares that pieces follow
+                return b'mvex' in _child_kinds(file, position + 8, position + length)
+            if length < 8:
+                return False
+            position += length
+    return False
+
+
+def _child_kinds(file: BinaryIO, start: int, end: int) -> Set[bytes]:
+    kinds = set()
+    position = start
+    while position + 8 <= end:
+        file.seek(position)
+        length, kind = struct.unpack('>I4s', file.read(8))
+        kinds.add(kind)
+        if length < 8:
+            break
+        position += length
+    return kinds
 
 
 def _fit(max_side: int) -> str:

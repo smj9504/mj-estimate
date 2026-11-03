@@ -3,20 +3,24 @@ File API endpoints for file upload and management
 """
 
 import asyncio
-import io
 import logging
 import mimetypes
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
+import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse as FastAPIFileResponse
+from fastapi.responses import RedirectResponse, Response
+from starlette.background import BackgroundTask
 
 from app.common.services.media_types import as_jpeg_name, is_heic, is_video, media_type_of
 from app.core.database_factory import get_database
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.staff.models import Staff
 
+from . import thumbnails
+from .repository import FileRepository
 from .schemas import (
     CategoryListResponse,
     FileCountResponse,
@@ -39,6 +43,15 @@ from .video_service import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# What's stored under a file's id never changes, so a browser needn't ask twice
+KEEP_IN_BROWSER = {"Cache-Control": "private, max-age=604800, immutable"}
+
+# A page asks for all its thumbnails at once. Waiting here takes no thread, so other
+# requests don't queue behind them. Reading one back is light; making one holds a whole
+# photo in memory.
+_thumbnail_read_slots = asyncio.Semaphore(8)
+_thumbnail_make_slots = asyncio.Semaphore(3)
 
 
 def get_file_service():
@@ -180,8 +193,6 @@ def download_file(
     Use ?inline=true to open in browser tab instead of downloading.
     """
     try:
-        from fastapi.responses import StreamingResponse
-
         from app.domains.storage.factory import StorageFactory
 
         file_record = service.repository.get_by_id(file_id)
@@ -205,16 +216,7 @@ def download_file(
         disposition = "inline" if inline else "attachment"
         filename = file_record["original_name"]
 
-        # Prefer the authoritative storage_provider column - falls back to
-        # sniffing the url prefix only for legacy rows written before this
-        # column existed (a url missing its provider prefix would otherwise
-        # be misread as a local path even though it's genuinely in the
-        # cloud, which is exactly the bug this column exists to prevent).
-        is_cloud = bool(storage_provider) and storage_provider != 'local'
-        if not storage_provider:
-            is_cloud = file_url.startswith('gs://') or file_url.startswith('b2://') or file_url.startswith('https://') or file_url.startswith('http://')
-
-        if is_cloud:
+        if thumbnails.stored_in_cloud(file_record):
             # Pass the record's own provider so a file stored under a
             # different provider than the currently-configured default
             # still resolves correctly (common during a provider migration).
@@ -222,10 +224,13 @@ def download_file(
             # Get file from storage provider
             try:
                 file_data = storage.download(file_url)
-                return StreamingResponse(
-                    io.BytesIO(file_data),
+                return Response(
+                    content=file_data,
                     media_type=media_type,
-                    headers={"Content-Disposition": f'{disposition}; filename="{filename}"'}
+                    headers={
+                        "Content-Disposition": f'{disposition}; filename="{filename}"',
+                        **(KEEP_IN_BROWSER if inline else {}),
+                    },
                 )
             except Exception as e:
                 logger.error(f"Error downloading file from storage: {e}")
@@ -250,6 +255,56 @@ def download_file(
         raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
 
 
+def _read_file_record(file_id: str) -> Optional[Dict[str, Any]]:
+    """Off a session that's gone again at once. Call this on a worker thread: waiting for
+    a connection on the event loop stops the very requests that could hand one back."""
+    session = get_database().get_session()
+    try:
+        return FileRepository(session).get_by_id(file_id)
+    finally:
+        session.close()
+
+
+@router.get("/thumbnail/{file_id}")
+async def file_thumbnail(file_id: str):
+    """The small picture for a grid: a photo's thumbnail or a video's poster. Open like
+    the routes around it, since an <img> can't send a token."""
+    try:
+        file_id = str(uuid.UUID(file_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    record = await asyncio.to_thread(_read_file_record, file_id)
+    if not record or not record.get('is_active', True):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    content_type = record.get('content_type') or ''
+    if is_video(content_type):
+        return await asyncio.to_thread(poster_response, OWNER_FILE, file_id)
+    if not content_type.startswith('image/'):
+        return RedirectResponse(url=f"../preview/{file_id}", status_code=302)
+
+    cached = thumbnails.cache_path(file_id)
+    if cached.exists():
+        return FastAPIFileResponse(path=str(cached), media_type='image/jpeg', headers=KEEP_IN_BROWSER)
+
+    async with _thumbnail_read_slots:
+        kept = await asyncio.to_thread(thumbnails.read_kept, record)
+    if kept:
+        return Response(content=kept, media_type='image/jpeg', headers=KEEP_IN_BROWSER)
+
+    async with _thumbnail_make_slots:
+        made = await asyncio.to_thread(thumbnails.make, record)
+    if not made:
+        return RedirectResponse(url=f"../preview/{file_id}", status_code=302)
+    return Response(
+        content=made,
+        media_type='image/jpeg',
+        headers=KEEP_IN_BROWSER,
+        background=BackgroundTask(thumbnails.keep, file_id, record.get('storage_provider'), made),
+    )
+
+
 @router.get("/preview/{file_id}")
 def preview_file(
     file_id: str,
@@ -257,8 +312,6 @@ def preview_file(
 ):
     """Get file preview (for images, returns thumbnail if available)"""
     try:
-        from fastapi.responses import StreamingResponse
-
         from app.domains.storage.factory import StorageFactory
 
         file_record = service.repository.get_by_id(file_id)
@@ -273,14 +326,7 @@ def preview_file(
         file_url = file_record.get('url', '')
         storage_provider = file_record.get('storage_provider')
 
-        # Prefer the authoritative storage_provider column - falls back to
-        # sniffing the url prefix only for legacy rows written before this
-        # column existed. See download_file() above for the full rationale.
-        is_cloud = bool(storage_provider) and storage_provider != 'local'
-        if not storage_provider:
-            is_cloud = file_url.startswith('gs://') or file_url.startswith('b2://') or file_url.startswith('https://') or file_url.startswith('http://')
-
-        if is_cloud:
+        if thumbnails.stored_in_cloud(file_record):
             # Pass the record's own provider so a file stored under a
             # different provider than the currently-configured default
             # still resolves correctly (common during a provider migration).
@@ -293,10 +339,10 @@ def preview_file(
                     thumb_url = file_record['thumbnail_url']
                     if thumb_url.startswith('gs://') or thumb_url.startswith('b2://') or thumb_url.startswith('http'):
                         file_data = storage.download(thumb_url)
-                        return StreamingResponse(
-                            io.BytesIO(file_data),
+                        return Response(
+                            content=file_data,
                             media_type='image/jpeg',
-                            headers={"Content-Disposition": "inline"}
+                            headers={"Content-Disposition": "inline", **KEEP_IN_BROWSER},
                         )
 
                 # Download original file
@@ -309,10 +355,10 @@ def preview_file(
                     media_type = 'image/jpeg'
                 content_disposition = "inline" if media_type.startswith('image/') or media_type == 'application/pdf' else "attachment"
 
-                return StreamingResponse(
-                    io.BytesIO(file_data),
+                return Response(
+                    content=file_data,
                     media_type=media_type,
-                    headers={"Content-Disposition": content_disposition}
+                    headers={"Content-Disposition": content_disposition, **KEEP_IN_BROWSER},
                 )
             except Exception as e:
                 logger.error(f"Error downloading file from storage: {e}")
@@ -380,7 +426,6 @@ def preview_wm_photo(
                 storage = StorageFactory.get_instance(storage_provider)
                 download_key = storage_file_id or file_path_str
                 file_bytes = storage.download(download_key)
-                from starlette.responses import Response
                 return Response(
                     content=file_bytes,
                     media_type=mime_type,

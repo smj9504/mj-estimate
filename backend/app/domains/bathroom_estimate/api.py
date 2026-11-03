@@ -6,7 +6,7 @@ import logging
 from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response
 
 from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
@@ -561,8 +561,8 @@ def export_pdf(
         product_pictures=service.product_pictures([estimate]),
     )
 
-    return StreamingResponse(
-        pdf_bytes,
+    return Response(
+        content=pdf_bytes.getvalue(),
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'attachment; filename="bathroom_estimate_{estimate_id[:8]}_{"detail" if show_breakdown_prices else "clean"}.pdf"'
@@ -601,8 +601,8 @@ def export_pdf_with_sketch(
         product_pictures=service.product_pictures([estimate]),
     )
 
-    return StreamingResponse(
-        pdf_bytes,
+    return Response(
+        content=pdf_bytes.getvalue(),
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'attachment; filename="bathroom_estimate_{estimate_id[:8]}_{"detail" if show_breakdown_prices else "clean"}.pdf"'
@@ -649,8 +649,8 @@ def _proposal_pdf(estimate_id: str, show_signature: bool, renders: Optional[Dict
         group, show_signature=show_signature, renders=renders,
         product_pictures=service.product_pictures(group["members"]),
     )
-    return StreamingResponse(
-        pdf_bytes,
+    return Response(
+        content=pdf_bytes.getvalue(),
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'attachment; filename="bathroom_options_{estimate_id[:8]}.pdf"'

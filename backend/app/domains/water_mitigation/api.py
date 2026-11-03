@@ -1080,7 +1080,6 @@ async def preview_photo(
         try:
             import io
 
-            from fastapi.responses import StreamingResponse
 
             from app.core.config import settings
 
@@ -1100,8 +1099,8 @@ async def preview_photo(
                 try:
                     photo_bytes = base64.b64decode(cached_bytes)
                     logger.debug(f"Serving cached photo bytes for {external_id} (size: {size})")
-                    return StreamingResponse(
-                        io.BytesIO(photo_bytes),
+                    return Response(
+                        content=photo_bytes,
                         media_type=media_type,
                         headers={
                             "Content-Disposition": "inline",
@@ -1237,8 +1236,8 @@ async def preview_photo(
                 logger.warning(f"Failed to cache photo bytes: {e}")
 
             # Return image as streaming response
-            return StreamingResponse(
-                io.BytesIO(photo_bytes),
+            return Response(
+                content=photo_bytes,
                 media_type=media_type,
                 headers={
                     "Content-Disposition": "inline",
@@ -1258,7 +1257,6 @@ async def preview_photo(
         try:
             import io
 
-            from fastapi.responses import StreamingResponse
 
             from ..storage.factory import StorageFactory
             storage = StorageFactory.get_instance(storage_provider)
@@ -1281,8 +1279,6 @@ async def preview_photo(
                 # storage path below — otherwise every grid thumbnail and every
                 # detail-modal open re-downloads the full original from GCS.
                 if size in ("thumbnail", "web") and media_type.startswith('image/'):
-                    from fastapi.responses import Response
-
                     max_size = (250, 250) if size == "thumbnail" else (800, 800)
                     quality = 80 if size == "thumbnail" else 85
 
@@ -1346,8 +1342,8 @@ async def preview_photo(
                 except Exception as cache_err:
                     logger.warning(f"Failed to cache GCS original for {photo_id}: {cache_err}")
 
-                return StreamingResponse(
-                    io.BytesIO(photo_bytes),
+                return Response(
+                    content=photo_bytes,
                     media_type=media_type,
                     headers={
                         "Content-Disposition": "inline",
@@ -1377,7 +1373,6 @@ async def preview_photo(
             try:
                 import io
 
-                from fastapi.responses import StreamingResponse
 
                 from ..storage.factory import StorageFactory
                 from app.core.config import settings as app_settings_cs
@@ -1388,8 +1383,8 @@ async def preview_photo(
                     storage = StorageFactory.get_instance(configured_provider)
                     if hasattr(storage, 'download'):
                         photo_bytes = await _aio.to_thread(storage.download, storage_file_id)
-                        return StreamingResponse(
-                            io.BytesIO(photo_bytes),
+                        return Response(
+                            content=photo_bytes,
                             media_type=media_type,
                             headers={
                                 "Content-Disposition": "inline",
@@ -1405,8 +1400,6 @@ async def preview_photo(
     # Optimize image for web/thumbnail sizes with disk cache
     if size in ("thumbnail", "web") and media_type.startswith('image/'):
         try:
-            from fastapi.responses import Response
-
             # Determine target size
             max_size = (250, 250) if size == "thumbnail" else (800, 800)
             quality = 80 if size == "thumbnail" else 85
@@ -1474,7 +1467,6 @@ async def download_photo(
     """Download photo as attachment (original quality)"""
     import asyncio
     import io
-    from fastapi.responses import StreamingResponse
 
     photo = await asyncio.to_thread(_read_photo_and_release, service, photo_id)
     if photo is None:
@@ -1513,8 +1505,8 @@ async def download_photo(
                 raise HTTPException(status_code=404, detail="CompanyCam photo URL not found")
 
             photo_bytes = await companycam_client.download_photo(photo_url)
-            return StreamingResponse(
-                io.BytesIO(photo_bytes),
+            return Response(
+                content=photo_bytes,
                 media_type=media_type,
                 headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'}
             )
@@ -1534,8 +1526,8 @@ async def download_photo(
             storage_file_id = photo.get('storage_file_id') if isinstance(photo, dict) else photo.storage_file_id
             if storage_file_id and hasattr(storage, 'download'):
                 photo_bytes = await asyncio.to_thread(storage.download, storage_file_id)
-                return StreamingResponse(
-                    io.BytesIO(photo_bytes),
+                return Response(
+                    content=photo_bytes,
                     media_type=media_type,
                     headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'}
                 )
@@ -1562,8 +1554,8 @@ async def download_photo(
                     storage = StorageFactory.get_instance(configured_provider)
                     if hasattr(storage, 'download'):
                         photo_bytes = await asyncio.to_thread(storage.download, storage_file_id)
-                        return StreamingResponse(
-                            io.BytesIO(photo_bytes),
+                        return Response(
+                            content=photo_bytes,
                             media_type=media_type,
                             headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'}
                         )

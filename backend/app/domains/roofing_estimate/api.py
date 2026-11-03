@@ -2,7 +2,6 @@
 Roofing Estimate API endpoints
 """
 
-import io
 import json
 import logging
 from typing import Optional
@@ -11,7 +10,7 @@ from fastapi import (
     APIRouter, Depends, File, Form, HTTPException, Query, UploadFile,
 )
 from pydantic import BaseModel
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response
 
 from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
@@ -651,8 +650,8 @@ def get_image_content(
     if content is None:
         raise HTTPException(status_code=404, detail="Image not found")
     data, mime = content
-    return StreamingResponse(
-        io.BytesIO(data), media_type=mime,
+    return Response(
+        content=data, media_type=mime,
         headers={"Cache-Control": "private, max-age=86400"},
     )
 
@@ -689,8 +688,8 @@ def export_pdf(
         ),
     )
 
-    return StreamingResponse(
-        pdf_bytes,
+    return Response(
+        content=pdf_bytes.getvalue(),
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'attachment; filename="roofing_estimate_{estimate_id[:8]}.pdf"'
@@ -731,8 +730,8 @@ def export_invoice(
         payment_date=payment_date,
     )
 
-    return StreamingResponse(
-        pdf_bytes,
+    return Response(
+        content=pdf_bytes.getvalue(),
         media_type="application/pdf",
         headers={
             "Content-Disposition": (
@@ -765,8 +764,8 @@ def export_warranty_cert(
         estimate, completion_date=completion_date,
     )
 
-    return StreamingResponse(
-        pdf_bytes,
+    return Response(
+        content=pdf_bytes.getvalue(),
         media_type="application/pdf",
         headers={
             "Content-Disposition": (

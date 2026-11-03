@@ -24,6 +24,15 @@ const shotTag = (shot: ServerShot) => {
 
 const dateOf = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '');
 
+const fetchedAhead = new Set<string>();
+
+/** Starts on a photo before it's opened. The browser keeps it: a file never changes under its id. */
+const fetchAhead = (url: string) => {
+  if (fetchedAhead.has(url)) return;
+  fetchedAhead.add(url);
+  document.createElement('img').src = url;
+};
+
 const VisitDetail: React.FC<{ summary: FieldVisitSummary }> = ({ summary }) => {
   const queryClient = useQueryClient();
   const { canAccessPath } = useAuth();
@@ -48,6 +57,19 @@ const VisitDetail: React.FC<{ summary: FieldVisitSummary }> = ({ summary }) => {
       }))
       .filter(floor => floor.rooms.length > 0);
   }, [visit]);
+
+  // In the order the viewer steps through them
+  const photos = useMemo(() => floors.flatMap(floor => floor.rooms.flatMap(
+    ({ shots }) => shots.filter(shot => !shot.is_video),
+  )), [floors]);
+  const smallPictureOf = useMemo(() => new Map(
+    photos.map(photo => [apiUrl(photo.url), apiUrl(photo.thumbnail_url)]),
+  ), [photos]);
+  const fetchAround = (index: number) => {
+    [index, index + 1, index - 1].forEach((near) => {
+      if (photos[near]) fetchAhead(apiUrl(photos[near].url));
+    });
+  };
 
   const linkClaim = async (claimId: string | null) => {
     setLinking(true);
@@ -96,7 +118,18 @@ const VisitDetail: React.FC<{ summary: FieldVisitSummary }> = ({ summary }) => {
       </div>
 
       {floors.length === 0 && <p className="os-note">No photos yet.</p>}
-      <Image.PreviewGroup>
+      <Image.PreviewGroup
+        preview={{
+          rootClassName: 'fv-office-preview',
+          onVisibleChange: (open, _wasOpen, current) => {
+            if (open) fetchAround(current);
+          },
+          onChange: fetchAround,
+          imageRender: (photo, { image }) => React.cloneElement(photo, {
+            style: { ...photo.props.style, backgroundImage: `url("${smallPictureOf.get(image.url)}")` },
+          }),
+        }}
+      >
         {floors.map(floor => (
           <div key={floor.key} className="fv-office-floor">
             <h3 className="fv-office-floor-title">{floor.label}</h3>
@@ -114,7 +147,11 @@ const VisitDetail: React.FC<{ summary: FieldVisitSummary }> = ({ summary }) => {
                 </div>
                 <div className="fv-office-shots">
                   {shots.map(shot => (
-                    <figure key={shot.id} className="fv-office-shot">
+                    <figure
+                      key={shot.id}
+                      className="fv-office-shot"
+                      onPointerEnter={shot.is_video ? undefined : () => fetchAhead(apiUrl(shot.url))}
+                    >
                       {shot.is_video ? (
                         <button
                           type="button"
@@ -151,7 +188,17 @@ const VisitDetail: React.FC<{ summary: FieldVisitSummary }> = ({ summary }) => {
         destroyOnClose
         onCancel={() => setPlaying(null)}
       >
-        {playing && <video className="fv-office-player" src={apiUrl(playing.url)} controls playsInline autoPlay />}
+        {playing && (
+          <video
+            className="fv-office-player"
+            src={apiUrl(playing.url)}
+            poster={apiUrl(playing.thumbnail_url)}
+            controls
+            playsInline
+            autoPlay
+            preload="auto"
+          />
+        )}
       </Modal>
     </section>
   );

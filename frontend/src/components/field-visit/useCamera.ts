@@ -16,7 +16,7 @@ export interface Taken {
 }
 
 const THUMB_SIZE = 320;
-const PHOTO_QUALITY = 0.92;
+const PHOTO_QUALITY = 0.85;
 const THUMB_QUALITY = 0.7;
 const PHOTO_TIMEOUT_MS = 2500;
 
@@ -24,10 +24,13 @@ const PHOTO_TIMEOUT_MS = 2500;
 // is a trade between photo detail and what phones can encode and send. About 2.8MP.
 const FRAME_LONG_SIDE = 1920;
 const FRAME_SHORT_SIDE = 1440;
-// About 30MB a minute
-const VIDEO_BITRATE = 4_000_000;
-/** A clip is cut and saved at this length, so a phone that dies loses little and a clip stays sendable */
-export const MAX_CLIP_SECONDS = 180;
+// About 19MB a minute: what someone on a slow line can watch without it stopping to load
+const VIDEO_BITRATE = 2_500_000;
+/** A clip is cut and saved at this length, which is also all a room records by itself */
+export const MAX_CLIP_SECONDS = 60;
+/** The recorder writes a piece of the file this often, and until the server has reindexed a
+ *  clip Chrome asks storage for every piece before it will start: about a second each */
+const CLIP_PIECE_MS = 10_000;
 /** Shorter than this is walking into a room and straight out again */
 const MIN_CLIP_MS = 2000;
 
@@ -55,7 +58,23 @@ const frameCanvas = (video: HTMLVideoElement, longest?: number) => {
   return canvas;
 };
 
-/** The camera's own photo where the browser offers it: full size, with its processing */
+const shrink = async (file: Blob, longest: number, quality: number): Promise<Blob | null> => {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, longest / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    return await toBlob(canvas, quality);
+  } catch {
+    return null;
+  }
+};
+
+/** The camera's own photo where the browser offers it, with its processing. Storage keeps
+ *  nothing larger than a frame, so it's cut to that here rather than sent whole to be shrunk */
 const takePhoto = async (track: MediaStreamTrack): Promise<Blob | null> => {
   const ImageCaptureClass = (window as any).ImageCapture;
   if (!ImageCaptureClass) return null;
@@ -63,7 +82,8 @@ const takePhoto = async (track: MediaStreamTrack): Promise<Blob | null> => {
     const timeout = new Promise<null>((resolve) => {
       setTimeout(() => resolve(null), PHOTO_TIMEOUT_MS);
     });
-    return await Promise.race([new ImageCaptureClass(track).takePhoto() as Promise<Blob>, timeout]);
+    const photo = await Promise.race([new ImageCaptureClass(track).takePhoto() as Promise<Blob>, timeout]);
+    return photo && ((await shrink(photo, FRAME_LONG_SIDE, PHOTO_QUALITY)) ?? photo);
   } catch {
     return null;
   }
@@ -284,7 +304,7 @@ export const useCamera = (videoRef: React.RefObject<HTMLVideoElement>) => {
         });
       };
       recorder.current = clip;
-      clip.start(1000);
+      clip.start(CLIP_PIECE_MS);
       clipSeconds.current = 0;
       setRecording(true);
     } catch (err) {
@@ -346,17 +366,6 @@ export const useCamera = (videoRef: React.RefObject<HTMLVideoElement>) => {
 };
 
 /** A small picture for a file from the system camera, which has to be decoded first */
-export const thumbFromFile = async (file: Blob): Promise<Blob | undefined> => {
-  try {
-    const bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, THUMB_SIZE / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(bitmap.width * scale);
-    canvas.height = Math.round(bitmap.height * scale);
-    canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    bitmap.close();
-    return (await toBlob(canvas, THUMB_QUALITY)) ?? undefined;
-  } catch {
-    return undefined;
-  }
-};
+export const thumbFromFile = async (file: Blob): Promise<Blob | undefined> => (
+  (await shrink(file, THUMB_SIZE, THUMB_QUALITY)) ?? undefined
+);

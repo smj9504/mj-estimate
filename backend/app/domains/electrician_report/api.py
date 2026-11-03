@@ -5,7 +5,7 @@ API endpoints for Electrician Inspection Reports
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
-from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel as PydanticBaseModel
 import io
 import logging
@@ -259,8 +259,8 @@ def generate_pdf(
     try:
         report_dict = report.to_dict()
         pdf_bytes = PDFService.generate_electrician_report_pdf(report_dict)
-        return StreamingResponse(
-            io.BytesIO(pdf_bytes),
+        return Response(
+            content=pdf_bytes,
             media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename=electrician_report_{report.report_number}.pdf"}
         )
@@ -278,8 +278,8 @@ def preview_pdf(pdf_request: ElectricianReportPDFRequest):
             include_photos=pdf_request.include_photos,
             include_financial=pdf_request.include_financial
         )
-        return StreamingResponse(
-            io.BytesIO(pdf_bytes),
+        return Response(
+            content=pdf_bytes,
             media_type="application/pdf",
             headers={"Content-Disposition": "inline; filename=preview.pdf"}
         )

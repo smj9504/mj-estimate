@@ -3,9 +3,8 @@ Document API endpoints (combined estimates and invoices)
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response
 from typing import Optional
-import io
 import uuid
 from app.core.database_factory import get_db_session as get_db
 from app.domains.auth.company_scope import document_condition, require_document
@@ -136,8 +135,8 @@ def generate_pdf(document_id: str, _staff=Depends(require_document_row_access)):
         if not pdf_bytes:
             raise HTTPException(status_code=404, detail="Document not found")
         
-        return StreamingResponse(
-            io.BytesIO(pdf_bytes),
+        return Response(
+            content=pdf_bytes,
             media_type="application/pdf",
             headers={
                 "Content-Disposition": f"attachment; filename=document_{document_id}.pdf"
@@ -174,8 +173,8 @@ def export_documents(
             **_visible(db, current_staff),
         )
         
-        return StreamingResponse(
-            io.BytesIO(excel_bytes),
+        return Response(
+            content=excel_bytes,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
                 "Content-Disposition": "attachment; filename=documents_export.xlsx"

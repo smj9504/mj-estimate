@@ -1,7 +1,7 @@
 /**
  * Field Visit camera: walk the property shooting one room after another. Video is
- * the default: it starts with the camera and runs the whole time, one clip per room,
- * and the shutter takes photos out of it. Each shot and clip saves and sends itself,
+ * the default: it starts with the camera and runs up to a minute in each room, and
+ * the shutter takes photos out of it. Each shot and clip saves and sends itself,
  * and coming back picks up at the next wall of the room left off in.
  *
  * It runs in the page instead of the phone's camera app because only then can it
@@ -44,7 +44,7 @@ import type { LocalRoom, LocalShot } from '../components/field-visit/fieldStore'
 import { FrameGuide, LevelBar, RoomMap } from '../components/field-visit/guides';
 import { MOVED_STEPS, nextWall, pickWall } from '../components/field-visit/sensors';
 import type { FloorAnchor } from '../components/field-visit/sensors';
-import { thumbFromFile, useCamera } from '../components/field-visit/useCamera';
+import { MAX_CLIP_SECONDS, thumbFromFile, useCamera } from '../components/field-visit/useCamera';
 import type { Taken } from '../components/field-visit/useCamera';
 import { askForMotionAccess, useFieldSensors } from '../components/field-visit/useFieldSensors';
 import { useFieldVisit } from '../components/field-visit/useFieldVisit';
@@ -140,6 +140,7 @@ const FieldCamera: React.FC = () => {
 
   const [roomId, setRoomId] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
+  const [videoDone, setVideoDone] = useState(false);
   const [demo, setDemo] = useState(false);
   const [sheet, setSheet] = useState<'room' | 'shots' | null>(null);
   const [viewing, setViewing] = useState<string | null>(null);
@@ -202,6 +203,7 @@ const FieldCamera: React.FC = () => {
     sensors.resetSteps();
     setDemo(false);
     setPaused(false);
+    setVideoDone(false);
     camera.resetClock();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visitId, sensors.resetSteps, camera.resetClock]);
@@ -310,16 +312,23 @@ const FieldCamera: React.FC = () => {
     });
   }, [visitId]);
 
-  // Video runs whenever the camera does: a clip per room, cut at a length that can be
-  // sent, and started again by itself after anything that ended the last one
+  // Video runs whenever the camera does, a clip per room, and is started again by itself after
+  // anything that ended the last one. A room's video ends at the limit, or a long stay is
+  // minutes to send and watch; photos carry on, and tapping records some more.
   const canRecord = camera.canRecord();
-  const { recording, startRecording, stopRecording, streamKey } = camera;
+  const { recording, startRecording, stopRecording, streamKey, seconds: roomSeconds } = camera;
   const isCameraReady = camera.status === 'ready';
   const currentRoomId = room?.id;
   useEffect(() => {
     if (!recording || clipRoom.current === currentRoomId) return;
     stopRecording();
   }, [currentRoomId, recording, stopRecording]);
+  useEffect(() => {
+    if (!recording || roomSeconds < MAX_CLIP_SECONDS) return;
+    setPaused(true);
+    setVideoDone(true);
+    stopRecording();
+  }, [recording, roomSeconds, stopRecording]);
   useEffect(() => {
     if (!isCameraReady || !room || paused || recording || !canRecord || !pageVisible) return;
     const forRoom = room;
@@ -335,6 +344,10 @@ const FieldCamera: React.FC = () => {
   const togglePause = () => {
     if (paused) {
       setPaused(false);
+      if (videoDone) {
+        setVideoDone(false);
+        camera.resetClock();
+      }
     } else {
       setPaused(true);
       stopRecording();
@@ -541,13 +554,17 @@ const FieldCamera: React.FC = () => {
             <div className="fv-rec-controls">
               <button
                 type="button"
-                className={`fv-rec${camera.recording ? ' is-on' : ''}${paused ? ' is-paused' : ''}`}
+                className={`fv-rec${camera.recording ? ' is-on' : ''}${paused && !videoDone ? ' is-paused' : ''}`}
                 aria-pressed={paused}
-                aria-label={paused ? 'Video paused. Resume' : `Recording video, ${clock(camera.seconds)}. Pause`}
+                aria-label={
+                  videoDone ? 'This room has its video. Record more'
+                    : paused ? 'Video paused. Resume'
+                      : `Recording video, ${clock(camera.seconds)}. Pause`
+                }
                 onClick={togglePause}
               >
-                {paused ? <PauseOutlined /> : <span className="fv-rec-dot" />}
-                {paused ? 'Paused' : clock(camera.seconds)}
+                {videoDone ? <CheckOutlined /> : paused ? <PauseOutlined /> : <span className="fv-rec-dot" />}
+                {videoDone ? 'Video' : paused ? 'Paused' : clock(camera.seconds)}
               </button>
               <button
                 type="button"

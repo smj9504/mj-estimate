@@ -7,9 +7,8 @@ client/company DB integration.
 """
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 import asyncio
-import io
 import json
 import logging
 from sqlalchemy.orm import Session, joinedload
@@ -700,9 +699,9 @@ def _load_estimate(db: Session, staff, calc_id: str) -> PackCalculation:
     return calc
 
 
-def _pdf_response(data: bytes, filename: str) -> StreamingResponse:
-    return StreamingResponse(
-        io.BytesIO(data),
+def _pdf_response(data: bytes, filename: str) -> Response:
+    return Response(
+        content=data,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

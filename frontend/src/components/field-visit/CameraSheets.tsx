@@ -219,6 +219,7 @@ export const ShotViewer: React.FC<{
 }> = ({ visitId, shot, rooms, onClose }) => {
   const [moving, setMoving] = useState(false);
   const url = shotFullUrl(shot);
+  const thumb = shotThumbUrl(shot);
 
   const remove = () => {
     deleteShot(visitId, shot.id);
@@ -233,8 +234,15 @@ export const ShotViewer: React.FC<{
     <div className="fv-viewer" role="dialog" aria-modal="true" aria-label={shotLabel(shot)}>
       <div className="fv-viewer-stage">
         {shot.isVideo
-          ? <video src={url} controls playsInline poster={shotThumbUrl(shot)} />
-          : <img src={url} alt={shotLabel(shot)} draggable={false} />}
+          ? <video src={url} controls playsInline preload="auto" poster={thumb} />
+          : (
+            <img
+              src={url}
+              alt={shotLabel(shot)}
+              draggable={false}
+              style={thumb ? { backgroundImage: `url("${thumb}")` } : undefined}
+            />
+          )}
       </div>
       {shot.status === 'failed' && (
         <div className="fv-viewer-error" role="alert">
